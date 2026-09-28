@@ -11,12 +11,14 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignRun, CrashPolicy, ExecutionFailureKind,
-    MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome, OracleSide, OracleValue,
-    PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection, Tally, TestCase,
-    TestEvidence, TestPlan, TestRun, derive_mutant_report, run_campaign, tally,
+    Campaign, CampaignFailureKind, CampaignRun, CertificateCheck, CrashPolicy,
+    ExecutionFailureKind, MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome,
+    OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun,
+    StateProjection, Tally, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
+    run_campaign, tally,
 };
 use kink_native::execution::ExecutionBudget;
+use kink_native::execution_difference::{DifferenceCertificate, NotProvedReason};
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
@@ -215,12 +217,12 @@ fn sides(evidence: &TestEvidence) -> &[OracleSide] {
     }
 }
 
-/// Plan row C5 and finding 7 of the migration design: one mutant is killed by its final
-/// result, one by an execution pattern while its final result is unchanged, one survives,
-/// and one is invalid and never runs. Observed rules resolve to each side's own
-/// `UNIQUE_ID`: the increment mutant's mutated rule is still observed on `t1`.
+/// Plan row C5's pattern kill with an unchanged final result is pinned by coupled.rs
+/// single_site_release and coupled_release. Here the branch mutant has the baseline's
+/// rewrite relation (F-EI1, EI-D2), so rule identity alone cannot kill it. The increment
+/// mutant is killed by its final result; another survives and one is invalid.
 #[test]
-fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_result() {
+fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
@@ -325,11 +327,11 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             .map(|mutant| mutant.report.status)
             .collect::<Vec<_>>();
         use MutantStatus::{Invalid, Killed, Survived};
-        assert_eq!(statuses, [Invalid, Killed, Killed, Survived]);
+        assert_eq!(statuses, [Invalid, Killed, MutantStatus::Unknown, Survived]);
         #[rustfmt::skip]
         let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
             &[("t1", vec![Distinguish, Agree]), ("t2", vec![Agree, Agree])],
-            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Distinguish])],
+            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, OracleOutcome::Unknown])],
             &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
         ];
         for (mutant, expected) in run.mutants[1..].iter().zip(expected) {
@@ -356,9 +358,20 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         assert!(invalid.plan.tests.is_empty());
         assert!(invalid.evidence.is_empty());
         assert!(invalid.report.executed_test_ids.is_empty());
+        assert!(invalid.certificate_checks.is_empty());
+        assert!(run.mutants[1].certificate_checks.is_empty());
+        assert_eq!(
+            run.mutants[2].certificate_checks,
+            [CertificateCheck {
+                test_id: "t2".into(),
+                certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
+                demoted_slots: vec![1],
+            }]
+        );
+        assert!(run.mutants[3].certificate_checks.is_empty());
 
         let score = run.score.expect("a complete generation is scored");
-        assert_eq!((score.killed, score.survived), (2, 1));
+        assert_eq!((score.killed, score.survived), (1, 1));
         let counts = tally(&generation, &run).expect("matching generation");
         assert_eq!(
             (counts.killed, counts.survived),
@@ -367,14 +380,13 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         assert_eq!(
             score.ratio,
             Some(Rational {
-                numerator: 2,
-                denominator: 3
+                numerator: 1,
+                denominator: 2
             })
         );
 
-        // Under first-kill, the killing prefix is t1 for the increment mutant and t2 for
-        // the branch mutant, and every status is unchanged. The runner stops the increment
-        // mutant after t1, and the reports are the ones derived from running every test.
+        // Under first-kill, only the increment mutant has a killing prefix. The runner stops
+        // it after t1, and the reports are the ones derived from running every test.
         let stopped =
             run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("admitted");
         assert_eq!(stopped.baseline, run.baseline);
@@ -401,7 +413,7 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         let first_kill: [(&[&str], &[&str]); 4] = [
             (&[], &[]),
             (&["t1"], &["t1"]),
-            (&["t1", "t2"], &["t2"]),
+            (&["t1", "t2"], &[]),
             (&["t1", "t2"], &[]),
         ];
         for ((mutant, stopped), (executed, killing)) in

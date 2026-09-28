@@ -45,10 +45,23 @@
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
 //! mutants are the candidates of one folded generation derived from the campaign's own
 //! baseline, and only a complete, nonempty generation is scored.
+//!
+//! A mutant is Killed only through a test with one of three forms of `Distinguish`:
+//! (i) a state-slot `Distinguish`, which means the ground terminal sets differ;
+//! (ii) a pattern-slot `Distinguish` on a test that also has a state-slot `Distinguish`;
+//! or (iii) a pattern-slot `Distinguish` on a test for which `certify_difference` returned
+//! `Proved`. `Proved` means some ground instance of the test's initial state has, as the
+//! two definitions run in k-rust, a baseline state sequence that no mutant-side sequence
+//! equals, or the reverse. The certificate is per test, not per slot: it does not show that
+//! the credited pattern slot observed the proved difference (EI-T03). A pattern-slot
+//! `Distinguish` meeting none of these cases becomes `Unknown`, and the check is recorded in
+//! `MutantRun::certificate_checks`. Every certificate failure in the sequence run, facts,
+//! internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate bug
+//! can lose a kill but never add one.
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::{Backend, BackendOptions};
+use k_rust::backend::{Backend, BackendOptions, TransitionIdOutput};
 use k_rust::kore::{
     ast::{Pattern, Sort},
     parser::parse_definition,
@@ -57,6 +70,10 @@ use k_rust::kore::{
 use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
+};
+use kink_native::execution_difference::{
+    DefinitionFacts, DifferenceCertificate, NotProvedReason, StateSequences, certify_difference,
+    definition_facts,
 };
 use kink_native::feasibility::with_backend_relations;
 use kink_native::observation::{ObservationFailure, PayloadSource};
@@ -198,6 +215,17 @@ pub struct TestEvidence {
     pub run: SideRun,
 }
 
+/// A per-test execution-difference proof consulted for pattern-slot disagreements.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateCheck {
+    /// The test whose pattern slots disagreed.
+    pub test_id: String,
+    /// The proof, or the reason it failed closed.
+    pub certificate: DifferenceCertificate,
+    /// Pattern slot indices changed from `Distinguish` to `Unknown`, in ascending order.
+    pub demoted_slots: Vec<usize>,
+}
+
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
 /// mutant is one `MutantRun` regardless of its edit count. Runs are in manifest order:
 /// none for a test planned as `SkippedAfterKill`, and none at all when a mutant-scope
@@ -209,6 +237,8 @@ pub struct MutantRun {
     pub plan: MutantPlan,
     pub report: MutantReport,
     pub evidence: Vec<TestEvidence>,
+    /// Checks consulted for this mutant, in manifest order.
+    pub certificate_checks: Vec<CertificateCheck>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -303,6 +333,18 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
 /// rule; rule predicates depend on the solver profile and rule phrasing; effects
 /// cannot be bridged into patterns; whole constrained states carry path conditions
 /// whose syntax depends on the solver profile and `requires` phrasing.
+///
+/// A mutant is Killed only through a test with (i) a state-slot `Distinguish`, meaning its
+/// ground terminal sets differ; (ii) a pattern-slot `Distinguish` on a test that also has a
+/// state-slot `Distinguish`; or (iii) a pattern-slot `Distinguish` on a test for which
+/// `certify_difference` returned `Proved`. `Proved` means some ground instance of the test's
+/// initial state has, as the two definitions run in k-rust, a baseline state sequence that no
+/// mutant-side sequence equals, or the reverse. The certificate is per test, not per slot:
+/// it does not show that the credited pattern slot observed the proved difference (EI-T03).
+/// A pattern-slot `Distinguish` meeting none of these cases becomes `Unknown`, with the check
+/// recorded in `MutantRun::certificate_checks`. Every certificate failure in the sequence run,
+/// facts, internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate
+/// bug can lose a kill but never add one.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -359,22 +401,35 @@ pub fn run_campaign(
             return Err(admission_failure(BaselineAdmission::Error));
         }
     };
-    let baseline_evidence = campaign
+    let baseline_runs = campaign
         .tests
         .iter()
         .map(|test| runtime.run(campaign, test))
         .collect::<Vec<_>>();
+    let baseline_evidence = baseline_runs
+        .iter()
+        .map(|(evidence, _)| evidence.clone())
+        .collect::<Vec<_>>();
     validate_baseline(admit(campaign.tests, &baseline_evidence))?;
+    let mut certifier = Certifier {
+        runtime: &mut runtime,
+        branches: baseline_runs
+            .into_iter()
+            .map(|(_, branches)| branches)
+            .collect(),
+        sequences: vec![None; campaign.tests.len()],
+    };
 
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
-        let (tests, mutant_failure, evidence, claims) = run_mutant(
+        let (tests, mutant_failure, evidence, claims, certificate_checks) = run_mutant(
             campaign,
             &candidate.patch,
             &baseline,
             &baseline_evidence,
             schedule,
             (support.as_ref(), &symbolic),
+            &mut certifier,
         );
         let plan = MutantPlan {
             mutant_id: MutantId(index),
@@ -389,6 +444,7 @@ pub fn run_campaign(
             plan,
             report,
             evidence,
+            certificate_checks,
         });
     }
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
@@ -448,6 +504,32 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     admission
 }
 
+/// Baseline sequence evidence is shared across every mutant and filled only when needed.
+struct Certifier<'a> {
+    runtime: &'a mut Runtime,
+    branches: Vec<Option<Vec<Vec<TransitionIdOutput>>>>,
+    sequences: Vec<Option<Result<StateSequences, NotProvedReason>>>,
+}
+
+impl Certifier<'_> {
+    fn sequences(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        index: usize,
+    ) -> Result<StateSequences, NotProvedReason> {
+        if self.sequences[index].is_none() {
+            self.sequences[index] = Some(
+                self.branches[index]
+                    .as_ref()
+                    .ok_or(NotProvedReason::Backend)
+                    .and_then(|expected| self.runtime.sequences(campaign, test, expected)),
+            );
+        }
+        self.sequences[index].clone().expect("filled above")
+    }
+}
+
 /// A mutant's tests, its mutant-scope failure, its runs and its claim withdrawal. Under
 /// `FirstKill` it stops after the first killing test and plans every later test as
 /// `SkippedAfterKill`.
@@ -466,17 +548,27 @@ fn run_mutant(
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
     (support, symbolic): (Option<&ClaimSupport>, &[bool]),
+    certifier: &mut Certifier<'_>,
 ) -> (
     Vec<TestPlan>,
     Option<MutantScopeFailure>,
     Vec<TestEvidence>,
     Withdrawal,
+    Vec<CertificateCheck>,
 ) {
     match prepare_mutant(campaign, patch, compiled_baseline, support) {
-        Err(failure) => (Vec::new(), Some(failure), Vec::new(), Withdrawal::default()),
+        Err(failure) => (
+            Vec::new(),
+            Some(failure),
+            Vec::new(),
+            Withdrawal::default(),
+            Vec::new(),
+        ),
         Ok((mut sides, claims)) => {
-            let (tests, evidence) = run_tests(campaign, &mut sides, symbolic, baseline, schedule);
-            (tests, None, evidence, claims)
+            let (tests, evidence, checks) = run_tests(
+                campaign, &mut sides, symbolic, baseline, schedule, certifier,
+            );
+            (tests, None, evidence, claims, checks)
         }
     }
 }
@@ -546,14 +638,46 @@ enum SymbolicSide {
 }
 
 impl MutantSides {
-    fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase, symbolic: bool) -> TestEvidence {
+    fn run(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        symbolic: bool,
+    ) -> (TestEvidence, Option<Vec<Vec<TransitionIdOutput>>>) {
         match (&mut self.symbolic, symbolic) {
             (SymbolicSide::Withdrawn(runtime), true) => runtime.run(campaign, test),
-            (SymbolicSide::Unsupported, true) => TestEvidence {
-                test_id: test.id.clone(),
-                run: SideRun::Failed(ExecutionFailureKind::UnsupportedClaims),
-            },
+            (SymbolicSide::Unsupported, true) => (
+                TestEvidence {
+                    test_id: test.id.clone(),
+                    run: SideRun::Failed(ExecutionFailureKind::UnsupportedClaims),
+                },
+                None,
+            ),
             _ => self.patched.run(campaign, test),
+        }
+    }
+
+    fn sequences(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        symbolic: bool,
+        expected: &[Vec<TransitionIdOutput>],
+    ) -> Result<StateSequences, NotProvedReason> {
+        match (&mut self.symbolic, symbolic) {
+            (SymbolicSide::Withdrawn(runtime), true) => runtime.sequences(campaign, test, expected),
+            // An unsupported symbolic side has already produced Failed(UnsupportedClaims).
+            (SymbolicSide::Unsupported, true) => Err(NotProvedReason::Backend),
+            _ => self.patched.sequences(campaign, test, expected),
+        }
+    }
+
+    fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, NotProvedReason> {
+        match (&mut self.symbolic, symbolic) {
+            (SymbolicSide::Withdrawn(runtime), true) => runtime.facts(),
+            // An unsupported symbolic side has already produced Failed(UnsupportedClaims).
+            (SymbolicSide::Unsupported, true) => Err(NotProvedReason::Backend),
+            _ => self.patched.facts(),
         }
     }
 }
@@ -565,11 +689,19 @@ fn run_tests(
     symbolic: &[bool],
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
-) -> (Vec<TestPlan>, Vec<TestEvidence>) {
+    certifier: &mut Certifier<'_>,
+) -> (Vec<TestPlan>, Vec<TestEvidence>, Vec<CertificateCheck>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
+    let mut checks = Vec::new();
     let mut killed = false;
-    for ((test, baseline), symbolic) in campaign.tests.iter().zip(baseline).zip(symbolic) {
+    for (index, ((test, baseline), symbolic)) in campaign
+        .tests
+        .iter()
+        .zip(baseline)
+        .zip(symbolic)
+        .enumerate()
+    {
         if killed {
             tests.push(TestPlan {
                 test_id: test.id.clone(),
@@ -577,8 +709,8 @@ fn run_tests(
             });
             continue;
         }
-        let mutant = sides.run(campaign, test, *symbolic);
-        let run = match (&baseline.run, &mutant.run) {
+        let (mutant, branches) = sides.run(campaign, test, *symbolic);
+        let mut run = match (&baseline.run, &mutant.run) {
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
             (
                 SideRun::Sides {
@@ -599,6 +731,60 @@ fn run_tests(
                 TestRun::Failed(ExecutionFailureKind::Infrastructure)
             }
         };
+        if let TestRun::Compared(outcomes) = &mut run {
+            let has_pattern_difference =
+                test.oracles
+                    .iter()
+                    .zip(outcomes.iter())
+                    .any(|(declaration, outcome)| {
+                        matches!(declaration.projection(), Projection::Pattern { .. })
+                            && *outcome == OracleOutcome::Distinguish
+                    });
+            let has_state_difference =
+                test.oracles
+                    .iter()
+                    .zip(outcomes.iter())
+                    .any(|(declaration, outcome)| {
+                        matches!(declaration.projection(), Projection::State(_))
+                            && *outcome == OracleOutcome::Distinguish
+                    });
+            if has_pattern_difference && !has_state_difference {
+                let certificate = (|| {
+                    let baseline_sequences = certifier.sequences(campaign, test, index)?;
+                    let expected = branches.as_ref().ok_or(NotProvedReason::Backend)?;
+                    let mutant_sequences = sides.sequences(campaign, test, *symbolic, expected)?;
+                    let baseline_facts = certifier.runtime.facts()?;
+                    let mutant_facts = sides.facts(*symbolic)?;
+                    Ok(certify_difference(
+                        &mut certifier.runtime.backend,
+                        &test.initial_state,
+                        &baseline_facts,
+                        &mutant_facts,
+                        &baseline_sequences,
+                        &mutant_sequences,
+                    ))
+                })()
+                .unwrap_or_else(DifferenceCertificate::NotProved);
+                let mut demoted_slots = Vec::new();
+                if matches!(certificate, DifferenceCertificate::NotProved(_)) {
+                    for (index, (declaration, outcome)) in
+                        test.oracles.iter().zip(outcomes.iter_mut()).enumerate()
+                    {
+                        if matches!(declaration.projection(), Projection::Pattern { .. })
+                            && *outcome == OracleOutcome::Distinguish
+                        {
+                            *outcome = OracleOutcome::Unknown;
+                            demoted_slots.push(index);
+                        }
+                    }
+                }
+                checks.push(CertificateCheck {
+                    test_id: test.id.clone(),
+                    certificate,
+                    demoted_slots,
+                });
+            }
+        }
         killed = schedule == ScheduleMode::FirstKill && run.kills();
         tests.push(TestPlan {
             test_id: test.id.clone(),
@@ -606,7 +792,7 @@ fn run_tests(
         });
         evidence.push(mutant);
     }
-    (tests, evidence)
+    (tests, evidence, checks)
 }
 
 /// Why a compiled side cannot run.
@@ -621,6 +807,7 @@ struct Runtime {
     backend: Backend,
     adapter: ExecutionAdapter,
     context: EvaluationContext,
+    facts: Option<Result<DefinitionFacts, NotProvedReason>>,
 }
 
 impl Runtime {
@@ -667,10 +854,37 @@ impl Runtime {
             backend,
             adapter: ExecutionAdapter::with_profile(manifest, profile),
             context,
+            facts: None,
         })
     }
 
-    fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> TestEvidence {
+    fn facts(&mut self) -> Result<DefinitionFacts, NotProvedReason> {
+        if self.facts.is_none() {
+            self.facts = Some(definition_facts(&mut self.backend));
+        }
+        self.facts.clone().expect("filled above")
+    }
+
+    fn sequences(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+        expected: &[Vec<TransitionIdOutput>],
+    ) -> Result<StateSequences, NotProvedReason> {
+        self.adapter.state_sequences(
+            &mut self.backend,
+            &test.initial_state,
+            campaign.budget,
+            expected,
+        )
+    }
+
+    fn run(
+        &mut self,
+        campaign: &Campaign<'_>,
+        test: &TestCase,
+    ) -> (TestEvidence, Option<Vec<Vec<TransitionIdOutput>>>) {
+        let mut branches = None;
         let run =
             match self
                 .adapter
@@ -693,20 +907,32 @@ impl Runtime {
                     );
                     match bridged {
                         Err(failure) => SideRun::Failed((&failure).into()),
-                        Ok(bridged) => SideRun::Sides {
-                            sides: test
-                                .oracles
-                                .iter()
-                                .map(|declaration| self.side(declaration, test, &bridged))
-                                .collect(),
-                        },
+                        Ok(bridged) => {
+                            branches = Some(
+                                execution
+                                    .leaves()
+                                    .iter()
+                                    .map(|leaf| leaf.branch.identity.clone())
+                                    .collect(),
+                            );
+                            SideRun::Sides {
+                                sides: test
+                                    .oracles
+                                    .iter()
+                                    .map(|declaration| self.side(declaration, test, &bridged))
+                                    .collect(),
+                            }
+                        }
                     }
                 }
             };
-        TestEvidence {
-            test_id: test.id.clone(),
-            run,
-        }
+        (
+            TestEvidence {
+                test_id: test.id.clone(),
+                run,
+            },
+            branches,
+        )
     }
 
     fn side(

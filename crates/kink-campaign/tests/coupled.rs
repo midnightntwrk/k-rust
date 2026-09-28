@@ -11,11 +11,13 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CrashPolicy, FinalResult, MutantStatus, OracleDeclaration,
-    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode,
-    SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign, tally,
+    Campaign, CampaignFailureKind, CertificateCheck, CrashPolicy, FinalResult, MutantStatus,
+    OracleDeclaration, OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, Rational,
+    ScheduleMode, SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign,
+    tally,
 };
 use kink_native::execution::ExecutionBudget;
+use kink_native::execution_difference::{DifferenceCertificate, NotProvedReason};
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
@@ -1581,8 +1583,8 @@ fn before_term_missing_on_the_baseline_is_refused() {
 //
 // Kill-soundness README section 12, attacks AS1-AS7, plus the constructions the KS-07 audit
 // added (section 15). Each test pins the measured status in both profiles. A test whose name
-// ends in `_until_ticket_ks_tNN` pins a kill of an execution-identical run that the ticket
-// tracks; no other test here asserts such a kill.
+// ends in `_until_ticket_<ticket>` pins a kill that the ticket tracks. After EI-03, no test
+// pins a kill of an execution-identical run.
 
 fn int_token(value: i64) -> Term {
     Term::Token {
@@ -1958,9 +1960,9 @@ fn audit_ks_as4_symbolic_before_terms_are_not_binding_values() {
 /// AS5 (KS-R4, ticket KS-T04). Guard split: `GUARDEDMEM.write`'s guard narrowed to `A >Int 0`
 /// and an unobserved copy with `A ==Int 0` inserted. The rewrite relation is the baseline's,
 /// but on address 0 the unobserved copy fires where the observed `write` did, so `GWL-after`
-/// distinguishes an execution-identical run. Pinned Killed until KS-T04; both profiles.
+/// distinguishes execution-identical runs. The certificate finds no witness in either profile.
 #[test]
-fn audit_ks_as5_guard_split_is_killed_until_ticket_ks_t04() {
+fn audit_ks_as5_guard_split_is_unknown() {
     with_stack(|| {
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -2001,19 +2003,27 @@ fn audit_ks_as5_guard_split_is_killed_until_ticket_ks_t04() {
         ];
         let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
             .expect("campaign");
-        assert_eq!(outcomes(&run), vec![vec![A, D], vec![A, A]]);
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
-        assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-zero"]);
+        assert_eq!(outcomes(&run), vec![vec![A, U], vec![A, A]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+        assert_eq!(
+            run.mutants[0].certificate_checks,
+            [CertificateCheck {
+                test_id: "ground-zero".into(),
+                certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
+                demoted_slots: vec![1],
+            }]
+        );
     });
 }
 
 /// New in KS-07 (ticket KS-T04, widened). Priority shadowing edits no observed rule: an
 /// unobserved copy of `GUARDEDMEM.write` with `priority(40)` is inserted. `write` is unchanged
 /// and anchored, but it never fires again, so `GWL-after` distinguishes on every address while
-/// the rewrite relation is the baseline's. Pinned Killed until KS-T04. The same copy at the
+/// the rewrite relation is the baseline's. The certificate finds no witness. The same copy at the
 /// default priority, with its guard written `0 <=Int A`, survives (row 2).
 #[test]
-fn audit_ks_priority_shadowing_is_killed_until_ticket_ks_t04() {
+fn audit_ks_priority_shadowing_is_unknown() {
     with_stack(|| {
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -2049,11 +2059,16 @@ fn audit_ks_priority_shadowing_is_killed_until_ticket_ks_t04() {
         );
         let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
             .expect("campaign");
-        assert_eq!(outcomes(&run), vec![vec![A, D]; 2]);
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(outcomes(&run), vec![vec![A, U]; 2]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
         assert_eq!(
-            run.mutants[0].report.killing_test_ids,
-            ["ground-zero", "ground-one"]
+            run.mutants[0].certificate_checks,
+            ["ground-zero", "ground-one"].map(|test_id| CertificateCheck {
+                test_id: test_id.into(),
+                certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
+                demoted_slots: vec![1],
+            })
         );
 
         let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
@@ -2070,6 +2085,7 @@ fn audit_ks_priority_shadowing_is_killed_until_ticket_ks_t04() {
         let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
             .expect("campaign");
         assert_survived(&run, &vec![vec![A, A]; 2]);
+        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2079,9 +2095,9 @@ fn audit_ks_priority_shadowing_is_killed_until_ticket_ks_t04() {
 /// (row 1). If the moved `write` content is also rephrased (`0 <=Int A`), nothing is anchored:
 /// the `write` position now holds `writeFault`'s content and positionally carries
 /// `memoryWrite`, while the rephrased `write` content is unobserved. The rewrite relation is
-/// the baseline's; both tests distinguish (row 2). Pinned Killed until KS-T04.
+/// the baseline's; both tests are execution-identical (row 2). The certificate finds no witness.
 #[test]
-fn audit_ks_moved_unobserved_content_is_killed_until_ticket_ks_t04() {
+fn audit_ks_moved_unobserved_content_is_unknown() {
     with_stack(|| {
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -2104,9 +2120,9 @@ fn audit_ks_moved_unobserved_content_is_killed_until_ticket_ks_t04() {
             ),
         ];
         let a = field("GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
-        for (rephrased, expected, killed) in [
+        for (rephrased, expected, changed) in [
             (false, vec![vec![A, A, A]; 2], false),
-            (true, vec![vec![A, A, D], vec![A, D, D]], true),
+            (true, vec![vec![A, A, U], vec![A, U, U]], true),
         ] {
             let write_guard = if rephrased {
                 Term::apply("_<=Int_", vec![int_token(0), a.clone()])
@@ -2143,15 +2159,32 @@ fn audit_ks_moved_unobserved_content_is_killed_until_ticket_ks_t04() {
             );
             let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
                 .expect("campaign");
-            if killed {
+            if changed {
                 assert_eq!(outcomes(&run), expected);
-                assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+                assert!(run.mutants[0].report.killing_test_ids.is_empty());
                 assert_eq!(
-                    run.mutants[0].report.killing_test_ids,
-                    ["ground-negative", "ground-one"]
+                    run.mutants[0].certificate_checks,
+                    [
+                        CertificateCheck {
+                            test_id: "ground-negative".into(),
+                            certificate: DifferenceCertificate::NotProved(
+                                NotProvedReason::NoWitness
+                            ),
+                            demoted_slots: vec![2]
+                        },
+                        CertificateCheck {
+                            test_id: "ground-one".into(),
+                            certificate: DifferenceCertificate::NotProved(
+                                NotProvedReason::NoWitness
+                            ),
+                            demoted_slots: vec![1, 2]
+                        },
+                    ]
                 );
             } else {
                 assert_survived(&run, &expected);
+                assert!(run.mutants[0].certificate_checks.is_empty());
             }
         }
     });
