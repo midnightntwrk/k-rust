@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed static capability probe for the R10 stable-name move gate."""
+"""Fail-closed stable-name move probe through ``krs emit-k``."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from support import ROOT, GateError  # noqa: E402
+from support import GateError  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
@@ -26,12 +26,7 @@ PROBE_TARGET = {
 }
 
 
-def capability_report(root: Path = ROOT) -> dict[str, object]:
-    bundle = (root / "crates/krs-ir/src/bundle.rs").read_text(encoding="utf-8")
-    facade = (root / "crates/krs/src/lib.rs").read_text(encoding="utf-8")
-    macros = (root / "crates/krs-macros/src/lib.rs").read_text(encoding="utf-8")
-    identity = (root / "crates/krs-ir/src/identity.rs").read_text(encoding="utf-8")
-    lowering = (root / "crates/krs-compiler/src/lowering.rs").read_text(encoding="utf-8")
+def capability_report() -> dict[str, object]:
     fixtures = {
         name: (HERE / name / "src/lib.rs").is_file()
         for name in ("baseline", "private-move", "public-move", "public-move-pinned")
@@ -39,16 +34,6 @@ def capability_report(root: Path = ROOT) -> dict[str, object]:
     return {
         "schema": 1,
         "fixtures": fixtures,
-        "stable_id_has_module_path": "module_path: Vec<String>" in identity,
-        "descriptor_has_visibility": all(token in bundle for token in (
-            "pub declarations: Vec<DescriptorDeclaration>",
-            "pub visibility: RustVisibility",
-            "pub explicit_symbol: Option<ExplicitSymbol>",
-        )) and "pub enum RustVisibility" in identity,
-        "symbol_macro_exported": "pub fn symbol(" in macros and "symbol," in facade,
-        "explicit_symbol_lowered": all(token in lowering for token in (
-            "fn stable_symbol_text(", ".explicit_symbol()", ".final_component()",
-        )),
     }
 
 
@@ -248,42 +233,29 @@ def move_evidence(krs: Path) -> dict[str, object]:
 
 def verify(report: dict[str, object]) -> None:
     fixtures = report.get("fixtures")
-    if not isinstance(fixtures, dict) or not fixtures or not all(fixtures.values()):
+    if not isinstance(fixtures, dict) or set(fixtures) != set(FIXTURE_PACKAGES) or not all(
+        value is True for value in fixtures.values()
+    ):
         raise GateError("all four stable-name move fixtures are required")
-    if report.get("stable_id_has_module_path") is not True:
-        raise GateError("StableItemId no longer carries a canonical module path")
-    blockers = []
-    if report.get("descriptor_has_visibility") is not True:
-        blockers.append("descriptor visibility is absent")
-    if report.get("symbol_macro_exported") is not True:
-        blockers.append("author-facing #[k::symbol] is absent")
-    if report.get("explicit_symbol_lowered") is not True:
-        blockers.append("explicit stable symbols do not reach the lowering naming pass")
-    if blockers:
-        raise GateError("; ".join(blockers))
     evidence = report.get("move_evidence")
-    if evidence is not None:
-        if not isinstance(evidence, dict):
-            raise GateError("move evidence has an unknown shape")
-        failed = sorted(
-            key for key, value in evidence.items()
-            if key != "baseline_descriptors" and value is not True
-        )
-        if evidence.get("baseline_descriptors") != 6 or failed:
-            raise GateError(f"stable-name move evidence failed: {failed}")
+    if not isinstance(evidence, dict):
+        raise GateError("move evidence is absent or has an unknown shape")
+    failed = sorted(
+        key for key, value in evidence.items()
+        if key != "baseline_descriptors" and value is not True
+    )
+    if evidence.get("baseline_descriptors") != 6 or failed:
+        raise GateError(f"stable-name move evidence failed: {failed}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--report-only", action="store_true")
-    parser.add_argument("--krs", type=Path)
+    parser.add_argument("--krs", type=Path, required=True)
     arguments = parser.parse_args()
     report = capability_report()
-    if arguments.krs:
-        report["move_evidence"] = move_evidence(arguments.krs.resolve())
+    report["move_evidence"] = move_evidence(arguments.krs.resolve())
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
-    if not arguments.report_only:
-        verify(report)
+    verify(report)
     return 0
 
 

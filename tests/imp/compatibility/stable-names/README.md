@@ -12,7 +12,7 @@ descriptor. The pinned fixture deliberately reorders its declarations and
 moves the public Rust module while pinning `api::Expr` and
 `api::PublicValue`.
 
-`probe.py --krs PATH` checks the complete contract through production commands:
+`probe.py --krs PATH` requires a built KRS binary and checks the complete contract through `krs emit-k`:
 
 - the private move preserves the public descriptor projection while changing
   the private identity;

@@ -18,21 +18,6 @@ def load(path: Path, name: str):
     return module
 
 
-class StableNameProbeTests(unittest.TestCase):
-    def test_current_capability_report_names_exact_blockers(self) -> None:
-        module = load(HERE / "stable-names/probe.py", "stable_name_probe")
-        report = module.capability_report()
-        self.assertTrue(all(report["fixtures"].values()))
-        self.assertTrue(report["stable_id_has_module_path"])
-        if all(report[key] for key in (
-            "descriptor_has_visibility", "symbol_macro_exported", "explicit_symbol_lowered",
-        )):
-            module.verify(report)
-        else:
-            with self.assertRaises(module.GateError):
-                module.verify(report)
-
-
 class DiagnosticProbeTests(unittest.TestCase):
     def test_k_frontend_mapping_requires_exact_content_identity(self) -> None:
         module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_probe")
