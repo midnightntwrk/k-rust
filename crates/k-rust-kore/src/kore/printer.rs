@@ -3,8 +3,7 @@
 //! name = "construction of KORE pretty-print documents"
 //! sites = ["definition_ops", "module_ops", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "Printer::write_source", "attributes_doc", "declaration_pattern_doc", "delimited", "join", "expand", "sorted_connective", "sorted_binder", "fixpoint", "two_sorted", "push_grouped", "delimited_task", "owned_text"]
 //! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack, which reads each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
-//! counters = []
-//! no_counter = "KORE document construction has no dedicated counter"
+//! counters = ["KoreTextNodesWritten", "KoreTextDistinctNodes", "KoreTextBytesWritten"]
 //! span = "per call"
 //!
 //! [[cost]]
@@ -32,6 +31,8 @@ use std::{
 
 use document::{Doc, Op, RenderMode, render};
 
+#[cfg(feature = "measure")]
+use crate::measure::Counter;
 use crate::measure::{self, Algorithm};
 
 use super::ast::{
@@ -155,6 +156,29 @@ impl Printer {
         output: &mut W,
     ) -> io::Result<()> {
         let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
+        #[cfg(feature = "measure")]
+        {
+            if measure::output_counting_enabled() {
+                let (nodes, distinct) = super::node::measure_nodes(source.clone());
+                measure::add(Counter::KoreTextNodesWritten, nodes);
+                measure::add(Counter::KoreTextDistinctNodes, distinct);
+                let mut counting = CountingWriter { inner: output };
+                render(
+                    SyntaxOps::new(SyntaxTask::Pattern(source), self.options.indent),
+                    self.render_mode(),
+                    self.options.width,
+                    &mut counting,
+                )
+            } else {
+                render(
+                    SyntaxOps::new(SyntaxTask::Pattern(source), self.options.indent),
+                    self.render_mode(),
+                    self.options.width,
+                    output,
+                )
+            }
+        }
+        #[cfg(not(feature = "measure"))]
         render(
             SyntaxOps::new(SyntaxTask::Pattern(source), self.options.indent),
             self.render_mode(),
@@ -179,6 +203,24 @@ impl Printer {
             PrintStyle::Compact => RenderMode::Compact,
             PrintStyle::Pretty => RenderMode::Pretty,
         }
+    }
+}
+
+#[cfg(feature = "measure")]
+struct CountingWriter<'a, W: io::Write + ?Sized> {
+    inner: &'a mut W,
+}
+
+#[cfg(feature = "measure")]
+impl<W: io::Write + ?Sized> io::Write for CountingWriter<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let count = self.inner.write(bytes)?;
+        measure::add(Counter::KoreTextBytesWritten, count as u64);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
     }
 }
 

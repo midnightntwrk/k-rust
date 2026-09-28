@@ -44,6 +44,8 @@ use k_rust_backend::{
     substitution::{Substitution, extract_substitution, substitute},
     term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
+#[cfg(feature = "measure")]
+use k_rust_kore::measure::{self, Counter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json, value::RawValue};
 
@@ -732,7 +734,10 @@ impl RpcService {
                     )
                     .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
                     Ok(json!({
-                        "state": encode_kore(&externalize::constrained_pattern(&simplified))?
+                        "state": encode_kore_source(
+                            &externalize::constrained_pattern(&simplified),
+                            externalize::External::Constrained(&simplified),
+                        )?
                     }))
                 }
                 PatternOrPredicate::Predicate(predicate, result_sort) => {
@@ -744,7 +749,14 @@ impl RpcService {
                     )
                     .map_err(|error| simplify_fault(error, &result_sort))?;
                     Ok(json!({
-                        "state": encode_kore(&externalize::ml_pattern(&simplified, &result_sort))?
+                        "state": encode_kore_source(
+                            &externalize::ml_pattern(&simplified, &result_sort),
+                            externalize::External::Predicate {
+                                predicate: &simplified,
+                                sort: externalize::ResultSort::Given(&result_sort),
+                                preserve_terms: true,
+                            },
+                        )?
                     }))
                 }
             },
@@ -1523,9 +1535,24 @@ fn parse_json_value(source: &str) -> serde_json::Result<Value> {
     Ok(value)
 }
 
-fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
+fn encode_kore_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+    pattern: &KorePattern,
+    source: S,
+) -> Result<Value, RpcFault> {
+    #[cfg(feature = "measure")]
+    if measure::output_counting_enabled() {
+        let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source);
+        measure::add(Counter::RpcJsonNodesWritten, nodes);
+        measure::add(Counter::RpcJsonDistinctNodes, distinct);
+    }
+    #[cfg(not(feature = "measure"))]
+    let _ = source;
     kore_codec::to_value(pattern)
         .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))
+}
+
+fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
+    encode_kore_source(pattern, pattern)
 }
 
 fn execute_state(
@@ -1540,7 +1567,13 @@ fn execute_state(
         &definition.sort_graph,
     );
     let term = substitute(&pattern.term, &substitution);
-    state.insert("term".into(), encode_kore(&externalize::term(&term))?);
+    state.insert(
+        "term".into(),
+        encode_kore_source(
+            &externalize::term(&term),
+            externalize::External::Term(&term),
+        )?,
+    );
     let predicates = substitute_predicates(&predicates, &substitution);
     let mut ordered_predicates = predicates
         .iter()
@@ -1961,6 +1994,10 @@ fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::R
         .map_err(|_| io::Error::other("KORE JSON-RPC response writer was poisoned"))?;
     writer.write_all(response.as_bytes())?;
     writer.write_all(b"\n")?;
+    #[cfg(feature = "measure")]
+    if measure::output_counting_enabled() {
+        measure::add(Counter::RpcJsonBytesWritten, response.len() as u64 + 1);
+    }
     writer.flush()
 }
 

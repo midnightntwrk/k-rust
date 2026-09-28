@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 11;
+pub const COUNTER_SCHEMA_VERSION: u64 = 12;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -449,6 +449,24 @@ pub enum Counter {
     Allocations,
     /// Requested bytes in those allocations.
     AllocatedBytes,
+    /// Pattern nodes emitted as KORE text.
+    KoreTextNodesWritten,
+    /// Distinct source nodes reached while emitting KORE text.
+    KoreTextDistinctNodes,
+    /// KORE text bytes written.
+    KoreTextBytesWritten,
+    /// Pattern nodes emitted as RPC JSON.
+    RpcJsonNodesWritten,
+    /// Distinct source nodes reached while emitting RPC JSON.
+    RpcJsonDistinctNodes,
+    /// RPC response bytes written.
+    RpcJsonBytesWritten,
+    /// Pattern nodes emitted as observation JSON.
+    ObservationJsonNodesWritten,
+    /// Distinct source nodes reached while emitting observation JSON.
+    ObservationJsonDistinctNodes,
+    /// Observation JSON bytes written.
+    ObservationJsonBytesWritten,
     /// Search states dropped by the per-depth visited set.
     SearchStatesDeduplicated,
     /// Proof states explored.
@@ -461,7 +479,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 61;
+    pub const COUNT: usize = 70;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -522,6 +540,15 @@ impl Counter {
         Counter::SmtSolverRuns,
         Counter::Allocations,
         Counter::AllocatedBytes,
+        Counter::KoreTextNodesWritten,
+        Counter::KoreTextDistinctNodes,
+        Counter::KoreTextBytesWritten,
+        Counter::RpcJsonNodesWritten,
+        Counter::RpcJsonDistinctNodes,
+        Counter::RpcJsonBytesWritten,
+        Counter::ObservationJsonNodesWritten,
+        Counter::ObservationJsonDistinctNodes,
+        Counter::ObservationJsonBytesWritten,
         Counter::SearchStatesDeduplicated,
         Counter::ProofStatesExplored,
         Counter::ProofImplicationChecks,
@@ -590,6 +617,15 @@ impl Counter {
             Counter::SmtSolverRuns => "smt.solver_runs",
             Counter::Allocations => "allocation.count",
             Counter::AllocatedBytes => "allocation.bytes",
+            Counter::KoreTextNodesWritten => "output.kore_text.nodes_written",
+            Counter::KoreTextDistinctNodes => "output.kore_text.distinct_nodes",
+            Counter::KoreTextBytesWritten => "output.kore_text.bytes_written",
+            Counter::RpcJsonNodesWritten => "output.rpc_json.nodes_written",
+            Counter::RpcJsonDistinctNodes => "output.rpc_json.distinct_nodes",
+            Counter::RpcJsonBytesWritten => "output.rpc_json.bytes_written",
+            Counter::ObservationJsonNodesWritten => "output.observation_json.nodes_written",
+            Counter::ObservationJsonDistinctNodes => "output.observation_json.distinct_nodes",
+            Counter::ObservationJsonBytesWritten => "output.observation_json.bytes_written",
             Counter::SearchStatesDeduplicated => "search.states_deduplicated",
             Counter::ProofStatesExplored => "proof.states_explored",
             Counter::ProofImplicationChecks => "proof.implication_checks",
@@ -638,6 +674,22 @@ pub fn bump(counter: Counter) {
 }
 
 pub use imp::{add, merge_current_thread, process_snapshot, reset, snapshot};
+
+/// Whether output counting is requested by the executable. Library users keep the default
+/// enabled state so counter tests can measure writers without process environment setup.
+#[cfg(feature = "measure")]
+pub fn output_counting_enabled() -> bool {
+    OUTPUT_COUNTING_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(feature = "measure")]
+static OUTPUT_COUNTING_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(feature = "measure")]
+pub fn set_output_counting_enabled(enabled: bool) {
+    OUTPUT_COUNTING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Publish a worker's counters when it returns or unwinds.
 pub struct MergeOnDrop;

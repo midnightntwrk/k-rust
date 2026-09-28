@@ -813,6 +813,11 @@ impl Term {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
+    #[cfg(feature = "measure")]
+    pub fn allocation_identity(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+
     /// Transform the immediate children and preserve this term when every child is unchanged.
     ///
     /// Constructors recompute their synthetic attributes when a child changes. Keeping the

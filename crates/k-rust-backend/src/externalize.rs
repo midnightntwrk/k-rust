@@ -1145,6 +1145,14 @@ fn predicate_node<'t>(
 }
 
 impl<'t> PatternSource<'t> for External<'t> {
+    #[cfg(feature = "measure")]
+    fn node_identity(&self) -> Option<usize> {
+        match self {
+            Self::Term(term) => Some(term.allocation_identity()),
+            _ => None,
+        }
+    }
+
     fn node(self) -> PatternNode<'t, Self> {
         match self {
             Self::Term(term) => term_node(term),
@@ -1310,6 +1318,18 @@ mod tests {
 
     use super::*;
     use crate::definition::BackendDefinition;
+
+    #[cfg(feature = "measure")]
+    #[test]
+    fn source_node_count_sees_shared_backend_allocations() {
+        let leaf = Term::domain_value(Sort::simple("SortInt"), "1");
+        let mut root = leaf;
+        for _ in 0..30 {
+            root = Term::and(root.clone(), root);
+        }
+        let (written, distinct) = k_rust_kore::kore::node::measure_nodes(External::Term(&root));
+        assert_eq!((written, distinct), (2u64.pow(31) - 1, 31));
+    }
 
     /// Kore/Parser/Lexer.x:57 admits `[a-zA-Z][a-zA-Z0-9'\-]*` as an identifier. Booster keeps
     /// the `Ex#`/`Rule#` provenance markers internally and externalizes them by dropping the `#`

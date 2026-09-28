@@ -177,6 +177,8 @@ fn start_trace(
     if path.is_none() && aggregate.is_none() {
         return Ok(None);
     }
+    #[cfg(feature = "measure")]
+    k_rust_kore::measure::set_output_counting_enabled(true);
     let (chrome, flush) = match path {
         Some(path) => {
             let writer = fs::File::create(path).map_err(|error| {
@@ -217,6 +219,8 @@ fn start_trace(
 }
 
 fn main() -> ExitCode {
+    #[cfg(feature = "measure")]
+    k_rust_kore::measure::set_output_counting_enabled(env::var_os("KRUST_COUNTERS").is_some());
     let outcome = run(Cli::parse());
     #[cfg(feature = "measure")]
     write_counters_if_requested();

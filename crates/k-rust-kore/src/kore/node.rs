@@ -133,6 +133,12 @@ pub trait PatternSource<'a>: Clone {
     /// The root node, with its sub-patterns as sources.
     fn node(self) -> PatternNode<'a, Self>;
 
+    /// Identity of an in-memory node, when the source preserves one across reads.
+    #[cfg(feature = "measure")]
+    fn node_identity(&self) -> Option<usize> {
+        None
+    }
+
     /// True only when `self` and `other` are known to denote equal patterns without reading
     /// them; `false` claims nothing. [`compare`] skips a pair for which this holds.
     fn same_pattern(&self, _other: &Self) -> bool {
@@ -140,7 +146,60 @@ pub trait PatternSource<'a>: Clone {
     }
 }
 
+/// Count expanded tree nodes and source allocations reached by a writer.
+/// Subtree sizes are memoized by source identity, so work is proportional to the DAG.
+/// Counts saturate at `u64::MAX` when the expanded tree is larger than a counter.
+#[cfg(feature = "measure")]
+pub fn measure_nodes<'a, S: PatternSource<'a>>(root: S) -> (u64, u64) {
+    use std::collections::HashMap;
+
+    enum Task<S> {
+        Enter(S),
+        Finish(Option<usize>, usize),
+    }
+
+    // The second value counts identity-less nodes. They must be charged again if a shared
+    // parent is reached again, matching the expanded-tree definition of distinct nodes.
+    let mut memo: HashMap<usize, (u64, u64)> = HashMap::new();
+    let mut tasks = vec![Task::Enter(root)];
+    let mut values = Vec::new();
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Enter(source) => {
+                let identity = source.node_identity();
+                if let Some(value) = identity.and_then(|key| memo.get(&key)) {
+                    values.push(*value);
+                    continue;
+                }
+                let (_, children) = source.node().split();
+                let count = children.len();
+                tasks.push(Task::Finish(identity, count));
+                tasks.extend(children.into_iter().rev().map(Task::Enter));
+            }
+            Task::Finish(identity, count) => {
+                let mut size = 1u64;
+                let mut anonymous = u64::from(identity.is_none());
+                for (child_size, child_anonymous) in values.drain(values.len() - count..) {
+                    size = size.saturating_add(child_size);
+                    anonymous = anonymous.saturating_add(child_anonymous);
+                }
+                if let Some(key) = identity {
+                    memo.insert(key, (size, anonymous));
+                }
+                values.push((size, anonymous));
+            }
+        }
+    }
+    let (written, anonymous) = values.pop().expect("root has a subtree size");
+    (written, anonymous.saturating_add(memo.len() as u64))
+}
+
 impl<'a> PatternSource<'a> for &'a Pattern {
+    #[cfg(feature = "measure")]
+    fn node_identity(&self) -> Option<usize> {
+        Some(*self as *const Pattern as usize)
+    }
+
     fn node(self) -> PatternNode<'a, Self> {
         match self {
             Pattern::String(value) => PatternNode::String(Cow::Borrowed(value)),
