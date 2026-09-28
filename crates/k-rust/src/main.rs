@@ -36,7 +36,6 @@ use std::{
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use k_rust::backend::search::*;
-use k_rust::names::BuiltinSort;
 use k_rust::{
     backend::{
         Backend, BackendError, BackendOptions,
@@ -48,20 +47,16 @@ use k_rust::{
         AttributeKey, Attributes, CheckMode, checks::check_definition, json as definition_json,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
-    inner::{ProgramParser, definition_with_named_projections, parse_program_for_presentation},
+    inner::{ProgramParser, parse_program_for_presentation},
     kast::{
         Sort as KastSort, WellKnownModule, json as kast_json, parser::parse_sort,
         printer::Printer as KastPrinter,
     },
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        MacroExpansionDefinition, SortInjector, compile_loaded_definition,
-        compile_loaded_definition_timed, compile_search_pattern, encode_kore_sort,
-        initial_configuration::{
-            missing_variables, parser_modules, stream_defaults, top_cell_initializer,
-        },
+        ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
+        compile_loaded_definition_timed, compile_search_pattern,
         pipeline::{emission_phase, load_phase},
-        term_to_kore_from_resolved_with_token_module,
     },
     kore::{
         ast::{Definition as KoreDefinition, Pattern as KorePattern},
@@ -2385,17 +2380,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .program_file
             .as_deref()
             .is_none_or(|path| path == Path::new("-"));
-    // Programs are parsed with the reference's program grammar, which declares the named-field
-    // projections of every production (RuleGrammarGenerator.getCombinedGrammar); the source
-    // definition gains the same productions so that a projection a program applies has a
-    // production for sort injection and KORE conversion.
-    let program_definition = definition_with_named_projections(&compiled.frontend_definition);
-    let program_resolved = k_rust::definition::ResolvedDefinition::resolve(&program_definition)?;
+    // One resolution of the program grammar serves the search pattern and every input of the
+    // initial configuration.
+    let program_grammar = ProgramGrammar::new(&compiled.frontend_definition)?;
     let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
         let execution_resolved = compiled.execution_definition.resolve()?;
         let attributes = command_line_pattern_attributes(contents);
         match compile_search_pattern(
-            &program_resolved,
+            program_grammar.resolved(),
             &execution_resolved,
             &compiled.main_module,
             contents,
@@ -2414,139 +2406,50 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let match_target_source =
         select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
-    // The macro expander's definition depends on the program definition alone: it is prepared
-    // at the first expansion and reused for the program and every configuration value.
-    let mut macro_definition = None;
-    let program = if program_supplied || available_config_vars.contains_key("PGM") {
+    let mut assembler = ConfigurationAssembler::new(
+        &program_grammar,
+        &compiled.main_module,
+        &compiled.syntax_module,
+        available_config_vars,
+    );
+    let program_bound = program_supplied || available_config_vars.contains_key("PGM");
+    if program_bound {
         let source = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
-        let program_parser =
-            ProgramParser::from_resolved(&program_resolved, &compiled.syntax_module)?;
-        let program = program_parser.parse(&start_sort, &source)?;
-        let program = prepared_macro_definition(&mut macro_definition, &program_definition)?
-            .expand_term(&compiled.main_module, program)?;
-        // Expansion rebases applications into the executable catalog. Tokens remain
-        // self-describing, and conversion retains lexical hooks from the parser module.
-        let program_injector = SortInjector::new(&program_resolved, &compiled.main_module)?;
-        let program_sort = program_injector.term_sort(&program, None)?;
-        let program = program_injector.inject_at_top(&program)?;
-        let program = term_to_kore_from_resolved_with_token_module(
-            &program_resolved,
-            &compiled.main_module,
-            &compiled.syntax_module,
-            &program,
-        )?;
-        Some((program, encode_kore_sort(&program_sort)))
-    } else {
-        None
-    };
+        assembler
+            .program(&start_sort, &source)
+            .map_err(krun_configuration_error)?;
+    }
     let program_parse_seconds = started.elapsed().as_secs_f64();
     drop(program_parse_phase);
     let config_vars_parse_phase =
         tracing::info_span!("phase", name = tracing::field::display("config_vars_parse")).entered();
     let started = Instant::now();
-    let program_uses_stdin = program_uses_stdin && program.is_some();
-    let config_parser_modules = parser_modules(&program_resolved, &compiled.main_module)?;
-    let mut config_parsers = BTreeMap::new();
-    let config_injector = (!options.config_vars.is_empty())
-        .then(|| SortInjector::new(&program_resolved, &compiled.main_module))
-        .transpose()?;
-    let mut seen_config_vars = BTreeSet::new();
-    let mut config_vars = Vec::new();
-    // Invariant: seen names are exactly the bindings already assigned; parser and injector maps share their key set.
+    let program_uses_stdin = program_uses_stdin && program_bound;
     for assignment in &options.config_vars {
         let (name, source) = assignment.split_once('=').ok_or_else(|| {
             format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
         })?;
-        let name = name.strip_prefix('$').unwrap_or(name);
-        if name.is_empty() {
-            return Err("configuration variable name cannot be empty".into());
-        }
-        if name == "PGM" {
-            return Err(
-                "$PGM is supplied by the program argument and cannot be set with -c".into(),
-            );
-        }
-        if !seen_config_vars.insert(name.to_owned()) {
-            return Err(
-                format!("configuration variable `${name}` was provided more than once").into(),
-            );
-        }
-        let sort = available_config_vars.get(name).ok_or_else(|| {
-            let available = available_config_vars
-                .keys()
-                .filter(|candidate| candidate.as_str() != "PGM")
-                .map(|candidate| format!("${candidate}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            if available.is_empty() {
-                format!("definition has no configuration variable `${name}`")
-            } else {
-                format!(
-                    "definition has no configuration variable `${name}`; available variables: {available}"
-                )
-            }
-        })?;
-        let parser_module = match config_parser_modules.get(name) {
-            Some(parser_module) => parser_module.as_str(),
-            None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
-                "STRING-SYNTAX"
-            }
-            None => &compiled.main_module,
-        };
-        if program_resolved.module_id(parser_module).is_none() {
-            return Err(format!(
-                "parser module `{parser_module}` for configuration variable `${name}` was not found"
-            )
-            .into());
-        }
-        if !config_parsers.contains_key(parser_module) {
-            config_parsers.insert(
-                parser_module.to_owned(),
-                ProgramParser::from_resolved(&program_resolved, parser_module)?,
-            );
-        }
-        let parser = config_parsers
-            .get(parser_module)
-            .expect("configuration parser was inserted above");
-        let parse_sort = if sort.name == BuiltinSort::K.k_name() {
-            KastSort::builtin(BuiltinSort::KItem)
-        } else {
-            sort.clone()
-        };
-        let value = parser.parse(&parse_sort, source).map_err(|error| {
-            format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
-        })?;
-        let value = prepared_macro_definition(&mut macro_definition, &program_definition)?
-            .expand_term(&compiled.main_module, value)?;
-        let injector = config_injector
-            .as_ref()
-            .expect("a configuration assignment creates the main-module injector");
-        let value_sort = injector.term_sort(&value, None)?;
-        let value = injector.inject_at_top(&value)?;
-        let value = term_to_kore_from_resolved_with_token_module(
-            &program_resolved,
-            &compiled.main_module,
-            parser_module,
-            &value,
-        )?;
-        config_vars.push((format!("${name}"), value, encode_kore_sort(&value_sort)));
+        assembler
+            .bind(name, source)
+            .map_err(krun_configuration_error)?;
     }
-    config_vars.extend(stream_defaults(
-        available_config_vars,
-        &mut seen_config_vars,
-        io,
-        program_uses_stdin,
-        || {
+    assembler
+        .bind_stream_defaults(io, program_uses_stdin, || {
             if std::io::stdin().is_terminal() {
                 eprintln!(
                     "note: reading standard input into $STDIN until end of file (--io off); \
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            read_stdin_for_stream().map(buffered_stdin_bytes)
-        },
-    )?);
+            read_stdin_for_stream()
+                .map(buffered_stdin_bytes)
+                .map_err(Box::<dyn Error>::from)
+        })
+        .map_err(|error| match error.downcast::<ConfigurationError>() {
+            Ok(error) => krun_configuration_error(*error),
+            Err(error) => error,
+        })?;
     let execution_input = if io {
         if std::io::stdin().is_terminal() {
             eprintln!(
@@ -2558,25 +2461,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
-    let missing_config_vars = missing_variables(available_config_vars, &seen_config_vars);
-    if !missing_config_vars.is_empty() {
-        return Err(format!(
-            "missing required configuration variable{} {}; pass {}",
-            if missing_config_vars.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            missing_config_vars.join(", "),
-            missing_config_vars
-                .iter()
-                .map(|name| format!("`-c {}=VALUE`", name.trim_start_matches('$')))
-                .collect::<Vec<_>>()
-                .join(" and ")
-        )
-        .into());
-    }
-    let initial = top_cell_initializer(program, config_vars);
+    let initial = assembler.finish().map_err(krun_configuration_error)?;
     let config_vars_parse_seconds = started.elapsed().as_secs_f64();
     drop(config_vars_parse_phase);
 
@@ -2694,11 +2579,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     // The result and the timings are written, and the process exits once `main` returns.
     // `_trace` still drops normally: it finishes the trace and aggregate files.
     // Borrowers are released before what they borrow.
-    release_at_exit(config_injector);
-    release_at_exit(config_parsers);
-    release_at_exit(macro_definition);
-    release_at_exit(program_resolved);
-    release_at_exit(program_definition);
+    release_at_exit(assembler);
+    release_at_exit(program_grammar);
     release_at_exit((
         compiled.frontend_definition,
         compiled.execution_definition,
@@ -2721,17 +2603,30 @@ fn release_at_exit<T>(value: T) {
     std::mem::forget(value);
 }
 
-/// Return the macro expander's definition for `definition`, preparing it on first use.
-fn prepared_macro_definition<'slot>(
-    slot: &'slot mut Option<MacroExpansionDefinition>,
-    definition: &k_rust::definition::Definition,
-) -> Result<&'slot MacroExpansionDefinition, String> {
-    if slot.is_none() {
-        *slot = Some(MacroExpansionDefinition::prepare(definition)?);
+/// Phrase a configuration error in terms of krun's arguments: the program argument binds
+/// `$PGM`, and `-c NAME=VALUE` binds every other variable.
+fn krun_configuration_error(error: ConfigurationError) -> Box<dyn Error> {
+    match error {
+        ConfigurationError::ProgramVariable => {
+            "$PGM is supplied by the program argument and cannot be set with -c".into()
+        }
+        ConfigurationError::Missing { names } => format!(
+            "{}; pass {}",
+            ConfigurationError::Missing {
+                names: names.clone()
+            },
+            names
+                .iter()
+                .map(|name| match name.as_str() {
+                    "$PGM" => "a program".to_owned(),
+                    name => format!("`-c {}=VALUE`", name.trim_start_matches('$')),
+                })
+                .collect::<Vec<_>>()
+                .join(" and ")
+        )
+        .into(),
+        error => error.into(),
     }
-    Ok(slot
-        .as_ref()
-        .expect("the macro definition was prepared above"))
 }
 
 fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
