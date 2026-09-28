@@ -239,7 +239,7 @@ export interface PackManifest {
   crates_tree: string;
   fork_revision: string;
   cfg_version: string;
-  /** DescriptorBundle protocol version the pack's krs-ir writes. */
+  /** Collector wire protocol version the pack's krs-ir writes. */
   protocol_version: number;
   compiler: { rustc: PackAsset; sysroot_bundle: PackAsset; host_rustc_vv: string[] };
   /** Policy and expander modules, built from the same crates/ tree. */

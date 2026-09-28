@@ -9,17 +9,19 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, OriginFrame, OriginStack, ProvenanceKey, RangedOriginKind, SourceFileId,
-    SourceRange, StableItemId, TransformationOriginKind,
+    DescriptorProvenance, OriginFrame, OriginStack, ProvenanceKey, RangedOriginKind, SchemaVersion,
+    SourceFileId, SourceRange, StableItemId, TransformationOriginKind,
 };
 
-/// The next schema number after `krs_ir` 38; the collector wire advances
-/// independently so canonical descriptor artifacts retain schema 38.
-pub const VERSION: u32 = 39;
+/// The collector wire version.
+/// Its wire bytes are pinned by `crates/krs-ir/tests/golden/collector_*.json`.
+/// A shape change must advance this version independently of the canonical descriptor schema.
+pub const VERSION: u32 = 40;
 
 #[derive(Serialize)]
 struct CollectorRef<'a> {
     protocol_version: u32,
+    schema: SchemaVersion,
     files: Vec<SourceFileId>,
     items: Vec<StableItemId>,
     descriptors: Vec<DescriptorRef<'a>>,
@@ -168,6 +170,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
     }
     CollectorRef {
         protocol_version: VERSION,
+        schema: SchemaVersion::CURRENT,
         files,
         items,
         descriptors,
@@ -184,6 +187,7 @@ pub(crate) fn write(bundle: &DescriptorBundle, writer: impl Write) -> serde_json
 #[serde(deny_unknown_fields)]
 struct CollectorOwned {
     protocol_version: u32,
+    schema: SchemaVersion,
     files: Vec<SourceFileId>,
     items: Vec<StableItemId>,
     descriptors: Vec<DescriptorOwned>,
@@ -295,6 +299,13 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
         return Err(invalid(format!(
             "unsupported collector protocol {}; expected {VERSION}",
             wire.protocol_version
+        )));
+    }
+    if wire.schema != SchemaVersion::CURRENT {
+        return Err(invalid(format!(
+            "unsupported collector schema {}; expected {}",
+            wire.schema.0,
+            SchemaVersion::CURRENT.0
         )));
     }
     let mut descriptors = Vec::with_capacity(wire.descriptors.len());

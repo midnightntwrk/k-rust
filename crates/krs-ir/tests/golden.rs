@@ -3,12 +3,13 @@
 use std::collections::BTreeMap;
 
 use krs_ir::testing::{authored, item};
+use krs_ir::transport::collector;
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    ProvenanceKey, RangedOriginKind, RustVisibility, SortDescriptor, StableItemId,
-    TransformationOriginKind,
+    ProvenanceKey, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor,
+    StableItemId, TransformationOriginKind,
 };
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
@@ -215,9 +216,14 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
     assert!(DescriptorBundle::from_collector_protocol(&bad_code).is_err());
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 1.into();
     wire["protocol_version"] = 38.into();
-    assert!(
-        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).is_err()
-    );
+    let error =
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).unwrap_err();
+    assert!(error.to_string().contains("unsupported collector protocol"));
+    wire["protocol_version"] = collector::VERSION.into();
+    wire["schema"] = (SchemaVersion::CURRENT.0 - 1).into();
+    let error =
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).unwrap_err();
+    assert!(error.to_string().contains("unsupported collector schema"));
 }
 
 #[test]
