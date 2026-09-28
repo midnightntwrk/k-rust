@@ -29,7 +29,7 @@ from support import ROOT, GateError
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256, parse_kore_pattern
-from support.krs import Invocation, build
+from support.krs import Invocation, build, fresh_deterministic_emissions
 from support.lock import k_version, krs_ir_schema, msrv
 from support.pins import Ledger, load_toml
 from support.process import run
@@ -210,11 +210,12 @@ def artifact_gate(
     pins: Ledger,
     environment: Mapping[str, str],
 ) -> Path:
-    """Check, expand, and emit the port twice; compile the expansion independently.
+    """Check, expand, and emit the port fresh twice; compile the expansion independently.
 
-    Records the expansion and emitted-artifact digests, requires the
-    independently compiled expansion to emit the same syntax, configuration, and
-    sentence identities, and returns the first emission directory.
+    Records the expansion and emitted-artifact digests, requires a cached replay
+    to equal the first fresh emission, requires the independently compiled
+    expansion to emit the same syntax, configuration, and sentence identities,
+    and returns the first emission directory.
     """
 
     invocation = Invocation(krs, port.manifest, port.package, "main")
@@ -241,10 +242,8 @@ def artifact_gate(
         timeout=900,
     )
 
-    outputs = [workspace / "emit-a", workspace / "emit-b"]
-    for output in outputs:
-        invocation.run("emit-k", "--output", output, environment=environment)
-    for name, digest in exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS_WITH_SPEC).items():
+    emit_a, emit_b = fresh_deterministic_emissions(invocation, workspace, environment=environment)
+    for name, digest in exact_directory(emit_a, emit_b, EMITTED_ARTIFACTS_WITH_SPEC).items():
         pins.expect(("artifact_sha256", name), digest)
 
     expanded_output = workspace / "expanded-emit"
@@ -255,17 +254,17 @@ def artifact_gate(
         environment=expanded_env,
         timeout=900,
     )
-    readable = (outputs[0] / "definition.k").read_text(encoding="utf-8")
+    readable = (emit_a / "definition.k").read_text(encoding="utf-8")
     replacement = (expanded_output / "definition.k").read_text(encoding="utf-8")
     if readable.split("\n  rule ", 1)[0] != replacement.split("\n  rule ", 1)[0]:
         raise GateError("independently compiled expansion changed syntax or configuration")
     sentence = re.compile(r"^  (rule|claim)(?: \[([^]]+)\])?", re.MULTILINE)
     for name in ("definition.k", "spec.k"):
-        readable = (outputs[0] / name).read_text(encoding="utf-8")
+        readable = (emit_a / name).read_text(encoding="utf-8")
         replacement = (expanded_output / name).read_text(encoding="utf-8")
         if sentence.findall(readable) != sentence.findall(replacement):
             raise GateError("independently compiled expansion changed rule or claim identity transport")
-    return outputs[0]
+    return emit_a
 
 
 def native_definition(

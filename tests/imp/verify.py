@@ -32,7 +32,7 @@ from support.hashing import (  # noqa: E402
     sha256_text,
 )
 from support.kdefinition import emitted_claims  # noqa: E402
-from support.krs import Invocation, build  # noqa: E402
+from support.krs import Invocation, build, fresh_deterministic_emissions  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
@@ -672,14 +672,10 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
     if EXPANDED_SOURCE.read_text(encoding="utf-8") != golden:
         raise GateError("replacement crate source differs from the reviewed expansion golden")
 
-    emit_a = context.workspace / "emit-a"
-    emit_b = context.workspace / "emit-b"
-    for output in (emit_a, emit_b):
-        run(
-            krs_invocation(krs).argv("emit-k", "--backend", "haskell", "--output", output),
-            timeout=300,
-            environment=env,
-        )
+    emit_a, emit_b = fresh_deterministic_emissions(
+        krs_invocation(krs), context.workspace,
+        extra=("--backend", "haskell"), environment=env, timeout=300,
+    )
     replacement_invocation = Invocation(krs, EXPANDED_MANIFEST, EXPANDED_PACKAGE, DEFINITION)
     replacement_check = replacement_invocation.run("check", timeout=300, environment=env)
     if "KRS check passed: 83 descriptors, 2 semantic modules" not in replacement_check.stdout:
