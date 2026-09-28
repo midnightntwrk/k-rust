@@ -214,9 +214,9 @@ pub struct BackendDefinition {
     pub claims: Vec<PendingAxiom>,
     pub reachability_claims: Vec<ReachabilityClaim>,
     pub rewrite_theory: RewriteTheory,
-    pub function_theory: Theory,
-    pub simplification_theory: Theory,
-    pub predicate_simplification_theory: PredicateTheory,
+    function_theory: Theory,
+    simplification_theory: Theory,
+    predicate_simplification_theory: PredicateTheory,
     pub ceil_theory: Theory,
     finite_sort_constructors: BTreeMap<Sort, BTreeSet<ConstructorHead>>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
@@ -226,9 +226,13 @@ pub struct BackendDefinition {
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
-    /// [`Self::equation_selection_is_complete_for_applications`].
+    /// [`Self::equation_selection_complete`].
     term_equation_in_predicate_theory: bool,
 }
+
+/// Minted only by `BackendDefinition::equation_selection_complete`: equation selection reaches
+/// every term equation that could match an application (CBC-02 I3 (i)).
+pub(crate) struct SelectionComplete(());
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ConstructorHead {
@@ -819,6 +823,38 @@ impl BackendDefinition {
         Ok(result)
     }
 
+    /// Returns the equations for function applications.
+    pub fn function_theory(&self) -> &Theory {
+        &self.function_theory
+    }
+
+    /// Returns the simplification equations indexed by term head.
+    pub fn simplification_theory(&self) -> &Theory {
+        &self.simplification_theory
+    }
+
+    /// Returns simplification rules whose left-hand sides are predicates.
+    ///
+    /// The three theories are fixed by `internalize`, and `equation_selection_complete` is
+    /// computed from them, so even a caller holding `&mut BackendDefinition` only reads them:
+    ///
+    /// ```
+    /// use k_rust_backend::definition::BackendDefinition;
+    /// fn inspect(definition: &mut BackendDefinition) {
+    ///     let _ = definition.predicate_simplification_theory().len();
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use k_rust_backend::definition::BackendDefinition;
+    /// fn inspect(definition: &mut BackendDefinition) {
+    ///     definition.predicate_simplification_theory.clear();
+    /// }
+    /// ```
+    pub fn predicate_simplification_theory(&self) -> &PredicateTheory {
+        &self.predicate_simplification_theory
+    }
+
     /// Whether the term simplifier's equation selection (`rule::applicable_groups` on
     /// `rule::term_index`) offers an application every equation of the definition whose
     /// left-hand side could match it. Selection offers the function and simplification equations
@@ -834,15 +870,17 @@ impl BackendDefinition {
     ///   equations, but hand-written KORE (RPC, library callers) can.
     /// - A term-theory entry indexed `TermIndex::And`. Internalization never produces one:
     ///   function equations need an application left-hand side, and a conjunction goes to the
-    ///   predicate theory. The theories are public, so the key is checked on each use.
+    ///   predicate theory.
     ///
     /// Every other left-hand side fails to match an application it is not offered to. A head of
     /// another symbol is refuted by equation matching. So is a domain value, an injection, or a
     /// collection against a concrete subject.
-    pub(crate) fn equation_selection_is_complete_for_applications(&self) -> bool {
-        !self.term_equation_in_predicate_theory
+    #[must_use]
+    pub(crate) fn equation_selection_complete(&self) -> Option<SelectionComplete> {
+        (!self.term_equation_in_predicate_theory
             && !self.function_theory.contains_key(&TermIndex::And)
-            && !self.simplification_theory.contains_key(&TermIndex::And)
+            && !self.simplification_theory.contains_key(&TermIndex::And))
+        .then_some(SelectionComplete(()))
     }
 
     /// The may-contain-`KVar` sort fact, a least fixpoint computed at most once per definition.
@@ -2217,6 +2255,111 @@ mod tests {
     use crate::term::TermKind;
 
     use super::*;
+
+    fn selection_complete_source(guarded: bool, attribute: &str) -> String {
+        let attribute = if attribute.is_empty() {
+            String::new()
+        } else {
+            format!(", {attribute}")
+        };
+        let requires = if guarded {
+            r#"\equals{SortBool{}, R}(condition{}(), \dv{SortBool{}}("true"))"#
+        } else {
+            r#"\top{R}()"#
+        };
+        format!(
+            r#"[]
+                module MAIN
+                    sort SortNat{{}} []
+                    sort SortAddress{{}} []
+                    sort SortCell{{}} []
+                    sort SortSub{{}} []
+                    sort SortKItem{{}} []
+                    symbol inj{{From, To}}(From) : To [sortInjection{{}}()]
+                    axiom{{R}} \exists{{R}}(
+                        Value:SortAddress{{}},
+                        \equals{{SortAddress{{}}, R}}(
+                            Value:SortAddress{{}},
+                            inj{{SortSub{{}}, SortAddress{{}}}}(From:SortSub{{}})
+                        )
+                    ) [subsort{{SortSub{{}}, SortAddress{{}}}}()]
+                    axiom{{R}} \exists{{R}}(
+                        Value:SortKItem{{}},
+                        \equals{{SortKItem{{}}, R}}(Value:SortKItem{{}}, inj{{SortSub{{}}, SortKItem{{}}}}(From:SortSub{{}}))
+                    ) [subsort{{SortSub{{}}, SortKItem{{}}}}()]
+                    axiom{{R}} \exists{{R}}(
+                        Value:SortKItem{{}},
+                        \equals{{SortKItem{{}}, R}}(Value:SortKItem{{}}, inj{{SortNat{{}}, SortKItem{{}}}}(From:SortNat{{}}))
+                    ) [subsort{{SortNat{{}}, SortKItem{{}}}}()]
+                    axiom{{R}} \exists{{R}}(
+                        Value:SortKItem{{}},
+                        \equals{{SortKItem{{}}, R}}(Value:SortKItem{{}}, inj{{SortAddress{{}}, SortKItem{{}}}}(From:SortAddress{{}}))
+                    ) [subsort{{SortAddress{{}}, SortKItem{{}}}}()]
+                    symbol sub{{}}() : SortSub{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol item{{}}(SortKItem{{}}) : SortCell{{}}
+                        [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                    hooked-sort SortCellSet{{}}
+                        [hook{{}}("SET.Set"), unit{{}}(setUnit{{}}()), element{{}}(setItem{{}}()),
+                         concat{{}}(setConcat{{}}())]
+                    symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol s{{}}(SortNat{{}}) : SortNat{{}}
+                        [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol wrap{{}}(SortNat{{}}) : SortAddress{{}}
+                        [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                    symbol tag{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}()]
+                    symbol pick{{}}(SortNat{{}}) : SortNat{{}} [anywhere{{}}(), functional{{}}()]
+                    symbol addr{{}}(SortNat{{}}) : SortAddress{{}}
+                        [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol cell{{}}(SortAddress{{}}) : SortCell{{}}
+                        [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol spare{{}}(SortAddress{{}}) : SortCell{{}}
+                        [constructor{{}}(), functional{{}}(), injective{{}}()]
+                    symbol condition{{}}() : SortBool{{}} [function{{}}(), total{{}}(), no-evaluators{{}}()]
+                    hooked-symbol setUnit{{}}() : SortCellSet{{}}
+                        [function{{}}(), total{{}}(), hook{{}}("SET.unit")]
+                    hooked-symbol setItem{{}}(SortCell{{}}) : SortCellSet{{}}
+                        [function{{}}(), total{{}}(), hook{{}}("SET.element")]
+                    hooked-symbol setConcat{{}}(SortCellSet{{}}, SortCellSet{{}}) : SortCellSet{{}}
+                        [function{{}}(), hook{{}}("SET.concat"), assoc{{}}(), comm{{}}(), idem{{}}()]
+                    axiom{{R}} \implies{{R}}(
+                        \and{{R}}(
+                            {requires},
+                            \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, s{{}}(X:SortNat{{}})), \top{{R}}())
+                        ),
+                        \equals{{SortAddress{{}}, R}}(
+                            wrap{{}}(X0:SortNat{{}}),
+                            \and{{SortAddress{{}}}}(wrap{{}}(X:SortNat{{}}), \top{{SortAddress{{}}}}())
+                        )
+                    ) [label{{}}("unwrap"), anywhere{{}}(){attribute}]
+                endmodule []"#
+        )
+    }
+
+    #[test]
+    fn equation_selection_complete_requires_every_term_equation_to_be_offered() {
+        let lemma = r#"
+                    axiom{R} \implies{R}(
+                        \top{R}(),
+                        \equals{SortAddress{}, R}(
+                            \and{SortAddress{}}(tag{}(s{}(X:SortNat{})), tag{}(s{}(X:SortNat{}))),
+                            \and{SortAddress{}}(tag{}(X:SortNat{}), \top{SortAddress{}}())
+                        )
+                    ) [simplification{}()]
+                endmodule []"#;
+        let with_axiom =
+            selection_complete_source(false, "").replace("\n                endmodule []", lemma);
+        let without_axiom = selection_complete_source(false, "");
+        let syntax = parse_definition(&with_axiom).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(definition.equation_selection_complete().is_none());
+
+        let syntax = parse_definition(&without_axiom).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(definition.equation_selection_complete().is_some());
+    }
 
     #[test]
     fn retains_valid_binder_attribute() {

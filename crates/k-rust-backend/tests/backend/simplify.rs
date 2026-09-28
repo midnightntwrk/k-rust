@@ -1158,7 +1158,7 @@ fn applies_simplification_rules_to_ml_predicates() {
     .unwrap();
 
     assert_eq!(result, Predicate::False);
-    assert_eq!(definition.predicate_simplification_theory.len(), 1);
+    assert_eq!(definition.predicate_simplification_theory().len(), 1);
 }
 
 #[test]
@@ -3723,9 +3723,9 @@ fn inconsistent_path_condition_is_indeterminate_not_an_error() {
 /// mentions a variable of the same name and sort as the rule.
 fn subject_sharing_the_equation_variable(definition: &BackendDefinition) -> Term {
     let rules = definition
-        .function_theory
+        .function_theory()
         .values()
-        .chain(definition.simplification_theory.values())
+        .chain(definition.simplification_theory().values())
         .flat_map(|priorities| priorities.values())
         .flatten()
         .collect::<Vec<_>>();
@@ -3841,7 +3841,7 @@ fn an_equation_requirement_on_a_variable_the_match_leaves_unbound_is_not_capture
             "#,
     );
     let rules = definition
-        .function_theory
+        .function_theory()
         .values()
         .flat_map(|priorities| priorities.values())
         .flatten()
@@ -3916,7 +3916,7 @@ fn quantified_predicate_equation() -> (BackendDefinition, Variable) {
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
     let rules = definition
-        .predicate_simplification_theory
+        .predicate_simplification_theory()
         .values()
         .flatten()
         .collect::<Vec<_>>();
@@ -3990,7 +3990,7 @@ fn predicate_equation(lhs: &str, rhs: &str) -> BackendDefinition {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
     assert_eq!(
         definition
-            .predicate_simplification_theory
+            .predicate_simplification_theory()
             .values()
             .flatten()
             .count(),
@@ -4118,7 +4118,7 @@ fn alpha_equal_equations_collapse_and_still_evaluate_a_subject_sharing_their_var
     };
     let definition = definition(&format!("{}\n{}", equation("X", 1), equation("Y", 2)));
     let origins = definition
-        .function_theory
+        .function_theory()
         .values()
         .flat_map(|priorities| priorities.values())
         .flatten()

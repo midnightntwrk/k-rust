@@ -79,7 +79,7 @@ pub(crate) fn is_anywhere_application(term: &Term) -> bool {
 /// failed to match the term: its `Evaluate` match failed, or its collection match had no
 /// solution. The bit is set only in a definition where that selection reaches every term
 /// equation that could match an application
-/// (`BackendDefinition::equation_selection_is_complete_for_applications`). A simplification
+/// (`BackendDefinition::equation_selection_complete`). A simplification
 /// with an `\and` left-hand side, which is filed apart, disables the mark for the whole
 /// definition. A `requires` does not count: undecided it blocks the scan, refuted it makes the
 /// scan context dependent, and both withhold the bit. An equation whose left-hand side matched
@@ -209,7 +209,7 @@ impl BackendDefinition {
                 })
             })
         };
-        theory_may_apply(&self.function_theory) || theory_may_apply(&self.simplification_theory)
+        theory_may_apply(self.function_theory()) || theory_may_apply(self.simplification_theory())
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching

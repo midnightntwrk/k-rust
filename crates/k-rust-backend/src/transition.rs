@@ -322,8 +322,8 @@ impl ObservationOptions {
             }
         }
         for theory in [
-            &definition.function_theory,
-            &definition.simplification_theory,
+            definition.function_theory(),
+            definition.simplification_theory(),
             &definition.ceil_theory,
         ] {
             for priorities in theory.values() {
@@ -563,7 +563,7 @@ fn evaluation_class(definition: &BackendDefinition, rule_id: &str) -> Evaluation
     if rule_id.starts_with("builtin:") {
         return EvaluationClass::Builtin;
     }
-    if theory_contains_rule(&definition.function_theory, rule_id) {
+    if theory_contains_rule(definition.function_theory(), rule_id) {
         EvaluationClass::FunctionEquation
     } else {
         EvaluationClass::Simplification
@@ -572,8 +572,8 @@ fn evaluation_class(definition: &BackendDefinition, rule_id: &str) -> Evaluation
 
 fn equation_label(definition: &BackendDefinition, rule_id: &str) -> Option<String> {
     [
-        &definition.function_theory,
-        &definition.simplification_theory,
+        definition.function_theory(),
+        definition.simplification_theory(),
     ]
     .into_iter()
     .flat_map(|theory| theory.values())

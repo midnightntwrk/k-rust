@@ -714,8 +714,8 @@ fn smt_lemmas(definition: &BackendDefinition) -> Vec<&RewriteRule> {
             .flatten()
             .map(AsRef::as_ref)
     }
-    theory_rules(&definition.function_theory)
-        .chain(theory_rules(&definition.simplification_theory))
+    theory_rules(definition.function_theory())
+        .chain(theory_rules(definition.simplification_theory()))
         .filter(|rule| rule.attributes.smt_lemma)
         .collect()
 }

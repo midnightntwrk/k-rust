@@ -795,7 +795,7 @@ impl Term {
     /// exceptions: a simplification axiom whose left-hand side is an `\and` of term patterns
     /// (filed in the predicate theory, so the term simplifier never tries it), and a term-theory
     /// entry indexed `TermIndex::And`. A definition holding either gives no mark at all
-    /// (`BackendDefinition::equation_selection_is_complete_for_applications`, checked by
+    /// (`BackendDefinition::equation_selection_complete`, checked by
     /// `simplify_root` before it sets the bit). So "no offered equation matched" means "no
     /// equation of the definition matched". A budget stop or an unsupported hook leaves a child
     /// or the root unmarked. Structural distinctness reads the bit as "normal form".

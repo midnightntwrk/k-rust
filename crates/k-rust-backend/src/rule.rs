@@ -3031,7 +3031,7 @@ mod tests {
         )
         .expect("a simplification equation may have a top RHS");
         let rule = definition
-            .simplification_theory
+            .simplification_theory()
             .values()
             .flat_map(|groups| groups.values())
             .flatten()

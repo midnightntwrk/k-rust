@@ -1634,7 +1634,7 @@ fn apply_predicate_theory(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Option<Predicate>, SimplificationError> {
-    for rules in definition.predicate_simplification_theory.values() {
+    for rules in definition.predicate_simplification_theory().values() {
         match scan_group(rules, |rule| {
             apply_predicate_equation(
                 definition,
@@ -2770,7 +2770,7 @@ fn matches_top_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Option<(String, Vec<Predicate>)>, SimplificationError> {
-    for rules in applicable_groups(&definition.simplification_theory, &term_index(term)).values() {
+    for rules in applicable_groups(definition.simplification_theory(), &term_index(term)).values() {
         for rule in rules {
             if !matches!(rule.rhs, RuleRhs::Top) {
                 continue;
@@ -3156,7 +3156,7 @@ fn simplify_root(
     };
     let function_scan = match apply_theory(
         definition,
-        (&definition.function_theory, IndeterminateEquation::Block),
+        (definition.function_theory(), IndeterminateEquation::Block),
         term,
         known_predicates,
         options,
@@ -3176,7 +3176,7 @@ fn simplify_root(
     let simplification_scan = match apply_theory(
         definition,
         (
-            &definition.simplification_theory,
+            definition.simplification_theory(),
             IndeterminateEquation::Continue,
         ),
         term,
@@ -3215,8 +3215,8 @@ fn simplify_root(
             .all(|argument| argument.attributes().constructor_like)
         {
             let index = term_index(term);
-            let has_equations = definition.function_theory.contains_key(&index)
-                || definition.simplification_theory.contains_key(&index);
+            let has_equations = definition.function_theory().contains_key(&index)
+                || definition.simplification_theory().contains_key(&index);
             let reason = match unsupported {
                 Some(UnsupportedHookReason::NotImplemented) if has_equations => None,
                 Some(reason) => Some(reason),
@@ -3354,7 +3354,7 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
             .iter()
             .all(|argument| argument.attributes().evaluated)
         && (symbol.attributes.anywhere || definition.overloads.is_overloaded(&symbol.name))
-        && definition.equation_selection_is_complete_for_applications()
+        && definition.equation_selection_complete().is_some()
 }
 
 fn apply_theory(
