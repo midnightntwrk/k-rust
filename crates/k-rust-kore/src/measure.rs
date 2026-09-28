@@ -8,8 +8,7 @@
 //! Cargo feature, [`add`] and [`bump`] are empty inline functions and [`snapshot`] returns zeros;
 //! nothing is read from the environment and no output changes. With the feature, the counters are
 //! thread-local: `cargo test` runs tests on several threads and a test must not see another test's
-//! increments. The `krust` binary does its work on the main thread, so the main thread's counters
-//! are the whole process for the one-shot subcommands.
+//! increments. Executable workers explicitly merge their final snapshots into process totals.
 //!
 //! Tests take a [`snapshot`] before and after the code under test and assert on
 //! [`Snapshot::delta`], so no test depends on the counters being zero when it starts. [`reset`]
@@ -630,7 +629,16 @@ pub fn bump(counter: Counter) {
     add(counter, 1);
 }
 
-pub use imp::{add, reset, snapshot};
+pub use imp::{add, merge_current_thread, process_snapshot, reset, snapshot};
+
+/// Publish a worker's counters when it returns or unwinds.
+pub struct MergeOnDrop;
+
+impl Drop for MergeOnDrop {
+    fn drop(&mut self) {
+        merge_current_thread();
+    }
+}
 
 /// Run a debug-only validation without charging its implementation work to compiler counters.
 ///
@@ -644,8 +652,12 @@ pub fn without_counting<T>(work: impl FnOnce() -> T) -> T {
 #[cfg(feature = "measure")]
 mod imp {
     use std::cell::Cell;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{Counter, Snapshot};
+
+    static PROCESS_TOTALS: [AtomicU64; Counter::COUNT] =
+        [const { AtomicU64::new(0) }; Counter::COUNT];
 
     thread_local! {
         static COUNTERS: [Cell<u64>; Counter::COUNT] =
@@ -705,6 +717,24 @@ mod imp {
             Snapshot(values)
         })
     }
+
+    /// Publish one finished worker's counters before its thread exits.
+    pub fn merge_current_thread() {
+        let values = snapshot();
+        for (total, value) in PROCESS_TOTALS.iter().zip(values.0) {
+            total.fetch_add(value, Ordering::Relaxed);
+        }
+        reset();
+    }
+
+    /// Main-thread counters plus all published workers.
+    pub fn process_snapshot() -> Snapshot {
+        let mut result = snapshot();
+        for (value, total) in result.0.iter_mut().zip(&PROCESS_TOTALS) {
+            *value = value.wrapping_add(total.load(Ordering::Relaxed));
+        }
+        result
+    }
 }
 
 #[cfg(not(feature = "measure"))]
@@ -726,6 +756,14 @@ mod imp {
     /// Counting is compiled out without the `measure` feature; every counter reads as zero.
     #[inline(always)]
     pub fn snapshot() -> Snapshot {
+        Snapshot::default()
+    }
+
+    #[inline(always)]
+    pub fn merge_current_thread() {}
+
+    #[inline(always)]
+    pub fn process_snapshot() -> Snapshot {
         Snapshot::default()
     }
 }

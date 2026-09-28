@@ -20,6 +20,7 @@ clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
 k-rust-backend.workspace = true
 k-rust-kore.workspace = true
+libc = { version = "0.2", optional = true }
 indexmap.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
@@ -60,7 +61,7 @@ cli = [
   "mpfr-folding",
   "z3-inference",
 ]
-measure = ["k-rust-kore/measure", "k-rust-backend/measure"]
+measure = ["k-rust-kore/measure", "k-rust-backend/measure", "dep:libc"]
 mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]
 z3-inference-gh-release = [

@@ -55,6 +55,15 @@ const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
 const REQUEST_PENDING: u8 = 0;
 const REQUEST_CANCELLED: u8 = 1;
 const REQUEST_COMPLETED: u8 = 2;
+
+#[cfg(all(feature = "measure", unix))]
+static SHUTDOWN_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(all(feature = "measure", unix))]
+extern "C" fn request_shutdown(_: libc::c_int) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
 /// A connection's session ends when its reader stops (end of stream or a read error); its
 /// requests are then cancelled. A peer that vanishes without closing (crash, lost network)
 /// produces neither until the operating system gives up on it, so accepted sockets carry two
@@ -1722,17 +1731,58 @@ pub(super) fn serve(backend: Backend, address: impl ToSocketAddrs) -> Result<(),
     let listener = TcpListener::bind(address)?;
     eprintln!("KORE JSON-RPC listening on {}", listener.local_addr()?);
     let service = Arc::new(Mutex::new(RpcService::with_backend(backend)));
+    #[cfg(feature = "measure")]
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    #[cfg(all(feature = "measure", unix))]
+    {
+        // The handler only sets a flag. A local wake-up connection after SIGTERM releases accept;
+        // finished sessions are joined before main writes the process counter dump.
+        unsafe {
+            libc::signal(
+                libc::SIGTERM,
+                request_shutdown as *const () as libc::sighandler_t,
+            );
+            libc::signal(
+                libc::SIGINT,
+                request_shutdown as *const () as libc::sighandler_t,
+            );
+        }
+    }
+    #[cfg(all(feature = "measure", unix))]
+    let mut workers = Vec::new();
     for connection in listener.incoming() {
+        #[cfg(all(feature = "measure", unix))]
+        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            break;
+        }
         let stream = connection?;
         let service = Arc::clone(&service);
-        thread::Builder::new()
+        #[cfg(feature = "measure")]
+        let dispatch = dispatch.clone();
+        let worker = thread::Builder::new()
             .name("krust-kore-rpc".into())
             .stack_size(CONNECTION_STACK_SIZE)
             .spawn(move || {
+                #[cfg(feature = "measure")]
+                let _merge = k_rust_kore::measure::MergeOnDrop;
+                #[cfg(feature = "measure")]
+                let _default = tracing::dispatcher::set_default(&dispatch);
                 if let Err(error) = serve_connection(stream, service) {
                     eprintln!("KORE JSON-RPC connection failed: {error}");
                 }
             })?;
+        #[cfg(all(feature = "measure", unix))]
+        workers.push(worker);
+        #[cfg(not(all(feature = "measure", unix)))]
+        drop(worker);
+    }
+    // Only the measured Unix server returns on a signal. Wait for those sessions so their
+    // MergeOnDrop counters are present before the process dump; ordinary serving never exits.
+    #[cfg(all(feature = "measure", unix))]
+    for worker in workers {
+        worker
+            .join()
+            .map_err(|_| io::Error::other("KORE JSON-RPC connection panicked"))?;
     }
     Ok(())
 }
@@ -1744,6 +1794,8 @@ fn serve_connection(
     stream: TcpStream,
     service: Arc<Mutex<RpcService>>,
 ) -> Result<(), Box<dyn Error>> {
+    #[cfg(feature = "measure")]
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
     enable_keepalive(&stream)?;
     let mut reader = stream.try_clone()?;
     let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
@@ -1755,6 +1807,10 @@ fn serve_connection(
         .name("krust-kore-rpc-worker".into())
         .stack_size(CONNECTION_STACK_SIZE)
         .spawn(move || -> io::Result<()> {
+            #[cfg(feature = "measure")]
+            let _merge = k_rust_kore::measure::MergeOnDrop;
+            #[cfg(feature = "measure")]
+            let _default = tracing::dispatcher::set_default(&dispatch);
             for (line, control) in receiver {
                 // A request cancelled before it runs (its session ended while it was queued, or
                 // while this worker waited for another connection's request) is not run.

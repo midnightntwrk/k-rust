@@ -194,7 +194,7 @@ fn write_counters_if_requested() {
         "{{\n  \"format\": \"krust-counters\",\n  \"version\": {},\n  \"counters\": {{\n",
         k_rust_kore::measure::COUNTER_SCHEMA_VERSION
     );
-    let snapshot = k_rust_kore::measure::snapshot();
+    let snapshot = k_rust_kore::measure::process_snapshot();
     let mut counters = snapshot.iter().peekable();
     while let Some((name, value)) = counters.next() {
         let separator = if counters.peek().is_some() { "," } else { "" };
@@ -214,16 +214,56 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
         Command::Kcompile(options) => kcompile(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Kast(options) => kast(options.into()).map(|()| ExitCode::SUCCESS),
         Command::Krun(options) => krun(options.into()),
-        Command::KoreExec(options) => kore_exec(options),
-        Command::KoreSimplify(options) => kore_simplify(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreExec(options) => run_kore_measured(
+            "kore-exec",
+            options.timings.clone(),
+            options.trace_aggregate.clone(),
+            move || kore_exec(options),
+        ),
+        Command::KoreSimplify(options) => run_kore_measured(
+            "kore-simplify",
+            options.timings.clone(),
+            options.trace_aggregate.clone(),
+            move || kore_simplify(options).map(|()| ExitCode::SUCCESS),
+        ),
         Command::KoreGetModel(options) => kore_get_model(options).map(|()| ExitCode::SUCCESS),
-        Command::KoreImplies(options) => kore_implies(options).map(|()| ExitCode::SUCCESS),
-        Command::KoreRpc(options) => kore_rpc(options).map(|()| ExitCode::SUCCESS),
+        Command::KoreImplies(options) => run_kore_measured(
+            "kore-implies",
+            options.timings.clone(),
+            options.trace_aggregate.clone(),
+            move || kore_implies(options).map(|()| ExitCode::SUCCESS),
+        ),
+        Command::KoreRpc(options) => run_kore_measured(
+            "kore-rpc",
+            options.timings.clone(),
+            options.trace_aggregate.clone(),
+            move || kore_rpc(options).map(|()| ExitCode::SUCCESS),
+        ),
         Command::KoreMatchDisjunction(options) => {
             kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
     }
+}
+
+fn run_kore_measured<T>(
+    name: &'static str,
+    timings: Option<PathBuf>,
+    trace_aggregate: Option<PathBuf>,
+    work: impl FnOnce() -> Result<T, Box<dyn Error>>,
+) -> Result<T, Box<dyn Error>> {
+    let _trace = start_trace(None, trace_aggregate.as_deref())?;
+    let started = Instant::now();
+    let result = work();
+    if let Some(path) = timings {
+        let timing = serde_json::json!({
+            "version": TIMINGS_SCHEMA_VERSION,
+            "total_wall_seconds": started.elapsed().as_secs_f64(),
+            "phases": [{"name": name, "seconds": started.elapsed().as_secs_f64(), "depth": 0}],
+        });
+        fs::write(path, serde_json::to_string_pretty(&timing)?)?;
+    }
+    result
 }
 
 #[derive(Debug, Parser)]
@@ -672,6 +712,10 @@ struct KrunArgs {
 
 #[derive(Debug, Args)]
 struct KoreExecArgs {
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
     /// Compiled textual KORE definition.
     #[arg(value_name = "DEFINITION_KORE")]
     definition: PathBuf,
@@ -736,6 +780,10 @@ struct KoreExecArgs {
 
 #[derive(Debug, Args)]
 struct KoreSimplifyArgs {
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
     /// Compiled textual KORE definition.
     #[arg(value_name = "DEFINITION_KORE")]
     definition: PathBuf,
@@ -780,6 +828,10 @@ struct KoreGetModelArgs {
 
 #[derive(Debug, Args)]
 struct KoreImpliesArgs {
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
     /// Compiled textual KORE definition.
     #[arg(value_name = "DEFINITION_KORE")]
     definition: PathBuf,
@@ -806,6 +858,10 @@ struct KoreImpliesArgs {
 
 #[derive(Debug, Args)]
 struct KoreRpcArgs {
+    #[arg(long, value_name = "FILE")]
+    timings: Option<PathBuf>,
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
     /// Compiled textual KORE definition.
     #[arg(value_name = "DEFINITION_KORE")]
     definition: PathBuf,
@@ -2837,10 +2893,22 @@ fn kore_implies(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     // Real compiled configurations can contain patterns hundreds of nodes deep. Keep the entire
     // decode/verify/drop lifecycle on a suitably sized stack instead of overflowing the platform's
     // relatively small main-thread stack.
+    #[cfg(feature = "measure")]
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
     let worker = std::thread::Builder::new()
         .name("krust-kore-implies".into())
         .stack_size(64 * 1024 * 1024)
-        .spawn(move || kore_implies_inner(options).map_err(|error| error.to_string()))?;
+        .spawn(move || {
+            #[cfg(feature = "measure")]
+            let _merge = k_rust_kore::measure::MergeOnDrop;
+            #[cfg(feature = "measure")]
+            let result = tracing::dispatcher::with_default(&dispatch, || {
+                kore_implies_inner(options).map_err(|error| error.to_string())
+            });
+            #[cfg(not(feature = "measure"))]
+            let result = kore_implies_inner(options).map_err(|error| error.to_string());
+            result
+        })?;
     match worker.join() {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => Err(io::Error::other(error).into()),

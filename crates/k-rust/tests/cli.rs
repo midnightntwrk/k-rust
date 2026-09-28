@@ -7060,6 +7060,7 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
             .arg(root.join(format!("{antecedent}.kore")))
             .arg("--consequent")
             .arg(root.join(format!("{consequent}.kore")))
+            .env("KRUST_COUNTERS", root.join("implies-counters.json"))
             .output()
             .unwrap();
         assert!(
@@ -7072,6 +7073,13 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
             output["status"], status,
             "{antecedent} => {consequent}: {output:#}"
         );
+        #[cfg(feature = "measure")]
+        if antecedent == "ant0" && consequent == "con0" {
+            let counters: serde_json::Value =
+                serde_json::from_slice(&fs::read(root.join("implies-counters.json")).unwrap())
+                    .unwrap();
+            assert!(counters["counters"]["smt.queries"].as_u64().unwrap() > 0);
+        }
         match predicate {
             Some(predicate) => assert_eq!(
                 output["condition"]["predicate"]["term"]["tag"], predicate,
