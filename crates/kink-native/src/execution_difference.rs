@@ -11,6 +11,7 @@ use k_rust_backend::matching::SortGraph;
 use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::Substitution;
+use k_rust_backend::term::names::VariableProvenance;
 use k_rust_backend::term::{Name, Sort, Symbol, Term, TermKind, Variable, VariableKind};
 use k_rust_backend::unification::{UnificationResult, unify_term_pairs};
 
@@ -193,15 +194,18 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 ///
 /// **Rule.** If the signature projections differ, the result is `SignatureDiffers`. Every
 /// state is generalized, scoped per side, leaf and position: free constructors, injections and
-/// domain values are kept; *stable* variables are kept; every other element variable is renamed
-/// apart consistently within the scope; every other subterm (a non-free application, a set
-/// variable, a collection, a conjunction) becomes a fresh wildcard variable of its sort. The
-/// stable variables are the free variables of `initial` when neither side has existential
-/// rewrite variables and every one of them internalizes to an element variable of an inhabited
-/// sort whose name contains no `!` (k-rust mints fresh names `base!N`), and none otherwise. A
-/// leaf's predicate conjuncts (its `pc`, from the leaf state) are kept apart and never
-/// generalized. A covering-side path `q` excludes a witness path `p` by the first of:
-/// `Vacuous` (`q` halts Vacuous or is Unsat), `Length` (on positions `states.len() - 1`: `q`
+/// domain values are kept; *stable* variables are kept; every other element variable whose
+/// name identifies one variable (`identifies_one_variable`: the states are decoded from
+/// k-rust's externalized KORE, whose variable names are not injective) is renamed apart
+/// consistently within the scope; every other subterm (a variable with any other name, a
+/// non-free application, a set variable, a collection, a conjunction) becomes a fresh wildcard
+/// variable of its sort, one per occurrence. The stable variables are the free variables of
+/// `initial` when neither side has existential rewrite variables and every one of them
+/// internalizes to an element variable of an inhabited sort whose name identifies one
+/// variable, and none otherwise. A leaf's predicate conjuncts (its `pc`, from the leaf state)
+/// are kept apart and never generalized. A covering-side path `q` excludes a witness path `p`
+/// by the first of: `Vacuous` (`q` halts Vacuous, or is Unsat and every variable name of its
+/// leaf state identifies one variable), `Length` (on positions `states.len() - 1`: `q`
 /// terminal and shorter, or `p` terminal and `q` longer), `Clash` (a clash that
 /// `proves_clash` certifies in the joint unification of the generalized states at every
 /// common position) and `Disjoint` (both pcs non-empty, a non-empty stable set, only stable
@@ -219,23 +223,30 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 /// definitions execute in k-rust, a witness-side state sequence that no covering-side sequence
 /// equals.
 ///
-/// **Proof.** The witness `p` is feasible, so some θ satisfies its pc; let σ be θ restricted to
-/// the variables of `initial`. k-rust keeps every condition it relied on in the leaf predicate,
-/// so θ follows `p`: σ has a witness-side sequence `S` whose states `0..=n_p` are instances of
-/// `p`'s states, ending there if `p` is terminal. If the covering side had a σ-sequence
+/// **Proof.** Decoding is sound for the witness: its decoded states and pc are the real ones
+/// under a merge μ of the variables that print alike (of one sort), so a θ satisfying the
+/// decoded pc gives θ∘μ satisfying the real one. The witness `p` is feasible, so some θ
+/// satisfies its pc; let σ be θ restricted to the variables of `initial`. k-rust keeps every
+/// condition it relied on in the leaf predicate, so θ∘μ follows `p`: σ has a witness-side
+/// sequence `S` whose states `0..=n_p` are instances of `p`'s states, ending there if `p` is
+/// terminal. If the covering side had a σ-sequence
 /// `S' = S`, then, because strategy `all` with PathSet leaves covers the initial state and the
 /// covering condition excludes breadth bounds, cancellation and errors, `S'` follows some
 /// covering path `q` under a θ' that agrees with σ on the initial variables. Each exclusion
-/// contradicts `S' = S`. `Vacuous`: `q` has no instance. `Length`: a Stuck or Trivial leaf has
+/// contradicts `S' = S`. `Vacuous`: `q` has no instance (a merge can make a feasible pc Unsat,
+/// so Unsat counts only when every name of the leaf state identifies one variable, and then
+/// the decoded pc is the real one up to renaming). `Length`: a Stuck or Trivial leaf has
 /// no defined successor, so the lengths differ. `Clash`: equal states at every common position
 /// would be a common solution of the generalized equations (each wildcard or renamed variable
-/// taking the value it hides, each stable variable its one value along the path, since k-rust
-/// never re-mints a name without `!` that occurs in the initial state), and a certified clash
-/// has none in K's free-constructor algebra, which means the same on both sides because the
-/// projections are equal. `Disjoint`: σ satisfies both pcs because they mention only stable
-/// variables, their symbols mean the same in both definitions, and the translation is exact,
-/// so the solver's `Unsat` contradicts σ. Every covering path is excluded, so no
-/// covering-side sequence from σ equals `S`.
+/// taking the value it hides, which holds because a consistently renamed name stands for one
+/// variable and every other variable is renamed per occurrence; each stable variable its one
+/// value along the path, because k-rust mints every new variable with a `!` counter or a
+/// marker, and so never re-binds an initial name, and no other variable prints as a stable
+/// name), and a certified clash has none in K's free-constructor algebra, which means the
+/// same on both sides because the projections are equal. `Disjoint`: σ satisfies both pcs
+/// because they mention only stable variables, their symbols mean the same in both
+/// definitions, and the translation is exact, so the solver's `Unsat` contradicts σ. Every
+/// covering path is excluded, so no covering-side sequence from σ equals `S`.
 ///
 /// Positions count Rewrite transitions, so a Stuck and a Trivial leaf at the same state have
 /// the same length: the certificate never separates a Stuck end from an undefined step
@@ -247,8 +258,11 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 /// a `Disjoint` query asserts. A mutant-side witness's feasibility is decided under that side's
 /// supported lemmas only; on a patched ground run, lemmas the mutant inserted are trusted in
 /// that side's normal forms, and a lemma headed by a constructor, which contradicts freeness, is
-/// not seen by `Clash` (the state oracle has the same trust). The sequences' branch check
-/// relies on k-rust running one request deterministically, and fails closed if it does not.
+/// not seen by `Clash` (the state oracle has the same trust). A covering leaf's `Unsat` is
+/// decided by the backend of the side that ran it, under that side's supported lemmas: a
+/// `Vacuous` exclusion of a mutant-side leaf trusts the mutant's lemmas as that side's `Vacuous`
+/// halts and its feasibility already do. The sequences' branch check relies on k-rust running
+/// one request deterministically, and fails closed if it does not.
 ///
 /// A failure never proves anything: every failure is `NotProved`, which can only turn a
 /// pattern-slot `Distinguish` into `Unknown`.
@@ -319,7 +333,7 @@ impl<'a> Prover<'a> {
                         Ok(TermKind::Variable(internal))
                             if internal.kind == VariableKind::Element
                                 && inhabitation.contains(&internal.sort)
-                                && !internal.name.contains('!') =>
+                                && identifies_one_variable(&internal.name) =>
                         {
                             Some(internal.clone())
                         }
@@ -415,7 +429,15 @@ impl<'a> Prover<'a> {
     /// Vacuous, Length, Clash, Disjoint.
     fn excludes(&self, other: &Leaf<'_>, witness: &Leaf<'_>) -> Option<Exclusion> {
         let (p, q) = (witness.sequence, other.sequence);
-        if q.halt == HaltClass::Vacuous || q.feasibility == LeafFeasibility::Unsat {
+        if q.halt == HaltClass::Vacuous
+            || (q.feasibility == LeafFeasibility::Unsat
+                && q.states.last().is_some_and(|state| {
+                    state
+                        .variables()
+                        .iter()
+                        .all(|variable| identifies_one_variable(&variable.name))
+                }))
+        {
             return Some(Exclusion::Vacuous);
         }
         let (n_p, n_q) = (witness.positions?, other.positions?);
@@ -475,7 +497,10 @@ impl Scope<'_> {
             {
                 term.clone()
             }
-            TermKind::Variable(variable) if variable.kind == VariableKind::Element => {
+            TermKind::Variable(variable)
+                if variable.kind == VariableKind::Element
+                    && identifies_one_variable(&variable.name) =>
+            {
                 let renamed = match self.renamed.get(variable) {
                     Some(renamed) => renamed.clone(),
                     None => {
@@ -512,6 +537,29 @@ impl Scope<'_> {
             | TermKind::Set { .. } => Term::variable(self.fresh(term.sort())),
         }
     }
+}
+
+/// Whether `name`, read in a decoded (externalized) state, can only be the external name of the
+/// backend variable of that very name (README 6.2).
+///
+/// k-rust's `external_variable_name` prints a provenance marker `Rule#`, `Ex#` or `Eq#` without
+/// its `#`, appends a fresh counter `!N` as the bare digits `N`, and writes every other
+/// character outside `[a-zA-Z0-9'-]` as an apostrophe-delimited word; it is not injective
+/// (`Ex#VarI1!0` and `Ex#VarI!10` both print as `ExVarI10`, and `Ex#VarI!0` prints as the
+/// user name `ExVarI0`). A non-empty name of letters, digits and `-` that ends in no digit and
+/// starts with none of `Rule`, `Ex` and `Eq` is printed only by the variable of the same name:
+/// a marked name prints with the marker's letters first, a counted name ends in a digit, and a
+/// name with any other character prints with an apostrophe. Any other name may stand for
+/// several backend variables.
+fn identifies_one_variable(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        && !name.ends_with(|character: char| character.is_ascii_digit())
+        && !VariableProvenance::ALL
+            .iter()
+            .any(|provenance| name.starts_with(provenance.external_prefix()))
 }
 
 /// Every term of `predicate` is built from hooked symbols, free constructors, injections,

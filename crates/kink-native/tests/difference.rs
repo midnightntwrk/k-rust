@@ -147,6 +147,21 @@ impl Side {
         )
     }
 
+    /// The baseline of `file` (module named after it) with no observed rule.
+    fn unobserved(file: &str) -> Self {
+        let validator = NativeValidator::bind(support::load(file), CompileOptions::default());
+        let side = validator.compile_baseline().expect("baseline compiles");
+        let manifest = validator
+            .observation_manifest(&side, &[])
+            .expect("manifest");
+        let module = file.strip_suffix(".k").expect("a .k file").to_uppercase();
+        Self {
+            adapter: ExecutionAdapter::with_profile(manifest, PROFILE),
+            backend: Backend::new(&side.artifacts().definition_kore, &module, BACKEND_OPTIONS)
+                .expect("backend"),
+        }
+    }
+
     fn facts(&mut self) -> DefinitionFacts {
         definition_facts(&mut self.backend).expect("facts")
     }
@@ -679,14 +694,16 @@ fn values_clash_and_function_residues_do_not() {
 
 /// d9 and d10: a stable variable denotes one value along the path. `addr(X)` against
 /// `addr(1)` is no clash; `X` against `1` at one position and against `2` at the next is,
-/// but only while `X` is stable: with existential rules on either side, or a `!` in its
-/// name, `X` is renamed per position and the difference is not proved.
+/// but only while `X` is stable: with existential rules on either side, or a name that a
+/// backend-minted variable could also print as, `X` is renamed per position and the
+/// difference is not proved. k-rust externalizes `Ex#VarX!0` as `ExVarX0`, `X!0` as `X0`,
+/// `Rule#X` as `RuleX`, `Eq#X` as `EqX` and `X!apart1` as `X'Bang'apart1` (EI-02b).
 #[test]
 fn stable_variables_carry_differences_across_positions() {
     let mut backend = guardedmem_backend();
     let int = support::int;
     let loaded = |address: Pattern| state(seq(load(addr(address), int(7)), halt()));
-    for name in ["X", "X!1"] {
+    for name in ["X", "ExVarX0", "X0", "RuleX", "EqX", "X'Bang'apart1"] {
         let x = || integer(name);
         let initial = state(seq(
             load(addr(x()), int(7)),
@@ -722,7 +739,8 @@ fn stable_variables_carry_differences_across_positions() {
 }
 
 /// d12: a Vacuous leaf and an Unsat leaf of the covering side have no instance and are
-/// excluded by `Vacuous`, whatever their states; neither is ever a witness.
+/// excluded by `Vacuous`; neither is ever a witness. The Unsat leaf's states are ground, so
+/// no ambiguous name can have made it Unsat (EI-02b).
 #[test]
 fn vacuous_and_unsat_leaves_are_excluded() {
     let mut backend = symmem_backend();
@@ -780,4 +798,149 @@ fn uninternalizable_states_fail_closed() {
         proved(CertifiedSide::Mutant, &[Length]),
         "Length needs no internalization"
     );
+}
+
+// ------------------------------------------------------------------ externalized names (EI-02b)
+
+/// `check(a); check2(b); go(X); done` over conflate.k: `check` continues when `a <=Int 0`,
+/// `check2` when `b >Int 0`, and the baseline's `go` narrows `X:Box` to `c(I)` with a fresh
+/// `I`, split on its sign.
+fn conflate_program(a: &str, b: &str) -> Pattern {
+    let op = |name: &str, argument: Pattern| app(name, vec![argument]);
+    state(seq(
+        op("Lblcheck", integer(a)),
+        seq(
+            op("Lblcheck2", integer(b)),
+            seq(
+                op("Lblgo", support::var("X", "SortBox")),
+                app("Lbldone", vec![]),
+            ),
+        ),
+    ))
+}
+
+/// EI-02b review regression. conflatem.k merges the baseline's guard-split `go` rules into
+/// one unguarded rule, so the two definitions execute identically on every ground instance.
+/// k-rust prints the fresh `Ex#VarI!0` of the baseline's narrowing as `ExVarI0`: with the
+/// initial variables named `ExVarI0` and `ExVarI1`, the decoded leaves conflate the fresh `I`
+/// with an initial variable, and their feasibility becomes Unsat under Z3 although the paths
+/// are feasible. Such a leaf is not Vacuous and such a name is not stable, so neither naming
+/// proves anything, in either profile.
+#[test]
+fn externalized_fresh_names_do_not_conflate_paths() {
+    let mut baseline = Side::unobserved("conflate.k");
+    let mut mutant = Side::unobserved("conflatem.k");
+    let (baseline_facts, mutant_facts) = (baseline.facts(), mutant.facts());
+    assert_eq!(
+        baseline_facts, mutant_facts,
+        "the merge changes no signature"
+    );
+    for (a, b) in [("A", "B"), ("ExVarI0", "ExVarI1")] {
+        let program = conflate_program(a, b);
+        let baseline_sequences = baseline.sequences(&program);
+        let mutant_sequences = mutant.sequences(&program);
+        let unsat = baseline_sequences
+            .leaves
+            .iter()
+            .map(|leaf| leaf.feasibility == LeafFeasibility::Unsat)
+            .collect::<Vec<_>>();
+        // Z3: the baseline narrows into five leaves and the mutant has three; the renamed
+        // program's two `go` leaves are the conflated Unsat ones. No-Z3: one Indeterminate
+        // leaf per side.
+        let expected_unsat = match (cfg!(feature = "z3"), a) {
+            (true, "A") => vec![false; 5],
+            (true, _) => vec![true, true, false, false, false],
+            (false, _) => vec![false],
+        };
+        assert_eq!(
+            unsat, expected_unsat,
+            "baseline Unsat leaves, names {a}, {b}"
+        );
+        assert_eq!(
+            mutant_sequences.leaves.len(),
+            if cfg!(feature = "z3") { 3 } else { 1 },
+            "mutant leaves, names {a}, {b}"
+        );
+        assert_eq!(
+            certify_difference(
+                &mut baseline.backend,
+                &program,
+                &baseline_facts,
+                &mutant_facts,
+                &baseline_sequences,
+                &mutant_sequences,
+            ),
+            NotProved(NoWitness),
+            "initial names {a}, {b}"
+        );
+    }
+}
+
+/// EI-02b: k-rust's external names are not injective (`Ex#VarI1!0` and `Ex#VarI!10` both
+/// print as `ExVarI10`), so two occurrences of such a name in one decoded state may be two
+/// variables. They are renamed apart per occurrence: `write(addr(N), N)` against
+/// `write(addr(z), s(z))` clashes only when `N` names one variable.
+#[test]
+fn ambiguous_names_are_renamed_per_occurrence() {
+    let mut backend = symmem_backend();
+    let initial = state(seq(write(addr(z()), z()), halt()));
+    let witness = leaves(vec![leaf(
+        HaltClass::Stuck,
+        &[
+            initial.clone(),
+            state(seq(write(addr(z()), s(z())), halt())),
+        ],
+    )]);
+    for (name, expected) in [
+        ("N", proved(CertifiedSide::Mutant, &[Clash])),
+        ("ExVarI10", NotProved(NoWitness)),
+        ("N10", NotProved(NoWitness)),
+    ] {
+        let covering = leaves(vec![leaf(
+            HaltClass::Stuck,
+            &[
+                initial.clone(),
+                state(seq(write(addr(nat(name)), nat(name)), halt())),
+            ],
+        )]);
+        assert_eq!(
+            synthetic(&mut backend, &initial, [false; 2], &covering, &witness),
+            expected,
+            "{name}"
+        );
+    }
+}
+
+/// EI-02b: a leaf's feasibility is decided on its decoded state, where one printed name may
+/// stand for several variables, so Unsat proves that the leaf has no instance only when every
+/// name of that state identifies one variable. Otherwise the leaf is not Vacuous.
+#[test]
+fn unsat_is_vacuous_only_on_identifying_names() {
+    let mut backend = symmem_backend();
+    let initial = state(seq(write(addr(z()), z()), halt()));
+    let witness = leaves(vec![leaf(
+        HaltClass::Stuck,
+        &[initial.clone(), state(seq(write(addr(z()), z()), halt()))],
+    )]);
+    for (name, expected) in [
+        ("N", proved(CertifiedSide::Mutant, &[Vacuous])),
+        ("ExVarI10", NotProved(NoWitness)),
+        ("N10", NotProved(NoWitness)),
+    ] {
+        let covering = leaves(vec![StateSequence {
+            feasibility: LeafFeasibility::Unsat,
+            ..leaf(
+                HaltClass::Stuck,
+                &[
+                    initial.clone(),
+                    state(seq(write(addr(nat(name)), z()), halt())),
+                ],
+            )
+        }]);
+        assert_eq!(
+            synthetic(&mut backend, &initial, [false; 2], &covering, &witness),
+            expected,
+            "{name}"
+        );
+    }
 }
