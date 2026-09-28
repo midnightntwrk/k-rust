@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 10;
+pub const COUNTER_SCHEMA_VERSION: u64 = 11;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -445,6 +445,10 @@ pub enum Counter {
     SmtQueries,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,
+    /// Allocations made by the measured executable.
+    Allocations,
+    /// Requested bytes in those allocations.
+    AllocatedBytes,
     /// Search states dropped by the per-depth visited set.
     SearchStatesDeduplicated,
     /// Proof states explored.
@@ -457,7 +461,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 59;
+    pub const COUNT: usize = 61;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -516,6 +520,8 @@ impl Counter {
         Counter::SimplifyBuiltinEvaluations,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
+        Counter::Allocations,
+        Counter::AllocatedBytes,
         Counter::SearchStatesDeduplicated,
         Counter::ProofStatesExplored,
         Counter::ProofImplicationChecks,
@@ -582,6 +588,8 @@ impl Counter {
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
+            Counter::Allocations => "allocation.count",
+            Counter::AllocatedBytes => "allocation.bytes",
             Counter::SearchStatesDeduplicated => "search.states_deduplicated",
             Counter::ProofStatesExplored => "proof.states_explored",
             Counter::ProofImplicationChecks => "proof.implication_checks",

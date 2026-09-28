@@ -253,10 +253,15 @@ endmodule
         .env("KRUST_COUNTERS", &traced_counters));
     assert_eq!(traced.stdout, baseline.stdout);
     assert_eq!(traced.stderr, baseline.stderr);
-    assert_eq!(
-        fs::read(&traced_counters).unwrap(),
-        fs::read(&baseline_counters).unwrap()
-    );
+    let normalized = |path: &Path| {
+        let mut document: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        let counters = document["counters"].as_object_mut().unwrap();
+        // The trace writer allocates while recording; the other work counters must agree.
+        counters.remove("allocation.count");
+        counters.remove("allocation.bytes");
+        document
+    };
+    assert_eq!(normalized(&traced_counters), normalized(&baseline_counters));
     assert_timing_contract_equal(&traced_timings, &baseline_timings);
 
     let phases = assert_trace_contract(&read_trace(&trace));

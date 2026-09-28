@@ -100,6 +100,54 @@ use tracing_subscriber::prelude::*;
 mod rpc;
 mod trace_aggregate;
 
+#[cfg(feature = "measure")]
+mod allocation_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    pub(super) static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
+    pub(super) static BYTES: AtomicU64 = AtomicU64::new(0);
+
+    pub(super) struct CountingAllocator;
+
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let pointer = unsafe { System.alloc(layout) };
+            if !pointer.is_null() {
+                ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+                BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+            }
+            pointer
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let pointer = unsafe { System.alloc_zeroed(layout) };
+            if !pointer.is_null() {
+                ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+                BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+            }
+            pointer
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let replacement = unsafe { System.realloc(pointer, layout, new_size) };
+            if !replacement.is_null() {
+                ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+                BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
+            }
+            replacement
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) }
+        }
+    }
+}
+
+#[cfg(feature = "measure")]
+#[global_allocator]
+static ALLOCATOR: allocation_count::CountingAllocator = allocation_count::CountingAllocator;
+
 struct TraceRecorder {
     default: Option<tracing::dispatcher::DefaultGuard>,
     flush: Option<tracing_chrome::FlushGuard>,
@@ -194,7 +242,12 @@ fn write_counters_if_requested() {
         "{{\n  \"format\": \"krust-counters\",\n  \"version\": {},\n  \"counters\": {{\n",
         k_rust_kore::measure::COUNTER_SCHEMA_VERSION
     );
-    let snapshot = k_rust_kore::measure::process_snapshot();
+    let mut snapshot = k_rust_kore::measure::process_snapshot();
+    use k_rust_kore::measure::Counter;
+    use std::sync::atomic::Ordering;
+    snapshot.0[Counter::Allocations as usize] =
+        allocation_count::ALLOCATIONS.load(Ordering::Relaxed);
+    snapshot.0[Counter::AllocatedBytes as usize] = allocation_count::BYTES.load(Ordering::Relaxed);
     let mut counters = snapshot.iter().peekable();
     while let Some((name, value)) = counters.next() {
         let separator = if counters.peek().is_some() { "," } else { "" };
