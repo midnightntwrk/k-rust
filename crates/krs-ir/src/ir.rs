@@ -46,6 +46,22 @@ impl BuiltinSort {
         Self::Set,
     ];
 
+    /// Name of the Rust marker type `k::builtin::<name>` that denotes this sort.
+    #[must_use]
+    pub const fn marker_name(self) -> &'static str {
+        match self {
+            Self::KSequence => "KSequence",
+            Self::Int => "Int",
+            Self::Bool => "Bool",
+            Self::Map => "Map",
+            Self::Id => "Id",
+            Self::Bytes => "Bytes",
+            Self::String => "String",
+            Self::List => "List",
+            Self::Set => "Set",
+        }
+    }
+
     /// Name of this sort in K source.
     #[must_use]
     pub const fn k_name(self) -> &'static str {

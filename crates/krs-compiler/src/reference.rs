@@ -1274,17 +1274,7 @@ fn render_local_path(
 }
 
 fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
-    let name = match sort {
-        BuiltinSort::KSequence => format_ident!("KSequence"),
-        BuiltinSort::Int => format_ident!("Int"),
-        BuiltinSort::Bool => format_ident!("Bool"),
-        BuiltinSort::Map => format_ident!("Map"),
-        BuiltinSort::Id => format_ident!("Id"),
-        BuiltinSort::Bytes => format_ident!("Bytes"),
-        BuiltinSort::String => format_ident!("String"),
-        BuiltinSort::List => format_ident!("List"),
-        BuiltinSort::Set => format_ident!("Set"),
-    };
+    let name = format_ident!("{}", sort.marker_name());
     quote!(k::builtin::#name)
 }
 

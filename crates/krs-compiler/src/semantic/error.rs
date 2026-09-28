@@ -1,9 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use krs_ir::{
-    BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId, StableText,
-};
+use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId};
 
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -81,7 +79,7 @@ impl fmt::Display for DescriptorLoweringError {
                 formatter,
                 "declared sort {id} has K name `{}`; use `k::builtin::{}` instead",
                 builtin.k_name(),
-                builtin.stable_text()
+                builtin.marker_name()
             ),
             Self::ConfigurationCount(count) => write!(
                 formatter,
