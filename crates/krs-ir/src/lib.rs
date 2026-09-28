@@ -22,6 +22,7 @@ pub mod json;
 pub mod measure;
 pub mod provenance;
 pub mod semantic;
+pub mod stable_text;
 pub mod state;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
@@ -74,6 +75,7 @@ pub use semantic::{
     SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
     SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
 };
+pub use stable_text::StableText;
 pub use state::{
     CellAttribute, CellCollectionType, CellColor, CellContentFrame, CellMultiplicity, CellPost,
     ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,

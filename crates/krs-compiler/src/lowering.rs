@@ -16,7 +16,7 @@ use krs_ir::{
     ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
     RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
     SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
-    SourceMapKey, StableItemId, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
+    SourceMapKey, StableItemId, StableText, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
     SyntaxSortSentence, TransformationOriginKind,
 };
 use sha2::{Digest, Sha256};
@@ -488,9 +488,9 @@ fn lower_module(
                 "subsort",
                 item,
                 Some(&format!(
-                    "{:?}<:{:?}",
-                    subsort.subsort(),
-                    subsort.supersort()
+                    "{}<:{}",
+                    subsort.subsort().stable_text(),
+                    subsort.supersort().stable_text()
                 )),
             )?,
             lower_sort_ref(subsort.subsort(), names)?,
@@ -1443,7 +1443,7 @@ fn stable_item_text(id: &StableItemId) -> String {
         push_component(&mut text, component);
     }
     push_component(&mut text, id.item_name());
-    push_component(&mut text, &format!("{:?}", id.item_kind()));
+    push_component(&mut text, &id.item_kind().stable_text());
     push_component(&mut text, id.disambiguator());
     text
 }
@@ -1458,7 +1458,7 @@ fn stable_symbol_text(id: &StableItemId, explicit: Option<&krs_ir::ExplicitSymbo
     for component in explicit.as_str().split("::") {
         push_component(&mut text, component);
     }
-    push_component(&mut text, &format!("{:?}", id.item_kind()));
+    push_component(&mut text, &id.item_kind().stable_text());
     push_component(&mut text, id.disambiguator());
     text
 }

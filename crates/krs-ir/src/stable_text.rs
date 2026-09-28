@@ -1,0 +1,175 @@
+//! Frozen spellings used by generated identities and ordering keys.
+
+use std::borrow::Cow;
+
+use crate::{
+    BuiltinSort, DefinitionSortRef, ItemKind, PackageId, SemanticSortRef, SourceMapKey,
+    StableItemId, SymbolId,
+};
+
+/// Supplies text whose spelling is part of a generated identity or order.
+pub trait StableText {
+    /// Returns the frozen spelling of this value.
+    fn stable_text(&self) -> Cow<'static, str>;
+}
+
+impl StableText for ItemKind {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Borrowed(match self {
+            Self::Sort => "Sort",
+            Self::Constructor => "Constructor",
+            Self::Grammar => "Grammar",
+            Self::Configuration => "Configuration",
+            Self::Cell => "Cell",
+            Self::Rule => "Rule",
+            Self::Equation => "Equation",
+            Self::Simplification => "Simplification",
+            Self::Alias => "Alias",
+            Self::ContextAlias => "ContextAlias",
+            Self::Claim => "Claim",
+        })
+    }
+}
+
+impl StableText for BuiltinSort {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Borrowed(match self {
+            Self::KSequence => "KSequence",
+            Self::Int => "Int",
+            Self::Bool => "Bool",
+            Self::Map => "Map",
+            Self::Id => "Id",
+            Self::Bytes => "Bytes",
+            Self::String => "String",
+            Self::List => "List",
+            Self::Set => "Set",
+        })
+    }
+}
+
+impl StableText for PackageId {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(format!(
+            "PackageId {{ k_namespace: {:?}, cargo_name: {:?}, cargo_version: {:?}, cargo_source: {:?} }}",
+            self.k_namespace(),
+            self.cargo_name(),
+            self.cargo_version(),
+            self.cargo_source()
+        ))
+    }
+}
+
+impl StableText for StableItemId {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(format!(
+            "StableItemId {{ package: {}, module_path: {:?}, item_name: {:?}, item_kind: {}, disambiguator: {:?} }}",
+            self.package().stable_text(),
+            self.module_path(),
+            self.item_name(),
+            self.item_kind().stable_text(),
+            self.disambiguator()
+        ))
+    }
+}
+
+impl StableText for SemanticSortRef {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(match self {
+            Self::Declared(id) => format!("Declared({})", id.stable_text()),
+            Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
+        })
+    }
+}
+
+impl StableText for SymbolId {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("SymbolId({:?})", self.as_str()))
+    }
+}
+
+impl StableText for DefinitionSortRef {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(match self {
+            Self::Declared(id) => format!("Declared({})", id.stable_text()),
+            Self::Builtin(sort) => format!("Builtin({})", sort.stable_text()),
+        })
+    }
+}
+
+impl StableText for SourceMapKey {
+    fn stable_text(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("SourceMapKey({:?})", self.as_str()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_kind_spellings_are_frozen() {
+        let cases = [
+            ItemKind::Sort,
+            ItemKind::Constructor,
+            ItemKind::Grammar,
+            ItemKind::Configuration,
+            ItemKind::Cell,
+            ItemKind::Rule,
+            ItemKind::Equation,
+            ItemKind::Simplification,
+            ItemKind::Alias,
+            ItemKind::ContextAlias,
+            ItemKind::Claim,
+        ];
+        for kind in cases {
+            let expected = match kind {
+                ItemKind::Sort => "Sort",
+                ItemKind::Constructor => "Constructor",
+                ItemKind::Grammar => "Grammar",
+                ItemKind::Configuration => "Configuration",
+                ItemKind::Cell => "Cell",
+                ItemKind::Rule => "Rule",
+                ItemKind::Equation => "Equation",
+                ItemKind::Simplification => "Simplification",
+                ItemKind::Alias => "Alias",
+                ItemKind::ContextAlias => "ContextAlias",
+                ItemKind::Claim => "Claim",
+            };
+            assert_eq!(kind.stable_text(), expected);
+        }
+    }
+
+    #[test]
+    fn sort_ref_spellings_are_frozen() {
+        let id = StableItemId::new(
+            PackageId::new("EXAMPLE", "example", "1.0.0", "workspace").unwrap(),
+            ["syntax"],
+            "Expr",
+            ItemKind::Sort,
+            "",
+        )
+        .unwrap();
+        let declared = SemanticSortRef::Declared(id);
+        assert_eq!(
+            declared.stable_text(),
+            "Declared(StableItemId { package: PackageId { k_namespace: \"EXAMPLE\", cargo_name: \"example\", cargo_version: \"1.0.0\", cargo_source: \"workspace\" }, module_path: [\"syntax\"], item_name: \"Expr\", item_kind: Sort, disambiguator: \"\" })"
+        );
+        assert_eq!(declared.stable_text(), format!("{declared:?}"));
+        assert_eq!(
+            SemanticSortRef::Builtin(BuiltinSort::Int).stable_text(),
+            "Builtin(Int)"
+        );
+        assert_eq!(
+            DefinitionSortRef::Declared(SymbolId::new("sortExpr").unwrap()).stable_text(),
+            "Declared(SymbolId(\"sortExpr\"))"
+        );
+        assert_eq!(
+            DefinitionSortRef::Builtin(BuiltinSort::Bool).stable_text(),
+            "Builtin(Bool)"
+        );
+        assert_eq!(
+            SourceMapKey::new("key\"suffix").unwrap().stable_text(),
+            "SourceMapKey(\"key\\\"suffix\")"
+        );
+    }
+}

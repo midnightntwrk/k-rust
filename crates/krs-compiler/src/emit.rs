@@ -10,7 +10,7 @@ use krs_ir::{
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ListOperation, MapOperation,
     ProductionAttribute, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey, StrictnessKind, SymbolId, SymbolIdentity,
+    SentenceKind, SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -2245,20 +2245,49 @@ fn sentence_group(sentence: &DefinitionSentence) -> u8 {
     }
 }
 
-fn sentence_key(sentence: &DefinitionSentence) -> (u8, String) {
-    let text = match sentence {
-        DefinitionSentence::SyntaxSort(sentence) => sentence.symbol().emitted_name().to_owned(),
-        DefinitionSentence::Subsort(sentence) => {
-            format!("{:?}:{:?}", sentence.supersort(), sentence.subsort())
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+enum SentenceOrderKey {
+    SyntaxSort(String),
+    Production(String),
+    Subsort(String),
+    Precedence(String),
+    Associativity(String),
+    Configuration(String),
+    ContextAlias(String),
+    Rule(String),
+}
+
+fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
+    match sentence {
+        DefinitionSentence::SyntaxSort(sentence) => {
+            SentenceOrderKey::SyntaxSort(sentence.symbol().emitted_name().to_owned())
         }
-        DefinitionSentence::Production(sentence) => sentence.symbol().emitted_name().to_owned(),
-        DefinitionSentence::Precedence(sentence) => format!("{sentence:?}"),
-        DefinitionSentence::Associativity(sentence) => format!("{sentence:?}"),
-        DefinitionSentence::Configuration(sentence) => format!("{:?}", sentence.origin().key()),
-        DefinitionSentence::ContextAlias(sentence) => sentence.name().to_owned(),
-        DefinitionSentence::Rule(sentence) => sentence.label().emitted_name().to_owned(),
-    };
-    (sentence_group(sentence), text)
+        DefinitionSentence::Production(sentence) => {
+            SentenceOrderKey::Production(sentence.symbol().emitted_name().to_owned())
+        }
+        DefinitionSentence::Subsort(sentence) => SentenceOrderKey::Subsort(format!(
+            "{}:{}",
+            sentence.supersort().stable_text(),
+            sentence.subsort().stable_text()
+        )),
+        // Precedence and associativity Debug text reaches the unique origin key before any other varying field.
+        // SourceMapKey stable text preserves Debug escaping for every valid key.
+        DefinitionSentence::Precedence(sentence) => {
+            SentenceOrderKey::Precedence(sentence.origin().key().stable_text().into_owned())
+        }
+        DefinitionSentence::Associativity(sentence) => {
+            SentenceOrderKey::Associativity(sentence.origin().key().stable_text().into_owned())
+        }
+        DefinitionSentence::Configuration(sentence) => {
+            SentenceOrderKey::Configuration(sentence.origin().key().stable_text().into_owned())
+        }
+        DefinitionSentence::ContextAlias(sentence) => {
+            SentenceOrderKey::ContextAlias(sentence.name().to_owned())
+        }
+        DefinitionSentence::Rule(sentence) => {
+            SentenceOrderKey::Rule(sentence.label().emitted_name().to_owned())
+        }
+    }
 }
 
 fn variable_name(variable: &SemanticId) -> String {
