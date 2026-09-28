@@ -22,7 +22,7 @@ from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E4
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
-from support.pins import load_json  # noqa: E402
+from support.pins import Ledger, load_json  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_executable, k_tool  # noqa: E402
 
@@ -450,7 +450,7 @@ def main() -> int:
     pins_path = arguments.pins.resolve(strict=True)
     workspace = arguments.workspace.resolve()
     prepare_workspace(workspace)
-    pins = load_json(pins_path)
+    pins = Ledger(pins_path)
     if pins.get("schema") != 1 or pins.get("milestone") != "IMP":
         raise GateError("proof pins are not the exact IMP schema-1 ledger")
 
@@ -464,13 +464,13 @@ def main() -> int:
     kore_exec = k_executable("kore-exec")
 
     workers = worker_count("KRS_IMP_ORACLE_WORKERS", 4)
-    cases = source_cases(pins, proofs)
+    cases = source_cases(pins.data, proofs)
     labels = pins["claim_labels"]
     reference_definition, actual_definition, actual_spec = compile_definitions(
         workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers
     )
-    reference_policy = proof_policy(pins, "reference", cases, proofs)
-    actual_policy = proof_policy(pins, "actual", cases, proofs)
+    reference_policy = proof_policy(pins.data, "reference", cases, proofs)
+    actual_policy = proof_policy(pins.data, "actual", cases, proofs)
 
     support = build_support(workspace)
     native_definition, native_specs = build_native(workspace, support, labels)

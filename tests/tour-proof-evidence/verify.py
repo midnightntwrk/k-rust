@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import re
 import sys
@@ -11,6 +10,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
+from support.pins import Ledger  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -35,8 +35,8 @@ def verify_undefined_partial() -> None:
     if len(re.findall(r"k::term!\[NonnegativeIdentity\(", source)) != 1:
         raise GateError("NonnegativeIdentity no longer has exactly one authored equation")
 
-    pins = json.loads(text("tests/imp/pins.json"))
-    outcome = pins.get("proof_outcomes", {}).get("partial-equation", {})
+    pins = Ledger(ROOT / "tests/imp/pins.json")
+    outcome = pins.table("proof_outcomes").get("partial-equation", {})
     if outcome.get("status") != "proved" or outcome.get("frontier_count") != 0:
         raise GateError("IMP's defined partial-function claim is no longer proved")
 
@@ -57,8 +57,8 @@ def verify_stuck_state() -> None:
         "if final_environment_if_complete(term) is not None:",
         'raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")',
     )
-    pins = json.loads(text("tests/imp-state/pins.json"))
-    aggregate = pins.get("rejection_sha256", {}).get("stuck_state_aggregate")
+    pins = Ledger(ROOT / "tests/imp-state/pins.json")
+    aggregate = pins.table("rejection_sha256").get("stuck_state_aggregate")
     if not isinstance(aggregate, str) or not re.fullmatch(r"[0-9a-f]{64}", aggregate):
         raise GateError("IMP state's stuck-state aggregate pin is absent")
     require_fragments(
@@ -108,8 +108,8 @@ def verify_llvm_claim_omission() -> None:
     if lock.get("backend_policy", {}).get("llvm_claims") != "omitted":
         raise GateError("Krs.lock no longer pins the LLVM claim-omission policy")
 
-    pins = json.loads(text("tests/imp/pins.json"))
-    llvm = pins.get("llvm_artifact_sha256", {})
+    pins = Ledger(ROOT / "tests/imp/pins.json")
+    llvm = pins.table("llvm_artifact_sha256")
     if set(llvm) != {".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore"} or not all(
         isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in llvm.values()
     ):
@@ -136,8 +136,8 @@ def verify_capability_matrix() -> None:
     if claims.count("#[k::exists(") != 6 or claims.count("circularity)]") != 2:
         raise GateError("IMP existential or circular claim coverage differs")
 
-    pins = json.loads(text("tests/imp/pins.json"))
-    outcomes = pins.get("proof_outcomes", {})
+    pins = Ledger(ROOT / "tests/imp/pins.json")
+    outcomes = pins.table("proof_outcomes")
     expected = {
         "addition-1": ("proved", 0),
         "branching": ("proved", 0),
@@ -156,12 +156,17 @@ def verify_capability_matrix() -> None:
 
     require_fragments(
         "tests/kwasm/verify.py",
-        "semantics.reference_definition(",
-        'semantics.reference_proof(PORT, definition, spec, k["kprove"])',
-        '"1 reference proof deferred to --java-reference"',
+        "claim_count=1,",
+        "observed=native.observed,",
+        "checked=native.checked,",
+        "semantics.run_port(PORT, HOOKS)",
     )
     require_fragments(
         "tests/support/semantics.py",
+        '"1 reference proof deferred to --java-reference"',
+        "definition, spec = reference_definition(",
+        'reference_proof(port, definition, spec, k["kprove"])',
+        "if arguments.java_reference:",
         '"--backend", "haskell"',
         'if proof.stdout.strip() != "#Top":',
     )

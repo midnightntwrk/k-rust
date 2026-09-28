@@ -11,20 +11,20 @@ import unittest
 from unittest.mock import patch
 
 import verify
-from support.pins import load_json
+from support.pins import Ledger
 
 
 class InputPinTests(unittest.TestCase):
     def test_ledger_pins_no_krs_source_and_no_external_files(self) -> None:
-        pins = load_json(verify.PINS_PATH)
-        self.assertNotIn("source_sha256", pins)
-        self.assertNotIn("external_sha256", pins)
+        pins = Ledger(verify.PINS_PATH)
+        self.assertNotIn("source_sha256", pins.data)
+        self.assertNotIn("external_sha256", pins.data)
 
     def test_ledger_does_not_repeat_krs_lock(self) -> None:
-        pins = load_json(verify.PINS_PATH)
+        pins = Ledger(verify.PINS_PATH)
         for key in ("schemas", "toolchain_compatibility"):
-            self.assertNotIn(key, pins)
-        self.assertEqual(set(pins["revisions"]), {"imp"})
+            self.assertNotIn(key, pins.data)
+        self.assertEqual(set(pins.table("revisions")), {"imp"})
 
 
 class ExactSummaryTests(unittest.TestCase):

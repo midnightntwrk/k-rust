@@ -408,10 +408,8 @@ def phase_preflight(context: Context) -> str:
         raise GateError("corpus must name exactly the IMP state, IMP control flow, and IMP static semantics input ledgers")
     for name, raw in ledgers.items():
         path = ROOT / str(table(raw, f"input ledger {name}").get("path"))
-        ledger = load_json(path)
-        for relative, expected in table(
-            ledger.get("corpus_sha256"), f"{name}.corpus_sha256"
-        ).items():
+        ledger = Ledger(path)
+        for relative, expected in ledger.table("corpus_sha256").items():
             if sha256_file(path.parent / relative) != expected:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 

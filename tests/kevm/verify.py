@@ -3,20 +3,14 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import re
 import sys
-import tempfile
-from typing import Any, Mapping
+from typing import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, semantics, entry  # noqa: E402
-from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
-from support.pins import Ledger, load_toml  # noqa: E402
-from support.process import run  # noqa: E402
-from support.tools import k_tool, scratch_root  # noqa: E402
 from kevm import native  # noqa: E402
 
 
@@ -81,105 +75,51 @@ def definition_checks(readable: str) -> None:
         raise GateError("emitted KEVM definition retained the structured program adapter")
 
 
-def java_reference_gate(
-    workspace: Path,
-    artifacts: Path,
-    k: Mapping[str, str],
-    pins: Ledger,
-    corpus: Mapping[str, Any],
-    native_outcomes: list[dict[str, Any]],
-) -> int:
-    definition, spec = semantics.reference_definition(
-        PORT, workspace, artifacts, k["kompile"], CLAIM_COUNT, pins
+def krun_arguments(case: dict) -> list[str]:
+    """Build the KEVM KORE configuration for the Java route."""
+
+    # Every variable except $PGM, which the configuration declares at sort
+    # K, is passed as the KORE value the native route builds. Both routes
+    # then start from the same configuration, and krun spawns no kparse JVM
+    # per variable (kparse also exhausts an 8 GiB heap on the 256-entry
+    # block-hash List).
+    variables = [entry for entry in native.configuration(case) if entry[0] != "PGM"]
+    return [
+        "-cPGM=run",
+        *(f"-c{name}={value}" for name, _, value in variables),
+        *(f"-p{name}=cat" for name, _, _ in variables),
+    ]
+
+
+def summary(port: semantics.Port, executions: int, proofs: int, java_reference: bool) -> str:
+    proof_status = (
+        f"{proofs} Java reference proofs"
+        if java_reference
+        else f"{CLAIM_COUNT} Java reference proofs deferred to --java-reference"
     )
-    behavior = corpus.get("behavior")
-    if not isinstance(behavior, list) or not behavior:
-        raise GateError("behavior corpus is empty")
-    outcomes: list[dict[str, str]] = []
-    for case in behavior:
-        if str(case["id"]) in HASKELL_BACKEND_GAPS:
-            continue
-        # Every variable except $PGM, which the configuration declares at sort
-        # K, is passed as the KORE value the native route builds. Both routes
-        # then start from the same configuration, and krun spawns no kparse JVM
-        # per variable (kparse also exhausts an 8 GiB heap on the 256-entry
-        # block-hash List).
-        variables = [entry for entry in native.configuration(case) if entry[0] != "PGM"]
-        result = run(
-            [
-                k["krun"], "--definition", definition, "-cPGM=run",
-                *(f"-c{name}={value}" for name, _, value in variables),
-                *(f"-p{name}=cat" for name, _, _ in variables),
-                "--output", "kore",
-            ],
-            timeout=120,
-        ).stdout
-        state = parse_kore_pattern(result)
-        outcomes.append(native.observed(case, state))
+    return (
+        f"{port.descriptors} descriptors; {executions} K-Rust executions; {proof_status}; "
+        f"KRS schema {krs_ir_schema()}; K {k_version()}"
+    )
 
-    semantics.compare_routes(PORT.label, native_outcomes, outcomes, HASKELL_BACKEND_GAPS)
-    cases_by_id = {str(case["id"]): case for case in behavior}
-    for outcome in outcomes:
-        native.checked(cases_by_id[str(outcome["id"])], outcome)
 
-    semantics.reference_proof(PORT, definition, spec, k["kprove"])
-    return CLAIM_COUNT
+HOOKS = semantics.Hooks(
+    description=__doc__,
+    label="readable KEVM operational slice",
+    java_help="run the expensive pinned Java behavior and proof authority gate",
+    claim_count=CLAIM_COUNT,
+    krun_arguments=krun_arguments,
+    observed=native.observed,
+    checked=native.checked,
+    summary=summary,
+    definition_checks=definition_checks,
+    java_skips=HASKELL_BACKEND_GAPS,
+)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--java-reference",
-        action="store_true",
-        help="run the expensive pinned Java behavior and proof authority gate",
-    )
-    parser.add_argument(
-        "--record",
-        action="store_true",
-        help="run the gate and rewrite the output pins it measured",
-    )
-    semantics.add_artifacts_only_argument(parser)
-    arguments = parser.parse_args()
-    semantics.reject_artifacts_only_conflicts(parser, arguments)
-    try:
-        pins = Ledger(PORT.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
-        corpus = load_toml(PORT.corpus_path)
-        environment = semantics.preflight(PORT, pins, corpus)
-        krs, compiler, runner = semantics.rust_gate(PORT, environment)
-        with tempfile.TemporaryDirectory(prefix="krs-kevm-", dir=scratch_root()) as temporary:
-            workspace = Path(temporary)
-            artifacts = semantics.artifact_gate(PORT, workspace, krs, pins, environment)
-            definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
-            if arguments.artifacts_only:
-                semantics.native_definition(workspace, artifacts, compiler, pins, environment)
-                print(f"PASS readable KEVM operational slice: {semantics.artifacts_only_summary(PORT)}")
-                return 0
-            definition = semantics.native_definition(
-                workspace, artifacts, compiler, pins, environment
-            )
-            executions, native_outcomes = semantics.native_behavior(
-                PORT, runner, definition, pins, corpus, environment
-            )
-            proofs = 0
-            if arguments.java_reference:
-                k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
-                proofs = java_reference_gate(workspace, artifacts, k, pins, corpus, native_outcomes)
-            proof_status = (
-                f"{proofs} Java reference proofs"
-                if arguments.java_reference
-                else f"{CLAIM_COUNT} Java reference proofs deferred to --java-reference"
-            )
-            qualification = f"{executions} K-Rust executions; {proof_status}"
-        pins.finish("readable KEVM operational slice")
-        print(
-            f"PASS readable KEVM operational slice: {PORT.descriptors} descriptors; {qualification}; "
-            f"KRS schema {krs_ir_schema()}; K {k_version()}"
-        )
-        return 0
-    except (GateError, OSError) as error:
-        print(f"FAIL readable KEVM operational slice: {error}", file=sys.stderr)
-        return 1
+    return semantics.run_port(PORT, HOOKS)
 
 
 if __name__ == "__main__":
-    entry("readable KEVM operational slice", main)
+    entry(HOOKS.label, main)

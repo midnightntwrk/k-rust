@@ -5,7 +5,7 @@ and a pin ledger under `tests/<port>/`. The shared steps are: preflight over
 the external checkout and the corpus, the ordinary Rust checks, repeated
 expansion and emission with their output pins, native k-rust compilation and
 execution, and the kompiled reference definition behind `--java-reference`.
-The port-specific behavior and proof comparisons stay in each verifier.
+Each verifier supplies its configuration, native observation and check hooks, and report wording.
 
 `--artifacts-only` stops after the native definition: it checks every emitted
 artifact against its pin and skips the behavior and proof comparisons, which
@@ -23,17 +23,17 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from support import ROOT, GateError
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
-from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256
+from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256, parse_kore_pattern
 from support.krs import Invocation, build
-from support.lock import msrv
-from support.pins import Ledger
+from support.lock import k_version, krs_ir_schema, msrv
+from support.pins import Ledger, load_toml
 from support.process import run
-from support.tools import checkout_scratch, rust_analyzer, scratch_root, z3_environment
+from support.tools import checkout_scratch, k_tool, rust_analyzer, scratch_root, z3_environment
 
 
 LOCK = ROOT / "semantics/Cargo.lock"
@@ -92,6 +92,22 @@ class Port:
         variable = f"KRS_{self.key.upper()}_{role.upper()}_TARGET"
         default = checkout_scratch() / f"{self.key}-gate-{role}-target"
         return Path(os.environ.get(variable, os.fspath(default)))
+
+
+@dataclass(frozen=True)
+class Hooks:
+    """The port-specific checks, Java configuration, and report wording."""
+
+    description: str
+    label: str
+    java_help: str
+    claim_count: int
+    krun_arguments: Callable[[Mapping[str, Any]], list[str]]
+    observed: Callable[[Mapping[str, Any], Any], dict[str, Any]]
+    checked: Callable[[Mapping[str, Any], Mapping[str, Any]], None]
+    summary: Callable[[Port, int, int, bool], str] | None = None
+    definition_checks: Callable[[str], None] | None = None
+    java_skips: Mapping[str, str] | None = None
 
 
 def add_artifacts_only_argument(parser: argparse.ArgumentParser) -> None:
@@ -392,3 +408,98 @@ def reference_proof(port: Port, definition: Path, spec: Path, kprove: str) -> No
     proof = run(base, timeout=300)
     if proof.stdout.strip() != "#Top":
         raise GateError(f"{port.label} claims did not close: {proof.stdout.strip()}")
+
+
+def java_reference_gate(
+    port: Port,
+    hooks: Hooks,
+    workspace: Path,
+    artifacts: Path,
+    k: Mapping[str, str],
+    pins: Ledger,
+    corpus: Mapping[str, Any],
+    native_outcomes: list[dict[str, Any]],
+) -> int:
+    """Compare the pinned Java route with native outcomes and prove emitted claims."""
+
+    definition, spec = reference_definition(
+        port, workspace, artifacts, k["kompile"], hooks.claim_count, pins
+    )
+    behavior = corpus.get("behavior")
+    if not isinstance(behavior, list) or not behavior:
+        raise GateError("behavior corpus is empty")
+    skipped = hooks.java_skips or {}
+    outcomes: list[dict[str, Any]] = []
+    for case in behavior:
+        if str(case["id"]) in skipped:
+            continue
+        result = run(
+            [
+                k["krun"], "--definition", definition,
+                *hooks.krun_arguments(case), "--output", "kore",
+            ],
+            timeout=120,
+        ).stdout
+        outcomes.append(hooks.observed(case, parse_kore_pattern(result)))
+
+    compare_routes(port.label, native_outcomes, outcomes, skipped)
+    cases_by_id = {str(case["id"]): case for case in behavior}
+    for outcome in outcomes:
+        hooks.checked(cases_by_id[str(outcome["id"])], outcome)
+    reference_proof(port, definition, spec, k["kprove"])
+    return hooks.claim_count
+
+
+def reference_summary(port: Port, executions: int, proofs: int, java_reference: bool) -> str:
+    """The PASS summary of a port with one Java reference proof."""
+
+    proof_status = (
+        f"{proofs} reference proof"
+        if java_reference
+        else "1 reference proof deferred to --java-reference"
+    )
+    return (
+        f"{port.descriptors} descriptors; {executions} K-Rust executions; {proof_status}; "
+        f"KRS schema {krs_ir_schema()}"
+    )
+
+
+def run_port(port: Port, hooks: Hooks) -> int:
+    """Run one semantics qualification gate with its port-specific hooks."""
+
+    parser = argparse.ArgumentParser(description=hooks.description)
+    parser.add_argument("--java-reference", action="store_true", help=hooks.java_help)
+    parser.add_argument(
+        "--record", action="store_true",
+        help="run the gate and rewrite the output pins it measured",
+    )
+    add_artifacts_only_argument(parser)
+    arguments = parser.parse_args()
+    reject_artifacts_only_conflicts(parser, arguments)
+
+    pins = Ledger(port.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
+    corpus = load_toml(port.corpus_path)
+    environment = preflight(port, pins, corpus)
+    krs, compiler, runner = rust_gate(port, environment)
+    with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-gate-", dir=scratch_root()) as temporary:
+        workspace = Path(temporary)
+        artifacts = artifact_gate(port, workspace, krs, pins, environment)
+        if hooks.definition_checks is not None:
+            hooks.definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
+        definition = native_definition(workspace, artifacts, compiler, pins, environment)
+        if arguments.artifacts_only:
+            print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")
+            return 0
+        executions, native_outcomes = native_behavior(
+            port, runner, definition, pins, corpus, environment
+        )
+        proofs = 0
+        if arguments.java_reference:
+            k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
+            proofs = java_reference_gate(
+                port, hooks, workspace, artifacts, k, pins, corpus, native_outcomes
+            )
+    pins.finish(hooks.label)
+    summary = hooks.summary or reference_summary
+    print(f"PASS {hooks.label}: {summary(port, executions, proofs, arguments.java_reference)}")
+    return 0

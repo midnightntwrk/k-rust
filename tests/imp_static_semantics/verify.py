@@ -17,7 +17,7 @@ from support import ROOT, GateError, entry  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.lock import k_commit, k_version  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
-from support.pins import load_json  # noqa: E402
+from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool  # noqa: E402
 
@@ -32,6 +32,8 @@ FIXTURE = HERE / "fixtures/static-adjunct.k"
 STATIC_SPEC = HERE / "claims/static-spec.k"
 STATIC_PROGRAM = HERE / "corpus/static-evaluation.imp"
 PINS = HERE / "pins.json"
+INPUT_PIN_KEYS = frozenset({"schema", "oracle", "upstream_imp", "reconstruction", "corpus_sha256"})
+OUTPUT_PIN_KEYS = frozenset({"static_execution", "proof_outcomes", "qualified_proof_outcomes"})
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
 
 
@@ -282,16 +284,17 @@ def verify_diagnostic(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=600)
-    parser.add_argument("--write-proposal", type=Path)
+    parser.add_argument("--record", action="store_true")
     options = parser.parse_args()
     if options.timeout <= 0:
         raise GateError("--timeout must be positive")
+    pins = Ledger(PINS, record=options.record)
 
     kompile = k_tool("kompile", k_version())
     kprove = k_tool("kprove", k_version())
     krun = k_tool("krun", k_version())
     verify_checkout(K, k_commit(), label="K")
-    upstream_commit = str(load_json(PINS).get("upstream_imp", {}).get("commit"))
+    upstream_commit = str(pins.table("upstream_imp").get("commit"))
     verify_checkout(IMP, upstream_commit, label="IMP")
 
     with tempfile.TemporaryDirectory(prefix="krs-imp-static-reconstructed-") as temporary:
@@ -362,20 +365,22 @@ def main() -> int:
             )
 
     observed = observed_ledger(outcomes, upstream_commit)
-    if options.write_proposal is not None:
-        destination = options.write_proposal.resolve()
-        if destination.exists():
-            raise GateError(f"proposal destination exists: {destination}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(observed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"PASS IMP static semantics proposal: {destination}")
-        return 0
-    if not PINS.is_file():
-        raise GateError("reconstructed pins are absent; use --write-proposal")
-    expected = json.loads(PINS.read_text(encoding="utf-8"))
-    if expected != observed:
-        raise GateError("IMP static semantics reconstructed pins differ from live evidence")
+    observed_keys = set(observed)
+    pin_keys = set(pins.data)
+    missing_keys = observed_keys - pin_keys
+    if (
+        observed_keys != INPUT_PIN_KEYS | OUTPUT_PIN_KEYS
+        or pin_keys - observed_keys
+        or missing_keys - (OUTPUT_PIN_KEYS if pins.record else set())
+    ):
+        raise GateError("IMP static semantics reconstructed pin keys differ from live evidence")
+    for key in INPUT_PIN_KEYS:
+        if pins.get(key) != observed[key]:
+            raise GateError(f"IMP static semantics input pin {key} differs from live evidence")
+    for key in OUTPUT_PIN_KEYS:
+        pins.expect(key, observed[key])
     print(f"PASS IMP static semantics reconstructed oracle: evidence={json_sha256(observed)}")
+    pins.finish("IMP static semantics")
     return 0
 
 

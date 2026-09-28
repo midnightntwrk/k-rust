@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from support import GateError
 from support.hashing import canonical_json, json_sha256, sha256_text
+from support.pins import Ledger
 from support.process import run
 
 try:
@@ -497,7 +498,7 @@ def verify_imp_static_semantics_selected_pins(
     """
 
     pins_path = root / "tests" / "imp_static_semantics" / "pins.json"
-    pins = json.loads(pins_path.read_text(encoding="utf-8")).get("proof_outcomes")
+    pins = Ledger(pins_path).get("proof_outcomes")
     if not isinstance(pins, dict):
         raise GateError("IMP static semantics proof pins are absent")
     if set(evidence) != STATIC_SELECTED_CASES:
