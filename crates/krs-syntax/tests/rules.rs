@@ -29,8 +29,8 @@ fn term_macro_rule_preserves_signature_references_and_roles() {
     assert_eq!(roles[2], ProvenanceRole::RuleType);
     assert_eq!(roles[3], ProvenanceRole::RuleResultType);
     assert_eq!(roles[4], ProvenanceRole::RuleResult);
-    assert_eq!(anchors[1].key().unwrap().role(), "rule_pattern");
-    assert_eq!(anchors[2].key().unwrap().role(), "rule_type");
+    assert_eq!(anchors[1].key().role(), ProvenanceRole::RulePattern);
+    assert_eq!(anchors[2].key().role(), ProvenanceRole::RuleType);
     assert!(roles.contains(&ProvenanceRole::RuleLeftPath));
     assert!(roles.contains(&ProvenanceRole::RuleRightPath));
 }
@@ -69,19 +69,19 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
         .provenance()
         .unwrap()
         .into_iter()
-        .map(|anchor| anchor.key().unwrap())
+        .map(|anchor| anchor.key())
         .collect::<Vec<_>>();
     assert_eq!(
         keys.iter()
             .map(|key| (key.role(), key.ordinal()))
             .collect::<Vec<_>>(),
         [
-            ("rule_requires", 0),
-            ("rule_requires_path", 0),
-            ("rule_requires_path", 1),
-            ("rule_requires_application_head", 0),
-            ("rule_requires_reference", 0),
-            ("rule_requires_literal", 0),
+            (ProvenanceRole::RuleRequires, 0),
+            (ProvenanceRole::RuleRequiresPath, 0),
+            (ProvenanceRole::RuleRequiresPath, 1),
+            (ProvenanceRole::RuleRequiresApplicationHead, 0),
+            (ProvenanceRole::RuleRequiresReference, 0),
+            (ProvenanceRole::RuleRequiresLiteral, 0),
         ]
     );
 
@@ -89,13 +89,19 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
         .term_reference_candidates()
         .unwrap()
         .into_iter()
-        .filter(|candidate| candidate.key().role().starts_with("rule_requires"))
-        .map(|candidate| (candidate.key().role().to_owned(), candidate.path_spelling()))
+        .filter(|candidate| {
+            candidate
+                .key()
+                .role()
+                .as_str()
+                .starts_with(ProvenanceRole::RuleRequires.as_str())
+        })
+        .map(|candidate| (candidate.key().role(), candidate.path_spelling()))
         .collect::<Vec<_>>();
     assert_eq!(
         references,
         [(
-            "rule_requires_application_head".into(),
+            ProvenanceRole::RuleRequiresApplicationHead,
             "builtin :: int :: gt".into()
         )]
     );
@@ -238,7 +244,7 @@ fn term_rule_candidates_preserve_ast_ordinals_across_binding_gaps() {
         .iter()
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.key().ordinal(),
                 candidate.path_spelling(),
             )
@@ -247,13 +253,13 @@ fn term_rule_candidates_preserve_ast_ordinals_across_binding_gaps() {
     assert_eq!(
         actual,
         [
-            ("rule_type".into(), 0, "model :: Expr".into()),
-            ("rule_result_type".into(), 0, "result :: Expr".into()),
-            ("rule_left_path".into(), 0, "model :: Foo".into()),
-            ("rule_left_path".into(), 2, "model :: Unit".into()),
-            ("rule_right_path".into(), 0, "result :: Wrap".into()),
-            ("rule_right_path".into(), 2, "model :: Bar".into()),
-            ("rule_right_path".into(), 3, "Done".into()),
+            (ProvenanceRole::RuleType, 0, "model :: Expr".into()),
+            (ProvenanceRole::RuleResultType, 0, "result :: Expr".into()),
+            (ProvenanceRole::RuleLeftPath, 0, "model :: Foo".into()),
+            (ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into()),
+            (ProvenanceRole::RuleRightPath, 0, "result :: Wrap".into()),
+            (ProvenanceRole::RuleRightPath, 2, "model :: Bar".into()),
+            (ProvenanceRole::RuleRightPath, 3, "Done".into()),
         ]
     );
 
@@ -293,10 +299,10 @@ fn native_rule_bindings_are_not_guessed_as_short_name_constructors() {
             )
         })
         .collect::<Vec<_>>();
-    assert!(paths.contains(&("rule_left_path", 0, "model :: Foo".into())));
-    assert!(paths.contains(&("rule_left_path", 2, "model :: Unit".into())));
-    assert!(paths.contains(&("rule_right_path", 0, "model :: Bar".into())));
-    assert!(paths.contains(&("rule_right_path", 2, "model :: Done".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 0, "model :: Foo".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 0, "model :: Bar".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 2, "model :: Done".into())));
     assert!(!paths.iter().any(|(_, _, path)| path == "value"));
 }
 
@@ -340,7 +346,7 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
         .reference_candidates()
         .unwrap()
         .into_iter()
-        .filter(|candidate| candidate.key().role() == "rule_left_path")
+        .filter(|candidate| candidate.key().role() == ProvenanceRole::RuleLeftPath)
         .map(|candidate| (candidate.key().ordinal(), candidate.path_spelling()))
         .collect::<Vec<_>>();
     assert_eq!(compact_candidates, [(0, "Add".into())]);
@@ -349,10 +355,10 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
         .term_reference_candidates()
         .unwrap()
         .into_iter()
-        .filter(|candidate| candidate.key().role().starts_with("rule_left_"))
+        .filter(|candidate| candidate.key().role().as_str().starts_with("rule_left_"))
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.key().ordinal(),
                 candidate.kind(),
                 candidate.path_spelling(),
@@ -362,7 +368,7 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
     assert_eq!(
         typed_candidates,
         [(
-            "rule_left_application_head".into(),
+            ProvenanceRole::RuleLeftApplicationHead,
             0,
             TermSymbolKind::ApplicationHead,
             "Add".into(),
@@ -444,10 +450,15 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
         .reference_candidates()
         .unwrap()
         .into_iter()
-        .filter(|candidate| matches!(candidate.key().role(), "rule_left_path" | "rule_right_path"))
+        .filter(|candidate| {
+            matches!(
+                candidate.key().role(),
+                ProvenanceRole::RuleLeftPath | ProvenanceRole::RuleRightPath
+            )
+        })
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.key().ordinal(),
                 candidate.path_spelling(),
             )
@@ -456,12 +467,12 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
     assert_eq!(
         compact,
         [
-            ("rule_left_path".into(), 0, "Outer".into()),
-            ("rule_left_path".into(), 2, "model :: Unit".into()),
-            ("rule_left_path".into(), 4, "model :: Done".into()),
-            ("rule_right_path".into(), 0, "Result".into()),
-            ("rule_right_path".into(), 2, "model :: Keep".into()),
-            ("rule_right_path".into(), 4, "model :: End".into()),
+            (ProvenanceRole::RuleLeftPath, 0, "Outer".into()),
+            (ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into()),
+            (ProvenanceRole::RuleLeftPath, 4, "model :: Done".into()),
+            (ProvenanceRole::RuleRightPath, 0, "Result".into()),
+            (ProvenanceRole::RuleRightPath, 2, "model :: Keep".into()),
+            (ProvenanceRole::RuleRightPath, 4, "model :: End".into()),
         ]
     );
 
@@ -471,7 +482,7 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
         .into_iter()
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.key().ordinal(),
                 candidate.path_spelling(),
             )
@@ -480,12 +491,16 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
     assert_eq!(
         typed,
         [
-            ("rule_left_application_head".into(), 0, "Outer".into()),
-            ("rule_left_reference".into(), 1, "model :: Unit".into()),
-            ("rule_left_reference".into(), 3, "model :: Done".into()),
-            ("rule_right_application_head".into(), 0, "Result".into()),
-            ("rule_right_reference".into(), 1, "model :: Keep".into()),
-            ("rule_right_reference".into(), 3, "model :: End".into()),
+            (ProvenanceRole::RuleLeftApplicationHead, 0, "Outer".into()),
+            (ProvenanceRole::RuleLeftReference, 1, "model :: Unit".into()),
+            (ProvenanceRole::RuleLeftReference, 3, "model :: Done".into()),
+            (ProvenanceRole::RuleRightApplicationHead, 0, "Result".into()),
+            (
+                ProvenanceRole::RuleRightReference,
+                1,
+                "model :: Keep".into()
+            ),
+            (ProvenanceRole::RuleRightReference, 3, "model :: End".into()),
         ]
     );
 }
@@ -497,12 +512,12 @@ fn bare_root_unit_constructor_is_a_reference_not_a_binding() {
 
     let candidates = rule.reference_candidates().unwrap();
     assert!(candidates.iter().any(|candidate| {
-        candidate.key().role() == "rule_left_path"
+        candidate.key().role() == ProvenanceRole::RuleLeftPath
             && candidate.key().ordinal() == 0
             && candidate.path_spelling() == "Done"
     }));
     assert!(candidates.iter().any(|candidate| {
-        candidate.key().role() == "rule_right_path"
+        candidate.key().role() == ProvenanceRole::RuleRightPath
             && candidate.key().ordinal() == 0
             && candidate.path_spelling() == "Done"
     }));

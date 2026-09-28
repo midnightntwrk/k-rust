@@ -1,13 +1,14 @@
 //! Collector transport for readable rules completed at a computation-cell head.
 
 use serde::{Deserialize, Serialize};
+
 use std::collections::BTreeSet;
 
 use crate::{
     DescriptorCellReference, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority,
     DescriptorSortReference, DescriptorTerm, HostConfigurationReference, HostRuleCondition,
-    HostSortReference, HostTerm, ItemKind, ProvenanceKey, SentenceKind, StableItemId,
-    StateTransportError,
+    HostSortReference, HostTerm, ItemKind, ProvenanceKey, ProvenanceRole, SentenceKind,
+    StableItemId, StateTransportError,
 };
 
 /// One readable binding with an optional explicit `where name: Sort` refinement.
@@ -179,7 +180,7 @@ fn validate_owise_priority(
 ) -> Result<(), StateTransportError> {
     if let Some(priority) = priority
         && (kind != SentenceKind::Transition
-            || priority.key.role() != "rule_owise"
+            || priority.key.role() != ProvenanceRole::RuleOwise
             || priority.key.ordinal() != 0
             || priority.value != 200)
     {
@@ -233,9 +234,9 @@ impl HostHeadRule {
             });
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
-        if self.pattern_key.role() != "rule_pattern"
+        if self.pattern_key.role() != ProvenanceRole::RulePattern
             || self.pattern_key.ordinal() != 0
-            || self.result_key.role() != "rule_result"
+            || self.result_key.role() != ProvenanceRole::RuleResult
             || self.result_key.ordinal() != 0
         {
             return Err(StateTransportError::InvalidTerm(
@@ -248,9 +249,9 @@ impl HostHeadRule {
             &self.computation_cell_name,
         ) {
             (Some(sort), None, None)
-                if sort.key.role() == "rule_type" && sort.key.ordinal() == 0 => {}
+                if sort.key.role() == ProvenanceRole::RuleType && sort.key.ordinal() == 0 => {}
             (None, Some(configuration), Some(cell))
-                if configuration.key.role() == "rule_type"
+                if configuration.key.role() == ProvenanceRole::RuleType
                     && configuration.key.ordinal() == 0
                     && !cell.is_empty() => {}
             _ => {
@@ -261,7 +262,7 @@ impl HostHeadRule {
         }
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
-            && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
+            && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
         {
             return Err(StateTransportError::InvalidTerm(
                 "head-rule requires provenance key",
@@ -271,7 +272,7 @@ impl HostHeadRule {
         for extra in &self.extras {
             let cell = match extra {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. } => {
-                    if cell.key.role() != "rule_left_cells_field" {
+                    if cell.key.role() != ProvenanceRole::RuleLeftCellsField {
                         return Err(StateTransportError::InvalidTerm(
                             "map read cell provenance key",
                         ));
@@ -279,7 +280,7 @@ impl HostHeadRule {
                     cell
                 }
                 ProtocolHeadRuleExtra::UpdateMap { cell, .. } => {
-                    if cell.key.role() != "rule_right_cells_field" {
+                    if cell.key.role() != ProvenanceRole::RuleRightCellsField {
                         return Err(StateTransportError::InvalidTerm(
                             "map update cell provenance key",
                         ));
@@ -289,8 +290,8 @@ impl HostHeadRule {
                 ProtocolHeadRuleExtra::RewriteCell {
                     cell, result_key, ..
                 } => {
-                    if cell.key.role() != "rule_left_cells_field"
-                        || result_key.role() != "rule_right_cells_field"
+                    if cell.key.role() != ProvenanceRole::RuleLeftCellsField
+                        || result_key.role() != ProvenanceRole::RuleRightCellsField
                     {
                         return Err(StateTransportError::InvalidTerm(
                             "ordinary cell rewrite provenance key",
@@ -337,7 +338,7 @@ impl DescriptorHeadRule {
         }
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
-            && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
+            && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
         {
             return Err(StateTransportError::InvalidTerm(
                 "head-rule requires provenance key",

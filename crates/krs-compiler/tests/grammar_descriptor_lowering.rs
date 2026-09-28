@@ -16,8 +16,9 @@ use krs_ir::{
     DescriptorProvenance, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef,
     DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind,
     GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId,
-    ProductionGroupId, ProvenanceKey, SemanticSortRef, SemanticTerm, SemanticTermKind,
-    SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor, generated_production_id,
+    ProductionGroupId, ProvenanceKey, ProvenanceRole, SemanticSortRef, SemanticTerm,
+    SemanticTermKind, SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
+    generated_production_id,
 };
 
 fn package() -> PackageId {
@@ -28,8 +29,8 @@ fn id(name: &str, kind: ItemKind) -> StableItemId {
     testing::item_in(package(), "expr", name, kind)
 }
 
-fn key(role: &str, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal).unwrap()
+fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    ProvenanceKey::new(role, ordinal)
 }
 
 fn provenance(
@@ -63,16 +64,24 @@ fn provenance(
     .unwrap()
 }
 
-fn declared_sort(role: &str, ordinal: u32, sort: StableItemId) -> DescriptorSortReference {
+fn declared_sort(
+    role: ProvenanceRole,
+    ordinal: u32,
+    sort: StableItemId,
+) -> DescriptorSortReference {
     DescriptorSortReference {
         key: key(role, ordinal),
         sort: DescriptorSortRef::Declared(sort),
     }
 }
 
-fn declaration(id: StableItemId, payload: DescriptorPayload, primary: &str) -> Descriptor {
+fn declaration(
+    id: StableItemId,
+    payload: DescriptorPayload,
+    primary: ProvenanceRole,
+) -> Descriptor {
     let extra = matches!(payload, DescriptorPayload::Constructor(_))
-        .then(|| key("constructor_declaration", 0));
+        .then(|| key(ProvenanceRole::ConstructorDeclaration, 0));
     Descriptor {
         id,
         cfg: BTreeMap::new(),
@@ -90,10 +99,10 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
     let configuration = krs_ir::DescriptorFixedConfiguration {
         root: krs_ir::DescriptorConfigurationRoot::GeneratedTop,
         declaration: krs_ir::DescriptorConfigurationDeclaration {
-            key: key("configuration_declaration", 0),
+            key: key(ProvenanceRole::ConfigurationDeclaration, 0),
             fields: vec![krs_ir::DescriptorCellField {
                 reference: krs_ir::DescriptorCellReference {
-                    key: key("configuration_field", 0),
+                    key: key(ProvenanceRole::ConfigurationField, 0),
                     cell: k.clone(),
                 },
                 rust_field: "k".into(),
@@ -102,10 +111,10 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
                 multiplicity: None,
                 cell_type: None,
                 content: krs_ir::ProtocolCellContent::Leaf {
-                    wrapper_key: key("configuration_cell_wrapper", 0),
+                    wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, 0),
                     wrapper: CellWrapper::KCell,
                     sort: DescriptorSortReference {
-                        key: key("configuration_cell_content", 0),
+                        key: key(ProvenanceRole::ConfigurationCellContent, 0),
                         sort: DescriptorSortRef::Builtin(BuiltinSort::KSequence),
                     },
                     arguments: Vec::new(),
@@ -113,36 +122,36 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
             }],
         },
         initializer: krs_ir::DescriptorConfigurationInitializer {
-            key: key("initializer_declaration", 0),
-            owner_key: key("initializer_result_type", 0),
+            key: key(ProvenanceRole::InitializerDeclaration, 0),
+            owner_key: key(ProvenanceRole::InitializerResultType, 0),
             owner: owner.clone(),
             variables: Vec::new(),
-            body_key: key("initializer_body", 0),
+            body_key: key(ProvenanceRole::InitializerBody, 0),
             cells: vec![krs_ir::DescriptorInitializerCell {
-                key: key("initializer_cell", 0),
+                key: key(ProvenanceRole::InitializerCell, 0),
                 field: krs_ir::DescriptorCellReference {
-                    key: key("initializer_field", 0),
+                    key: key(ProvenanceRole::InitializerField, 0),
                     cell: k,
                 },
                 content: krs_ir::ProtocolInitializerCellContent::Leaf {
-                    constructor_key: key("initializer_cell_constructor", 0),
+                    constructor_key: key(ProvenanceRole::InitializerCellConstructor, 0),
                     wrapper: CellWrapper::KCell,
                     value: krs_ir::ProtocolInitializerStateTerm::KSequence(
                         krs_ir::ProtocolKSequence {
-                            payload_key: Some(key("k_sequence_payload", 0)),
+                            payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
                             dot_k_key: None,
                             notation: krs_ir::DescriptorKSequenceNotation::Comma,
                             items: vec![krs_ir::ProtocolKSequenceItem {
-                                key: key("k_sequence_item", 0),
+                                key: key(ProvenanceRole::KSequenceItem, 0),
                                 value: krs_ir::ProtocolInitializerTerm {
-                                    key: key("initializer_term", 0),
+                                    key: key(ProvenanceRole::InitializerTerm, 0),
                                     term: DescriptorTerm::Application {
                                         head_class: DescriptorApplicationHeadClass::BareReference,
                                         reference: DescriptorApplicationReference {
-                                            key: key("initializer_term_path", 0),
+                                            key: key(ProvenanceRole::InitializerTermPath, 0),
                                             application: DescriptorApplicationRef::Declared(start),
                                         },
-                                        path_key: key("initializer_term_path", 0),
+                                        path_key: key(ProvenanceRole::InitializerTermPath, 0),
                                         arguments: vec![],
                                     },
                                 },
@@ -157,7 +166,7 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
     Descriptor {
         id: owner,
         cfg: BTreeMap::new(),
-        provenance: provenance(key("configuration_declaration", 0), keys),
+        provenance: provenance(key(ProvenanceRole::ConfigurationDeclaration, 0), keys),
         payload: DescriptorPayload::FixedConfiguration(Box::new(configuration)),
     }
 }
@@ -179,7 +188,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
         declaration(
             expr.clone(),
             DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
-            "sort_declaration",
+            ProvenanceRole::SortDeclaration,
         ),
         declaration(
             add.clone(),
@@ -197,7 +206,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                     },
                 ],
             }),
-            "constructor_sort",
+            ProvenanceRole::ConstructorSort,
         ),
         declaration(
             unit.clone(),
@@ -206,7 +215,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 syntax: None,
                 fields: vec![],
             }),
-            "constructor_sort",
+            ProvenanceRole::ConstructorSort,
         ),
         declaration(
             start.clone(),
@@ -215,65 +224,73 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 syntax: None,
                 fields: vec![],
             }),
-            "constructor_sort",
+            ProvenanceRole::ConstructorSort,
         ),
     ];
 
-    let add_primary = key("constructor_declaration", 0);
+    let add_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
     descriptors.push(Descriptor {
         id: add_grammar_id,
         cfg: BTreeMap::new(),
         provenance: provenance(
             add_primary.clone(),
             [
-                key("constructor_sort", 0),
-                key("constructor_syntax", 0),
-                key("constructor_syntax_item", 0),
-                key("constructor_syntax_item", 1),
-                key("constructor_syntax_item", 2),
-                key("constructor_syntax_field_reference", 0),
-                key("constructor_syntax_field_reference", 1),
-                key("constructor_field_declaration", 0),
-                key("constructor_field_declaration", 1),
-                key("constructor_field_sort", 0),
-                key("constructor_field_sort", 1),
-                key("constructor_group", 0),
+                key(ProvenanceRole::ConstructorSort, 0),
+                key(ProvenanceRole::ConstructorSyntax, 0),
+                key(ProvenanceRole::ConstructorSyntaxItem, 0),
+                key(ProvenanceRole::ConstructorSyntaxItem, 1),
+                key(ProvenanceRole::ConstructorSyntaxItem, 2),
+                key(ProvenanceRole::ConstructorSyntaxFieldReference, 0),
+                key(ProvenanceRole::ConstructorSyntaxFieldReference, 1),
+                key(ProvenanceRole::ConstructorFieldDeclaration, 0),
+                key(ProvenanceRole::ConstructorFieldDeclaration, 1),
+                key(ProvenanceRole::ConstructorFieldSort, 0),
+                key(ProvenanceRole::ConstructorFieldSort, 1),
+                key(ProvenanceRole::ConstructorGroup, 0),
             ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: add_primary.clone(),
-                template_key: Some(key("constructor_syntax", 0)),
+                template_key: Some(key(ProvenanceRole::ConstructorSyntax, 0)),
                 owner: DescriptorProductionOwner::Constructor {
                     constructor: DescriptorApplicationReference {
                         key: add_primary,
                         application: DescriptorApplicationRef::Declared(add.clone()),
                     },
                 },
-                result_sort: declared_sort("constructor_sort", 0, expr.clone()),
+                result_sort: declared_sort(ProvenanceRole::ConstructorSort, 0, expr.clone()),
                 items: vec![
                     DescriptorProductionItem::NonTerminal {
-                        key: key("constructor_syntax_item", 0),
-                        field_key: key("constructor_syntax_field_reference", 0),
-                        declaration_key: Some(key("constructor_field_declaration", 0)),
+                        key: key(ProvenanceRole::ConstructorSyntaxItem, 0),
+                        field_key: key(ProvenanceRole::ConstructorSyntaxFieldReference, 0),
+                        declaration_key: Some(key(ProvenanceRole::ConstructorFieldDeclaration, 0)),
                         field: ProductionFieldId::new("lhs").unwrap(),
-                        sort: Box::new(declared_sort("constructor_field_sort", 0, expr.clone())),
+                        sort: Box::new(declared_sort(
+                            ProvenanceRole::ConstructorFieldSort,
+                            0,
+                            expr.clone(),
+                        )),
                     },
                     DescriptorProductionItem::Terminal {
-                        key: key("constructor_syntax_item", 1),
+                        key: key(ProvenanceRole::ConstructorSyntaxItem, 1),
                         text: "+".into(),
                     },
                     DescriptorProductionItem::NonTerminal {
-                        key: key("constructor_syntax_item", 2),
-                        field_key: key("constructor_syntax_field_reference", 1),
-                        declaration_key: Some(key("constructor_field_declaration", 1)),
+                        key: key(ProvenanceRole::ConstructorSyntaxItem, 2),
+                        field_key: key(ProvenanceRole::ConstructorSyntaxFieldReference, 1),
+                        declaration_key: Some(key(ProvenanceRole::ConstructorFieldDeclaration, 1)),
                         field: ProductionFieldId::new("rhs").unwrap(),
-                        sort: Box::new(declared_sort("constructor_field_sort", 1, expr.clone())),
+                        sort: Box::new(declared_sort(
+                            ProvenanceRole::ConstructorFieldSort,
+                            1,
+                            expr.clone(),
+                        )),
                     },
                 ],
                 attributes: vec![DescriptorProductionAttribute::Group {
                     reference: DescriptorGroupReference {
-                        key: key("constructor_group", 0),
+                        key: key(ProvenanceRole::ConstructorGroup, 0),
                         group: additive.clone(),
                     },
                 }],
@@ -281,13 +298,16 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
         ))),
     });
 
-    let unit_primary = key("constructor_declaration", 0);
+    let unit_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
     descriptors.push(Descriptor {
         id: unit_grammar_id,
         cfg: BTreeMap::new(),
         provenance: provenance(
             unit_primary.clone(),
-            [key("constructor_sort", 0), key("constructor_group", 0)],
+            [
+                key(ProvenanceRole::ConstructorSort, 0),
+                key(ProvenanceRole::ConstructorGroup, 0),
+            ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
@@ -299,14 +319,14 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                         application: DescriptorApplicationRef::Declared(unit.clone()),
                     },
                 },
-                result_sort: declared_sort("constructor_sort", 0, expr.clone()),
+                result_sort: declared_sort(ProvenanceRole::ConstructorSort, 0, expr.clone()),
                 items: vec![DescriptorProductionItem::Terminal {
                     key: unit_primary,
                     text: "unit".into(),
                 }],
                 attributes: vec![DescriptorProductionAttribute::Group {
                     reference: DescriptorGroupReference {
-                        key: key("constructor_group", 0),
+                        key: key(ProvenanceRole::ConstructorGroup, 0),
                         group: atom.clone(),
                     },
                 }],
@@ -314,18 +334,18 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
         ))),
     });
 
-    let bracket_primary = key("bracket_declaration", 0);
+    let bracket_primary = key(ProvenanceRole::BracketDeclaration, 0);
     descriptors.push(Descriptor {
         id: bracket_grammar_id.clone(),
         cfg: BTreeMap::new(),
         provenance: provenance(
             bracket_primary.clone(),
             [
-                key("sort_declaration", 0),
-                key("bracket_syntax_item", 0),
-                key("bracket_syntax_item", 1),
-                key("bracket_syntax_item", 2),
-                key("bracket_value_reference", 0),
+                key(ProvenanceRole::SortDeclaration, 0),
+                key(ProvenanceRole::BracketSyntaxItem, 0),
+                key(ProvenanceRole::BracketSyntaxItem, 1),
+                key(ProvenanceRole::BracketSyntaxItem, 2),
+                key(ProvenanceRole::BracketValueReference, 0),
             ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
@@ -333,23 +353,27 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 key: bracket_primary.clone(),
                 template_key: None,
                 owner: DescriptorProductionOwner::BracketSort {
-                    sort: declared_sort("sort_declaration", 0, expr.clone()),
+                    sort: declared_sort(ProvenanceRole::SortDeclaration, 0, expr.clone()),
                 },
-                result_sort: declared_sort("sort_declaration", 0, expr.clone()),
+                result_sort: declared_sort(ProvenanceRole::SortDeclaration, 0, expr.clone()),
                 items: vec![
                     DescriptorProductionItem::Terminal {
-                        key: key("bracket_syntax_item", 0),
+                        key: key(ProvenanceRole::BracketSyntaxItem, 0),
                         text: "(".into(),
                     },
                     DescriptorProductionItem::NonTerminal {
-                        key: key("bracket_syntax_item", 1),
-                        field_key: key("bracket_value_reference", 0),
+                        key: key(ProvenanceRole::BracketSyntaxItem, 1),
+                        field_key: key(ProvenanceRole::BracketValueReference, 0),
                         declaration_key: None,
                         field: ProductionFieldId::new("value").unwrap(),
-                        sort: Box::new(declared_sort("sort_declaration", 0, expr.clone())),
+                        sort: Box::new(declared_sort(
+                            ProvenanceRole::SortDeclaration,
+                            0,
+                            expr.clone(),
+                        )),
                     },
                     DescriptorProductionItem::Terminal {
-                        key: key("bracket_syntax_item", 2),
+                        key: key(ProvenanceRole::BracketSyntaxItem, 2),
                         text: ")".into(),
                     },
                 ],
@@ -360,79 +384,79 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
         ))),
     });
 
-    let precedence_primary = key("precedence_declaration", 0);
+    let precedence_primary = key(ProvenanceRole::PrecedenceDeclaration, 0);
     descriptors.push(Descriptor {
         id: id("Precedence", ItemKind::Grammar),
         cfg: BTreeMap::new(),
         provenance: provenance(
             precedence_primary.clone(),
             [
-                key("precedence_chain", 0),
-                key("precedence_group_reference", 0),
-                key("precedence_group_reference", 1),
+                key(ProvenanceRole::PrecedenceChain, 0),
+                key(ProvenanceRole::PrecedenceGroupReference, 0),
+                key(ProvenanceRole::PrecedenceGroupReference, 1),
             ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Precedence {
             key: precedence_primary,
             chains: vec![DescriptorPrecedenceChain {
-                key: key("precedence_chain", 0),
+                key: key(ProvenanceRole::PrecedenceChain, 0),
                 groups: vec![
                     DescriptorGroupReference {
-                        key: key("precedence_group_reference", 0),
+                        key: key(ProvenanceRole::PrecedenceGroupReference, 0),
                         group: atom.clone(),
                     },
                     DescriptorGroupReference {
-                        key: key("precedence_group_reference", 1),
+                        key: key(ProvenanceRole::PrecedenceGroupReference, 1),
                         group: additive.clone(),
                     },
                 ],
             }],
         })),
     });
-    let assoc_primary = key("associativity_declaration", 0);
+    let assoc_primary = key(ProvenanceRole::AssociativityDeclaration, 0);
     descriptors.push(Descriptor {
         id: id("Associativity", ItemKind::Grammar),
         cfg: BTreeMap::new(),
         provenance: provenance(
             assoc_primary.clone(),
             [
-                key("associativity_sentence", 0),
-                key("associativity_group_reference", 0),
+                key(ProvenanceRole::AssociativitySentence, 0),
+                key(ProvenanceRole::AssociativityGroupReference, 0),
             ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Associativity {
             key: assoc_primary,
             sentences: vec![krs_ir::DescriptorAssociativitySentence {
-                key: key("associativity_sentence", 0),
+                key: key(ProvenanceRole::AssociativitySentence, 0),
                 associativity: GroupAssociativity::Left,
                 groups: vec![DescriptorGroupReference {
-                    key: key("associativity_group_reference", 0),
+                    key: key(ProvenanceRole::AssociativityGroupReference, 0),
                     group: additive,
                 }],
             }],
         })),
     });
 
-    let rule_primary = key("rule_declaration", 0);
+    let rule_primary = key(ProvenanceRole::RuleDeclaration, 0);
     descriptors.push(Descriptor {
         id: id("add_wildcard", ItemKind::Rule),
         cfg: BTreeMap::new(),
         provenance: provenance(
             rule_primary.clone(),
             [
-                key("rule_pattern", 0),
-                key("rule_result", 0),
-                key("rule_type", 0),
-                key("rule_result_type", 0),
-                key("rule_left_path", 0),
-                key("rule_left_path", 1),
-                key("rule_left_application_head", 0),
-                key("rule_left_record_field_name", 0),
-                key("rule_left_record_field_name", 1),
-                key("rule_left_reference", 0),
-                key("rule_left_wildcard", 0),
-                key("rule_right_path", 0),
-                key("rule_right_reference", 0),
+                key(ProvenanceRole::RulePattern, 0),
+                key(ProvenanceRole::RuleResult, 0),
+                key(ProvenanceRole::RuleType, 0),
+                key(ProvenanceRole::RuleResultType, 0),
+                key(ProvenanceRole::RuleLeftPath, 0),
+                key(ProvenanceRole::RuleLeftPath, 1),
+                key(ProvenanceRole::RuleLeftApplicationHead, 0),
+                key(ProvenanceRole::RuleLeftRecordFieldName, 0),
+                key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+                key(ProvenanceRole::RuleLeftReference, 0),
+                key(ProvenanceRole::RuleLeftWildcard, 0),
+                key(ProvenanceRole::RuleRightPath, 0),
+                key(ProvenanceRole::RuleRightReference, 0),
             ],
         ),
         payload: DescriptorPayload::StructuredRule(Box::new(StructuredRuleDescriptor {
@@ -441,32 +465,32 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
             requires: None,
             priority: None,
             simplification: None,
-            pattern_key: key("rule_pattern", 0),
-            result_key: key("rule_result", 0),
-            subject_sort: declared_sort("rule_type", 0, expr.clone()),
-            result_sort: declared_sort("rule_result_type", 0, expr.clone()),
+            pattern_key: key(ProvenanceRole::RulePattern, 0),
+            result_key: key(ProvenanceRole::RuleResult, 0),
+            subject_sort: declared_sort(ProvenanceRole::RuleType, 0, expr.clone()),
+            result_sort: declared_sort(ProvenanceRole::RuleResultType, 0, expr.clone()),
             bindings: vec!["x".into()],
             subject: DescriptorTerm::Application {
                 head_class: DescriptorApplicationHeadClass::Applied,
                 reference: DescriptorApplicationReference {
-                    key: key("rule_left_application_head", 0),
+                    key: key(ProvenanceRole::RuleLeftApplicationHead, 0),
                     application: DescriptorApplicationRef::Declared(add),
                 },
-                path_key: key("rule_left_path", 0),
+                path_key: key(ProvenanceRole::RuleLeftPath, 0),
                 arguments: vec![
                     DescriptorTermArgument::Named {
-                        key: key("rule_left_record_field_name", 0),
+                        key: key(ProvenanceRole::RuleLeftRecordFieldName, 0),
                         field: ProductionFieldId::new("rhs").unwrap(),
                         value: Box::new(DescriptorTerm::Wildcard {
-                            key: key("rule_left_wildcard", 0),
+                            key: key(ProvenanceRole::RuleLeftWildcard, 0),
                         }),
                     },
                     DescriptorTermArgument::Named {
-                        key: key("rule_left_record_field_name", 1),
+                        key: key(ProvenanceRole::RuleLeftRecordFieldName, 1),
                         field: ProductionFieldId::new("lhs").unwrap(),
                         value: Box::new(DescriptorTerm::Variable {
-                            key: key("rule_left_reference", 0),
-                            path_key: key("rule_left_path", 1),
+                            key: key(ProvenanceRole::RuleLeftReference, 0),
+                            path_key: key(ProvenanceRole::RuleLeftPath, 1),
                             name: "x".into(),
                         }),
                     },
@@ -475,10 +499,10 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
             result: DescriptorTerm::Application {
                 head_class: DescriptorApplicationHeadClass::BareReference,
                 reference: DescriptorApplicationReference {
-                    key: key("rule_right_reference", 0),
+                    key: key(ProvenanceRole::RuleRightReference, 0),
                     application: DescriptorApplicationRef::Declared(unit),
                 },
-                path_key: key("rule_right_path", 0),
+                path_key: key(ProvenanceRole::RuleRightPath, 0),
                 arguments: vec![],
             },
         })),
@@ -501,12 +525,15 @@ fn add_builtin_expr_subsort(
     bundle.descriptors.push(Descriptor {
         id: value.clone(),
         cfg: BTreeMap::new(),
-        provenance: provenance(key("sort_declaration", 0), [key("sort_parent", 0)]),
+        provenance: provenance(
+            key(ProvenanceRole::SortDeclaration, 0),
+            [key(ProvenanceRole::SortParent, 0)],
+        ),
         payload: DescriptorPayload::Sort(SortDescriptor {
             parents: vec![expr],
         }),
     });
-    let primary = key("subsort_declaration", 0);
+    let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     bundle.descriptors.push(Descriptor {
         id: StableItemId::new(
             package(),
@@ -519,15 +546,18 @@ fn add_builtin_expr_subsort(
         cfg: BTreeMap::new(),
         provenance: provenance(
             primary.clone(),
-            [key("subsort_sub_sort", 0), key("subsort_super_sort", 0)],
+            [
+                key(ProvenanceRole::SubsortSubSort, 0),
+                key(ProvenanceRole::SubsortSuperSort, 0),
+            ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
             key: primary,
             subsort: DescriptorSortReference {
-                key: key("subsort_sub_sort", 0),
+                key: key(ProvenanceRole::SubsortSubSort, 0),
                 sort: DescriptorSortRef::Builtin(builtin),
             },
-            supersort: declared_sort("subsort_super_sort", 0, value),
+            supersort: declared_sort(ProvenanceRole::SubsortSuperSort, 0, value),
         })),
     });
 }
@@ -543,40 +573,40 @@ fn replace_rule_result_with_builtin(
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let mut provenance_keys = vec![
-        key("rule_pattern", 0),
-        key("rule_result", 0),
-        key("rule_type", 0),
-        key("rule_result_type", 0),
-        key("rule_left_path", 0),
-        key("rule_left_path", 1),
-        key("rule_left_application_head", 0),
-        key("rule_left_record_field_name", 0),
-        key("rule_left_record_field_name", 1),
-        key("rule_left_reference", 0),
-        key("rule_left_wildcard", 0),
-        key("rule_right_path", 0),
-        key("rule_right_path", 1),
-        key("rule_right_application_head", 0),
-        key("rule_right_reference", 0),
+        key(ProvenanceRole::RulePattern, 0),
+        key(ProvenanceRole::RuleResult, 0),
+        key(ProvenanceRole::RuleType, 0),
+        key(ProvenanceRole::RuleResultType, 0),
+        key(ProvenanceRole::RuleLeftPath, 0),
+        key(ProvenanceRole::RuleLeftPath, 1),
+        key(ProvenanceRole::RuleLeftApplicationHead, 0),
+        key(ProvenanceRole::RuleLeftRecordFieldName, 0),
+        key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+        key(ProvenanceRole::RuleLeftReference, 0),
+        key(ProvenanceRole::RuleLeftWildcard, 0),
+        key(ProvenanceRole::RuleRightPath, 0),
+        key(ProvenanceRole::RuleRightPath, 1),
+        key(ProvenanceRole::RuleRightApplicationHead, 0),
+        key(ProvenanceRole::RuleRightReference, 0),
     ];
     if second_argument.is_some() {
-        provenance_keys.push(key("rule_right_literal", 0));
+        provenance_keys.push(key(ProvenanceRole::RuleRightLiteral, 0));
     }
-    descriptor.provenance = provenance(key("rule_declaration", 0), provenance_keys);
+    descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), provenance_keys);
     let DescriptorPayload::StructuredRule(rule) = &mut descriptor.payload else {
         unreachable!();
     };
     let mut arguments = vec![DescriptorTermArgument::Positional {
         value: Box::new(DescriptorTerm::Variable {
-            key: key("rule_right_reference", 0),
-            path_key: key("rule_right_path", 1),
+            key: key(ProvenanceRole::RuleRightReference, 0),
+            path_key: key(ProvenanceRole::RuleRightPath, 1),
             name: "x".into(),
         }),
     }];
     if let Some(literal) = second_argument {
         arguments.push(DescriptorTermArgument::Positional {
             value: Box::new(DescriptorTerm::Literal {
-                key: key("rule_right_literal", 0),
+                key: key(ProvenanceRole::RuleRightLiteral, 0),
                 literal,
             }),
         });
@@ -584,10 +614,10 @@ fn replace_rule_result_with_builtin(
     rule.result = DescriptorTerm::Application {
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
-            key: key("rule_right_application_head", 0),
+            key: key(ProvenanceRole::RuleRightApplicationHead, 0),
             application: DescriptorApplicationRef::Builtin(operation),
         },
-        path_key: key("rule_right_path", 0),
+        path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments,
     };
 }
@@ -598,12 +628,15 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> Stab
     bundle.descriptors.push(Descriptor {
         id: descendant.clone(),
         cfg: BTreeMap::new(),
-        provenance: provenance(key("sort_declaration", 0), [key("sort_parent", 0)]),
+        provenance: provenance(
+            key(ProvenanceRole::SortDeclaration, 0),
+            [key(ProvenanceRole::SortParent, 0)],
+        ),
         payload: DescriptorPayload::Sort(SortDescriptor {
             parents: vec![expr],
         }),
     });
-    let primary = key("subsort_declaration", 0);
+    let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     bundle.descriptors.push(Descriptor {
         id: StableItemId::new(
             package(),
@@ -616,13 +649,16 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> Stab
         cfg: BTreeMap::new(),
         provenance: provenance(
             primary.clone(),
-            [key("subsort_sub_sort", 0), key("subsort_super_sort", 0)],
+            [
+                key(ProvenanceRole::SubsortSubSort, 0),
+                key(ProvenanceRole::SubsortSuperSort, 0),
+            ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
             key: primary,
-            subsort: declared_sort("subsort_sub_sort", 0, descendant.clone()),
+            subsort: declared_sort(ProvenanceRole::SubsortSubSort, 0, descendant.clone()),
             supersort: DescriptorSortReference {
-                key: key("subsort_super_sort", 0),
+                key: key(ProvenanceRole::SubsortSuperSort, 0),
                 sort: DescriptorSortRef::Builtin(BuiltinSort::Bool),
             },
         })),
@@ -636,7 +672,7 @@ fn add_builtin_member(
     builtin_name: &str,
     parent: StableItemId,
 ) {
-    let primary = key("subsort_declaration", 0);
+    let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     bundle.descriptors.push(Descriptor {
         id: StableItemId::new(
             package(),
@@ -649,15 +685,18 @@ fn add_builtin_member(
         cfg: BTreeMap::new(),
         provenance: provenance(
             primary.clone(),
-            [key("subsort_sub_sort", 0), key("subsort_super_sort", 0)],
+            [
+                key(ProvenanceRole::SubsortSubSort, 0),
+                key(ProvenanceRole::SubsortSuperSort, 0),
+            ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
             key: primary,
             subsort: DescriptorSortReference {
-                key: key("subsort_sub_sort", 0),
+                key: key(ProvenanceRole::SubsortSubSort, 0),
                 sort: DescriptorSortRef::Builtin(builtin),
             },
-            supersort: declared_sort("subsort_super_sort", 0, parent),
+            supersort: declared_sort(ProvenanceRole::SubsortSuperSort, 0, parent),
         })),
     });
 }
@@ -669,11 +708,11 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let condition_keys = [
-        key("rule_requires", 0),
-        key("rule_requires_path", 0),
-        key("rule_requires_path", 1),
-        key("rule_requires_application_head", 0),
-        key("rule_requires_reference", 0),
+        key(ProvenanceRole::RuleRequires, 0),
+        key(ProvenanceRole::RuleRequiresPath, 0),
+        key(ProvenanceRole::RuleRequiresPath, 1),
+        key(ProvenanceRole::RuleRequiresApplicationHead, 0),
+        key(ProvenanceRole::RuleRequiresReference, 0),
     ];
     let primary = descriptor.provenance.primary_key().clone();
     let mut origins = descriptor.provenance.origins().to_vec();
@@ -701,18 +740,18 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
         unreachable!()
     };
     rule.requires = Some(DescriptorRuleCondition {
-        key: key("rule_requires", 0),
+        key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
-                key: key("rule_requires_application_head", 0),
+                key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
                 application: DescriptorApplicationRef::Builtin(BuiltinOperation::BoolNot),
             },
-            path_key: key("rule_requires_path", 0),
+            path_key: key(ProvenanceRole::RuleRequiresPath, 0),
             arguments: vec![DescriptorTermArgument::Positional {
                 value: Box::new(DescriptorTerm::Variable {
-                    key: key("rule_requires_reference", 0),
-                    path_key: key("rule_requires_path", 1),
+                    key: key(ProvenanceRole::RuleRequiresReference, 0),
+                    path_key: key(ProvenanceRole::RuleRequiresPath, 1),
                     name: "x".into(),
                 }),
             }],
@@ -758,50 +797,50 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
-        key("rule_declaration", 0),
+        key(ProvenanceRole::RuleDeclaration, 0),
         [
-            key("rule_pattern", 0),
-            key("rule_result", 0),
-            key("rule_type", 0),
-            key("rule_result_type", 0),
-            key("rule_left_path", 0),
-            key("rule_left_path", 1),
-            key("rule_left_application_head", 0),
-            key("rule_left_record_field_name", 0),
-            key("rule_left_record_field_name", 1),
-            key("rule_left_reference", 0),
-            key("rule_left_wildcard", 0),
-            key("rule_right_path", 0),
-            key("rule_right_path", 1),
-            key("rule_right_path", 2),
-            key("rule_right_path", 3),
-            key("rule_right_application_head", 0),
-            key("rule_right_application_head", 1),
-            key("rule_right_reference", 0),
-            key("rule_right_reference", 1),
-            key("rule_right_literal", 0),
-            key("rule_right_literal", 1),
+            key(ProvenanceRole::RulePattern, 0),
+            key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleType, 0),
+            key(ProvenanceRole::RuleResultType, 0),
+            key(ProvenanceRole::RuleLeftPath, 0),
+            key(ProvenanceRole::RuleLeftPath, 1),
+            key(ProvenanceRole::RuleLeftApplicationHead, 0),
+            key(ProvenanceRole::RuleLeftRecordFieldName, 0),
+            key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+            key(ProvenanceRole::RuleLeftReference, 0),
+            key(ProvenanceRole::RuleLeftWildcard, 0),
+            key(ProvenanceRole::RuleRightPath, 0),
+            key(ProvenanceRole::RuleRightPath, 1),
+            key(ProvenanceRole::RuleRightPath, 2),
+            key(ProvenanceRole::RuleRightPath, 3),
+            key(ProvenanceRole::RuleRightApplicationHead, 0),
+            key(ProvenanceRole::RuleRightApplicationHead, 1),
+            key(ProvenanceRole::RuleRightReference, 0),
+            key(ProvenanceRole::RuleRightReference, 1),
+            key(ProvenanceRole::RuleRightLiteral, 0),
+            key(ProvenanceRole::RuleRightLiteral, 1),
         ],
     );
     let DescriptorPayload::StructuredRule(rule) = &mut descriptor.payload else {
         unreachable!()
     };
     let variable = |ordinal: u32, path: u32| DescriptorTerm::Variable {
-        key: key("rule_right_reference", ordinal),
-        path_key: key("rule_right_path", path),
+        key: key(ProvenanceRole::RuleRightReference, ordinal),
+        path_key: key(ProvenanceRole::RuleRightPath, path),
         name: "x".into(),
     };
     let literal = |ordinal: u32, value: &str| DescriptorTerm::Literal {
-        key: key("rule_right_literal", ordinal),
+        key: key(ProvenanceRole::RuleRightLiteral, ordinal),
         literal: DescriptorLiteral::Int(value.into()),
     };
     let update = DescriptorTerm::Application {
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
-            key: key("rule_right_application_head", 1),
+            key: key(ProvenanceRole::RuleRightApplicationHead, 1),
             application: DescriptorApplicationRef::Map(MapOperation::Update),
         },
-        path_key: key("rule_right_path", 1),
+        path_key: key(ProvenanceRole::RuleRightPath, 1),
         arguments: vec![
             DescriptorTermArgument::Positional {
                 value: Box::new(variable(0, 2)),
@@ -817,10 +856,10 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
     rule.result = DescriptorTerm::Application {
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
-            key: key("rule_right_application_head", 0),
+            key: key(ProvenanceRole::RuleRightApplicationHead, 0),
             application: DescriptorApplicationRef::Declared(id("Add", ItemKind::Constructor)),
         },
-        path_key: key("rule_right_path", 0),
+        path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![
             DescriptorTermArgument::Positional {
                 value: Box::new(update),
@@ -839,28 +878,28 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
-        key("rule_declaration", 0),
+        key(ProvenanceRole::RuleDeclaration, 0),
         [
-            key("rule_pattern", 0),
-            key("rule_result", 0),
-            key("rule_type", 0),
-            key("rule_result_type", 0),
-            key("rule_left_path", 0),
-            key("rule_left_path", 1),
-            key("rule_left_application_head", 0),
-            key("rule_left_record_field_name", 0),
-            key("rule_left_record_field_name", 1),
-            key("rule_left_reference", 0),
-            key("rule_left_wildcard", 0),
-            key("rule_right_path", 0),
-            key("rule_right_path", 1),
-            key("rule_right_path", 2),
-            key("rule_right_application_head", 0),
-            key("rule_right_application_head", 1),
-            key("rule_right_reference", 0),
-            key("rule_right_literal", 0),
-            key("rule_right_literal", 1),
-            key("rule_right_literal", 2),
+            key(ProvenanceRole::RulePattern, 0),
+            key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleType, 0),
+            key(ProvenanceRole::RuleResultType, 0),
+            key(ProvenanceRole::RuleLeftPath, 0),
+            key(ProvenanceRole::RuleLeftPath, 1),
+            key(ProvenanceRole::RuleLeftApplicationHead, 0),
+            key(ProvenanceRole::RuleLeftRecordFieldName, 0),
+            key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+            key(ProvenanceRole::RuleLeftReference, 0),
+            key(ProvenanceRole::RuleLeftWildcard, 0),
+            key(ProvenanceRole::RuleRightPath, 0),
+            key(ProvenanceRole::RuleRightPath, 1),
+            key(ProvenanceRole::RuleRightPath, 2),
+            key(ProvenanceRole::RuleRightApplicationHead, 0),
+            key(ProvenanceRole::RuleRightApplicationHead, 1),
+            key(ProvenanceRole::RuleRightReference, 0),
+            key(ProvenanceRole::RuleRightLiteral, 0),
+            key(ProvenanceRole::RuleRightLiteral, 1),
+            key(ProvenanceRole::RuleRightLiteral, 2),
         ],
     );
     let DescriptorPayload::StructuredRule(rule) = &mut descriptor.payload else {
@@ -884,7 +923,7 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     };
     update_arguments[0] = DescriptorTermArgument::Positional {
         value: Box::new(DescriptorTerm::Literal {
-            key: key("rule_right_literal", 0),
+            key: key(ProvenanceRole::RuleRightLiteral, 0),
             literal: DescriptorLiteral::Int("2".into()),
         }),
     };
@@ -898,7 +937,7 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
         else {
             unreachable!()
         };
-        *literal_key = key("rule_right_literal", ordinal);
+        *literal_key = key(ProvenanceRole::RuleRightLiteral, ordinal);
     }
     let DescriptorTermArgument::Positional { value: second } = &mut outer[1] else {
         unreachable!()
@@ -911,8 +950,8 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     else {
         unreachable!()
     };
-    *reference_key = key("rule_right_reference", 0);
-    *path_key = key("rule_right_path", 2);
+    *reference_key = key(ProvenanceRole::RuleRightReference, 0);
+    *path_key = key(ProvenanceRole::RuleRightPath, 2);
 }
 
 #[test]
@@ -923,7 +962,7 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
         descriptors.descriptors.push(declaration(
             sort_id.clone(),
             DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
-            "sort_declaration",
+            ProvenanceRole::SortDeclaration,
         ));
         let error = lower_descriptor_bundle(&descriptors)
             .unwrap_err()
@@ -939,7 +978,7 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
     descriptors.descriptors.push(declaration(
         sort_id.clone(),
         DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
-        "sort_declaration",
+        ProvenanceRole::SortDeclaration,
     ));
     descriptors
         .declarations
@@ -1051,7 +1090,7 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
-    let label_key = key("rule_label", 0);
+    let label_key = key(ProvenanceRole::RuleLabel, 0);
     let label_origin = testing::authored_in(
         package(),
         "src/expr.rs",
@@ -1268,7 +1307,7 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     let (mut bundle, _) = bundle();
     add_builtin_expr_subsort(&mut bundle, BuiltinSort::Int, "Int");
 
-    let bool_primary = key("subsort_declaration", 0);
+    let bool_primary = key(ProvenanceRole::SubsortDeclaration, 0);
     bundle.descriptors.push(Descriptor {
         id: StableItemId::new(
             package(),
@@ -1281,15 +1320,22 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
         cfg: BTreeMap::new(),
         provenance: provenance(
             bool_primary.clone(),
-            [key("subsort_sub_sort", 0), key("subsort_super_sort", 0)],
+            [
+                key(ProvenanceRole::SubsortSubSort, 0),
+                key(ProvenanceRole::SubsortSuperSort, 0),
+            ],
         ),
         payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
             key: bool_primary,
             subsort: DescriptorSortReference {
-                key: key("subsort_sub_sort", 0),
+                key: key(ProvenanceRole::SubsortSubSort, 0),
                 sort: DescriptorSortRef::Builtin(BuiltinSort::Bool),
             },
-            supersort: declared_sort("subsort_super_sort", 0, id("Value", ItemKind::Sort)),
+            supersort: declared_sort(
+                ProvenanceRole::SubsortSuperSort,
+                0,
+                id("Value", ItemKind::Sort),
+            ),
         })),
     });
 
@@ -1342,8 +1388,11 @@ fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
-        key("rule_declaration", 0),
-        [key("rule_pattern", 0), key("orphan", 0)],
+        key(ProvenanceRole::RuleDeclaration, 0),
+        [
+            key(ProvenanceRole::RulePattern, 0),
+            key(ProvenanceRole::StableSymbol, 0),
+        ],
     );
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(error.to_string().contains("provenance"));
@@ -1388,12 +1437,12 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let condition_keys = [
-        key("rule_requires", 0),
-        key("rule_requires_path", 0),
-        key("rule_requires_path", 1),
-        key("rule_requires_application_head", 0),
-        key("rule_requires_reference", 0),
-        key("rule_requires_literal", 0),
+        key(ProvenanceRole::RuleRequires, 0),
+        key(ProvenanceRole::RuleRequiresPath, 0),
+        key(ProvenanceRole::RuleRequiresPath, 1),
+        key(ProvenanceRole::RuleRequiresApplicationHead, 0),
+        key(ProvenanceRole::RuleRequiresReference, 0),
+        key(ProvenanceRole::RuleRequiresLiteral, 0),
     ];
     let primary = descriptor.provenance.primary_key().clone();
     let mut origins = descriptor.provenance.origins().to_vec();
@@ -1421,25 +1470,25 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
         unreachable!()
     };
     rule.requires = Some(DescriptorRuleCondition {
-        key: key("rule_requires", 0),
+        key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
-                key: key("rule_requires_application_head", 0),
+                key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
                 application: DescriptorApplicationRef::Builtin(BuiltinOperation::IntAdd),
             },
-            path_key: key("rule_requires_path", 0),
+            path_key: key(ProvenanceRole::RuleRequiresPath, 0),
             arguments: vec![
                 DescriptorTermArgument::Positional {
                     value: Box::new(DescriptorTerm::Variable {
-                        key: key("rule_requires_reference", 0),
-                        path_key: key("rule_requires_path", 1),
+                        key: key(ProvenanceRole::RuleRequiresReference, 0),
+                        path_key: key(ProvenanceRole::RuleRequiresPath, 1),
                         name: "x".into(),
                     }),
                 },
                 DescriptorTermArgument::Positional {
                     value: Box::new(DescriptorTerm::Literal {
-                        key: key("rule_requires_literal", 0),
+                        key: key(ProvenanceRole::RuleRequiresLiteral, 0),
                         literal: DescriptorLiteral::Int("1".into()),
                     }),
                 },

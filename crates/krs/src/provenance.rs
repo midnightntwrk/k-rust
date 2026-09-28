@@ -2,7 +2,7 @@
 
 use crate::{
     AnchorPrecision, HostAuthoredAnchor, HostProvenance, HostSourceAnchor, HostSourcePosition,
-    ProvenanceKey,
+    ProvenanceKey, ProvenanceRole,
 };
 
 /// Literal source coordinates emitted by KRS macros.
@@ -25,7 +25,7 @@ pub fn __krs_host_provenance(
     manifest_dir: &str,
     files: &[&str],
     invocation: __KrsRawAnchor,
-    authored: &[(&str, u32, __KrsRawAnchor)],
+    authored: &[(ProvenanceRole, u32, __KrsRawAnchor)],
 ) -> HostProvenance {
     let mut resolved: Vec<Option<String>> = vec![None; files.len()];
     macro_rules! source_anchor {
@@ -68,7 +68,7 @@ pub fn __krs_host_provenance(
     let mut decoded_authored = Vec::with_capacity(authored.len());
     for &(role, ordinal, raw) in authored {
         decoded_authored.push(HostAuthoredAnchor::new(
-            ProvenanceKey::new(role, ordinal).expect("KRS parser roles are nonempty"),
+            ProvenanceKey::new(role, ordinal),
             source_anchor!(raw),
         ));
     }

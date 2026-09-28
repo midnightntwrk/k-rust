@@ -495,7 +495,7 @@ fn payload_primary_key(
         HostDescriptorPayload::StructuredRule(_) => ProvenanceRole::RuleDeclaration,
         _ => return primary_key(kind),
     };
-    role.key(0).map_err(|error| invalid_provenance_key(&error))
+    Ok(role.key(0))
 }
 
 fn primary_key(kind: ItemKind) -> Result<ProvenanceKey, CollectionError> {
@@ -515,14 +515,7 @@ fn primary_key(kind: ItemKind) -> Result<ProvenanceKey, CollectionError> {
             ));
         }
     };
-    role.key(0).map_err(|error| invalid_provenance_key(&error))
-}
-
-fn invalid_provenance_key(error: &krs_ir::HostProvenanceError) -> CollectionError {
-    CollectionError::new(
-        CollectionErrorKind::ProvenanceMismatch,
-        format!("cannot construct primary provenance key: {error}"),
-    )
+    Ok(role.key(0))
 }
 
 fn descriptor_label(kind: ItemKind) -> &'static str {
@@ -609,7 +602,7 @@ mod tests {
         assert_eq!(descriptor_label(ItemKind::Cell), "cell");
         assert_eq!(
             primary_key(ItemKind::Cell).unwrap(),
-            ProvenanceRole::ConfigurationDeclaration.key(0).unwrap()
+            ProvenanceRole::ConfigurationDeclaration.key(0)
         );
     }
 }

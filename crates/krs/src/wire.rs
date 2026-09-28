@@ -484,12 +484,13 @@ mod tests {
         HostGrammarDescriptor, HostHeadRule, HostItemId, HostPackageKey, HostProduction,
         HostProductionAttribute, HostProductionItem, HostProductionOwner, HostSortReference,
         HostStructuredRuleDescriptor, HostTerm, HostTypeKey, HostTypeReference, ItemKind,
-        ProductionGroupId, ProtocolHeadRuleResult, ProvenanceKey, SentenceKind, StrictnessKind,
+        ProductionGroupId, ProtocolHeadRuleResult, ProvenanceKey, ProvenanceRole, SentenceKind,
+        StrictnessKind,
     };
     use std::any::TypeId;
 
-    fn key(role: &str) -> ProvenanceKey {
-        ProvenanceKey::new(role, 0).unwrap()
+    fn key(role: ProvenanceRole) -> ProvenanceKey {
+        ProvenanceKey::new(role, 0)
     }
 
     fn type_id() -> TypeId {
@@ -512,13 +513,13 @@ mod tests {
             ],
         };
         let nominal = decoder.target(WireApplicationReference {
-            key: key("application"),
+            key: key(ProvenanceRole::TermApplicationHead),
             target: 0,
             authored_path: "int :: add".to_owned(),
         });
         assert_eq!(nominal.target.authored_path(), "int :: add");
         let variant = decoder.target(WireApplicationReference {
-            key: key("application"),
+            key: key(ProvenanceRole::TermApplicationHead),
             target: 1,
             authored_path: "Op :: Gt".to_owned(),
         });
@@ -527,7 +528,7 @@ mod tests {
 
     fn wire_sort() -> WireSortReference {
         WireSortReference {
-            key: key("sort"),
+            key: key(ProvenanceRole::SortDeclaration),
             target: WireTypeReference {
                 slot: 0,
                 authored_path: "u64".to_owned(),
@@ -537,7 +538,7 @@ mod tests {
 
     fn host_sort() -> HostSortReference {
         HostSortReference {
-            key: key("sort"),
+            key: key(ProvenanceRole::SortDeclaration),
             target: HostTypeReference {
                 key: HostTypeKey(type_id),
                 authored_path: "u64".to_owned(),
@@ -547,14 +548,14 @@ mod tests {
 
     fn wire_term() -> WireTerm {
         WireTerm::Literal {
-            key: key("literal"),
+            key: key(ProvenanceRole::TermLiteral),
             literal: DescriptorLiteral::Int("42".to_owned()),
         }
     }
 
     fn host_term() -> HostTerm {
         HostTerm::Literal {
-            key: key("literal"),
+            key: key(ProvenanceRole::TermLiteral),
             literal: DescriptorLiteral::Int("42".to_owned()),
         }
     }
@@ -597,23 +598,23 @@ mod tests {
     #[test]
     fn grammar_associativity_wire_matches_code_built_payload() {
         let sentence = DescriptorAssociativitySentence {
-            key: key("sentence"),
+            key: key(ProvenanceRole::AssociativitySentence),
             associativity: GroupAssociativity::Left,
             groups: vec![DescriptorGroupReference {
-                key: key("group"),
+                key: key(ProvenanceRole::AssociativityGroupReference),
                 group: ProductionGroupId::new("arith").unwrap(),
             }],
         };
         let actual = decode(
             &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Associativity {
-                key: key("associativity"),
+                key: key(ProvenanceRole::AssociativityDeclaration),
                 sentences: vec![sentence.clone()],
             })),
             &[],
         );
         let expected =
             HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Associativity {
-                key: key("associativity"),
+                key: key(ProvenanceRole::AssociativityDeclaration),
                 sentences: vec![sentence],
             }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
@@ -623,32 +624,32 @@ mod tests {
     fn grammar_production_wire_matches_code_built_payload() {
         let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
-                key: key("production"),
+                key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: WireProductionOwner::TokenSort { sort: wire_sort() },
                 result_sort: wire_sort(),
                 items: vec![WireProductionItem::Terminal {
-                    key: key("terminal"),
+                    key: key(ProvenanceRole::ConstructorSyntax),
                     text: "+".to_owned(),
                 }],
                 attributes: vec![WireProductionAttribute::Function {
-                    key: key("function"),
+                    key: key(ProvenanceRole::FunctionDeclaration),
                 }],
             },
         )));
         let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
-                key: key("production"),
+                key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: HostProductionOwner::TokenSort { sort: host_sort() },
                 result_sort: host_sort(),
                 items: vec![HostProductionItem::Terminal {
-                    key: key("terminal"),
+                    key: key(ProvenanceRole::ConstructorSyntax),
                     text: "+".to_owned(),
                 }],
                 attributes: vec![HostProductionAttribute::Function {
-                    key: key("function"),
+                    key: key(ProvenanceRole::FunctionDeclaration),
                 }],
             },
         )));
@@ -658,36 +659,36 @@ mod tests {
     #[test]
     fn grammar_ordering_and_subsort_wire_match_code_built_payloads() {
         let chain = DescriptorPrecedenceChain {
-            key: key("chain"),
+            key: key(ProvenanceRole::PrecedenceChain),
             groups: vec![DescriptorGroupReference {
-                key: key("group"),
+                key: key(ProvenanceRole::AssociativityGroupReference),
                 group: ProductionGroupId::new("arith").unwrap(),
             }],
         };
         let actual = decode(
             &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Precedence {
-                key: key("precedence"),
+                key: key(ProvenanceRole::PrecedenceDeclaration),
                 chains: vec![chain.clone()],
             })),
             &[],
         );
         let expected =
             HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Precedence {
-                key: key("precedence"),
+                key: key(ProvenanceRole::PrecedenceDeclaration),
                 chains: vec![chain],
             }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
 
         let actual = decode(
             &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-                key: key("subsort"),
+                key: key(ProvenanceRole::SubsortDeclaration),
                 subsort: wire_sort(),
                 supersort: wire_sort(),
             })),
             &[__KrsSlot::Type(HostTypeKey(type_id))],
         );
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Subsort {
-            key: key("subsort"),
+            key: key(ProvenanceRole::SubsortDeclaration),
             subsort: host_sort(),
             supersort: host_sort(),
         }));
@@ -702,16 +703,16 @@ mod tests {
             HostItemId::new(package, ["semantics"], "eval", ItemKind::ContextAlias, "").unwrap();
         let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
-                key: key("production"),
+                key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: WireProductionOwner::TokenSort { sort: wire_sort() },
                 result_sort: wire_sort(),
                 items: vec![],
                 attributes: vec![WireProductionAttribute::Strictness {
-                    key: key("strictness"),
+                    key: key(ProvenanceRole::StrictnessDeclaration),
                     kind: StrictnessKind::Strict,
                     using: Some(WireContextAliasReference {
-                        key: key("alias"),
+                        key: key(ProvenanceRole::AliasProduction),
                         slot: 1,
                     }),
                     fields: vec![],
@@ -728,16 +729,16 @@ mod tests {
         );
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
-                key: key("production"),
+                key: key(ProvenanceRole::ConstructorDeclaration),
                 template_key: None,
                 owner: HostProductionOwner::TokenSort { sort: host_sort() },
                 result_sort: host_sort(),
                 items: vec![],
                 attributes: vec![HostProductionAttribute::Strictness {
-                    key: key("strictness"),
+                    key: key(ProvenanceRole::StrictnessDeclaration),
                     kind: StrictnessKind::Strict,
                     using: Some(HostContextAliasReference {
-                        key: key("alias"),
+                        key: key(ProvenanceRole::AliasProduction),
                         alias,
                     }),
                     fields: vec![],
@@ -756,8 +757,8 @@ mod tests {
             requires: None,
             priority: None,
             simplification: None,
-            pattern_key: key("rule_pattern"),
-            result_key: key("rule_result"),
+            pattern_key: key(ProvenanceRole::RulePattern),
+            result_key: key(ProvenanceRole::RuleResult),
             subject_sort: wire_sort(),
             result_sort: wire_sort(),
             bindings: vec![],
@@ -776,8 +777,8 @@ mod tests {
                 requires: None,
                 priority: None,
                 simplification: None,
-                pattern_key: key("rule_pattern"),
-                result_key: key("rule_result"),
+                pattern_key: key(ProvenanceRole::RulePattern),
+                result_key: key(ProvenanceRole::RuleResult),
                 subject_sort: host_sort(),
                 result_sort: host_sort(),
                 bindings: vec![],
@@ -793,8 +794,8 @@ mod tests {
             sentence_kind: SentenceKind::Transition,
             label: None,
             priority: None,
-            pattern_key: key("rule_pattern"),
-            result_key: key("rule_result"),
+            pattern_key: key(ProvenanceRole::RulePattern),
+            result_key: key(ProvenanceRole::RuleResult),
             head_sort: Some(wire_sort()),
             configuration: None,
             computation_cell_name: None,
@@ -812,8 +813,8 @@ mod tests {
             sentence_kind: SentenceKind::Transition,
             label: None,
             priority: None,
-            pattern_key: key("rule_pattern"),
-            result_key: key("rule_result"),
+            pattern_key: key(ProvenanceRole::RulePattern),
+            result_key: key(ProvenanceRole::RuleResult),
             head_sort: Some(host_sort()),
             configuration: None,
             computation_cell_name: None,

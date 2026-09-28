@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
-    ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey, SentenceKind,
-    SetOperation, StableItemId, StrictnessKind,
+    ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey,
+    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -1891,9 +1891,9 @@ impl StructuredRuleDescriptor {
         if let Some(priority) = &self.priority {
             require_key(&priority.key, provenance)?;
             let valid_equation = self.sentence_kind == SentenceKind::Equation
-                && priority.key.role() == "equation_priority";
+                && priority.key.role() == ProvenanceRole::EquationPriority;
             let valid_owise = self.sentence_kind == SentenceKind::Transition
-                && priority.key.role() == "rule_owise"
+                && priority.key.role() == ProvenanceRole::RuleOwise
                 && priority.value == 200;
             if !(valid_equation || valid_owise) {
                 return Err(GrammarTransportError::InvalidTerm(
@@ -1960,18 +1960,20 @@ impl GrammarDescriptor {
         match self {
             Self::Production(production) => match production.owner {
                 DescriptorProductionOwner::Constructor { .. } => {
-                    canonical_key("constructor_declaration", 0)
+                    canonical_key(ProvenanceRole::ConstructorDeclaration, 0)
                 }
                 DescriptorProductionOwner::TokenSort { .. } => {
-                    canonical_key("token_declaration", 0)
+                    canonical_key(ProvenanceRole::TokenDeclaration, 0)
                 }
                 DescriptorProductionOwner::BracketSort { .. } => {
-                    canonical_key("bracket_declaration", 0)
+                    canonical_key(ProvenanceRole::BracketDeclaration, 0)
                 }
             },
-            Self::Subsort { .. } => canonical_key("subsort_declaration", 0),
-            Self::Precedence { .. } => canonical_key("precedence_declaration", 0),
-            Self::Associativity { .. } => canonical_key("associativity_declaration", 0),
+            Self::Subsort { .. } => canonical_key(ProvenanceRole::SubsortDeclaration, 0),
+            Self::Precedence { .. } => canonical_key(ProvenanceRole::PrecedenceDeclaration, 0),
+            Self::Associativity { .. } => {
+                canonical_key(ProvenanceRole::AssociativityDeclaration, 0)
+            }
         }
     }
 
@@ -2320,25 +2322,30 @@ impl GrammarDescriptor {
                 subsort,
                 supersort,
             } => {
-                insert_exact(&mut keys, key, "subsort_declaration", 0)?;
-                insert_exact(&mut keys, &subsort.key, "subsort_sub_sort", 0)?;
-                insert_exact(&mut keys, &supersort.key, "subsort_super_sort", 0)?;
+                insert_exact(&mut keys, key, ProvenanceRole::SubsortDeclaration, 0)?;
+                insert_exact(&mut keys, &subsort.key, ProvenanceRole::SubsortSubSort, 0)?;
+                insert_exact(
+                    &mut keys,
+                    &supersort.key,
+                    ProvenanceRole::SubsortSuperSort,
+                    0,
+                )?;
             }
             Self::Precedence { key, chains } => {
-                insert_exact(&mut keys, key, "precedence_declaration", 0)?;
+                insert_exact(&mut keys, key, ProvenanceRole::PrecedenceDeclaration, 0)?;
                 let mut group_ordinal = 0_u32;
                 for (chain_ordinal, chain) in chains.iter().enumerate() {
                     insert_exact(
                         &mut keys,
                         &chain.key,
-                        "precedence_chain",
+                        ProvenanceRole::PrecedenceChain,
                         checked_index(chain_ordinal)?,
                     )?;
                     for group in &chain.groups {
                         insert_exact(
                             &mut keys,
                             &group.key,
-                            "precedence_group_reference",
+                            ProvenanceRole::PrecedenceGroupReference,
                             group_ordinal,
                         )?;
                         group_ordinal = increment(group_ordinal)?;
@@ -2346,20 +2353,20 @@ impl GrammarDescriptor {
                 }
             }
             Self::Associativity { key, sentences } => {
-                insert_exact(&mut keys, key, "associativity_declaration", 0)?;
+                insert_exact(&mut keys, key, ProvenanceRole::AssociativityDeclaration, 0)?;
                 let mut group_ordinal = 0_u32;
                 for (sentence_ordinal, sentence) in sentences.iter().enumerate() {
                     insert_exact(
                         &mut keys,
                         &sentence.key,
-                        "associativity_sentence",
+                        ProvenanceRole::AssociativitySentence,
                         checked_index(sentence_ordinal)?,
                     )?;
                     for group in &sentence.groups {
                         insert_exact(
                             &mut keys,
                             &group.key,
-                            "associativity_group_reference",
+                            ProvenanceRole::AssociativityGroupReference,
                             group_ordinal,
                         )?;
                         group_ordinal = increment(group_ordinal)?;
@@ -2379,19 +2386,34 @@ impl DescriptorProduction {
     ) -> Result<(), GrammarTransportError> {
         match &self.owner {
             DescriptorProductionOwner::Constructor { constructor } => {
-                insert_exact(keys, &self.key, "constructor_declaration", 0)?;
-                insert_exact(keys, &constructor.key, "constructor_declaration", 0)?;
-                insert_exact(keys, &self.result_sort.key, "constructor_sort", 0)?;
+                insert_exact(keys, &self.key, ProvenanceRole::ConstructorDeclaration, 0)?;
+                insert_exact(
+                    keys,
+                    &constructor.key,
+                    ProvenanceRole::ConstructorDeclaration,
+                    0,
+                )?;
+                insert_exact(
+                    keys,
+                    &self.result_sort.key,
+                    ProvenanceRole::ConstructorSort,
+                    0,
+                )?;
                 if let Some(template_key) = &self.template_key {
-                    insert_exact(keys, template_key, "constructor_syntax", 0)?;
+                    insert_exact(keys, template_key, ProvenanceRole::ConstructorSyntax, 0)?;
                 }
                 self.collect_constructor_item_keys(keys)?;
                 self.collect_constructor_attribute_keys(keys)
             }
             DescriptorProductionOwner::TokenSort { sort } => {
-                insert_exact(keys, &self.key, "token_declaration", 0)?;
-                insert_exact(keys, &sort.key, "token_declaration", 0)?;
-                insert_exact(keys, &self.result_sort.key, "token_declaration", 0)?;
+                insert_exact(keys, &self.key, ProvenanceRole::TokenDeclaration, 0)?;
+                insert_exact(keys, &sort.key, ProvenanceRole::TokenDeclaration, 0)?;
+                insert_exact(
+                    keys,
+                    &self.result_sort.key,
+                    ProvenanceRole::TokenDeclaration,
+                    0,
+                )?;
                 if self.template_key.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
                         "token production cannot have a syntax-template key",
@@ -2403,7 +2425,7 @@ impl DescriptorProduction {
                         "token production must contain exactly one regex item",
                     ));
                 };
-                insert_exact(keys, key, "token_regex", 0)?;
+                insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
                 let [
                     DescriptorProductionAttribute::Token {
                         key,
@@ -2415,16 +2437,26 @@ impl DescriptorProduction {
                         "token production must contain only token metadata",
                     ));
                 };
-                insert_exact(keys, key, "token_regex", 0)?;
+                insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
                 if let Some(precedence) = lexical_precedence {
-                    insert_exact(keys, &precedence.key, "token_lexical_precedence", 0)?;
+                    insert_exact(
+                        keys,
+                        &precedence.key,
+                        ProvenanceRole::TokenLexicalPrecedence,
+                        0,
+                    )?;
                 }
                 Ok(())
             }
             DescriptorProductionOwner::BracketSort { sort } => {
-                insert_exact(keys, &self.key, "bracket_declaration", 0)?;
-                insert_exact(keys, &sort.key, "sort_declaration", 0)?;
-                insert_exact(keys, &self.result_sort.key, "sort_declaration", 0)?;
+                insert_exact(keys, &self.key, ProvenanceRole::BracketDeclaration, 0)?;
+                insert_exact(keys, &sort.key, ProvenanceRole::SortDeclaration, 0)?;
+                insert_exact(
+                    keys,
+                    &self.result_sort.key,
+                    ProvenanceRole::SortDeclaration,
+                    0,
+                )?;
                 if self.template_key.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
                         "bracket production cannot have a constructor-template key",
@@ -2438,7 +2470,7 @@ impl DescriptorProduction {
                             insert_exact(
                                 keys,
                                 key,
-                                "bracket_syntax_item",
+                                ProvenanceRole::BracketSyntaxItem,
                                 checked_index(item_ordinal)?,
                             )?;
                         }
@@ -2457,16 +2489,16 @@ impl DescriptorProduction {
                             insert_exact(
                                 keys,
                                 key,
-                                "bracket_syntax_item",
+                                ProvenanceRole::BracketSyntaxItem,
                                 checked_index(item_ordinal)?,
                             )?;
                             insert_exact(
                                 keys,
                                 field_key,
-                                "bracket_value_reference",
+                                ProvenanceRole::BracketValueReference,
                                 field_ordinal,
                             )?;
-                            insert_exact(keys, &sort.key, "sort_declaration", 0)?;
+                            insert_exact(keys, &sort.key, ProvenanceRole::SortDeclaration, 0)?;
                             field_ordinal = increment(field_ordinal)?;
                         }
                     }
@@ -2477,7 +2509,7 @@ impl DescriptorProduction {
                         "bracket production must contain only bracket metadata",
                     ));
                 };
-                insert_exact(keys, key, "bracket_declaration", 0)
+                insert_exact(keys, key, ProvenanceRole::BracketDeclaration, 0)
             }
         }
     }
@@ -2496,11 +2528,11 @@ impl DescriptorProduction {
                         insert_exact(
                             keys,
                             key,
-                            "constructor_syntax_item",
+                            ProvenanceRole::ConstructorSyntaxItem,
                             checked_index(item_ordinal)?,
                         )?;
                     } else {
-                        insert_exact(keys, key, "constructor_declaration", 0)?;
+                        insert_exact(keys, key, ProvenanceRole::ConstructorDeclaration, 0)?;
                     }
                 }
                 DescriptorProductionItem::NonTerminal {
@@ -2524,7 +2556,7 @@ impl DescriptorProduction {
                     insert_exact(
                         keys,
                         declaration_key,
-                        "constructor_field_declaration",
+                        ProvenanceRole::ConstructorFieldDeclaration,
                         if explicit {
                             declaration_ordinal
                         } else {
@@ -2534,33 +2566,33 @@ impl DescriptorProduction {
                     insert_exact(
                         keys,
                         &sort.key,
-                        "constructor_field_sort",
+                        ProvenanceRole::ConstructorFieldSort,
                         declaration_ordinal,
                     )?;
                     if explicit {
                         insert_exact(
                             keys,
                             key,
-                            "constructor_syntax_item",
+                            ProvenanceRole::ConstructorSyntaxItem,
                             checked_index(item_ordinal)?,
                         )?;
                         insert_exact(
                             keys,
                             field_key,
-                            "constructor_syntax_field_reference",
+                            ProvenanceRole::ConstructorSyntaxFieldReference,
                             occurrence_ordinal,
                         )?;
                     } else {
                         insert_exact(
                             keys,
                             key,
-                            "constructor_field_declaration",
+                            ProvenanceRole::ConstructorFieldDeclaration,
                             occurrence_ordinal,
                         )?;
                         insert_exact(
                             keys,
                             field_key,
-                            "constructor_field_declaration",
+                            ProvenanceRole::ConstructorFieldDeclaration,
                             occurrence_ordinal,
                         )?;
                     }
@@ -2592,24 +2624,24 @@ impl DescriptorProduction {
                     insert_exact(
                         keys,
                         key,
-                        "constructor_documentation",
+                        ProvenanceRole::ConstructorDocumentation,
                         documentation_ordinal,
                     )?;
                     documentation_ordinal = increment(documentation_ordinal)?;
                 }
                 DescriptorProductionAttribute::Group { reference } => {
-                    insert_exact(keys, &reference.key, "constructor_group", 0)?;
+                    insert_exact(keys, &reference.key, ProvenanceRole::ConstructorGroup, 0)?;
                 }
                 DescriptorProductionAttribute::Avoid { key } => {
-                    insert_exact(keys, key, "constructor_avoid", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::ConstructorAvoid, 0)?;
                 }
                 DescriptorProductionAttribute::Format { key, fragments } => {
-                    insert_exact(keys, key, "constructor_format", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::ConstructorFormat, 0)?;
                     for (ordinal, fragment) in fragments.iter().enumerate() {
                         insert_exact(
                             keys,
                             &fragment.key,
-                            "constructor_format_fragment",
+                            ProvenanceRole::ConstructorFormatFragment,
                             checked_index(ordinal)?,
                         )?;
                     }
@@ -2621,35 +2653,45 @@ impl DescriptorProduction {
                     result_sort,
                     ..
                 } => {
-                    insert_exact(keys, key, "strictness_declaration", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::StrictnessDeclaration, 0)?;
                     if let Some(using) = using {
-                        insert_exact(keys, &using.key, "strictness_context_alias_reference", 0)?;
+                        insert_exact(
+                            keys,
+                            &using.key,
+                            ProvenanceRole::StrictnessContextAliasReference,
+                            0,
+                        )?;
                     }
                     for (ordinal, field) in fields.iter().enumerate() {
                         insert_exact(
                             keys,
                             &field.key,
-                            "strictness_field_reference",
+                            ProvenanceRole::StrictnessFieldReference,
                             checked_index(ordinal)?,
                         )?;
                     }
-                    insert_exact(keys, &result_sort.key, "strictness_result_sort", 0)?;
+                    insert_exact(
+                        keys,
+                        &result_sort.key,
+                        ProvenanceRole::StrictnessResultSort,
+                        0,
+                    )?;
                 }
                 DescriptorProductionAttribute::Function { key } => {
-                    if key.role() == "function_declaration" {
-                        insert_exact(keys, key, "function_declaration", 0)?;
+                    if key.role() == ProvenanceRole::FunctionDeclaration {
+                        insert_exact(keys, key, ProvenanceRole::FunctionDeclaration, 0)?;
                     } else {
-                        insert_exact(keys, key, "function_partial", 0)?;
+                        insert_exact(keys, key, ProvenanceRole::FunctionPartial, 0)?;
                     }
                 }
                 DescriptorProductionAttribute::Total { key } => {
-                    insert_exact(keys, key, "function_total", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::FunctionTotal, 0)?;
                 }
                 DescriptorProductionAttribute::Hook { key, .. } => {
-                    insert_exact(keys, key, "function_hook", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::FunctionHook, 0)?;
                 }
                 DescriptorProductionAttribute::Alias { key } => {
-                    insert_exact(keys, key, "alias_production", 0)?;
+                    insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;
                 }
                 DescriptorProductionAttribute::Token { .. }
                 | DescriptorProductionAttribute::Bracket { .. } => {
@@ -2665,41 +2707,61 @@ impl DescriptorProduction {
 
 impl StructuredRuleDescriptor {
     pub(crate) fn expected_primary_key() -> ProvenanceKey {
-        canonical_key("rule_declaration", 0)
+        canonical_key(ProvenanceRole::RuleDeclaration, 0)
     }
 
     pub(crate) fn expected_provenance_keys(
         &self,
     ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
         let mut keys = BTreeSet::new();
-        insert_canonical(&mut keys, "rule_declaration", 0);
+        insert_canonical(&mut keys, ProvenanceRole::RuleDeclaration, 0);
         if self.sentence_kind == SentenceKind::Alias {
-            insert_canonical(&mut keys, "alias_clause", 0);
+            insert_canonical(&mut keys, ProvenanceRole::AliasClause, 0);
         }
         if let Some(label) = &self.label {
-            insert_exact(&mut keys, &label.key, "rule_label", 0)?;
+            insert_exact(&mut keys, &label.key, ProvenanceRole::RuleLabel, 0)?;
         }
         if let Some(requires) = &self.requires {
-            insert_exact(&mut keys, &requires.key, "rule_requires", 0)?;
+            insert_exact(&mut keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
         }
         if let Some(priority) = &self.priority {
             let role = if self.sentence_kind == SentenceKind::Transition {
-                "rule_owise"
+                ProvenanceRole::RuleOwise
             } else {
-                "equation_priority"
+                ProvenanceRole::EquationPriority
             };
             insert_exact(&mut keys, &priority.key, role, 0)?;
         }
         if let Some(simplification) = &self.simplification {
-            insert_exact(&mut keys, &simplification.key, "simplification_marker", 0)?;
+            insert_exact(
+                &mut keys,
+                &simplification.key,
+                ProvenanceRole::SimplificationMarker,
+                0,
+            )?;
             if let Some(priority) = &simplification.priority {
-                insert_exact(&mut keys, &priority.key, "simplification_priority", 0)?;
+                insert_exact(
+                    &mut keys,
+                    &priority.key,
+                    ProvenanceRole::SimplificationPriority,
+                    0,
+                )?;
             }
         }
-        insert_exact(&mut keys, &self.pattern_key, "rule_pattern", 0)?;
-        insert_exact(&mut keys, &self.subject_sort.key, "rule_type", 0)?;
-        insert_exact(&mut keys, &self.result_sort.key, "rule_result_type", 0)?;
-        insert_exact(&mut keys, &self.result_key, "rule_result", 0)?;
+        insert_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
+        insert_exact(
+            &mut keys,
+            &self.subject_sort.key,
+            ProvenanceRole::RuleType,
+            0,
+        )?;
+        insert_exact(
+            &mut keys,
+            &self.result_sort.key,
+            ProvenanceRole::RuleResultType,
+            0,
+        )?;
+        insert_exact(&mut keys, &self.result_key, ProvenanceRole::RuleResult, 0)?;
         let mut subject = TermKeyCounters::default();
         self.subject
             .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
@@ -2736,44 +2798,44 @@ enum TermSide {
 }
 
 impl TermSide {
-    const fn path_role(self) -> &'static str {
+    const fn path_role(self) -> ProvenanceRole {
         match self {
-            Self::Left => "rule_left_path",
-            Self::Right => "rule_right_path",
-            Self::Requires => "rule_requires_path",
+            Self::Left => ProvenanceRole::RuleLeftPath,
+            Self::Right => ProvenanceRole::RuleRightPath,
+            Self::Requires => ProvenanceRole::RuleRequiresPath,
         }
     }
-    const fn application_role(self) -> &'static str {
+    const fn application_role(self) -> ProvenanceRole {
         match self {
-            Self::Left => "rule_left_application_head",
-            Self::Right => "rule_right_application_head",
-            Self::Requires => "rule_requires_application_head",
+            Self::Left => ProvenanceRole::RuleLeftApplicationHead,
+            Self::Right => ProvenanceRole::RuleRightApplicationHead,
+            Self::Requires => ProvenanceRole::RuleRequiresApplicationHead,
         }
     }
-    const fn reference_role(self) -> &'static str {
+    const fn reference_role(self) -> ProvenanceRole {
         match self {
-            Self::Left => "rule_left_reference",
-            Self::Right => "rule_right_reference",
-            Self::Requires => "rule_requires_reference",
+            Self::Left => ProvenanceRole::RuleLeftReference,
+            Self::Right => ProvenanceRole::RuleRightReference,
+            Self::Requires => ProvenanceRole::RuleRequiresReference,
         }
     }
-    const fn literal_role(self) -> &'static str {
+    const fn literal_role(self) -> ProvenanceRole {
         match self {
-            Self::Left => "rule_left_literal",
-            Self::Right => "rule_right_literal",
-            Self::Requires => "rule_requires_literal",
+            Self::Left => ProvenanceRole::RuleLeftLiteral,
+            Self::Right => ProvenanceRole::RuleRightLiteral,
+            Self::Requires => ProvenanceRole::RuleRequiresLiteral,
         }
     }
-    const fn record_field_role(self) -> &'static str {
+    const fn record_field_role(self) -> ProvenanceRole {
         match self {
-            Self::Left => "rule_left_record_field_name",
-            Self::Right => "rule_right_record_field_name",
-            Self::Requires => "rule_requires_record_field_name",
+            Self::Left => ProvenanceRole::RuleLeftRecordFieldName,
+            Self::Right => ProvenanceRole::RuleRightRecordFieldName,
+            Self::Requires => ProvenanceRole::RuleRequiresRecordFieldName,
         }
     }
-    const fn wildcard_role(self) -> Option<&'static str> {
+    const fn wildcard_role(self) -> Option<ProvenanceRole> {
         match self {
-            Self::Left => Some("rule_left_wildcard"),
+            Self::Left => Some(ProvenanceRole::RuleLeftWildcard),
             Self::Right | Self::Requires => None,
         }
     }
@@ -2880,7 +2942,7 @@ impl DescriptorTerm {
 fn insert_exact(
     keys: &mut BTreeSet<ProvenanceKey>,
     actual: &ProvenanceKey,
-    role: &'static str,
+    role: ProvenanceRole,
     ordinal: u32,
 ) -> Result<(), GrammarTransportError> {
     let expected = canonical_key(role, ordinal);
@@ -2894,12 +2956,12 @@ fn insert_exact(
     Ok(())
 }
 
-fn insert_canonical(keys: &mut BTreeSet<ProvenanceKey>, role: &'static str, ordinal: u32) {
+fn insert_canonical(keys: &mut BTreeSet<ProvenanceKey>, role: ProvenanceRole, ordinal: u32) {
     keys.insert(canonical_key(role, ordinal));
 }
 
-fn canonical_key(role: &'static str, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal).expect("protocol-owned role is nonempty and path-free")
+fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    ProvenanceKey::new(role, ordinal)
 }
 
 fn checked_index(index: usize) -> Result<u32, GrammarTransportError> {

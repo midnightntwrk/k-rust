@@ -83,90 +83,101 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
             Box::new(::k::HostConfigurationRule {
                 sentence_kind: ::k::SentenceKind::Claim,
                 label: Some(::k::DescriptorRuleLabel {
-                    key: ::k::ProvenanceKey::new("claim_label", 0).unwrap(),
+                    key: ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimLabel, 0),
                     name: "branching".to_owned(),
                 }),
                 priority: None,
                 requires: ::core::option::Option::None,
                 claim: Some(::k::HostClaim {
-                    declaration_key: ::k::ProvenanceKey::new("claim_declaration", 0)
-                        .unwrap(),
-                    modality_key: ::k::ProvenanceKey::new("claim_modality", 0).unwrap(),
+                    declaration_key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::ClaimDeclaration,
+                        0,
+                    ),
+                    modality_key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::ClaimModality,
+                        0,
+                    ),
                     modality: ::k::ClaimModality::AllPaths,
                     circularity_key: ::core::option::Option::None,
                     universals: vec![],
                     existentials: vec![
                         ::k::HostClaimBinder { declaration_key :
-                        ::k::ProvenanceKey::new("claim_existential_binder", 0u32)
-                        .unwrap(), name_key :
-                        ::k::ProvenanceKey::new("claim_binder_name", 0u32).unwrap(), name
-                        : "n".to_owned(), sort : ::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("claim_binder_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimExistentialBinder,
+                        0u32), name_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimBinderName,
+                        0u32), name : "n".to_owned(), sort : ::k::HostSortReference { key
+                        : ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimBinderSort,
+                        0u32), target : ::k::HostTypeReference { key :
                         ::k::HostTypeKey(__krs_claim_existential_sort_473db5d11a51e265_0),
                         authored_path : "Int".to_owned(), }, }, }
                     ],
                     ensures: ::core::option::Option::Some(::k::HostRuleCondition {
-                        key: ::k::ProvenanceKey::new("claim_ensures", 0).unwrap(),
+                        key: ::k::ProvenanceKey::new(
+                            ::k::ProvenanceRole::ClaimEnsures,
+                            0,
+                        ),
                         term: ::k::HostTerm::OrBool {
-                            key: ::k::ProvenanceKey::new("claim_or_bool", 0u32)
-                                .expect("KRS parser roles are nonempty"),
+                            key: ::k::ProvenanceKey::new(
+                                ::k::ProvenanceRole::ClaimOrBool,
+                                0u32,
+                            ),
                             arguments: vec![
                                 ::k::HostTerm::Application { head_class :
                                 ::k::DescriptorApplicationHeadClass::Applied, reference :
                                 ::k::HostApplicationReference { key :
-                                ::k::ProvenanceKey::new("claim_ensures_application_head",
-                                0u32).expect("KRS parser roles are nonempty"), target :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresApplicationHead,
+                                0u32), target :
                                 ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
                                 key :
                                 ::k::HostTypeKey(__krs_rule_application_673db5d11a51e265_0),
                                 authored_path : "int :: eq".to_owned(), }), }, path_key :
-                                ::k::ProvenanceKey::new("claim_ensures_path", 0u32)
-                                .expect("KRS parser roles are nonempty"), arguments :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresPath,
+                                0u32), arguments :
                                 ::std::vec![::k::HostTermArgument::Positional { value :
                                 ::std::boxed::Box::new(::k::HostTerm::Variable { key :
-                                ::k::ProvenanceKey::new("claim_ensures_reference", 0u32)
-                                .expect("KRS parser roles are nonempty"), path_key :
-                                ::k::ProvenanceKey::new("claim_ensures_path", 1u32)
-                                .expect("KRS parser roles are nonempty"), name : "n"
-                                .to_owned(), }), }, ::k::HostTermArgument::Positional {
-                                value : ::std::boxed::Box::new(::k::HostTerm::Literal { key
-                                : ::k::ProvenanceKey::new("claim_ensures_literal", 0u32)
-                                .expect("KRS parser roles are nonempty"), literal :
-                                ::k::DescriptorLiteral::Int("5".to_owned()) }), }], },
-                                ::k::HostTerm::Application { head_class :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresReference,
+                                0u32), path_key :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresPath,
+                                1u32), name : "n".to_owned(), }), },
+                                ::k::HostTermArgument::Positional { value :
+                                ::std::boxed::Box::new(::k::HostTerm::Literal { key :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresLiteral,
+                                0u32), literal : ::k::DescriptorLiteral::Int("5".to_owned())
+                                }), }], }, ::k::HostTerm::Application { head_class :
                                 ::k::DescriptorApplicationHeadClass::Applied, reference :
                                 ::k::HostApplicationReference { key :
-                                ::k::ProvenanceKey::new("claim_ensures_application_head",
-                                1u32).expect("KRS parser roles are nonempty"), target :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresApplicationHead,
+                                1u32), target :
                                 ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
                                 key :
                                 ::k::HostTypeKey(__krs_rule_application_673db5d11a51e265_1),
                                 authored_path : "int :: eq".to_owned(), }), }, path_key :
-                                ::k::ProvenanceKey::new("claim_ensures_path", 2u32)
-                                .expect("KRS parser roles are nonempty"), arguments :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresPath,
+                                2u32), arguments :
                                 ::std::vec![::k::HostTermArgument::Positional { value :
                                 ::std::boxed::Box::new(::k::HostTerm::Variable { key :
-                                ::k::ProvenanceKey::new("claim_ensures_reference", 1u32)
-                                .expect("KRS parser roles are nonempty"), path_key :
-                                ::k::ProvenanceKey::new("claim_ensures_path", 3u32)
-                                .expect("KRS parser roles are nonempty"), name : "n"
-                                .to_owned(), }), }, ::k::HostTermArgument::Positional {
-                                value : ::std::boxed::Box::new(::k::HostTerm::Literal { key
-                                : ::k::ProvenanceKey::new("claim_ensures_literal", 1u32)
-                                .expect("KRS parser roles are nonempty"), literal :
-                                ::k::DescriptorLiteral::Int("6".to_owned()) }), }], }
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresReference,
+                                1u32), path_key :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresPath,
+                                3u32), name : "n".to_owned(), }), },
+                                ::k::HostTermArgument::Positional { value :
+                                ::std::boxed::Box::new(::k::HostTerm::Literal { key :
+                                ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimEnsuresLiteral,
+                                1u32), literal : ::k::DescriptorLiteral::Int("6".to_owned())
+                                }), }], }
                             ],
                         },
                     }),
                     or_bool_keys: vec![
-                        ::k::ProvenanceKey::new("claim_or_bool", 0u32).unwrap()
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimOrBool, 0u32)
                     ],
                 }),
-                pattern_key: ::k::ProvenanceKey::new("rule_pattern", 0).unwrap(),
+                pattern_key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::RulePattern,
+                    0,
+                ),
                 subject_configuration: ::k::HostConfigurationReference {
-                    key: ::k::ProvenanceKey::new("rule_type", 0).unwrap(),
+                    key: ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleType, 0),
                     configuration: ::k::HostTypeReference {
                         key: ::k::HostTypeKey(
                             __krs_claim_configuration_left_473db5d11a51e265,
@@ -174,9 +185,9 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         authored_path: "Machine".to_owned(),
                     },
                 },
-                result_key: ::k::ProvenanceKey::new("rule_result", 0).unwrap(),
+                result_key: ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleResult, 0),
                 result_configuration: ::k::HostConfigurationReference {
-                    key: ::k::ProvenanceKey::new("rule_result_type", 0).unwrap(),
+                    key: ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleResultType, 0),
                     configuration: ::k::HostTypeReference {
                         key: ::k::HostTypeKey(
                             __krs_claim_configuration_right_473db5d11a51e265,
@@ -191,32 +202,31 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     ::k::ProtocolRuleBindingKind::ConfigurationFrame }
                 ],
                 subject: ::k::HostRuleCells {
-                    key: ::k::ProvenanceKey::new("rule_left_cells_payload", 0u32)
-                        .expect("KRS parser roles are nonempty"),
+                    key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::RuleLeftCellsPayload,
+                        0u32,
+                    ),
                     cells: ::std::vec![
                         ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("rule_left_cells_field", 0u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsField,
+                        0u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
                         ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k), }, },
-                        wrapper_key : ::k::ProvenanceKey::new("rule_left_cells_wrapper",
-                        0u32).expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::KCell, value :
+                        wrapper_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsWrapper,
+                        0u32), wrapper : ::k::CellWrapper::KCell, value :
                         ::k::ProtocolRuleStateTerm::KSequence(::k::ProtocolRuleKSequence
                         { payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("rule_left_k_sequence_payload",
-                        0u32).expect("KRS parser roles are nonempty")), dot_k_key :
-                        ::core::option::Option::None, notation :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequencePayload,
+                        0u32)), dot_k_key : ::core::option::Option::None, notation :
                         ::k::DescriptorKSequenceNotation::Comma, items :
                         ::std::vec![::k::ProtocolRuleKSequenceItem { key :
-                        ::k::ProvenanceKey::new("rule_left_k_sequence_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), value :
-                        ::k::HostTerm::Application { head_class :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceItem,
+                        0u32), value : ::k::HostTerm::Application { head_class :
                         ::k::DescriptorApplicationHeadClass::Applied, reference :
                         ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        0u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_0),
@@ -225,14 +235,13 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Sequence",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 0u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
-                        ::k::DescriptorApplicationHeadClass::Applied, reference :
-                        ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 1u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        0u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::Application {
+                        head_class : ::k::DescriptorApplicationHeadClass::Applied,
+                        reference : ::k::HostApplicationReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        1u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_1),
@@ -241,24 +250,21 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Assign",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 1u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::BuiltinToken { key :
-                        ::k::ProvenanceKey::new("claim_id_token", 0u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::BuiltinSort::Id, value : "$n".to_owned() }), },
-                        ::k::HostTermArgument::Positional { value :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        1u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::BuiltinToken {
+                        key : ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimIdToken,
+                        0u32), sort : ::k::BuiltinSort::Id, value : "$n".to_owned() }),
+                        }, ::k::HostTermArgument::Positional { value :
                         ::std::boxed::Box::new(::k::HostTerm::Literal { key :
-                        ::k::ProvenanceKey::new("rule_left_literal", 0u32)
-                        .expect("KRS parser roles are nonempty"), literal :
-                        ::k::DescriptorLiteral::Int("7".to_owned()) }), }], }), },
-                        ::k::HostTermArgument::Positional { value :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftLiteral,
+                        0u32), literal : ::k::DescriptorLiteral::Int("7".to_owned()) }),
+                        }], }), }, ::k::HostTermArgument::Positional { value :
                         ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
                         ::k::DescriptorApplicationHeadClass::Applied, reference :
                         ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 2u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        2u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_2),
@@ -267,24 +273,21 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: IfThenElse",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 2u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::Anonymous { key :
-                        ::k::ProvenanceKey::new("claim_anonymous", 0u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("claim_anonymous_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        2u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::Anonymous { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimAnonymous,
+                        0u32), sort : ::k::HostSortReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimAnonymousSort,
+                        0u32), target : ::k::HostTypeReference { key :
                         ::k::HostTypeKey(__krs_claim_anonymous_sort_473db5d11a51e265_3),
                         authored_path : "Bool".to_owned() } }, spelling : "_B".to_owned()
                         }), }, ::k::HostTermArgument::Positional { value :
                         ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
                         ::k::DescriptorApplicationHeadClass::Applied, reference :
                         ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 3u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        3u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_4),
@@ -293,14 +296,13 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Block",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 3u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
-                        ::k::DescriptorApplicationHeadClass::Applied, reference :
-                        ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 4u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        3u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::Application {
+                        head_class : ::k::DescriptorApplicationHeadClass::Applied,
+                        reference : ::k::HostApplicationReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        4u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_5),
@@ -309,24 +311,21 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Assign",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 4u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::BuiltinToken { key :
-                        ::k::ProvenanceKey::new("claim_id_token", 1u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::BuiltinSort::Id, value : "$n".to_owned() }), },
-                        ::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::Literal { key :
-                        ::k::ProvenanceKey::new("rule_left_literal", 1u32)
-                        .expect("KRS parser roles are nonempty"), literal :
-                        ::k::DescriptorLiteral::Int("6".to_owned()) }), }], }), }], }),
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        4u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::BuiltinToken {
+                        key : ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimIdToken,
+                        1u32), sort : ::k::BuiltinSort::Id, value : "$n".to_owned() }),
                         }, ::k::HostTermArgument::Positional { value :
+                        ::std::boxed::Box::new(::k::HostTerm::Literal { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftLiteral,
+                        1u32), literal : ::k::DescriptorLiteral::Int("6".to_owned()) }),
+                        }], }), }], }), }, ::k::HostTermArgument::Positional { value :
                         ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
                         ::k::DescriptorApplicationHeadClass::Applied, reference :
                         ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 5u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        5u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_6),
@@ -335,14 +334,13 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Block",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 5u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::Application { head_class :
-                        ::k::DescriptorApplicationHeadClass::Applied, reference :
-                        ::k::HostApplicationReference { key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 6u32)
-                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        5u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::Application {
+                        head_class : ::k::DescriptorApplicationHeadClass::Applied,
+                        reference : ::k::HostApplicationReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        6u32), target :
                         ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
                         { key :
                         ::k::HostTypeKey(__krs_rule_application_473db5d11a51e265_7),
@@ -351,113 +349,102 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                         "StmtSyntax :: Assign",)
                         .expect("qualified enum variants retain their owning enum path"),)
                         }, path_key :
-                        ::k::ProvenanceKey::new("rule_left_application_head", 6u32)
-                        .expect("KRS parser roles are nonempty"), arguments :
-                        ::std::vec![::k::HostTermArgument::Positional { value :
-                        ::std::boxed::Box::new(::k::HostTerm::BuiltinToken { key :
-                        ::k::ProvenanceKey::new("claim_id_token", 2u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::BuiltinSort::Id, value : "$n".to_owned() }), },
-                        ::k::HostTermArgument::Positional { value :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftApplicationHead,
+                        6u32), arguments : ::std::vec![::k::HostTermArgument::Positional
+                        { value : ::std::boxed::Box::new(::k::HostTerm::BuiltinToken {
+                        key : ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimIdToken,
+                        2u32), sort : ::k::BuiltinSort::Id, value : "$n".to_owned() }),
+                        }, ::k::HostTermArgument::Positional { value :
                         ::std::boxed::Box::new(::k::HostTerm::Literal { key :
-                        ::k::ProvenanceKey::new("rule_left_literal", 2u32)
-                        .expect("KRS parser roles are nonempty"), literal :
-                        ::k::DescriptorLiteral::Int("5".to_owned()) }), }], }), }], }),
-                        }], }), }], } }], tail : ::k::ProtocolRuleFrame::Bind { key :
-                        ::k::ProvenanceKey::new("rule_left_k_sequence_tail", 0u32)
-                        .expect("KRS parser roles are nonempty"), binding : "tail"
-                        .to_owned() }, }), }, ::k::ProtocolRuleCell { field :
-                        ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("rule_left_cells_field", 1u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftLiteral,
+                        2u32), literal : ::k::DescriptorLiteral::Int("5".to_owned()) }),
+                        }], }), }], }), }], }), }], } }], tail :
+                        ::k::ProtocolRuleFrame::Bind { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceTail,
+                        0u32), binding : "tail".to_owned() }, }), },
+                        ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsField,
+                        1u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
                         ::k::HostTypeKey(Machine::__krs_cell_field_type_id_env), }, },
-                        wrapper_key : ::k::ProvenanceKey::new("rule_left_cells_wrapper",
-                        1u32).expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::Cell, value :
+                        wrapper_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsWrapper,
+                        1u32), wrapper : ::k::CellWrapper::Cell, value :
                         ::k::ProtocolRuleStateTerm::Map(::k::ProtocolRuleMap {
                         payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("rule_left_map_payload",
-                        0u32).expect("KRS parser roles are nonempty")), body :
-                        ::k::ProtocolRuleMapBody::Items { items :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftMapPayload,
+                        0u32)), body : ::k::ProtocolRuleMapBody::Items { items :
                         ::std::vec![::k::ProtocolRuleMapItem { key_key :
-                        ::k::ProvenanceKey::new("rule_left_map_key", 0u32)
-                        .expect("KRS parser roles are nonempty"), key :
-                        ::k::HostTerm::BuiltinToken { key :
-                        ::k::ProvenanceKey::new("claim_id_token", 3u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::BuiltinSort::Id, value : "$n".to_owned() }, value_key :
-                        ::k::ProvenanceKey::new("rule_left_map_value", 0u32)
-                        .expect("KRS parser roles are nonempty"), value :
-                        ::k::HostTerm::Literal { key :
-                        ::k::ProvenanceKey::new("rule_left_literal", 3u32)
-                        .expect("KRS parser roles are nonempty"), literal :
-                        ::k::DescriptorLiteral::Int("0".to_owned()) }, }], remainder :
-                        ::k::ProtocolRuleFrame::Exact, } }), }
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftMapKey,
+                        0u32), key : ::k::HostTerm::BuiltinToken { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimIdToken, 3u32),
+                        sort : ::k::BuiltinSort::Id, value : "$n".to_owned() }, value_key
+                        : ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftMapValue,
+                        0u32), value : ::k::HostTerm::Literal { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftLiteral,
+                        3u32), literal : ::k::DescriptorLiteral::Int("0".to_owned()) },
+                        }], remainder : ::k::ProtocolRuleFrame::Exact, } }), }
                     ],
                     remainder: ::k::ProtocolRuleFrame::Bind {
-                        key: ::k::ProvenanceKey::new("rule_left_cells_remainder", 0u32)
-                            .expect("KRS parser roles are nonempty"),
+                        key: ::k::ProvenanceKey::new(
+                            ::k::ProvenanceRole::RuleLeftCellsRemainder,
+                            0u32,
+                        ),
                         binding: "state".to_owned(),
                     },
                 },
                 result: ::k::HostRuleCells {
-                    key: ::k::ProvenanceKey::new("rule_right_cells_payload", 0u32)
-                        .expect("KRS parser roles are nonempty"),
+                    key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::RuleRightCellsPayload,
+                        0u32,
+                    ),
                     cells: ::std::vec![
                         ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("rule_right_cells_field", 0u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightCellsField,
+                        0u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
                         ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k), }, },
-                        wrapper_key : ::k::ProvenanceKey::new("rule_right_cells_wrapper",
-                        0u32).expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::KCell, value :
+                        wrapper_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightCellsWrapper,
+                        0u32), wrapper : ::k::CellWrapper::KCell, value :
                         ::k::ProtocolRuleStateTerm::KSequence(::k::ProtocolRuleKSequence
                         { payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("rule_right_k_sequence_payload",
-                        0u32).expect("KRS parser roles are nonempty")), dot_k_key :
-                        ::core::option::Option::None, notation :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightKSequencePayload,
+                        0u32)), dot_k_key : ::core::option::Option::None, notation :
                         ::k::DescriptorKSequenceNotation::Comma, items : ::std::vec![],
                         tail : ::k::ProtocolRuleFrame::Reuse { key :
-                        ::k::ProvenanceKey::new("rule_right_k_sequence_tail", 0u32)
-                        .expect("KRS parser roles are nonempty"), binding : "tail"
-                        .to_owned() }, }), }, ::k::ProtocolRuleCell { field :
-                        ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("rule_right_cells_field", 1u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightKSequenceTail,
+                        0u32), binding : "tail".to_owned() }, }), },
+                        ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightCellsField,
+                        1u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
                         ::k::HostTypeKey(Machine::__krs_cell_field_type_id_env), }, },
-                        wrapper_key : ::k::ProvenanceKey::new("rule_right_cells_wrapper",
-                        1u32).expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::Cell, value :
+                        wrapper_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightCellsWrapper,
+                        1u32), wrapper : ::k::CellWrapper::Cell, value :
                         ::k::ProtocolRuleStateTerm::Map(::k::ProtocolRuleMap {
                         payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("rule_right_map_payload",
-                        0u32).expect("KRS parser roles are nonempty")), body :
-                        ::k::ProtocolRuleMapBody::Items { items :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightMapPayload,
+                        0u32)), body : ::k::ProtocolRuleMapBody::Items { items :
                         ::std::vec![::k::ProtocolRuleMapItem { key_key :
-                        ::k::ProvenanceKey::new("rule_right_map_key", 0u32)
-                        .expect("KRS parser roles are nonempty"), key :
-                        ::k::HostTerm::BuiltinToken { key :
-                        ::k::ProvenanceKey::new("claim_id_token", 4u32)
-                        .expect("KRS parser roles are nonempty"), sort :
-                        ::k::BuiltinSort::Id, value : "$n".to_owned() }, value_key :
-                        ::k::ProvenanceKey::new("rule_right_map_value", 0u32)
-                        .expect("KRS parser roles are nonempty"), value :
-                        ::k::HostTerm::Variable { key :
-                        ::k::ProvenanceKey::new("rule_right_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), path_key :
-                        ::k::ProvenanceKey::new("rule_right_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), name : "n".to_owned(),
-                        }, }], remainder : ::k::ProtocolRuleFrame::Exact, } }), }
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightMapKey,
+                        0u32), key : ::k::HostTerm::BuiltinToken { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ClaimIdToken, 4u32),
+                        sort : ::k::BuiltinSort::Id, value : "$n".to_owned() }, value_key
+                        : ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightMapValue,
+                        0u32), value : ::k::HostTerm::Variable { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightReference,
+                        0u32), path_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleRightReference,
+                        0u32), name : "n".to_owned(), }, }], remainder :
+                        ::k::ProtocolRuleFrame::Exact, } }), }
                     ],
                     remainder: ::k::ProtocolRuleFrame::Reuse {
-                        key: ::k::ProvenanceKey::new("rule_right_cells_remainder", 0u32)
-                            .expect("KRS parser roles are nonempty"),
+                        key: ::k::ProvenanceKey::new(
+                            ::k::ProvenanceRole::RuleRightCellsRemainder,
+                            0u32,
+                        ),
                         binding: "state".to_owned(),
                     },
                 },
@@ -476,7 +463,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "rule_pattern",
+                    ::k::ProvenanceRole::RulePattern,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -487,7 +474,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_type",
+                    ::k::ProvenanceRole::RuleType,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -498,7 +485,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_result_type",
+                    ::k::ProvenanceRole::RuleResultType,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -509,7 +496,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_result",
+                    ::k::ProvenanceRole::RuleResult,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -520,7 +507,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_payload",
+                    ::k::ProvenanceRole::RuleLeftCellsPayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -531,7 +518,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_field",
+                    ::k::ProvenanceRole::RuleLeftCellsField,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -542,7 +529,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_wrapper",
+                    ::k::ProvenanceRole::RuleLeftCellsWrapper,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -553,7 +540,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_field",
+                    ::k::ProvenanceRole::RuleLeftCellsField,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -564,7 +551,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_wrapper",
+                    ::k::ProvenanceRole::RuleLeftCellsWrapper,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -575,7 +562,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_remainder",
+                    ::k::ProvenanceRole::RuleLeftCellsRemainder,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -586,7 +573,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_payload",
+                    ::k::ProvenanceRole::RuleLeftKSequencePayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -597,7 +584,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_item",
+                    ::k::ProvenanceRole::RuleLeftKSequenceItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -608,7 +595,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_tail",
+                    ::k::ProvenanceRole::RuleLeftKSequenceTail,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -619,7 +606,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -630,7 +617,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -641,7 +628,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_literal",
+                    ::k::ProvenanceRole::RuleLeftLiteral,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -652,7 +639,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -663,7 +650,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     3u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -674,7 +661,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     4u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -685,7 +672,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_literal",
+                    ::k::ProvenanceRole::RuleLeftLiteral,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -696,7 +683,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     5u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -707,7 +694,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_application_head",
+                    ::k::ProvenanceRole::RuleLeftApplicationHead,
                     6u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -718,7 +705,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_literal",
+                    ::k::ProvenanceRole::RuleLeftLiteral,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -729,7 +716,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_map_payload",
+                    ::k::ProvenanceRole::RuleLeftMapPayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -740,7 +727,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_map_key",
+                    ::k::ProvenanceRole::RuleLeftMapKey,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -751,7 +738,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_map_value",
+                    ::k::ProvenanceRole::RuleLeftMapValue,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -762,7 +749,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_literal",
+                    ::k::ProvenanceRole::RuleLeftLiteral,
                     3u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -773,7 +760,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_payload",
+                    ::k::ProvenanceRole::RuleRightCellsPayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -784,7 +771,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_field",
+                    ::k::ProvenanceRole::RuleRightCellsField,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -795,7 +782,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_wrapper",
+                    ::k::ProvenanceRole::RuleRightCellsWrapper,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -806,7 +793,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_field",
+                    ::k::ProvenanceRole::RuleRightCellsField,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -817,7 +804,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_wrapper",
+                    ::k::ProvenanceRole::RuleRightCellsWrapper,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -828,7 +815,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_cells_remainder",
+                    ::k::ProvenanceRole::RuleRightCellsRemainder,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -839,7 +826,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_k_sequence_payload",
+                    ::k::ProvenanceRole::RuleRightKSequencePayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -850,7 +837,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_k_sequence_tail",
+                    ::k::ProvenanceRole::RuleRightKSequenceTail,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -861,7 +848,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_map_payload",
+                    ::k::ProvenanceRole::RuleRightMapPayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -872,7 +859,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_map_key",
+                    ::k::ProvenanceRole::RuleRightMapKey,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -883,7 +870,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_map_value",
+                    ::k::ProvenanceRole::RuleRightMapValue,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -894,7 +881,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_right_reference",
+                    ::k::ProvenanceRole::RuleRightReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -905,7 +892,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_declaration",
+                    ::k::ProvenanceRole::ClaimDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -916,7 +903,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_existential_binder",
+                    ::k::ProvenanceRole::ClaimExistentialBinder,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -927,7 +914,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_binder_name",
+                    ::k::ProvenanceRole::ClaimBinderName,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -938,7 +925,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_binder_sort",
+                    ::k::ProvenanceRole::ClaimBinderSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -949,7 +936,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures",
+                    ::k::ProvenanceRole::ClaimEnsures,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -960,7 +947,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_path",
+                    ::k::ProvenanceRole::ClaimEnsuresPath,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -971,7 +958,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_path",
+                    ::k::ProvenanceRole::ClaimEnsuresPath,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -982,7 +969,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_path",
+                    ::k::ProvenanceRole::ClaimEnsuresPath,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -993,7 +980,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_path",
+                    ::k::ProvenanceRole::ClaimEnsuresPath,
                     3u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1004,7 +991,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_application_head",
+                    ::k::ProvenanceRole::ClaimEnsuresApplicationHead,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1015,7 +1002,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_reference",
+                    ::k::ProvenanceRole::ClaimEnsuresReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1026,7 +1013,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_literal",
+                    ::k::ProvenanceRole::ClaimEnsuresLiteral,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1037,7 +1024,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_application_head",
+                    ::k::ProvenanceRole::ClaimEnsuresApplicationHead,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1048,7 +1035,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_reference",
+                    ::k::ProvenanceRole::ClaimEnsuresReference,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1059,7 +1046,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_ensures_literal",
+                    ::k::ProvenanceRole::ClaimEnsuresLiteral,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1070,7 +1057,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_id_token",
+                    ::k::ProvenanceRole::ClaimIdToken,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1081,7 +1068,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_anonymous",
+                    ::k::ProvenanceRole::ClaimAnonymous,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1092,7 +1079,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_anonymous_sort",
+                    ::k::ProvenanceRole::ClaimAnonymousSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1103,7 +1090,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_anonymous_spelling",
+                    ::k::ProvenanceRole::ClaimAnonymousSpelling,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1114,7 +1101,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_id_token",
+                    ::k::ProvenanceRole::ClaimIdToken,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1125,7 +1112,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_id_token",
+                    ::k::ProvenanceRole::ClaimIdToken,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1136,7 +1123,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_id_token",
+                    ::k::ProvenanceRole::ClaimIdToken,
                     3u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1147,7 +1134,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_id_token",
+                    ::k::ProvenanceRole::ClaimIdToken,
                     4u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1158,7 +1145,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_or_bool",
+                    ::k::ProvenanceRole::ClaimOrBool,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1169,7 +1156,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_modality",
+                    ::k::ProvenanceRole::ClaimModality,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -1180,7 +1167,7 @@ fn __krs_configuration_claim_473db5d11a51e265() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "claim_label",
+                    ::k::ProvenanceRole::ClaimLabel,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

@@ -18,48 +18,45 @@ pub(crate) fn __krs_initializer_payload() -> (
         ::core::any::TypeId::of::<T>()
     }
     let initializer = ::k::HostConfigurationInitializer {
-        key: ::k::ProvenanceKey::new("initializer_declaration", 0)
-            .expect("KRS parser roles are nonempty"),
-        owner_key: ::k::ProvenanceKey::new("initializer_result_type", 0)
-            .expect("KRS parser roles are nonempty"),
+        key: ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerDeclaration, 0),
+        owner_key: ::k::ProvenanceKey::new(
+            ::k::ProvenanceRole::InitializerResultType,
+            0,
+        ),
         owner: ::k::HostTypeKey(__krs_type_key::<Self>),
         variables: ::std::vec![],
-        body_key: ::k::ProvenanceKey::new("initializer_body", 0)
-            .expect("KRS parser roles are nonempty"),
+        body_key: ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerBody, 0),
         cells: ::std::vec![
-            ::k::HostInitializerCell { key : ::k::ProvenanceKey::new("initializer_cell",
-            0u32).expect("KRS parser roles are nonempty"), field : ::k::HostCellReference
-            { key : ::k::ProvenanceKey::new("initializer_field", 0u32)
-            .expect("KRS parser roles are nonempty"), cell : ::k::HostCellIdentity {
-            owner : ::k::HostTypeKey(__krs_type_key:: < Self >), field :
-            ::k::HostTypeKey(Self::__krs_cell_field_type_id_k), }, }, content :
+            ::k::HostInitializerCell { key :
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCell, 0u32), field :
+            ::k::HostCellReference { key :
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerField, 0u32), cell :
+            ::k::HostCellIdentity { owner : ::k::HostTypeKey(__krs_type_key:: < Self >),
+            field : ::k::HostTypeKey(Self::__krs_cell_field_type_id_k), }, }, content :
             ::k::ProtocolInitializerCellContent::Leaf { constructor_key :
-            ::k::ProvenanceKey::new("initializer_cell_constructor", 0u32,)
-            .expect("KRS parser roles are nonempty"), wrapper : ::k::CellWrapper::KCell,
-            value : ::k::ProtocolInitializerStateTerm::KSequence(::k::ProtocolKSequence {
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCellConstructor,
+            0u32,), wrapper : ::k::CellWrapper::KCell, value :
+            ::k::ProtocolInitializerStateTerm::KSequence(::k::ProtocolKSequence {
             payload_key :
-            ::core::option::Option::Some(::k::ProvenanceKey::new("k_sequence_payload",
-            0u32).expect("KRS parser roles are nonempty")), dot_k_key :
-            ::core::option::Option::None, notation :
+            ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::KSequencePayload,
+            0u32)), dot_k_key : ::core::option::Option::None, notation :
             ::k::DescriptorKSequenceNotation::Comma, items :
             ::std::vec![::k::ProtocolKSequenceItem { key :
-            ::k::ProvenanceKey::new("k_sequence_item", 0u32)
-            .expect("KRS parser roles are nonempty"), value :
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::KSequenceItem, 0u32), value :
             ::k::ProtocolInitializerTerm { key :
-            ::k::ProvenanceKey::new("initializer_term", 0u32)
-            .expect("KRS parser roles are nonempty"), term : ::k::HostTerm::Application {
-            head_class : ::k::DescriptorApplicationHeadClass::Applied, reference :
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTerm, 0u32), term :
+            ::k::HostTerm::Application { head_class :
+            ::k::DescriptorApplicationHeadClass::Applied, reference :
             ::k::HostApplicationReference { key :
-            ::k::ProvenanceKey::new("initializer_term_path", 0u32)
-            .expect("KRS parser roles are nonempty"), target :
+            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath, 0u32),
+            target :
             ::k::HostApplicationTarget::EnumVariant(::k::HostEnumVariantReference::new(::k::HostTypeReference
             { key : ::k::HostTypeKey(Self::__krs_rule_application_a54e111e753ef5a8_0),
             authored_path : "Object".to_owned(), },
             ::k::HostTypeKey(Object::__krs_variant_type_id_Foo), "Object :: Foo",)
             .expect("qualified enum variants retain their owning enum path"),) },
-            path_key : ::k::ProvenanceKey::new("initializer_term_path", 0u32)
-            .expect("KRS parser roles are nonempty"), arguments : ::std::vec![], } } }],
-            }), }, }
+            path_key : ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath,
+            0u32), arguments : ::std::vec![], } } }], }), }, }
         ],
     };
     (
@@ -76,7 +73,7 @@ pub(crate) fn __krs_initializer_payload() -> (
             },
             &[
                 (
-                    "initializer_declaration",
+                    ::k::ProvenanceRole::InitializerDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -87,7 +84,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_result_type",
+                    ::k::ProvenanceRole::InitializerResultType,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -98,7 +95,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_body",
+                    ::k::ProvenanceRole::InitializerBody,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -109,7 +106,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_cell",
+                    ::k::ProvenanceRole::InitializerCell,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -120,7 +117,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_field",
+                    ::k::ProvenanceRole::InitializerField,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -131,7 +128,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_cell_constructor",
+                    ::k::ProvenanceRole::InitializerCellConstructor,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -142,7 +139,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "k_sequence_payload",
+                    ::k::ProvenanceRole::KSequencePayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -153,7 +150,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "k_sequence_item",
+                    ::k::ProvenanceRole::KSequenceItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -164,7 +161,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_term",
+                    ::k::ProvenanceRole::InitializerTerm,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -175,7 +172,7 @@ pub(crate) fn __krs_initializer_payload() -> (
                     },
                 ),
                 (
-                    "initializer_term_path",
+                    ::k::ProvenanceRole::InitializerTermPath,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

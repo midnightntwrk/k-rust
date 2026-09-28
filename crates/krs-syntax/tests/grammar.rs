@@ -330,8 +330,8 @@ fn strictness_is_ordered_typed_and_field_checked() {
     );
     assert_eq!(anchors[2].role(), ProvenanceRole::StrictnessFieldReference);
     assert_eq!(
-        anchors[1].key().unwrap().role(),
-        "strictness_context_alias_reference"
+        anchors[1].key().role(),
+        ProvenanceRole::StrictnessContextAliasReference
     );
 
     for source in [
@@ -541,24 +541,24 @@ fn rules_preserve_builtin_heads_binders_and_literals() {
         .iter()
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.kind(),
                 candidate.path_spelling(),
             )
         })
         .collect::<Vec<_>>();
     assert!(actual.contains(&(
-        "rule_left_application_head".into(),
+        ProvenanceRole::RuleLeftApplicationHead,
         TermSymbolKind::ApplicationHead,
         "Add".into()
     )));
     assert!(actual.contains(&(
-        "rule_right_application_head".into(),
+        ProvenanceRole::RuleRightApplicationHead,
         TermSymbolKind::ApplicationHead,
         "int :: add".into()
     )));
     assert!(actual.contains(&(
-        "rule_right_application_head".into(),
+        ProvenanceRole::RuleRightApplicationHead,
         TermSymbolKind::ApplicationHead,
         "int :: sub".into()
     )));

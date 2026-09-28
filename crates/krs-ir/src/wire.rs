@@ -313,18 +313,18 @@ pub enum WirePayload {
 #[cfg(test)]
 mod tests {
     use super::{WireApplicationReference, WireTerm};
-    use crate::{DescriptorApplicationHeadClass, ProvenanceKey};
+    use crate::{DescriptorApplicationHeadClass, ProvenanceKey, ProvenanceRole};
 
     #[test]
     fn application_wire_has_stable_compact_json_and_round_trips() {
         let term = WireTerm::Application {
             head_class: DescriptorApplicationHeadClass::BareReference,
             reference: WireApplicationReference {
-                key: ProvenanceKey::new("rule_left_reference", 2).unwrap(),
+                key: ProvenanceKey::new(ProvenanceRole::RuleLeftReference, 2),
                 target: 3,
                 authored_path: "Op::Gt".to_owned(),
             },
-            path_key: ProvenanceKey::new("rule_left_path", 4).unwrap(),
+            path_key: ProvenanceKey::new(ProvenanceRole::RuleLeftPath, 4),
             arguments: vec![],
         };
         let json = serde_json::to_string(&term).unwrap();

@@ -16,7 +16,7 @@ use krs_ir::transport::collector;
 use krs_ir::wire::*;
 use krs_ir::*;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
-use serde_reflection::{Error, Registry, Samples, Tracer, TracerConfig};
+use serde_reflection::{Error, FormatHolder, Registry, Samples, Tracer, TracerConfig};
 use syn::{Item, Meta, Token, punctuated::Punctuated};
 
 mod schema_samples;
@@ -227,7 +227,16 @@ const UNTRACEABLE: &[&[&str]] = &[
     UNSUPPORTED_TRANSITIVE,
 ];
 
+// String-validated types need a valid default string:
+// provenance roles accept only catalog spellings, and digests accept only 64 hex digits.
+// Each type is traced with whichever default it accepts, and the two registries are unified.
 fn config() -> TracerConfig {
+    TracerConfig::default()
+        .is_human_readable(true)
+        .default_string_value("sort_declaration".to_owned())
+}
+
+fn digest_config() -> TracerConfig {
     TracerConfig::default()
         .is_human_readable(true)
         .default_string_value(format!("a{}", "0".repeat(63)))
@@ -243,7 +252,7 @@ fn samples() -> Samples {
     )
     .unwrap();
     let range = SourceRange::new(file.clone(), 0, 3).unwrap();
-    let key = ProvenanceKey::new("sort_declaration", 0).unwrap();
+    let key = ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0);
     let stack = OriginStack::authored(range.clone());
     let mut tracer = Tracer::new(config());
     let mut samples = Samples::new();
@@ -432,16 +441,24 @@ fn census() -> BTreeSet<String> {
 fn registry() -> Registry {
     let samples = samples();
     let mut tracer = Tracer::new(config());
+    let mut digest_tracer = Tracer::new(digest_config());
     let mut classified = BTreeSet::new();
     let mut probed = BTreeSet::new();
     macro_rules! trace {
         ($name:ident : $ty:ty) => {
-            tracer.trace_type::<$ty>(&samples).unwrap_or_else(|error| {
-                panic!(
-                    "{} unexpectedly failed reflection: {error:?}",
-                    stringify!($name)
-                )
-            });
+            let mut probe = Tracer::new(config());
+            if probe.trace_type::<$ty>(&samples).is_ok() {
+                tracer.trace_type::<$ty>(&samples).unwrap();
+            } else {
+                digest_tracer
+                    .trace_type::<$ty>(&samples)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "{} unexpectedly failed reflection: {error:?}",
+                            stringify!($name)
+                        )
+                    });
+            }
             assert!(classified.insert(stringify!($name).to_owned()));
         };
     }
@@ -489,6 +506,7 @@ fn registry() -> Registry {
     trace!(ProductionFieldId: ProductionFieldId);
     trace!(ProductionGroupId: ProductionGroupId);
     trace!(ProvenanceKey: ProvenanceKey);
+    trace!(ProvenanceRole: ProvenanceRole);
     trace!(RangedOriginKind: RangedOriginKind);
     trace!(SchemaVersion: SchemaVersion);
     trace!(SemanticId: SemanticId);
@@ -687,7 +705,15 @@ fn registry() -> Registry {
         census(),
         "every public Deserialize type must be traced or listed as unsupported"
     );
-    tracer.registry().unwrap()
+    let mut registry = tracer.registry().unwrap();
+    for (name, format) in digest_tracer.registry().unwrap() {
+        if let Some(existing) = registry.get_mut(&name) {
+            existing.unify(format).unwrap();
+        } else {
+            registry.insert(name, format);
+        }
+    }
+    registry
 }
 
 #[test]
@@ -762,18 +788,18 @@ fn collector_descriptor(
     populated: bool,
 ) -> Descriptor {
     let role = match id.item_kind() {
-        ItemKind::Sort => "sort_declaration",
-        ItemKind::Constructor => "constructor_declaration",
+        ItemKind::Sort => ProvenanceRole::SortDeclaration,
+        ItemKind::Constructor => ProvenanceRole::ConstructorDeclaration,
         _ => unreachable!(),
     };
-    let key = ProvenanceKey::new(role, 0).unwrap();
+    let key = ProvenanceKey::new(role, 0);
     let mut origins = vec![DescriptorNodeOrigin::new(
         key.clone(),
         collector_origin(&id, populated),
     )];
     if populated {
         origins.push(DescriptorNodeOrigin::new(
-            ProvenanceKey::new("stable_symbol", 0).unwrap(),
+            ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
             krs_ir::testing::authored(0, 3),
         ));
     }

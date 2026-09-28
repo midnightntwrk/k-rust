@@ -8,7 +8,7 @@ use language_host::{
     FormatFragment, HostApplicationIdentity, HostDescriptorPayload, HostGrammarDescriptor,
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostTerm, HostTermArgument,
     ItemKind, ProtocolInitializerStateTerm, ProtocolRuleBindingKind, ProtocolRuleStateTerm,
-    SchemaVersion, Term,
+    ProvenanceRole, SchemaVersion, Term,
 };
 
 mod split_config;
@@ -1431,7 +1431,7 @@ fn main() {
         .collect::<Vec<_>>();
     assert_eq!(
         machine_roles,
-        ["configuration_field", "configuration_field"]
+        [ProvenanceRole::ConfigurationField, ProvenanceRole::ConfigurationField]
     );
     let descriptor_roles = descriptor(&descriptors, "Machine", ItemKind::Configuration)
         .provenance
@@ -1439,8 +1439,8 @@ fn main() {
         .iter()
         .map(|anchor| anchor.key().role())
         .collect::<Vec<_>>();
-    assert!(descriptor_roles.contains(&"initializer_declaration"));
-    assert!(descriptor_roles.contains(&"initializer_term_path"));
+    assert!(descriptor_roles.contains(&ProvenanceRole::InitializerDeclaration));
+    assert!(descriptor_roles.contains(&ProvenanceRole::InitializerTermPath));
 
     let secondary = descriptor(&descriptors, "Secondary", ItemKind::Configuration);
     secondary.validate_state_ownership().unwrap();
@@ -1450,7 +1450,7 @@ fn main() {
     let variable = &secondary.initializer.variables[0];
     assert_eq!(variable.binding, "program");
     assert_eq!(variable.external_name, "PGM");
-    assert_eq!(variable.sort.key.role(), "configuration_variable_type");
+    assert_eq!(variable.sort.key.role(), ProvenanceRole::ConfigurationVariableType);
     assert_eq!(variable.sort.key.ordinal(), 0);
     assert_eq!(
         variable.sort.target.key.resolve(),
@@ -1518,7 +1518,7 @@ fn main() {
             .provenance
             .authored()
             .iter()
-            .any(|anchor| anchor.key().role() == "initializer_declaration")
+            .any(|anchor| anchor.key().role() == ProvenanceRole::InitializerDeclaration)
     );
 
     let store = descriptor(&descriptors, "Store", ItemKind::Cell);
@@ -1545,7 +1545,7 @@ fn main() {
         panic!("whole_state_var must be a configuration rule")
     };
     assert_eq!(whole.label.as_ref().unwrap().name, "state-var");
-    assert_eq!(whole.label.as_ref().unwrap().key.role(), "rule_label");
+    assert_eq!(whole.label.as_ref().unwrap().key.role(), ProvenanceRole::RuleLabel);
     assert_eq!(whole.bindings.len(), 5);
     assert!(matches!(
         whole.bindings[0].kind,
@@ -1569,11 +1569,11 @@ fn main() {
         .requires
         .as_ref()
         .expect("ordinary guard is retained");
-    assert_eq!(condition.key.role(), "rule_requires");
+    assert_eq!(condition.key.role(), ProvenanceRole::RuleRequires);
     assert!(matches!(
         condition.term,
         HostTerm::Application { ref path_key, .. }
-            if path_key.role() == "rule_requires_path"
+            if path_key.role() == ProvenanceRole::RuleRequiresPath
     ));
 
     let guarded = descriptor(&descriptors, "guarded_state", ItemKind::Rule);
@@ -1583,7 +1583,7 @@ fn main() {
     };
     assert_eq!(
         guarded.requires.as_ref().unwrap().key.role(),
-        "rule_requires"
+        ProvenanceRole::RuleRequires
     );
 
     let wildcard = descriptor(&descriptors, "whole_state_wildcard", ItemKind::Rule);
@@ -1723,13 +1723,13 @@ fn main() {
     let halt = descriptor(&descriptors, "Halt", ItemKind::Constructor);
     assert!(
         halt.provenance.authored().iter().any(|anchor| {
-            anchor.key().role() == "stable_symbol" && anchor.key().ordinal() == 0
+            anchor.key().role() == ProvenanceRole::StableSymbol && anchor.key().ordinal() == 0
         })
     );
     let halt_grammar = descriptor(&descriptors, "__krs_grammar_Halt", ItemKind::Grammar);
     assert!(
         halt_grammar.provenance.authored().iter().any(|anchor| {
-            anchor.key().role() == "stable_symbol" && anchor.key().ordinal() == 0
+            anchor.key().role() == ProvenanceRole::StableSymbol && anchor.key().ordinal() == 0
         })
     );
 
@@ -1781,7 +1781,7 @@ fn main() {
     );
     let hooked_descriptor = descriptor(&descriptors, "__krs_grammar_Keccak256Raw", ItemKind::Grammar);
     assert!(hooked_descriptor.provenance.authored().iter().any(|anchor| {
-        anchor.key().role() == "function_hook" && anchor.key().ordinal() == 0
+        anchor.key().role() == ProvenanceRole::FunctionHook && anchor.key().ordinal() == 0
     }));
     let HostDescriptorPayload::Grammar(hooked_grammar) = &hooked_descriptor.payload else {
         panic!("Keccak256Raw grammar descriptor has the wrong payload")
@@ -1992,10 +1992,10 @@ fn main() {
     assert_eq!(target.enum_type().authored_path, "Op");
     let eval_not = descriptor(&descriptors, "eval_not", ItemKind::Rule);
     assert!(eval_not.provenance.authored().iter().any(|anchor| {
-        anchor.key().role() == "rule_label" && anchor.key().ordinal() == 0
+        anchor.key().role() == ProvenanceRole::RuleLabel && anchor.key().ordinal() == 0
     }));
     assert!(eval_not.provenance.authored().iter().any(|anchor| {
-        anchor.key().role() == "rule_owise" && anchor.key().ordinal() == 0
+        anchor.key().role() == ProvenanceRole::RuleOwise && anchor.key().ordinal() == 0
     }));
     let HostDescriptorPayload::HeadRule(eval_not) = &eval_not.payload else {
         panic!("readable eval_not must be a head-anchored rule")
@@ -2121,21 +2121,21 @@ fn main() {
         .iter()
         .map(|anchor| (anchor.key().role(), anchor.key().ordinal()))
         .collect::<Vec<_>>();
-    assert!(keys.contains(&("rule_left_path", 0)));
-    assert!(keys.contains(&("rule_left_path", 1)));
-    assert!(keys.contains(&("rule_left_path", 2)));
-    assert!(keys.contains(&("rule_right_path", 0)));
-    assert!(keys.contains(&("rule_right_path", 1)));
-    assert!(keys.contains(&("rule_right_path", 2)));
-    assert!(keys.contains(&("rule_left_application_head", 0)));
-    assert!(keys.contains(&("rule_right_application_head", 0)));
+    assert!(keys.contains(&(ProvenanceRole::RuleLeftPath, 0)));
+    assert!(keys.contains(&(ProvenanceRole::RuleLeftPath, 1)));
+    assert!(keys.contains(&(ProvenanceRole::RuleLeftPath, 2)));
+    assert!(keys.contains(&(ProvenanceRole::RuleRightPath, 0)));
+    assert!(keys.contains(&(ProvenanceRole::RuleRightPath, 1)));
+    assert!(keys.contains(&(ProvenanceRole::RuleRightPath, 2)));
+    assert!(keys.contains(&(ProvenanceRole::RuleLeftApplicationHead, 0)));
+    assert!(keys.contains(&(ProvenanceRole::RuleRightApplicationHead, 0)));
 
     let enum_rule = descriptor(&descriptors, "enum_alias", ItemKind::Rule);
     let HostDescriptorPayload::StructuredRule(enum_rule) = &enum_rule.payload else {
         panic!("enum_alias must be structured")
     };
     assert_eq!(enum_rule.label.as_ref().unwrap().name, "enum-false");
-    assert_eq!(enum_rule.label.as_ref().unwrap().key.role(), "rule_label");
+    assert_eq!(enum_rule.label.as_ref().unwrap().key.role(), ProvenanceRole::RuleLabel);
     let HostTerm::Application { reference, .. } = &enum_rule.subject else {
         panic!("enum subject is a zero-argument application")
     };
@@ -2194,7 +2194,9 @@ fn main() {
         .provenance
         .authored()
         .iter()
-        .find(|anchor| anchor.key().role() == "rule_right_path" && anchor.key().ordinal() == 2)
+        .find(|anchor| {
+            anchor.key().role() == ProvenanceRole::RuleRightPath && anchor.key().ordinal() == 2
+        })
         .expect("nested path anchor exists")
         .anchor();
     let source_line = include_str!("main.rs")

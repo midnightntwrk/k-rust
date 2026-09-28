@@ -1360,7 +1360,6 @@ fn initializer_result_type(item: &ImplItemFn) -> &Type {
 
 fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-        .expect("the static provenance role catalog contains only nonempty roles")
 }
 
 fn checked_ordinal(

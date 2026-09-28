@@ -172,11 +172,11 @@ pub(crate) fn constructors(
         let sort_anchors = declaration
             .sort_provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-        let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors)?;
+        let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
         let membership_anchors = declaration
             .membership_provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-        let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors)?;
+        let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors);
         quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -306,7 +306,7 @@ fn expand_enum_family_grammar(
         .precedence_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?
     {
-        let provenance = host_provenance(env, facade, fallback, &anchors)?;
+        let provenance = host_provenance(env, facade, fallback, &anchors);
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
         let mut groups = Vec::new();
@@ -342,7 +342,7 @@ fn expand_enum_family_grammar(
         .associativity_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?
     {
-        let provenance = host_provenance(env, facade, fallback, &anchors)?;
+        let provenance = host_provenance(env, facade, fallback, &anchors);
         let factory = format_ident!("__krs_enum_associativity_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_associativity");
         let mut sentences = Vec::new();
@@ -429,8 +429,8 @@ fn expand_enum_variant(
     }
     let fallback = TokenRange::for_tokens(variant.variant())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, facade, fallback, &anchors)?;
-    let grammar_provenance = host_provenance(env, facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, facade, fallback, &anchors);
+    let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
     let syntax = variant.syntax().map(|syntax| syntax.syntax().value());
 
     let mut slots = WireSlots::new(facade);

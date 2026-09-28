@@ -16,6 +16,7 @@ use krs_expand::sink::{
     AuthoredFile, GeneratedSource, InvocationId, Mapping, MappingClass, PrintReport, Splice,
     lookup, print_with_map, splice_tokens,
 };
+use krs_syntax::ProvenanceRole;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use sha2::{Digest, Sha256};
 use support::{Expansion, TOUR_MINIMAL, TestEnvironment, expand_tour_minimal};
@@ -230,13 +231,18 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                 let authored = match &call.args[3] {
                     Expr::Reference(authored) => authored.expr.as_ref(),
                     Expr::Block(block) => {
-                        let Some(syn::Stmt::Item(syn::Item::Const(item))) =
-                            block.block.stmts.first()
-                        else {
-                            panic!("authored const")
+                        let value = match block.block.stmts.first() {
+                            Some(syn::Stmt::Item(syn::Item::Const(item))) => item.expr.as_ref(),
+                            Some(syn::Stmt::Local(local)) => local
+                                .init
+                                .as_ref()
+                                .expect("authored binding has an initializer")
+                                .expr
+                                .as_ref(),
+                            _ => panic!("authored binding"),
                         };
-                        let Expr::Reference(authored) = item.expr.as_ref() else {
-                            panic!("authored const slice")
+                        let Expr::Reference(authored) = value else {
+                            panic!("authored binding slice")
                         };
                         authored.expr.as_ref()
                     }
@@ -249,12 +255,21 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                     let Expr::Tuple(tuple) = entry else {
                         panic!("authored tuple")
                     };
-                    let Expr::Lit(role) = &tuple.elems[0] else {
-                        panic!("role literal")
+                    let Expr::Path(role) = &tuple.elems[0] else {
+                        panic!("role variant path")
                     };
-                    let Lit::Str(role) = &role.lit else {
-                        panic!("role string")
-                    };
+                    let variant = role
+                        .path
+                        .segments
+                        .last()
+                        .expect("role variant")
+                        .ident
+                        .to_string();
+                    let role = ProvenanceRole::ALL
+                        .iter()
+                        .copied()
+                        .find(|role| role.variant_ident() == variant)
+                        .expect("generated role belongs to the catalog");
                     let Expr::Struct(raw) = &tuple.elems[2] else {
                         panic!("raw anchor")
                     };
@@ -268,7 +283,7 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                     };
                     self.anchors.push(Anchor {
                         surface: self.surface.to_owned(),
-                        role: role.value(),
+                        role: role.as_str().to_owned(),
                         ordinal: u32_literal(&tuple.elems[1]),
                         authored: (
                             byte_offset(TOUR_MINIMAL, start.0, start.1),

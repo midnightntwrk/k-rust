@@ -46,7 +46,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -57,7 +57,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -68,7 +68,7 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

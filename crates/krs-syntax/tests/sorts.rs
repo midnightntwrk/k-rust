@@ -12,7 +12,7 @@ fn marker_sort_preserves_parent_paths_and_order() {
 
     let anchors = sort.provenance().unwrap();
     assert_eq!(anchors[0].role(), ProvenanceRole::SortDeclaration);
-    assert_eq!(anchors[1].key().unwrap().role(), "sort_parent");
+    assert_eq!(anchors[1].key().role(), ProvenanceRole::SortParent);
     assert_eq!(anchors[1].ordinal(), 0);
     assert_eq!(anchors[2].ordinal(), 1);
 }

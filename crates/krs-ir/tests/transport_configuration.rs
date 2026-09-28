@@ -24,7 +24,7 @@ use krs_ir::{
     ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation, StableItemId,
+    ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
     StateTransportError,
 };
 
@@ -36,11 +36,11 @@ fn item(name: &str, kind: ItemKind) -> StableItemId {
     testing::item_in(package(), "calc", name, kind)
 }
 
-fn key(role: &str, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal).unwrap()
+fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    ProvenanceKey::new(role, ordinal)
 }
 
-fn sort(role: &str, ordinal: u32, sort: BuiltinSort) -> DescriptorSortReference {
+fn sort(role: ProvenanceRole, ordinal: u32, sort: BuiltinSort) -> DescriptorSortReference {
     DescriptorSortReference {
         key: key(role, ordinal),
         sort: DescriptorSortRef::Builtin(sort),
@@ -56,7 +56,7 @@ fn cell_field(
 ) -> DescriptorCellField {
     DescriptorCellField {
         reference: DescriptorCellReference {
-            key: key("configuration_field", ordinal),
+            key: key(ProvenanceRole::ConfigurationField, ordinal),
             cell: DescriptorCellIdentity {
                 owner: owner.clone(),
                 field: name.into(),
@@ -68,9 +68,13 @@ fn cell_field(
         multiplicity: None,
         cell_type: None,
         content: ProtocolCellContent::Leaf {
-            wrapper_key: key("configuration_cell_wrapper", ordinal),
+            wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
             wrapper,
-            sort: sort("configuration_cell_content", ordinal, content_sort),
+            sort: sort(
+                ProvenanceRole::ConfigurationCellContent,
+                ordinal,
+                content_sort,
+            ),
             arguments: Vec::new(),
         },
     }
@@ -84,12 +88,16 @@ fn variable(
     main: bool,
 ) -> DescriptorConfigurationVariable {
     DescriptorConfigurationVariable {
-        binding_key: key("configuration_variable", ordinal),
+        binding_key: key(ProvenanceRole::ConfigurationVariable, ordinal),
         binding: binding.into(),
-        external_name_key: key("configuration_variable_name", ordinal),
+        external_name_key: key(ProvenanceRole::ConfigurationVariableName, ordinal),
         external_name: external_name.into(),
-        sort: sort("configuration_variable_type", ordinal, sort_value),
-        main_key: main.then(|| key("configuration_variable_main", ordinal)),
+        sort: sort(
+            ProvenanceRole::ConfigurationVariableType,
+            ordinal,
+            sort_value,
+        ),
+        main_key: main.then(|| key(ProvenanceRole::ConfigurationVariableMain, ordinal)),
     }
 }
 
@@ -98,9 +106,9 @@ fn variable_term(
     path_ordinal: u32,
     name: &str,
 ) -> ProtocolInitializerTerm<DescriptorTerm> {
-    let path_key = key("initializer_term_path", path_ordinal);
+    let path_key = key(ProvenanceRole::InitializerTermPath, path_ordinal);
     ProtocolInitializerTerm {
-        key: key("initializer_term", term_ordinal),
+        key: key(ProvenanceRole::InitializerTerm, term_ordinal),
         term: DescriptorTerm::Variable {
             key: path_key.clone(),
             path_key,
@@ -116,47 +124,47 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
     let k_identity = k.reference.cell.clone();
     let env_identity = env.reference.cell.clone();
     let declaration = DescriptorConfigurationDeclaration {
-        key: key("configuration_declaration", 0),
+        key: key(ProvenanceRole::ConfigurationDeclaration, 0),
         fields: vec![k, env],
     };
     let initializer = DescriptorConfigurationInitializer {
-        key: key("initializer_declaration", 0),
-        owner_key: key("initializer_result_type", 0),
+        key: key(ProvenanceRole::InitializerDeclaration, 0),
+        owner_key: key(ProvenanceRole::InitializerResultType, 0),
         owner: owner.clone(),
         variables: vec![
             variable(0, "pgm", "$PGM", BuiltinSort::KSequence, true),
             variable(1, "env", "$ENV", BuiltinSort::Map, false),
         ],
-        body_key: key("initializer_body", 0),
+        body_key: key(ProvenanceRole::InitializerBody, 0),
         cells: vec![
             DescriptorInitializerCell {
-                key: key("initializer_cell", 0),
+                key: key(ProvenanceRole::InitializerCell, 0),
                 field: DescriptorCellReference {
-                    key: key("initializer_field", 0),
+                    key: key(ProvenanceRole::InitializerField, 0),
                     cell: k_identity,
                 },
                 content: ProtocolInitializerCellContent::Leaf {
-                    constructor_key: key("initializer_cell_constructor", 0),
+                    constructor_key: key(ProvenanceRole::InitializerCellConstructor, 0),
                     wrapper: CellWrapper::KCell,
                     value: ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
-                        payload_key: Some(key("k_sequence_payload", 0)),
+                        payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
                         dot_k_key: None,
                         notation: DescriptorKSequenceNotation::Comma,
                         items: vec![ProtocolKSequenceItem {
-                            key: key("k_sequence_item", 0),
+                            key: key(ProvenanceRole::KSequenceItem, 0),
                             value: variable_term(0, 0, "pgm"),
                         }],
                     }),
                 },
             },
             DescriptorInitializerCell {
-                key: key("initializer_cell", 1),
+                key: key(ProvenanceRole::InitializerCell, 1),
                 field: DescriptorCellReference {
-                    key: key("initializer_field", 1),
+                    key: key(ProvenanceRole::InitializerField, 1),
                     cell: env_identity,
                 },
                 content: ProtocolInitializerCellContent::Leaf {
-                    constructor_key: key("initializer_cell_constructor", 1),
+                    constructor_key: key(ProvenanceRole::InitializerCellConstructor, 1),
                     wrapper: CellWrapper::Cell,
                     value: ProtocolInitializerStateTerm::Map(ProtocolMap {
                         payload_key: None,
@@ -184,10 +192,14 @@ fn fixed_configuration_validates_exact_closed_provenance() {
     configuration.validate(&owner).unwrap();
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     configuration
-        .validate_complete_provenance(&owner, &key("configuration_declaration", 0), &expected)
+        .validate_complete_provenance(
+            &owner,
+            &key(ProvenanceRole::ConfigurationDeclaration, 0),
+            &expected,
+        )
         .unwrap();
-    assert!(expected.contains(&key("configuration_variable_type", 1)));
-    assert!(expected.contains(&key("k_sequence_item", 0)));
+    assert!(expected.contains(&key(ProvenanceRole::ConfigurationVariableType, 1)));
+    assert!(expected.contains(&key(ProvenanceRole::KSequenceItem, 0)));
     assert_eq!(
         serde_json::to_value(&configuration).unwrap()["root"]["root_kind"],
         "generated_top"
@@ -199,7 +211,7 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     let (owner, configuration) = fixed_configuration();
 
     let mut wrong_key = configuration.clone();
-    wrong_key.declaration.fields[1].reference.key = key("configuration_field", 0);
+    wrong_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationField, 0);
     assert!(matches!(
         wrong_key.validate(&owner),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -223,14 +235,17 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     let mut actual = expected.clone();
-    actual.insert(key("unexpected", 0));
+    actual.insert(key(ProvenanceRole::StableSymbol, 0));
     assert_eq!(
         configuration.validate_complete_provenance(
             &owner,
-            &key("configuration_declaration", 0),
+            &key(ProvenanceRole::ConfigurationDeclaration, 0),
             &actual,
         ),
-        Err(StateTransportError::ExtraProvenance(key("unexpected", 0)))
+        Err(StateTransportError::ExtraProvenance(key(
+            ProvenanceRole::StableSymbol,
+            0
+        )))
     );
 }
 
@@ -243,7 +258,7 @@ fn nested_cell_identity_is_owner_qualified() {
     assert_ne!(left_field.reference.cell, right_field.reference.cell);
 
     DescriptorConfigurationDeclaration {
-        key: key("configuration_declaration", 0),
+        key: key(ProvenanceRole::ConfigurationDeclaration, 0),
         fields: vec![left_field],
     }
     .validate(&left)
@@ -383,15 +398,30 @@ fn primary_key_is_configuration_declaration() {
     assert!(matches!(
         configuration.validate_complete_provenance(
             &owner,
-            &key("initializer_declaration", 0),
+            &key(ProvenanceRole::InitializerDeclaration, 0),
             &actual,
         ),
         Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 }
 
+fn side_role(side: &str, left: ProvenanceRole, right: ProvenanceRole) -> ProvenanceRole {
+    match side {
+        "left" => left,
+        "right" => right,
+        _ => panic!("invalid test rule side"),
+    }
+}
+
 fn rule_variable(side: &str, ordinal: u32, name: &str) -> DescriptorTerm {
-    let key = key(&format!("rule_{side}_reference"), ordinal);
+    let key = key(
+        side_role(
+            side,
+            ProvenanceRole::RuleLeftReference,
+            ProvenanceRole::RuleRightReference,
+        ),
+        ordinal,
+    );
     DescriptorTerm::Variable {
         key: key.clone(),
         path_key: key,
@@ -409,13 +439,27 @@ fn rule_cell(
 ) -> ProtocolRuleCell<DescriptorCellReference, DescriptorTerm> {
     ProtocolRuleCell {
         field: DescriptorCellReference {
-            key: key(&format!("rule_{side}_cells_field"), ordinal),
+            key: key(
+                side_role(
+                    side,
+                    ProvenanceRole::RuleLeftCellsField,
+                    ProvenanceRole::RuleRightCellsField,
+                ),
+                ordinal,
+            ),
             cell: DescriptorCellIdentity {
                 owner: owner.clone(),
                 field: name.into(),
             },
         },
-        wrapper_key: key(&format!("rule_{side}_cells_wrapper"), ordinal),
+        wrapper_key: key(
+            side_role(
+                side,
+                ProvenanceRole::RuleLeftCellsWrapper,
+                ProvenanceRole::RuleRightCellsWrapper,
+            ),
+            ordinal,
+        ),
         wrapper,
         value,
     }
@@ -424,14 +468,14 @@ fn rule_cell(
 fn descriptor_context_alias() -> DescriptorContextAlias {
     let configuration = item("Machine", ItemKind::Configuration);
     DescriptorContextAlias {
-        declaration_key: key("context_alias_declaration", 0),
-        name_key: key("context_alias_name", 0),
+        declaration_key: key(ProvenanceRole::ContextAliasDeclaration, 0),
+        name_key: key(ProvenanceRole::ContextAliasName, 0),
         name: "operand_eval".into(),
-        here_key: key("context_alias_here", 0),
+        here_key: key(ProvenanceRole::ContextAliasHere, 0),
         here: "site".into(),
-        pattern_key: key("rule_pattern", 0),
+        pattern_key: key(ProvenanceRole::RulePattern, 0),
         configuration: DescriptorConfigurationReference {
-            key: key("rule_type", 0),
+            key: key(ProvenanceRole::RuleType, 0),
             configuration: configuration.clone(),
         },
         bindings: vec![
@@ -449,7 +493,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
             },
         ],
         pattern: DescriptorRuleCells {
-            key: key("rule_left_cells_payload", 0),
+            key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
             cells: vec![rule_cell(
                 &configuration,
                 "left",
@@ -457,21 +501,21 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
                 "k",
                 CellWrapper::KCell,
                 ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                    payload_key: Some(key("rule_left_k_sequence_payload", 0)),
+                    payload_key: Some(key(ProvenanceRole::RuleLeftKSequencePayload, 0)),
                     dot_k_key: None,
                     notation: DescriptorKSequenceNotation::Comma,
                     items: vec![ProtocolRuleKSequenceItem {
-                        key: key("rule_left_k_sequence_item", 0),
+                        key: key(ProvenanceRole::RuleLeftKSequenceItem, 0),
                         value: rule_variable("left", 0, "site"),
                     }],
                     tail: ProtocolRuleFrame::Bind {
-                        key: key("rule_left_k_sequence_tail", 0),
+                        key: key(ProvenanceRole::RuleLeftKSequenceTail, 0),
                         binding: "tail".into(),
                     },
                 }),
             )],
             remainder: ProtocolRuleFrame::Bind {
-                key: key("rule_left_cells_remainder", 0),
+                key: key(ProvenanceRole::RuleLeftCellsRemainder, 0),
                 binding: "state".into(),
             },
         },
@@ -486,7 +530,7 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     alias
         .validate_complete_provenance(
             ItemKind::ContextAlias,
-            &key("context_alias_declaration", 0),
+            &key(ProvenanceRole::ContextAliasDeclaration, 0),
             &expected,
         )
         .unwrap();
@@ -522,7 +566,7 @@ fn term_rule_binding(name: &str, ordinal: u32, sort: DescriptorSortRef) -> Descr
         name: name.into(),
         kind: ProtocolRuleBindingKind::Term {
             sort: DescriptorSortReference {
-                key: key("rule_binding_type", ordinal),
+                key: key(ProvenanceRole::RuleBindingType, ordinal),
                 sort,
             },
         },
@@ -544,7 +588,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
     let configuration = item("Machine", ItemKind::Configuration);
     let rule_id = item("var", ItemKind::Rule);
     let subject = DescriptorRuleCells {
-        key: key("rule_left_cells_payload", 0),
+        key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
         cells: vec![
             rule_cell(
                 &configuration,
@@ -553,15 +597,15 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 "k",
                 CellWrapper::KCell,
                 ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                    payload_key: Some(key("rule_left_k_sequence_payload", 0)),
+                    payload_key: Some(key(ProvenanceRole::RuleLeftKSequencePayload, 0)),
                     dot_k_key: None,
                     notation: DescriptorKSequenceNotation::Comma,
                     items: vec![ProtocolRuleKSequenceItem {
-                        key: key("rule_left_k_sequence_item", 0),
+                        key: key(ProvenanceRole::RuleLeftKSequenceItem, 0),
                         value: rule_variable("left", 0, "X"),
                     }],
                     tail: ProtocolRuleFrame::Bind {
-                        key: key("rule_left_k_sequence_tail", 0),
+                        key: key(ProvenanceRole::RuleLeftKSequenceTail, 0),
                         binding: "tail".into(),
                     },
                 }),
@@ -573,16 +617,16 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
                 "env",
                 CellWrapper::Cell,
                 ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-                    payload_key: Some(key("rule_left_map_payload", 0)),
+                    payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
                     body: ProtocolRuleMapBody::Items {
                         items: vec![ProtocolRuleMapItem {
-                            key_key: key("rule_left_map_key", 0),
+                            key_key: key(ProvenanceRole::RuleLeftMapKey, 0),
                             key: rule_variable("left", 1, "X"),
-                            value_key: key("rule_left_map_value", 0),
+                            value_key: key(ProvenanceRole::RuleLeftMapValue, 0),
                             value: rule_variable("left", 2, "V"),
                         }],
                         remainder: ProtocolRuleFrame::Bind {
-                            key: key("rule_left_map_remainder", 0),
+                            key: key(ProvenanceRole::RuleLeftMapRemainder, 0),
                             binding: "rest".into(),
                         },
                     },
@@ -590,12 +634,12 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             ),
         ],
         remainder: ProtocolRuleFrame::Bind {
-            key: key("rule_left_cells_remainder", 0),
+            key: key(ProvenanceRole::RuleLeftCellsRemainder, 0),
             binding: "state".into(),
         },
     };
     let result = DescriptorRuleCells {
-        key: key("rule_right_cells_payload", 0),
+        key: key(ProvenanceRole::RuleRightCellsPayload, 0),
         cells: vec![rule_cell(
             &configuration,
             "right",
@@ -603,21 +647,21 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             "k",
             CellWrapper::KCell,
             ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                payload_key: Some(key("rule_right_k_sequence_payload", 0)),
+                payload_key: Some(key(ProvenanceRole::RuleRightKSequencePayload, 0)),
                 dot_k_key: None,
                 notation: DescriptorKSequenceNotation::Comma,
                 items: vec![ProtocolRuleKSequenceItem {
-                    key: key("rule_right_k_sequence_item", 0),
+                    key: key(ProvenanceRole::RuleRightKSequenceItem, 0),
                     value: rule_variable("right", 0, "V"),
                 }],
                 tail: ProtocolRuleFrame::Reuse {
-                    key: key("rule_right_k_sequence_tail", 0),
+                    key: key(ProvenanceRole::RuleRightKSequenceTail, 0),
                     binding: "tail".into(),
                 },
             }),
         )],
         remainder: ProtocolRuleFrame::Reuse {
-            key: key("rule_right_cells_remainder", 0),
+            key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
             binding: "state".into(),
         },
     };
@@ -629,14 +673,14 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             priority: None,
             requires: None,
             claim: None,
-            pattern_key: key("rule_pattern", 0),
+            pattern_key: key(ProvenanceRole::RulePattern, 0),
             subject_configuration: DescriptorConfigurationReference {
-                key: key("rule_type", 0),
+                key: key(ProvenanceRole::RuleType, 0),
                 configuration: configuration.clone(),
             },
-            result_key: key("rule_result", 0),
+            result_key: key(ProvenanceRole::RuleResult, 0),
             result_configuration: DescriptorConfigurationReference {
-                key: key("rule_result_type", 0),
+                key: key(ProvenanceRole::RuleResultType, 0),
                 configuration,
             },
             bindings: vec![
@@ -672,20 +716,24 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
     let (rule_id, rule) = var_configuration_rule();
     rule.validate(ItemKind::Rule).unwrap();
     let expected = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    rule.validate_complete_provenance(ItemKind::Rule, &key("rule_declaration", 0), &expected)
-        .unwrap();
-    assert!(expected.contains(&key("rule_binding_type", 0)));
-    assert!(expected.contains(&key("rule_binding_type", 1)));
-    assert!(expected.contains(&key("rule_left_map_remainder", 0)));
-    assert!(expected.contains(&key("rule_right_k_sequence_tail", 0)));
+    rule.validate_complete_provenance(
+        ItemKind::Rule,
+        &key(ProvenanceRole::RuleDeclaration, 0),
+        &expected,
+    )
+    .unwrap();
+    assert!(expected.contains(&key(ProvenanceRole::RuleBindingType, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleBindingType, 1)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleLeftMapRemainder, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRightKSequenceTail, 0)));
     assert!(
         !expected
             .iter()
-            .any(|entry| entry.role() == "rule_left_path")
+            .any(|entry| entry.role() == ProvenanceRole::RuleLeftPath)
     );
 
     let provenance = DescriptorProvenance::new(
-        key("rule_declaration", 0),
+        key(ProvenanceRole::RuleDeclaration, 0),
         expected
             .into_iter()
             .enumerate()
@@ -752,25 +800,25 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
 fn configuration_requires_is_exact_and_term_binding_only() {
     let (_, mut rule) = var_configuration_rule();
     rule.requires = Some(DescriptorRuleCondition {
-        key: key("rule_requires", 0),
+        key: key(ProvenanceRole::RuleRequires, 0),
         term: DescriptorTerm::Application {
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
-                key: key("rule_requires_application_head", 0),
+                key: key(ProvenanceRole::RuleRequiresApplicationHead, 0),
                 application: DescriptorApplicationRef::Builtin(BuiltinOperation::IntGreater),
             },
-            path_key: key("rule_requires_path", 0),
+            path_key: key(ProvenanceRole::RuleRequiresPath, 0),
             arguments: vec![
                 DescriptorTermArgument::Positional {
                     value: Box::new(DescriptorTerm::Variable {
-                        key: key("rule_requires_reference", 0),
-                        path_key: key("rule_requires_path", 1),
+                        key: key(ProvenanceRole::RuleRequiresReference, 0),
+                        path_key: key(ProvenanceRole::RuleRequiresPath, 1),
                         name: "X".into(),
                     }),
                 },
                 DescriptorTermArgument::Positional {
                     value: Box::new(DescriptorTerm::Literal {
-                        key: key("rule_requires_literal", 0),
+                        key: key(ProvenanceRole::RuleRequiresLiteral, 0),
                         literal: DescriptorLiteral::Int("0".into()),
                     }),
                 },
@@ -779,12 +827,12 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     });
 
     let expected = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    assert!(expected.contains(&key("rule_requires", 0)));
-    assert!(expected.contains(&key("rule_requires_path", 0)));
-    assert!(expected.contains(&key("rule_requires_path", 1)));
-    assert!(expected.contains(&key("rule_requires_application_head", 0)));
-    assert!(expected.contains(&key("rule_requires_reference", 0)));
-    assert!(expected.contains(&key("rule_requires_literal", 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequires, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequiresPath, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequiresPath, 1)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequiresApplicationHead, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequiresReference, 0)));
+    assert!(expected.contains(&key(ProvenanceRole::RuleRequiresLiteral, 0)));
 
     let mut structural_frame = rule.clone();
     let DescriptorTerm::Application { arguments, .. } =
@@ -806,6 +854,27 @@ fn configuration_requires_is_exact_and_term_binding_only() {
         ))
     ));
 
+    let mut state_role_in_term = rule.clone();
+    let DescriptorTerm::Application { arguments, .. } =
+        &mut state_role_in_term.requires.as_mut().unwrap().term
+    else {
+        unreachable!()
+    };
+    let DescriptorTermArgument::Positional { value } = &mut arguments[1] else {
+        unreachable!()
+    };
+    let DescriptorTerm::Literal {
+        key: literal_key, ..
+    } = value.as_mut()
+    else {
+        unreachable!()
+    };
+    *literal_key = key(ProvenanceRole::CellsPayload, 0);
+    assert!(matches!(
+        state_role_in_term.validate(ItemKind::Rule),
+        Err(StateTransportError::UnexpectedProvenance { .. })
+    ));
+
     let mut wrong_nested_role = rule;
     let DescriptorTerm::Application { arguments, .. } =
         &mut wrong_nested_role.requires.as_mut().unwrap().term
@@ -821,7 +890,7 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     else {
         unreachable!()
     };
-    *literal_key = key("rule_right_literal", 0);
+    *literal_key = key(ProvenanceRole::RuleRightLiteral, 0);
     assert!(matches!(
         wrong_nested_role.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -850,7 +919,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[2].kind else {
         unreachable!()
     };
-    sort.key = key("rule_binding_type", 2);
+    sort.key = key(ProvenanceRole::RuleBindingType, 2);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -868,7 +937,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
 
     let mut unbound_reuse = rule.clone();
     unbound_reuse.result.remainder = ProtocolRuleFrame::Reuse {
-        key: key("rule_right_cells_remainder", 0),
+        key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "missing".into(),
     };
     assert!(matches!(
@@ -878,7 +947,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
 
     let mut wrong_result_kind = rule.clone();
     wrong_result_kind.result.remainder = ProtocolRuleFrame::Reuse {
-        key: key("rule_right_cells_remainder", 0),
+        key: key(ProvenanceRole::RuleRightCellsRemainder, 0),
         binding: "rest".into(),
     };
     assert!(matches!(
@@ -887,7 +956,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     ));
 
     let mut wrong_side = rule;
-    wrong_side.result.cells[0].field.key = key("rule_left_cells_field", 0);
+    wrong_side.result.cells[0].field.key = key(ProvenanceRole::RuleLeftCellsField, 0);
     assert!(matches!(
         wrong_side.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -902,19 +971,19 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
         priority: None,
         requires: None,
         claim: None,
-        pattern_key: key("rule_pattern", 0),
+        pattern_key: key(ProvenanceRole::RulePattern, 0),
         subject_configuration: DescriptorConfigurationReference {
-            key: key("rule_type", 0),
+            key: key(ProvenanceRole::RuleType, 0),
             configuration: configuration.clone(),
         },
-        result_key: key("rule_result", 0),
+        result_key: key(ProvenanceRole::RuleResult, 0),
         result_configuration: DescriptorConfigurationReference {
-            key: key("rule_result_type", 0),
+            key: key(ProvenanceRole::RuleResultType, 0),
             configuration: configuration.clone(),
         },
         bindings: Vec::new(),
         subject: DescriptorRuleCells {
-            key: key("rule_left_cells_payload", 0),
+            key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
             cells: vec![rule_cell(
                 &configuration,
                 "left",
@@ -922,13 +991,13 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
                 "control",
                 CellWrapper::Cell,
                 ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
-                    key: key("rule_left_wildcard", 0),
+                    key: key(ProvenanceRole::RuleLeftWildcard, 0),
                 }),
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
         result: DescriptorRuleCells {
-            key: key("rule_right_cells_payload", 0),
+            key: key(ProvenanceRole::RuleRightCellsPayload, 0),
             cells: vec![rule_cell(
                 &configuration,
                 "right",
@@ -936,7 +1005,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
                 "control",
                 CellWrapper::Cell,
                 ProtocolRuleStateTerm::Term(DescriptorTerm::Literal {
-                    key: key("rule_right_literal", 0),
+                    key: key(ProvenanceRole::RuleRightLiteral, 0),
                     literal: DescriptorLiteral::Bool(true),
                 }),
             )],
@@ -949,7 +1018,7 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
 fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     let rule = wildcard_configuration_rule();
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    assert!(keys.contains(&key("rule_left_wildcard", 0)));
+    assert!(keys.contains(&key(ProvenanceRole::RuleLeftWildcard, 0)));
 
     let mut wrong_ordinal = rule.clone();
     let ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { key: wildcard }) =
@@ -957,7 +1026,7 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     else {
         unreachable!()
     };
-    *wildcard = key("rule_left_wildcard", 1);
+    *wildcard = key(ProvenanceRole::RuleLeftWildcard, 1);
     assert!(matches!(
         wrong_ordinal.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -965,7 +1034,7 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
 
     let mut result_wildcard = rule;
     result_wildcard.result.cells[0].value = ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
-        key: key("rule_right_wildcard", 0),
+        key: key(ProvenanceRole::RuleLeftWildcard, 0),
     });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
@@ -988,7 +1057,7 @@ fn host_type_key<T: 'static>() -> HostTypeKey {
 fn host_wildcard_configuration_rule() -> HostConfigurationRule {
     let configuration_key = host_type_key::<HostRuleConfiguration>();
     let configuration = || HostConfigurationReference {
-        key: key("rule_type", 0),
+        key: key(ProvenanceRole::RuleType, 0),
         configuration: HostTypeReference {
             key: configuration_key,
             authored_path: "Machine".into(),
@@ -996,13 +1065,27 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
     };
     let host_cell = |side: &str, value| ProtocolRuleCell {
         field: HostCellReference {
-            key: key(&format!("rule_{side}_cells_field"), 0),
+            key: key(
+                side_role(
+                    side,
+                    ProvenanceRole::RuleLeftCellsField,
+                    ProvenanceRole::RuleRightCellsField,
+                ),
+                0,
+            ),
             cell: HostCellIdentity {
                 owner: configuration_key,
                 field: host_type_key::<HostRuleCellField>(),
             },
         },
-        wrapper_key: key(&format!("rule_{side}_cells_wrapper"), 0),
+        wrapper_key: key(
+            side_role(
+                side,
+                ProvenanceRole::RuleLeftCellsWrapper,
+                ProvenanceRole::RuleRightCellsWrapper,
+            ),
+            0,
+        ),
         wrapper: CellWrapper::Cell,
         value: ProtocolRuleStateTerm::Term(value),
     };
@@ -1012,30 +1095,30 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
         priority: None,
         requires: None,
         claim: None,
-        pattern_key: key("rule_pattern", 0),
+        pattern_key: key(ProvenanceRole::RulePattern, 0),
         subject_configuration: configuration(),
-        result_key: key("rule_result", 0),
+        result_key: key(ProvenanceRole::RuleResult, 0),
         result_configuration: HostConfigurationReference {
-            key: key("rule_result_type", 0),
+            key: key(ProvenanceRole::RuleResultType, 0),
             ..configuration()
         },
         bindings: Vec::new(),
         subject: HostRuleCells {
-            key: key("rule_left_cells_payload", 0),
+            key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
             cells: vec![host_cell(
                 "left",
                 HostTerm::Wildcard {
-                    key: key("rule_left_wildcard", 0),
+                    key: key(ProvenanceRole::RuleLeftWildcard, 0),
                 },
             )],
             remainder: ProtocolRuleFrame::Exact,
         },
         result: HostRuleCells {
-            key: key("rule_right_cells_payload", 0),
+            key: key(ProvenanceRole::RuleRightCellsPayload, 0),
             cells: vec![host_cell(
                 "right",
                 HostTerm::Literal {
-                    key: key("rule_right_literal", 0),
+                    key: key(ProvenanceRole::RuleRightLiteral, 0),
                     literal: DescriptorLiteral::Bool(true),
                 },
             )],
@@ -1050,7 +1133,7 @@ fn host_typed_configuration_rule() -> HostConfigurationRule {
         name: "X".into(),
         kind: ProtocolRuleBindingKind::Term {
             sort: HostSortReference {
-                key: key("rule_binding_type", 0),
+                key: key(ProvenanceRole::RuleBindingType, 0),
                 target: HostTypeReference {
                     key: host_type_key::<HostRuleTermSort>(),
                     authored_path: "Value".into(),
@@ -1059,13 +1142,13 @@ fn host_typed_configuration_rule() -> HostConfigurationRule {
         },
     }];
     rule.subject.cells[0].value = ProtocolRuleStateTerm::Term(HostTerm::Variable {
-        key: key("rule_left_reference", 0),
-        path_key: key("rule_left_reference", 0),
+        key: key(ProvenanceRole::RuleLeftReference, 0),
+        path_key: key(ProvenanceRole::RuleLeftReference, 0),
         name: "X".into(),
     });
     rule.result.cells[0].value = ProtocolRuleStateTerm::Term(HostTerm::Variable {
-        key: key("rule_right_reference", 0),
-        path_key: key("rule_right_reference", 0),
+        key: key(ProvenanceRole::RuleRightReference, 0),
+        path_key: key(ProvenanceRole::RuleRightReference, 0),
         name: "X".into(),
     });
     rule
@@ -1082,7 +1165,7 @@ fn host_configuration_rule_accepts_only_exact_subject_wildcards() {
     else {
         unreachable!()
     };
-    *wildcard = key("rule_left_literal", 0);
+    *wildcard = key(ProvenanceRole::RuleLeftLiteral, 0);
     assert!(matches!(
         wrong_role.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -1090,7 +1173,7 @@ fn host_configuration_rule_accepts_only_exact_subject_wildcards() {
 
     let mut result_wildcard = rule;
     result_wildcard.result.cells[0].value = ProtocolRuleStateTerm::Term(HostTerm::Wildcard {
-        key: key("rule_right_wildcard", 0),
+        key: key(ProvenanceRole::RuleLeftWildcard, 0),
     });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
@@ -1114,7 +1197,7 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[0].kind else {
         unreachable!()
     };
-    sort.key = key("rule_binding_type", 1);
+    sort.key = key(ProvenanceRole::RuleBindingType, 1);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
         Err(StateTransportError::UnexpectedProvenance { .. })
@@ -1144,21 +1227,21 @@ fn simultaneous_k_and_map_update_is_structured() {
         "env",
         CellWrapper::Cell,
         ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-            payload_key: Some(key("rule_right_map_payload", 0)),
+            payload_key: Some(key(ProvenanceRole::RuleRightMapPayload, 0)),
             body: ProtocolRuleMapBody::Update {
-                base_key: key("rule_right_map_update_base", 0),
+                base_key: key(ProvenanceRole::RuleRightMapUpdateBase, 0),
                 base: rule_variable("right", 1, "E"),
-                key_key: key("rule_right_map_key", 0),
+                key_key: key(ProvenanceRole::RuleRightMapKey, 0),
                 key: rule_variable("right", 2, "X"),
-                value_key: key("rule_right_map_value", 0),
+                value_key: key(ProvenanceRole::RuleRightMapValue, 0),
                 value: rule_variable("right", 3, "V"),
             },
         }),
     ));
     rule.validate(ItemKind::Rule).unwrap();
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    assert!(keys.contains(&key("rule_right_map_update_base", 0)));
-    assert!(keys.contains(&key("rule_right_cells_field", 1)));
+    assert!(keys.contains(&key(ProvenanceRole::RuleRightMapUpdateBase, 0)));
+    assert!(keys.contains(&key(ProvenanceRole::RuleRightCellsField, 1)));
 }
 
 #[test]

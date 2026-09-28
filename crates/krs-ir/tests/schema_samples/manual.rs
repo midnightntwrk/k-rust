@@ -45,7 +45,7 @@ leaf!(
 );
 leaf!(
     ProvenanceKey,
-    ProvenanceKey::new("sort_declaration", 0).unwrap()
+    ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0)
 );
 leaf!(CellColor, CellColor::new("blue").unwrap());
 leaf!(
@@ -98,7 +98,7 @@ impl Sample for DescriptorBundle {
             vec![
                 DescriptorNodeOrigin::new(primary, sample::<OriginStack>()),
                 DescriptorNodeOrigin::new(
-                    ProvenanceKey::new("stable_symbol", 0).unwrap(),
+                    ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
                     sample::<OriginStack>(),
                 ),
             ],

@@ -97,7 +97,7 @@ impl WireSlots {
 }
 
 pub(super) fn wire_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role.as_str(), ordinal).expect("KRS parser roles are nonempty")
+    ProvenanceKey::new(role, ordinal)
 }
 
 pub(super) fn wire_sort_reference(

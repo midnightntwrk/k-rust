@@ -46,7 +46,7 @@ fn __krs_sort_descriptor_a30ee37fad75f5f2() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -57,7 +57,7 @@ fn __krs_sort_descriptor_a30ee37fad75f5f2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -104,7 +104,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "bracket_declaration",
+                    ::k::ProvenanceRole::BracketDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -115,7 +115,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -126,7 +126,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -137,7 +137,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_value_reference",
+                    ::k::ProvenanceRole::BracketValueReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -148,7 +148,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -159,7 +159,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

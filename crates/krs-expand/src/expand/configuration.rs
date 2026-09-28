@@ -2,7 +2,7 @@
 
 use krs_syntax::{
     ConfigurationCellContent, ProvenanceRole, TokenRange, parse_configuration_attribute,
-    parse_configuration_declaration,
+    parse_configuration_declaration, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -26,6 +26,7 @@ pub(crate) fn configuration(
     let declaration =
         parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
+    let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let mut anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -36,7 +37,7 @@ pub(crate) fn configuration(
     );
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);
     let declared_key = format_ident!(
         "__krs_configuration_type_{nonce:016x}",
@@ -99,8 +100,7 @@ pub(crate) fn configuration(
                     ::std::boxed::Box::new(#facade::HostFixedConfiguration {
                         root: #root,
                         declaration: #facade::HostConfigurationDeclaration {
-                            key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0)
-                                .expect("KRS parser roles are nonempty"),
+                            key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
                             fields: ::std::vec![#(#fields),*],
                         },
                         initializer,
@@ -129,12 +129,13 @@ pub(crate) fn cell(
     let declaration =
         parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
+    let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let anchors = declaration
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "cell", declaration.name(), fallback);
     let declared_key = format_ident!("__krs_cell_type_{nonce:016x}");
     let factory = format_ident!("__krs_cell_descriptor_{nonce:016x}");
@@ -180,8 +181,7 @@ pub(crate) fn cell(
                 ),
                 payload: #facade::HostDescriptorPayload::Cell(::std::boxed::Box::new(
                     #facade::HostCellDeclaration {
-                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0)
-                            .expect("KRS parser roles are nonempty"),
+                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
                         fields: ::std::vec![#(#fields),*],
                     }
                 )),
@@ -251,13 +251,12 @@ fn configuration_root(
     facade: &Path,
     attribute: &krs_syntax::ConfigurationAttribute,
 ) -> TokenStream {
-    let configuration_root_role = ProvenanceRole::ConfigurationRoot;
+    let configuration_root_role = role_tokens(ProvenanceRole::ConfigurationRoot, facade);
     if let Some(root) = attribute.optional_root() {
         let value = root.value();
         quote! {
             #facade::DescriptorConfigurationRoot::Named {
-                key: #facade::ProvenanceKey::new(#configuration_root_role, 0)
-                    .expect("KRS parser roles are nonempty"),
+                key: #facade::ProvenanceKey::new(#configuration_root_role, 0),
                 name: #value.to_owned(),
             }
         }
@@ -273,14 +272,18 @@ fn configuration_fields(
     owner: &Ident,
     owner_key: &Ident,
 ) -> syn::Result<(Vec<TokenStream>, Vec<TokenStream>)> {
-    let configuration_cell_name_role = ProvenanceRole::ConfigurationCellName;
-    let configuration_cell_color_role = ProvenanceRole::ConfigurationCellColor;
-    let configuration_cell_multiplicity_role = ProvenanceRole::ConfigurationCellMultiplicity;
-    let configuration_cell_type_role = ProvenanceRole::ConfigurationCellType;
-    let configuration_cell_content_argument_role = ProvenanceRole::ConfigurationCellContentArgument;
-    let configuration_cell_wrapper_role = ProvenanceRole::ConfigurationCellWrapper;
-    let configuration_cell_content_role = ProvenanceRole::ConfigurationCellContent;
-    let configuration_field_role = ProvenanceRole::ConfigurationField;
+    let configuration_cell_name_role = role_tokens(ProvenanceRole::ConfigurationCellName, facade);
+    let configuration_cell_color_role = role_tokens(ProvenanceRole::ConfigurationCellColor, facade);
+    let configuration_cell_multiplicity_role =
+        role_tokens(ProvenanceRole::ConfigurationCellMultiplicity, facade);
+    let configuration_cell_type_role = role_tokens(ProvenanceRole::ConfigurationCellType, facade);
+    let configuration_cell_content_argument_role =
+        role_tokens(ProvenanceRole::ConfigurationCellContentArgument, facade);
+    let configuration_cell_wrapper_role =
+        role_tokens(ProvenanceRole::ConfigurationCellWrapper, facade);
+    let configuration_cell_content_role =
+        role_tokens(ProvenanceRole::ConfigurationCellContent, facade);
+    let configuration_field_role = role_tokens(ProvenanceRole::ConfigurationField, facade);
     let mut helpers = Vec::new();
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
@@ -302,8 +305,7 @@ fn configuration_fields(
                 let value = name.value();
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellName {
-                        key: #facade::ProvenanceKey::new(#configuration_cell_name_role, #ordinal)
-                            .expect("KRS parser roles are nonempty"),
+                        key: #facade::ProvenanceKey::new(#configuration_cell_name_role, #ordinal),
                         value: #value.to_owned(),
                     })
                 }
@@ -315,8 +317,7 @@ fn configuration_fields(
                 let value = color.value();
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellColor {
-                        key: #facade::ProvenanceKey::new(#configuration_cell_color_role, #ordinal)
-                            .expect("KRS parser roles are nonempty"),
+                        key: #facade::ProvenanceKey::new(#configuration_cell_color_role, #ordinal),
                         value: #value.to_owned(),
                     })
                 }
@@ -330,7 +331,7 @@ fn configuration_fields(
                     ::core::option::Option::Some(#facade::DescriptorCellMultiplicity {
                         key: #facade::ProvenanceKey::new(
                             #configuration_cell_multiplicity_role, #ordinal,
-                        ).expect("KRS parser roles are nonempty"),
+                        ),
                         value: #value.to_owned(),
                     })
                 }
@@ -344,7 +345,7 @@ fn configuration_fields(
                     ::core::option::Option::Some(#facade::DescriptorCellType {
                         key: #facade::ProvenanceKey::new(
                             #configuration_cell_type_role, #ordinal,
-                        ).expect("KRS parser roles are nonempty"),
+                        ),
                         value: #value.to_owned(),
                     })
                 }
@@ -394,7 +395,7 @@ fn configuration_fields(
                         #facade::HostSortReference {
                             key: #facade::ProvenanceKey::new(
                                 #configuration_cell_content_argument_role, #ordinal,
-                            ).expect("KRS parser roles are nonempty"),
+                            ),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#key),
                                 authored_path: #authored.to_owned(),
@@ -406,12 +407,12 @@ fn configuration_fields(
                     #facade::ProtocolCellContent::Leaf {
                         wrapper_key: #facade::ProvenanceKey::new(
                             #configuration_cell_wrapper_role, #ordinal,
-                        ).expect("KRS parser roles are nonempty"),
+                        ),
                         wrapper: #wrapper,
                         sort: #facade::HostSortReference {
                             key: #facade::ProvenanceKey::new(
                                 #configuration_cell_content_role, #ordinal,
-                            ).expect("KRS parser roles are nonempty"),
+                            ),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#sort_key),
                                 authored_path: #authored.to_owned(),
@@ -437,7 +438,7 @@ fn configuration_fields(
                         declaration: #facade::HostCellDeclarationReference {
                             key: #facade::ProvenanceKey::new(
                                 #configuration_cell_content_role, #ordinal,
-                            ).expect("KRS parser roles are nonempty"),
+                            ),
                             declaration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#nested_key),
                                 authored_path: #authored.to_owned(),
@@ -450,8 +451,7 @@ fn configuration_fields(
         fields.push(quote! {
             #facade::HostCellField {
                 reference: #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new(#configuration_field_role, #ordinal)
-                        .expect("KRS parser roles are nonempty"),
+                    key: #facade::ProvenanceKey::new(#configuration_field_role, #ordinal),
                     cell: #facade::HostCellIdentity {
                         owner: #facade::HostTypeKey(#owner_key),
                         field: #facade::HostTypeKey(#owner::#marker),

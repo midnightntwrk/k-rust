@@ -30,7 +30,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "associativity_declaration",
+                    ::k::ProvenanceRole::AssociativityDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -41,7 +41,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "associativity_sentence",
+                    ::k::ProvenanceRole::AssociativitySentence,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -52,7 +52,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "associativity_group_reference",
+                    ::k::ProvenanceRole::AssociativityGroupReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -63,7 +63,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "associativity_sentence",
+                    ::k::ProvenanceRole::AssociativitySentence,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -74,7 +74,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "associativity_group_reference",
+                    ::k::ProvenanceRole::AssociativityGroupReference,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

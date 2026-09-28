@@ -1,6 +1,8 @@
 //! Token helpers shared by every entry point.
 
-use krs_syntax::{KSequence, KSequenceNotation, MapExpression, ProvenanceRole, TermLiteral};
+use krs_syntax::{
+    KSequence, KSequenceNotation, MapExpression, ProvenanceRole, TermLiteral, role_tokens,
+};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::parse::Parser;
@@ -66,9 +68,9 @@ pub(super) fn take_counter(counter: &mut u32) -> syn::Result<u32> {
 }
 
 pub(super) fn provenance_key(facade: &Path, role: ProvenanceRole, ordinal: u32) -> TokenStream {
+    let role = role_tokens(role, facade);
     quote! {
         #facade::ProvenanceKey::new(#role, #ordinal)
-            .expect("KRS parser roles are nonempty")
     }
 }
 

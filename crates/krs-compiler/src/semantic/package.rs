@@ -150,7 +150,7 @@ fn lower_module_descriptor(
             sentences.productions.push(SemanticProduction::with_api(
                 semantic_origin(
                     descriptor,
-                    role_key(ProvenanceRole::ConstructorDeclaration, 0)?,
+                    role_key(ProvenanceRole::ConstructorDeclaration, 0),
                     "production",
                 )?,
                 descriptor.id.clone(),
@@ -228,7 +228,7 @@ fn lower_sort_descriptor(
     sentences.sorts.push(SemanticSort::with_api(
         semantic_origin(
             descriptor,
-            role_key(ProvenanceRole::SortDeclaration, 0)?,
+            role_key(ProvenanceRole::SortDeclaration, 0),
             "sort",
         )?,
         descriptor.id.clone(),
@@ -244,7 +244,7 @@ fn lower_sort_descriptor(
         sentences.subsorts.push(SemanticSubsort::new(
             semantic_origin(
                 descriptor,
-                role_key(ProvenanceRole::SortParent, ordinal)?,
+                role_key(ProvenanceRole::SortParent, ordinal),
                 "subsort",
             )?,
             SemanticSortRef::Declared(descriptor.id.clone()),

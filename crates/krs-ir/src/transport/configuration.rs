@@ -16,7 +16,7 @@ use crate::transport::grammar::{
     DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
     DescriptorTermArgument, HostSortReference, HostTerm, HostTermArgument,
 };
-use crate::{BuiltinSort, ItemKind, ProvenanceKey, StableItemId};
+use crate::{BuiltinSort, ItemKind, ProvenanceKey, ProvenanceRole, StableItemId};
 
 /// Stable owner-qualified identity of one fixed cell field.
 ///
@@ -747,7 +747,12 @@ fn validate_descriptor_declaration(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     require_cell_owner_kind(owner, "cell declaration")?;
-    insert_exact(keys, &declaration.key, "configuration_declaration", 0)?;
+    insert_exact(
+        keys,
+        &declaration.key,
+        ProvenanceRole::ConfigurationDeclaration,
+        0,
+    )?;
     if declaration.fields.is_empty() {
         return Err(StateTransportError::EmptyCollection("fixed cell fields"));
     }
@@ -770,7 +775,12 @@ fn validate_descriptor_declaration(
         {
             return Err(StateTransportError::DuplicateValue("fixed cell fields"));
         }
-        insert_exact(keys, &field.reference.key, "configuration_field", ordinal)?;
+        insert_exact(
+            keys,
+            &field.reference.key,
+            ProvenanceRole::ConfigurationField,
+            ordinal,
+        )?;
         let emitted = validate_cell_metadata(field, ordinal, keys)?;
         if !emitted_names.insert(emitted) {
             return Err(StateTransportError::DuplicateValue(
@@ -784,8 +794,18 @@ fn validate_descriptor_declaration(
                 sort,
                 arguments,
             } => {
-                insert_exact(keys, wrapper_key, "configuration_cell_wrapper", ordinal)?;
-                insert_exact(keys, &sort.key, "configuration_cell_content", ordinal)?;
+                insert_exact(
+                    keys,
+                    wrapper_key,
+                    ProvenanceRole::ConfigurationCellWrapper,
+                    ordinal,
+                )?;
+                insert_exact(
+                    keys,
+                    &sort.key,
+                    ProvenanceRole::ConfigurationCellContent,
+                    ordinal,
+                )?;
                 sort.sort
                     .validate()
                     .map_err(|_| StateTransportError::ItemKind {
@@ -801,7 +821,7 @@ fn validate_descriptor_declaration(
                     insert_exact(
                         keys,
                         &argument.key,
-                        "configuration_cell_content_argument",
+                        ProvenanceRole::ConfigurationCellContentArgument,
                         argument_ordinal,
                     )?;
                     argument.sort.validate().map_err(|_| {
@@ -814,7 +834,7 @@ fn validate_descriptor_declaration(
                 insert_exact(
                     keys,
                     &declaration.key,
-                    "configuration_cell_content",
+                    ProvenanceRole::ConfigurationCellContent,
                     ordinal,
                 )?;
                 declaration.validate()?;
@@ -829,7 +849,12 @@ fn validate_host_declaration(
     owner: HostTypeKey,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    insert_exact(keys, &declaration.key, "configuration_declaration", 0)?;
+    insert_exact(
+        keys,
+        &declaration.key,
+        ProvenanceRole::ConfigurationDeclaration,
+        0,
+    )?;
     if declaration.fields.is_empty() {
         return Err(StateTransportError::EmptyCollection("fixed cell fields"));
     }
@@ -848,7 +873,12 @@ fn validate_host_declaration(
         {
             return Err(StateTransportError::DuplicateValue("fixed cell fields"));
         }
-        insert_exact(keys, &field.reference.key, "configuration_field", ordinal)?;
+        insert_exact(
+            keys,
+            &field.reference.key,
+            ProvenanceRole::ConfigurationField,
+            ordinal,
+        )?;
         let emitted = validate_cell_metadata(field, ordinal, keys)?;
         if !emitted_names.insert(emitted) {
             return Err(StateTransportError::DuplicateValue(
@@ -862,13 +892,23 @@ fn validate_host_declaration(
                 arguments,
                 ..
             } => {
-                insert_exact(keys, wrapper_key, "configuration_cell_wrapper", ordinal)?;
-                insert_exact(keys, &sort.key, "configuration_cell_content", ordinal)?;
+                insert_exact(
+                    keys,
+                    wrapper_key,
+                    ProvenanceRole::ConfigurationCellWrapper,
+                    ordinal,
+                )?;
+                insert_exact(
+                    keys,
+                    &sort.key,
+                    ProvenanceRole::ConfigurationCellContent,
+                    ordinal,
+                )?;
                 for argument in arguments {
                     insert_exact(
                         keys,
                         &argument.key,
-                        "configuration_cell_content_argument",
+                        ProvenanceRole::ConfigurationCellContentArgument,
                         argument_ordinal,
                     )?;
                     if argument.target.authored_path.trim().is_empty() {
@@ -883,7 +923,7 @@ fn validate_host_declaration(
                 insert_exact(
                     keys,
                     &declaration.key,
-                    "configuration_cell_content",
+                    ProvenanceRole::ConfigurationCellContent,
                     ordinal,
                 )?;
                 if declaration.declaration.authored_path.trim().is_empty() {
@@ -904,14 +944,24 @@ fn validate_cell_metadata<I, S, N>(
 ) -> Result<String, StateTransportError> {
     let emitted = if let Some(name) = &field.emitted_name {
         validate_nonblank("emitted cell name", &name.value)?;
-        insert_exact(keys, &name.key, "configuration_cell_name", ordinal)?;
+        insert_exact(
+            keys,
+            &name.key,
+            ProvenanceRole::ConfigurationCellName,
+            ordinal,
+        )?;
         name.value.clone()
     } else {
         field.rust_field.clone()
     };
     if let Some(color) = &field.color {
         validate_nonblank("cell color", &color.value)?;
-        insert_exact(keys, &color.key, "configuration_cell_color", ordinal)?;
+        insert_exact(
+            keys,
+            &color.key,
+            ProvenanceRole::ConfigurationCellColor,
+            ordinal,
+        )?;
     }
     if let Some(multiplicity) = &field.multiplicity {
         if multiplicity.value != "*" {
@@ -922,7 +972,7 @@ fn validate_cell_metadata<I, S, N>(
         insert_exact(
             keys,
             &multiplicity.key,
-            "configuration_cell_multiplicity",
+            ProvenanceRole::ConfigurationCellMultiplicity,
             ordinal,
         )?;
     }
@@ -937,7 +987,12 @@ fn validate_cell_metadata<I, S, N>(
                 "unsupported repeated-cell collection type",
             ));
         }
-        insert_exact(keys, &cell_type.key, "configuration_cell_type", ordinal)?;
+        insert_exact(
+            keys,
+            &cell_type.key,
+            ProvenanceRole::ConfigurationCellType,
+            ordinal,
+        )?;
     }
     Ok(emitted)
 }
@@ -948,7 +1003,7 @@ fn validate_root(
 ) -> Result<(), StateTransportError> {
     if let DescriptorConfigurationRoot::Named { key, name } = root {
         validate_nonblank("configuration root name", name)?;
-        insert_exact(keys, key, "configuration_root", 0)?;
+        insert_exact(keys, key, ProvenanceRole::ConfigurationRoot, 0)?;
     }
     Ok(())
 }
@@ -962,9 +1017,24 @@ fn validate_descriptor_initializer(
     if &initializer.owner != owner {
         return Err(StateTransportError::InitializerDeclarationMismatch);
     }
-    insert_exact(keys, &initializer.key, "initializer_declaration", 0)?;
-    insert_exact(keys, &initializer.owner_key, "initializer_result_type", 0)?;
-    insert_exact(keys, &initializer.body_key, "initializer_body", 0)?;
+    insert_exact(
+        keys,
+        &initializer.key,
+        ProvenanceRole::InitializerDeclaration,
+        0,
+    )?;
+    insert_exact(
+        keys,
+        &initializer.owner_key,
+        ProvenanceRole::InitializerResultType,
+        0,
+    )?;
+    insert_exact(
+        keys,
+        &initializer.body_key,
+        ProvenanceRole::InitializerBody,
+        0,
+    )?;
     let bindings = validate_descriptor_variables(&initializer.variables, keys)?;
     let mut counters = InitializerCounters::default();
     validate_descriptor_initializer_cells(
@@ -986,9 +1056,24 @@ fn validate_host_initializer(
     if initializer.owner.resolve() != owner.resolve() {
         return Err(StateTransportError::InitializerDeclarationMismatch);
     }
-    insert_exact(keys, &initializer.key, "initializer_declaration", 0)?;
-    insert_exact(keys, &initializer.owner_key, "initializer_result_type", 0)?;
-    insert_exact(keys, &initializer.body_key, "initializer_body", 0)?;
+    insert_exact(
+        keys,
+        &initializer.key,
+        ProvenanceRole::InitializerDeclaration,
+        0,
+    )?;
+    insert_exact(
+        keys,
+        &initializer.owner_key,
+        ProvenanceRole::InitializerResultType,
+        0,
+    )?;
+    insert_exact(
+        keys,
+        &initializer.body_key,
+        ProvenanceRole::InitializerBody,
+        0,
+    )?;
     let bindings = validate_host_variables(&initializer.variables, keys)?;
     let mut counters = InitializerCounters::default();
     validate_host_initializer_cells(
@@ -1028,19 +1113,19 @@ fn validate_descriptor_variables(
         insert_exact(
             keys,
             &variable.binding_key,
-            "configuration_variable",
+            ProvenanceRole::ConfigurationVariable,
             ordinal,
         )?;
         insert_exact(
             keys,
             &variable.external_name_key,
-            "configuration_variable_name",
+            ProvenanceRole::ConfigurationVariableName,
             ordinal,
         )?;
         insert_exact(
             keys,
             &variable.sort.key,
-            "configuration_variable_type",
+            ProvenanceRole::ConfigurationVariableType,
             ordinal,
         )?;
         variable
@@ -1050,7 +1135,12 @@ fn validate_descriptor_variables(
             .map_err(|_| StateTransportError::InvalidCellContent("invalid variable sort"))?;
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
-            insert_exact(keys, main_key, "configuration_variable_main", ordinal)?;
+            insert_exact(
+                keys,
+                main_key,
+                ProvenanceRole::ConfigurationVariableMain,
+                ordinal,
+            )?;
         }
     }
     if main_count > 1 {
@@ -1086,24 +1176,29 @@ fn validate_host_variables(
         insert_exact(
             keys,
             &variable.binding_key,
-            "configuration_variable",
+            ProvenanceRole::ConfigurationVariable,
             ordinal,
         )?;
         insert_exact(
             keys,
             &variable.external_name_key,
-            "configuration_variable_name",
+            ProvenanceRole::ConfigurationVariableName,
             ordinal,
         )?;
         insert_exact(
             keys,
             &variable.sort.key,
-            "configuration_variable_type",
+            ProvenanceRole::ConfigurationVariableType,
             ordinal,
         )?;
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
-            insert_exact(keys, main_key, "configuration_variable_main", ordinal)?;
+            insert_exact(
+                keys,
+                main_key,
+                ProvenanceRole::ConfigurationVariableMain,
+                ordinal,
+            )?;
         }
     }
     if main_count > 1 {
@@ -1175,8 +1270,18 @@ fn validate_descriptor_initializer_cell(
     if &cell.field.cell.owner != owner {
         return Err(StateTransportError::CellOwnerMismatch);
     }
-    insert_exact(keys, &cell.key, "initializer_cell", counters.cell)?;
-    insert_exact(keys, &cell.field.key, "initializer_field", counters.cell)?;
+    insert_exact(
+        keys,
+        &cell.key,
+        ProvenanceRole::InitializerCell,
+        counters.cell,
+    )?;
+    insert_exact(
+        keys,
+        &cell.field.key,
+        ProvenanceRole::InitializerField,
+        counters.cell,
+    )?;
     counters.cell = increment(counters.cell)?;
     match (&cell.content, declaration.map(|field| &field.content)) {
         (
@@ -1193,7 +1298,7 @@ fn validate_descriptor_initializer_cell(
             insert_exact(
                 keys,
                 constructor_key,
-                "initializer_cell_constructor",
+                ProvenanceRole::InitializerCellConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1218,7 +1323,7 @@ fn validate_descriptor_initializer_cell(
             insert_exact(
                 keys,
                 &nested.key,
-                "initializer_nested_constructor",
+                ProvenanceRole::InitializerNestedConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1241,7 +1346,7 @@ fn validate_descriptor_initializer_cell(
             insert_exact(
                 keys,
                 constructor_key,
-                "initializer_cell_constructor",
+                ProvenanceRole::InitializerCellConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1264,7 +1369,7 @@ fn validate_descriptor_initializer_cell(
             insert_exact(
                 keys,
                 &nested.key,
-                "initializer_nested_constructor",
+                ProvenanceRole::InitializerNestedConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1336,8 +1441,18 @@ fn validate_host_initializer_cell(
     if cell.field.cell.owner.resolve() != owner.resolve() {
         return Err(StateTransportError::CellOwnerMismatch);
     }
-    insert_exact(keys, &cell.key, "initializer_cell", counters.cell)?;
-    insert_exact(keys, &cell.field.key, "initializer_field", counters.cell)?;
+    insert_exact(
+        keys,
+        &cell.key,
+        ProvenanceRole::InitializerCell,
+        counters.cell,
+    )?;
+    insert_exact(
+        keys,
+        &cell.field.key,
+        ProvenanceRole::InitializerField,
+        counters.cell,
+    )?;
     counters.cell = increment(counters.cell)?;
     match (&cell.content, declaration.map(|field| &field.content)) {
         (
@@ -1354,7 +1469,7 @@ fn validate_host_initializer_cell(
             insert_exact(
                 keys,
                 constructor_key,
-                "initializer_cell_constructor",
+                ProvenanceRole::InitializerCellConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1378,7 +1493,7 @@ fn validate_host_initializer_cell(
             insert_exact(
                 keys,
                 &nested.key,
-                "initializer_nested_constructor",
+                ProvenanceRole::InitializerNestedConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1401,7 +1516,7 @@ fn validate_host_initializer_cell(
             insert_exact(
                 keys,
                 constructor_key,
-                "initializer_cell_constructor",
+                ProvenanceRole::InitializerCellConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1423,7 +1538,7 @@ fn validate_host_initializer_cell(
             insert_exact(
                 keys,
                 &nested.key,
-                "initializer_nested_constructor",
+                ProvenanceRole::InitializerNestedConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
@@ -1474,6 +1589,7 @@ fn validate_wrapper_state<T>(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn validate_descriptor_state_term(
     value: &DescriptorInitializerStateTerm,
     bindings: &BTreeSet<String>,
@@ -1487,7 +1603,12 @@ fn validate_descriptor_state_term(
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             validate_k_sequence_shell(sequence, counters, keys)?;
             for item in &sequence.items {
-                insert_exact(keys, &item.key, "k_sequence_item", counters.k_item)?;
+                insert_exact(
+                    keys,
+                    &item.key,
+                    ProvenanceRole::KSequenceItem,
+                    counters.k_item,
+                )?;
                 counters.k_item = increment(counters.k_item)?;
                 validate_descriptor_initializer_term(
                     &item.value,
@@ -1505,9 +1626,19 @@ fn validate_descriptor_state_term(
                 ProtocolMapBody::Empty { .. } => Ok(()),
                 ProtocolMapBody::Items { items } => {
                     for item in items {
-                        insert_exact(keys, &item.key_key, "map_key", counters.map_key)?;
+                        insert_exact(
+                            keys,
+                            &item.key_key,
+                            ProvenanceRole::MapKey,
+                            counters.map_key,
+                        )?;
                         counters.map_key = increment(counters.map_key)?;
-                        insert_exact(keys, &item.value_key, "map_value", counters.map_value)?;
+                        insert_exact(
+                            keys,
+                            &item.value_key,
+                            ProvenanceRole::MapValue,
+                            counters.map_value,
+                        )?;
                         counters.map_value = increment(counters.map_value)?;
                         validate_descriptor_initializer_term(
                             &item.key,
@@ -1534,11 +1665,21 @@ fn validate_descriptor_state_term(
                     value_key,
                     value,
                 } => {
-                    insert_exact(keys, base_key, "map_update_base", counters.map_update_base)?;
+                    insert_exact(
+                        keys,
+                        base_key,
+                        ProvenanceRole::MapUpdateBase,
+                        counters.map_update_base,
+                    )?;
                     counters.map_update_base = increment(counters.map_update_base)?;
-                    insert_exact(keys, key_key, "map_key", counters.map_key)?;
+                    insert_exact(keys, key_key, ProvenanceRole::MapKey, counters.map_key)?;
                     counters.map_key = increment(counters.map_key)?;
-                    insert_exact(keys, value_key, "map_value", counters.map_value)?;
+                    insert_exact(
+                        keys,
+                        value_key,
+                        ProvenanceRole::MapValue,
+                        counters.map_value,
+                    )?;
                     counters.map_value = increment(counters.map_value)?;
                     validate_descriptor_initializer_term(
                         base,
@@ -1580,7 +1721,12 @@ fn validate_host_state_term(
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             validate_k_sequence_shell(sequence, counters, keys)?;
             for item in &sequence.items {
-                insert_exact(keys, &item.key, "k_sequence_item", counters.k_item)?;
+                insert_exact(
+                    keys,
+                    &item.key,
+                    ProvenanceRole::KSequenceItem,
+                    counters.k_item,
+                )?;
                 counters.k_item = increment(counters.k_item)?;
                 validate_host_initializer_term(
                     &item.value,
@@ -1598,9 +1744,19 @@ fn validate_host_state_term(
                 ProtocolMapBody::Empty { .. } => Ok(()),
                 ProtocolMapBody::Items { items } => {
                     for item in items {
-                        insert_exact(keys, &item.key_key, "map_key", counters.map_key)?;
+                        insert_exact(
+                            keys,
+                            &item.key_key,
+                            ProvenanceRole::MapKey,
+                            counters.map_key,
+                        )?;
                         counters.map_key = increment(counters.map_key)?;
-                        insert_exact(keys, &item.value_key, "map_value", counters.map_value)?;
+                        insert_exact(
+                            keys,
+                            &item.value_key,
+                            ProvenanceRole::MapValue,
+                            counters.map_value,
+                        )?;
                         counters.map_value = increment(counters.map_value)?;
                         validate_host_initializer_term(
                             &item.key,
@@ -1627,11 +1783,21 @@ fn validate_host_state_term(
                     value_key,
                     value,
                 } => {
-                    insert_exact(keys, base_key, "map_update_base", counters.map_update_base)?;
+                    insert_exact(
+                        keys,
+                        base_key,
+                        ProvenanceRole::MapUpdateBase,
+                        counters.map_update_base,
+                    )?;
                     counters.map_update_base = increment(counters.map_update_base)?;
-                    insert_exact(keys, key_key, "map_key", counters.map_key)?;
+                    insert_exact(keys, key_key, ProvenanceRole::MapKey, counters.map_key)?;
                     counters.map_key = increment(counters.map_key)?;
-                    insert_exact(keys, value_key, "map_value", counters.map_value)?;
+                    insert_exact(
+                        keys,
+                        value_key,
+                        ProvenanceRole::MapValue,
+                        counters.map_value,
+                    )?;
                     counters.map_value = increment(counters.map_value)?;
                     validate_host_initializer_term(base, bindings, counters, keys, Some(base_key))?;
                     validate_host_initializer_term(key, bindings, counters, keys, Some(key_key))?;
@@ -1648,7 +1814,12 @@ fn validate_k_sequence_shell<T>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if let Some(payload_key) = &sequence.payload_key {
-        insert_exact(keys, payload_key, "k_sequence_payload", counters.k_payload)?;
+        insert_exact(
+            keys,
+            payload_key,
+            ProvenanceRole::KSequencePayload,
+            counters.k_payload,
+        )?;
         counters.k_payload = increment(counters.k_payload)?;
     }
     match sequence.notation {
@@ -1665,7 +1836,12 @@ fn validate_k_sequence_shell<T>(
                     .ok_or(StateTransportError::InvalidCellContent(
                         ".K is missing exact provenance",
                     ))?;
-            insert_exact(keys, dot_key, "k_sequence_tail", counters.k_tail)?;
+            insert_exact(
+                keys,
+                dot_key,
+                ProvenanceRole::KSequenceTail,
+                counters.k_tail,
+            )?;
             counters.k_tail = increment(counters.k_tail)?;
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
@@ -1689,7 +1865,12 @@ fn validate_map_shell<T>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if let Some(payload_key) = &map.payload_key {
-        insert_exact(keys, payload_key, "map_payload", counters.map_payload)?;
+        insert_exact(
+            keys,
+            payload_key,
+            ProvenanceRole::MapPayload,
+            counters.map_payload,
+        )?;
         counters.map_payload = increment(counters.map_payload)?;
     }
     match &map.body {
@@ -1724,7 +1905,12 @@ fn validate_descriptor_initializer_term(
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: Option<&ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    insert_exact(keys, &term.key, "initializer_term", counters.term)?;
+    insert_exact(
+        keys,
+        &term.key,
+        ProvenanceRole::InitializerTerm,
+        counters.term,
+    )?;
     counters.term = increment(counters.term)?;
     validate_descriptor_term_node(
         &term.term,
@@ -1753,7 +1939,12 @@ fn validate_descriptor_term_node(
                     "variable keys disagree or the binding is undeclared",
                 ));
             }
-            insert_exact(keys, key, "initializer_term_path", counters.term_path)?;
+            insert_exact(
+                keys,
+                key,
+                ProvenanceRole::InitializerTermPath,
+                counters.term_path,
+            )?;
             counters.term_path = increment(counters.term_path)?;
             Ok(())
         }
@@ -1778,7 +1969,7 @@ fn validate_descriptor_term_node(
             insert_exact(
                 keys,
                 &reference.key,
-                "initializer_term_path",
+                ProvenanceRole::InitializerTermPath,
                 counters.term_path,
             )?;
             counters.term_path = increment(counters.term_path)?;
@@ -1837,7 +2028,12 @@ fn validate_host_initializer_term(
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: Option<&ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    insert_exact(keys, &term.key, "initializer_term", counters.term)?;
+    insert_exact(
+        keys,
+        &term.key,
+        ProvenanceRole::InitializerTerm,
+        counters.term,
+    )?;
     counters.term = increment(counters.term)?;
     validate_host_term_node(
         &term.term,
@@ -1866,7 +2062,12 @@ fn validate_host_term_node(
                     "variable keys disagree or the binding is undeclared",
                 ));
             }
-            insert_exact(keys, key, "initializer_term_path", counters.term_path)?;
+            insert_exact(
+                keys,
+                key,
+                ProvenanceRole::InitializerTermPath,
+                counters.term_path,
+            )?;
             counters.term_path = increment(counters.term_path)?;
             Ok(())
         }
@@ -1887,7 +2088,7 @@ fn validate_host_term_node(
             insert_exact(
                 keys,
                 &reference.key,
-                "initializer_term_path",
+                ProvenanceRole::InitializerTermPath,
                 counters.term_path,
             )?;
             counters.term_path = increment(counters.term_path)?;
@@ -1984,7 +2185,7 @@ fn validate_complete_set(
     actual: &BTreeSet<ProvenanceKey>,
     expected: &BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    let expected_primary = canonical_key("configuration_declaration", 0);
+    let expected_primary = canonical_key(ProvenanceRole::ConfigurationDeclaration, 0);
     if primary != &expected_primary {
         return Err(StateTransportError::UnexpectedProvenance {
             expected: expected_primary,
@@ -2003,7 +2204,7 @@ fn validate_complete_set(
 fn insert_exact(
     keys: &mut BTreeSet<ProvenanceKey>,
     actual: &ProvenanceKey,
-    role: &'static str,
+    role: ProvenanceRole,
     ordinal: u32,
 ) -> Result<(), StateTransportError> {
     let expected = canonical_key(role, ordinal);
@@ -2017,8 +2218,8 @@ fn insert_exact(
     Ok(())
 }
 
-fn canonical_key(role: &'static str, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal).expect("protocol-owned provenance roles are valid")
+fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    ProvenanceKey::new(role, ordinal)
 }
 
 fn checked_index(index: usize) -> Result<u32, StateTransportError> {

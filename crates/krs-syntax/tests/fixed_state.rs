@@ -97,19 +97,19 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
         .into_iter()
         .map(|candidate| {
             (
-                candidate.key().role().to_owned(),
+                candidate.key().role(),
                 candidate.key().ordinal(),
                 candidate.path_spelling(),
             )
         })
         .collect::<Vec<_>>();
     assert!(refs.contains(&(
-        "configuration_cell_content".into(),
+        ProvenanceRole::ConfigurationCellContent,
         1,
         "k :: builtin :: Map".into()
     )));
     assert!(refs.contains(&(
-        "configuration_cell_content".into(),
+        ProvenanceRole::ConfigurationCellContent,
         2,
         "model :: Frame".into()
     )));
@@ -373,8 +373,8 @@ fn state_macro_provenance_ranges_select_the_exact_authored_tokens() {
     assert_eq!(spelling(&anchors[1]), "k");
     assert_eq!(spelling(&anchors[2]), "KCell");
     assert_eq!(spelling(anchors.last().unwrap()), "state @ ..");
-    assert_eq!(anchors[1].key().unwrap().role(), "cells_field");
-    assert_eq!(anchors[3].key().unwrap().ordinal(), 1);
+    assert_eq!(anchors[1].key().role(), ProvenanceRole::CellsField);
+    assert_eq!(anchors[3].key().ordinal(), 1);
 
     let StateTerm::KSequence(sequence) = cells.entries()[0].value() else {
         panic!("the first cell is a K sequence")
@@ -447,35 +447,35 @@ fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
     let anchors = rule.provenance().unwrap();
     let keys = anchors
         .iter()
-        .map(|anchor| anchor.key().unwrap())
+        .map(krs_syntax::ProvenanceAnchor::key)
         .collect::<Vec<_>>();
     let unique = keys.iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(unique.len(), keys.len());
     assert!(
         keys.iter()
-            .any(|key| key.role() == "rule_left_cells_payload")
+            .any(|key| key.role() == ProvenanceRole::RuleLeftCellsPayload)
     );
     assert!(
         keys.iter()
-            .any(|key| key.role() == "rule_right_cells_payload")
+            .any(|key| key.role() == ProvenanceRole::RuleRightCellsPayload)
     );
     assert_eq!(
         keys.iter()
-            .filter(|key| key.role() == "rule_binding_type")
+            .filter(|key| key.role() == ProvenanceRole::RuleBindingType)
             .map(krs_ir::ProvenanceKey::ordinal)
             .collect::<Vec<_>>(),
         [0, 1]
     );
     assert_eq!(
         keys.iter()
-            .filter(|key| key.role() == "rule_left_reference")
+            .filter(|key| key.role() == ProvenanceRole::RuleLeftReference)
             .map(krs_ir::ProvenanceKey::ordinal)
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
     assert_eq!(
         keys.iter()
-            .filter(|key| key.role() == "rule_right_reference")
+            .filter(|key| key.role() == ProvenanceRole::RuleRightReference)
             .map(krs_ir::ProvenanceKey::ordinal)
             .collect::<Vec<_>>(),
         [0]
@@ -565,20 +565,24 @@ fn whole_configuration_rule_requires_uses_the_shared_typed_term_catalog() {
         .provenance()
         .unwrap()
         .into_iter()
-        .map(|anchor| anchor.key().unwrap())
-        .filter(|key| key.role().starts_with("rule_requires"))
-        .map(|key| (key.role().to_owned(), key.ordinal()))
+        .map(|anchor| anchor.key())
+        .filter(|key| {
+            key.role()
+                .as_str()
+                .starts_with(ProvenanceRole::RuleRequires.as_str())
+        })
+        .map(|key| (key.role(), key.ordinal()))
         .collect::<Vec<_>>();
     assert_eq!(
         keys,
         [
-            ("rule_requires".into(), 0),
-            ("rule_requires_path".into(), 0),
-            ("rule_requires_path".into(), 1),
-            ("rule_requires_path".into(), 2),
-            ("rule_requires_application_head".into(), 0),
-            ("rule_requires_reference".into(), 0),
-            ("rule_requires_reference".into(), 1),
+            (ProvenanceRole::RuleRequires, 0),
+            (ProvenanceRole::RuleRequiresPath, 0),
+            (ProvenanceRole::RuleRequiresPath, 1),
+            (ProvenanceRole::RuleRequiresPath, 2),
+            (ProvenanceRole::RuleRequiresApplicationHead, 0),
+            (ProvenanceRole::RuleRequiresReference, 0),
+            (ProvenanceRole::RuleRequiresReference, 1),
         ]
     );
 }
@@ -619,11 +623,11 @@ fn whole_configuration_rule_patterns_retain_nested_wildcards() {
         .provenance()
         .unwrap()
         .into_iter()
-        .map(|anchor| anchor.key().unwrap())
+        .map(|anchor| anchor.key())
         .collect::<Vec<_>>();
     assert_eq!(
         keys.iter()
-            .filter(|key| key.role() == "rule_left_wildcard")
+            .filter(|key| key.role() == ProvenanceRole::RuleLeftWildcard)
             .map(krs_ir::ProvenanceKey::ordinal)
             .collect::<Vec<_>>(),
         [0]

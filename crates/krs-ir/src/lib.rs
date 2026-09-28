@@ -22,6 +22,7 @@ pub mod ir;
 pub mod json;
 pub mod measure;
 pub mod provenance;
+pub mod provenance_role;
 pub mod semantic;
 pub mod stable_text;
 pub mod state;
@@ -68,6 +69,7 @@ pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
     TransformationOriginKind,
 };
+pub use provenance_role::{ProvenanceRole, RuleRole, RuleSide};
 pub use semantic::{
     SemanticApplicationRef, SemanticClaim, SemanticClaimBinder, SemanticConfiguration,
     SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionAttribute,

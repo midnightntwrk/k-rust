@@ -54,13 +54,14 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
             ::std::boxed::Box::new(::k::HostFixedConfiguration {
                 root: ::k::DescriptorConfigurationRoot::GeneratedTop,
                 declaration: ::k::HostConfigurationDeclaration {
-                    key: ::k::ProvenanceKey::new("configuration_declaration", 0)
-                        .expect("KRS parser roles are nonempty"),
+                    key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::ConfigurationDeclaration,
+                        0,
+                    ),
                     fields: ::std::vec![
                         ::k::HostCellField { reference : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("configuration_field", 0u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
+                        0u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
                         field :
                         ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_k), },
@@ -70,19 +71,17 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         ::core::option::Option::None, cell_type :
                         ::core::option::Option::None, content :
                         ::k::ProtocolCellContent::Leaf { wrapper_key :
-                        ::k::ProvenanceKey::new("configuration_cell_wrapper", 0u32,)
-                        .expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::KCell, sort : ::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("configuration_cell_content", 0u32,)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellWrapper,
+                        0u32,), wrapper : ::k::CellWrapper::KCell, sort :
+                        ::k::HostSortReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
+                        0u32,), target : ::k::HostTypeReference { key :
                         ::k::HostTypeKey(NestedMachine::__krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0),
                         authored_path : "k :: builtin :: KSequence".to_owned(), }, },
                         arguments : ::std::vec![], }, }, ::k::HostCellField { reference :
                         ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("configuration_field", 1u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
+                        1u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
                         field :
                         ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_store),
@@ -93,9 +92,8 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         ::core::option::Option::None, content :
                         ::k::ProtocolCellContent::Nested { declaration :
                         ::k::HostCellDeclarationReference { key :
-                        ::k::ProvenanceKey::new("configuration_cell_content", 1u32,)
-                        .expect("KRS parser roles are nonempty"), declaration :
-                        ::k::HostTypeReference { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
+                        1u32,), declaration : ::k::HostTypeReference { key :
                         ::k::HostTypeKey(NestedMachine::__krs_configuration_nested___krs_configuration_type_1f42c47f927d9bc1_1),
                         authored_path : "Store".to_owned(), }, }, }, }
                     ],
@@ -116,7 +114,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                 },
                 &[
                     (
-                        "configuration_declaration",
+                        ::k::ProvenanceRole::ConfigurationDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -127,7 +125,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "configuration_field",
+                        ::k::ProvenanceRole::ConfigurationField,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -138,7 +136,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "configuration_cell_wrapper",
+                        ::k::ProvenanceRole::ConfigurationCellWrapper,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -149,7 +147,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "configuration_cell_content",
+                        ::k::ProvenanceRole::ConfigurationCellContent,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -160,7 +158,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "configuration_field",
+                        ::k::ProvenanceRole::ConfigurationField,
                         1u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -171,7 +169,7 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "configuration_cell_content",
+                        ::k::ProvenanceRole::ConfigurationCellContent,
                         1u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,

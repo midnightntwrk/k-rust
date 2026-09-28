@@ -73,7 +73,7 @@ fn expand_head_rule(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance_static(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance_static(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
@@ -119,7 +119,7 @@ fn expand_head_rule(
             });
             let slot = slots.type_slot(quote!(#facade::HostTypeKey(#key_fn)));
             Some(krs_ir::wire::WireSortReference {
-                key: ProvenanceRole::RuleBindingType.key(ordinal).unwrap(),
+                key: ProvenanceRole::RuleBindingType.key(ordinal),
                 target: krs_ir::wire::WireTypeReference {
                     slot,
                     authored_path: authored,
@@ -149,7 +149,7 @@ fn expand_head_rule(
                     .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(ordinal).unwrap(),
+                        key: rule_left_cells_field_role.key(ordinal),
                         name: cell_name,
                     },
                     key,
@@ -199,7 +199,7 @@ fn expand_head_rule(
                 })?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_right_cells_field_role.key(ordinal).unwrap(),
+                        key: rule_right_cells_field_role.key(ordinal),
                         name: cell_name,
                     },
                     base_binding,
@@ -217,10 +217,10 @@ fn expand_head_rule(
                 })?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal).unwrap(),
+                        key: rule_left_cells_field_role.key(*left_ordinal),
                         name: cell_name.clone(),
                     },
-                    result_key: rule_right_cells_field_role.key(right_ordinal).unwrap(),
+                    result_key: rule_right_cells_field_role.key(right_ordinal),
                     before: before.clone(),
                     after,
                 });
@@ -234,7 +234,7 @@ fn expand_head_rule(
     let requires = if let Some(condition) = rule.requires() {
         let term = builder.expand_wire(condition.term().tree(), TermSide::Requires, &mut slots)?;
         Some(krs_ir::wire::WireRuleCondition {
-            key: rule_requires_role.key(0).unwrap(),
+            key: rule_requires_role.key(0),
             term,
         })
     } else {
@@ -247,7 +247,7 @@ fn expand_head_rule(
     });
 
     let label = Some(krs_ir::DescriptorRuleLabel {
-        key: rule_label_role.key(0).unwrap(),
+        key: rule_label_role.key(0),
         name: clause.attribute().label().map_or_else(
             || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
             syn::LitStr::value,
@@ -257,7 +257,7 @@ fn expand_head_rule(
         .attribute()
         .is_owise()
         .then(|| krs_ir::DescriptorRulePriority {
-            key: ProvenanceRole::RuleOwise.key(0).unwrap(),
+            key: ProvenanceRole::RuleOwise.key(0),
             value: 200,
         });
     let original = rule.item();
@@ -278,7 +278,7 @@ fn expand_head_rule(
         (
             None,
             Some(krs_ir::wire::WireConfigurationReference {
-                key: rule_type_role.key(0).unwrap(),
+                key: rule_type_role.key(0),
                 configuration: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -289,7 +289,7 @@ fn expand_head_rule(
     } else {
         (
             Some(krs_ir::wire::WireSortReference {
-                key: rule_type_role.key(0).unwrap(),
+                key: rule_type_role.key(0),
                 target: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -304,8 +304,8 @@ fn expand_head_rule(
         sentence_kind: krs_ir::SentenceKind::Transition,
         label,
         priority,
-        pattern_key: rule_pattern_role.key(0).unwrap(),
-        result_key: rule_result_role.key(0).unwrap(),
+        pattern_key: rule_pattern_role.key(0),
+        result_key: rule_result_role.key(0),
         head_sort,
         configuration,
         computation_cell_name,

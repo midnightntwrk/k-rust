@@ -697,7 +697,6 @@ fn checked_ordinal(ordinal: usize, span: proc_macro2::Span) -> Result<u32, Synta
 
 fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-        .expect("the static provenance role catalog contains only valid roles")
 }
 
 fn unsupported_declaration(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {

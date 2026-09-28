@@ -12,7 +12,7 @@ fn named_root_attribute_preserves_literal_and_anchor() {
     let anchors = attribute.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConfigurationRoot);
-    assert_eq!(anchors[0].key().unwrap().role(), "configuration_root");
+    assert_eq!(anchors[0].key().role(), ProvenanceRole::ConfigurationRoot);
     assert_eq!(anchors[0].range().start().column, 7);
     assert_eq!(anchors[0].range().end().column, 16);
 }
@@ -60,7 +60,10 @@ fn one_fixed_computation_cell_preserves_type_paths_and_order() {
     let candidates = declaration.reference_candidates();
     assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0].path_spelling(), "k :: configuration :: KCell");
-    assert_eq!(candidates[0].key().role(), "configuration_cell_wrapper");
+    assert_eq!(
+        candidates[0].key().role(),
+        ProvenanceRole::ConfigurationCellWrapper
+    );
     assert_eq!(candidates[1].path_spelling(), "k :: builtin :: KSequence");
 
     let roles = declaration

@@ -11,7 +11,7 @@ use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{
     ProvenanceAnchor, ProvenanceRole, TokenRange, parse_alias_attribute, parse_equation_attribute,
     parse_priority_attribute, parse_rule_attribute, parse_rule_item,
-    parse_simplification_attribute,
+    parse_simplification_attribute, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -29,15 +29,14 @@ pub(super) fn rule_label_tokens(
     facade: &Path,
     attribute: &krs_syntax::RuleAttribute,
 ) -> TokenStream {
-    let rule_label_role = ProvenanceRole::RuleLabel;
+    let rule_label_role = role_tokens(ProvenanceRole::RuleLabel, facade);
     attribute.label().map_or_else(
         || quote!(::core::option::Option::None),
         |label| {
             let name = label.value();
             quote! {
                 ::core::option::Option::Some(#facade::DescriptorRuleLabel {
-                    key: #facade::ProvenanceKey::new(#rule_label_role, 0)
-                        .expect("KRS parser roles are nonempty"),
+                    key: #facade::ProvenanceKey::new(#rule_label_role, 0),
                     name: #name.to_owned(),
                 })
             }
@@ -49,11 +48,10 @@ pub(super) fn rule_owise_tokens(
     facade: &Path,
     attribute: &krs_syntax::RuleAttribute,
 ) -> TokenStream {
-    let rule_owise_role = ProvenanceRole::RuleOwise;
+    let rule_owise_role = role_tokens(ProvenanceRole::RuleOwise, facade);
     if attribute.is_owise() {
         quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-            key: #facade::ProvenanceKey::new(#rule_owise_role, 0)
-                .expect("KRS parser roles are nonempty"),
+            key: #facade::ProvenanceKey::new(#rule_owise_role, 0),
             value: 200,
         }))
     } else {
@@ -260,7 +258,7 @@ fn expand_ordinary_rule(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance_static(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance_static(env, &facade, fallback, &anchors);
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",
         krs_ir::SentenceKind::Equation => "equation",

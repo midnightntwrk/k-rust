@@ -2687,7 +2687,6 @@ fn push_candidate(
 
 fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-        .expect("the static provenance role catalog contains only nonempty roles")
 }
 
 fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {

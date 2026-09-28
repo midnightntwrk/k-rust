@@ -637,7 +637,7 @@ fn resolve_cell_reference(
             CollectionErrorKind::UnresolvedTypeReference,
             format!(
                 "cell reference `{}#{}` has no selected owner/field-marker declaration",
-                reference.key.role(),
+                reference.key.role().as_str(),
                 reference.key.ordinal()
             ),
         )
@@ -1820,7 +1820,7 @@ mod tests {
         .unwrap();
         let resolved = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_reference", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightReference, 0),
                 target: HostApplicationTarget::EnumVariant(target),
             },
             &declarations,
@@ -1844,7 +1844,7 @@ mod tests {
         .unwrap();
         let error = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_reference", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightReference, 0),
                 target: HostApplicationTarget::EnumVariant(wrong_owner),
             },
             &declarations,
@@ -1862,7 +1862,7 @@ mod tests {
         registry.validate().unwrap();
         let sort = resolve_sort_reference(
             &HostSortReference {
-                key: ProvenanceKey::new("rule_type", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
                 target: HostTypeReference {
                     key: HostTypeKey(marker_key::<SortInt>),
                     authored_path: "RenamedInt".into(),
@@ -1876,7 +1876,7 @@ mod tests {
 
         let bytes_sort = resolve_sort_reference(
             &HostSortReference {
-                key: ProvenanceKey::new("rule_type", 1).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 1),
                 target: HostTypeReference {
                     key: HostTypeKey(marker_key::<SortBytes>),
                     authored_path: "RenamedBytes".into(),
@@ -1893,7 +1893,7 @@ mod tests {
 
         let application = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_application_head", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 0),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
                     key: HostTypeKey(marker_key::<Op0>),
                     authored_path: "RenamedAdd".into(),
@@ -1911,7 +1911,7 @@ mod tests {
 
         let integer_modulus = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_application_head", 1).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 1),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
                     key: HostTypeKey(marker_key::<Op4>),
                     authored_path: "RenamedModulus".into(),
@@ -1929,7 +1929,7 @@ mod tests {
 
         let map_update = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_application_head", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 0),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
                     key: HostTypeKey(marker_key::<MapUpdateOp>),
                     authored_path: "persistent_update".into(),
@@ -1947,7 +1947,7 @@ mod tests {
 
         let list_get = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_application_head", 1).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 1),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
                     key: HostTypeKey(marker_key::<ListOp3>),
                     authored_path: "indexed_lookup".into(),
@@ -1965,7 +1965,7 @@ mod tests {
 
         let lookalike = resolve_application_reference(
             &HostApplicationReference {
-                key: ProvenanceKey::new("rule_right_application_head", 0).unwrap(),
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleRightApplicationHead, 0),
                 target: HostApplicationTarget::Nominal(HostTypeReference {
                     key: HostTypeKey(marker_key::<OtherBoolean>),
                     authored_path: "map::update".into(),

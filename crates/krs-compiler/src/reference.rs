@@ -8,8 +8,8 @@ use std::path::Path;
 use krs_ir::{
     BuiltinOperation, BuiltinSort, DescriptorApplicationRef, DescriptorHeadRule, DescriptorPayload,
     DescriptorTerm, DescriptorTermArgument, ListOperation, MapOperation, PackageId,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, SemanticRule, SemanticSortRef, SemanticTheory,
-    SetOperation, StableItemId,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, SemanticRule, SemanticSortRef,
+    SemanticTheory, SetOperation, StableItemId,
 };
 use krs_syntax::surface::FunctionMacro;
 use proc_macro2::{Ident, Span, TokenStream};
@@ -1004,11 +1004,9 @@ fn render_rule(
         Span::call_site(),
     );
     let attrs = &clause.rule().item().attrs;
-    let rule_attribute = if rule
-        .priority
-        .as_ref()
-        .is_some_and(|priority| priority.key.role() == "rule_owise" && priority.value == 200)
-    {
+    let rule_attribute = if rule.priority.as_ref().is_some_and(|priority| {
+        priority.key.role() == ProvenanceRole::RuleOwise && priority.value == 200
+    }) {
         quote!(#[k::rule(owise, label = #label)])
     } else {
         quote!(#[k::rule(label = #label)])
@@ -1602,7 +1600,7 @@ mod tests {
     use krs_ir::{
         BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
         DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, DescriptorTermArgument,
-        ItemKind, ListOperation, PackageId, ProvenanceKey, StableItemId,
+        ItemKind, ListOperation, PackageId, ProvenanceKey, ProvenanceRole, StableItemId,
     };
     use quote::ToTokens;
 
@@ -1629,7 +1627,7 @@ mod tests {
     fn canonical_bytes_token_expands_back_to_a_byte_string_macro() {
         let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
         let token = DescriptorTerm::BuiltinToken {
-            key: ProvenanceKey::new("claim_bytes_token", 0).unwrap(),
+            key: ProvenanceKey::new(ProvenanceRole::ClaimBytesToken, 0),
             sort: BuiltinSort::Bytes,
             value: r#"b"\x00\x41\xff""#.to_owned(),
         };
@@ -1661,17 +1659,17 @@ mod tests {
     fn list_lookup_expands_back_to_the_typed_builtin_marker() {
         let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
         let variable = |name: &str, ordinal| DescriptorTerm::Variable {
-            key: ProvenanceKey::new("claim_reference", ordinal).unwrap(),
-            path_key: ProvenanceKey::new("claim_path", ordinal).unwrap(),
+            key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresReference, ordinal),
+            path_key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresPath, ordinal),
             name: name.to_owned(),
         };
         let lookup = DescriptorTerm::Application {
             head_class: DescriptorApplicationHeadClass::Applied,
             reference: DescriptorApplicationReference {
-                key: ProvenanceKey::new("claim_application_head", 0).unwrap(),
+                key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresApplicationHead, 0),
                 application: DescriptorApplicationRef::List(ListOperation::Get),
             },
-            path_key: ProvenanceKey::new("claim_path", 2).unwrap(),
+            path_key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresPath, 2),
             arguments: vec![
                 DescriptorTermArgument::Positional {
                     value: Box::new(variable("program", 0)),

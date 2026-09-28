@@ -28,15 +28,26 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::HostDescriptorPayload::ContextAlias(
             ::std::boxed::Box::new(::k::HostContextAlias {
-                declaration_key: ::k::ProvenanceKey::new("context_alias_declaration", 0)
-                    .unwrap(),
-                name_key: ::k::ProvenanceKey::new("context_alias_name", 0).unwrap(),
+                declaration_key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::ContextAliasDeclaration,
+                    0,
+                ),
+                name_key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::ContextAliasName,
+                    0,
+                ),
                 name: "operand_eval".to_owned(),
-                here_key: ::k::ProvenanceKey::new("context_alias_here", 0).unwrap(),
+                here_key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::ContextAliasHere,
+                    0,
+                ),
                 here: "site".to_owned(),
-                pattern_key: ::k::ProvenanceKey::new("rule_pattern", 0).unwrap(),
+                pattern_key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::RulePattern,
+                    0,
+                ),
                 configuration: ::k::HostConfigurationReference {
-                    key: ::k::ProvenanceKey::new("rule_type", 0).unwrap(),
+                    key: ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleType, 0),
                     configuration: ::k::HostTypeReference {
                         key: ::k::HostTypeKey(
                             __krs_context_alias_configuration_2fc29f1120842568,
@@ -53,40 +64,40 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     ::k::ProtocolContextAliasBindingKind::ConfigurationFrame }
                 ],
                 pattern: ::k::HostRuleCells {
-                    key: ::k::ProvenanceKey::new("rule_left_cells_payload", 0u32)
-                        .expect("KRS parser roles are nonempty"),
+                    key: ::k::ProvenanceKey::new(
+                        ::k::ProvenanceRole::RuleLeftCellsPayload,
+                        0u32,
+                    ),
                     cells: ::std::vec![
                         ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new("rule_left_cells_field", 0u32)
-                        .expect("KRS parser roles are nonempty"), cell :
-                        ::k::HostCellIdentity { owner :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsField,
+                        0u32), cell : ::k::HostCellIdentity { owner :
                         ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
                         ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k), }, },
-                        wrapper_key : ::k::ProvenanceKey::new("rule_left_cells_wrapper",
-                        0u32).expect("KRS parser roles are nonempty"), wrapper :
-                        ::k::CellWrapper::KCell, value :
+                        wrapper_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsWrapper,
+                        0u32), wrapper : ::k::CellWrapper::KCell, value :
                         ::k::ProtocolRuleStateTerm::KSequence(::k::ProtocolRuleKSequence
                         { payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("rule_left_k_sequence_payload",
-                        0u32).expect("KRS parser roles are nonempty")), dot_k_key :
-                        ::core::option::Option::None, notation :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequencePayload,
+                        0u32)), dot_k_key : ::core::option::Option::None, notation :
                         ::k::DescriptorKSequenceNotation::Comma, items :
                         ::std::vec![::k::ProtocolRuleKSequenceItem { key :
-                        ::k::ProvenanceKey::new("rule_left_k_sequence_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), value :
-                        ::k::HostTerm::Variable { key :
-                        ::k::ProvenanceKey::new("rule_left_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), path_key :
-                        ::k::ProvenanceKey::new("rule_left_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), name : "site"
-                        .to_owned(), } }], tail : ::k::ProtocolRuleFrame::Bind { key :
-                        ::k::ProvenanceKey::new("rule_left_k_sequence_tail", 0u32)
-                        .expect("KRS parser roles are nonempty"), binding : "tail"
-                        .to_owned() }, }), }
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceItem,
+                        0u32), value : ::k::HostTerm::Variable { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftReference,
+                        0u32), path_key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftReference,
+                        0u32), name : "site".to_owned(), } }], tail :
+                        ::k::ProtocolRuleFrame::Bind { key :
+                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceTail,
+                        0u32), binding : "tail".to_owned() }, }), }
                     ],
                     remainder: ::k::ProtocolRuleFrame::Bind {
-                        key: ::k::ProvenanceKey::new("rule_left_cells_remainder", 0u32)
-                            .expect("KRS parser roles are nonempty"),
+                        key: ::k::ProvenanceKey::new(
+                            ::k::ProvenanceRole::RuleLeftCellsRemainder,
+                            0u32,
+                        ),
                         binding: "state".to_owned(),
                     },
                 },
@@ -105,7 +116,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "context_alias_name",
+                    ::k::ProvenanceRole::ContextAliasName,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -116,7 +127,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "context_alias_here",
+                    ::k::ProvenanceRole::ContextAliasHere,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -127,7 +138,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "context_alias_declaration",
+                    ::k::ProvenanceRole::ContextAliasDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -138,7 +149,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_pattern",
+                    ::k::ProvenanceRole::RulePattern,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -149,7 +160,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_type",
+                    ::k::ProvenanceRole::RuleType,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -160,7 +171,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_payload",
+                    ::k::ProvenanceRole::RuleLeftCellsPayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -171,7 +182,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_field",
+                    ::k::ProvenanceRole::RuleLeftCellsField,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -182,7 +193,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_wrapper",
+                    ::k::ProvenanceRole::RuleLeftCellsWrapper,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -193,7 +204,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_cells_remainder",
+                    ::k::ProvenanceRole::RuleLeftCellsRemainder,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -204,7 +215,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_payload",
+                    ::k::ProvenanceRole::RuleLeftKSequencePayload,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -215,7 +226,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_item",
+                    ::k::ProvenanceRole::RuleLeftKSequenceItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -226,7 +237,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_k_sequence_tail",
+                    ::k::ProvenanceRole::RuleLeftKSequenceTail,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -237,7 +248,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "rule_left_reference",
+                    ::k::ProvenanceRole::RuleLeftReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

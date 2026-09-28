@@ -2,7 +2,7 @@
 
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ProvenanceRole, RuleSide, StateRuleBindingKind,
-    StateRuleReferenceKind, TokenRange, parse_claim_attribute, parse_state_claim_item,
+    StateRuleReferenceKind, TokenRange, parse_claim_attribute, parse_state_claim_item, role_tokens,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -51,6 +51,20 @@ fn configuration_claim(
     let claim = parse_state_claim_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
+    let claim_universal_binder_role = role_tokens(claim_universal_binder_role, &facade);
+    let claim_binder_name_role = role_tokens(claim_binder_name_role, &facade);
+    let claim_existential_binder_role = role_tokens(claim_existential_binder_role, &facade);
+    let rule_requires_role = role_tokens(rule_requires_role, &facade);
+    let claim_ensures_role = role_tokens(claim_ensures_role, &facade);
+    let claim_circularity_role = role_tokens(claim_circularity_role, &facade);
+    let claim_or_bool_role = role_tokens(claim_or_bool_role, &facade);
+    let claim_label_role = role_tokens(claim_label_role, &facade);
+    let claim_declaration_role = role_tokens(claim_declaration_role, &facade);
+    let claim_modality_role = role_tokens(claim_modality_role, &facade);
+    let rule_pattern_role = role_tokens(rule_pattern_role, &facade);
+    let rule_type_role = role_tokens(rule_type_role, &facade);
+    let rule_result_role = role_tokens(rule_result_role, &facade);
+    let rule_result_type_role = role_tokens(rule_result_type_role, &facade);
     let mut anchors = claim
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -61,7 +75,7 @@ fn configuration_claim(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_claim_{nonce:016x}");
     let subject_key = format_ident!("__krs_claim_configuration_left_{nonce:016x}");
@@ -120,8 +134,8 @@ fn configuration_claim(
                     &authored,
                 );
                 universal_metadata.push(quote!(#facade::HostClaimBinder {
-                    declaration_key: #facade::ProvenanceKey::new(#claim_universal_binder_role, #ordinal).unwrap(),
-                    name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #ordinal).unwrap(),
+                    declaration_key: #facade::ProvenanceKey::new(#claim_universal_binder_role, #ordinal),
+                    name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #ordinal),
                     name: #name.to_owned(), sort: #claim_sort_ref,
                 }));
                 quote!(#facade::ProtocolRuleBindingKind::Term { sort: #sort_ref })
@@ -156,8 +170,8 @@ fn configuration_claim(
             &authored,
         );
         existential_metadata.push(quote!(#facade::HostClaimBinder {
-            declaration_key: #facade::ProvenanceKey::new(#claim_existential_binder_role, #ordinal).unwrap(),
-            name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #binder_ordinal).unwrap(),
+            declaration_key: #facade::ProvenanceKey::new(#claim_existential_binder_role, #ordinal),
+            name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #binder_ordinal),
             name: #name.to_owned(), sort: #sort_ref,
         }));
     }
@@ -190,7 +204,7 @@ fn configuration_claim(
     condition_builder.or_bool_ordinal = right.counters.or_bool;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand(condition.term().tree(), TermSide::Requires)?;
-        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#rule_requires_role, 0).unwrap(), term: #term }))
+        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#rule_requires_role, 0), term: #term }))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -201,7 +215,7 @@ fn configuration_claim(
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
     let ensures = if let Some(condition) = claim.ensures() {
         let term = ensures_builder.expand(condition.term().tree(), TermSide::Ensures)?;
-        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#claim_ensures_role, 0).unwrap(), term: #term }))
+        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#claim_ensures_role, 0), term: #term }))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -226,7 +240,7 @@ fn configuration_claim(
         SyntaxClaimModality::OnePath => quote!(#facade::ClaimModality::OnePath),
     };
     let circularity = if attribute.circularity() {
-        quote!(::core::option::Option::Some(#facade::ProvenanceKey::new(#claim_circularity_role, 0).unwrap()))
+        quote!(::core::option::Option::Some(#facade::ProvenanceKey::new(#claim_circularity_role, 0)))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -236,7 +250,7 @@ fn configuration_claim(
         .count();
     let or_bool_keys = (0..or_bool_count).map(|index| {
         let index = u32::try_from(index).unwrap();
-        quote!(#facade::ProvenanceKey::new(#claim_or_bool_role, #index).unwrap())
+        quote!(#facade::ProvenanceKey::new(#claim_or_bool_role, #index))
     });
     let mut wrapper_checks = Vec::new();
     for candidate in rule
@@ -268,14 +282,14 @@ fn configuration_claim(
                 declared_type: None,
                 payload: #facade::HostDescriptorPayload::ConfigurationRule(Box::new(#facade::HostConfigurationRule {
                     sentence_kind: #facade::SentenceKind::Claim,
-                    label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new(#claim_label_role, 0).unwrap(), name: #label_name.to_owned() }),
+                    label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new(#claim_label_role, 0), name: #label_name.to_owned() }),
                     priority: None,
                     requires: #requires,
-                    claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new(#claim_declaration_role, 0).unwrap(), modality_key: #facade::ProvenanceKey::new(#claim_modality_role, 0).unwrap(), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
-                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
-                    subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
-                    result_key: #facade::ProvenanceKey::new(#rule_result_role, 0).unwrap(),
-                    result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_result_type_role, 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
+                    claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new(#claim_declaration_role, 0), modality_key: #facade::ProvenanceKey::new(#claim_modality_role, 0), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
+                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
+                    subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
+                    result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
+                    result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_result_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
                     bindings: vec![#(#bindings),*], subject: #subject, result: #result,
                 })), cfg: Default::default(), provenance: #provenance,
             }

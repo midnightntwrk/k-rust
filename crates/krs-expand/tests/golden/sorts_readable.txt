@@ -42,7 +42,7 @@ fn __krs_sort_descriptor_565187d54f4138cb() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -89,7 +89,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "bracket_declaration",
+                    ::k::ProvenanceRole::BracketDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -100,7 +100,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -111,7 +111,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -122,7 +122,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_syntax_item",
+                    ::k::ProvenanceRole::BracketSyntaxItem,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -133,7 +133,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "bracket_value_reference",
+                    ::k::ProvenanceRole::BracketValueReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -144,7 +144,7 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -210,7 +210,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -221,7 +221,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -232,7 +232,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -306,7 +306,7 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -317,7 +317,7 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -328,7 +328,7 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -394,7 +394,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -405,7 +405,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -416,7 +416,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -484,7 +484,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -495,7 +495,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -506,7 +506,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -566,7 +566,7 @@ fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -632,7 +632,7 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -643,7 +643,7 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -709,7 +709,7 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -720,7 +720,7 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -792,7 +792,7 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -803,7 +803,7 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -814,7 +814,7 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -880,7 +880,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -891,7 +891,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -902,7 +902,7 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

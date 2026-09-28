@@ -115,9 +115,8 @@ mod tests {
         let facade = syn::parse_str("::k").unwrap();
         let tokens: TokenStream = "alpha beta".parse().unwrap();
         let fallback = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
-        let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
-            .unwrap()
-            .to_string();
+        let output =
+            crate::provenance::host_provenance(&environment, &facade, fallback, &[]).to_string();
         assert!(output.contains("& [\"src/lib.rs\"]"));
         assert!(output.contains("start : (1u32 , 1u32)"));
         assert!(output.contains("end : (1u32 , 11u32)"));
@@ -131,9 +130,8 @@ mod tests {
         let facade = syn::parse_str("::k").unwrap();
         let tokens: TokenStream = "alpha beta".parse().unwrap();
         let fallback = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
-        let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
-            .unwrap()
-            .to_string();
+        let output =
+            crate::provenance::host_provenance(&environment, &facade, fallback, &[]).to_string();
         assert!(output.contains("env ! (\"CARGO_MANIFEST_DIR\")"));
     }
 }

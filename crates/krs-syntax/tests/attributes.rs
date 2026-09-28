@@ -160,9 +160,9 @@ fn context_alias_requires_typed_name_and_here_identifiers() {
     let anchors = parsed.provenance().unwrap();
     assert_eq!(anchors.len(), 2);
     assert_eq!(anchors[0].role(), ProvenanceRole::ContextAliasName);
-    assert_eq!(anchors[0].key().unwrap().role(), "context_alias_name");
+    assert_eq!(anchors[0].key().role(), ProvenanceRole::ContextAliasName);
     assert_eq!(anchors[1].role(), ProvenanceRole::ContextAliasHere);
-    assert_eq!(anchors[1].key().unwrap().role(), "context_alias_here");
+    assert_eq!(anchors[1].key().role(), ProvenanceRole::ContextAliasHere);
 }
 
 #[test]
@@ -273,8 +273,8 @@ fn total_function_requires_and_anchors_total_sort_syntax_and_hook() {
         .iter()
         .find(|anchor| anchor.role() == ProvenanceRole::FunctionHook)
         .expect("hook provenance is retained");
-    assert_eq!(hook_anchor.key().unwrap().role(), "function_hook");
-    assert_eq!(hook_anchor.key().unwrap().ordinal(), 0);
+    assert_eq!(hook_anchor.key().role(), ProvenanceRole::FunctionHook);
+    assert_eq!(hook_anchor.key().ordinal(), 0);
 }
 
 #[test]
@@ -303,9 +303,9 @@ fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
     let anchors = attribute.provenance().unwrap();
     assert_eq!(anchors.len(), 2);
     assert_eq!(anchors[0].role(), ProvenanceRole::RuleLabel);
-    assert_eq!(anchors[0].key().unwrap().role(), "rule_label");
+    assert_eq!(anchors[0].key().role(), ProvenanceRole::RuleLabel);
     assert_eq!(anchors[1].role(), ProvenanceRole::RuleOwise);
-    assert_eq!(anchors[1].key().unwrap().role(), "rule_owise");
+    assert_eq!(anchors[1].key().role(), ProvenanceRole::RuleOwise);
 }
 
 #[test]
@@ -350,7 +350,7 @@ fn constructor_accepts_required_sort_and_optional_template_in_any_order() {
     let anchors = parsed.provenance().unwrap();
     assert_eq!(anchors.len(), 2);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConstructorSort);
-    assert_eq!(anchors[0].key().unwrap().role(), "constructor_sort");
+    assert_eq!(anchors[0].key().role(), ProvenanceRole::ConstructorSort);
     assert_eq!(anchors[1].role(), ProvenanceRole::ConstructorSyntax);
 }
 

@@ -13,9 +13,9 @@ use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, parse_readable_sort, parse_term_sort, take_requires_helper};
 use crate::term::push_record_field_anchors;
 use crate::{
-    CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, StateMacroRemainder,
-    StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral, TermNode, TermSort,
-    TokenRange, parse_cells_expression, parse_cells_pattern,
+    CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
+    StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
+    TermNode, TermSort, TokenRange, parse_cells_expression, parse_cells_pattern,
 };
 
 /// Semantic class of one binding introduced by a configuration-rule subject.
@@ -1271,9 +1271,10 @@ fn append_remapped(
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     for anchor in anchors {
-        let Some(role) = anchor.role().on_rule_side(side) else {
+        let Some(role) = RuleRole::from_standalone(anchor.role()) else {
             continue;
         };
+        let role = role.on_side(side);
         output.push(ProvenanceAnchor::new(
             role,
             counters.next(role, anchor.range().first())?,
@@ -1617,7 +1618,6 @@ fn bare_ident(path: &Path) -> Option<&Ident> {
 
 fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-        .expect("the static parser role catalog is valid")
 }
 
 fn checked_ordinal(ordinal: usize, span: proc_macro2::Span) -> Result<u32, SyntaxError> {

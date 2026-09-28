@@ -14,7 +14,7 @@ use krs_ir::measure::{
 };
 use krs_ir::{
     DefinitionSentence, Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId,
-    RangedOriginKind, Sha256Digest, SourceFileId, SourceRange, StableText,
+    ProvenanceRole, RangedOriginKind, Sha256Digest, SourceFileId, SourceRange, StableText,
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
@@ -458,7 +458,8 @@ fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, C
                 .iter()
                 .find(|descriptor| &descriptor.id == second.as_ref())
             && let Some(head_origin) = descriptor.provenance.origins().iter().find(|node| {
-                node.key.role() == "rule_left_application_head" && node.key.ordinal() == 0
+                node.key.role() == ProvenanceRole::RuleLeftApplicationHead
+                    && node.key.ordinal() == 0
             })
             && let Some(range) = exact_authored_range_from_origin(&head_origin.origin)
         {

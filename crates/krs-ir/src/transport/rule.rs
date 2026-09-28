@@ -14,7 +14,10 @@ use crate::transport::grammar::{
     DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
     HostRuleCondition, HostSortReference, HostTerm, HostTermArgument, valid_rule_label_name,
 };
-use crate::{ItemKind, ProductionFieldId, ProvenanceKey, SentenceKind, StableItemId};
+use crate::{
+    ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole, RuleRole, RuleSide, SentenceKind,
+    StableItemId,
+};
 
 /// Explicit reachability modality authored on a claim.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -882,7 +885,7 @@ pub struct HostConfigurationRule {
 }
 
 #[derive(Clone, Copy)]
-enum RuleSide {
+enum ValidationSide {
     Left,
     Right,
     Requires,
@@ -901,18 +904,65 @@ fn claim_checked_index(index: usize) -> Result<u32, StateTransportError> {
     u32::try_from(index).map_err(|_| StateTransportError::InvalidTerm("too many claim nodes"))
 }
 
-impl RuleSide {
-    const fn prefix(self) -> &'static str {
-        match self {
-            Self::Left => "rule_left_",
-            Self::Right => "rule_right_",
-            Self::Requires => "rule_requires_",
-            Self::Ensures => "claim_ensures_",
+impl From<RuleSide> for ValidationSide {
+    fn from(side: RuleSide) -> Self {
+        match side {
+            RuleSide::Left => Self::Left,
+            RuleSide::Right => Self::Right,
         }
     }
+}
 
-    fn role(self, suffix: &str) -> String {
-        format!("{}{suffix}", self.prefix())
+/// A term role whose provenance spelling depends on the rule clause.
+#[derive(Clone, Copy)]
+enum TermRole {
+    Path,
+    ApplicationHead,
+    Reference,
+    Literal,
+    RecordFieldName,
+}
+
+impl TermRole {
+    const fn on_side(self, side: ValidationSide) -> ProvenanceRole {
+        match (side, self) {
+            (ValidationSide::Left, Self::Path) => ProvenanceRole::RuleLeftPath,
+            (ValidationSide::Left, Self::ApplicationHead) => {
+                ProvenanceRole::RuleLeftApplicationHead
+            }
+            (ValidationSide::Left, Self::Reference) => ProvenanceRole::RuleLeftReference,
+            (ValidationSide::Left, Self::Literal) => ProvenanceRole::RuleLeftLiteral,
+            (ValidationSide::Left, Self::RecordFieldName) => {
+                ProvenanceRole::RuleLeftRecordFieldName
+            }
+            (ValidationSide::Right, Self::Path) => ProvenanceRole::RuleRightPath,
+            (ValidationSide::Right, Self::ApplicationHead) => {
+                ProvenanceRole::RuleRightApplicationHead
+            }
+            (ValidationSide::Right, Self::Reference) => ProvenanceRole::RuleRightReference,
+            (ValidationSide::Right, Self::Literal) => ProvenanceRole::RuleRightLiteral,
+            (ValidationSide::Right, Self::RecordFieldName) => {
+                ProvenanceRole::RuleRightRecordFieldName
+            }
+            (ValidationSide::Requires, Self::Path) => ProvenanceRole::RuleRequiresPath,
+            (ValidationSide::Requires, Self::ApplicationHead) => {
+                ProvenanceRole::RuleRequiresApplicationHead
+            }
+            (ValidationSide::Requires, Self::Reference) => ProvenanceRole::RuleRequiresReference,
+            (ValidationSide::Requires, Self::Literal) => ProvenanceRole::RuleRequiresLiteral,
+            (ValidationSide::Requires, Self::RecordFieldName) => {
+                ProvenanceRole::RuleRequiresRecordFieldName
+            }
+            (ValidationSide::Ensures, Self::Path) => ProvenanceRole::ClaimEnsuresPath,
+            (ValidationSide::Ensures, Self::ApplicationHead) => {
+                ProvenanceRole::ClaimEnsuresApplicationHead
+            }
+            (ValidationSide::Ensures, Self::Reference) => ProvenanceRole::ClaimEnsuresReference,
+            (ValidationSide::Ensures, Self::Literal) => ProvenanceRole::ClaimEnsuresLiteral,
+            (ValidationSide::Ensures, Self::RecordFieldName) => {
+                ProvenanceRole::ClaimEnsuresRecordFieldName
+            }
+        }
     }
 }
 
@@ -944,7 +994,7 @@ fn builtin_token_role<'a>(
     sort: crate::BuiltinSort,
     value: &str,
     counters: &'a mut RuleCounters,
-) -> Result<(&'static str, &'a mut u32), StateTransportError> {
+) -> Result<(ProvenanceRole, &'a mut u32), StateTransportError> {
     match sort {
         crate::BuiltinSort::Id
             if value.strip_prefix('$').is_some_and(|tail| {
@@ -954,10 +1004,10 @@ fn builtin_token_role<'a>(
                         .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
             }) =>
         {
-            Ok(("claim_id_token", &mut counters.id_token))
+            Ok((ProvenanceRole::ClaimIdToken, &mut counters.id_token))
         }
         crate::BuiltinSort::Bytes if valid_bytes_token(value) => {
-            Ok(("claim_bytes_token", &mut counters.bytes_token))
+            Ok((ProvenanceRole::ClaimBytesToken, &mut counters.bytes_token))
         }
         _ => Err(StateTransportError::InvalidTerm(
             "invalid compiler-owned builtin token",
@@ -1056,9 +1106,9 @@ impl DescriptorConfigurationRule {
         }
         if let Some(label) = &self.label {
             let role = if self.sentence_kind == SentenceKind::Claim {
-                "claim_label"
+                ProvenanceRole::ClaimLabel
             } else {
-                "rule_label"
+                ProvenanceRole::RuleLabel
             };
             insert_rule_exact(keys, &label.key, role, 0)?;
             if !valid_rule_label_name(&label.name) {
@@ -1066,7 +1116,7 @@ impl DescriptorConfigurationRule {
             }
         }
         if let Some(priority) = &self.priority {
-            insert_rule_exact(keys, &priority.key, "rule_owise", 0)?;
+            insert_rule_exact(keys, &priority.key, ProvenanceRole::RuleOwise, 0)?;
             if self.sentence_kind != SentenceKind::Transition || priority.value != 200 {
                 return Err(StateTransportError::InvalidTerm(
                     "configuration-rule ordered fallback priority",
@@ -1080,15 +1130,25 @@ impl DescriptorConfigurationRule {
                 "rule subject and result configurations differ",
             ));
         }
-        insert_rule_exact(keys, &self.pattern_key, "rule_pattern", 0)?;
-        insert_rule_exact(keys, &self.subject_configuration.key, "rule_type", 0)?;
-        insert_rule_exact(keys, &self.result_key, "rule_result", 0)?;
-        insert_rule_exact(keys, &self.result_configuration.key, "rule_result_type", 0)?;
-        keys.insert(rule_key(
+        insert_rule_exact(keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
+        insert_rule_exact(
+            keys,
+            &self.subject_configuration.key,
+            ProvenanceRole::RuleType,
+            0,
+        )?;
+        insert_rule_exact(keys, &self.result_key, ProvenanceRole::RuleResult, 0)?;
+        insert_rule_exact(
+            keys,
+            &self.result_configuration.key,
+            ProvenanceRole::RuleResultType,
+            0,
+        )?;
+        keys.insert(ProvenanceKey::new(
             if self.sentence_kind == SentenceKind::Claim {
-                "claim_declaration"
+                ProvenanceRole::ClaimDeclaration
             } else {
-                "rule_declaration"
+                ProvenanceRole::RuleDeclaration
             },
             0,
         ));
@@ -1144,10 +1204,10 @@ impl DescriptorConfigurationRule {
             ..RuleCounters::default()
         };
         if let Some(requires) = &self.requires {
-            insert_rule_exact(keys, &requires.key, "rule_requires", 0)?;
+            insert_rule_exact(keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
             validate_descriptor_term(
                 &requires.term,
-                RuleSide::Requires,
+                ValidationSide::Requires,
                 &self.bindings,
                 &mut Vec::new(),
                 &mut claim_counters,
@@ -1193,9 +1253,9 @@ impl HostConfigurationRule {
         if let Some(label) = &self.label {
             let mut label_keys = BTreeSet::new();
             let role = if self.sentence_kind == SentenceKind::Claim {
-                "claim_label"
+                ProvenanceRole::ClaimLabel
             } else {
-                "rule_label"
+                ProvenanceRole::RuleLabel
             };
             insert_rule_exact(&mut label_keys, &label.key, role, 0)?;
             if !valid_rule_label_name(&label.name) {
@@ -1203,7 +1263,7 @@ impl HostConfigurationRule {
             }
         }
         if let Some(priority) = &self.priority {
-            insert_rule_exact(&mut keys, &priority.key, "rule_owise", 0)?;
+            insert_rule_exact(&mut keys, &priority.key, ProvenanceRole::RuleOwise, 0)?;
             if self.sentence_kind != SentenceKind::Transition || priority.value != 200 {
                 return Err(StateTransportError::InvalidTerm(
                     "configuration-rule ordered fallback priority",
@@ -1217,13 +1277,18 @@ impl HostConfigurationRule {
                 "rule subject and result configurations differ",
             ));
         }
-        insert_rule_exact(&mut keys, &self.pattern_key, "rule_pattern", 0)?;
-        insert_rule_exact(&mut keys, &self.subject_configuration.key, "rule_type", 0)?;
-        insert_rule_exact(&mut keys, &self.result_key, "rule_result", 0)?;
+        insert_rule_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
+        insert_rule_exact(
+            &mut keys,
+            &self.subject_configuration.key,
+            ProvenanceRole::RuleType,
+            0,
+        )?;
+        insert_rule_exact(&mut keys, &self.result_key, ProvenanceRole::RuleResult, 0)?;
         insert_rule_exact(
             &mut keys,
             &self.result_configuration.key,
-            "rule_result_type",
+            ProvenanceRole::RuleResultType,
             0,
         )?;
         validate_host_binding_catalog(&self.bindings, &mut keys)?;
@@ -1277,10 +1342,10 @@ impl HostConfigurationRule {
             ..RuleCounters::default()
         };
         if let Some(requires) = &self.requires {
-            insert_rule_exact(&mut keys, &requires.key, "rule_requires", 0)?;
+            insert_rule_exact(&mut keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
             validate_host_term(
                 &requires.term,
-                RuleSide::Requires,
+                ValidationSide::Requires,
                 &self.bindings,
                 &mut Vec::new(),
                 &mut claim_counters,
@@ -1307,35 +1372,45 @@ fn validate_descriptor_claim(
     keys: &mut BTreeSet<ProvenanceKey>,
     inherited: &RuleCounters,
 ) -> Result<(), StateTransportError> {
-    insert_rule_exact(keys, &claim.declaration_key, "claim_declaration", 0)?;
-    insert_rule_exact(keys, &claim.modality_key, "claim_modality", 0)?;
+    insert_rule_exact(
+        keys,
+        &claim.declaration_key,
+        ProvenanceRole::ClaimDeclaration,
+        0,
+    )?;
+    insert_rule_exact(keys, &claim.modality_key, ProvenanceRole::ClaimModality, 0)?;
     if let Some(key) = &claim.circularity_key {
         if claim.modality != ClaimModality::AllPaths {
             return Err(StateTransportError::InvalidTerm(
                 "circularity requires an all-path claim",
             ));
         }
-        insert_rule_exact(keys, key, "claim_circularity", 0)?;
+        insert_rule_exact(keys, key, ProvenanceRole::ClaimCircularity, 0)?;
     }
     validate_descriptor_claim_binders(
         &claim.universals,
         left_bindings,
-        "claim_universal_binder",
+        ProvenanceRole::ClaimUniversalBinder,
         0,
         keys,
     )?;
     validate_descriptor_claim_binders(
         &claim.existentials,
         right_bindings,
-        "claim_existential_binder",
+        ProvenanceRole::ClaimExistentialBinder,
         claim_checked_index(claim.universals.len())?,
         keys,
     )?;
     for (ordinal, key) in claim.or_bool_keys.iter().enumerate() {
-        insert_rule_exact(keys, key, "claim_or_bool", claim_checked_index(ordinal)?)?;
+        insert_rule_exact(
+            keys,
+            key,
+            ProvenanceRole::ClaimOrBool,
+            claim_checked_index(ordinal)?,
+        )?;
     }
     if let Some(ensures) = &claim.ensures {
-        insert_rule_exact(keys, &ensures.key, "claim_ensures", 0)?;
+        insert_rule_exact(keys, &ensures.key, ProvenanceRole::ClaimEnsures, 0)?;
         let mut counters = RuleCounters {
             id_token: inherited.id_token,
             bytes_token: inherited.bytes_token,
@@ -1344,7 +1419,7 @@ fn validate_descriptor_claim(
         };
         validate_descriptor_term(
             &ensures.term,
-            RuleSide::Ensures,
+            ValidationSide::Ensures,
             right_bindings,
             &mut Vec::new(),
             &mut counters,
@@ -1357,7 +1432,7 @@ fn validate_descriptor_claim(
 fn validate_descriptor_claim_binders(
     binders: &[DescriptorClaimBinder],
     catalog: &[DescriptorRuleBinding],
-    declaration_role: &'static str,
+    declaration_role: ProvenanceRole,
     binder_base: u32,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
@@ -1376,8 +1451,18 @@ fn validate_descriptor_claim_binders(
         let binder_ordinal = binder_base
             .checked_add(ordinal)
             .ok_or(StateTransportError::InvalidTerm("too many claim binders"))?;
-        insert_rule_exact(keys, &binder.name_key, "claim_binder_name", binder_ordinal)?;
-        insert_rule_exact(keys, &binder.sort.key, "claim_binder_sort", binder_ordinal)?;
+        insert_rule_exact(
+            keys,
+            &binder.name_key,
+            ProvenanceRole::ClaimBinderName,
+            binder_ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            &binder.sort.key,
+            ProvenanceRole::ClaimBinderSort,
+            binder_ordinal,
+        )?;
         binder
             .sort
             .sort
@@ -1394,35 +1479,45 @@ fn validate_host_claim(
     keys: &mut BTreeSet<ProvenanceKey>,
     inherited: &RuleCounters,
 ) -> Result<(), StateTransportError> {
-    insert_rule_exact(keys, &claim.declaration_key, "claim_declaration", 0)?;
-    insert_rule_exact(keys, &claim.modality_key, "claim_modality", 0)?;
+    insert_rule_exact(
+        keys,
+        &claim.declaration_key,
+        ProvenanceRole::ClaimDeclaration,
+        0,
+    )?;
+    insert_rule_exact(keys, &claim.modality_key, ProvenanceRole::ClaimModality, 0)?;
     if let Some(key) = &claim.circularity_key {
         if claim.modality != ClaimModality::AllPaths {
             return Err(StateTransportError::InvalidTerm(
                 "circularity requires an all-path claim",
             ));
         }
-        insert_rule_exact(keys, key, "claim_circularity", 0)?;
+        insert_rule_exact(keys, key, ProvenanceRole::ClaimCircularity, 0)?;
     }
     validate_host_claim_binders(
         &claim.universals,
         left_bindings,
-        "claim_universal_binder",
+        ProvenanceRole::ClaimUniversalBinder,
         0,
         keys,
     )?;
     validate_host_claim_binders(
         &claim.existentials,
         right_bindings,
-        "claim_existential_binder",
+        ProvenanceRole::ClaimExistentialBinder,
         claim_checked_index(claim.universals.len())?,
         keys,
     )?;
     for (ordinal, key) in claim.or_bool_keys.iter().enumerate() {
-        insert_rule_exact(keys, key, "claim_or_bool", claim_checked_index(ordinal)?)?;
+        insert_rule_exact(
+            keys,
+            key,
+            ProvenanceRole::ClaimOrBool,
+            claim_checked_index(ordinal)?,
+        )?;
     }
     if let Some(ensures) = &claim.ensures {
-        insert_rule_exact(keys, &ensures.key, "claim_ensures", 0)?;
+        insert_rule_exact(keys, &ensures.key, ProvenanceRole::ClaimEnsures, 0)?;
         let mut counters = RuleCounters {
             id_token: inherited.id_token,
             bytes_token: inherited.bytes_token,
@@ -1431,7 +1526,7 @@ fn validate_host_claim(
         };
         validate_host_term(
             &ensures.term,
-            RuleSide::Ensures,
+            ValidationSide::Ensures,
             right_bindings,
             &mut Vec::new(),
             &mut counters,
@@ -1444,7 +1539,7 @@ fn validate_host_claim(
 fn validate_host_claim_binders(
     binders: &[HostClaimBinder],
     catalog: &[HostRuleBinding],
-    declaration_role: &'static str,
+    declaration_role: ProvenanceRole,
     binder_base: u32,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
@@ -1463,8 +1558,18 @@ fn validate_host_claim_binders(
         let binder_ordinal = binder_base
             .checked_add(ordinal)
             .ok_or(StateTransportError::InvalidTerm("too many claim binders"))?;
-        insert_rule_exact(keys, &binder.name_key, "claim_binder_name", binder_ordinal)?;
-        insert_rule_exact(keys, &binder.sort.key, "claim_binder_sort", binder_ordinal)?;
+        insert_rule_exact(
+            keys,
+            &binder.name_key,
+            ProvenanceRole::ClaimBinderName,
+            binder_ordinal,
+        )?;
+        insert_rule_exact(
+            keys,
+            &binder.sort.key,
+            ProvenanceRole::ClaimBinderSort,
+            binder_ordinal,
+        )?;
     }
     Ok(())
 }
@@ -1479,7 +1584,7 @@ fn validate_descriptor_cells(
     counters: &mut RuleCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    insert_side_exact(keys, &cells.key, side, "cells_payload", 0)?;
+    insert_state_exact(keys, &cells.key, side, RuleRole::CellsPayload, 0)?;
     let mut selected = BTreeSet::new();
     for cell in &cells.cells {
         cell.field.cell.validate()?;
@@ -1489,19 +1594,19 @@ fn validate_descriptor_cells(
         if !selected.insert(cell.field.cell.clone()) {
             return Err(StateTransportError::DuplicateValue("selected rule cells"));
         }
-        insert_side_exact(
+        insert_state_exact(
             keys,
             &cell.field.key,
             side,
-            "cells_field",
+            RuleRole::CellsField,
             counters.cells_field,
         )?;
         counters.cells_field = rule_increment(counters.cells_field)?;
-        insert_side_exact(
+        insert_state_exact(
             keys,
             &cell.wrapper_key,
             side,
-            "cells_wrapper",
+            RuleRole::CellsWrapper,
             counters.cells_wrapper,
         )?;
         counters.cells_wrapper = rule_increment(counters.cells_wrapper)?;
@@ -1511,7 +1616,7 @@ fn validate_descriptor_cells(
     validate_frame(
         &cells.remainder,
         side,
-        "cells_remainder",
+        RuleRole::CellsRemainder,
         bindings,
         RuleBindingUse::ConfigurationFrame,
         discovered,
@@ -1530,25 +1635,25 @@ fn validate_host_cells(
     counters: &mut RuleCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    insert_side_exact(keys, &cells.key, side, "cells_payload", 0)?;
+    insert_state_exact(keys, &cells.key, side, RuleRole::CellsPayload, 0)?;
     let mut selected = BTreeSet::new();
     for cell in &cells.cells {
         if !selected.insert(cell.field.cell.resolve()) {
             return Err(StateTransportError::DuplicateValue("selected rule cells"));
         }
-        insert_side_exact(
+        insert_state_exact(
             keys,
             &cell.field.key,
             side,
-            "cells_field",
+            RuleRole::CellsField,
             counters.cells_field,
         )?;
         counters.cells_field = rule_increment(counters.cells_field)?;
-        insert_side_exact(
+        insert_state_exact(
             keys,
             &cell.wrapper_key,
             side,
-            "cells_wrapper",
+            RuleRole::CellsWrapper,
             counters.cells_wrapper,
         )?;
         counters.cells_wrapper = rule_increment(counters.cells_wrapper)?;
@@ -1558,7 +1663,7 @@ fn validate_host_cells(
     validate_frame(
         &cells.remainder,
         side,
-        "cells_remainder",
+        RuleRole::CellsRemainder,
         bindings,
         RuleBindingUse::ConfigurationFrame,
         discovered,
@@ -1593,14 +1698,27 @@ fn validate_descriptor_state(
 ) -> Result<(), StateTransportError> {
     match state {
         ProtocolRuleStateTerm::Term(term) => {
-            validate_descriptor_term(term, side, bindings, discovered, counters, keys)
+            validate_descriptor_term(term, side.into(), bindings, discovered, counters, keys)
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
             validate_k_shell(sequence, side, counters, keys)?;
             for item in &sequence.items {
-                insert_side_exact(keys, &item.key, side, "k_sequence_item", counters.k_item)?;
+                insert_state_exact(
+                    keys,
+                    &item.key,
+                    side,
+                    RuleRole::KSequenceItem,
+                    counters.k_item,
+                )?;
                 counters.k_item = rule_increment(counters.k_item)?;
-                validate_descriptor_term(&item.value, side, bindings, discovered, counters, keys)?;
+                validate_descriptor_term(
+                    &item.value,
+                    side.into(),
+                    bindings,
+                    discovered,
+                    counters,
+                    keys,
+                )?;
             }
             if sequence.notation == DescriptorKSequenceNotation::DotK {
                 Ok(())
@@ -1608,7 +1726,7 @@ fn validate_descriptor_state(
                 validate_frame(
                     &sequence.tail,
                     side,
-                    "k_sequence_tail",
+                    RuleRole::KSequenceTail,
                     bindings,
                     RuleBindingUse::KSequenceFrame,
                     discovered,
@@ -1623,22 +1741,33 @@ fn validate_descriptor_state(
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
                 ProtocolRuleMapBody::Items { items, remainder } => {
                     for item in items {
-                        insert_side_exact(keys, &item.key_key, side, "map_key", counters.map_key)?;
+                        insert_state_exact(
+                            keys,
+                            &item.key_key,
+                            side,
+                            RuleRole::MapKey,
+                            counters.map_key,
+                        )?;
                         counters.map_key = rule_increment(counters.map_key)?;
-                        insert_side_exact(
+                        insert_state_exact(
                             keys,
                             &item.value_key,
                             side,
-                            "map_value",
+                            RuleRole::MapValue,
                             counters.map_value,
                         )?;
                         counters.map_value = rule_increment(counters.map_value)?;
                         validate_descriptor_term(
-                            &item.key, side, bindings, discovered, counters, keys,
+                            &item.key,
+                            side.into(),
+                            bindings,
+                            discovered,
+                            counters,
+                            keys,
                         )?;
                         validate_descriptor_term(
                             &item.value,
-                            side,
+                            side.into(),
                             bindings,
                             discovered,
                             counters,
@@ -1648,7 +1777,7 @@ fn validate_descriptor_state(
                     validate_frame(
                         remainder,
                         side,
-                        "map_remainder",
+                        RuleRole::MapRemainder,
                         bindings,
                         RuleBindingUse::MapFrame,
                         discovered,
@@ -1664,20 +1793,33 @@ fn validate_descriptor_state(
                     value_key,
                     value,
                 } => {
-                    insert_side_exact(
+                    insert_state_exact(
                         keys,
                         base_key,
                         side,
-                        "map_update_base",
+                        RuleRole::MapUpdateBase,
                         counters.map_update_base,
                     )?;
                     counters.map_update_base = rule_increment(counters.map_update_base)?;
-                    insert_side_exact(keys, key_key, side, "map_key", counters.map_key)?;
+                    insert_state_exact(keys, key_key, side, RuleRole::MapKey, counters.map_key)?;
                     counters.map_key = rule_increment(counters.map_key)?;
-                    insert_side_exact(keys, value_key, side, "map_value", counters.map_value)?;
+                    insert_state_exact(
+                        keys,
+                        value_key,
+                        side,
+                        RuleRole::MapValue,
+                        counters.map_value,
+                    )?;
                     counters.map_value = rule_increment(counters.map_value)?;
                     for term in [base, key, value] {
-                        validate_descriptor_term(term, side, bindings, discovered, counters, keys)?;
+                        validate_descriptor_term(
+                            term,
+                            side.into(),
+                            bindings,
+                            discovered,
+                            counters,
+                            keys,
+                        )?;
                     }
                     Ok(())
                 }
@@ -1697,14 +1839,27 @@ fn validate_host_state(
 ) -> Result<(), StateTransportError> {
     match state {
         ProtocolRuleStateTerm::Term(term) => {
-            validate_host_term(term, side, bindings, discovered, counters, keys)
+            validate_host_term(term, side.into(), bindings, discovered, counters, keys)
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
             validate_k_shell(sequence, side, counters, keys)?;
             for item in &sequence.items {
-                insert_side_exact(keys, &item.key, side, "k_sequence_item", counters.k_item)?;
+                insert_state_exact(
+                    keys,
+                    &item.key,
+                    side,
+                    RuleRole::KSequenceItem,
+                    counters.k_item,
+                )?;
                 counters.k_item = rule_increment(counters.k_item)?;
-                validate_host_term(&item.value, side, bindings, discovered, counters, keys)?;
+                validate_host_term(
+                    &item.value,
+                    side.into(),
+                    bindings,
+                    discovered,
+                    counters,
+                    keys,
+                )?;
             }
             if sequence.notation == DescriptorKSequenceNotation::DotK {
                 Ok(())
@@ -1712,7 +1867,7 @@ fn validate_host_state(
                 validate_frame(
                     &sequence.tail,
                     side,
-                    "k_sequence_tail",
+                    RuleRole::KSequenceTail,
                     bindings,
                     RuleBindingUse::KSequenceFrame,
                     discovered,
@@ -1727,20 +1882,33 @@ fn validate_host_state(
                 ProtocolRuleMapBody::Empty { .. } => Ok(()),
                 ProtocolRuleMapBody::Items { items, remainder } => {
                     for item in items {
-                        insert_side_exact(keys, &item.key_key, side, "map_key", counters.map_key)?;
+                        insert_state_exact(
+                            keys,
+                            &item.key_key,
+                            side,
+                            RuleRole::MapKey,
+                            counters.map_key,
+                        )?;
                         counters.map_key = rule_increment(counters.map_key)?;
-                        insert_side_exact(
+                        insert_state_exact(
                             keys,
                             &item.value_key,
                             side,
-                            "map_value",
+                            RuleRole::MapValue,
                             counters.map_value,
                         )?;
                         counters.map_value = rule_increment(counters.map_value)?;
-                        validate_host_term(&item.key, side, bindings, discovered, counters, keys)?;
+                        validate_host_term(
+                            &item.key,
+                            side.into(),
+                            bindings,
+                            discovered,
+                            counters,
+                            keys,
+                        )?;
                         validate_host_term(
                             &item.value,
-                            side,
+                            side.into(),
                             bindings,
                             discovered,
                             counters,
@@ -1750,7 +1918,7 @@ fn validate_host_state(
                     validate_frame(
                         remainder,
                         side,
-                        "map_remainder",
+                        RuleRole::MapRemainder,
                         bindings,
                         RuleBindingUse::MapFrame,
                         discovered,
@@ -1766,20 +1934,33 @@ fn validate_host_state(
                     value_key,
                     value,
                 } => {
-                    insert_side_exact(
+                    insert_state_exact(
                         keys,
                         base_key,
                         side,
-                        "map_update_base",
+                        RuleRole::MapUpdateBase,
                         counters.map_update_base,
                     )?;
                     counters.map_update_base = rule_increment(counters.map_update_base)?;
-                    insert_side_exact(keys, key_key, side, "map_key", counters.map_key)?;
+                    insert_state_exact(keys, key_key, side, RuleRole::MapKey, counters.map_key)?;
                     counters.map_key = rule_increment(counters.map_key)?;
-                    insert_side_exact(keys, value_key, side, "map_value", counters.map_value)?;
+                    insert_state_exact(
+                        keys,
+                        value_key,
+                        side,
+                        RuleRole::MapValue,
+                        counters.map_value,
+                    )?;
                     counters.map_value = rule_increment(counters.map_value)?;
                     for term in [base, key, value] {
-                        validate_host_term(term, side, bindings, discovered, counters, keys)?;
+                        validate_host_term(
+                            term,
+                            side.into(),
+                            bindings,
+                            discovered,
+                            counters,
+                            keys,
+                        )?;
                     }
                     Ok(())
                 }
@@ -1796,11 +1977,11 @@ fn validate_k_shell<T>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if let Some(payload) = &sequence.payload_key {
-        insert_side_exact(
+        insert_state_exact(
             keys,
             payload,
             side,
-            "k_sequence_payload",
+            RuleRole::KSequencePayload,
             counters.k_payload,
         )?;
         counters.k_payload = rule_increment(counters.k_payload)?;
@@ -1822,7 +2003,7 @@ fn validate_k_shell<T>(
                     .ok_or(StateTransportError::InvalidCellContent(
                         ".K is missing exact provenance",
                     ))?;
-            insert_side_exact(keys, key, side, "k_sequence_tail", counters.k_tail)?;
+            insert_state_exact(keys, key, side, RuleRole::KSequenceTail, counters.k_tail)?;
             counters.k_tail = rule_increment(counters.k_tail)?;
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
@@ -1847,7 +2028,13 @@ fn validate_map_shell<T>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if let Some(payload) = &map.payload_key {
-        insert_side_exact(keys, payload, side, "map_payload", counters.map_payload)?;
+        insert_state_exact(
+            keys,
+            payload,
+            side,
+            RuleRole::MapPayload,
+            counters.map_payload,
+        )?;
         counters.map_payload = rule_increment(counters.map_payload)?;
     }
     match &map.body {
@@ -1881,7 +2068,7 @@ fn validate_map_shell<T>(
 #[allow(clippy::too_many_lines)] // Exhaustively mirrors the closed descriptor term protocol.
 fn validate_descriptor_term(
     term: &DescriptorTerm,
-    side: RuleSide,
+    side: ValidationSide,
     bindings: &[DescriptorRuleBinding],
     discovered: &mut Vec<String>,
     counters: &mut RuleCounters,
@@ -1899,7 +2086,7 @@ fn validate_descriptor_term(
                 ));
             }
             validate_term_path_key(keys, path_key, key, side, counters)?;
-            insert_side_exact(keys, key, side, "reference", counters.reference)?;
+            insert_term_exact(keys, key, side, TermRole::Reference, counters.reference)?;
             counters.reference = rule_increment(counters.reference)?;
             discover_binding(side, name, discovered);
             Ok(())
@@ -1923,34 +2110,45 @@ fn validate_descriptor_term(
                 .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
             match head_class {
                 DescriptorApplicationHeadClass::Applied => {
-                    insert_side_exact(
+                    insert_term_exact(
                         keys,
                         &reference.key,
                         side,
-                        "application_head",
+                        TermRole::ApplicationHead,
                         counters.application,
                     )?;
                     counters.application = rule_increment(counters.application)?;
                 }
                 DescriptorApplicationHeadClass::BareReference => {
-                    insert_side_exact(keys, &reference.key, side, "reference", counters.reference)?;
+                    insert_term_exact(
+                        keys,
+                        &reference.key,
+                        side,
+                        TermRole::Reference,
+                        counters.reference,
+                    )?;
                     counters.reference = rule_increment(counters.reference)?;
                 }
             }
             validate_descriptor_arguments(arguments, side, bindings, discovered, counters, keys)
         }
         DescriptorTerm::Literal { key, literal } => {
-            insert_side_exact(keys, key, side, "literal", counters.literal)?;
+            insert_term_exact(keys, key, side, TermRole::Literal, counters.literal)?;
             counters.literal = rule_increment(counters.literal)?;
             validate_literal(literal)
         }
         DescriptorTerm::Wildcard { key } => {
-            if !matches!(side, RuleSide::Left) {
+            if !matches!(side, ValidationSide::Left) {
                 return Err(StateTransportError::InvalidTerm(
                     "wildcards are allowed only in rule subjects",
                 ));
             }
-            insert_side_exact(keys, key, side, "wildcard", counters.wildcard)?;
+            insert_rule_exact(
+                keys,
+                key,
+                ProvenanceRole::RuleLeftWildcard,
+                counters.wildcard,
+            )?;
             counters.wildcard = rule_increment(counters.wildcard)?;
             Ok(())
         }
@@ -1965,7 +2163,7 @@ fn validate_descriptor_term(
             sort,
             spelling,
         } => {
-            if !matches!(side, RuleSide::Left) || !spelling.starts_with('_') {
+            if !matches!(side, ValidationSide::Left) || !spelling.starts_with('_') {
                 return Err(StateTransportError::InvalidTerm(
                     "anonymous occurrences are claim-subject-only",
                 ));
@@ -1973,13 +2171,22 @@ fn validate_descriptor_term(
             sort.sort
                 .validate()
                 .map_err(|_| StateTransportError::InvalidTerm("invalid anonymous sort"))?;
-            insert_rule_exact(keys, key, "claim_anonymous", counters.anonymous)?;
-            insert_rule_exact(keys, &sort.key, "claim_anonymous_sort", counters.anonymous)?;
             insert_rule_exact(
                 keys,
-                &ProvenanceKey::new("claim_anonymous_spelling", counters.anonymous)
-                    .expect("static role"),
-                "claim_anonymous_spelling",
+                key,
+                ProvenanceRole::ClaimAnonymous,
+                counters.anonymous,
+            )?;
+            insert_rule_exact(
+                keys,
+                &sort.key,
+                ProvenanceRole::ClaimAnonymousSort,
+                counters.anonymous,
+            )?;
+            insert_rule_exact(
+                keys,
+                &ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, counters.anonymous),
+                ProvenanceRole::ClaimAnonymousSpelling,
                 counters.anonymous,
             )?;
             counters.anonymous = rule_increment(counters.anonymous)?;
@@ -2007,7 +2214,13 @@ fn validate_descriptor_term(
                     "fragment! requires a nonempty nominal cell declaration",
                 ));
             }
-            insert_side_exact(keys, key, side, "application_head", counters.application)?;
+            insert_term_exact(
+                keys,
+                key,
+                side,
+                TermRole::ApplicationHead,
+                counters.application,
+            )?;
             counters.application = rule_increment(counters.application)?;
             let mut names = BTreeSet::new();
             for field in fields {
@@ -2016,11 +2229,11 @@ fn validate_descriptor_term(
                         "fragment! child field occurs more than once",
                     ));
                 }
-                insert_side_exact(
+                insert_term_exact(
                     keys,
                     &field.key,
                     side,
-                    "record_field_name",
+                    TermRole::RecordFieldName,
                     counters.record_field,
                 )?;
                 counters.record_field = rule_increment(counters.record_field)?;
@@ -2033,7 +2246,7 @@ fn validate_descriptor_term(
 
 fn validate_descriptor_arguments(
     arguments: &[DescriptorTermArgument],
-    side: RuleSide,
+    side: ValidationSide,
     bindings: &[DescriptorRuleBinding],
     discovered: &mut Vec<String>,
     counters: &mut RuleCounters,
@@ -2054,7 +2267,13 @@ fn validate_descriptor_arguments(
                         "rule application record fields",
                     ));
                 }
-                insert_side_exact(keys, key, side, "record_field_name", counters.record_field)?;
+                insert_term_exact(
+                    keys,
+                    key,
+                    side,
+                    TermRole::RecordFieldName,
+                    counters.record_field,
+                )?;
                 counters.record_field = rule_increment(counters.record_field)?;
                 validate_descriptor_term(value, side, bindings, discovered, counters, keys)?;
             }
@@ -2072,11 +2291,11 @@ fn validate_term_path_key(
     keys: &mut BTreeSet<ProvenanceKey>,
     path_key: &ProvenanceKey,
     semantic_key: &ProvenanceKey,
-    side: RuleSide,
+    side: ValidationSide,
     counters: &mut RuleCounters,
 ) -> Result<(), StateTransportError> {
-    if matches!(side, RuleSide::Requires | RuleSide::Ensures) {
-        insert_side_exact(keys, path_key, side, "path", counters.path)?;
+    if matches!(side, ValidationSide::Requires | ValidationSide::Ensures) {
+        insert_term_exact(keys, path_key, side, TermRole::Path, counters.path)?;
         counters.path = rule_increment(counters.path)?;
     } else if path_key != semantic_key {
         return Err(StateTransportError::InvalidTerm(
@@ -2089,7 +2308,7 @@ fn validate_term_path_key(
 #[allow(clippy::too_many_lines)] // Exhaustively mirrors descriptor validation for host terms.
 fn validate_host_term(
     term: &HostTerm,
-    side: RuleSide,
+    side: ValidationSide,
     bindings: &[HostRuleBinding],
     discovered: &mut Vec<String>,
     counters: &mut RuleCounters,
@@ -2107,7 +2326,7 @@ fn validate_host_term(
                 ));
             }
             validate_term_path_key(keys, path_key, key, side, counters)?;
-            insert_side_exact(keys, key, side, "reference", counters.reference)?;
+            insert_term_exact(keys, key, side, TermRole::Reference, counters.reference)?;
             counters.reference = rule_increment(counters.reference)?;
             discover_binding(side, name, discovered);
             Ok(())
@@ -2127,34 +2346,45 @@ fn validate_host_term(
             validate_term_path_key(keys, path_key, &reference.key, side, counters)?;
             match head_class {
                 DescriptorApplicationHeadClass::Applied => {
-                    insert_side_exact(
+                    insert_term_exact(
                         keys,
                         &reference.key,
                         side,
-                        "application_head",
+                        TermRole::ApplicationHead,
                         counters.application,
                     )?;
                     counters.application = rule_increment(counters.application)?;
                 }
                 DescriptorApplicationHeadClass::BareReference => {
-                    insert_side_exact(keys, &reference.key, side, "reference", counters.reference)?;
+                    insert_term_exact(
+                        keys,
+                        &reference.key,
+                        side,
+                        TermRole::Reference,
+                        counters.reference,
+                    )?;
                     counters.reference = rule_increment(counters.reference)?;
                 }
             }
             validate_host_arguments(arguments, side, bindings, discovered, counters, keys)
         }
         HostTerm::Literal { key, literal } => {
-            insert_side_exact(keys, key, side, "literal", counters.literal)?;
+            insert_term_exact(keys, key, side, TermRole::Literal, counters.literal)?;
             counters.literal = rule_increment(counters.literal)?;
             validate_literal(literal)
         }
         HostTerm::Wildcard { key } => {
-            if !matches!(side, RuleSide::Left) {
+            if !matches!(side, ValidationSide::Left) {
                 return Err(StateTransportError::InvalidTerm(
                     "wildcards are allowed only in rule subjects",
                 ));
             }
-            insert_side_exact(keys, key, side, "wildcard", counters.wildcard)?;
+            insert_rule_exact(
+                keys,
+                key,
+                ProvenanceRole::RuleLeftWildcard,
+                counters.wildcard,
+            )?;
             counters.wildcard = rule_increment(counters.wildcard)?;
             Ok(())
         }
@@ -2169,18 +2399,27 @@ fn validate_host_term(
             sort,
             spelling,
         } => {
-            if !matches!(side, RuleSide::Left) || !spelling.starts_with('_') {
+            if !matches!(side, ValidationSide::Left) || !spelling.starts_with('_') {
                 return Err(StateTransportError::InvalidTerm(
                     "anonymous occurrences are claim-subject-only",
                 ));
             }
-            insert_rule_exact(keys, key, "claim_anonymous", counters.anonymous)?;
-            insert_rule_exact(keys, &sort.key, "claim_anonymous_sort", counters.anonymous)?;
             insert_rule_exact(
                 keys,
-                &ProvenanceKey::new("claim_anonymous_spelling", counters.anonymous)
-                    .expect("static role"),
-                "claim_anonymous_spelling",
+                key,
+                ProvenanceRole::ClaimAnonymous,
+                counters.anonymous,
+            )?;
+            insert_rule_exact(
+                keys,
+                &sort.key,
+                ProvenanceRole::ClaimAnonymousSort,
+                counters.anonymous,
+            )?;
+            insert_rule_exact(
+                keys,
+                &ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, counters.anonymous),
+                ProvenanceRole::ClaimAnonymousSpelling,
                 counters.anonymous,
             )?;
             counters.anonymous = rule_increment(counters.anonymous)?;
@@ -2204,7 +2443,13 @@ fn validate_host_term(
                     "fragment! requires at least one child field",
                 ));
             }
-            insert_side_exact(keys, key, side, "application_head", counters.application)?;
+            insert_term_exact(
+                keys,
+                key,
+                side,
+                TermRole::ApplicationHead,
+                counters.application,
+            )?;
             counters.application = rule_increment(counters.application)?;
             let mut names = BTreeSet::new();
             for field in fields {
@@ -2213,11 +2458,11 @@ fn validate_host_term(
                         "fragment! child field occurs more than once",
                     ));
                 }
-                insert_side_exact(
+                insert_term_exact(
                     keys,
                     &field.key,
                     side,
-                    "record_field_name",
+                    TermRole::RecordFieldName,
                     counters.record_field,
                 )?;
                 counters.record_field = rule_increment(counters.record_field)?;
@@ -2230,7 +2475,7 @@ fn validate_host_term(
 
 fn validate_host_arguments(
     arguments: &[HostTermArgument],
-    side: RuleSide,
+    side: ValidationSide,
     bindings: &[HostRuleBinding],
     discovered: &mut Vec<String>,
     counters: &mut RuleCounters,
@@ -2251,7 +2496,13 @@ fn validate_host_arguments(
                         "rule application record fields",
                     ));
                 }
-                insert_side_exact(keys, key, side, "record_field_name", counters.record_field)?;
+                insert_term_exact(
+                    keys,
+                    key,
+                    side,
+                    TermRole::RecordFieldName,
+                    counters.record_field,
+                )?;
                 counters.record_field = rule_increment(counters.record_field)?;
                 validate_host_term(value, side, bindings, discovered, counters, keys)?;
             }
@@ -2269,7 +2520,7 @@ fn validate_host_arguments(
 fn validate_frame<S>(
     frame: &ProtocolRuleFrame,
     side: RuleSide,
-    role_suffix: &str,
+    role_suffix: RuleRole,
     bindings: &[ProtocolRuleBinding<S>],
     binding_kind: RuleBindingUse,
     discovered: &mut Vec<String>,
@@ -2279,7 +2530,7 @@ fn validate_frame<S>(
     match (side, frame) {
         (_, ProtocolRuleFrame::Exact) => Ok(()),
         (RuleSide::Left, ProtocolRuleFrame::Anonymous { key }) => {
-            insert_side_exact(keys, key, side, role_suffix, *counter)?;
+            insert_state_exact(keys, key, side, role_suffix, *counter)?;
             *counter = rule_increment(*counter)?;
             Ok(())
         }
@@ -2289,9 +2540,9 @@ fn validate_frame<S>(
                     "subject frame binding has the wrong structural kind",
                 ));
             }
-            insert_side_exact(keys, key, side, role_suffix, *counter)?;
+            insert_state_exact(keys, key, side, role_suffix, *counter)?;
             *counter = rule_increment(*counter)?;
-            discover_binding(side, binding, discovered);
+            discover_binding(side.into(), binding, discovered);
             Ok(())
         }
         (RuleSide::Right, ProtocolRuleFrame::Reuse { key, binding }) => {
@@ -2300,7 +2551,7 @@ fn validate_frame<S>(
                     "result frame binding has the wrong structural kind",
                 ));
             }
-            insert_side_exact(keys, key, side, role_suffix, *counter)?;
+            insert_state_exact(keys, key, side, role_suffix, *counter)?;
             *counter = rule_increment(*counter)?;
             Ok(())
         }
@@ -2310,14 +2561,13 @@ fn validate_frame<S>(
                 "frame form is invalid on this rule side",
             ))
         }
-        (RuleSide::Requires | RuleSide::Ensures, _) => Err(StateTransportError::InvalidTerm(
-            "rule conditions cannot contain structural frames",
-        )),
     }
 }
 
-fn discover_binding(side: RuleSide, binding: &str, discovered: &mut Vec<String>) {
-    if matches!(side, RuleSide::Left) && !discovered.iter().any(|candidate| candidate == binding) {
+fn discover_binding(side: ValidationSide, binding: &str, discovered: &mut Vec<String>) {
+    if matches!(side, ValidationSide::Left)
+        && !discovered.iter().any(|candidate| candidate == binding)
+    {
         discovered.push(binding.to_owned());
     }
 }
@@ -2359,7 +2609,12 @@ fn validate_descriptor_binding_catalog(
     let mut term_ordinal = 0;
     for binding in bindings {
         if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
-            insert_rule_exact(keys, &sort.key, "rule_binding_type", term_ordinal)?;
+            insert_rule_exact(
+                keys,
+                &sort.key,
+                ProvenanceRole::RuleBindingType,
+                term_ordinal,
+            )?;
             term_ordinal = rule_increment(term_ordinal)?;
             if let DescriptorSortRef::Declared(sort) = &sort.sort
                 && sort.item_kind() != ItemKind::Sort
@@ -2383,7 +2638,12 @@ fn validate_host_binding_catalog(
     let mut term_ordinal = 0;
     for binding in bindings {
         if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
-            insert_rule_exact(keys, &sort.key, "rule_binding_type", term_ordinal)?;
+            insert_rule_exact(
+                keys,
+                &sort.key,
+                ProvenanceRole::RuleBindingType,
+                term_ordinal,
+            )?;
             term_ordinal = rule_increment(term_ordinal)?;
         }
     }
@@ -2464,11 +2724,12 @@ fn validate_rule_complete_set(
     actual: &BTreeSet<ProvenanceKey>,
     expected: &BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    let expected_primary = if expected.contains(&rule_key("claim_declaration", 0)) {
-        rule_key("claim_declaration", 0)
-    } else {
-        rule_key("rule_declaration", 0)
-    };
+    let expected_primary =
+        if expected.contains(&ProvenanceKey::new(ProvenanceRole::ClaimDeclaration, 0)) {
+            ProvenanceKey::new(ProvenanceRole::ClaimDeclaration, 0)
+        } else {
+            ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0)
+        };
     if primary != &expected_primary {
         return Err(StateTransportError::UnexpectedProvenance {
             expected: expected_primary,
@@ -2487,11 +2748,10 @@ fn validate_rule_complete_set(
 fn insert_rule_exact(
     keys: &mut BTreeSet<ProvenanceKey>,
     actual: &ProvenanceKey,
-    role: &str,
+    role: ProvenanceRole,
     ordinal: u32,
 ) -> Result<(), StateTransportError> {
-    let expected =
-        ProvenanceKey::new(role, ordinal).expect("protocol-owned rule provenance roles are valid");
+    let expected = ProvenanceKey::new(role, ordinal);
     if actual != &expected {
         return Err(StateTransportError::UnexpectedProvenance {
             expected,
@@ -2502,18 +2762,24 @@ fn insert_rule_exact(
     Ok(())
 }
 
-fn insert_side_exact(
+fn insert_state_exact(
     keys: &mut BTreeSet<ProvenanceKey>,
     actual: &ProvenanceKey,
     side: RuleSide,
-    suffix: &str,
+    role: RuleRole,
     ordinal: u32,
 ) -> Result<(), StateTransportError> {
-    insert_rule_exact(keys, actual, &side.role(suffix), ordinal)
+    insert_rule_exact(keys, actual, role.on_side(side), ordinal)
 }
 
-fn rule_key(role: &str, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal).expect("protocol-owned rule provenance roles are valid")
+fn insert_term_exact(
+    keys: &mut BTreeSet<ProvenanceKey>,
+    actual: &ProvenanceKey,
+    side: ValidationSide,
+    role: TermRole,
+    ordinal: u32,
+) -> Result<(), StateTransportError> {
+    insert_rule_exact(keys, actual, role.on_side(side), ordinal)
 }
 
 fn rule_increment(value: u32) -> Result<u32, StateTransportError> {
@@ -2525,14 +2791,14 @@ fn rule_increment(value: u32) -> Result<u32, StateTransportError> {
 #[cfg(test)]
 mod bytes_token_tests {
     use super::{RuleCounters, builtin_token_role};
-    use crate::{BuiltinSort, StateTransportError};
+    use crate::{BuiltinSort, ProvenanceRole, StateTransportError};
 
     #[test]
     fn bytes_tokens_accept_only_canonical_lower_hex_transport() {
         let mut counters = RuleCounters::default();
         let (role, ordinal) =
             builtin_token_role(BuiltinSort::Bytes, r#"b"\x00\x7f\xff""#, &mut counters).unwrap();
-        assert_eq!(role, "claim_bytes_token");
+        assert_eq!(role, ProvenanceRole::ClaimBytesToken);
         assert_eq!(*ordinal, 0);
 
         for malformed in [

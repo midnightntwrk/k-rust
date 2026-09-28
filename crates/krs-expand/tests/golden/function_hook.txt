@@ -66,7 +66,7 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -77,7 +77,7 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -88,7 +88,7 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -99,7 +99,7 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -156,7 +156,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -167,7 +167,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -178,7 +178,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -189,7 +189,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -200,7 +200,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     2u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -211,7 +211,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_field_reference",
+                    ::k::ProvenanceRole::ConstructorSyntaxFieldReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -222,7 +222,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     3u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -233,7 +233,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -244,7 +244,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -255,7 +255,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_declaration",
+                    ::k::ProvenanceRole::ConstructorFieldDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -266,7 +266,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "function_declaration",
+                    ::k::ProvenanceRole::FunctionDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -277,7 +277,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "function_total",
+                    ::k::ProvenanceRole::FunctionTotal,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -288,7 +288,7 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "function_hook",
+                    ::k::ProvenanceRole::FunctionHook,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

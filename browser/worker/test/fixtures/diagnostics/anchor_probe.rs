@@ -7,7 +7,8 @@ use krs_compiler::{PackageContext, collect_host_descriptors};
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostDeclarationIdentity, HostDescriptor,
     HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance, HostSortDescriptor,
-    HostSourceAnchor, HostSourcePosition, HostTypeKey, ItemKind, SchemaVersion, ProvenanceKey,
+    HostSourceAnchor, HostSourcePosition, HostTypeKey, ItemKind, ProvenanceKey, ProvenanceRole,
+    SchemaVersion,
 };
 
 struct ExprType;
@@ -31,7 +32,7 @@ fn anchor(display_file: &str, line: u32, start: u32, end: u32) -> HostSourceAnch
 }
 
 fn descriptor(package_root: &Path, display_file: &str) -> HostDescriptor {
-    let key = ProvenanceKey::new("sort_declaration", 0).expect("known provenance role");
+    let key = ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0);
     let authored = HostAuthoredAnchor::new(key, anchor(display_file, 2, 11, 15));
     let provenance = HostProvenance::new(anchor(display_file, 1, 1, 11), vec![authored])
         .expect("fixture provenance is complete");

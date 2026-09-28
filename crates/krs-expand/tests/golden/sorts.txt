@@ -50,7 +50,7 @@ fn __krs_sort_descriptor_091e1ed27225c74b() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -61,7 +61,7 @@ fn __krs_sort_descriptor_091e1ed27225c74b() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

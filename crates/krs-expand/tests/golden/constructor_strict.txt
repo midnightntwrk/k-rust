@@ -65,7 +65,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -76,7 +76,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -87,7 +87,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -98,7 +98,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -162,7 +162,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -173,7 +173,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -184,7 +184,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -195,7 +195,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -206,7 +206,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_field_reference",
+                    ::k::ProvenanceRole::ConstructorSyntaxFieldReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -217,7 +217,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -228,7 +228,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format",
+                    ::k::ProvenanceRole::ConstructorFormat,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -239,7 +239,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -250,7 +250,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -261,7 +261,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -272,7 +272,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -283,7 +283,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_declaration",
+                    ::k::ProvenanceRole::ConstructorFieldDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -294,7 +294,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "strictness_declaration",
+                    ::k::ProvenanceRole::StrictnessDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -305,7 +305,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "strictness_field_reference",
+                    ::k::ProvenanceRole::StrictnessFieldReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -316,7 +316,7 @@ fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "strictness_result_sort",
+                    ::k::ProvenanceRole::StrictnessResultSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

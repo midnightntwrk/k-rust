@@ -342,7 +342,7 @@ impl ExistsAttribute {
             let ordinal = u32::try_from(index).map_err(|_| {
                 SyntaxError::new(
                     SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: "claim_existential_binder",
+                        role: ProvenanceRole::ClaimExistentialBinder.as_str(),
                     },
                     binder.name.span(),
                 )

@@ -2,7 +2,7 @@
 
 use krs_syntax::{
     ProvenanceRole, StrictnessAttribute, StrictnessKind as SyntaxStrictnessKind,
-    StructuredFormatFragment,
+    StructuredFormatFragment, role_tokens,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -18,9 +18,11 @@ pub(super) fn strictness_tokens<'a>(
     nonce: u64,
     cfg: &[Attribute],
 ) -> syn::Result<(TokenStream, Option<TokenStream>)> {
-    let strictness_context_alias_reference_role = ProvenanceRole::StrictnessContextAliasReference;
-    let strictness_field_reference_role = ProvenanceRole::StrictnessFieldReference;
-    let strictness_declaration_role = ProvenanceRole::StrictnessDeclaration;
+    let strictness_context_alias_reference_role =
+        role_tokens(ProvenanceRole::StrictnessContextAliasReference, facade);
+    let strictness_field_reference_role =
+        role_tokens(ProvenanceRole::StrictnessFieldReference, facade);
+    let strictness_declaration_role = role_tokens(ProvenanceRole::StrictnessDeclaration, facade);
     let Some(strictness) = strictness else {
         return Ok((TokenStream::new(), None));
     };
@@ -65,8 +67,7 @@ pub(super) fn strictness_tokens<'a>(
             }
             let name = alias.to_string();
             Ok(quote!(::core::option::Option::Some(#facade::HostContextAliasReference {
-                key: #facade::ProvenanceKey::new(#strictness_context_alias_reference_role, 0)
-                    .expect("KRS parser roles are nonempty"),
+                key: #facade::ProvenanceKey::new(#strictness_context_alias_reference_role, 0),
                 alias: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
                     module_path!(), #name, #facade::ItemKind::ContextAlias, "",
@@ -87,8 +88,7 @@ pub(super) fn strictness_tokens<'a>(
             .map_err(|_| syn::Error::new(field.span(), "too many strictness fields"))?;
         selected.push(quote! {
             #facade::DescriptorFieldReference {
-                key: #facade::ProvenanceKey::new(#strictness_field_reference_role, #ordinal)
-                    .expect("KRS parser roles are nonempty"),
+                key: #facade::ProvenanceKey::new(#strictness_field_reference_role, #ordinal),
                 field: #facade::ProductionFieldId::new(#name)
                     .expect("Rust field identifiers are valid production fields"),
             }
@@ -96,8 +96,7 @@ pub(super) fn strictness_tokens<'a>(
     }
     let attribute = quote! {
         #facade::HostProductionAttribute::Strictness {
-            key: #facade::ProvenanceKey::new(#strictness_declaration_role, 0)
-                .expect("KRS parser roles are nonempty"),
+            key: #facade::ProvenanceKey::new(#strictness_declaration_role, 0),
             kind: #kind,
             using: #using,
             fields: ::std::vec![#(#selected),*],

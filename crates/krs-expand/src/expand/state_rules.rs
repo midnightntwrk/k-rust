@@ -2,9 +2,9 @@
 
 use krs_syntax::{
     KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole,
-    RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm,
-    TermArguments, TermTree, TokenRange, parse_context_alias_attribute,
-    parse_state_context_alias_item, parse_state_rule_item,
+    RuleRole, RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind,
+    StateTerm, TermArguments, TermTree, TokenRange, parse_context_alias_attribute,
+    parse_state_context_alias_item, parse_state_rule_item, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -41,6 +41,12 @@ pub(crate) fn context_alias(
     let alias = parse_state_context_alias_item(item, attribute.here())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
+    let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
+    let context_alias_declaration_role = role_tokens(context_alias_declaration_role, &facade);
+    let context_alias_name_role = role_tokens(context_alias_name_role, &facade);
+    let context_alias_here_role = role_tokens(context_alias_here_role, &facade);
+    let rule_pattern_role = role_tokens(rule_pattern_role, &facade);
+    let rule_type_role = role_tokens(rule_type_role, &facade);
     let mut anchors = attribute
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -57,7 +63,7 @@ pub(crate) fn context_alias(
     );
     let fallback =
         TokenRange::for_tokens(alias.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "context_alias", &alias.item().sig.ident, fallback);
     let factory = format_ident!("__krs_context_alias_{nonce:016x}");
     let configuration_key = format_ident!("__krs_context_alias_configuration_{nonce:016x}");
@@ -99,8 +105,7 @@ pub(crate) fn context_alias(
                     })?;
                     quote!(#facade::ProtocolContextAliasBindingKind::Term {
                         sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal)
-                                .expect("KRS parser roles are nonempty"),
+                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#key_fn),
                                 authored_path: #sort_spelling.to_owned(),
@@ -174,14 +179,14 @@ pub(crate) fn context_alias(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::ContextAlias(::std::boxed::Box::new(
                     #facade::HostContextAlias {
-                        declaration_key: #facade::ProvenanceKey::new(#context_alias_declaration_role, 0).unwrap(),
-                        name_key: #facade::ProvenanceKey::new(#context_alias_name_role, 0).unwrap(),
+                        declaration_key: #facade::ProvenanceKey::new(#context_alias_declaration_role, 0),
+                        name_key: #facade::ProvenanceKey::new(#context_alias_name_role, 0),
                         name: #alias_name.to_owned(),
-                        here_key: #facade::ProvenanceKey::new(#context_alias_here_role, 0).unwrap(),
+                        here_key: #facade::ProvenanceKey::new(#context_alias_here_role, 0),
                         here: #here_name.to_owned(),
-                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
+                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
                         configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(),
+                            key: #facade::ProvenanceKey::new(#rule_type_role, 0),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#configuration_key),
                                 authored_path: #configuration_spelling.to_owned(),
@@ -214,6 +219,12 @@ pub(super) fn configuration_rule(
     let rule_result_type_role = ProvenanceRole::RuleResultType;
     let rule = parse_state_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
+    let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
+    let rule_requires_role = role_tokens(rule_requires_role, &facade);
+    let rule_pattern_role = role_tokens(rule_pattern_role, &facade);
+    let rule_type_role = role_tokens(rule_type_role, &facade);
+    let rule_result_role = role_tokens(rule_result_role, &facade);
+    let rule_result_type_role = role_tokens(rule_result_type_role, &facade);
     let mut anchors = rule
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -224,7 +235,7 @@ pub(super) fn configuration_rule(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_rule_{nonce:016x}");
     let subject_key = format_ident!("__krs_rule_configuration_left_{nonce:016x}");
@@ -268,8 +279,7 @@ pub(super) fn configuration_rule(
                 quote! {
                     #facade::ProtocolRuleBindingKind::Term {
                         sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal)
-                                .expect("KRS parser roles are nonempty"),
+                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#key_fn),
                                 authored_path: #authored.to_owned(),
@@ -308,8 +318,7 @@ pub(super) fn configuration_rule(
         let term = condition_builder.expand(condition.term().tree(), TermSide::Requires)?;
         quote! {
             ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new(#rule_requires_role, 0)
-                    .expect("KRS parser roles are nonempty"),
+                key: #facade::ProvenanceKey::new(#rule_requires_role, 0),
                 term: #term,
             })
         }
@@ -392,21 +401,17 @@ pub(super) fn configuration_rule(
                         priority: #priority,
                         requires: #requires,
                         claim: ::core::option::Option::None,
-                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0)
-                            .expect("KRS parser roles are nonempty"),
+                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
                         subject_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_type_role, 0)
-                                .expect("KRS parser roles are nonempty"),
+                            key: #facade::ProvenanceKey::new(#rule_type_role, 0),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#subject_key),
                                 authored_path: #subject_spelling.to_owned(),
                             },
                         },
-                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0)
-                            .expect("KRS parser roles are nonempty"),
+                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
                         result_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_result_type_role, 0)
-                                .expect("KRS parser roles are nonempty"),
+                            key: #facade::ProvenanceKey::new(#rule_result_type_role, 0),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#result_key),
                                 authored_path: #result_spelling.to_owned(),
@@ -485,12 +490,11 @@ impl<'a> StateRuleBuilder<'a> {
     }
 
     /// This side's role of a standalone `cells!`, `k!`, or `map!` role.
-    fn side_role(&self, role: ProvenanceRole) -> ProvenanceRole {
-        role.on_rule_side(self.side)
-            .expect("state-rule keys name standalone state-macro roles")
+    fn side_role(&self, role: RuleRole) -> ProvenanceRole {
+        role.on_side(self.side)
     }
 
-    fn key(&self, role: ProvenanceRole, ordinal: u32) -> TokenStream {
+    fn key(&self, role: RuleRole, ordinal: u32) -> TokenStream {
         provenance_key(self.facade, self.side_role(role), ordinal)
     }
 
@@ -512,8 +516,8 @@ impl<'a> StateRuleBuilder<'a> {
         for entry in cells.entries() {
             let field_ordinal = take_counter(&mut self.counters.field)?;
             let wrapper_ordinal = take_counter(&mut self.counters.wrapper)?;
-            let field_key = self.key(ProvenanceRole::CellsField, field_ordinal);
-            let wrapper_key = self.key(ProvenanceRole::CellsWrapper, wrapper_ordinal);
+            let field_key = self.key(RuleRole::CellsField, field_ordinal);
+            let wrapper_key = self.key(RuleRole::CellsWrapper, wrapper_ordinal);
             let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
             let computation = entry
@@ -548,8 +552,8 @@ impl<'a> StateRuleBuilder<'a> {
                 }
             });
         }
-        let remainder = self.expand_frame(cells.remainder(), ProvenanceRole::CellsRemainder)?;
-        let payload = self.key(ProvenanceRole::CellsPayload, 0);
+        let remainder = self.expand_frame(cells.remainder(), RuleRole::CellsRemainder)?;
+        let payload = self.key(RuleRole::CellsPayload, 0);
         Ok(quote!(#facade::HostRuleCells {
             key: #payload, cells: ::std::vec![#(#output),*], remainder: #remainder,
         }))
@@ -577,21 +581,13 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
-            option_key(
-                facade,
-                self.side_role(ProvenanceRole::KSequencePayload),
-                ordinal,
-            )
+            option_key(facade, self.side_role(RuleRole::KSequencePayload), ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             let ordinal = take_counter(&mut self.counters.k_tail)?;
-            option_key(
-                facade,
-                self.side_role(ProvenanceRole::KSequenceTail),
-                ordinal,
-            )
+            option_key(facade, self.side_role(RuleRole::KSequenceTail), ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
@@ -599,14 +595,14 @@ impl<'a> StateRuleBuilder<'a> {
         let mut items = Vec::new();
         for item in sequence.items() {
             let ordinal = take_counter(&mut self.counters.k_item)?;
-            let key = self.key(ProvenanceRole::KSequenceItem, ordinal);
+            let key = self.key(RuleRole::KSequenceItem, ordinal);
             let value = self.expand_term(item.tree())?;
             items.push(quote!(#facade::ProtocolRuleKSequenceItem { key: #key, value: #value }));
         }
         let tail = if sequence.notation() == KSequenceNotation::DotK {
             quote!(#facade::ProtocolRuleFrame::Exact)
         } else {
-            self.expand_frame(sequence.tail(), ProvenanceRole::KSequenceTail)?
+            self.expand_frame(sequence.tail(), RuleRole::KSequenceTail)?
         };
         Ok(quote!(#facade::ProtocolRuleKSequence {
             payload_key: #payload_key, dot_k_key: #dot_k_key,
@@ -618,7 +614,7 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
-            option_key(facade, self.side_role(ProvenanceRole::MapPayload), ordinal)
+            option_key(facade, self.side_role(RuleRole::MapPayload), ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
@@ -631,15 +627,15 @@ impl<'a> StateRuleBuilder<'a> {
                 for item in items {
                     let ko = take_counter(&mut self.counters.map_key)?;
                     let vo = take_counter(&mut self.counters.map_value)?;
-                    let key_key = self.key(ProvenanceRole::MapKey, ko);
-                    let value_key = self.key(ProvenanceRole::MapValue, vo);
+                    let key_key = self.key(RuleRole::MapKey, ko);
+                    let value_key = self.key(RuleRole::MapValue, vo);
                     let key = self.expand_term(item.key().tree())?;
                     let value = self.expand_term(item.value().tree())?;
                     values.push(quote!(#facade::ProtocolRuleMapItem {
                         key_key: #key_key, key: #key, value_key: #value_key, value: #value,
                     }));
                 }
-                let remainder = self.expand_frame(remainder, ProvenanceRole::MapRemainder)?;
+                let remainder = self.expand_frame(remainder, RuleRole::MapRemainder)?;
                 quote!(#facade::ProtocolRuleMapBody::Items {
                     items: ::std::vec![#(#values),*], remainder: #remainder,
                 })
@@ -648,9 +644,9 @@ impl<'a> StateRuleBuilder<'a> {
                 let bo = take_counter(&mut self.counters.map_update_base)?;
                 let ko = take_counter(&mut self.counters.map_key)?;
                 let vo = take_counter(&mut self.counters.map_value)?;
-                let base_key = self.key(ProvenanceRole::MapUpdateBase, bo);
-                let key_key = self.key(ProvenanceRole::MapKey, ko);
-                let value_key = self.key(ProvenanceRole::MapValue, vo);
+                let base_key = self.key(RuleRole::MapUpdateBase, bo);
+                let key_key = self.key(RuleRole::MapKey, ko);
+                let value_key = self.key(RuleRole::MapValue, vo);
                 let base = self.expand_term(base.tree())?;
                 let key = self.expand_term(key.tree())?;
                 let value = self.expand_term(value.tree())?;
@@ -666,14 +662,14 @@ impl<'a> StateRuleBuilder<'a> {
     fn expand_frame(
         &mut self,
         frame: &StateMacroRemainder,
-        role: ProvenanceRole,
+        role: RuleRole,
     ) -> syn::Result<TokenStream> {
         let facade = self.facade;
         let side_role = self.side_role(role);
         let counter = match role {
-            ProvenanceRole::CellsRemainder => &mut self.counters.remainder,
-            ProvenanceRole::KSequenceTail => &mut self.counters.k_tail,
-            ProvenanceRole::MapRemainder => &mut self.counters.map_remainder,
+            RuleRole::CellsRemainder => &mut self.counters.remainder,
+            RuleRole::KSequenceTail => &mut self.counters.k_tail,
+            RuleRole::MapRemainder => &mut self.counters.map_remainder,
             _ => unreachable!(),
         };
         match frame {

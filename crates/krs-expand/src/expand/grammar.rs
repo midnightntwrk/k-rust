@@ -35,7 +35,7 @@ pub(crate) fn precedence(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(Span::call_site(), "empty precedence declaration"))?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(
         env,
         "precedence",
@@ -106,7 +106,7 @@ pub(crate) fn associativity(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(Span::call_site(), "empty associativity declaration"))?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(
         env,
         "associativity",

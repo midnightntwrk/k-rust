@@ -268,9 +268,9 @@ pub(super) fn lower_constructor_grammar(
     source: &str,
 ) -> Result<Vec<SemanticProductionItem>, DescriptorLoweringError> {
     let syntax_key = if constructor.syntax.is_some() {
-        role_key(ProvenanceRole::ConstructorSyntax, 0)?
+        role_key(ProvenanceRole::ConstructorSyntax, 0)
     } else {
-        role_key(ProvenanceRole::ConstructorDeclaration, 0)?
+        role_key(ProvenanceRole::ConstructorDeclaration, 0)
     };
     let mut items = Vec::new();
     let mut holes = BTreeSet::new();
@@ -388,7 +388,7 @@ fn lower_constructor_placeholder(
     Ok(SemanticProductionItem::non_terminal(
         semantic_origin(
             descriptor,
-            role_key(ProvenanceRole::ConstructorFieldSort, ordinal)?,
+            role_key(ProvenanceRole::ConstructorFieldSort, ordinal),
             &format!("production-field-{ordinal}"),
         )?,
         ProductionFieldId::new(field.name.clone())?,

@@ -52,7 +52,7 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -63,7 +63,7 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -74,7 +74,7 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "sort_parent",
+                    ::k::ProvenanceRole::SortParent,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

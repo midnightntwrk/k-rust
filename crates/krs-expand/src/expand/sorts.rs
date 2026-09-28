@@ -78,7 +78,7 @@ pub(crate) fn sort(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "sort", &declaration.item().ident, fallback);
     let factory = format_ident!(
         "__krs_sort_descriptor_{nonce:016x}",
@@ -375,7 +375,7 @@ fn expand_readable_sort(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(declaration.name().span(), "empty sort declaration"))?;
-    let provenance = host_provenance(env, facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "readable_sort", declaration.name(), fallback);
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}");
@@ -480,7 +480,7 @@ fn expand_readable_membership(
         .member_provenance(member)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = anchors[0].range();
-    let provenance = host_provenance(env, facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, facade, fallback, &anchors);
     let rust_key = &identity.rust_key;
     let super_key = format_ident!("__krs_subsort_super_{rust_key}", span = Span::call_site());
     let sub_key = format_ident!("__krs_subsort_sub_{rust_key}", span = Span::call_site());
@@ -682,7 +682,7 @@ pub(crate) fn subsort(
             .provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?
     };
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
     let (super_key, sub_key, factory, grammar_name) = if let Some(reference) = &reference {
         let identity = ReadableMembershipIdentity::new(reference.sort(), declaration.sub_sort());
         (
@@ -833,7 +833,7 @@ fn expand_bracket_grammar_parts(
         .first()
         .map(ProvenanceAnchor::range)
         .ok_or_else(|| syn::Error::new(bracket.template().literal().span(), "empty bracket"))?;
-    let provenance = host_provenance(env, facade, fallback, anchors)?;
+    let provenance = host_provenance(env, facade, fallback, anchors);
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
     let mut slots = WireSlots::new(facade);

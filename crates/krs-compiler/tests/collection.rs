@@ -10,7 +10,7 @@ use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance,
     HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
-    ItemKind, RustVisibility, SchemaVersion,
+    ItemKind, ProvenanceRole, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
 use krs_syntax::{
@@ -129,11 +129,9 @@ pub struct PublicValue;
         "api::PublicValue"
     );
     for descriptor in &bundle.descriptors {
-        assert!(
-            descriptor.provenance.origins().iter().any(|origin| {
-                origin.key.role() == "stable_symbol" && origin.key.ordinal() == 0
-            })
-        );
+        assert!(descriptor.provenance.origins().iter().any(|origin| {
+            origin.key.role() == ProvenanceRole::StableSymbol && origin.key.ordinal() == 0
+        }));
     }
 }
 
@@ -997,7 +995,7 @@ impl TestPackage {
             ))),
             payload: HostDescriptorPayload::Constructor(HostConstructorDescriptor {
                 sort: krs_ir::HostSortReference {
-                    key: krs_ir::ProvenanceKey::new("constructor_sort", 0).unwrap(),
+                    key: krs_ir::ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                     target: type_ref(sort, "Expr"),
                 },
                 syntax: parsed.syntax.as_ref().map(syn::LitStr::value),
@@ -1030,7 +1028,7 @@ fn host_provenance(display: &str, anchors: Vec<ProvenanceAnchor>) -> HostProvena
         .into_iter()
         .map(|anchor| {
             HostAuthoredAnchor::new(
-                anchor.key().unwrap(),
+                anchor.key(),
                 source_anchor(display, anchor.range(), AnchorPrecision::Exact),
             )
         })

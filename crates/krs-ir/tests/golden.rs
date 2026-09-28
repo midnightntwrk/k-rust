@@ -8,8 +8,8 @@ use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    ProvenanceKey, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
-    TransformationOriginKind,
+    ProvenanceKey, ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor,
+    StableItemId, TransformationOriginKind,
 };
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
@@ -20,18 +20,18 @@ fn origin() -> OriginStack {
 
 fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
     let role = match id.item_kind() {
-        ItemKind::Sort => "sort_declaration",
-        ItemKind::Constructor => "constructor_declaration",
-        ItemKind::Grammar => "grammar_declaration",
-        ItemKind::Configuration | ItemKind::Cell => "configuration_declaration",
-        ItemKind::Rule
+        ItemKind::Sort => ProvenanceRole::SortDeclaration,
+        ItemKind::Constructor => ProvenanceRole::ConstructorDeclaration,
+        ItemKind::Configuration | ItemKind::Cell => ProvenanceRole::ConfigurationDeclaration,
+        ItemKind::Grammar
+        | ItemKind::Rule
         | ItemKind::Equation
         | ItemKind::Simplification
         | ItemKind::Claim
-        | ItemKind::Alias => "rule_declaration",
-        ItemKind::ContextAlias => "context_alias_declaration",
+        | ItemKind::Alias => ProvenanceRole::RuleDeclaration,
+        ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
     };
-    let primary_key = ProvenanceKey::new(role, 0).unwrap();
+    let primary_key = ProvenanceKey::new(role, 0);
     Descriptor {
         id,
         cfg: BTreeMap::new(),
@@ -298,7 +298,7 @@ fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
     let primary_key = descriptors[0].provenance.primary_key().clone();
     let mut origins = descriptors[0].provenance.origins().to_vec();
     origins.push(DescriptorNodeOrigin::new(
-        ProvenanceKey::new("stable_symbol", 0).unwrap(),
+        ProvenanceKey::new(ProvenanceRole::StableSymbol, 0),
         origin(),
     ));
     descriptors[0].provenance = DescriptorProvenance::new(primary_key, origins).unwrap();
@@ -361,8 +361,8 @@ fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
 
 #[test]
 fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
-    let primary_key = ProvenanceKey::new("constructor_declaration", 0).unwrap();
-    let nested_key = ProvenanceKey::new("constructor_field", 0).unwrap();
+    let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0);
+    let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldDeclaration, 0);
     let mut forward = populated_bundle(false);
     let descriptor = forward
         .descriptors
@@ -414,7 +414,10 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     assert!(
         constructor
             .provenance
-            .origin_for(&ProvenanceKey::new("constructor_field", 0).unwrap())
+            .origin_for(&ProvenanceKey::new(
+                ProvenanceRole::ConstructorFieldDeclaration,
+                0
+            ))
             .is_some(),
         "an exact nested parser-keyed origin survives a round trip"
     );
@@ -422,8 +425,8 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
 
 #[test]
 fn descriptor_provenance_rejects_empty_duplicate_and_missing_primary_tables() {
-    let primary = ProvenanceKey::new("rule_declaration", 0).unwrap();
-    let nested = ProvenanceKey::new("rule_right_path", 0).unwrap();
+    let primary = ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0);
+    let nested = ProvenanceKey::new(ProvenanceRole::RuleRightPath, 0);
     assert!(DescriptorProvenance::new(primary.clone(), Vec::new()).is_err());
     assert!(
         DescriptorProvenance::new(
@@ -474,7 +477,7 @@ fn host_only_values_cannot_implement_serialization() {
 
 #[test]
 fn provenance_keys_round_trip_with_validation() {
-    let key = ProvenanceKey::new("rule_right_path", 7).unwrap();
+    let key = ProvenanceKey::new(ProvenanceRole::RuleRightPath, 7);
     let json = serde_json::to_string(&key).unwrap();
     assert_eq!(serde_json::from_str::<ProvenanceKey>(&json).unwrap(), key);
     assert!(serde_json::from_str::<ProvenanceKey>(r#"{"role":"","ordinal":0}"#).is_err());

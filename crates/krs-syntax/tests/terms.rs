@@ -53,8 +53,8 @@ fn named_call_terms_preserve_preorder_paths_and_exact_endpoints() {
         ),
         (21, 26)
     );
-    assert_eq!(anchors[3].key().unwrap().role(), "term_path");
-    assert_eq!(anchors[3].key().unwrap().ordinal(), 2);
+    assert_eq!(anchors[3].key().role(), ProvenanceRole::TermPath);
+    assert_eq!(anchors[3].key().ordinal(), 2);
 }
 
 #[test]

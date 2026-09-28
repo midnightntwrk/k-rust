@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use k::{
     AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
     HostItemId, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, SchemaVersion,
-    ProvenanceKey,
+    ProvenanceKey, ProvenanceRole,
 };
 
 /// An ordinary public symbol which a generated collector explicitly calls.
@@ -35,7 +35,7 @@ fn descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
     let provenance = HostProvenance::new(
         anchor.clone(),
         vec![HostAuthoredAnchor::new(
-            ProvenanceKey::new("sort_item", 0).expect("valid role"),
+            ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
             anchor,
         )],
     )

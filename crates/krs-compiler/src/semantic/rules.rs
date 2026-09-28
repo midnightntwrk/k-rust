@@ -212,7 +212,7 @@ pub(super) fn lower_head_rule_descriptor(
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
-            role_key(ProvenanceRole::RuleDeclaration, 0)?,
+            role_key(ProvenanceRole::RuleDeclaration, 0),
             "head-anchored-rule",
         )?,
         descriptor.id.clone(),
@@ -734,7 +734,7 @@ pub(super) fn lower_structured_rule_descriptor(
         ProvenanceRole::RuleDeclaration
     };
     Ok(SemanticRule::new(
-        semantic_origin(descriptor, role_key(rule_origin_role, 0)?, "rule")?,
+        semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?,
         descriptor.id.clone(),
         rule.sentence_kind,
         variables,

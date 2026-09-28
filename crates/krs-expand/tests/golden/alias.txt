@@ -57,9 +57,13 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                 exact: true,
             },
             {
-                const __KRS_AUTHORED: &[(&str, u32, ::k::__KrsRawAnchor)] = &[
+                const __KRS_AUTHORED: &[(
+                    ::k::ProvenanceRole,
+                    u32,
+                    ::k::__KrsRawAnchor,
+                )] = &[
                     (
-                        "rule_declaration",
+                        ::k::ProvenanceRole::RuleDeclaration,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -70,7 +74,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_pattern",
+                        ::k::ProvenanceRole::RulePattern,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -81,7 +85,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_type",
+                        ::k::ProvenanceRole::RuleType,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -92,7 +96,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_result_type",
+                        ::k::ProvenanceRole::RuleResultType,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -103,7 +107,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_result",
+                        ::k::ProvenanceRole::RuleResult,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -114,7 +118,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_left_path",
+                        ::k::ProvenanceRole::RuleLeftPath,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -125,7 +129,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_left_reference",
+                        ::k::ProvenanceRole::RuleLeftReference,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -136,7 +140,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "rule_right_literal",
+                        ::k::ProvenanceRole::RuleRightLiteral,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,
@@ -147,7 +151,7 @@ fn __krs_rule_descriptor_46529f2d42c7dff9() -> ::k::HostDescriptor {
                         },
                     ),
                     (
-                        "alias_clause",
+                        ::k::ProvenanceRole::AliasClause,
                         0u32,
                         ::k::__KrsRawAnchor {
                             file: 0usize,

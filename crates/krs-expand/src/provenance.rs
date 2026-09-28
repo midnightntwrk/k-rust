@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use krs_syntax::{ProvenanceAnchor, TokenRange};
+use krs_syntax::{ProvenanceAnchor, TokenRange, role_tokens};
 use quote::quote;
 
 use crate::environment::MacroEnvironment;
@@ -21,7 +21,7 @@ pub(crate) fn host_provenance(
     facade: &syn::Path,
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
-) -> syn::Result<proc_macro2::TokenStream> {
+) -> proc_macro2::TokenStream {
     host_provenance_impl(env, facade, fallback, anchors, false)
 }
 
@@ -32,7 +32,7 @@ pub(crate) fn host_provenance_static(
     facade: &syn::Path,
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
-) -> syn::Result<proc_macro2::TokenStream> {
+) -> proc_macro2::TokenStream {
     host_provenance_impl(env, facade, fallback, anchors, true)
 }
 
@@ -42,7 +42,7 @@ fn host_provenance_impl(
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
     static_authored: bool,
-) -> syn::Result<proc_macro2::TokenStream> {
+) -> proc_macro2::TokenStream {
     let invocation = capture_call_site(env)
         .or_else(|| capture(env, fallback, false))
         .unwrap_or_else(|| unavailable_invocation(env, fallback));
@@ -59,13 +59,8 @@ fn host_provenance_impl(
         });
         any_absolute |= captured.absolute_display_file;
         let anchor_tokens = raw_anchor(facade, &captured, &mut files);
-        let key = anchor.key().map_err(|error| {
-            syn::Error::new(
-                anchor.range().first(),
-                format!("invalid provenance key: {error}"),
-            )
-        })?;
-        let role = key.role();
+        let key = anchor.key();
+        let role = role_tokens(key.role(), facade);
         let ordinal = key.ordinal();
         authored.push(quote! { (#role, #ordinal, #anchor_tokens) });
     }
@@ -78,21 +73,21 @@ fn host_provenance_impl(
 
     let authored_tokens = if static_authored {
         quote!({
-            const __KRS_AUTHORED: &[(&str, u32, #facade::__KrsRawAnchor)] = &[#(#authored),*];
+            const __KRS_AUTHORED: &[(#facade::ProvenanceRole, u32, #facade::__KrsRawAnchor)] = &[#(#authored),*];
             __KRS_AUTHORED
         })
     } else {
         quote!(&[#(#authored),*])
     };
 
-    Ok(quote! {
+    quote! {
         #facade::__krs_host_provenance(
             #manifest_dir,
             &[#(#files),*],
             #invocation_tokens,
             #authored_tokens,
         )
-    })
+    }
 }
 
 /// Keep proc-macro expansion available to hosts such as rust-analyzer that do

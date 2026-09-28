@@ -218,7 +218,7 @@ fn constructor_like(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &declaration_anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &declaration_anchors);
     let mut grammar_anchors = attribute
         .full_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -274,7 +274,7 @@ fn constructor_like(
                 .map_err(krs_syntax::SyntaxError::into_syn_error)?,
         );
     }
-    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors)?;
+    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let nonce = expansion_nonce(env, "constructor", declaration.name(), fallback);
     let factory = format_ident!(
         "__krs_constructor_descriptor_{nonce:016x}",
@@ -599,7 +599,7 @@ pub(crate) fn token(
         TokenRange::for_tokens(declaration.name())
             .map_err(krs_syntax::SyntaxError::into_syn_error)?,
     );
-    let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor])?;
+    let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
     let mut grammar_anchors = attribute
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -608,7 +608,7 @@ pub(crate) fn token(
             .provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?,
     );
-    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors)?;
+    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let regex = attribute.regex().value();
     let lexical_precedence =
         attribute

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use k::{
     AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
     HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, PackageId, SchemaVersion,
-    ProvenanceKey, StableItemId,
+    ProvenanceKey, ProvenanceRole, StableItemId,
 };
 
 mod nested {
@@ -40,7 +40,7 @@ fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
     let provenance = HostProvenance::new(
         anchor.clone(),
         vec![HostAuthoredAnchor::new(
-            ProvenanceKey::new("sort_item", 0).expect("valid role"),
+            ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
             anchor,
         )],
     )

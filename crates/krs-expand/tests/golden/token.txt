@@ -38,7 +38,7 @@ fn __krs_token_sort_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -85,7 +85,7 @@ fn __krs_token_grammar_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "token_regex",
+                    ::k::ProvenanceRole::TokenRegex,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -96,7 +96,7 @@ fn __krs_token_grammar_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "token_lexical_precedence",
+                    ::k::ProvenanceRole::TokenLexicalPrecedence,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -107,7 +107,7 @@ fn __krs_token_grammar_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "token_declaration",
+                    ::k::ProvenanceRole::TokenDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

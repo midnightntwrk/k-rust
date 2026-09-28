@@ -41,13 +41,14 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
         ),
         payload: ::k::HostDescriptorPayload::Cell(
             ::std::boxed::Box::new(::k::HostCellDeclaration {
-                key: ::k::ProvenanceKey::new("configuration_declaration", 0)
-                    .expect("KRS parser roles are nonempty"),
+                key: ::k::ProvenanceKey::new(
+                    ::k::ProvenanceRole::ConfigurationDeclaration,
+                    0,
+                ),
                 fields: ::std::vec![
                     ::k::HostCellField { reference : ::k::HostCellReference { key :
-                    ::k::ProvenanceKey::new("configuration_field", 0u32)
-                    .expect("KRS parser roles are nonempty"), cell :
-                    ::k::HostCellIdentity { owner :
+                    ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
+                    0u32), cell : ::k::HostCellIdentity { owner :
                     ::k::HostTypeKey(__krs_cell_type_221054d221a44a51), field :
                     ::k::HostTypeKey(Store::__krs_cell_field_type_id_env), }, },
                     rust_field : "env".to_owned(), emitted_name :
@@ -55,12 +56,11 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
                     multiplicity : ::core::option::Option::None, cell_type :
                     ::core::option::Option::None, content :
                     ::k::ProtocolCellContent::Leaf { wrapper_key :
-                    ::k::ProvenanceKey::new("configuration_cell_wrapper", 0u32,)
-                    .expect("KRS parser roles are nonempty"), wrapper :
-                    ::k::CellWrapper::Cell, sort : ::k::HostSortReference { key :
-                    ::k::ProvenanceKey::new("configuration_cell_content", 0u32,)
-                    .expect("KRS parser roles are nonempty"), target :
-                    ::k::HostTypeReference { key :
+                    ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellWrapper,
+                    0u32,), wrapper : ::k::CellWrapper::Cell, sort :
+                    ::k::HostSortReference { key :
+                    ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
+                    0u32,), target : ::k::HostTypeReference { key :
                     ::k::HostTypeKey(Store::__krs_configuration_sort___krs_cell_type_221054d221a44a51_0),
                     authored_path : "k :: builtin :: Map".to_owned(), }, }, arguments :
                     ::std::vec![], }, }
@@ -80,7 +80,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "configuration_declaration",
+                    ::k::ProvenanceRole::ConfigurationDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -91,7 +91,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "configuration_field",
+                    ::k::ProvenanceRole::ConfigurationField,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -102,7 +102,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "configuration_cell_wrapper",
+                    ::k::ProvenanceRole::ConfigurationCellWrapper,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -113,7 +113,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "configuration_cell_content",
+                    ::k::ProvenanceRole::ConfigurationCellContent,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

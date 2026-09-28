@@ -3,7 +3,7 @@
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
     MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree,
-    parse_init_attribute, parse_initializer_function,
+    parse_init_attribute, parse_initializer_function, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -39,12 +39,19 @@ pub(crate) fn init(
     let initializer =
         parse_initializer_function(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
+    let configuration_variable_main_role = role_tokens(configuration_variable_main_role, &facade);
+    let configuration_variable_role = role_tokens(configuration_variable_role, &facade);
+    let configuration_variable_name_role = role_tokens(configuration_variable_name_role, &facade);
+    let configuration_variable_type_role = role_tokens(configuration_variable_type_role, &facade);
+    let initializer_declaration_role = role_tokens(initializer_declaration_role, &facade);
+    let initializer_result_type_role = role_tokens(initializer_result_type_role, &facade);
+    let initializer_body_role = role_tokens(initializer_body_role, &facade);
     let anchors = initializer
         .provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
 
     let bindings = initializer
         .variables()
@@ -76,7 +83,6 @@ pub(crate) fn init(
         let main_key = if variable.attribute().is_main() {
             quote!(::core::option::Option::Some(
                 #facade::ProvenanceKey::new(#configuration_variable_main_role, #ordinal)
-                    .expect("KRS parser roles are nonempty")
             ))
         } else {
             quote!(::core::option::Option::None)
@@ -84,17 +90,16 @@ pub(crate) fn init(
         let authored = spelling(variable.sort());
         variables.push(quote! {
             #facade::HostConfigurationVariable {
-                binding_key: #facade::ProvenanceKey::new(#configuration_variable_role, #ordinal)
-                    .expect("KRS parser roles are nonempty"),
+                binding_key: #facade::ProvenanceKey::new(#configuration_variable_role, #ordinal),
                 binding: #binding.to_owned(),
                 external_name_key: #facade::ProvenanceKey::new(
                     #configuration_variable_name_role, #ordinal,
-                ).expect("KRS parser roles are nonempty"),
+                ),
                 external_name: #external_name.to_owned(),
                 sort: #facade::HostSortReference {
                     key: #facade::ProvenanceKey::new(
                         #configuration_variable_type_role, #ordinal,
-                    ).expect("KRS parser roles are nonempty"),
+                    ),
                     target: #facade::HostTypeReference {
                         key: #facade::HostTypeKey(Self::#sort_key),
                         authored_path: #authored.to_owned(),
@@ -142,14 +147,11 @@ pub(crate) fn init(
                 ::core::any::TypeId::of::<T>()
             }
             let initializer = #facade::HostConfigurationInitializer {
-                key: #facade::ProvenanceKey::new(#initializer_declaration_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                owner_key: #facade::ProvenanceKey::new(#initializer_result_type_role, 0)
-                    .expect("KRS parser roles are nonempty"),
+                key: #facade::ProvenanceKey::new(#initializer_declaration_role, 0),
+                owner_key: #facade::ProvenanceKey::new(#initializer_result_type_role, 0),
                 owner: #facade::HostTypeKey(__krs_type_key::<Self>),
                 variables: ::std::vec![#(#variables),*],
-                body_key: #facade::ProvenanceKey::new(#initializer_body_role, 0)
-                    .expect("KRS parser roles are nonempty"),
+                body_key: #facade::ProvenanceKey::new(#initializer_body_role, 0),
                 cells: ::std::vec![#(#cells),*],
             };
             (initializer, #provenance)
@@ -287,6 +289,12 @@ impl<'a> InitializerBuilder<'a> {
         let initializer_nested_constructor_role = ProvenanceRole::InitializerNestedConstructor;
         let initializer_cell_role = ProvenanceRole::InitializerCell;
         let facade = self.facade;
+        let initializer_field_role = role_tokens(initializer_field_role, facade);
+        let initializer_cell_constructor_role =
+            role_tokens(initializer_cell_constructor_role, facade);
+        let initializer_nested_constructor_role =
+            role_tokens(initializer_nested_constructor_role, facade);
+        let initializer_cell_role = role_tokens(initializer_cell_role, facade);
         let mut output = Vec::new();
         for cell in cells {
             let cell_ordinal = take_counter(&mut self.counters.cell)?;
@@ -294,8 +302,7 @@ impl<'a> InitializerBuilder<'a> {
             let marker = cell_marker_function(cell.name());
             let field = quote! {
                 #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new(#initializer_field_role, #cell_ordinal)
-                        .expect("KRS parser roles are nonempty"),
+                    key: #facade::ProvenanceKey::new(#initializer_field_role, #cell_ordinal),
                     cell: #facade::HostCellIdentity {
                         owner: #facade::HostTypeKey(__krs_type_key::<#owner>),
                         field: #facade::HostTypeKey(#owner::#marker),
@@ -325,7 +332,7 @@ impl<'a> InitializerBuilder<'a> {
                         #facade::ProtocolInitializerCellContent::Leaf {
                             constructor_key: #facade::ProvenanceKey::new(
                                 #initializer_cell_constructor_role, #constructor_ordinal,
-                            ).expect("KRS parser roles are nonempty"),
+                            ),
                             wrapper: #wrapper,
                             value: #value,
                         }
@@ -341,7 +348,7 @@ impl<'a> InitializerBuilder<'a> {
                         #facade::HostCellDeclarationReference {
                             key: #facade::ProvenanceKey::new(
                                 #initializer_nested_constructor_role, #constructor_ordinal,
-                            ).expect("KRS parser roles are nonempty"),
+                            ),
                             declaration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(__krs_type_key::<#path>),
                                 authored_path: #authored.to_owned(),
@@ -360,8 +367,7 @@ impl<'a> InitializerBuilder<'a> {
             let facade = self.facade;
             output.push(quote! {
                 #facade::HostInitializerCell {
-                    key: #facade::ProvenanceKey::new(#initializer_cell_role, #cell_ordinal)
-                        .expect("KRS parser roles are nonempty"),
+                    key: #facade::ProvenanceKey::new(#initializer_cell_role, #cell_ordinal),
                     field: #field,
                     content: #content,
                 }

@@ -126,7 +126,7 @@ fn __krs_enum_sort_descriptor_01bc3d1b6dad6040() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "sort_declaration",
+                    ::k::ProvenanceRole::SortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -180,7 +180,7 @@ fn __krs_enum_membership_descriptor_01bc3d1b6dad6040() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "subsort_declaration",
+                    ::k::ProvenanceRole::SubsortDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -191,7 +191,7 @@ fn __krs_enum_membership_descriptor_01bc3d1b6dad6040() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "subsort_sub_sort",
+                    ::k::ProvenanceRole::SubsortSubSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -202,7 +202,7 @@ fn __krs_enum_membership_descriptor_01bc3d1b6dad6040() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "subsort_super_sort",
+                    ::k::ProvenanceRole::SubsortSuperSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -256,7 +256,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -267,7 +267,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -278,7 +278,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -289,7 +289,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -300,7 +300,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -355,7 +355,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -366,7 +366,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -377,7 +377,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -388,7 +388,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -399,7 +399,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -453,7 +453,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -464,7 +464,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -475,7 +475,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -486,7 +486,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -497,7 +497,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -552,7 +552,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -563,7 +563,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -574,7 +574,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -585,7 +585,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -596,7 +596,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -659,7 +659,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -670,7 +670,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -681,7 +681,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -692,7 +692,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -703,7 +703,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_field_reference",
+                    ::k::ProvenanceRole::ConstructorSyntaxFieldReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -714,7 +714,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -725,7 +725,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format",
+                    ::k::ProvenanceRole::ConstructorFormat,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -736,7 +736,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -747,7 +747,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -758,7 +758,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -769,7 +769,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -780,7 +780,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_declaration",
+                    ::k::ProvenanceRole::ConstructorFieldDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -838,7 +838,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "constructor_sort",
+                    ::k::ProvenanceRole::ConstructorSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -849,7 +849,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax",
+                    ::k::ProvenanceRole::ConstructorSyntax,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -860,7 +860,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -871,7 +871,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_item",
+                    ::k::ProvenanceRole::ConstructorSyntaxItem,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -882,7 +882,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_syntax_field_reference",
+                    ::k::ProvenanceRole::ConstructorSyntaxFieldReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -893,7 +893,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_group",
+                    ::k::ProvenanceRole::ConstructorGroup,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -904,7 +904,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format",
+                    ::k::ProvenanceRole::ConstructorFormat,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -915,7 +915,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -926,7 +926,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_format_fragment",
+                    ::k::ProvenanceRole::ConstructorFormatFragment,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -937,7 +937,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_declaration",
+                    ::k::ProvenanceRole::ConstructorDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -948,7 +948,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_sort",
+                    ::k::ProvenanceRole::ConstructorFieldSort,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -959,7 +959,7 @@ fn __krs_enum_grammar_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "constructor_field_declaration",
+                    ::k::ProvenanceRole::ConstructorFieldDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

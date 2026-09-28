@@ -41,7 +41,7 @@ pub use krs_ir::{
     HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
     HostProvenanceError, HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor,
     HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation,
-    ProvenanceKey, SchemaVersion, SentenceKind, SetOperation,
+    ProvenanceKey, ProvenanceRole, SchemaVersion, SentenceKind, SetOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -1272,7 +1272,7 @@ mod tests {
         let provenance = HostProvenance::new(
             anchor.clone(),
             vec![HostAuthoredAnchor::new(
-                ProvenanceKey::new("sort_item", 0).expect("valid role"),
+                ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
                 anchor,
             )],
         )

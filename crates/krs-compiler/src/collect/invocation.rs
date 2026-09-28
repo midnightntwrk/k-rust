@@ -908,12 +908,7 @@ fn parsed_invocation(
     anchors: Vec<ProvenanceAnchor>,
     payload: ParsedInvocationPayload,
 ) -> Result<ParsedInvocation, CollectionError> {
-    let primary = primary_role.key(0).map_err(|error| {
-        CollectionError::new(
-            CollectionErrorKind::SourceSyntax,
-            format!("invalid shared-parser provenance key: {error}"),
-        )
-    })?;
+    let primary = primary_role.key(0);
     let parsed = parsed_anchor_map(anchors)?;
     Ok(ParsedInvocation {
         primary,
@@ -930,19 +925,14 @@ fn parsed_anchor_map(
 ) -> Result<BTreeMap<ProvenanceKey, Coordinates>, CollectionError> {
     let mut parsed = BTreeMap::new();
     for anchor in anchors {
-        let key = anchor.key().map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::SourceSyntax,
-                format!("invalid shared-parser provenance key: {error}"),
-            )
-        })?;
+        let key = anchor.key();
         let coordinates = token_coordinates(anchor.range())?;
         if parsed.insert(key.clone(), coordinates).is_some() {
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
                 format!(
                     "shared parser repeated provenance key `{}`#{}",
-                    key.role(),
+                    key.role().as_str(),
                     key.ordinal()
                 ),
             ));
@@ -1182,7 +1172,10 @@ mod tests {
         assert_eq!(
             invocations
                 .iter()
-                .map(|invocation| (invocation.primary.role(), invocation.item_name.as_str()))
+                .map(|invocation| (
+                    invocation.primary.role().as_str(),
+                    invocation.item_name.as_str()
+                ))
                 .collect::<Vec<_>>(),
             [
                 ("sort_declaration", "KItem"),

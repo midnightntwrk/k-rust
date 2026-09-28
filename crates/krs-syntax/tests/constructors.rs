@@ -43,11 +43,17 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
 
     assert_eq!(anchors.len(), 3);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConstructorDeclaration);
-    assert_eq!(anchors[0].key().unwrap().role(), "constructor_declaration");
+    assert_eq!(
+        anchors[0].key().role(),
+        ProvenanceRole::ConstructorDeclaration
+    );
     assert_eq!(anchors[1].role(), ProvenanceRole::ConstructorFieldSort);
     assert_eq!(anchors[1].ordinal(), 0);
     assert_eq!(anchors[2].ordinal(), 1);
-    assert_eq!(anchors[1].key().unwrap().role(), "constructor_field_sort");
+    assert_eq!(
+        anchors[1].key().role(),
+        ProvenanceRole::ConstructorFieldSort
+    );
     assert_eq!(anchors[1].range().start().column, 29);
     assert_eq!(anchors[1].range().end().column, 41);
 }

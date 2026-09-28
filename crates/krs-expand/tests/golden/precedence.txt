@@ -30,7 +30,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
             },
             &[
                 (
-                    "precedence_declaration",
+                    ::k::ProvenanceRole::PrecedenceDeclaration,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -41,7 +41,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "precedence_chain",
+                    ::k::ProvenanceRole::PrecedenceChain,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -52,7 +52,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "precedence_group_reference",
+                    ::k::ProvenanceRole::PrecedenceGroupReference,
                     0u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,
@@ -63,7 +63,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
                     },
                 ),
                 (
-                    "precedence_group_reference",
+                    ::k::ProvenanceRole::PrecedenceGroupReference,
                     1u32,
                     ::k::__KrsRawAnchor {
                         file: 0usize,

@@ -33,22 +33,25 @@ fn compact_provenance_preserves_files_order_and_precision() {
         ],
         raw(0),
         &[
-            ("first", 0, absolute),
-            ("second", 1, fallback),
-            ("third", 0, absolute),
+            (ProvenanceRole::SortDeclaration, 0, absolute),
+            (ProvenanceRole::SortParent, 1, fallback),
+            (ProvenanceRole::ConstructorDeclaration, 0, absolute),
         ],
     );
     assert_eq!(provenance.invocation().display_file(), "src/lib.rs");
     let anchors = provenance.authored();
     assert_eq!(anchors[0].anchor().display_file(), "src/other.rs");
-    assert_eq!(anchors[0].key().role(), "first");
+    assert_eq!(anchors[0].key().role(), ProvenanceRole::SortDeclaration);
     assert_eq!(anchors[1].anchor().display_file(), "src/third.rs");
     assert_eq!(
         anchors[1].anchor().precision(),
         AnchorPrecision::InvocationFallback
     );
     assert_eq!(anchors[2].anchor().display_file(), "src/other.rs");
-    assert_eq!(anchors[2].key().role(), "third");
+    assert_eq!(
+        anchors[2].key().role(),
+        ProvenanceRole::ConstructorDeclaration
+    );
 }
 
 #[test]
@@ -94,12 +97,6 @@ fn compact_provenance_rejects_reversed_anchor() {
 }
 
 #[test]
-#[should_panic(expected = "KRS parser roles are nonempty")]
-fn compact_provenance_rejects_empty_role() {
-    let _ = __krs_host_provenance("/package", &["src/lib.rs"], raw(0), &[("", 0, raw(0))]);
-}
-
-#[test]
 #[should_panic(expected = "KRS shared parsers emit nonempty, uniquely keyed provenance")]
 fn compact_provenance_rejects_empty_authored() {
     let _ = __krs_host_provenance("/package", &["src/lib.rs"], raw(0), &[]);
@@ -112,6 +109,9 @@ fn compact_provenance_rejects_duplicate_key() {
         "/package",
         &["src/lib.rs"],
         raw(0),
-        &[("same", 0, raw(0)), ("same", 0, raw(0))],
+        &[
+            (ProvenanceRole::SortDeclaration, 0, raw(0)),
+            (ProvenanceRole::SortDeclaration, 0, raw(0)),
+        ],
     );
 }

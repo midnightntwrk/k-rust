@@ -42,7 +42,7 @@ pub(super) fn semantic_origin(
             id: Box::new(descriptor.id.clone()),
             detail: format!(
                 "missing parser origin `{}#{}` for semantic {role}",
-                key.role(),
+                key.role().as_str(),
                 key.ordinal()
             ),
         }
@@ -73,7 +73,7 @@ fn semantic_origin_from_stack(
     seed.push_str(role);
     if let Some(key) = key {
         seed.push('\0');
-        seed.push_str(key.role());
+        seed.push_str(key.role().as_str());
         seed.push('\0');
         seed.push_str(&key.ordinal().to_string());
     }
@@ -88,15 +88,8 @@ fn semantic_origin_from_stack(
     Ok(NodeOrigin::new(source_key, origin))
 }
 
-pub(super) fn role_key(
-    role: ProvenanceRole,
-    ordinal: u32,
-) -> Result<ProvenanceKey, DescriptorLoweringError> {
-    role.key(ordinal).map_err(|error| {
-        DescriptorLoweringError::InvalidGeneratedIdentity(format!(
-            "cannot generate parser provenance key: {error}"
-        ))
-    })
+pub(super) fn role_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    role.key(ordinal)
 }
 
 fn stable_item_text(id: &StableItemId) -> String {

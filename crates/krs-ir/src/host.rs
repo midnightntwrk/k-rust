@@ -1,6 +1,7 @@
 //! Host-process descriptors emitted by author-facing macros.
 
 use std::any::TypeId;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fmt;
@@ -11,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     GrammarTransportError, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
     HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
-    HostStructuredRuleDescriptor, ItemKind, SchemaVersion, SentenceKind, StateTransportError,
+    HostStructuredRuleDescriptor, ItemKind, ProvenanceRole, SchemaVersion, SentenceKind,
+    StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -399,10 +401,10 @@ impl HostSourceAnchor {
 }
 
 /// Stable key used to match a semantic node during provenance reparsing.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "ProvenanceKeyWire")]
 pub struct ProvenanceKey {
-    role: String,
+    role: ProvenanceRole,
     ordinal: u32,
 }
 
@@ -413,37 +415,44 @@ struct ProvenanceKeyWire {
 }
 
 impl TryFrom<ProvenanceKeyWire> for ProvenanceKey {
-    type Error = HostProvenanceError;
+    type Error = String;
 
     fn try_from(wire: ProvenanceKeyWire) -> Result<Self, Self::Error> {
-        Self::new(wire.role, wire.ordinal)
+        let role = ProvenanceRole::from_spelling(&wire.role)
+            .ok_or_else(|| format!("unknown provenance role `{}`", wire.role))?;
+        Ok(Self::new(role, wire.ordinal))
     }
 }
 
 impl ProvenanceKey {
     /// Creates a semantic role and same-role invocation ordinal.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HostProvenanceError::EmptyRole`] when `role` is blank.
-    pub fn new(role: impl Into<String>, ordinal: u32) -> Result<Self, HostProvenanceError> {
-        let role = role.into();
-        if role.trim().is_empty() {
-            return Err(HostProvenanceError::EmptyRole);
-        }
-        Ok(Self { role, ordinal })
+    #[must_use]
+    pub const fn new(role: ProvenanceRole, ordinal: u32) -> Self {
+        Self { role, ordinal }
     }
 
     /// Returns the parser-defined semantic role.
     #[must_use]
-    pub fn role(&self) -> &str {
-        &self.role
+    pub const fn role(&self) -> ProvenanceRole {
+        self.role
     }
 
     /// Returns the zero-based occurrence within this invocation and role.
     #[must_use]
     pub const fn ordinal(&self) -> u32 {
         self.ordinal
+    }
+}
+
+impl Ord for ProvenanceKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.role.as_str(), self.ordinal).cmp(&(other.role.as_str(), other.ordinal))
+    }
+}
+
+impl PartialOrd for ProvenanceKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -563,8 +572,6 @@ pub enum HostProvenanceError {
         /// Exclusive end anchor.
         end: HostSourcePosition,
     },
-    /// A shared-parser semantic role was empty.
-    EmptyRole,
     /// No authored semantic anchor was supplied for the descriptor.
     MissingAuthoredAnchor,
     /// Two authored anchors used the same semantic key.
@@ -590,14 +597,14 @@ impl fmt::Display for HostProvenanceError {
                     "host source endpoint {end} precedes start {start}"
                 )
             }
-            Self::EmptyRole => formatter.write_str("provenance role must not be empty"),
             Self::MissingAuthoredAnchor => {
                 formatter.write_str("host provenance requires at least one authored anchor")
             }
             Self::DuplicateKey(key) => write!(
                 formatter,
                 "duplicate provenance key `{}#{}`",
-                key.role, key.ordinal
+                key.role.as_str(),
+                key.ordinal
             ),
         }
     }
@@ -886,7 +893,7 @@ mod tests {
     fn constructor_fields_retain_names_and_resolved_sorts() {
         let constructor = HostConstructorDescriptor {
             sort: crate::HostSortReference {
-                key: ProvenanceKey::new("constructor_sort", 0).unwrap(),
+                key: ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                 target: type_reference("model::Expr"),
             },
             syntax: Some("{value}".into()),
@@ -942,7 +949,7 @@ mod tests {
 
     #[test]
     fn provenance_keys_are_unique_within_authored_anchors() {
-        let key = ProvenanceKey::new("rule_pattern", 0).unwrap();
+        let key = ProvenanceKey::new(ProvenanceRole::RulePattern, 0);
         let authored = vec![
             HostAuthoredAnchor::new(key.clone(), anchor(AnchorPrecision::Exact)),
             HostAuthoredAnchor::new(key.clone(), anchor(AnchorPrecision::InvocationFallback)),
@@ -963,8 +970,8 @@ mod tests {
 
     #[test]
     fn provenance_merge_retains_disjoint_authored_anchors() {
-        let left_key = ProvenanceKey::new("configuration_declaration", 0).unwrap();
-        let right_key = ProvenanceKey::new("initializer_declaration", 0).unwrap();
+        let left_key = ProvenanceKey::new(ProvenanceRole::ConfigurationDeclaration, 0);
+        let right_key = ProvenanceKey::new(ProvenanceRole::InitializerDeclaration, 0);
         let left = HostProvenance::new(
             anchor(AnchorPrecision::Exact),
             vec![HostAuthoredAnchor::new(
@@ -1011,7 +1018,7 @@ mod tests {
         let left = HostProvenance::new(
             left_invocation.clone(),
             vec![HostAuthoredAnchor::new(
-                ProvenanceKey::new("configuration_declaration", 0).unwrap(),
+                ProvenanceKey::new(ProvenanceRole::ConfigurationDeclaration, 0),
                 left_invocation.clone(),
             )],
         )
@@ -1019,7 +1026,7 @@ mod tests {
         let right = HostProvenance::new(
             right_invocation.clone(),
             vec![HostAuthoredAnchor::new(
-                ProvenanceKey::new("initializer_declaration", 0).unwrap(),
+                ProvenanceKey::new(ProvenanceRole::InitializerDeclaration, 0),
                 right_invocation,
             )],
         )
@@ -1030,7 +1037,7 @@ mod tests {
 
     #[test]
     fn provenance_merge_rejects_duplicate_keys() {
-        let duplicate = ProvenanceKey::new("configuration_declaration", 0).unwrap();
+        let duplicate = ProvenanceKey::new(ProvenanceRole::ConfigurationDeclaration, 0);
         let fragment = || {
             HostProvenance::new(
                 anchor(AnchorPrecision::Exact),
@@ -1052,15 +1059,15 @@ mod tests {
     fn distinct_roles_and_ordinals_are_retained() {
         let authored = vec![
             HostAuthoredAnchor::new(
-                ProvenanceKey::new("rule_pattern", 0).unwrap(),
+                ProvenanceKey::new(ProvenanceRole::RulePattern, 0),
                 anchor(AnchorPrecision::Exact),
             ),
             HostAuthoredAnchor::new(
-                ProvenanceKey::new("rule_pattern", 1).unwrap(),
+                ProvenanceKey::new(ProvenanceRole::RulePattern, 1),
                 anchor(AnchorPrecision::InvocationFallback),
             ),
             HostAuthoredAnchor::new(
-                ProvenanceKey::new("rule_type", 0).unwrap(),
+                ProvenanceKey::new(ProvenanceRole::RuleType, 0),
                 anchor(AnchorPrecision::Exact),
             ),
         ];
@@ -1070,6 +1077,24 @@ mod tests {
         assert_eq!(
             provenance.authored()[1].anchor().precision(),
             AnchorPrecision::InvocationFallback
+        );
+    }
+
+    #[test]
+    fn provenance_key_uses_spelling_order_and_rejects_unknown_roles() {
+        let payload = ProvenanceKey::new(ProvenanceRole::RuleLeftCellsPayload, 0);
+        let field = ProvenanceKey::new(ProvenanceRole::RuleLeftCellsField, 0);
+        assert!(field < payload);
+        assert_eq!(
+            serde_json::to_string(&field).unwrap(),
+            r#"{"role":"rule_left_cells_field","ordinal":0}"#
+        );
+        let error = serde_json::from_str::<ProvenanceKey>(r#"{"role":"unknown_role","ordinal":0}"#)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unknown provenance role `unknown_role`")
         );
     }
 }

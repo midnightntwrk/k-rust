@@ -10,8 +10,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
-    GrammarTransportError, OriginStack, ProvenanceKey, RustVisibility, SchemaVersion, StableItemId,
-    StateTransportError, StructuredRuleDescriptor,
+    GrammarTransportError, OriginStack, ProvenanceKey, ProvenanceRole, RustVisibility,
+    SchemaVersion, StableItemId, StateTransportError, StructuredRuleDescriptor,
 };
 
 /// Deterministic, serializable output of one host collector execution.
@@ -301,11 +301,9 @@ fn validate_declarations(
             .iter()
             .find(|descriptor| descriptor.id == *declaration.id())
             .expect("metadata IDs were checked against the descriptor set");
-        let has_symbol_origin = descriptor
-            .provenance
-            .origins()
-            .iter()
-            .any(|origin| origin.key.role() == "stable_symbol" && origin.key.ordinal() == 0);
+        let has_symbol_origin = descriptor.provenance.origins().iter().any(|origin| {
+            origin.key.role() == ProvenanceRole::StableSymbol && origin.key.ordinal() == 0
+        });
         if declaration.explicit_symbol.is_some() != has_symbol_origin {
             return Err(if declaration.explicit_symbol.is_some() {
                 DescriptorDeclarationError::MissingSymbolOrigin(Box::new(declaration.id().clone()))
@@ -384,7 +382,7 @@ impl Descriptor {
             .provenance
             .origins()
             .iter()
-            .filter(|origin| origin.key.role() != "stable_symbol")
+            .filter(|origin| origin.key.role() != ProvenanceRole::StableSymbol)
             .map(|origin| origin.key.clone())
             .collect::<BTreeSet<_>>();
         if let Some(missing) = expected.difference(&actual).next() {

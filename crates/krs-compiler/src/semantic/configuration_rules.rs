@@ -273,7 +273,7 @@ pub(super) fn lower_configuration_rule_descriptor(
                     ProvenanceRole::RuleDeclaration
                 },
                 0,
-            )?,
+            ),
             "configuration-rule",
         )?,
         descriptor.id.clone(),
@@ -862,11 +862,11 @@ fn semantic_term_slices_equivalent(left: &[SemanticTerm], right: &[SemanticTerm]
 mod state_frame_tests {
     use super::*;
 
-    fn key(role: &str) -> ProvenanceKey {
-        ProvenanceKey::new(role, 0).unwrap()
+    fn key(role: ProvenanceRole) -> ProvenanceKey {
+        ProvenanceKey::new(role, 0)
     }
 
-    fn variable(role: &str) -> DescriptorTerm {
+    fn variable(role: ProvenanceRole) -> DescriptorTerm {
         DescriptorTerm::Variable {
             key: key(role),
             path_key: key(role),
@@ -876,7 +876,7 @@ mod state_frame_tests {
 
     fn map(body: ProtocolRuleMapBody<DescriptorTerm>) -> ProtocolRuleStateTerm<DescriptorTerm> {
         ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
-            payload_key: Some(key("map_payload")),
+            payload_key: Some(key(ProvenanceRole::MapPayload)),
             body,
         })
     }
@@ -884,10 +884,10 @@ mod state_frame_tests {
     fn exact_map_items() -> ProtocolRuleStateTerm<DescriptorTerm> {
         map(ProtocolRuleMapBody::Items {
             items: vec![krs_ir::ProtocolRuleMapItem {
-                key_key: key("map_key"),
-                key: variable("key_reference"),
-                value_key: key("map_value"),
-                value: variable("value_reference"),
+                key_key: key(ProvenanceRole::MapKey),
+                key: variable(ProvenanceRole::RuleLeftReference),
+                value_key: key(ProvenanceRole::MapValue),
+                value: variable(ProvenanceRole::RuleRightReference),
             }],
             remainder: ProtocolRuleFrame::Exact,
         })
@@ -898,14 +898,15 @@ mod state_frame_tests {
         let empty = map(ProtocolRuleMapBody::Empty { explicit_dot: true });
         let items = exact_map_items();
         let update = map(ProtocolRuleMapBody::Update {
-            base_key: key("map_update_base"),
-            base: variable("base_reference"),
-            key_key: key("map_update_key"),
-            key: variable("update_key_reference"),
-            value_key: key("map_update_value"),
-            value: variable("update_value_reference"),
+            base_key: key(ProvenanceRole::MapUpdateBase),
+            base: variable(ProvenanceRole::TermReference),
+            key_key: key(ProvenanceRole::RuleRightMapKey),
+            key: variable(ProvenanceRole::RuleRequiresReference),
+            value_key: key(ProvenanceRole::RuleRightMapValue),
+            value: variable(ProvenanceRole::ClaimEnsuresReference),
         });
-        let whole_map_term = ProtocolRuleStateTerm::Term(variable("whole_map_reference"));
+        let whole_map_term =
+            ProtocolRuleStateTerm::Term(variable(ProvenanceRole::ClaimEnsuresPath));
 
         assert!(state_frames_compatible(
             rule_state_frame(&empty),
@@ -929,24 +930,24 @@ mod state_frame_tests {
     fn exact_forms_do_not_admit_a_frame_and_framed_families_remain_typed() {
         let empty = map(ProtocolRuleMapBody::Empty { explicit_dot: true });
         let framed_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-            payload_key: Some(key("k_payload")),
+            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
             dot_k_key: None,
             notation: krs_ir::DescriptorKSequenceNotation::Comma,
             items: Vec::new(),
             tail: ProtocolRuleFrame::Bind {
-                key: key("k_remainder"),
+                key: key(ProvenanceRole::KSequenceTail),
                 binding: "REST".into(),
             },
         });
         let framed_map = map(ProtocolRuleMapBody::Items {
             items: vec![krs_ir::ProtocolRuleMapItem {
-                key_key: key("map_key"),
-                key: variable("key_reference"),
-                value_key: key("map_value"),
-                value: variable("value_reference"),
+                key_key: key(ProvenanceRole::MapKey),
+                key: variable(ProvenanceRole::RuleLeftReference),
+                value_key: key(ProvenanceRole::MapValue),
+                value: variable(ProvenanceRole::RuleRightReference),
             }],
             remainder: ProtocolRuleFrame::Reuse {
-                key: key("map_remainder"),
+                key: key(ProvenanceRole::MapRemainder),
                 binding: "REST".into(),
             },
         });

@@ -6,8 +6,8 @@ use krs_compiler::{AnalysisErrorKind, analyze_open_sorts};
 use krs_ir::testing;
 use krs_ir::{
     ConstructorDescriptor, Descriptor, DescriptorBundle, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, ItemKind, OriginStack, PackageId, ProvenanceKey, SortDescriptor,
-    StableItemId,
+    DescriptorProvenance, ItemKind, OriginStack, PackageId, ProvenanceKey, ProvenanceRole,
+    SortDescriptor, StableItemId,
 };
 
 #[test]
@@ -124,7 +124,7 @@ fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {
     Descriptor {
         id,
         cfg: BTreeMap::new(),
-        provenance: provenance("sort_declaration"),
+        provenance: provenance(ProvenanceRole::SortDeclaration),
         payload: DescriptorPayload::Sort(SortDescriptor { parents }),
     }
 }
@@ -133,7 +133,7 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
     Descriptor {
         id,
         cfg: BTreeMap::new(),
-        provenance: provenance("constructor_sort"),
+        provenance: provenance(ProvenanceRole::ConstructorSort),
         payload: DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: krs_ir::DescriptorSortRef::Declared(sort),
             syntax: None,
@@ -142,7 +142,7 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
     }
 }
 
-fn provenance(role: &str) -> DescriptorProvenance {
-    let key = ProvenanceKey::new(role, 0).unwrap();
+fn provenance(role: ProvenanceRole) -> DescriptorProvenance {
+    let key = ProvenanceKey::new(role, 0);
     DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, origin())]).unwrap()
 }
