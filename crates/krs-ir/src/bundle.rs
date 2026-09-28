@@ -106,7 +106,7 @@ impl DescriptorBundle {
         Self::new(Vec::new())
     }
 
-    /// Returns the serialized collector protocol version.
+    /// Returns the canonical descriptor-bundle schema version.
     #[must_use]
     pub const fn protocol_version(&self) -> SchemaVersion {
         self.protocol_version
@@ -151,7 +151,7 @@ impl DescriptorBundle {
             bytes: Vec::with_capacity(self.json_capacity_hint()),
             provenance: 0,
         };
-        serde_json::to_writer(&mut writer, self)?;
+        crate::transport::collector::write(self, &mut writer)?;
         writer.write_all(b"\n").map_err(serde_json::Error::io)?;
         Ok((writer.bytes, writer.provenance))
     }
@@ -166,18 +166,26 @@ impl DescriptorBundle {
         mut writer: impl Write,
     ) -> serde_json::Result<()> {
         self.canonicalize();
-        serde_json::to_writer(&mut writer, self)?;
+        crate::transport::collector::write(self, &mut writer)?;
         writer.write_all(b"\n").map_err(serde_json::Error::io)
     }
 
+    /// Decodes the versioned collector wire into the canonical bundle model.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed JSON, invalid table indexes, frame codes, and bundle contracts.
+    pub fn from_collector_protocol(bytes: &[u8]) -> serde_json::Result<Self> {
+        crate::transport::collector::decode(bytes)
+    }
+
     fn json_capacity_hint(&self) -> usize {
-        // Provenance nodes dominate large collector bundles. This estimate
-        // reserves the observed order of magnitude without inspecting strings.
+        // Reserve for compact frames and the unchanged descriptor payloads.
         let origins = self.descriptors.iter().fold(0usize, |count, descriptor| {
             count.saturating_add(descriptor.provenance.origins().len())
         });
         origins
-            .saturating_mul(1536)
+            .saturating_mul(160)
             .saturating_add(self.descriptors.len().saturating_mul(4 * 1024))
             .min(64 * 1024 * 1024)
     }

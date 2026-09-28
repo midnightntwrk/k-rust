@@ -70,7 +70,7 @@ test("bundle stage hashes the compact collector payload and requires its newline
   const pack = await adaptedPack();
   const ctx = { pack, modules: {} as VerifiedAssets["modules"], layers: { sysroot: new Map(), pack: new Map(), krs: new Map() }, activationProblems: [] };
   const build = createBuild(ctx, { generation: 1, lesson, files: {} }, { emit: () => {} });
-  const bytes = new TextEncoder().encode(`{"protocol_version":${pack.protocol_version},"descriptors":[],"declarations":[]}\n`);
+  const bytes = new TextEncoder().encode(`{"protocol_version":${pack.protocol_version},"files":[],"items":[],"descriptors":[],"declarations":[]}\n`);
   build.stdout = bytes;
   expect(await stageBundle(build)).toEqual({ bundle: bytes, sha256: await sha256Hex(bytes) });
   build.stdout = bytes.slice(0, -1);

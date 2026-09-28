@@ -246,10 +246,12 @@ function browserNormalized(d: BrowserDiagnostic): Normalized {
 function lowerNatively(c: DiagnosticCase, bundlePath: string): { stderr: string; exit: number } {
   const pkg = c.id === "D003" ? ["wrong-result", "diagnostic-wrong-result"] : ["overlap", "diagnostic-overlap"];
   const z3 = process.env.KRS_Z3_LIB ?? "/nix/store/bncr69nhmgvphbynb1a3g4a2jb9b8vj0-z3-4.12.5-lib/lib";
+  const realCargo = Bun.which("cargo");
+  if (!realCargo) throw new Error("cargo is required for native lowering");
   const result = Bun.spawnSync(
     ["nice", "-n", "19", values["krs-bin"]!, "check", "--manifest-path", join(nativeDir, "workspace", pkg[0]!, "Cargo.toml"), "--package", pkg[1]!, "--definition", "main"],
     {
-      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_DIAGNOSTICS_BUNDLE: bundlePath, LD_LIBRARY_PATH: z3, CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
+      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_DIAGNOSTICS_REAL_CARGO: realCargo, KRS_DIAGNOSTICS_BUNDLE: bundlePath, LD_LIBRARY_PATH: z3, CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
       stdout: "pipe",
       stderr: "pipe",
     },

@@ -108,7 +108,7 @@
 //!
 //! | Key | Meaning |
 //! |---|---|
-//! | `bundle.bytes` | collector stdout bytes (compact canonical JSON, including the trailing newline) |
+//! | `bundle.bytes` | collector stdout bytes (compact collector wire, including the trailing newline) |
 //! | `bundle.provenance_bytes` | bytes of every descriptor `provenance` value in that stdout |
 //! | `bundle.other_bytes` | `bundle.bytes - bundle.provenance_bytes` |
 //! | `collector.host_descriptors` | host descriptors returned by the factories |

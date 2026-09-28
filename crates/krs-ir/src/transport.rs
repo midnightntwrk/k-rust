@@ -5,6 +5,8 @@
 //! parser-owned [`crate::ProvenanceKey`] values which the compiler resolves
 //! through the enclosing descriptor's provenance table.
 
+#[doc(hidden)]
+pub mod collector;
 pub mod configuration;
 pub mod grammar;
 pub mod head_rule;

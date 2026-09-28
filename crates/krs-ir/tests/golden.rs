@@ -6,8 +6,8 @@ use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    PackageId, ProvenanceKey, RustVisibility, Sha256Digest, SortDescriptor, SourceFileId,
-    SourceRange, StableItemId, TransformationOriginKind,
+    PackageId, ProvenanceKey, RangedOriginKind, RustVisibility, Sha256Digest, SortDescriptor,
+    SourceFileId, SourceRange, StableItemId, TransformationOriginKind,
 };
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
@@ -150,13 +150,96 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
         .write_collector_protocol_in_place(&mut streamed)
         .unwrap();
     assert_eq!(streamed, bytes);
-    let expected: usize = bundle
-        .descriptors
+    let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
+    assert_eq!(
+        decoded.to_canonical_json().unwrap(),
+        owned.to_canonical_json().unwrap()
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let expected: usize = parsed["descriptors"]
+        .as_array()
+        .unwrap()
         .iter()
-        .map(|descriptor| serde_json::to_vec(&descriptor.provenance).unwrap().len())
+        .map(|descriptor| serde_json::to_vec(&descriptor["provenance"]).unwrap().len())
         .sum();
     assert!(expected > 0);
     assert_eq!(provenance, u64::try_from(expected).unwrap());
+}
+
+#[test]
+fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
+    let mut bundle = populated_bundle(false);
+    let descriptor = &mut bundle.descriptors[0];
+    let id = descriptor.id.clone();
+    let mut stack = origin();
+    let range = match &stack.frames()[0] {
+        OriginFrame::Ranged { range, .. } => range.clone(),
+        OriginFrame::Transformation { .. } => unreachable!(),
+    };
+    for kind in [
+        RangedOriginKind::MacroInvocation,
+        RangedOriginKind::GeneratedArtifact,
+        RangedOriginKind::FrontendDiagnostic,
+    ] {
+        stack.push(OriginFrame::Ranged {
+            kind,
+            range: range.clone(),
+            item: Some(id.clone()),
+            label: Some("preserved".to_owned()),
+        });
+    }
+    for kind in [
+        TransformationOriginKind::GeneratedDescriptor,
+        TransformationOriginKind::SemanticIr,
+        TransformationOriginKind::DefinitionIr,
+    ] {
+        stack.push(OriginFrame::Transformation {
+            kind,
+            item: Some(id.clone()),
+            label: Some("preserved".to_owned()),
+        });
+    }
+    let key = descriptor.provenance.primary_key().clone();
+    descriptor.provenance =
+        DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, stack)])
+            .unwrap();
+    let bytes = bundle.to_collector_protocol_measured_in_place().unwrap().0;
+    let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
+    assert_eq!(decoded, bundle);
+
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let mut short = wire.clone();
+    short["descriptors"][0]["provenance"]["origins"][0]["origin"][1]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    assert!(
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&short).unwrap()).is_err()
+    );
+    let mut long = wire.clone();
+    long["descriptors"][0]["provenance"]["origins"][0]["origin"][1]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::Value::Null);
+    assert!(
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&long).unwrap()).is_err()
+    );
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][1] = 999.into();
+    let bad_file = serde_json::to_vec(&wire).unwrap();
+    assert!(DescriptorBundle::from_collector_protocol(&bad_file).is_err());
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][1] = 0.into();
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][4] = 999.into();
+    let bad_item = serde_json::to_vec(&wire).unwrap();
+    assert!(DescriptorBundle::from_collector_protocol(&bad_item).is_err());
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][4] = 0.into();
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 99.into();
+    let bad_code = serde_json::to_vec(&wire).unwrap();
+    assert!(DescriptorBundle::from_collector_protocol(&bad_code).is_err());
+    wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 1.into();
+    wire["protocol_version"] = 38.into();
+    assert!(
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).is_err()
+    );
 }
 
 #[test]

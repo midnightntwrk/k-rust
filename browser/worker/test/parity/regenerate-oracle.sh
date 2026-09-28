@@ -56,6 +56,7 @@ export_at() { # DIR: fresh git archive of HEAD
   rm -rf "$1"
   mkdir -p "$1"
   git -C "$REPO" archive "$REV" | tar -x -C "$1"
+  cargo +stable generate-lockfile --manifest-path "$1/tests/tour-minimal/Cargo.toml" --offline
 }
 
 in_export() { # EXPORT CMD...: run CMD with EXPORT mounted read-only over the checkout path
@@ -114,8 +115,41 @@ def record(name, lesson):
     pretty = out / name / "descriptor-bundle.json"
     data = json.loads(pretty.read_bytes())
     bundle = out / name / "collector-stdout.json"
-    if json.loads(bundle.read_bytes()) != data:
-        sys.exit(f"{name}: collector stdout differs from the pretty emit-k artifact")
+    wire = json.loads(bundle.read_bytes())
+    restored = {
+        "protocol_version": data["protocol_version"],
+        "descriptors": wire["descriptors"],
+        "declarations": wire["declarations"],
+    }
+    for descriptor in restored["descriptors"]:
+        descriptor.update(descriptor.pop("payload"))
+        for node in descriptor["provenance"]["origins"]:
+            frames = []
+            for frame in node["origin"]:
+                code = frame[0]
+                if code in range(4):
+                    _, file, start, end, item, label = frame
+                    expanded = {
+                        "frame_type": "ranged",
+                        "kind": ["authored", "macro_invocation", "generated_artifact", "frontend_diagnostic"][code],
+                        "range": {"file": wire["files"][file], "start_byte": start, "end_byte": end},
+                    }
+                elif code in range(4, 7):
+                    _, item, label = frame
+                    expanded = {
+                        "frame_type": "transformation",
+                        "kind": ["generated_descriptor", "semantic_ir", "definition_ir"][code - 4],
+                    }
+                else:
+                    sys.exit(f"{name}: unknown collector frame code {code}")
+                if item is not None:
+                    expanded["item"] = wire["items"][item]
+                if label is not None:
+                    expanded["label"] = label
+                frames.append(expanded)
+            node["origin"] = frames
+    if restored != data:
+        sys.exit(f"{name}: expanded collector stdout differs from the pretty emit-k artifact")
     if not bundle.read_bytes().endswith(b"\n"):
         sys.exit(f"{name}: collector stdout lacks its trailing newline")
     kinds = Counter(d["descriptor_kind"] for d in data["descriptors"])
@@ -123,7 +157,7 @@ def record(name, lesson):
         "bundle": str(bundle),
         "bundle_bytes": bundle.stat().st_size,
         "bundle_sha256": sha(bundle),
-        "protocol_version": data["protocol_version"],
+        "protocol_version": wire["protocol_version"],
         "descriptors": len(data["descriptors"]),
         "descriptor_kinds": dict(sorted(kinds.items())),
         "lesson_source": str(lesson),

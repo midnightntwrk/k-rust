@@ -11,9 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // headroom is 10%, rounded up to the next hundred bytes; zero pins the
 // fixture's structural counts.
 const BOUNDS: &[(&str, u64, u64)] = &[
-    ("bundle.bytes", 575_009, 57_600),
-    ("bundle.other_bytes", 76_773, 7_700),
-    ("bundle.provenance_bytes", 498_236, 49_900),
+    ("bundle.bytes", 143_598, 14_400),
+    ("bundle.other_bytes", 84_660, 8_500),
+    ("bundle.provenance_bytes", 58_938, 5_900),
     ("collector.host_descriptors", 34, 4),
     ("declarations.total", 34, 4),
     ("definition.modules", 2, 0),

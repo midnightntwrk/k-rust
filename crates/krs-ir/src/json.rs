@@ -2,6 +2,7 @@
 
 use serde::de::DeserializeOwned;
 use std::io;
+#[cfg(not(target_family = "wasm"))]
 use std::thread;
 
 /// Maximum structural JSON nesting accepted by KRS IR readers.
@@ -19,23 +20,31 @@ pub const MAX_IR_JSON_DEPTH: usize = 1024;
 /// nesting depth, or fails validation by the requested IR type.
 pub fn from_slice<T: DeserializeOwned + Send>(bytes: &[u8]) -> serde_json::Result<T> {
     check_depth(bytes)?;
+    // WASI does not provide the threads needed for a larger decode stack.
+    #[cfg(target_family = "wasm")]
+    {
+        decode_unbounded(bytes)
+    }
+    #[cfg(not(target_family = "wasm"))]
     thread::scope(|scope| {
         thread::Builder::new()
             .name("krs-ir-json-decode".to_owned())
             .stack_size(64 * 1024 * 1024)
-            .spawn_scoped(scope, || {
-                let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-                deserializer.disable_recursion_limit();
-                let value = T::deserialize(&mut deserializer)?;
-                deserializer.end()?;
-                Ok(value)
-            })
+            .spawn_scoped(scope, || decode_unbounded(bytes))
             .map_err(serde_json::Error::io)?
             .join()
             .map_err(|_| {
                 serde_json::Error::io(io::Error::other("IR JSON decode thread panicked"))
             })?
     })
+}
+
+fn decode_unbounded<T: DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let value = T::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
 }
 
 fn check_depth(bytes: &[u8]) -> serde_json::Result<()> {

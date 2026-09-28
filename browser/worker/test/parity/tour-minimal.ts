@@ -140,7 +140,10 @@ sh(["bun", "scripts/build-site.ts", "--out", values.site!, "--assets", values.as
 const decoder = new TextDecoder();
 function kinds(bytes: Uint8Array): Record<string, number> {
   const counts: Record<string, number> = Object.create(null) as Record<string, number>;
-  for (const d of (JSON.parse(decoder.decode(bytes)) as { descriptors: Array<{ descriptor_kind: string }> }).descriptors) counts[d.descriptor_kind] = (counts[d.descriptor_kind] ?? 0) + 1;
+  for (const d of (JSON.parse(decoder.decode(bytes)) as { descriptors: Array<{ payload: { descriptor_kind: string } }> }).descriptors) {
+    const kind = d.payload.descriptor_kind;
+    counts[kind] = (counts[kind] ?? 0) + 1;
+  }
   return Object.fromEntries(Object.entries(counts).sort());
 }
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);

@@ -57,12 +57,11 @@ function git(...args: string[]): Uint8Array {
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const KRS_REV = text(git("rev-parse", "--verify", `${values["krs-rev"]!}^{commit}`)).trim();
 const gitShow = (path: string) => git("show", `${KRS_REV}:${path}`);
-// The one KRS schema version (descriptor bundles and both IRs) pinned by Krs.lock at the staged revision.
-function krsIrSchema(): number {
-  const lock = Bun.TOML.parse(text(gitShow("Krs.lock"))) as { schemas?: { krs_ir?: unknown } };
-  const schema = lock.schemas?.krs_ir;
-  if (typeof schema !== "number") throw new Error(`Krs.lock at ${KRS_REV} has no [schemas] krs_ir`);
-  return schema;
+function collectorProtocolVersion(): number {
+  const lock = Bun.TOML.parse(text(gitShow("Krs.lock"))) as { schemas?: { collector?: unknown } };
+  const version = lock.schemas?.collector;
+  if (typeof version !== "number") throw new Error(`Krs.lock at ${KRS_REV} has no [schemas] collector`);
+  return version;
 }
 
 async function place(rel: string, bytes: Uint8Array): Promise<PackAsset> {
@@ -103,7 +102,7 @@ const pack = await packFromManifest(source, {
   expander: await placeFile("modules/krs_expand_wasm.wasm", inputs.expander),
   modulesKrsRevision: KRS_REV,
   modulesCratesTree: text(git("rev-parse", `${KRS_REV}:crates`)).trim(),
-  protocolVersion: krsIrSchema(),
+  protocolVersion: collectorProtocolVersion(),
 });
 writeFileSync(join(OUT, "pack.json"), `${JSON.stringify(pack, null, 1)}\n`);
 
