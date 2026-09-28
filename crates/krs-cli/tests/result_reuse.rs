@@ -90,8 +90,8 @@ impl Fixture {
             command.env("KRS_NO_REUSE", "1");
         }
         let output = command.output().unwrap();
-        let counters = read_json(&counters_path);
-        let timings = read_json(&timings_path);
+        let counters = read_json(&counters_path, &output);
+        let timings = read_json(&timings_path, &output);
         Run {
             output,
             counters,
@@ -178,8 +178,16 @@ fn copy_executable(from: &Path, to: &Path) {
     );
 }
 
-fn read_json(path: &Path) -> serde_json::Value {
-    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+fn read_json(path: &Path, output: &Output) -> serde_json::Value {
+    let bytes = fs::read(path).unwrap_or_else(|error| {
+        panic!(
+            "{}: {error}\nstatus: {}\nstderr:\n{}",
+            path.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
+    serde_json::from_slice(&bytes).unwrap()
 }
 
 fn artifact_bytes(directory: &Path) -> Vec<(String, Vec<u8>)> {
@@ -342,12 +350,22 @@ fn failed_native_compilation_is_never_reused() {
     let native = fixture.root.path().join("native");
     for _ in 0..2 {
         let run = fixture.run("build", "llvm", Some(&native), &[], false);
-        assert!(!run.output.status.success());
-        assert_eq!(run.counters["status"], "failed");
-        assert_eq!(run.counters["counters"]["result.reused"], 0);
-        assert_eq!(run.timings["failed_span"], "native.compile");
+        let context = format!(
+            "status: {}\nstderr:\n{}\ncounters: {}\ntimings: {}",
+            run.output.status,
+            String::from_utf8_lossy(&run.output.stderr),
+            run.counters,
+            run.timings
+        );
+        assert!(!run.output.status.success(), "{context}");
+        assert_eq!(run.counters["status"], "failed", "{context}");
+        assert_eq!(run.counters["counters"]["result.reused"], 0, "{context}");
+        assert_eq!(run.timings["failed_span"], "native.compile", "{context}");
         let spans = run.timings["spans"].as_array().unwrap();
-        assert!(spans.iter().any(|span| span["id"] == "collector.run"));
-        assert!(!native.exists());
+        assert!(
+            spans.iter().any(|span| span["id"] == "collector.run"),
+            "{context}"
+        );
+        assert!(!native.exists(), "{context}");
     }
 }
