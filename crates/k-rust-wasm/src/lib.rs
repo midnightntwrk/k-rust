@@ -150,85 +150,75 @@ impl WasmBackend {
 
     pub fn execute(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ExecuteRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.execute(request).map_err(js_error)?).map_err(js_error)
+        self.inner.execute_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = executeObserved)]
     pub fn execute_observed(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ObservedRequest<ExecuteRequest>>(options)
             .map_err(js_error)?;
-        serialize(&self.inner.execute_observed(request).map_err(js_error)?).map_err(js_error)
+        self.inner.execute_observed_json(request).map_err(js_error)
     }
 
     pub fn search(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<SearchRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.search(request).map_err(js_error)?).map_err(js_error)
+        self.inner.search_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPaths)]
     pub fn search_paths(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<SearchRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.search_paths(request).map_err(js_error)?).map_err(js_error)
+        self.inner.search_paths_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPattern)]
     pub fn search_pattern(&mut self, options: &str) -> Result<String, JsError> {
         let request =
             deserialize_backend_request::<SearchPatternRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.search_pattern(request).map_err(js_error)?).map_err(js_error)
+        self.inner.search_pattern_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPatternPaths)]
     pub fn search_pattern_paths(&mut self, options: &str) -> Result<String, JsError> {
         let request =
             deserialize_backend_request::<SearchPatternRequest>(options).map_err(js_error)?;
-        serialize(&self.inner.search_pattern_paths(request).map_err(js_error)?).map_err(js_error)
+        self.inner
+            .search_pattern_paths_json(request)
+            .map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchObserved)]
     pub fn search_observed(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ObservedRequest<SearchRequest>>(options)
             .map_err(js_error)?;
-        serialize(&self.inner.search_observed(request).map_err(js_error)?).map_err(js_error)
+        self.inner.search_observed_json(request).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPathsObserved)]
     pub fn search_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ObservedRequest<SearchRequest>>(options)
             .map_err(js_error)?;
-        serialize(
-            &self
-                .inner
-                .search_paths_observed(request)
-                .map_err(js_error)?,
-        )
-        .map_err(js_error)
+        self.inner
+            .search_paths_observed_json(request)
+            .map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPatternObserved)]
     pub fn search_pattern_observed(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ObservedRequest<SearchPatternRequest>>(options)
             .map_err(js_error)?;
-        serialize(
-            &self
-                .inner
-                .search_pattern_observed(request)
-                .map_err(js_error)?,
-        )
-        .map_err(js_error)
+        self.inner
+            .search_pattern_observed_json(request)
+            .map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = searchPatternPathsObserved)]
     pub fn search_pattern_paths_observed(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ObservedRequest<SearchPatternRequest>>(options)
             .map_err(js_error)?;
-        serialize(
-            &self
-                .inner
-                .search_pattern_paths_observed(request)
-                .map_err(js_error)?,
-        )
-        .map_err(js_error)
+        self.inner
+            .search_pattern_paths_observed_json(request)
+            .map_err(js_error)
     }
 
     pub fn simplify(&mut self, options: &str) -> Result<String, JsError> {

@@ -137,81 +137,75 @@ impl NativeBackend {
     #[napi]
     pub fn execute(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ExecuteRequest>(&options)?;
-        serialize_native(&self.lock()?.execute(request).map_err(napi_error)?)
+        self.lock()?.execute_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "executeObserved")]
     pub fn execute_observed(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ObservedRequest<ExecuteRequest>>(&options)?;
-        serialize_native(&self.lock()?.execute_observed(request).map_err(napi_error)?)
+        self.lock()?
+            .execute_observed_json(request)
+            .map_err(napi_error)
     }
 
     #[napi]
     pub fn search(&self, options: String) -> Result<String> {
         let request = deserialize_native::<SearchRequest>(&options)?;
-        serialize_native(&self.lock()?.search(request).map_err(napi_error)?)
+        self.lock()?.search_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "searchPaths")]
     pub fn search_paths(&self, options: String) -> Result<String> {
         let request = deserialize_native::<SearchRequest>(&options)?;
-        serialize_native(&self.lock()?.search_paths(request).map_err(napi_error)?)
+        self.lock()?.search_paths_json(request).map_err(napi_error)
     }
 
     #[napi(js_name = "searchPattern")]
     pub fn search_pattern(&self, options: String) -> Result<String> {
         let request = deserialize_native::<SearchPatternRequest>(&options)?;
-        serialize_native(&self.lock()?.search_pattern(request).map_err(napi_error)?)
+        self.lock()?
+            .search_pattern_json(request)
+            .map_err(napi_error)
     }
 
     #[napi(js_name = "searchPatternPaths")]
     pub fn search_pattern_paths(&self, options: String) -> Result<String> {
         let request = deserialize_native::<SearchPatternRequest>(&options)?;
-        serialize_native(
-            &self
-                .lock()?
-                .search_pattern_paths(request)
-                .map_err(napi_error)?,
-        )
+        self.lock()?
+            .search_pattern_paths_json(request)
+            .map_err(napi_error)
     }
 
     #[napi(js_name = "searchObserved")]
     pub fn search_observed(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ObservedRequest<SearchRequest>>(&options)?;
-        serialize_native(&self.lock()?.search_observed(request).map_err(napi_error)?)
+        self.lock()?
+            .search_observed_json(request)
+            .map_err(napi_error)
     }
 
     #[napi(js_name = "searchPathsObserved")]
     pub fn search_paths_observed(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ObservedRequest<SearchRequest>>(&options)?;
-        serialize_native(
-            &self
-                .lock()?
-                .search_paths_observed(request)
-                .map_err(napi_error)?,
-        )
+        self.lock()?
+            .search_paths_observed_json(request)
+            .map_err(napi_error)
     }
 
     #[napi(js_name = "searchPatternObserved")]
     pub fn search_pattern_observed(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ObservedRequest<SearchPatternRequest>>(&options)?;
-        serialize_native(
-            &self
-                .lock()?
-                .search_pattern_observed(request)
-                .map_err(napi_error)?,
-        )
+        self.lock()?
+            .search_pattern_observed_json(request)
+            .map_err(napi_error)
     }
 
     #[napi(js_name = "searchPatternPathsObserved")]
     pub fn search_pattern_paths_observed(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ObservedRequest<SearchPatternRequest>>(&options)?;
-        serialize_native(
-            &self
-                .lock()?
-                .search_pattern_paths_observed(request)
-                .map_err(napi_error)?,
-        )
+        self.lock()?
+            .search_pattern_paths_observed_json(request)
+            .map_err(napi_error)
     }
 
     #[napi]

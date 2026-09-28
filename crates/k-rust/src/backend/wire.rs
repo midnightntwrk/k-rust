@@ -1,7 +1,7 @@
 //! Versioned JSON wire contracts v1 for the JavaScript hosts; converters only.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 use super::{
     BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
@@ -58,7 +58,8 @@ pub struct CompiledRuleOriginOutput {
 /// reduced to bottom (`k_rust_backend::simplify::ContradictedTotal`).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ContradictedTotalOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ContradictedTotalOutput<K = Value> {
     /// The KORE name of the symbol whose attribute is contradicted.
     pub symbol: String,
     /// The K label that name encodes (`tDiv(_)_M_Int_Int`, or the `symbol(...)` name), as the
@@ -73,14 +74,14 @@ pub struct ContradictedTotalOutput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<CompiledRuleOriginOutput>,
     /// The application the equation rewrote (KORE JSON).
-    pub application: Value,
+    pub application: K,
     /// The undefined term the equation's result reached (KORE JSON).
-    pub undefined: Value,
+    pub undefined: K,
 }
 
-fn contradicted_total_output(
+fn contradicted_total_output<K: WireKore>(
     contradicted: &ContradictedTotal,
-) -> Result<ContradictedTotalOutput, BackendError> {
+) -> Result<ContradictedTotalOutput<K>, BackendError> {
     Ok(ContradictedTotalOutput {
         symbol: contradicted.symbol().to_owned(),
         k_label: crate::kast::identifier::decode_label(contradicted.symbol())
@@ -248,46 +249,50 @@ pub struct TransitionIdOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SearchStateOutput {
-    pub state: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct SearchStateOutput<K = Value> {
+    pub state: K,
     /// The backend diagnostics of the path in `trace`, each distinct diagnostic once, in the
     /// order the path first met them; omitted when the path emitted none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branch: Vec<TransitionIdOutput>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub observations: Vec<ObservationEventOutput>,
+    pub observations: Vec<ObservationEventOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PathWitnessOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct PathWitnessOutput<K = Value> {
     pub id: Vec<TransitionIdOutput>,
-    pub state: Value,
+    pub state: K,
     /// The backend diagnostics of this witness's path, as for `SearchStateOutput::diagnostics`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub observations: Vec<ObservationEventOutput>,
+    pub observations: Vec<ObservationEventOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct BindingOutput {
-    pub variable: Value,
-    pub value: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct BindingOutput<K = Value> {
+    pub variable: K,
+    pub value: K,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct TermPairOutput {
-    pub left: Value,
-    pub right: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct TermPairOutput<K = Value> {
+    pub left: K,
+    pub right: K,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -347,9 +352,10 @@ pub enum BuiltinFailureOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum TranslationFailureOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum TranslationFailureOutput<K = Value> {
     NonBooleanAnd {
-        term: Value,
+        term: K,
     },
     PlaceholderOutOfBounds {
         placeholder: usize,
@@ -363,26 +369,27 @@ pub enum TranslationFailureOutput {
     },
     SmtLemmaSurplusMappings {
         rule: String,
-        terms: Vec<Value>,
+        terms: Vec<K>,
     },
     SmtLemmaSurplusPredicates {
         rule: String,
-        predicates: Vec<Value>,
+        predicates: Vec<K>,
     },
     MissingSmtLemmaVariable {
         rule: String,
-        variable: Value,
+        variable: K,
     },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum ConditionIndeterminacyOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum ConditionIndeterminacyOutput<K = Value> {
     NoSolver,
     ImplicationIndeterminate,
     SmtUnknown { reason: String },
     InconsistentPathCondition,
-    Untranslatable { error: TranslationFailureOutput },
+    Untranslatable { error: TranslationFailureOutput<K> },
     NonFunctionalBinding,
 }
 
@@ -395,16 +402,17 @@ pub enum BudgetSubjectOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum BackendDiagnosticOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum BackendDiagnosticOutput<K = Value> {
     UndecidedCondition {
         #[serde(rename = "ruleId")]
         rule_id: String,
-        reason: ConditionIndeterminacyOutput,
-        predicates: Vec<Value>,
+        reason: ConditionIndeterminacyOutput<K>,
+        predicates: Vec<K>,
     },
     UndecidedPredicate {
-        predicate: Value,
-        reason: ConditionIndeterminacyOutput,
+        predicate: K,
+        reason: ConditionIndeterminacyOutput<K>,
     },
     SimplificationBudgetExhausted {
         limit: usize,
@@ -423,9 +431,10 @@ pub enum BackendDiagnosticOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum SmtFailureOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum SmtFailureOutput<K = Value> {
     Translation {
-        error: TranslationFailureOutput,
+        error: TranslationFailureOutput<K>,
     },
     /// The query needed an SMT solver, but this build has none.
     Unavailable,
@@ -439,21 +448,22 @@ pub enum SmtFailureOutput {
     InconsistentGroundTruth,
     MissingModel,
     MissingModelValue {
-        variable: Value,
+        variable: K,
     },
     InvalidModelValue {
-        variable: Value,
+        variable: K,
         value: String,
     },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum SatisfiabilityOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum SatisfiabilityOutput<K = Value> {
     Sat,
     Unsat,
     Unknown { reason: String },
-    Error { error: SmtFailureOutput },
+    Error { error: SmtFailureOutput<K> },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -463,7 +473,8 @@ pub enum SatisfiabilityOutput {
     rename_all = "kebab-case",
     rename_all_fields = "camelCase"
 )]
-pub enum SearchFailureOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum SearchFailureOutput<K = Value> {
     StackExhausted,
     /// A macro or alias survived preprocessing, so the state is not executable.
     SurvivingMacroOrAlias {
@@ -480,13 +491,13 @@ pub enum SearchFailureOutput {
     Smt {
         #[serde(skip_serializing_if = "Option::is_none")]
         rule: Option<String>,
-        error: SmtFailureOutput,
+        error: SmtFailureOutput<K>,
     },
     /// A standalone predicate query could not be decided.
     /// `Unavailable` means the build has no solver for that query.
     SmtPredicate {
-        predicate: Value,
-        error: SmtFailureOutput,
+        predicate: K,
+        error: SmtFailureOutput<K>,
     },
     InconsistentGroundTruth {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -494,11 +505,11 @@ pub enum SearchFailureOutput {
     },
     IterationLimit {
         limit: usize,
-        term: Option<Value>,
+        term: Option<K>,
     },
     PredicateIterationLimit {
         limit: usize,
-        predicate: Option<Value>,
+        predicate: Option<K>,
     },
     InvalidBuiltinResultSymbol {
         hook: String,
@@ -507,38 +518,38 @@ pub enum SearchFailureOutput {
     UnsupportedHook {
         hook: String,
         reason: String,
-        term: Value,
+        term: K,
     },
     /// Matching a rule left-hand side left an unsupported unification remainder.
     /// This does not itself report a solver query; a prior undecided equation can still be relevant.
     Match {
         rule: String,
-        bindings: Vec<BindingOutput>,
-        remainder: Vec<TermPairOutput>,
+        bindings: Vec<BindingOutput<K>>,
+        remainder: Vec<TermPairOutput<K>>,
     },
     /// A rule's right-hand side needs variables that matching did not bind.
     /// This does not report a missing solver.
     Instantiation {
         rule: String,
-        missing_variables: Vec<Value>,
+        missing_variables: Vec<K>,
     },
     /// A rule's `requires` could not be decided because this build has no SMT solver.
     /// A solver-enabled build would attempt to decide or branch on this condition.
     Requires {
         rule: String,
-        predicates: Vec<Value>,
+        predicates: Vec<K>,
     },
     /// No longer emitted; retained so older concreteness-check outputs still deserialize.
     Concreteness {
         rule: String,
-        variable: Value,
+        variable: K,
     },
     /// A priority group's remaining path could not be classified as satisfiable or unsatisfiable.
     /// An `Error` containing `Unavailable` means this build has no solver for that query.
     Remainder {
         rules: Vec<String>,
-        predicates: Vec<Value>,
-        satisfiability: SatisfiabilityOutput,
+        predicates: Vec<K>,
+        satisfiability: SatisfiabilityOutput<K>,
     },
 }
 
@@ -572,33 +583,34 @@ impl SearchFailureOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
-pub enum IncompleteSearchOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum IncompleteSearchOutput<K = Value> {
     ResultBound,
     DepthBound {
-        state: SearchStateOutput,
+        state: SearchStateOutput<K>,
     },
     BreadthBound {
-        states: Vec<SearchStateOutput>,
+        states: Vec<SearchStateOutput<K>>,
     },
     Indeterminate {
-        state: SearchStateOutput,
-        reason: SearchFailureOutput,
+        state: SearchStateOutput<K>,
+        reason: SearchFailureOutput<K>,
     },
     Cancelled {
-        state: SearchStateOutput,
+        state: SearchStateOutput<K>,
     },
     Simplification {
-        state: SearchStateOutput,
-        error: SearchFailureOutput,
+        state: SearchStateOutput<K>,
+        error: SearchFailureOutput<K>,
     },
     Match {
-        state: SearchStateOutput,
-        bindings: Vec<BindingOutput>,
-        remainder: Vec<TermPairOutput>,
+        state: SearchStateOutput<K>,
+        bindings: Vec<BindingOutput<K>>,
+        remainder: Vec<TermPairOutput<K>>,
     },
     Smt {
-        state: SearchStateOutput,
-        error: SmtFailureOutput,
+        state: SearchStateOutput<K>,
+        error: SmtFailureOutput<K>,
     },
 }
 
@@ -641,16 +653,17 @@ pub enum UncommittedReasonOutput {
     rename_all = "kebab-case",
     rename_all_fields = "camelCase"
 )]
-pub enum ObservationEventOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum ObservationEventOutput<K = Value> {
     Transition {
         id: TransitionIdOutput,
         class: TransitionClassOutput,
         #[serde(skip_serializing_if = "Option::is_none")]
         rule_label: Option<String>,
-        bindings: Vec<BindingOutput>,
-        introduced_predicates: Vec<Value>,
-        before: Value,
-        after: Value,
+        bindings: Vec<BindingOutput<K>>,
+        introduced_predicates: Vec<K>,
+        before: K,
+        after: K,
         /// Attributes the leaf's committed effects to this observed transition.
         effects: Vec<EffectOutput>,
     },
@@ -660,8 +673,8 @@ pub enum ObservationEventOutput {
         #[serde(skip_serializing_if = "Option::is_none")]
         rule_label: Option<String>,
         anchor: usize,
-        before: Value,
-        after: Value,
+        before: K,
+        after: K,
         effects: Vec<EffectOutput>,
     },
     Uncommitted {
@@ -676,80 +689,122 @@ pub enum ObservationEventOutput {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SearchResponse {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct SearchResponse<K = Value> {
     pub schema_version: u32,
     pub modality: ResultModalityOutput,
-    pub states: Vec<SearchStateOutput>,
+    pub states: Vec<SearchStateOutput<K>>,
     pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<IncompleteSearchOutput>,
+    pub incomplete: Vec<IncompleteSearchOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PathSearchResponse {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct PathSearchResponse<K = Value> {
     pub schema_version: u32,
     pub modality: ResultModalityOutput,
-    pub witnesses: Vec<PathWitnessOutput>,
+    pub witnesses: Vec<PathWitnessOutput<K>>,
     pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<IncompleteSearchOutput>,
+    pub incomplete: Vec<IncompleteSearchOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SearchMatchOutput {
-    pub bindings: Vec<BindingOutput>,
-    pub constraints: Vec<Value>,
-    pub state: SearchStateOutput,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct SearchMatchOutput<K = Value> {
+    pub bindings: Vec<BindingOutput<K>>,
+    pub constraints: Vec<K>,
+    pub state: SearchStateOutput<K>,
     /// The backend diagnostics of matching `state` against the target pattern, apart from the
     /// state's own path diagnostics (`state.diagnostics`); omitted when the match emitted none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PatternSearchResponse {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct PatternSearchResponse<K = Value> {
     pub schema_version: u32,
     pub modality: ResultModalityOutput,
-    pub matches: Vec<SearchMatchOutput>,
+    pub matches: Vec<SearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<IncompleteSearchOutput>,
+    pub incomplete: Vec<IncompleteSearchOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PathSearchMatchOutput {
-    pub bindings: Vec<BindingOutput>,
-    pub constraints: Vec<Value>,
-    pub witness: PathWitnessOutput,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct PathSearchMatchOutput<K = Value> {
+    pub bindings: Vec<BindingOutput<K>>,
+    pub constraints: Vec<K>,
+    pub witness: PathWitnessOutput<K>,
     /// The backend diagnostics of matching `witness` against the target pattern, apart from the
     /// witness path's own (`witness.diagnostics`); omitted when the match emitted none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct PathPatternSearchResponse {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct PathPatternSearchResponse<K = Value> {
     pub schema_version: u32,
     pub modality: ResultModalityOutput,
-    pub matches: Vec<PathSearchMatchOutput>,
+    pub matches: Vec<PathSearchMatchOutput<K>>,
     pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<IncompleteSearchOutput>,
+    pub incomplete: Vec<IncompleteSearchOutput<K>>,
 }
 
-fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+pub(super) trait WireKore: Sized {
+    fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+        source: S,
+    ) -> Result<Self, BackendError>;
+
+    #[cfg(feature = "measure")]
+    fn encoded_len(&self) -> Option<usize>;
+}
+
+impl WireKore for Value {
+    fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+        source: S,
+    ) -> Result<Self, BackendError> {
+        kore_json::to_value_source(source)
+            .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))
+    }
+
+    #[cfg(feature = "measure")]
+    fn encoded_len(&self) -> Option<usize> {
+        serde_json::to_vec(self).ok().map(|bytes| bytes.len())
+    }
+}
+
+impl WireKore for Box<RawValue> {
+    fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+        source: S,
+    ) -> Result<Self, BackendError> {
+        RawValue::from_string(kore_json::source_to_string(source))
+            .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))
+    }
+
+    #[cfg(feature = "measure")]
+    fn encoded_len(&self) -> Option<usize> {
+        Some(self.get().len())
+    }
+}
+
+fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>, K: WireKore>(
     source: S,
-) -> Result<Value, BackendError> {
-    let value = kore_json::to_value_source(source.clone())
-        .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))?;
+) -> Result<K, BackendError> {
+    let value = K::from_source(source.clone())?;
     #[cfg(feature = "measure")]
     if measure::output_counting_enabled() {
         let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source);
         measure::add(Counter::ObservationJsonNodesWritten, nodes);
         measure::add(Counter::ObservationJsonDistinctNodes, distinct);
-        if let Ok(bytes) = serde_json::to_vec(&value) {
-            measure::add(Counter::ObservationJsonBytesWritten, bytes.len() as u64);
+        if let Some(bytes) = value.encoded_len() {
+            measure::add(Counter::ObservationJsonBytesWritten, bytes as u64);
         }
     }
     #[cfg(not(feature = "measure"))]
@@ -757,18 +812,20 @@ fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
     Ok(value)
 }
 
-fn encode_term(term: &Term) -> Result<Value, BackendError> {
+fn encode_term<K: WireKore>(term: &Term) -> Result<K, BackendError> {
     encode_pattern_source(externalize::External::Term(term))
 }
 
-fn encode_variable(variable: &k_rust_backend::term::Variable) -> Result<Value, BackendError> {
+fn encode_variable<K: WireKore>(
+    variable: &k_rust_backend::term::Variable,
+) -> Result<K, BackendError> {
     encode_term(&Term::variable(variable.clone()))
 }
 
-fn encode_predicate(
+fn encode_predicate<K: WireKore>(
     predicate: &k_rust_backend::rule::Predicate,
     result_sort: &Sort,
-) -> Result<Value, BackendError> {
+) -> Result<K, BackendError> {
     encode_pattern_source(externalize::External::Predicate {
         predicate,
         sort: externalize::ResultSort::Given(result_sort),
@@ -776,7 +833,9 @@ fn encode_predicate(
     })
 }
 
-fn bindings_output(bindings: Substitution) -> Result<Vec<BindingOutput>, BackendError> {
+fn bindings_output<K: WireKore>(
+    bindings: Substitution,
+) -> Result<Vec<BindingOutput<K>>, BackendError> {
     bindings
         .into_iter()
         .map(|(variable, value)| {
@@ -788,7 +847,9 @@ fn bindings_output(bindings: Substitution) -> Result<Vec<BindingOutput>, Backend
         .collect()
 }
 
-fn term_pairs_output(pairs: Vec<(Term, Term)>) -> Result<Vec<TermPairOutput>, BackendError> {
+fn term_pairs_output<K: WireKore>(
+    pairs: Vec<(Term, Term)>,
+) -> Result<Vec<TermPairOutput<K>>, BackendError> {
     pairs
         .into_iter()
         .map(|(left, right)| {
@@ -800,10 +861,10 @@ fn term_pairs_output(pairs: Vec<(Term, Term)>) -> Result<Vec<TermPairOutput>, Ba
         .collect()
 }
 
-fn predicates_output(
+fn predicates_output<K: WireKore>(
     predicates: Vec<k_rust_backend::rule::Predicate>,
     result_sort: &Sort,
-) -> Result<Vec<Value>, BackendError> {
+) -> Result<Vec<K>, BackendError> {
     predicates
         .iter()
         .map(|predicate| encode_predicate(predicate, result_sort))
@@ -843,9 +904,9 @@ fn evaluation_class_output(class: EvaluationClass) -> EvaluationClassOutput {
     }
 }
 
-fn transition_observation_output(
+fn transition_observation_output<K: WireKore>(
     observation: TransitionObservation,
-) -> Result<ObservationEventOutput, BackendError> {
+) -> Result<ObservationEventOutput<K>, BackendError> {
     let result_sort = observation.after.term.sort();
     Ok(ObservationEventOutput::Transition {
         id: transition_id_output(observation.id),
@@ -859,9 +920,9 @@ fn transition_observation_output(
     })
 }
 
-fn evaluation_observation_output(
+fn evaluation_observation_output<K: WireKore>(
     observation: EvaluationObservation,
-) -> Result<ObservationEventOutput, BackendError> {
+) -> Result<ObservationEventOutput<K>, BackendError> {
     Ok(ObservationEventOutput::Evaluation {
         rule: observation.rule,
         class: evaluation_class_output(observation.class),
@@ -873,7 +934,9 @@ fn evaluation_observation_output(
     })
 }
 
-fn uncommitted_observation_output(observation: UncommittedObservation) -> ObservationEventOutput {
+fn uncommitted_observation_output<K: WireKore>(
+    observation: UncommittedObservation,
+) -> ObservationEventOutput<K> {
     ObservationEventOutput::Uncommitted {
         id: transition_id_output(observation.id),
         rule_label: observation.rule_label,
@@ -884,9 +947,9 @@ fn uncommitted_observation_output(observation: UncommittedObservation) -> Observ
     }
 }
 
-fn observation_event_output(
+fn observation_event_output<K: WireKore>(
     event: ObservationEvent,
-) -> Result<ObservationEventOutput, BackendError> {
+) -> Result<ObservationEventOutput<K>, BackendError> {
     match event {
         ObservationEvent::Transition(observation) => transition_observation_output(observation),
         ObservationEvent::Evaluation(observation) => evaluation_observation_output(observation),
@@ -896,16 +959,18 @@ fn observation_event_output(
     }
 }
 
-fn observations_output(
+fn observations_output<K: WireKore>(
     observations: Vec<ObservationEvent>,
-) -> Result<Vec<ObservationEventOutput>, BackendError> {
+) -> Result<Vec<ObservationEventOutput<K>>, BackendError> {
     observations
         .into_iter()
         .map(observation_event_output)
         .collect()
 }
 
-fn search_state_output(state: SearchState) -> Result<SearchStateOutput, BackendError> {
+fn search_state_output<K: WireKore>(
+    state: SearchState,
+) -> Result<SearchStateOutput<K>, BackendError> {
     let result_sort = state.pattern.term.sort();
     Ok(SearchStateOutput {
         state: encode_pattern_source(externalize::External::Constrained(&state.pattern))?,
@@ -917,7 +982,9 @@ fn search_state_output(state: SearchState) -> Result<SearchStateOutput, BackendE
     })
 }
 
-fn path_witness_output(witness: PathWitness) -> Result<PathWitnessOutput, BackendError> {
+fn path_witness_output<K: WireKore>(
+    witness: PathWitness,
+) -> Result<PathWitnessOutput<K>, BackendError> {
     let result_sort = witness.pattern.term.sort();
     Ok(PathWitnessOutput {
         id: witness.id.into_iter().map(transition_id_output).collect(),
@@ -1016,10 +1083,10 @@ fn interruption_published_as_failure() -> BackendError {
     )
 }
 
-fn translation_failure_output(
+fn translation_failure_output<K: WireKore>(
     error: TranslationError,
     result_sort: &Sort,
-) -> Result<TranslationFailureOutput, BackendError> {
+) -> Result<TranslationFailureOutput<K>, BackendError> {
     Ok(match error {
         TranslationError::NonBooleanAnd(term) => TranslationFailureOutput::NonBooleanAnd {
             term: encode_term(&term)?,
@@ -1061,10 +1128,10 @@ fn translation_failure_output(
     })
 }
 
-fn condition_indeterminacy_output(
+fn condition_indeterminacy_output<K: WireKore>(
     reason: ConditionIndeterminacy,
     result_sort: &Sort,
-) -> Result<ConditionIndeterminacyOutput, BackendError> {
+) -> Result<ConditionIndeterminacyOutput<K>, BackendError> {
     Ok(match reason {
         ConditionIndeterminacy::NoSolver => ConditionIndeterminacyOutput::NoSolver,
         ConditionIndeterminacy::ImplicationIndeterminate => {
@@ -1087,10 +1154,10 @@ fn condition_indeterminacy_output(
     })
 }
 
-fn diagnostic_output(
+fn diagnostic_output<K: WireKore>(
     diagnostic: BackendDiagnostic,
     result_sort: &Sort,
-) -> Result<BackendDiagnosticOutput, BackendError> {
+) -> Result<BackendDiagnosticOutput<K>, BackendError> {
     Ok(match diagnostic {
         BackendDiagnostic::UndecidedCondition {
             rule_id,
@@ -1128,17 +1195,19 @@ fn diagnostic_output(
     })
 }
 
-fn diagnostics_output(
+fn diagnostics_output<K: WireKore>(
     diagnostics: Vec<BackendDiagnostic>,
     result_sort: &Sort,
-) -> Result<Vec<BackendDiagnosticOutput>, BackendError> {
+) -> Result<Vec<BackendDiagnosticOutput<K>>, BackendError> {
     diagnostics
         .into_iter()
         .map(|diagnostic| diagnostic_output(diagnostic, result_sort))
         .collect()
 }
 
-fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, BackendError> {
+fn candidate_output<K: WireKore>(
+    candidate: AppliedRule,
+) -> Result<ExecutionCandidateOutput<K>, BackendError> {
     let result_sort = candidate.pattern.term.sort();
     Ok(ExecutionCandidateOutput {
         state: encode_pattern_source(externalize::External::Constrained(&candidate.pattern))?,
@@ -1148,7 +1217,9 @@ fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, 
     })
 }
 
-fn remainder_output(remainder: RemainderBranch) -> Result<ExecutionRemainderOutput, BackendError> {
+fn remainder_output<K: WireKore>(
+    remainder: RemainderBranch,
+) -> Result<ExecutionRemainderOutput<K>, BackendError> {
     let result_sort = remainder.pattern.term.sort();
     Ok(ExecutionRemainderOutput {
         state: encode_pattern_source(externalize::External::Constrained(&remainder.pattern))?,
@@ -1157,12 +1228,12 @@ fn remainder_output(remainder: RemainderBranch) -> Result<ExecutionRemainderOutp
     })
 }
 
-fn execution_candidates_output(
+fn execution_candidates_output<K: WireKore>(
     reason: HaltReason,
 ) -> Result<
     (
-        Option<Vec<ExecutionCandidateOutput>>,
-        Option<ExecutionRemainderOutput>,
+        Option<Vec<ExecutionCandidateOutput<K>>>,
+        Option<ExecutionRemainderOutput<K>>,
     ),
     BackendError,
 > {
@@ -1192,10 +1263,10 @@ fn execution_candidates_output(
     }
 }
 
-fn smt_failure_output(
+fn smt_failure_output<K: WireKore>(
     error: SmtError,
     result_sort: &Sort,
-) -> Result<SmtFailureOutput, BackendError> {
+) -> Result<SmtFailureOutput<K>, BackendError> {
     Ok(match error {
         SmtError::Translation(error) => SmtFailureOutput::Translation {
             error: translation_failure_output(error, result_sort)?,
@@ -1216,10 +1287,10 @@ fn smt_failure_output(
     })
 }
 
-fn satisfiability_output(
+fn satisfiability_output<K: WireKore>(
     satisfiability: Result<Satisfiability, SmtError>,
     result_sort: &Sort,
-) -> Result<SatisfiabilityOutput, BackendError> {
+) -> Result<SatisfiabilityOutput<K>, BackendError> {
     Ok(match satisfiability {
         Ok(Satisfiability::Sat) => SatisfiabilityOutput::Sat,
         Ok(Satisfiability::Unsat) => SatisfiabilityOutput::Unsat,
@@ -1230,10 +1301,10 @@ fn satisfiability_output(
     })
 }
 
-fn simplification_failure_output(
+fn simplification_failure_output<K: WireKore>(
     error: SimplificationError,
     result_sort: &Sort,
-) -> Result<SearchFailureOutput, BackendError> {
+) -> Result<SearchFailureOutput<K>, BackendError> {
     Ok(match error {
         SimplificationError::Cancelled | SimplificationError::Interrupted => {
             return Err(interruption_published_as_failure());
@@ -1291,10 +1362,10 @@ fn simplification_failure_output(
     })
 }
 
-fn indeterminate_failure_output(
+fn indeterminate_failure_output<K: WireKore>(
     reason: IndeterminateReason,
     result_sort: &Sort,
-) -> Result<SearchFailureOutput, BackendError> {
+) -> Result<SearchFailureOutput<K>, BackendError> {
     Ok(match reason {
         IndeterminateReason::SurvivingMacroOrAlias { symbol } => {
             SearchFailureOutput::SurvivingMacroOrAlias {
@@ -1343,9 +1414,9 @@ fn indeterminate_failure_output(
     })
 }
 
-fn incomplete_search_output(
+fn incomplete_search_output<K: WireKore>(
     incomplete: IncompleteSearch,
-) -> Result<IncompleteSearchOutput, BackendError> {
+) -> Result<IncompleteSearchOutput<K>, BackendError> {
     Ok(match incomplete {
         IncompleteSearch::ResultBound => IncompleteSearchOutput::ResultBound,
         IncompleteSearch::DepthBound(state) => IncompleteSearchOutput::DepthBound {
@@ -1393,18 +1464,18 @@ fn incomplete_search_output(
     })
 }
 
-fn incomplete_searches_output(
+fn incomplete_searches_output<K: WireKore>(
     incomplete: Vec<IncompleteSearch>,
-) -> Result<Vec<IncompleteSearchOutput>, BackendError> {
+) -> Result<Vec<IncompleteSearchOutput<K>>, BackendError> {
     incomplete
         .into_iter()
         .map(incomplete_search_output)
         .collect()
 }
 
-pub(super) fn execution_response(
+pub(super) fn execution_response<K: WireKore>(
     result: k_rust_backend::rewrite::ExecutionResult,
-) -> Result<ExecutionResult, BackendError> {
+) -> Result<ExecutionResult<K>, BackendError> {
     Ok(ExecutionResult {
         modality: result.modality.into(),
         leaves: result
@@ -1465,10 +1536,10 @@ pub(super) fn execution_response(
     })
 }
 
-pub(super) fn search_response(
+pub(super) fn search_response<K: WireKore>(
     result: BackendSearchResult,
     schema_version: u32,
-) -> Result<SearchResponse, BackendError> {
+) -> Result<SearchResponse<K>, BackendError> {
     Ok(SearchResponse {
         schema_version,
         modality: ResultModalityOutput::StateSet,
@@ -1482,10 +1553,10 @@ pub(super) fn search_response(
     })
 }
 
-pub(super) fn path_search_response(
+pub(super) fn path_search_response<K: WireKore>(
     result: BackendPathSearchResult,
     schema_version: u32,
-) -> Result<PathSearchResponse, BackendError> {
+) -> Result<PathSearchResponse<K>, BackendError> {
     Ok(PathSearchResponse {
         schema_version,
         modality: ResultModalityOutput::PathSet,
@@ -1499,10 +1570,10 @@ pub(super) fn path_search_response(
     })
 }
 
-pub(super) fn pattern_search_response(
+pub(super) fn pattern_search_response<K: WireKore>(
     result: BackendPatternSearchResult,
     schema_version: u32,
-) -> Result<PatternSearchResponse, BackendError> {
+) -> Result<PatternSearchResponse<K>, BackendError> {
     Ok(PatternSearchResponse {
         schema_version,
         modality: ResultModalityOutput::StateSet,
@@ -1524,10 +1595,10 @@ pub(super) fn pattern_search_response(
     })
 }
 
-pub(super) fn path_pattern_search_response(
+pub(super) fn path_pattern_search_response<K: WireKore>(
     result: BackendPatternPathSearchResult,
     schema_version: u32,
-) -> Result<PathPatternSearchResponse, BackendError> {
+) -> Result<PathPatternSearchResponse<K>, BackendError> {
     Ok(PathPatternSearchResponse {
         schema_version,
         modality: ResultModalityOutput::PathSet,
@@ -1552,6 +1623,24 @@ pub(super) fn path_pattern_search_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_kore_fields_accept_deep_patterns() {
+        use k_rust_kore::kore::ast::{Pattern, Sort as KoreSort};
+
+        let sort = KoreSort::Application {
+            name: "SortK".into(),
+            arguments: Vec::new(),
+        };
+        let pattern = (0..512).fold(Pattern::Top { sort: sort.clone() }, |argument, _| {
+            Pattern::Not {
+                sort: sort.clone(),
+                argument: Box::new(argument),
+            }
+        });
+        let raw = <Box<RawValue> as WireKore>::from_source(&pattern).unwrap();
+        assert_eq!(raw.get(), kore_json::source_to_string(&pattern));
+    }
 
     #[test]
     fn every_search_failure_has_a_solver_availability_projection() {
@@ -1807,7 +1896,7 @@ mod tests {
             }],
             observations: Vec::new(),
         };
-        let (candidates, remainder) = execution_candidates_output(HaltReason::Branch {
+        let (candidates, remainder) = execution_candidates_output::<Value>(HaltReason::Branch {
             branches: Vec::new(),
             remainder: Some(remainder),
         })
@@ -1865,8 +1954,8 @@ mod tests {
         use k_rust_backend::rule::Predicate;
 
         let sort = Sort::simple("SortS");
-        let expected = encode_predicate(&Predicate::True, &sort).unwrap();
-        let condition = diagnostic_output(
+        let expected = encode_predicate::<Value>(&Predicate::True, &sort).unwrap();
+        let condition = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
                 reason: ConditionIndeterminacy::NoSolver,
@@ -1875,7 +1964,7 @@ mod tests {
             &sort,
         )
         .unwrap();
-        let predicate = diagnostic_output(
+        let predicate = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedPredicate {
                 predicate: Predicate::True,
                 reason: ConditionIndeterminacy::NoSolver,
@@ -1912,7 +2001,7 @@ mod tests {
         assert_eq!(value["rule"], "heat");
         assert_eq!(
             value["missingVariables"],
-            serde_json::json!([encode_variable(&variable).unwrap()])
+            serde_json::json!([encode_variable::<Value>(&variable).unwrap()])
         );
         assert!(value.get("missing_variables").is_none());
         assert_typescript_variant_fields(
@@ -2006,7 +2095,8 @@ mod tests {
             )
         });
         let response =
-            serde_json::to_value(search_response(result, BACKEND_SCHEMA_VERSION).unwrap()).unwrap();
+            serde_json::to_value(search_response::<Value>(result, BACKEND_SCHEMA_VERSION).unwrap())
+                .unwrap();
 
         assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
         let incomplete = response["incomplete"].as_array().unwrap();
@@ -2081,7 +2171,8 @@ mod tests {
             )
         });
         let response =
-            serde_json::to_value(search_response(result, BACKEND_SCHEMA_VERSION).unwrap()).unwrap();
+            serde_json::to_value(search_response::<Value>(result, BACKEND_SCHEMA_VERSION).unwrap())
+                .unwrap();
 
         assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
         let incomplete = response["incomplete"].as_array().unwrap();
@@ -2098,7 +2189,8 @@ mod tests {
             SimplificationError::Builtin(BuiltinError::Interrupted),
         ] {
             let described = format!("{error:?}");
-            let failure = simplification_failure_output(error, &sort).expect_err(&described);
+            let failure =
+                simplification_failure_output::<Value>(error, &sort).expect_err(&described);
             assert!(
                 failure.0.contains("as a cancelled entry"),
                 "{described}: {failure}"

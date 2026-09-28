@@ -42,7 +42,7 @@ use k_rust_backend::{
     transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 #[cfg(test)]
 use k_rust_backend::rule::Predicate;
@@ -157,30 +157,31 @@ pub enum ExecutionStrategy {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionResult {
+pub struct ExecutionResult<K = Value> {
     /// Whether `leaves` is a state set (equal configurations merged) or a path set (one leaf
     /// per explored path), as selected by `ExecuteRequest::result_modality`.
     pub modality: ResultModalityOutput,
-    pub leaves: Vec<ExecutionLeaf>,
+    pub leaves: Vec<ExecutionLeaf<K>>,
     /// Compatibility copy of the committed effects when execution retains exactly one leaf.
     /// Multi-leaf executions carry their transcripts on the individual leaves.
     pub effects: Vec<EffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub discarded: Vec<ObservationEventOutput>,
+    pub discarded: Vec<ObservationEventOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionLeaf {
-    pub state: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ExecutionLeaf<K = Value> {
+    pub state: K,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
     /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub candidates: Option<Vec<ExecutionCandidateOutput>>,
+    pub candidates: Option<Vec<ExecutionCandidateOutput<K>>>,
     /// The branch's remaining path candidate, when one remains.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub remainder: Option<ExecutionRemainderOutput>,
+    pub remainder: Option<ExecutionRemainderOutput<K>>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
     /// The rule responsible for an undefined step, when the `Trivial` halt names one.
@@ -194,11 +195,11 @@ pub struct ExecutionLeaf {
     /// definition contradicts the attribute on that input. A diagnostic about the definition; the
     /// leaf's reason and state are the same with or without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contradicted_total: Option<ContradictedTotalOutput>,
+    pub contradicted_total: Option<ContradictedTotalOutput<K>>,
     /// The stopped step's structured cause, present exactly for an indeterminate halt.
     /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<SearchFailureOutput>,
+    pub cause: Option<SearchFailureOutput<K>>,
     /// Legacy human-readable diagnostic context.
     ///
     /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
@@ -214,27 +215,29 @@ pub struct ExecutionLeaf {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectOutput>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub observations: Vec<ObservationEventOutput>,
+    pub observations: Vec<ObservationEventOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ExecutionCandidateOutput {
-    pub state: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ExecutionCandidateOutput<K = Value> {
+    pub state: K,
     pub unique_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ExecutionRemainderOutput {
-    pub state: Value,
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ExecutionRemainderOutput<K = Value> {
+    pub state: K,
     pub rule_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -421,6 +424,14 @@ impl fmt::Display for BackendError {
 }
 
 impl std::error::Error for BackendError {}
+
+fn json_output_error(error: serde_json::Error) -> BackendError {
+    BackendError(format!("could not serialize backend JSON: {error}"))
+}
+
+fn serialize_wire(value: &impl Serialize) -> Result<String, BackendError> {
+    serde_json::to_string(value).map_err(json_output_error)
+}
 
 /// A persistent backend session over one compiled KORE definition.
 pub struct Backend {
@@ -645,11 +656,11 @@ impl Backend {
         self.execute_using(request.request, Some(request.rules))
     }
 
-    fn execute_using(
+    fn execute_using<K: wire::WireKore>(
         &mut self,
         request: ExecuteRequest,
         observation_rules: Option<Option<Vec<String>>>,
-    ) -> Result<ExecutionResult, BackendError> {
+    ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
@@ -709,11 +720,11 @@ impl Backend {
         self.search_using(request.request, Some(request.rules))
     }
 
-    fn search_using(
+    fn search_using<K: wire::WireKore>(
         &mut self,
         request: SearchRequest,
         observation_rules: Option<Option<Vec<String>>>,
-    ) -> Result<SearchResponse, BackendError> {
+    ) -> Result<SearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = search_options(&request);
@@ -756,11 +767,11 @@ impl Backend {
         self.search_paths_using(request.request, Some(request.rules))
     }
 
-    fn search_paths_using(
+    fn search_paths_using<K: wire::WireKore>(
         &mut self,
         request: SearchRequest,
         observation_rules: Option<Option<Vec<String>>>,
-    ) -> Result<PathSearchResponse, BackendError> {
+    ) -> Result<PathSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = search_options(&request);
@@ -803,11 +814,11 @@ impl Backend {
         self.search_pattern_using(request.request, Some(request.rules))
     }
 
-    fn search_pattern_using(
+    fn search_pattern_using<K: wire::WireKore>(
         &mut self,
         request: SearchPatternRequest,
         observation_rules: Option<Option<Vec<String>>>,
-    ) -> Result<PatternSearchResponse, BackendError> {
+    ) -> Result<PatternSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = pattern_search_options(&request);
@@ -855,11 +866,11 @@ impl Backend {
         self.search_pattern_paths_using(request.request, Some(request.rules))
     }
 
-    fn search_pattern_paths_using(
+    fn search_pattern_paths_using<K: wire::WireKore>(
         &mut self,
         request: SearchPatternRequest,
         observation_rules: Option<Option<Vec<String>>>,
-    ) -> Result<PathPatternSearchResponse, BackendError> {
+    ) -> Result<PathPatternSearchResponse<K>, BackendError> {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let options = pattern_search_options(&request);
@@ -893,6 +904,86 @@ impl Backend {
             };
             wire::path_pattern_search_response(result, schema_version)
         })
+    }
+
+    /// Write an observed execution response without retaining its expanded KORE JSON as values.
+    pub fn execute_observed_to_writer<W: std::io::Write>(
+        &mut self,
+        request: ObservedRequest<ExecuteRequest>,
+        writer: W,
+    ) -> Result<(), BackendError> {
+        let response = self.execute_using::<Box<RawValue>>(request.request, Some(request.rules))?;
+        serde_json::to_writer(writer, &response).map_err(json_output_error)
+    }
+
+    pub fn execute_json(&mut self, request: ExecuteRequest) -> Result<String, BackendError> {
+        serialize_wire(&self.execute_using::<Box<RawValue>>(request, None)?)
+    }
+
+    pub fn execute_observed_json(
+        &mut self,
+        request: ObservedRequest<ExecuteRequest>,
+    ) -> Result<String, BackendError> {
+        serialize_wire(&self.execute_using::<Box<RawValue>>(request.request, Some(request.rules))?)
+    }
+
+    pub fn search_json(&mut self, request: SearchRequest) -> Result<String, BackendError> {
+        serialize_wire(&self.search_using::<Box<RawValue>>(request, None)?)
+    }
+
+    pub fn search_observed_json(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<String, BackendError> {
+        serialize_wire(&self.search_using::<Box<RawValue>>(request.request, Some(request.rules))?)
+    }
+
+    pub fn search_paths_json(&mut self, request: SearchRequest) -> Result<String, BackendError> {
+        serialize_wire(&self.search_paths_using::<Box<RawValue>>(request, None)?)
+    }
+
+    pub fn search_paths_observed_json(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<String, BackendError> {
+        serialize_wire(
+            &self.search_paths_using::<Box<RawValue>>(request.request, Some(request.rules))?,
+        )
+    }
+
+    pub fn search_pattern_json(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<String, BackendError> {
+        serialize_wire(&self.search_pattern_using::<Box<RawValue>>(request, None)?)
+    }
+
+    pub fn search_pattern_observed_json(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<String, BackendError> {
+        serialize_wire(
+            &self.search_pattern_using::<Box<RawValue>>(request.request, Some(request.rules))?,
+        )
+    }
+
+    pub fn search_pattern_paths_json(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<String, BackendError> {
+        serialize_wire(&self.search_pattern_paths_using::<Box<RawValue>>(request, None)?)
+    }
+
+    pub fn search_pattern_paths_observed_json(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<String, BackendError> {
+        serialize_wire(
+            &self.search_pattern_paths_using::<Box<RawValue>>(
+                request.request,
+                Some(request.rules),
+            )?,
+        )
     }
 
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
@@ -1528,6 +1619,78 @@ mod tests {
 
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn json_text_paths_match_value_responses() {
+        let execute = || ExecuteRequest {
+            state: json("a{}()"),
+            ..ExecuteRequest::default()
+        };
+        let search = || SearchRequest {
+            state: json("a{}()"),
+            ..SearchRequest::default()
+        };
+        let pattern = || SearchPatternRequest {
+            state: json("a{}()"),
+            pattern: json("c{}()"),
+            ..SearchPatternRequest::default()
+        };
+        let observed_execute = || ObservedRequest {
+            request: execute(),
+            rules: None,
+        };
+        let observed_search = || ObservedRequest {
+            request: search(),
+            rules: None,
+        };
+        let observed_pattern = || ObservedRequest {
+            request: pattern(),
+            rules: None,
+        };
+
+        macro_rules! same_json {
+            ($value_method:ident, $json_method:ident, $request:expr) => {{
+                let expected =
+                    serde_json::to_string(&backend().$value_method($request).unwrap()).unwrap();
+                let actual = backend().$json_method($request).unwrap();
+                assert_eq!(actual, expected, stringify!($json_method));
+            }};
+        }
+        same_json!(execute, execute_json, execute());
+        same_json!(execute_observed, execute_observed_json, observed_execute());
+        same_json!(search, search_json, search());
+        same_json!(search_observed, search_observed_json, observed_search());
+        same_json!(search_paths, search_paths_json, search());
+        same_json!(
+            search_paths_observed,
+            search_paths_observed_json,
+            observed_search()
+        );
+        same_json!(search_pattern, search_pattern_json, pattern());
+        same_json!(
+            search_pattern_observed,
+            search_pattern_observed_json,
+            observed_pattern()
+        );
+        same_json!(search_pattern_paths, search_pattern_paths_json, pattern());
+        same_json!(
+            search_pattern_paths_observed,
+            search_pattern_paths_observed_json,
+            observed_pattern()
+        );
+
+        let mut written = Vec::new();
+        backend()
+            .execute_observed_to_writer(observed_execute(), &mut written)
+            .unwrap();
+        assert_eq!(
+            written,
+            backend()
+                .execute_observed_json(observed_execute())
+                .unwrap()
+                .into_bytes()
+        );
     }
 
     #[test]

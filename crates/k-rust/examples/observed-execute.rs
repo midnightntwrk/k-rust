@@ -6,7 +6,7 @@
 use std::{
     env,
     fs::{self, File},
-    io::{self, BufWriter},
+    io::{self, BufWriter, Write},
     path::PathBuf,
 };
 
@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut depth = None;
     let mut timings = None;
     let mut trace_aggregate = None;
+    let mut response_mode = String::from("writer");
     while let Some(option) = args.next() {
         let value = args.next().ok_or(format!("missing value for {option}"))?;
         match option.as_str() {
@@ -34,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--depth" => depth = Some(value.parse::<u64>()?),
             "--timings" => timings = Some(PathBuf::from(value)),
             "--trace-aggregate" => trace_aggregate = Some(PathBuf::from(value)),
+            "--response-mode" => response_mode = value,
             _ => return Err(format!("unknown option {option}").into()),
         }
     }
@@ -53,15 +55,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             module,
             BackendOptions::default(),
         )?;
-        let response = backend.execute_observed(ObservedRequest {
+        let request = ObservedRequest {
             request: ExecuteRequest {
                 state,
                 max_depth: Some(depth),
                 ..ExecuteRequest::default()
             },
             rules: None,
-        })?;
-        serde_json::to_writer(BufWriter::new(io::stdout().lock()), &response)?;
+        };
+        match response_mode.as_str() {
+            "writer" => {
+                backend.execute_observed_to_writer(request, BufWriter::new(io::stdout().lock()))?
+            }
+            "string" => io::stdout()
+                .lock()
+                .write_all(backend.execute_observed_json(request)?.as_bytes())?,
+            _ => return Err(format!("unknown response mode {response_mode}").into()),
+        }
         Ok(())
     })();
 
