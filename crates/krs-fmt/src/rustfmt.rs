@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
@@ -6,7 +7,7 @@ use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
 use syn::visit::Visit;
 
 use crate::rules::{self, TrailingCommentStyle};
-use crate::{FormatError, FormatErrorKind};
+use crate::{Edition, FormatError, FormatErrorKind};
 
 pub(crate) struct ElidedSource {
     pub(crate) source: String,
@@ -173,10 +174,13 @@ fn line_indent(source: &str, offset: usize) -> String {
         .collect()
 }
 
-pub(crate) fn run(source: &str) -> Result<String, FormatError> {
-    let mut command = Command::new("rustfmt");
+pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<String, FormatError> {
+    let mut command = Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()));
     command
-        .args(["--edition", "2024", "--emit", "stdout"])
+        .arg("--edition")
+        .arg(edition.to_string())
+        .args(["--emit", "stdout"])
+        .current_dir(directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

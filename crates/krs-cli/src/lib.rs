@@ -9,6 +9,7 @@
 mod cargo;
 mod command;
 mod diagnostic;
+mod format;
 mod generate;
 mod metadata;
 mod plan;
@@ -22,6 +23,7 @@ pub use diagnostic::{
     DiagnosticStage, exact_authored_range, exact_authored_range_from_origin,
     translate_k_frontend_diagnostic, translate_native_diagnostic,
 };
+pub use format::{FormatInput, discover_format_inputs};
 pub use generate::{GeneratedCollector, GenerationError};
 pub use krs_k_rust::Backend;
 pub use metadata::{

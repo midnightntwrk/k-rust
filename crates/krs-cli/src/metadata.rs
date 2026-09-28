@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::error::Error;
 use std::fmt;
 
-/// The stable subset of `cargo metadata --format-version 1` used by planning.
+/// The stable subset of `cargo metadata --format-version 1` used by KRS.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CargoMetadata {
     /// All packages in the resolved graph.
@@ -16,7 +16,7 @@ pub struct CargoMetadata {
     /// Cargo's workspace root directory, when supplied by Cargo itself.
     #[serde(default)]
     pub workspace_root: Option<String>,
-    /// Cargo's resolved target directory, used for KRS-owned build products.
+    /// Cargo's resolved target directory, including configuration overrides.
     #[serde(default)]
     pub target_directory: Option<String>,
 }
@@ -49,6 +49,9 @@ pub struct MetadataPackage {
     pub source: Option<String>,
     /// Absolute or metadata-relative path to the package manifest.
     pub manifest_path: String,
+    /// Cargo package Rust edition.
+    #[serde(default)]
+    pub edition: Option<String>,
     /// Package metadata, including `package.metadata.krs`.
     #[serde(default)]
     pub metadata: Value,
@@ -57,11 +60,17 @@ pub struct MetadataPackage {
     pub targets: Vec<MetadataTarget>,
 }
 
-/// Minimal Cargo target metadata needed to select the semantics library.
+/// Cargo target metadata used for planning and source formatting.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetadataTarget {
     /// Cargo's actual target name and resulting Rust crate-root spelling.
     pub name: String,
+    /// Rust edition selected for this target.
+    #[serde(default)]
+    pub edition: Option<String>,
+    /// Source file serving as this target's crate root.
+    #[serde(default)]
+    pub src_path: Option<String>,
     /// Cargo target kinds, such as `lib`, `bin`, or `proc-macro`.
     #[serde(default)]
     pub kind: Vec<String>,

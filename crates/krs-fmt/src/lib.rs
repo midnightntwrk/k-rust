@@ -4,20 +4,60 @@
 //! subprocess runs, formatted through the shared `krs-syntax` parser, and
 //! spliced back at the invocation's Rustfmt-selected indentation.
 
-mod discovery;
 mod rules;
 mod rustfmt;
 
 use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
-pub use discovery::{discover_rust_files, expand_paths};
 pub use rules::TrailingCommentStyle;
+
+/// Rust language edition passed to Rustfmt.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Edition {
+    /// Rust 2015.
+    E2015,
+    /// Rust 2018.
+    E2018,
+    /// Rust 2021.
+    E2021,
+    /// Rust 2024.
+    #[default]
+    E2024,
+}
+
+impl fmt::Display for Edition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::E2015 => "2015",
+            Self::E2018 => "2018",
+            Self::E2021 => "2021",
+            Self::E2024 => "2024",
+        })
+    }
+}
+
+impl FromStr for Edition {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "2015" => Ok(Self::E2015),
+            "2018" => Ok(Self::E2018),
+            "2021" => Ok(Self::E2021),
+            "2024" => Ok(Self::E2024),
+            _ => Err(format!("unknown Rust edition `{value}`")),
+        }
+    }
+}
 
 /// Formatter policy shared by file, stdin, editor, and CI entry points.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormatOptions {
+    /// Rust language edition for the input.
+    pub edition: Edition,
     /// Layout policy for trailing comments on aligned single-cell clauses.
     pub trailing_comments: TrailingCommentStyle,
     /// Run and compose with the installed Rustfmt executable.
@@ -31,6 +71,7 @@ pub struct FormatOptions {
 impl Default for FormatOptions {
     fn default() -> Self {
         Self {
+            edition: Edition::default(),
             trailing_comments: TrailingCommentStyle::AlignedColumn,
             rustfmt: true,
             check_idempotence: true,
@@ -72,8 +113,6 @@ pub enum FormatErrorKind {
     NonIdempotent,
     /// Direct Rustfmt changed the final KRS-formatted bytes.
     RustfmtFixpoint,
-    /// Cargo metadata discovery failed.
-    Discovery,
     /// A file could not be read or written.
     Io,
 }
@@ -120,7 +159,20 @@ impl Error for FormatError {}
 ///
 /// Returns a typed parse, Rustfmt, payload, idempotence, or fixpoint failure.
 pub fn format_source(source: &str, options: FormatOptions) -> Result<String, FormatError> {
-    let output = format_source_once(source, options)?;
+    format_source_in(source, options, Path::new("."))
+}
+
+/// Formats source using Rustfmt configuration found from `directory`.
+///
+/// # Errors
+///
+/// Returns a typed parse, Rustfmt, payload, idempotence, or fixpoint failure.
+pub fn format_source_in(
+    source: &str,
+    options: FormatOptions,
+    directory: &Path,
+) -> Result<String, FormatError> {
+    let output = format_source_once(source, options, directory)?;
     rustfmt::validate_token_payload(source, &output)?;
     rustfmt::validate_comment_payload(source, &output)?;
     syn::parse_file(&output).map_err(|error| {
@@ -130,7 +182,7 @@ pub fn format_source(source: &str, options: FormatOptions) -> Result<String, For
         )
     })?;
     if options.check_idempotence {
-        let repeated = format_source_once(&output, options)?;
+        let repeated = format_source_once(&output, options, directory)?;
         if repeated != output {
             return Err(FormatError::new(
                 FormatErrorKind::NonIdempotent,
@@ -139,7 +191,7 @@ pub fn format_source(source: &str, options: FormatOptions) -> Result<String, For
         }
     }
     if options.rustfmt && options.check_rustfmt_fixpoint {
-        let direct = rustfmt::run(&output)?;
+        let direct = rustfmt::run(&output, options.edition, directory)?;
         if direct != output {
             return Err(FormatError::new(
                 FormatErrorKind::RustfmtFixpoint,
@@ -150,10 +202,14 @@ pub fn format_source(source: &str, options: FormatOptions) -> Result<String, For
     Ok(output)
 }
 
-fn format_source_once(source: &str, options: FormatOptions) -> Result<String, FormatError> {
+fn format_source_once(
+    source: &str,
+    options: FormatOptions,
+    directory: &Path,
+) -> Result<String, FormatError> {
     let elided = rustfmt::elide_rule_bodies(source)?;
     let rust = if options.rustfmt {
-        rustfmt::run(&elided.source)?
+        rustfmt::run(&elided.source, options.edition, directory)?
     } else {
         elided.source
     };
@@ -172,7 +228,11 @@ pub fn format_file(path: &Path, options: FormatOptions) -> Result<FormattedFile,
             format!("cannot read `{}`: {error}", path.display()),
         )
     })?;
-    let output = format_source(&source, options)?;
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let output = format_source_in(&source, options, directory)?;
     Ok(FormattedFile {
         path: path.to_path_buf(),
         changed: output != source,
@@ -199,6 +259,23 @@ mod tests {
     use proc_macro2::{Spacing, TokenStream, TokenTree};
 
     use super::*;
+
+    #[test]
+    fn source_uses_selected_rust_edition() {
+        let source = "use std::{u8, u16};\n";
+        let edition_2021 = FormatOptions {
+            edition: Edition::E2021,
+            ..FormatOptions::default()
+        };
+        assert_eq!(
+            format_source(source, edition_2021).expect("format 2021 source"),
+            "use std::{u16, u8};\n"
+        );
+        assert_eq!(
+            format_source(source, FormatOptions::default()).expect("format 2024 source"),
+            source
+        );
+    }
 
     #[test]
     fn readable_corpus_is_at_every_formatter_fixpoint() {

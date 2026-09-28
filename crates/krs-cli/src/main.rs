@@ -4,7 +4,7 @@ use krs_cli::{
     Backend, Command, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector,
     RegistrationMode, execute_command_measured, valid_identifier_segment,
 };
-use krs_fmt::{FormatOptions, TrailingCommentStyle};
+use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
 use lexopt::Arg::{Long, Short, Value};
 use std::ffi::OsString;
@@ -18,7 +18,7 @@ KRS definition compiler
 Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
-  krs fmt --stdin
+  krs fmt --stdin [--edition YEAR]
 
 Commands:
   check                     Build and run the collector; report Rust and theory errors
@@ -39,6 +39,7 @@ Options:
   --counters FILE            Write krs-counters/1 work counters as JSON
   --no-reuse                 Run the collector and compiler even on an unchanged input
   --stdin                    Format stdin and write the result to stdout
+  --edition YEAR             Rust edition for --stdin (default: 2024)
   --check                    Report files that are not canonically formatted
   --trailing-comments STYLE  aligned or gutter (default: aligned)
   -h, --help                 Show this help
@@ -149,6 +150,7 @@ enum ParseResult {
 
 struct FormatRequest {
     stdin: bool,
+    edition: Edition,
     check: bool,
     manifest_path: Option<PathBuf>,
     paths: Vec<PathBuf>,
@@ -355,6 +357,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
 
 fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> {
     let mut stdin = false;
+    let mut edition = None;
     let mut check = false;
     let mut manifest_path = None;
     let mut paths = Vec::new();
@@ -363,6 +366,14 @@ fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> 
         match argument {
             Short('h') | Long("help") => return Ok(ParseResult::Help),
             Long("stdin") => stdin = true,
+            Long("edition") => {
+                let value = option_value(parser, "Rust edition")?;
+                set_once(
+                    &mut edition,
+                    value.parse::<Edition>().map_err(usage)?,
+                    "--edition",
+                )?;
+            }
             Long("check") => check = true,
             Long("manifest-path") => set_once(
                 &mut manifest_path,
@@ -387,8 +398,12 @@ fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> 
             "--stdin cannot be combined with paths or --manifest-path",
         ));
     }
+    if edition.is_some() && !stdin {
+        return Err(usage("--edition requires --stdin"));
+    }
     Ok(ParseResult::Format(FormatRequest {
         stdin,
+        edition: edition.unwrap_or_default(),
         check,
         manifest_path,
         paths,
@@ -399,6 +414,7 @@ fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> 
 fn execute_format(request: &FormatRequest) -> Result<bool, String> {
     let options = FormatOptions {
         trailing_comments: request.trailing_comments,
+        edition: request.edition,
         ..FormatOptions::default()
     };
     if request.stdin {
@@ -424,19 +440,20 @@ fn execute_format(request: &FormatRequest) -> Result<bool, String> {
         return Ok(true);
     }
 
-    let files = if request.paths.is_empty() {
-        krs_fmt::discover_rust_files(request.manifest_path.as_deref())
-    } else {
-        krs_fmt::expand_paths(&request.paths)
-    }
-    .map_err(|error| error.to_string())?;
+    let files = krs_cli::discover_format_inputs(request.manifest_path.as_deref(), &request.paths)?;
     let mut formatted = Vec::with_capacity(files.len());
     let mut failed = false;
-    for path in &files {
-        match krs_fmt::format_file(path, options) {
+    for input in &files {
+        match krs_fmt::format_file(
+            &input.path,
+            FormatOptions {
+                edition: input.edition,
+                ..options
+            },
+        ) {
             Ok(file) => formatted.push(file),
             Err(error) => {
-                eprintln!("{}: {error}", path.display());
+                eprintln!("{}: {error}", input.path.display());
                 failed = true;
             }
         }
@@ -706,6 +723,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_fmt_editor_mode() {
+        let ParseResult::Format(request) = parse_args(&[
+            "fmt",
+            "--stdin",
+            "--edition",
+            "2021",
+            "--trailing-comments",
+            "gutter",
+        ])
+        .unwrap() else {
+            panic!("expected fmt command")
+        };
+        assert!(request.stdin);
+        assert_eq!(request.edition, Edition::E2021);
+        assert_eq!(request.trailing_comments, TrailingCommentStyle::FixedGutter);
+    }
+
+    #[test]
     fn parses_fmt_modes() {
         let ParseResult::Format(request) = parse_args(&[
             "fmt",
@@ -741,6 +776,16 @@ mod tests {
             panic!("expected fmt command")
         };
         assert_eq!(request.manifest_path, Some(PathBuf::from("Cargo.toml")));
+    }
+
+    #[test]
+    fn rejects_unknown_or_file_mode_edition() {
+        assert!(error(&["fmt", "--stdin", "--edition", "2030"]).contains("unknown Rust edition"));
+        assert!(error(&["fmt", "--edition", "2021", "src"]).contains("--edition requires --stdin"));
+        assert!(
+            error(&["fmt", "--stdin", "--edition", "2021", "--edition=2024"])
+                .contains("--edition specified more than once")
+        );
     }
 
     #[test]

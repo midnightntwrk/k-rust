@@ -598,8 +598,6 @@ dependencies = [
  "krs-syntax",
  "pretty",
  "proc-macro2",
- "serde",
- "serde_json",
  "similar",
  "syn 2.0.119",
 ]
