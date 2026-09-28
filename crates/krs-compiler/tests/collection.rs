@@ -4,7 +4,6 @@ use std::any::TypeId;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use krs_compiler::{CollectionErrorKind, PackageContext, collect_host_descriptors};
 use krs_ir::{
@@ -18,6 +17,7 @@ use krs_syntax::{
     ConstructorDeclaration, ProvenanceAnchor, SortDeclaration, parse_constructor_attribute,
     parse_symbol_attribute,
 };
+use krs_test_support::{TempDir, temp_dir};
 use syn::{Item, Meta};
 
 fn is_symbol_attribute(attribute: &syn::Attribute) -> bool {
@@ -540,8 +540,8 @@ fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
 #[test]
 fn source_symlinks_cannot_escape_the_canonical_package_directory() {
     let package = TestPackage::new("escape", "#[k::sort]\npub trait Expr {}\n");
-    let external = TestDirectory::new("external-source");
-    let external_source = external.path.join("outside.rs");
+    let external = temp_dir();
+    let external_source = external.path().join("outside.rs");
     fs::write(&external_source, "#[k::sort]\npub trait Expr {}\n").unwrap();
     std::os::unix::fs::symlink(&external_source, package.root().join("src/escape.rs")).unwrap();
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
@@ -567,7 +567,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
     .unwrap();
     let workspace_hint = package
         .root()
-        .strip_prefix(&package.directory.path)
+        .strip_prefix(package.directory.path())
         .unwrap()
         .join("src/lib.rs")
         .to_string_lossy()
@@ -819,7 +819,7 @@ fn replace_first_anchor(
 
 #[derive(Debug)]
 struct TestPackage {
-    directory: TestDirectory,
+    directory: TempDir,
     package_root: PathBuf,
     name: String,
     source: String,
@@ -836,8 +836,8 @@ impl TestPackage {
 
     /// A package whose manifest names the `krs` facade `facade`.
     fn with_facade(name: &str, relative_root: &str, facade: &str, source: &str) -> Self {
-        let directory = TestDirectory::new(name);
-        let package_root = directory.path.join(relative_root);
+        let directory = temp_dir();
+        let package_root = directory.path().join(relative_root);
         fs::create_dir_all(package_root.join("src")).unwrap();
         fs::write(
             package_root.join("Cargo.toml"),
@@ -1056,33 +1056,4 @@ fn source_anchor(
         precision,
     )
     .unwrap()
-}
-
-#[derive(Debug)]
-struct TestDirectory {
-    path: PathBuf,
-}
-
-impl TestDirectory {
-    fn new(label: &str) -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "krs-compiler-{label}-{}-{sequence}",
-            std::process::id()
-        ));
-        if path.exists() {
-            fs::remove_dir_all(&path).unwrap();
-        }
-        fs::create_dir(&path).unwrap();
-        Self { path }
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        if self.path.exists() {
-            fs::remove_dir_all(&self.path).unwrap();
-        }
-    }
 }

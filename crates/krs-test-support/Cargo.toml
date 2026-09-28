@@ -1,0 +1,18 @@
+[package]
+name = "krs-test-support"
+description = "Shared process and temporary-directory support for KRS tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+test = false
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile = "3.27.0"

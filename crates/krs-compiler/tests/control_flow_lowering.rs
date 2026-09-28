@@ -20,6 +20,7 @@ use krs_ir::{
     SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
     SemanticVariable, SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
 };
+use krs_test_support::kompile_reference;
 
 const CALC_SYNTAX: &str = "KRS-CALC-SYNTAX";
 const CALC: &str = "KRS-CALC";
@@ -1247,45 +1248,10 @@ fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
 #[test]
 #[ignore = "requires pin-matched K 7.1.337 tools"]
 fn emitted_control_flow_source_compiles_with_pinned_reference_frontend() {
-    use std::fs;
-    use std::process::Command;
-
-    let version = Command::new("kompile")
-        .arg("--version")
-        .output()
-        .expect("pin-matched kompile must be on PATH");
-    assert!(version.status.success());
-    assert!(String::from_utf8_lossy(&version.stdout).contains("v7.1.337"));
-
-    let temporary = std::env::temp_dir().join(format!(
-        "krs-compiler-control-flow-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("reference")
-    ));
-    fs::create_dir(&temporary).unwrap();
-    let source_path = temporary.join("definition.k");
-    let definition_path = temporary.join("compiled");
     let lowered =
         lower_semantic_theory(&control_flow_theory(ControlOptions::default()).unwrap()).unwrap();
-    fs::write(&source_path, emit_k(&lowered).unwrap().source()).unwrap();
-    let output = Command::new("kompile")
-        .arg(&source_path)
-        .arg("--main-module")
-        .arg(IMP)
-        .arg("--syntax-module")
-        .arg(IMP_SYNTAX)
-        .arg("--backend")
-        .arg("llvm")
-        .arg("--enable-search")
-        .arg("--output-definition")
-        .arg(&definition_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "kompile rejected canonical control-flow source:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(definition_path.join("definition.kore").is_file());
-    fs::remove_dir_all(temporary).unwrap();
+    let emitted = emit_k(&lowered).unwrap();
+    let _temporary = kompile_reference(emitted.source(), IMP, IMP_SYNTAX)
+        .enable_search()
+        .run();
 }

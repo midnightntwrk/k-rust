@@ -24,3 +24,4 @@ workspace = true
 [dev-dependencies]
 expect-test = "1.5.1"
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }

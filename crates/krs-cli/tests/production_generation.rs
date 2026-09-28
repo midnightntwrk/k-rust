@@ -4,10 +4,10 @@ use krs_cli::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DefinitionRequest, FacetSelector,
     GeneratedCollector, KrsCfg, PackageSelector, PlanningErrorKind, RegistrationMode,
 };
+use krs_test_support::temp_dir;
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 #[test]
@@ -252,12 +252,8 @@ fn explicit_registration_rejects_an_unselected_krs_dependent() {
 
 #[test]
 fn writing_an_unchanged_collector_preserves_generated_file_mtimes() {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let output = std::env::temp_dir().join(format!(
-        "krs-production-generation-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temporary = temp_dir();
+    let output = temporary.path().join("collector");
     let generated =
         GeneratedCollector::from_plan(&explicit_plan(&explicit_metadata(&[], false))).unwrap();
     generated.write_to(&output).unwrap();
@@ -287,5 +283,4 @@ fn writing_an_unchanged_collector_preserves_generated_file_mtimes() {
             "{file}"
         );
     }
-    fs::remove_dir_all(&output).unwrap();
 }

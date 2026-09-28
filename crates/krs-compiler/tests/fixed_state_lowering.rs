@@ -17,6 +17,7 @@ use krs_ir::{
     SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
     SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
 };
+use krs_test_support::kompile_reference;
 
 fn package() -> PackageId {
     testing::package("KRS-CALC", "calc")
@@ -823,43 +824,7 @@ fn configuration_rule_labels_are_authored_but_remain_collision_checked() {
 #[test]
 #[ignore = "requires pin-matched K 7.1.337 tools"]
 fn emitted_calc_source_compiles_with_pinned_reference_frontend() {
-    use std::fs;
-    use std::process::Command;
-
-    let version = Command::new("kompile")
-        .arg("--version")
-        .output()
-        .expect("pin-matched kompile must be on PATH");
-    assert!(version.status.success());
-    assert!(String::from_utf8_lossy(&version.stdout).contains("v7.1.337"));
-
-    let temporary = std::env::temp_dir().join(format!(
-        "krs-compiler-calc-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("reference")
-    ));
-    fs::create_dir(&temporary).unwrap();
-    let source_path = temporary.join("definition.k");
-    let definition_path = temporary.join("compiled");
     let lowered = lower_semantic_theory(&calc_theory(CalcOptions::default())).unwrap();
-    fs::write(&source_path, emit_k(&lowered).unwrap().source()).unwrap();
-    let output = Command::new("kompile")
-        .arg(&source_path)
-        .arg("--main-module")
-        .arg("KRS-CALC")
-        .arg("--syntax-module")
-        .arg("KRS-CALC")
-        .arg("--backend")
-        .arg("llvm")
-        .arg("--output-definition")
-        .arg(&definition_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "kompile rejected canonical calculation source:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(definition_path.join("definition.kore").is_file());
-    fs::remove_dir_all(temporary).unwrap();
+    let emitted = emit_k(&lowered).unwrap();
+    let _temporary = kompile_reference(emitted.source(), "KRS-CALC", "KRS-CALC").run();
 }

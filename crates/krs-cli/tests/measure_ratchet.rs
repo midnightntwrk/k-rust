@@ -2,10 +2,10 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::Path;
+use std::process::Output;
+
+use krs_test_support::{fixture_target, krs_command, temp_dir};
 
 // Baselines: many-small-rules n=24 from tests/perf/synth.py. Bundle byte
 // headroom is 10%, rounded up to the next hundred bytes; zero pins the
@@ -36,31 +36,6 @@ const BOUNDS: &[(&str, u64, u64)] = &[
     ("semantic.modules", 2, 0),
 ];
 
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "krs-measure-ratchet-{}-{nanos}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 fn run_check(
     manifest: &Path,
     target: &Path,
@@ -68,7 +43,7 @@ fn run_check(
     log: &Path,
     counters: &Path,
 ) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_krs"))
+    krs_command!()
         .args(["check", "--manifest-path"])
         .arg(manifest)
         .args([
@@ -103,11 +78,11 @@ fn medium_definition_counters_and_second_check_are_stable() {
         .join("../../tests/perf/fixtures/ratchet-medium/Cargo.toml")
         .canonicalize()
         .unwrap();
-    let scratch = Scratch::new();
-    let target = scratch.0.join("target");
-    let wrapper = scratch.0.join("rustc-wrapper");
-    let log = scratch.0.join("rustc.log");
-    let counters = scratch.0.join("counters.json");
+    let scratch = temp_dir();
+    let target = fixture_target(&fixture, Some(scratch.path()));
+    let wrapper = scratch.path().join("rustc-wrapper");
+    let log = scratch.path().join("rustc.log");
+    let counters = scratch.path().join("counters.json");
     fs::write(
         &wrapper,
         "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KRS_RATCHET_RUSTC_LOG\"\nexec \"$@\"\n",

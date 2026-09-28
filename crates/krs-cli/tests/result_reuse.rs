@@ -2,15 +2,17 @@
 
 use std::fs::{self, File, FileTimes};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
+
+use krs_test_support::{TempDir, fixture_target, krs_command, temp_dir};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const INVALID_NATIVE: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
 
 struct Fixture {
-    root: PathBuf,
+    root: TempDir,
     manifest: PathBuf,
     target: PathBuf,
     executable: PathBuf,
@@ -19,17 +21,8 @@ struct Fixture {
 
 impl Fixture {
     fn new(source: &str) -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "krs-result-reuse-{}-{nanos}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let project = root.join("language");
+        let root = temp_dir();
+        let project = root.path().join("language");
         fs::create_dir_all(project.join("src")).unwrap();
         fs::write(project.join("src/lib.rs"), source).unwrap();
         let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -45,10 +38,10 @@ impl Fixture {
             ),
         )
         .unwrap();
-        let executable = root.join("krs");
+        let executable = root.path().join("krs");
         fs::copy(env!("CARGO_BIN_EXE_krs"), &executable).unwrap();
         Self {
-            target: root.join("target"),
+            target: fixture_target(&manifest, Some(root.path())),
             root,
             manifest,
             executable,
@@ -65,9 +58,9 @@ impl Fixture {
         no_reuse_env: bool,
     ) -> Run {
         let sequence = self.next.fetch_add(1, Ordering::Relaxed);
-        let counters_path = self.root.join(format!("counters-{sequence}.json"));
-        let timings_path = self.root.join(format!("timings-{sequence}.json"));
-        let mut command = Command::new(&self.executable);
+        let counters_path = self.root.path().join(format!("counters-{sequence}.json"));
+        let timings_path = self.root.path().join(format!("timings-{sequence}.json"));
+        let mut command = krs_command!(&self.executable);
         command
             .arg(kind)
             .args(options)
@@ -107,12 +100,6 @@ impl Fixture {
 
     fn source(&self) -> PathBuf {
         self.manifest.parent().unwrap().join("src/lib.rs")
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
     }
 }
 
@@ -188,12 +175,12 @@ fn artifact_bytes(directory: &Path) -> Vec<(String, Vec<u8>)> {
 #[test]
 fn hit_skips_collector_and_restores_only_changed_outputs() {
     let fixture = Fixture::new(FOO_BAR);
-    let first_directory = fixture.root.join("first");
+    let first_directory = fixture.root.path().join("first");
     let first = fixture.run("emit-k", "llvm", Some(&first_directory), &[], false);
     first.assert_reused(0);
     let expected = artifact_bytes(&first_directory);
 
-    let second_directory = fixture.root.join("second");
+    let second_directory = fixture.root.path().join("second");
     let second = fixture.run("emit-k", "llvm", Some(&second_directory), &[], false);
     second.assert_reused(1);
     assert_eq!(second.output.stdout, first.output.stdout);
@@ -263,14 +250,14 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
     fixture
         .run("check", "llvm", None, &[], false)
         .assert_reused(1);
-    let emitted = fixture.root.join("emitted");
+    let emitted = fixture.root.path().join("emitted");
     fixture
         .run("emit-k", "llvm", Some(&emitted), &[], false)
         .assert_reused(0);
     fixture
         .run("emit-k", "llvm", Some(&emitted), &[], false)
         .assert_reused(1);
-    let native = fixture.root.join("native");
+    let native = fixture.root.path().join("native");
     let build = fixture.run("build", "llvm", Some(&native), &[], false);
     build.assert_reused(0);
     let native_bytes = artifact_bytes(&native);
@@ -303,7 +290,7 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
 #[test]
 fn failed_native_compilation_is_never_reused() {
     let fixture = Fixture::new(INVALID_NATIVE);
-    let native = fixture.root.join("native");
+    let native = fixture.root.path().join("native");
     for _ in 0..2 {
         let run = fixture.run("build", "llvm", Some(&native), &[], false);
         assert!(!run.output.status.success());

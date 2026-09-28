@@ -1,18 +1,17 @@
 //! End-to-end command contracts over an independently built authored crate.
 
 use std::fs;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::process::Output;
+
+use krs_test_support::{fixture_target, krs_command, temp_dir};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
 
 #[test]
 fn build_accepts_rule_terms_nested_64_constructors_deep() {
-    let temporary = temporary_directory();
-    let target = temporary.join("target");
+    let temporary = temp_dir();
     let term = format!("{}Tick(0){}", "Wrap(".repeat(64), ")".repeat(64));
     let source = format!(
         r#"
@@ -51,8 +50,9 @@ krs::rules! {{
 }}
 "#
     );
-    let manifest = materialize_fixture(&temporary, &source);
-    let mut process = Command::new(env!("CARGO_BIN_EXE_krs"));
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let target = fixture_target(&manifest, Some(temporary.path()));
+    let mut process = krs_command!();
     let output = process
         .args(["build", "--manifest-path"])
         .arg(manifest)
@@ -63,20 +63,20 @@ krs::rules! {{
             "main",
             "--output",
         ])
-        .arg(temporary.join("built"))
+        .arg(temporary.path().join("built"))
         .env("CARGO_TARGET_DIR", target)
         .output()
         .unwrap();
     assert_success(&output);
-    assert!(temporary.join("built/definition.kore").is_file());
+    assert!(temporary.path().join("built/definition.kore").is_file());
 }
 
 #[test]
 fn commands_share_the_production_collection_and_definition_pipeline() {
-    let temporary = temporary_directory();
-    let target = temporary.join("target");
-    let emitted = temporary.join("emitted");
-    let manifest = materialize_fixture(&temporary, FOO_BAR);
+    let temporary = temp_dir();
+    let emitted = temporary.path().join("emitted");
+    let manifest = materialize_fixture(temporary.path(), FOO_BAR);
+    let target = fixture_target(&manifest, Some(temporary.path()));
 
     let expand = command(&target, &manifest, "expand", None, &[]);
     assert_success(&expand);
@@ -98,7 +98,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
         b"KRS check passed: 9 descriptors, 1 semantic modules\n"
     );
 
-    assert_check_measurement(&temporary, &target, &manifest, &check.stdout);
+    assert_check_measurement(temporary.path(), &target, &manifest, &check.stdout);
 
     let emit = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
     assert_success(&emit);
@@ -146,7 +146,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
         .collect()
     );
 
-    let unsafe_output = temporary.join("user-owned");
+    let unsafe_output = temporary.path().join("user-owned");
     fs::create_dir_all(&unsafe_output).unwrap();
     fs::write(unsafe_output.join("definition.k"), "user contents\n").unwrap();
     let unsafe_emit = command(&target, &manifest, "emit-k", Some(&unsafe_output), &[]);
@@ -161,8 +161,8 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
         "user contents\n"
     );
 
-    let native = temporary.join("native");
-    assert_build_measurement(&temporary, &target, &manifest, &native);
+    let native = temporary.path().join("native");
+    assert_build_measurement(temporary.path(), &target, &manifest, &native);
     assert!(native.join("definition.kore").is_file());
     assert!(native.join("syntaxDefinition.kore").is_file());
     assert!(native.join("macros.kore").is_file());
@@ -360,7 +360,7 @@ fn command(
     output: Option<&Path>,
     arguments: &[&str],
 ) -> Output {
-    let mut process = Command::new(env!("CARGO_BIN_EXE_krs"));
+    let mut process = krs_command!();
     process
         .arg(command)
         .args(arguments)
@@ -405,15 +405,15 @@ fn assert_success(output: &Output) {
 
 #[test]
 fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
-    let temporary = temporary_directory();
-    let target = temporary.join("target");
-    let manifest = materialize_fixture(&temporary, NESTED_FUNCTION_PATTERN);
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), NESTED_FUNCTION_PATTERN);
+    let target = fixture_target(&manifest, Some(temporary.path()));
     let item = "twist_twice";
     let start = NESTED_FUNCTION_PATTERN.find("fn twist_twice(").unwrap() + "fn ".len();
 
     for backend in ["haskell", "llvm"] {
-        let native = temporary.join(backend);
-        let timings_path = temporary.join(format!("{backend}-timings.json"));
+        let native = temporary.path().join(backend);
+        let timings_path = temporary.path().join(format!("{backend}-timings.json"));
         let build = command(
             &target,
             &manifest,
@@ -455,28 +455,4 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         assert_eq!(range["start_byte"], start, "{stderr}");
         assert_eq!(range["end_byte"], start + item.len(), "{stderr}");
     }
-}
-
-struct TemporaryDirectory(PathBuf);
-
-impl Deref for TemporaryDirectory {
-    type Target = Path;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Drop for TemporaryDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn temporary_directory() -> TemporaryDirectory {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let unique = NEXT.fetch_add(1, Ordering::Relaxed);
-    TemporaryDirectory(
-        std::env::temp_dir().join(format!("krs-cli-commands-{}-{unique}", std::process::id())),
-    )
 }
