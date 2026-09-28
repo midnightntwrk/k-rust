@@ -157,7 +157,7 @@ impl Inhabitation {
 /// `anywhere`, macro and sort-parametric symbols are excluded, because they are not free, and
 /// so is a symbol that also carries the KORE `function` attribute (k-rust types it as a
 /// constructor; k-rust's kompile never emits both, hand-written KORE may).
-fn free_constructor(symbol: &Symbol) -> bool {
+pub(crate) fn free_constructor(symbol: &Symbol) -> bool {
     let attributes = &symbol.attributes;
     attributes.symbol_type == SymbolType::Constructor
         && !attributes.declared_function
@@ -249,7 +249,7 @@ pub(crate) fn uninhabited_variable(
 
 /// Whether a failed unification proves that its equations have no common instance in K's
 /// constructor algebra (see the module documentation).
-fn proves_clash(failure: &UnificationFailure) -> bool {
+pub(crate) fn proves_clash(failure: &UnificationFailure) -> bool {
     match failure {
         UnificationFailure::DifferentSymbols(left, right) => {
             let free = |term: &Term| {
