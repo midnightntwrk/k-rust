@@ -429,6 +429,133 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
     });
 }
 
+/// Decision EI-D2 = b: the counter fixture keeps a pattern kill with an unchanged final result,
+/// now over a proved execution difference. The step-by-two mutant
+/// `counter(N, s(s(L))) => counter(s(s(N)), L)` takes `counter(z, s(s(z)))` to the baseline's
+/// final counter in one rewrite, skipping the baseline's intermediate state
+/// `counter(s(z), s(z))`. The final result agrees; the pattern of two consecutive increments
+/// distinguishes, and the certificate proves the trajectories differ: the mutant's complete
+/// path has one position against the baseline's two (`Length`). Both profiles.
+#[test]
+fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_difference() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let vocabulary = vocabulary(&["rule:COUNTER.increment"]);
+        let observed_rules = [ObservedRule {
+            rule: support::rule(baseline, "COUNTER.increment"),
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }];
+        let increment = || Atom {
+            constructor: "rule:COUNTER.increment".to_owned(),
+            payload: Vec::new(),
+        };
+        let twice = OracleDeclaration::new(
+            CrashPolicy::CompareIdentity,
+            Projection::Pattern {
+                plan: PatternPlan::new(
+                    &vocabulary,
+                    Vec::new(),
+                    vec![PatternArm {
+                        atoms: vec![increment(), increment()],
+                        relations: vec![Relation::NextEvent],
+                    }],
+                    None,
+                )
+                .expect("plan"),
+                with_bindings: false,
+            },
+        )
+        .expect("pattern declaration");
+        let tests = [TestCase {
+            id: "two".to_owned(),
+            initial_state: support::initial_state(
+                kore_application("Lblcounter", Vec::new(), vec![z(), s(s(z()))]),
+                "SortCounter",
+            ),
+            oracles: vec![
+                whole_term(CrashPolicy::CompareIdentity),
+                occurs(&vocabulary, "rule:COUNTER.increment"),
+                twice,
+            ],
+        }];
+        // increment: counter(N, s(s(L))) => counter(s(s(N)), L).
+        let doubled = |path: &[u32]| {
+            let at = TermRef::new(support::rule(baseline, "COUNTER.increment"), path);
+            let expected = baseline.term(&at).expect("baseline term").clone();
+            Edit::ReplaceTerm {
+                replacement: Term::apply("s", vec![expected.clone()]),
+                expected,
+                at,
+            }
+        };
+        let by_two = (
+            TermRef::new(support::rule(baseline, "COUNTER.increment"), [0]),
+            Patch::new(vec![doubled(&[0, 0, 1]), doubled(&[0, 1, 0])]).expect("two edits"),
+        );
+        let campaign = Campaign {
+            validator: &validator,
+            module: "COUNTER",
+            observed_rules: &observed_rules,
+            vocabulary: &vocabulary,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        let generation = generation(baseline, &[by_two]);
+        let final_counter = OracleSide::Normal(OracleValue::FinalResult(
+            kink_campaign::FinalResult::WholeTerm(
+                [support::initial_state(
+                    kore_application("Lblcounter", Vec::new(), vec![s(s(z())), z()]),
+                    "SortCounter",
+                )]
+                .into_iter()
+                .collect(),
+            ),
+        ));
+        let matched =
+            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
+        let no_match = OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch));
+        for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
+            let run = run_campaign(&campaign, &generation, schedule).expect("admitted");
+            assert_eq!(
+                sides(&run.baseline[0]),
+                [final_counter.clone(), matched.clone(), matched.clone()]
+            );
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("one mutant");
+            };
+            assert_eq!(
+                sides(&mutant.evidence[0]),
+                [final_counter.clone(), matched.clone(), no_match.clone()],
+                "{schedule:?}"
+            );
+            assert_eq!(
+                outcomes(&mutant.plan.tests),
+                [("two", vec![Agree, Agree, Distinguish])],
+                "{schedule:?}"
+            );
+            assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
+            assert_eq!(mutant.report.killing_test_ids, ["two"], "{schedule:?}");
+            assert_eq!(
+                mutant.certificate_checks,
+                [CertificateCheck {
+                    test_id: "two".into(),
+                    certificate: DifferenceCertificate::Proved {
+                        witness_side: kink_native::execution_difference::CertifiedSide::Mutant,
+                        witness_leaf: 0,
+                        exclusions: vec![kink_native::execution_difference::Exclusion::Length],
+                    },
+                    demoted_slots: vec![],
+                }],
+                "{schedule:?}"
+            );
+        }
+    });
+}
+
 /// Critique C2 through the runner: a mutant that no longer terminates is stopped by the
 /// watchdog, its test fails with `TimeLimit`, and the mutant is `Timeout`, never killed.
 #[test]
