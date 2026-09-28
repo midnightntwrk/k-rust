@@ -30,15 +30,6 @@ use crate::{LessonPolicy, PolicyDiagnostic};
 const INCLUDE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
 const ENV_MACROS: &[&str] = &["env", "option_env"];
 
-/// Rust keywords, which never name a macro in a token-tree scan.
-const KEYWORDS: &[&str] = &[
-    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
-    "false", "fn", "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut",
-    "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "try",
-    "type", "unsafe", "use", "where", "while", "yield", "abstract", "become", "box", "do", "final",
-    "macro", "override", "priv", "typeof", "unsized", "virtual",
-];
-
 /// Checks one authored file.
 pub(crate) fn check(
     source: &str,
@@ -765,7 +756,7 @@ impl<'ast> Checker<'_, 'ast> {
         }
         let single_keyword = !leading
             && segments.len() == 1
-            && KEYWORDS.contains(&segments[0].ident.unraw().to_string().as_str());
+            && krs_syntax::keyword::is_keyword(&segments[0].ident.unraw().to_string());
         if single_keyword || !is_punct(tokens.get(cursor), '!') {
             return cursor.max(index + 1);
         }

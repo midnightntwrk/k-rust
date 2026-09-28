@@ -1,5 +1,6 @@
 use crate::metadata::{CargoMetadata, MetadataNode, MetadataPackage, MetadataTarget};
 use krs_compiler::PackageContext;
+use krs_syntax::keyword;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1077,54 +1078,11 @@ fn rust_identifier(name: &str) -> String {
     identifier = identifier.trim_matches('_').to_owned();
     if identifier.is_empty()
         || identifier.starts_with(|character: char| character.is_ascii_digit())
-        || is_rust_keyword(&identifier)
+        || keyword::is_keyword(&identifier)
     {
         identifier.insert_str(0, "pkg_");
     }
     identifier
-}
-
-fn is_rust_keyword(identifier: &str) -> bool {
-    matches!(
-        identifier,
-        "as" | "break"
-            | "const"
-            | "continue"
-            | "crate"
-            | "else"
-            | "enum"
-            | "extern"
-            | "false"
-            | "fn"
-            | "for"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "self"
-            | "Self"
-            | "static"
-            | "struct"
-            | "super"
-            | "trait"
-            | "true"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-            | "async"
-            | "await"
-            | "dyn"
-    )
 }
 
 fn validate_host_target(target: &str) -> Result<(), PlanningError> {
@@ -1198,7 +1156,7 @@ pub fn valid_identifier_segment(segment: &str) -> bool {
     let mut bytes = segment.bytes();
     matches!(bytes.next(), Some(first) if first.is_ascii_alphabetic() || first == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-        && !is_rust_keyword(segment)
+        && !keyword::is_keyword(segment)
 }
 
 fn logical_cargo_source(package: &MetadataPackage, workspace_members: &BTreeSet<&str>) -> String {

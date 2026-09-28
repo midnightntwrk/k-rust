@@ -21,13 +21,17 @@ krs-compiler = { path = "../krs-compiler" }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
+krs-syntax = { path = "../krs-syntax" }
 lexopt = "0.3.2"
+proc-macro2 = "1.0.107"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
+toml_edit = { version = "0.25.13", default-features = false, features = ["display", "parse"] }
 
 [dev-dependencies]
 krs-test-support = { path = "../krs-test-support" }
+syn = { version = "2.0.119", features = ["full", "parsing"] }
 
 [lints]
 workspace = true

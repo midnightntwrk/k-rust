@@ -12,6 +12,7 @@ mod error;
 mod grammar;
 mod initializer;
 mod item;
+pub mod keyword;
 pub mod parse;
 mod provenance;
 mod range;

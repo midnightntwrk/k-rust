@@ -9,6 +9,7 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
+use toml_edit::DocumentMut;
 
 #[test]
 fn production_collector_owns_the_complete_collection_entrypoint() {
@@ -117,8 +118,12 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
 
 fn assert_cargo_config(metadata: &CargoMetadata, generated: &GeneratedCollector) {
     let cargo_config = String::from_utf8(generated.cargo_config.clone()).unwrap();
-    assert!(cargo_config.contains("target = \"x86_64-unknown-linux-gnu\""));
-    assert!(cargo_config.contains("rustflags = []"));
+    let config: DocumentMut = cargo_config.parse().unwrap();
+    assert_eq!(
+        config["build"]["target"].as_str(),
+        Some("x86_64-unknown-linux-gnu")
+    );
+    assert!(config["build"]["rustflags"].as_array().unwrap().is_empty());
     let cfg_plan = CollectorPlan::resolve_definition(
         metadata,
         &DefinitionRequest {
@@ -145,8 +150,18 @@ fn assert_cargo_config(metadata: &CargoMetadata, generated: &GeneratedCollector)
             .cargo_config,
     )
     .unwrap();
-    assert!(cfg_config.contains("--check-cfg=cfg(backend,values(\\\"llvm\\\"))"));
-    assert!(cfg_config.contains("--cfg=backend=\\\"llvm\\\""));
+    let config: DocumentMut = cfg_config.parse().unwrap();
+    let flags = config["build"]["rustflags"].as_array().unwrap();
+    assert_eq!(
+        flags
+            .iter()
+            .map(|flag| flag.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "--check-cfg=cfg(backend,values(\"llvm\"))",
+            "--cfg=backend=\"llvm\""
+        ]
+    );
 }
 
 fn explicit_metadata(krs_features: &[&str], helper: bool) -> CargoMetadata {

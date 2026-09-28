@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use toml_edit::DocumentMut;
 
 const ROOT_ID: &str = "fixture-root 0.1.0 (path+fixture/root)";
 const SAME_A_ID: &str = "same-name 0.1.0 (path+fixture/same-dash)";
@@ -76,10 +77,136 @@ fn host_target_and_cfg_are_explicit_build_inputs() {
     let config = String::from_utf8(generated.cargo_config).unwrap();
     let manifest = String::from_utf8(generated.manifest).unwrap();
 
-    assert!(config.contains("target = \"x86_64-unknown-linux-gnu\""));
-    assert!(config.contains("--cfg=k_backend=\\\"llvm\\\""));
-    assert!(config.contains("--cfg=krs_test"));
+    let config: DocumentMut = config.parse().unwrap();
+    assert_eq!(
+        config["build"]["target"].as_str(),
+        Some("x86_64-unknown-linux-gnu")
+    );
+    let flags = config["build"]["rustflags"].as_array().unwrap();
+    assert_eq!(
+        flags
+            .iter()
+            .map(|flag| flag.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "--check-cfg=cfg(k_backend,values(\"llvm\"))",
+            "--check-cfg=cfg(krs_test)",
+            "--cfg=k_backend=\"llvm\"",
+            "--cfg=krs_test",
+        ]
+    );
     assert!(manifest.contains("host-only = true"));
+}
+
+#[test]
+fn reserved_package_names_receive_rust_aliases() {
+    let mut metadata = metadata(false);
+    for name in ["gen", "try"] {
+        let id = format!("{name} 0.1.0 (path+fixture/{name})");
+        metadata.packages.push(
+            serde_json::from_value(json!({
+                "id": id,
+                "name": name,
+                "version": "0.1.0",
+                "source": null,
+                "manifest_path": format!("/fixture/{name}/Cargo.toml"),
+                "metadata": {"krs": {
+                    "k-namespace": format!("ORG-EXAMPLE-{}", name.to_ascii_uppercase()),
+                    "definitions": {"core": {}}
+                }},
+                "targets": [{"name": name, "kind": ["lib"], "crate_types": ["lib"]}]
+            }))
+            .unwrap(),
+        );
+        metadata.resolve.as_mut().unwrap().nodes.push(
+            serde_json::from_value(json!({
+                "id": id, "features": [], "dependencies": []
+            }))
+            .unwrap(),
+        );
+        metadata
+            .resolve
+            .as_mut()
+            .unwrap()
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == ROOT_ID)
+            .unwrap()
+            .dependencies
+            .push(id.clone());
+    }
+    let mut request = request(false);
+    for name in ["gen", "try"] {
+        request.dependencies.push(FacetSelector {
+            package: PackageSelector::Name(name.to_owned()),
+            definition: "core".to_owned(),
+        });
+    }
+    let generated =
+        GeneratedCollector::from_plan(&CollectorPlan::resolve(&metadata, &request).unwrap())
+            .unwrap();
+    let manifest = String::from_utf8(generated.manifest).unwrap();
+    let source = String::from_utf8(generated.main_source).unwrap();
+    for name in ["gen", "try"] {
+        assert!(manifest.contains(&format!("pkg_{name} = {{ package = \"{name}\"")));
+        assert!(source.contains(&format!("extern crate pkg_{name} as _;")));
+    }
+    syn::parse_file(&source).unwrap();
+}
+
+#[test]
+fn control_character_round_trips_through_generated_rust_and_toml() {
+    let control = '\u{0008}';
+    let definition = format!("main{control}");
+    let mut metadata = metadata(false);
+    let root = metadata
+        .packages
+        .iter_mut()
+        .find(|package| package.id == ROOT_ID)
+        .unwrap();
+    root.manifest_path = format!("/fixture/root{control}/Cargo.toml");
+    root.metadata["krs"]["definitions"]
+        .as_object_mut()
+        .unwrap()
+        .insert(definition.clone(), json!({"root": "crate"}));
+    let mut request = request(false);
+    request.root.definition = definition.clone();
+    let generated =
+        GeneratedCollector::from_plan(&CollectorPlan::resolve(&metadata, &request).unwrap())
+            .unwrap();
+    let source = String::from_utf8(generated.main_source).unwrap();
+    let parsed = syn::parse_file(&source).unwrap();
+    let selected = parsed
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Const(item) if item.ident == "SELECTED_FACETS" => Some(item),
+            _ => None,
+        })
+        .unwrap();
+    let syn::Expr::Reference(reference) = selected.expr.as_ref() else {
+        panic!("expected selected facets reference")
+    };
+    let syn::Expr::Array(array) = reference.expr.as_ref() else {
+        panic!("expected selected facets array")
+    };
+    let syn::Expr::Tuple(tuple) = array.elems.first().unwrap() else {
+        panic!("expected selected facet tuple")
+    };
+    let syn::Expr::Lit(literal) = &tuple.elems[1] else {
+        panic!("expected definition literal")
+    };
+    let syn::Lit::Str(literal) = &literal.lit else {
+        panic!("expected string literal")
+    };
+    assert_eq!(literal.value(), definition);
+
+    let manifest = String::from_utf8(generated.manifest).unwrap();
+    let manifest: DocumentMut = manifest.parse().unwrap();
+    assert_eq!(
+        manifest["dependencies"]["fixture_root"]["path"].as_str(),
+        Some(format!("/fixture/root{control}").as_str())
+    );
 }
 
 #[test]
