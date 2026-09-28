@@ -1228,15 +1228,15 @@ fn remainder_output<K: WireKore>(
     })
 }
 
+/// The wire candidates and remainder a halt reason reports, each absent when the reason reports none.
+type ExecutionCandidates<K> = (
+    Option<Vec<ExecutionCandidateOutput<K>>>,
+    Option<ExecutionRemainderOutput<K>>,
+);
+
 fn execution_candidates_output<K: WireKore>(
     reason: HaltReason,
-) -> Result<
-    (
-        Option<Vec<ExecutionCandidateOutput<K>>>,
-        Option<ExecutionRemainderOutput<K>>,
-    ),
-    BackendError,
-> {
+) -> Result<ExecutionCandidates<K>, BackendError> {
     match reason {
         HaltReason::Branch {
             branches,

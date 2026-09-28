@@ -7635,7 +7635,7 @@ symbol = "encode_substitution_source"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/rpc.rs"
-symbol = "RpcValue::to_string"
+symbol = "RpcValue::to_json_string"
 
 [[node.cost]]
 mode = "response encode"
