@@ -553,6 +553,45 @@ fn e4_operand_eligibility() {
     );
 }
 
+#[test]
+fn symbolic_binding_values_are_unknown() {
+    use PatternOutcome::Match;
+
+    let mut symbolic = witnessed_on(PathStop::Terminal, complete(Match, &[&[("A", "a")]]));
+    let variable = Pattern::Variable(k_rust::kore::ast::Variable {
+        kind: k_rust::kore::ast::VariableKind::Element,
+        name: "X".to_owned(),
+        sort: kore_sort("SortInt"),
+    });
+    symbolic.as_mut().expect("evaluation").witnesses[0].bindings[0].term = variable;
+    assert_eq!(pattern_side(&symbolic, true), OracleSide::Unknown);
+    assert_eq!(
+        pattern_side(&symbolic, false),
+        normal(OracleValue::Pattern(PatternValue::Match { bindings: None }))
+    );
+
+    let mut assumed = complete(Match, &[&[("A", "a")]]);
+    assumed.as_mut().expect("evaluation").witnesses[0]
+        .assumptions
+        .push(kink_pattern::TermRelation {
+            left: constant("a"),
+            right: constant("a"),
+        });
+    assert_eq!(pattern_side(&assumed, true), OracleSide::Unknown);
+
+    let ground_bindings = [vec![Binding {
+        name: "A".to_owned(),
+        term: constant("a"),
+    }]]
+    .into();
+    assert_eq!(
+        pattern_side(&complete(Match, &[&[("A", "a")]]), true),
+        normal(OracleValue::Pattern(PatternValue::Match {
+            bindings: Some(ground_bindings),
+        }))
+    );
+}
+
 /// An undefined step is its own exit-stop class. It has no exit code, so a declared exit-code cell
 /// is not read. A mutant that makes a stuck or normal terminal an undefined step is
 /// distinguished, and two undefined steps agree. The final result of an undefined step is its

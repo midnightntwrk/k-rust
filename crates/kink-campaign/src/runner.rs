@@ -21,7 +21,9 @@
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
 //! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
 //!   evaluations and pattern failures are never values, and declared bindings need
-//!   complete exhaustive coverage. A `Match` needs witnesses on real prefixes only
+//!   complete exhaustive coverage. Binding sets containing symbolic terms or witnesses
+//!   with assumptions are `Unknown`: a set of symbolic terms is not a value of any instance.
+//!   A `Match` needs witnesses on real prefixes only
 //!   (`PathStop::has_real_prefix`): the bridge makes a vacuous leaf, and a symbolic
 //!   or constrained leaf not shown feasible, `SolverUnknown`, and every path of a run with a
 //!   backend diagnostic `BackendLimit`, and an occurrence there is no witness.
@@ -863,7 +865,9 @@ fn exit_code(term: &Pattern, cell: &str) -> Option<i64> {
 /// A pattern failure is `Error`, never a value that could distinguish. A match needs at
 /// least one witness and every witness on a real prefix; otherwise the side is `Unknown`.
 /// Declared bindings need complete coverage from an exhaustive evaluation; without it the
-/// side is `Unknown`, so a match with bindings never meets a match without them.
+/// side is `Unknown`, so a match with bindings never meets a match without them. A witness
+/// with assumptions or a binding term with a free variable also makes declared bindings
+/// `Unknown`: a set of symbolic terms is not a value of any instance.
 #[must_use]
 pub fn pattern_side(
     evaluation: &Result<Evaluation, PatternFailure>,
@@ -887,6 +891,17 @@ pub fn pattern_side(
         PatternOutcome::NoMatch if complete => PatternValue::NoMatch,
         PatternOutcome::Match if !witnessed => return OracleSide::Unknown,
         PatternOutcome::Match if !with_bindings => PatternValue::Match { bindings: None },
+        PatternOutcome::Match
+            if evaluation.witnesses.iter().any(|witness| {
+                !witness.assumptions.is_empty()
+                    || witness
+                        .bindings
+                        .iter()
+                        .any(|binding| !binding.term.free_variables().is_empty())
+            }) =>
+        {
+            return OracleSide::Unknown;
+        }
         PatternOutcome::Match if complete => PatternValue::Match {
             bindings: Some(
                 evaluation
