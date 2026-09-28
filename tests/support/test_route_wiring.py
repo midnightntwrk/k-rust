@@ -91,7 +91,12 @@ class RouteWiringTests(unittest.TestCase):
                         ))
                         patches.enter_context(mock.patch.object(semantics, "k_tool", side_effect=lambda name, _: name))
                         patches.enter_context(mock.patch.object(semantics, "k_version", return_value="7.1.337"))
-                        hooks = replace(verifier.HOOKS, definition_checks=lambda _: phases.append("checks") if verifier.HOOKS.definition_checks else None)
+                        has_checks = verifier.HOOKS.definition_checks is not None
+                        hooks = (
+                            replace(verifier.HOOKS, definition_checks=lambda _: phases.append("checks"))
+                            if has_checks
+                            else verifier.HOOKS
+                        )
                         arguments = ["verify.py", *(["--java-reference"] if java_reference else [])]
                         patches.enter_context(mock.patch.object(sys, "argv", arguments))
 
@@ -103,8 +108,16 @@ class RouteWiringTests(unittest.TestCase):
                             self.assertIs(reference_gate.call_args.args[-1], native_outcomes)
                         else:
                             reference_gate.assert_not_called()
-                        self.assertEqual(phases[:3], ["preflight", "rust", "artifact"])
-                        self.assertEqual(phases[-1], "reference" if java_reference else "behavior")
+                        self.assertEqual(has_checks, port != "kwasm")
+                        self.assertEqual(
+                            phases,
+                            [
+                                "preflight", "rust", "artifact",
+                                *(["checks"] if has_checks else []),
+                                "definition", "behavior",
+                                *(["reference"] if java_reference else []),
+                            ],
+                        )
                         ledger.finish.assert_called_once()
 
     def test_artifacts_only_stops_after_definition(self) -> None:
