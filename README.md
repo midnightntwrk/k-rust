@@ -88,7 +88,7 @@ A gate pins what it does not control and what KRS produces, never KRS source:
 - outputs: emitted artifact, KORE, and behavior digests.
 
 A source change that leaves every output identical passes without a pin edit.
-When an output changes on purpose, re-record it by running the gate with `--record` (the KWasm, KEVM, KMIR, IMP, IMP static semantics, and CLI gates support it); the gate runs completely and, only if every step passes, rewrites exactly the output pins it measured.
+When an output changes on purpose, re-record it by running the gate with `--record` (the KWasm, KEVM, KMIR, IMP, IMP state, IMP control flow, IMP static semantics, and CLI gates support it); the gate runs completely and, only if every step passes, rewrites exactly the output pins it measured.
 Review the resulting pin diff like any other change.
 `--record` never rewrites an input pin: a new checkout revision, corpus, or toolchain is a deliberate edit to the gate ledger or `Krs.lock`.
 The shared pin handling lives in `tests/support`, whose unit tests run with `python3 -m unittest discover support` from `tests/`.

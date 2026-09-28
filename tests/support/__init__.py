@@ -24,6 +24,7 @@ The modules are:
 - `support.checkouts`: pinned external checkout verification;
 - `support.kdefinition`: helpers over emitted K definitions and KORE;
 - `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;
+- `support.imp_oracle`: orchestration for the two strict IMP reference oracles;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.
 
 The package needs only the standard library. It must stay importable by

@@ -4,27 +4,17 @@
 from __future__ import annotations
 
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 import os
 from pathlib import Path
-import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
-from support.checkouts import verify_checkout  # noqa: E402
-from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
-from support.lock import k_version  # noqa: E402
-from support.pins import table  # noqa: E402
-from support.process import compact, run  # noqa: E402
-from support.report import Results  # noqa: E402
-from support.tools import find_k_tool, k_version_matches  # noqa: E402
+from support import ROOT, entry  # noqa: E402
+from support.hashing import canonical_json  # noqa: E402
+from support.imp_oracle import KAST, Spec, main as run_oracle  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -111,80 +101,6 @@ METADATA_ATTRIBUTES = {
     "productionID",
     "UNIQUE_ID",
 }
-
-
-def aggregate(values: dict[str, Any]) -> str:
-    material = "".join(
-        f"{name}\0{canonical_json(value)}\n" for name, value in sorted(values.items())
-    )
-    return sha256_text(material)
-
-
-def fixture_files() -> list[Path]:
-    return [
-        EXPR,
-        CALC,
-        INDUCED,
-        *sorted(ACCEPTED.glob("*.calc")),
-        *sorted(SYNTAX_REJECTED.glob("*.calc")),
-        *sorted(SEMANTIC_REJECTED.glob("*.calc")),
-    ]
-
-
-def verify_pins(results: Results) -> dict[str, Any]:
-    pins = json.loads(PINS.read_text(encoding="utf-8"))
-    upstream_commit = table(pins.get("upstream_imp"), "pins.upstream_imp").get("commit")
-    actual = {str(path.relative_to(HERE)): sha256_file(path) for path in fixture_files()}
-    results.add(
-        "corpus_hashes",
-        "PASS" if actual == pins.get("corpus_sha256") else "FAIL",
-        f"{len(actual)} corpus and fixture hashes are exact; actual={actual}",
-    )
-    try:
-        verify_checkout(UPSTREAM, str(upstream_commit), label="modern IMP")
-        detail = f"modern IMP {upstream_commit}, clean"
-        status = "PASS"
-    except GateError as error:
-        detail, status = str(error), "FAIL"
-    results.add("upstream_sources", status, detail)
-    surface = CALC.read_text(encoding="utf-8")
-    required = (
-        "imports ID-SYNTAX",
-        "syntax Expr ::= Id",
-        'Id "=" Expr ";"',
-        "strict(2)",
-        "right:",
-        "syntax priority stmt > seq-stmt",
-        "$PGM:Stmt",
-        "$ENV:Map",
-        "S1 ~> S2",
-        "X |-> V",
-        "E [ X <- V ]",
-    )
-    results.add(
-        "fixture_surface",
-        "PASS" if all(fragment in surface for fragment in required) else "FAIL",
-        "Id injection, grammar, strictness, priority, cells and three state rules occur literally",
-    )
-    return pins
-
-
-def verify_tools(results: Results) -> dict[str, str]:
-    tools: dict[str, str] = {}
-    for name in ("kompile", "kast", "kparse", "krun"):
-        executable = find_k_tool(name)
-        if executable is None:
-            results.add(f"tool_{name}", "FAIL", "not found on PATH")
-            continue
-        version = run([executable, "--version"], timeout=30, check=False)
-        text = "\n".join((version.stdout, version.stderr))
-        results.add(
-            f"tool_{name}",
-            "PASS" if k_version_matches(version, k_version()) else "FAIL",
-            text.strip().splitlines()[0] if text.strip() else "empty version output",
-        )
-        tools[name] = executable
-    return tools
 
 
 def envelope(output: str) -> dict[str, Any]:
@@ -368,163 +284,6 @@ def final_environment(term: dict[str, Any]) -> dict[str, str]:
     return parse_map(env)
 
 
-def compile_reference(kompile: str, output: Path) -> subprocess.CompletedProcess[str]:
-    return run(
-        [
-            kompile,
-            str(CALC),
-            "--main-module",
-            MODULE,
-            "--syntax-module",
-            SYNTAX_MODULE,
-            "--backend",
-            "llvm",
-            "--emit-json",
-            "--output-definition",
-            str(output),
-        ],
-        timeout=300,
-        check=False,
-    )
-
-
-def parse_accepted(tools: dict[str, str], definition: Path, workspace: Path) -> tuple[dict[str, Any], dict[str, str]]:
-    trees: dict[str, Any] = {}
-    unparsed: dict[str, str] = {}
-    for path in sorted(ACCEPTED.glob("*.calc")):
-        process = run(
-            [tools["kast"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", "--output", "json", str(path)],
-            timeout=60,
-            check=False,
-        )
-        if process.returncode != 0:
-            raise RuntimeError(f"accepted parse failed for {path.name}: {compact(process)}")
-        term = envelope(process.stdout)["term"]
-        if abstract_term(term) != EXPECTED_TREES[path.name]:
-            raise RuntimeError(f"wrong tree for {path.name}: {abstract_term(term)!r}")
-        trees[path.name] = term
-        portable = run(
-            [tools["kparse"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", str(path)],
-            timeout=60,
-            check=False,
-        )
-        if portable.returncode != 0 or "Lbl" not in portable.stdout:
-            raise RuntimeError(f"kparse failed for {path.name}: {compact(portable)}")
-        pretty = run(
-            [tools["kast"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", "--output", "program", str(path)],
-            timeout=60,
-            check=False,
-        )
-        if pretty.returncode != 0:
-            raise RuntimeError(f"unparse failed for {path.name}: {compact(pretty)}")
-        roundtrip = workspace / f"roundtrip-{path.name}"
-        roundtrip.write_text(pretty.stdout, encoding="utf-8")
-        reparsed = run(
-            [tools["kast"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", "--output", "json", str(roundtrip)],
-            timeout=60,
-            check=False,
-        )
-        if reparsed.returncode != 0 or canonical_json(envelope(reparsed.stdout)["term"]) != canonical_json(term):
-            raise RuntimeError(f"parse/unparse/parse changed {path.name}: {compact(reparsed)}")
-        unparsed[path.name] = pretty.stdout.strip()
-    return trees, unparsed
-
-
-def execute_case(krun: str, definition: Path, path: Path, initial_env: str, statistics: bool = False, depth: int | None = None) -> subprocess.CompletedProcess[str]:
-    command = [krun, "--definition", str(definition)]
-    if statistics:
-        command.append("--statistics")
-    if depth is not None:
-        command.extend(["--depth", str(depth)])
-    command.extend(["--output", "json", f"-cENV={initial_env}", str(path)])
-    return run(command, timeout=60, check=False)
-
-
-def execute_accepted(krun: str, definition: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    finals: dict[str, Any] = {}
-    jobs: list[tuple[str, int, Path, str]] = []
-    for name, expectation in EXPECTED_EXECUTIONS.items():
-        path = ACCEPTED / name
-        process = execute_case(krun, definition, path, expectation["initial_env"], statistics=True)
-        if process.returncode != 0:
-            raise RuntimeError(f"execution failed for {name}: {compact(process)}")
-        match = re.search(r"\[(\d+) steps\]", process.stdout)
-        if match is None or int(match.group(1)) != expectation["steps"]:
-            raise RuntimeError(f"rewrite count differs for {name}: {compact(process)}")
-        term = envelope(process.stdout)["term"]
-        if final_environment(term) != expectation["env"]:
-            raise RuntimeError(f"final environment differs for {name}: {final_environment(term)!r}")
-        finals[name] = term
-        jobs.extend(
-            (name, depth, path, expectation["initial_env"])
-            for depth in range(expectation["steps"] + 1)
-        )
-
-    def snapshot(job: tuple[str, int, Path, str]) -> tuple[str, dict[str, Any]]:
-        name, depth, path, initial_env = job
-        process = execute_case(krun, definition, path, initial_env, depth=depth)
-        if process.returncode != 0:
-            raise RuntimeError(f"depth-{depth} execution failed for {name}: {compact(process)}")
-        return f"{name}@{depth:03d}", envelope(process.stdout)["term"]
-
-    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as executor:
-        trace = dict(executor.map(snapshot, jobs))
-    return finals, trace
-
-
-def verify_rejections(tools: dict[str, str], definition: Path) -> tuple[dict[str, Any], str]:
-    locations = {
-        "missing-semicolon.calc": (2, 1, 2, 1),
-        "missing-identifier.calc": (1, 1, 1, 2),
-    }
-    for path in sorted(SYNTAX_REJECTED.glob("*.calc")):
-        process = run(
-            [tools["kast"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", "--output", "json", str(path)],
-            timeout=60,
-            check=False,
-        )
-        match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
-        actual = tuple(map(int, match.groups())) if match else None
-        if process.returncode == 0 or actual != locations[path.name] or path.name not in process.stderr:
-            raise RuntimeError(f"syntax rejection differs for {path.name}: {compact(process)}")
-
-    stuck: dict[str, Any] = {}
-    expectations = {"undefined-variable.calc": 2, "type-error.calc": 1}
-    for name, steps in expectations.items():
-        process = execute_case(tools["krun"], definition, SEMANTIC_REJECTED / name, ".Map", statistics=True)
-        match = re.search(r"\[(\d+) steps\]", process.stdout)
-        if process.returncode != 0 or match is None or int(match.group(1)) != steps:
-            raise RuntimeError(f"stuck behavior differs for {name}: {compact(process)}")
-        term = envelope(process.stdout)["term"]
-        if final_environment_if_complete(term) is not None:
-            raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")
-        stuck[name] = term
-
-    timeout = shutil.which("timeout")
-    if timeout is None:
-        raise RuntimeError("GNU timeout is required to contain the LLVM division hook abort")
-    division = run(
-        [
-            timeout,
-            "--signal=KILL",
-            "8s",
-            tools["krun"],
-            "--definition",
-            str(definition),
-            "--output",
-            "json",
-            "-cENV=.Map",
-            str(SEMANTIC_REJECTED / "division-by-zero.calc"),
-        ],
-        timeout=15,
-        check=False,
-    )
-    detail = "[hook_INT_tdiv]: Division by zero: 1 / 0"
-    if division.returncode == 0 or detail not in division.stderr:
-        raise RuntimeError(f"division-by-zero behavior differs: {compact(division)}")
-    return stuck, detail
-
-
 def final_environment_if_complete(term: dict[str, Any]) -> dict[str, str] | None:
     try:
         return final_environment(term)
@@ -532,119 +291,45 @@ def final_environment_if_complete(term: dict[str, Any]) -> dict[str, str] | None
         return None
 
 
-def verify_induced_diagnostic(kompile: str, workspace: Path) -> None:
-    process = run(
-        [
-            kompile,
-            str(INDUCED),
-            "--main-module",
-            INDUCED_MODULE,
-            "--syntax-module",
-            INDUCED_MODULE,
-            "--backend",
-            "llvm",
-            "--output-definition",
-            str(workspace / "induced-kompiled"),
-        ],
-        timeout=120,
-        check=False,
-    )
-    match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
-    actual = tuple(map(int, match.groups())) if match else None
-    if (
-        process.returncode == 0
-        or actual != (2, 19, 2, 20)
-        or 'Encountered: "@"' not in process.stderr
-        or INDUCED.name not in process.stderr
-    ):
-        raise RuntimeError(f"induced diagnostic differs: {compact(process)}")
+SPEC = Spec(
+    label="IMP state strict oracle", here=HERE, source=CALC,
+    fixture_sources=(EXPR, CALC), induced=INDUCED, accepted=ACCEPTED,
+    syntax_rejected=SYNTAX_REJECTED, semantic_rejected=SEMANTIC_REJECTED,
+    pins_path=PINS, upstream=UPSTREAM, module=MODULE, syntax_module=SYNTAX_MODULE,
+    induced_module=INDUCED_MODULE, extension=".calc",
+    surface_fragments=(
+        "imports ID-SYNTAX", "syntax Expr ::= Id", 'Id "=" Expr ";"',
+        "strict(2)", "right:", "syntax priority stmt > seq-stmt", "$PGM:Stmt",
+        "$ENV:Map", "S1 ~> S2", "X |-> V", "E [ X <- V ]",
+    ),
+    surface_detail="Id injection, grammar, strictness, priority, cells and three state rules occur literally",
+    expected_trees=EXPECTED_TREES, expected_executions=EXPECTED_EXECUTIONS,
+    syntax_locations={
+        "missing-semicolon.calc": (2, 1, 2, 1),
+        "missing-identifier.calc": (1, 1, 1, 2),
+    },
+    stuck_steps={"undefined-variable.calc": 2, "type-error.calc": 1},
+    definition_detail="3 calc productions, priority/right-assoc, 3 rules, 1 strict context and 25 heat/cool pairs",
+    trees_detail="5 full KAST v4 trees and exact right association",
+    final_detail="initialization, lookup, assignment, update and sequencing match",
+    trace_detail="exact depth-indexed LLVM states retain generated heat/cool frames",
+    rejection_detail="syntax locations, two stuck states and LLVM division error are exact",
+    induced_detail="authored @ selected exactly at induced-definition-error.k:2:19-2:20",
+    induced_location=(2, 19, 2, 20), compiled_dir="calc-kompiled",
+    workers=min(8, os.cpu_count() or 1),
+)
 
-
-def reference_oracle(results: Results, tools: dict[str, str], pins: dict[str, Any], workspace: Path) -> None:
-    if set(tools) != {"kompile", "kast", "kparse", "krun"}:
-        results.add("reference_oracle", "FAIL", "all four pinned K commands are required")
-        return
-    definition = workspace / "calc-kompiled"
-    compiled_process = compile_reference(tools["kompile"], definition)
-    if compiled_process.returncode != 0:
-        results.add("reference_compile", "FAIL", compact(compiled_process))
-        return
-    try:
-        parsed = json.loads((definition / "parsed.json").read_text(encoding="utf-8"))
-        compiled = json.loads((definition / "compiled.json").read_text(encoding="utf-8"))
-        verify_definition_structure(parsed, compiled)
-        definition_hashes = {
-            "parsed": json_sha256(normalized_definition(parsed)),
-            "compiled": json_sha256(normalized_definition(compiled)),
-        }
-        expected_definition_hashes = pins.get("normalized_definition_sha256")
-        results.add(
-            "definition_structure",
-            "PASS" if definition_hashes == expected_definition_hashes else "FAIL",
-            f"3 calc productions, priority/right-assoc, 3 rules, 1 strict context and 25 heat/cool pairs; hashes={definition_hashes}",
-        )
-
-        trees, unparsed = parse_accepted(tools, definition, workspace)
-        tree_hash = aggregate(trees)
-        unparse_hash = aggregate(unparsed)
-        results.add(
-            "parse_trees",
-            "PASS" if tree_hash == pins.get("accepted_tree_aggregate_sha256") else "FAIL",
-            f"5 full KAST v4 trees and exact right association; aggregate={tree_hash}",
-        )
-        results.add(
-            "unparse_roundtrip",
-            "PASS" if unparse_hash == pins.get("unparse_aggregate_sha256") else "FAIL",
-            f"all trees round-trip exactly; aggregate={unparse_hash}",
-        )
-
-        finals, trace = execute_accepted(tools["krun"], definition)
-        final_hash = aggregate(finals)
-        trace_hash = aggregate(trace)
-        results.add(
-            "final_states",
-            "PASS" if final_hash == pins.get("final_state_aggregate_sha256") else "FAIL",
-            f"initialization, lookup, assignment, update and sequencing match; aggregate={final_hash}",
-        )
-        results.add(
-            "llvm_traces",
-            "PASS" if trace_hash == pins.get("llvm_trace_aggregate_sha256") else "FAIL",
-            f"{len(trace)} exact depth-indexed LLVM states retain generated heat/cool frames; aggregate={trace_hash}",
-        )
-
-        stuck, division_detail = verify_rejections(tools, definition)
-        stuck_hash = aggregate(stuck)
-        rejection_hashes = pins.get("rejection_sha256", {})
-        rejection_ok = (
-            stuck_hash == rejection_hashes.get("stuck_state_aggregate")
-            and sha256_text(division_detail) == rejection_hashes.get("division_error")
-        )
-        results.add(
-            "rejections",
-            "PASS" if rejection_ok else "FAIL",
-            f"syntax locations, two stuck states and LLVM division error are exact; stuck aggregate={stuck_hash}",
-        )
-        verify_induced_diagnostic(tools["kompile"], workspace)
-        results.add(
-            "definition_diagnostic",
-            "PASS",
-            "authored @ selected exactly at induced-definition-error.k:2:19-2:20",
-        )
-    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
-        results.add("reference_oracle", "FAIL", str(error))
+KAST_HOOKS = KAST(
+    envelope=envelope, abstract_term=abstract_term,
+    normalized_definition=normalized_definition,
+    verify_definition_structure=verify_definition_structure,
+    final_environment=final_environment,
+    final_environment_if_complete=final_environment_if_complete,
+)
 
 
 def main() -> int:
-    results = Results()
-    pins = verify_pins(results)
-    tools = verify_tools(results)
-    with tempfile.TemporaryDirectory(prefix="krs-imp-state-oracle-") as temporary:
-        reference_oracle(results, tools, pins, Path(temporary))
-    if results.failed:
-        print("\nIMP state strict oracle FAILED")
-        return 1
-    print("\nIMP state strict oracle PASSED")
-    return 0
+    return run_oracle(SPEC, KAST_HOOKS)
 
 
 if __name__ == "__main__":

@@ -53,8 +53,11 @@ def verify_stuck_state() -> None:
         raise GateError("IMP state's documented stuck program changed")
     require_fragments(
         "tests/imp-state/verify.py",
-        'expectations = {"undefined-variable.calc": 2, "type-error.calc": 1}',
-        "if final_environment_if_complete(term) is not None:",
+        'stuck_steps={"undefined-variable.calc": 2, "type-error.calc": 1}',
+    )
+    require_fragments(
+        "tests/support/imp_oracle.py",
+        "if kast.final_environment_if_complete(term) is not None:",
         'raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")',
     )
     pins = Ledger(ROOT / "tests/imp-state/pins.json")
