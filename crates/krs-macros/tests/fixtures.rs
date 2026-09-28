@@ -27,6 +27,13 @@ fn renamed_facade_positive_surface_registers_expected_descriptors() {
         "positive fixture lint hygiene failed:\n{}",
         String::from_utf8_lossy(&clippy.stderr)
     );
+    let tests = cargo_fixture(&manifest).args(&["--quiet"]).test();
+    assert!(
+        tests.status.success(),
+        "positive fixture tests failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&tests.stdout),
+        String::from_utf8_lossy(&tests.stderr)
+    );
     let run = cargo_fixture(&manifest).args(&["--quiet"]).run();
     assert!(
         run.status.success(),
