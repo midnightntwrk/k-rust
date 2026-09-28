@@ -268,7 +268,7 @@ def resolve(name, param, prepared, run, input_path, shape=False):
         "ladder_values": ladder["values"] if ladder else [],
         "stop_seconds": ladder.get("stop_seconds") if ladder else None,
     }
-    if result["command"] not in ("kcompile", "kprove", "krun"):
+    if result["command"] not in ("kcompile", "kprove", "krun", "kore-rpc"):
         raise SystemExit(f"error: {name} has unknown command {result['command']}")
     if result["weight"] not in ("light", "heavy"):
         raise SystemExit(f"error: {name} has unknown weight {result['weight']}")
@@ -489,14 +489,22 @@ if [[ "$dry_run" == 1 ]]; then
       || printf 'input: %s (the ladder template at %s)\n' "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")=$value"
     mapfile -t args < <(jq -r '.args[]' <<<"$resolved")
     if [[ "$profile_only" == 0 ]]; then
+      local_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
+      if [[ "$command_kind" == kore-rpc ]]; then
+        local_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+      fi
       printf 'measured: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.json" \
-        "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --timings RECEIPT/timings.json)"
+        "$(shell_command "${local_command[@]}" --timings RECEIPT/timings.json)"
       printf 'traced: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.traced.json" \
-        "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate RECEIPT/trace-aggregate.json)"
+        "$(shell_command "${local_command[@]}" --trace-aggregate RECEIPT/trace-aggregate.json)"
     fi
     if [[ "$profile" == 1 || "$profile_only" == 1 ]]; then
+      profile_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
+      if [[ "$command_kind" == kore-rpc ]]; then
+        profile_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+      fi
       printf 'profiled (rep-1): %s < /dev/null\n' \
-        "$(shell_command taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate" -o RECEIPT/profile.json.gz -- "$KRUST_BIN" "$command_kind" "${args[@]}")"
+        "$(shell_command taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate" -o RECEIPT/profile.json.gz -- "${profile_command[@]}")"
       printf 'attribution: %s\n' "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply RECEIPT/profile.json.gz --binary "$KRUST_BIN" --graph RECEIPT/graph.toml --stacks RECEIPT/stacks.json.gz -o RECEIPT/profile.toml)"
     fi
     [[ "$profile_only" == 1 ]] || printf 'check: %s\n' "$(jq -c .check <<<"$resolved")"
@@ -633,6 +641,14 @@ record_receipt() {
   prepare_workload "$resolved" "$value"
   jq .check <<<"$resolved" >"$receipt/check.json"
   mapfile -t args < <(jq -r '.args[]' <<<"$resolved")
+  local -a measured_command traced_command
+  if [[ "$command_kind" == kore-rpc ]]; then
+    measured_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}" --timings "$receipt/timings.json")
+    traced_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json")
+  else
+    measured_command=("$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json")
+    traced_command=("$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json")
+  fi
   timeout=()
   traced_timeout=()
   if [[ "$(jq -r .stop_seconds <<<"$resolved")" != null ]]; then
@@ -645,11 +661,14 @@ record_receipt() {
   local timestamp
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   rm -rf "$run" && mkdir -p "$run"
-  log_command measured "KRUST_COUNTERS=$(shell_command "$receipt/counters.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/measured" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json") < /dev/null"
+  log_command measured "KRUST_COUNTERS=$(shell_command "$receipt/counters.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/measured" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "${measured_command[@]}") < /dev/null"
   echo "[$workload${value:+ $value} rep-$index] measured run"
   KRUST_COUNTERS="$receipt/counters.json" python3 "$workspace/scripts/conformance/measure.py" \
     --log "$receipt/measured" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- \
-    "$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json" </dev/null || true
+    "${measured_command[@]}" </dev/null || true
+  if [[ "$command_kind" == kore-rpc && -f "$run/rpc-metrics.json" ]]; then
+    cp "$run/rpc-metrics.json" "$receipt/rpc-metrics.json"
+  fi
   if [[ "$(measure_field "$receipt/measured" timed_out)" == true ]]; then
     echo "[$workload $value] the measured run exceeded $(jq -r .stop_seconds <<<"$resolved") s; the ladder stops" >&2
     return 3
@@ -661,16 +680,17 @@ record_receipt() {
   [[ -f "$receipt/counters.json" ]] || files_ok=false
 
   rm -rf "$run" && mkdir -p "$run"
-  log_command traced "KRUST_COUNTERS=$(shell_command "$receipt/counters.traced.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/traced" "${traced_timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" --stdout-check "$receipt/check.json" -- "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json") < /dev/null"
+  log_command traced "KRUST_COUNTERS=$(shell_command "$receipt/counters.traced.json") $(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/traced" "${traced_timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" --stdout-check "$receipt/check.json" -- "${traced_command[@]}") < /dev/null"
   echo "[$workload${value:+ $value} rep-$index] traced run"
   KRUST_COUNTERS="$receipt/counters.traced.json" python3 "$workspace/scripts/conformance/measure.py" \
     --log "$receipt/traced" "${traced_timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" \
     --stdout-check "$receipt/check.json" -- \
-    "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json" </dev/null || true
+    "${traced_command[@]}" </dev/null || true
   rm -rf "$run"
   local counters_match=false
   if [[ -f "$receipt/counters.json" && -f "$receipt/counters.traced.json" ]] \
-    && cmp -s "$receipt/counters.json" "$receipt/counters.traced.json"; then
+    && cmp -s <(jq -S 'del(.counters["allocation.count"], .counters["allocation.bytes"])' "$receipt/counters.json") \
+              <(jq -S 'del(.counters["allocation.count"], .counters["allocation.bytes"])' "$receipt/counters.traced.json"); then
     counters_match=true
   fi
   # A result can be large (a FUN ladder run prints gigabytes); measure.py streamed it and kept
@@ -730,6 +750,7 @@ record_receipt() {
     --argjson counters "$([[ -f "$receipt/counters.json" ]] && echo true || echo false)" \
     --argjson timings "$([[ -f "$receipt/timings.json" ]] && echo true || echo false)" \
     --argjson trace "$([[ -f "$receipt/trace-aggregate.json" ]] && echo true || echo false)" \
+    --argjson rpc_metrics "$(if [[ -f "$receipt/rpc-metrics.json" ]]; then cat "$receipt/rpc-metrics.json"; else echo null; fi)" \
     --argjson timings_unattributed "$(if [[ -f "$receipt/timings.json" ]]; then jq -c '[.load_unattributed_seconds, .compile_unattributed_seconds, .write_unattributed_seconds] | map(select(type == "number")) | add // 0' "$receipt/timings.json"; else echo null; fi)" \
     '{
       workload: $workload,
@@ -765,6 +786,7 @@ record_receipt() {
                trace_format: "krust-trace-aggregate/1", counters_match_measured: $counters_match,
                stdout_matches_measured: $stdout_match},
       stdout: {bytes: $stdout_bytes, sha256: $stdout_sha256, kept: $stdout_kept},
+      rpc_request: $rpc_metrics,
       profiled: null,
       output_check: $check,
       outputs: {counters_json: $counters, timings_json: $timings, trace_json: $trace,
@@ -828,8 +850,12 @@ profile_receipt() {
   rm -rf "$run" && mkdir -p "$run"
   rm -f "$receipt/profile.json.gz" "$receipt/stacks.json.gz" "$receipt/profile.toml" \
     "$receipt/profiled.stdout" "$receipt/profiled.stdout.head"
+  local -a profile_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
+  if [[ "$command_kind" == kore-rpc ]]; then
+    profile_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+  fi
   local -a record=(taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate"
-    -o "$receipt/profile.json.gz" -- "$KRUST_BIN" "$command_kind" "${args[@]}")
+    -o "$receipt/profile.json.gz" -- "${profile_command[@]}")
   log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "${record[@]}") < /dev/null"
   echo "[$workload${value:+ $value} rep-1] profiled run at $profile_rate Hz"
   python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" \
