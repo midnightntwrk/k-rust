@@ -69,13 +69,17 @@
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints, no
 //! counter.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::{
+    borrow::Cow,
+    collections::{BTreeSet, HashSet, VecDeque},
+};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::{BuiltinEffect, BuiltinError},
     cancellation::cancellation_requested,
+    definedness::{condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -2152,18 +2156,37 @@ fn match_pattern_with_variables(
         }
     };
 
+    // Every instance of the subject satisfies its knowledge (I7): the definedness of its term
+    // and the obligations its own constraints state. The target's constraints are instantiated
+    // with the definedness of their atoms stated (I1), except where that knowledge already
+    // holds it, so the match condition excludes the instances on which a target atom denotes
+    // `\bottom`: the solver reads a partial function as a total one and would give it a value.
+    let subject_knowledge = pattern_knowledge(definition, subject);
     let mut constraints = subject.constraints.clone();
-    constraints.extend(substitute_predicates(&target.constraints, &substitution));
-    let (substitution, constraints) =
-        normalize_match_condition(substitution, constraints, output_variables);
+    constraints.extend(condition_definedness(
+        definition,
+        substitute_predicates(&target.constraints, &substitution),
+        &subject_knowledge,
+    ));
+    let (substitution, constraints) = normalize_match_condition(
+        definition,
+        substitution,
+        constraints,
+        &subject_knowledge,
+        output_variables,
+    );
+    // The knowledge the subject's constraints do not already carry is decided with the match
+    // condition, not reported in it: it holds on every instance of the subject, which the
+    // match's state carries.
+    let facts = subject_facts(subject_knowledge, &subject.constraints);
     let constraints =
-        simplify_predicates_with_solver(definition, &constraints, &[], options, solver)
+        simplify_predicates_with_solver(definition, &constraints, &facts, options, solver)
             .map_err(PatternMatchError::Simplification)?;
     match predicates_truth(&constraints) {
         Truth::False => return Ok(None),
         Truth::True => {}
         Truth::Unknown if retain_unknown => {}
-        Truth::Unknown => match solver.is_sat(&constraints, &substitution) {
+        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution) {
             Ok(Satisfiability::Unsat) => return Ok(None),
             Ok(Satisfiability::Sat) => {}
             Ok(Satisfiability::Unknown(reason)) => {
@@ -2179,9 +2202,45 @@ fn match_pattern_with_variables(
     }))
 }
 
+/// Whether `facts ∧ constraints` is satisfiable together with `substitution`.
+fn is_sat_with_facts(
+    solver: &dyn SmtSolver,
+    facts: &[Predicate],
+    constraints: &[Predicate],
+    substitution: &Substitution,
+) -> Result<Satisfiability, SmtError> {
+    if facts.is_empty() {
+        return solver.is_sat(constraints, substitution);
+    }
+    let mut query = facts.to_vec();
+    query.extend_from_slice(constraints);
+    solver.is_sat(&query, substitution)
+}
+
+/// The members of a subject's `pattern_knowledge` that are not among its constraints.
+fn subject_facts(knowledge: Cow<'_, [Predicate]>, constraints: &[Predicate]) -> Vec<Predicate> {
+    match knowledge {
+        // The knowledge of a `ceil_free` subject is its constraints themselves.
+        Cow::Borrowed(_) => Vec::new(),
+        Cow::Owned(knowledge) => {
+            let constraints = constraints.iter().collect::<HashSet<_>>();
+            knowledge
+                .into_iter()
+                .filter(|fact| !constraints.contains(fact))
+                .collect()
+        }
+    }
+}
+
+/// Solve the match condition's equalities `x = t` for a variable `x`, eliminating each binding
+/// from the remaining constraints with its definedness kept (I2): an element variable denotes a
+/// defined element, so `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`. The obligation is omitted where
+/// `known` (the subject's knowledge) or the constraints already hold it.
 fn normalize_match_condition(
+    definition: &BackendDefinition,
     output: Substitution,
     mut constraints: Vec<Predicate>,
+    known: &[Predicate],
     output_variables: &BTreeSet<crate::term::Variable>,
 ) -> (Substitution, Vec<Predicate>) {
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
@@ -2226,12 +2285,12 @@ fn normalize_match_condition(
         };
         let binding = Substitution::from([(variable, value)]);
         solved = compose(&binding, &solved);
-        constraints = substitute_predicates(&constraints, &binding);
+        constraints = eliminate_bindings(definition, &constraints, &binding, known);
     }
 
     let mut output = compose(&solved, &output);
     output.retain(|variable, _| output_variables.contains(variable));
-    let constraints = substitute_predicates(&constraints, &solved);
+    let constraints = eliminate_bindings(definition, &constraints, &solved, known);
     (output, constraints)
 }
 
@@ -4590,6 +4649,7 @@ mod tests {
         );
 
         let (output, constraints) = normalize_match_condition(
+            &definition(),
             Substitution::from([(
                 result_variable.clone(),
                 Term::variable(configuration_variable.clone()),
@@ -4598,6 +4658,7 @@ mod tests {
                 Term::variable(configuration_variable),
                 value.clone(),
             )],
+            &[],
             &BTreeSet::from([result_variable.clone()]),
         );
 
@@ -4666,5 +4727,130 @@ mod tests {
         };
         assert_eq!(witness.pattern, expected, "{witness:#?}");
         assert_eq!(simplification_ids(&witness.trace), Vec::<String>::new());
+    }
+
+    /// A definition with a partial `divInt` (no `total` attribute, no ceil equation) and a
+    /// partial uninterpreted `g` (no `total` attribute, no equation).
+    #[cfg(feature = "z3")]
+    fn partial_target_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pair{}(SortInt{}, SortInt{}) : SortState{} [constructor{}()]
+                hooked-symbol leInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+                hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                symbol g{}(SortInt{}) : SortInt{} [function{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// The target `term ∧ (value <=Int value +Int 1)` over `partial_target_definition`.
+    #[cfg(feature = "z3")]
+    fn target_bounded_by_successor(
+        definition: &BackendDefinition,
+        term: &str,
+        value: &str,
+    ) -> Pattern {
+        let bounded =
+            format!(r#"leInt{{}}({value}, addInt{{}}({value}, \dv{{SortInt{{}}}}("1")))"#);
+        Pattern {
+            term: pattern(definition, term).term,
+            constraints: vec![Predicate::Equals(
+                pattern(definition, r#"\dv{SortBool{}}("true")"#).term,
+                pattern(definition, &bounded).term,
+            )],
+        }
+    }
+
+    /// A state whose constraints refute `⌈g(X)⌉` has no instance on which the target's
+    /// instantiated constraint `g(X) <=Int g(X) +Int 1` holds: that atom denotes `⊥` wherever
+    /// `g(X)` is undefined (I1), so the state does not match the target, although the solver
+    /// reads `g` as a total function on which the atom is valid.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_target_constraint_undefined_on_the_state_does_not_match() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let target = target_bounded_by_successor(
+            &definition,
+            r#"pair{}(A:SortInt{}, B:SortInt{})"#,
+            r#"g{}(A:SortInt{})"#,
+        );
+        let subject = Pattern {
+            term: pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#).term,
+            constraints: vec![Predicate::Not(Box::new(Predicate::Ceil(
+                pattern(&definition, r#"g{}(X:SortInt{})"#).term,
+            )))],
+        };
+
+        let matches = match_disjunction_with_solver(
+            &definition,
+            &target,
+            &[subject],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("the match should be decided");
+
+        assert!(matches.is_empty(), "{matches:#?}");
+    }
+
+    /// The state `pair(X, 10 /Int X)` is empty wherever `10 /Int X` is undefined, so
+    /// `⌈10 /Int X⌉` holds on each of its instances (I7) and the target `pair(X, Y)` constrained
+    /// by `Y <=Int Y +Int 1` matches it with that constraint alone.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_state_whose_term_defines_the_target_constraint_matches() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let target = target_bounded_by_successor(
+            &definition,
+            r#"pair{}(A:SortInt{}, B:SortInt{})"#,
+            r#"B:SortInt{}"#,
+        );
+        let subject = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#,
+        );
+
+        let matches = match_disjunction_with_solver(
+            &definition,
+            &target,
+            &[subject],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("the match should be decided");
+
+        let [found] = matches.as_slice() else {
+            panic!("expected one match, found {matches:#?}");
+        };
+        let quotient = pattern(
+            &definition,
+            r#"divInt{}(\dv{SortInt{}}("10"), X:SortInt{})"#,
+        )
+        .term;
+        assert_eq!(
+            found
+                .substitution
+                .get(&Variable::new("B", Sort::simple("SortInt"))),
+            Some(&quotient),
+            "{found:#?}"
+        );
+        assert!(
+            !found
+                .constraints
+                .contains(&Predicate::Ceil(quotient.clone())),
+            "the state's own definedness is known, not restated: {found:#?}"
+        );
     }
 }
