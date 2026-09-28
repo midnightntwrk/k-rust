@@ -56,6 +56,7 @@ use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
 };
+use kink_native::observation::{ObservationFailure, PayloadSource};
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
@@ -307,6 +308,21 @@ pub fn run_campaign(
         })
         .collect::<Vec<_>>();
     check_manifest(&manifest)?;
+    for observed in campaign.observed_rules {
+        for event in &observed.domain_events {
+            if event.payload.iter().any(|source| {
+                matches!(
+                    source,
+                    PayloadSource::BindingValue(_) | PayloadSource::BindingVariable(_)
+                )
+            }) {
+                return Err(CampaignFailure::new(
+                    CampaignFailureKind::InvalidDeclaration,
+                    format!("{:?} uses a positional binding payload", observed.rule),
+                ));
+            }
+        }
+    }
     if !generation.derived_from(campaign.validator.baseline()) {
         return Err(CampaignFailure::new(
             CampaignFailureKind::ForeignGeneration,
@@ -919,6 +935,9 @@ pub fn pattern_side(
 impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
     fn from(failure: &ExecutionAdapterFailure) -> Self {
         match failure {
+            ExecutionAdapterFailure::Observation(ObservationFailure::MissingPayloadSource(_)) => {
+                Self::UnresolvedObservation
+            }
             ExecutionAdapterFailure::SolverProfileMismatch
             | ExecutionAdapterFailure::InvalidState(_)
             | ExecutionAdapterFailure::Backend(_)

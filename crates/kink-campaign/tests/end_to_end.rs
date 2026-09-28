@@ -1203,7 +1203,9 @@ impl ClaimCampaign {
             emit_rule_applied: false,
             domain_events: vec![DomainEventSpec {
                 constructor: constructor.to_owned(),
-                payload: [1, 2].map(PayloadSource::BindingValue).to_vec(),
+                payload: ["RuleVarA", "RuleVarV"]
+                    .map(|name| PayloadSource::BindingValueNamed(name.into()))
+                    .to_vec(),
             }],
         })
         .to_vec();
@@ -1364,6 +1366,172 @@ fn matched() -> OracleSide {
 
 fn unmatched() -> OracleSide {
     pattern(PatternValue::NoMatch)
+}
+
+#[test]
+fn positional_binding_payloads_are_refused() {
+    with_stack(|| {
+        let mut fixture = ClaimCampaign::load("symbolic-claim-mutation.k");
+        fixture.observed_rules[0].domain_events[0].payload[0] = PayloadSource::BindingValue(1);
+        let tests = [fixture.tests()[1].clone()];
+        let generation = generation(fixture.baseline(), &[]);
+        let failure = run_campaign(
+            &Campaign {
+                validator: &fixture.validator,
+                module: "SYMPARTIAL",
+                observed_rules: &fixture.observed_rules,
+                vocabulary: &fixture.vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect_err("positional binding payload is invalid");
+        assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
+    });
+}
+
+#[test]
+fn missing_named_binding_on_a_mutant_is_unknown() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let rule = support::rule(baseline, "SYMMEM.write");
+        let site = TermRef::new(rule.clone(), [0, 0, 0, 1]);
+        let expected = baseline.term(&site).expect("write value").clone();
+        let mut replacement = expected.clone();
+        fn rename_v(term: &mut Term) -> usize {
+            match term {
+                Term::Variable { name, .. } if name == "V" => {
+                    *name = "U".into();
+                    1
+                }
+                Term::Apply { arguments, .. } => arguments.iter_mut().map(rename_v).sum(),
+                Term::Annotated { term, .. } => rename_v(term),
+                _ => 0,
+            }
+        }
+        assert_eq!(rename_v(&mut replacement), 1, "the value contains only V");
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            at: site.clone(),
+            expected,
+            replacement,
+        }])
+        .expect("rename patch");
+        let discovery = derive_sites(
+            baseline,
+            "write value",
+            &[
+                SiteSelector::RuleLabel("SYMMEM.write".into()),
+                SiteSelector::Path(site.path.0.clone()),
+            ],
+        )
+        .expect("exact write value");
+        let generation = select(
+            &discovery,
+            SelectionPolicy::Exact {
+                expected_tuple_count: 1,
+                expected_tuple_arity: 1,
+            },
+            1,
+        )
+        .expect("one selected site")
+        .fold("rename-write-value", |_| patch.clone())
+        .expect("one candidate");
+        assert_eq!(generation.candidates().len(), 1);
+
+        let vocabulary = EventVocabulary::new(vec![Constructor {
+            name: "memoryWrite".into(),
+            payload_sorts: vec![kore_sort("SortAddress"), kore_sort("SortNat")],
+        }])
+        .expect("vocabulary");
+        let observed = [ObservedRule {
+            rule,
+            emit_rule_applied: false,
+            domain_events: vec![DomainEventSpec {
+                constructor: "memoryWrite".into(),
+                payload: ["RuleVarA", "RuleVarV"]
+                    .map(|name| PayloadSource::BindingValueNamed(name.into()))
+                    .to_vec(),
+            }],
+        }];
+        let plan = PatternPlan::new(
+            &vocabulary,
+            vec![("A".into(), kore_sort("SortAddress"))],
+            vec![PatternArm {
+                atoms: vec![Atom {
+                    constructor: "memoryWrite".into(),
+                    payload: vec![PayloadClause {
+                        position: 0,
+                        mode: MatchMode::Bind,
+                        variable: "A".into(),
+                    }],
+                }],
+                relations: vec![],
+            }],
+            None,
+        )
+        .expect("W-only plan");
+        let test = TestCase {
+            id: "ground-shared".into(),
+            initial_state: support::initial_state(
+                support::app(
+                    "Lblseq",
+                    vec![
+                        support::app("Lblwrite", vec![support::app("Lbladdr", vec![z()]), s(z())]),
+                        support::app(
+                            "Lblseq",
+                            vec![
+                                support::app(
+                                    "Lblload",
+                                    vec![support::app("Lbladdr", vec![z()]), s(z())],
+                                ),
+                                constant("Lblhalt"),
+                            ],
+                        ),
+                    ],
+                ),
+                "SortProg",
+            ),
+            oracles: vec![
+                OracleDeclaration::new(
+                    CrashPolicy::CompareIdentity,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: false,
+                    },
+                )
+                .expect("oracle"),
+            ],
+        };
+        let tests = [test];
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "SYMMEM",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("baseline admitted");
+        assert_eq!(sides(&run.baseline[0]), [matched()]);
+        let [mutant] = run.mutants.as_slice() else {
+            panic!("one mutant");
+        };
+        assert_eq!(
+            mutant.plan.tests[0].run,
+            TestRun::Failed(ExecutionFailureKind::UnresolvedObservation)
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert!(mutant.report.killing_test_ids.is_empty());
+    });
 }
 
 /// The sides of every test of a run, `None` for a test that did not run.

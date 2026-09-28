@@ -11,6 +11,7 @@ use k_rust::backend::{
     BindingOutput, EffectOutput, EvaluationClassOutput, ObservationEventOutput, TraceEntry,
     TransitionClassOutput, TransitionIdOutput, UncommittedReasonOutput,
 };
+use k_rust::kore::{ast::Pattern, codec};
 use kink_patch::SentenceRef;
 use kink_pattern::AttributionUnknownReason;
 use serde_json::Value;
@@ -34,12 +35,14 @@ pub struct DomainEventSpec {
 }
 
 /// Closed payload sources exposed by the k-rust transition wire contract.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PayloadSource {
     BeforeState,
     AfterState,
     BindingVariable(usize),
     BindingValue(usize),
+    /// The value bound to the uniquely named variable on the transition wire.
+    BindingValueNamed(String),
     IntroducedPredicate(usize),
     Effect(usize),
 }
@@ -405,7 +408,7 @@ pub(crate) fn adapt_branch(
                                 .iter()
                                 .map(|source| {
                                     payload_value(
-                                        *source,
+                                        source.clone(),
                                         &before,
                                         &after,
                                         &bindings,
@@ -540,35 +543,32 @@ fn payload_value(
     predicates: &[Value],
     effects: &[EffectOutput],
 ) -> Result<DomainPayload, ObservationFailure> {
+    let missing = || ObservationFailure::MissingPayloadSource(source.clone());
     Ok(match source {
         PayloadSource::BeforeState => DomainPayload::Term(before.clone()),
         PayloadSource::AfterState => DomainPayload::Term(after.clone()),
-        PayloadSource::BindingVariable(index) => DomainPayload::Term(
-            bindings
-                .get(index)
-                .ok_or(ObservationFailure::MissingPayloadSource(source))?
-                .variable
-                .clone(),
-        ),
-        PayloadSource::BindingValue(index) => DomainPayload::Term(
-            bindings
-                .get(index)
-                .ok_or(ObservationFailure::MissingPayloadSource(source))?
-                .value
-                .clone(),
-        ),
-        PayloadSource::IntroducedPredicate(index) => DomainPayload::Term(
-            predicates
-                .get(index)
-                .ok_or(ObservationFailure::MissingPayloadSource(source))?
-                .clone(),
-        ),
-        PayloadSource::Effect(index) => DomainPayload::Effect(
-            effects
-                .get(index)
-                .ok_or(ObservationFailure::MissingPayloadSource(source))?
-                .clone(),
-        ),
+        PayloadSource::BindingVariable(index) => {
+            DomainPayload::Term(bindings.get(index).ok_or_else(&missing)?.variable.clone())
+        }
+        PayloadSource::BindingValue(index) => {
+            DomainPayload::Term(bindings.get(index).ok_or_else(&missing)?.value.clone())
+        }
+        PayloadSource::BindingValueNamed(ref name) => {
+            let mut matching = bindings.iter().filter(|binding| {
+                matches!(codec::from_value(&binding.variable), Ok(Pattern::Variable(ref variable)) if variable.name == *name)
+            });
+            let binding = matching.next().ok_or_else(&missing)?;
+            if matching.next().is_some() {
+                return Err(missing());
+            }
+            DomainPayload::Term(binding.value.clone())
+        }
+        PayloadSource::IntroducedPredicate(index) => {
+            DomainPayload::Term(predicates.get(index).ok_or_else(&missing)?.clone())
+        }
+        PayloadSource::Effect(index) => {
+            DomainPayload::Effect(effects.get(index).ok_or_else(&missing)?.clone())
+        }
     })
 }
 
@@ -603,6 +603,56 @@ pub enum ObservationFailure {
 mod tests {
     use super::*;
     use k_rust::backend::ObservationEventOutput;
+    use k_rust::kompile::initial_configuration::kore_sort;
+    use k_rust::kore::ast::{Variable, VariableKind};
+
+    #[test]
+    fn named_binding_payload_selects_by_variable() {
+        let encoded_variable = |name: &str| {
+            codec::to_value(&Pattern::Variable(Variable {
+                kind: VariableKind::Element,
+                name: name.into(),
+                sort: kore_sort("SortNat"),
+            }))
+            .expect("KORE variable")
+        };
+        let a = codec::to_value(&Pattern::Variable(Variable {
+            kind: VariableKind::Element,
+            name: "a".into(),
+            sort: kore_sort("SortNat"),
+        }))
+        .expect("KORE value");
+        let v = codec::to_value(&Pattern::Variable(Variable {
+            kind: VariableKind::Element,
+            name: "v".into(),
+            sort: kore_sort("SortNat"),
+        }))
+        .expect("KORE value");
+        let binding = |name: &str, value: Value| BindingOutput {
+            variable: encoded_variable(name),
+            value,
+        };
+        let bindings = [binding("RuleVarA", a), binding("RuleVarV", v.clone())];
+        let source = PayloadSource::BindingValueNamed("RuleVarV".into());
+        let read = |source: PayloadSource, bindings: &[BindingOutput]| {
+            payload_value(source, &Value::Null, &Value::Null, bindings, &[], &[])
+        };
+        assert_eq!(read(source.clone(), &bindings), Ok(DomainPayload::Term(v)));
+        let missing = PayloadSource::BindingValueNamed("RuleVarMissing".into());
+        assert_eq!(
+            read(missing.clone(), &bindings),
+            Err(ObservationFailure::MissingPayloadSource(missing))
+        );
+        let duplicated = [
+            bindings[0].clone(),
+            bindings[1].clone(),
+            bindings[1].clone(),
+        ];
+        assert_eq!(
+            read(source.clone(), &duplicated),
+            Err(ObservationFailure::MissingPayloadSource(source))
+        );
+    }
 
     fn spec(label: &str) -> RuleObservationSpec {
         RuleObservationSpec {
