@@ -1,7 +1,8 @@
 //! Stable transition identities and opt-in structured observation contracts.
 
-use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
+use std::{collections::BTreeMap, collections::BTreeSet, fmt, io, sync::Arc};
 
+use k_rust_kore::kore::printer::Printer;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -20,8 +21,11 @@ pub struct PatternDigest([u8; 32]);
 
 impl PatternDigest {
     pub fn of(pattern: &Pattern) -> Self {
-        let canonical = externalize::constrained_pattern(pattern).to_string();
-        Self(Sha256::digest(canonical.as_bytes()).into())
+        let mut writer = DigestWriter(Sha256::new());
+        Printer::compact()
+            .write_source(externalize::External::Constrained(pattern), &mut writer)
+            .expect("writing to a SHA-256 digest cannot fail");
+        Self(writer.0.finalize().into())
     }
 
     pub const fn as_bytes(&self) -> &[u8; 32] {
@@ -30,6 +34,19 @@ impl PatternDigest {
 
     pub const fn into_bytes(self) -> [u8; 32] {
         self.0
+    }
+}
+
+struct DigestWriter(Sha256);
+
+impl io::Write for DigestWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

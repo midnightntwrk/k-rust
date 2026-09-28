@@ -9,6 +9,7 @@ use k_rust_kore::kore::{
 };
 use k_rust_kore::names::BuiltinSort;
 use proptest::prelude::*;
+use sha2::{Digest, Sha256};
 
 use super::lean_bridge::generators;
 use crate::{
@@ -19,6 +20,7 @@ use crate::{
     rewrite::Pattern,
     rule::Predicate,
     term::{Sort, Term, Variable},
+    transition::PatternDigest,
 };
 
 /// Predicates over generated terms, with Boolean domain values on either side of equalities so
@@ -134,6 +136,8 @@ proptest! {
         let expected = constrained_pattern(&pattern);
         prop_assert_eq!(&materialize(External::Constrained(&pattern)), &expected);
         assert_same_text(External::Constrained(&pattern), &expected);
+        let expected_digest: [u8; 32] = Sha256::digest(expected.to_string().as_bytes()).into();
+        prop_assert_eq!(PatternDigest::of(&pattern).into_bytes(), expected_digest);
     }
 
     /// A binding source is the equality of the variable and the value.
