@@ -16,6 +16,7 @@ use resolve::{
 };
 pub use run::run_collector;
 use source::canonicalize_path;
+pub(crate) use source::{record_file, record_probe};
 
 mod invocation;
 mod provenance;
@@ -429,6 +430,7 @@ fn prepare_contexts(
             ));
         }
         let manifest = canonicalize_path(&context.manifest_path, "Cargo manifest")?;
+        record_probe(&context.manifest_path);
         if !manifest.is_file() {
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidPackageContext,

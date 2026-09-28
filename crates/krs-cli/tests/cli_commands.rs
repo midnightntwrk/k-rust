@@ -179,6 +179,7 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
         "check",
         None,
         &[
+            "--no-reuse",
             "--timings",
             timings_path.to_str().unwrap(),
             "--counters",
@@ -228,6 +229,7 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     assert_eq!(counters["schema"], "krs-counters/1");
     assert_eq!(counters["status"], "ok");
     let counters = &counters["counters"];
+    assert_eq!(counters["result.reused"], 0);
     assert_eq!(counters["descriptors.total"], 9);
     assert_eq!(counters["semantic.modules"], 1);
     let bundle_bytes = counters["bundle.bytes"].as_u64().unwrap();
@@ -244,7 +246,7 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
         manifest,
         "check",
         None,
-        &["--counters", again_path.to_str().unwrap()],
+        &["--no-reuse", "--counters", again_path.to_str().unwrap()],
     ));
     assert_eq!(
         fs::read(&counters_path).unwrap(),
@@ -262,6 +264,7 @@ fn assert_build_measurement(temporary: &Path, target: &Path, manifest: &Path, na
         "build",
         Some(native),
         &[
+            "--no-reuse",
             "--timings",
             build_timings.to_str().unwrap(),
             "--counters",
@@ -304,6 +307,7 @@ fn assert_build_measurement(temporary: &Path, target: &Path, manifest: &Path, na
         "k-rust phases are not nested below native.compile: {ids:?}"
     );
     let counters = &read_json(&build_counters)["counters"];
+    assert_eq!(counters["result.reused"], 0);
     assert_eq!(
         counters["native.bytes.definition.kore"].as_u64().unwrap(),
         fs::metadata(native.join("definition.kore")).unwrap().len()

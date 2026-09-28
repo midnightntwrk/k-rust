@@ -20,6 +20,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/perf -t tests
 
 `--port`, `--stage`, and `--scenario` are repeatable and default to everything.
 `--runs N` sets the repetitions of every scenario (default 3) and `--cold-runs N` overrides it for `cold`.
+`--no-reuse` passes the same option to KRS commands, so `no-op` receipts can measure the full collector and compiler pipeline.
 `--krs PATH` measures an existing `krs` executable; otherwise the harness builds the release `krs` of this checkout into `<checkout scratch>/perf-krs-target` (`KRS_PERF_KRS_TARGET` overrides) with `cargo +stable`.
 `--keep` keeps the scratch workspace and Cargo targets, which are otherwise deleted after each cell.
 

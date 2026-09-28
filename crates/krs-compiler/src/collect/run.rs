@@ -5,12 +5,12 @@ use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
 
 use krs_ir::measure::{
-    COLLECTOR_MEASURE_ENV, COLLECTOR_MEASURE_SCHEMA, CollectorMeasureDocument, Counters, Timings,
-    unix_seconds,
+    COLLECTOR_MEASURE_ENV, COLLECTOR_MEASURE_SCHEMA, COLLECTOR_READ_SET_ENV,
+    CollectorMeasureDocument, Counters, Timings, unix_seconds,
 };
 use krs_ir::{HostBuiltinRegistry, HostDescriptor};
 
-use super::{PackageContext, collect_host_descriptors_with_builtins_timed};
+use super::{PackageContext, collect_host_descriptors_with_builtins_timed, source};
 
 /// Collect the host descriptors of `contexts` and write compact canonical
 /// descriptor bundle JSON to stdout.
@@ -31,37 +31,41 @@ pub fn run_collector<I>(
 where
     I: IntoIterator<Item = HostDescriptor>,
 {
+    let read_set = std::env::var_os(COLLECTOR_READ_SET_ENV).map(PathBuf::from);
+    if read_set.is_some() {
+        source::start_read_set();
+    }
     let sidecar = std::env::var_os(COLLECTOR_MEASURE_ENV).map(PathBuf::from);
-    let Some(sidecar) = sidecar else {
-        return collect_and_write(
+    let result = if let Some(sidecar) = sidecar {
+        let started_unix_seconds = unix_seconds();
+        let mut timings = Timings::enabled();
+        let mut counters = Counters::enabled();
+        let result =
+            collect_and_write(contexts, descriptors, builtins, &mut timings, &mut counters);
+        let document = CollectorMeasureDocument {
+            schema: COLLECTOR_MEASURE_SCHEMA.to_owned(),
+            started_unix_seconds,
+            spans: timings.take_spans(),
+            counters: counters.values().clone(),
+        };
+        let written = serde_json::to_vec_pretty(&document)
+            .map_err(Box::<dyn Error>::from)
+            .and_then(|bytes| std::fs::write(&sidecar, bytes).map_err(Into::into));
+        result.and(written)
+    } else {
+        collect_and_write(
             contexts,
             descriptors,
             builtins,
             &mut Timings::disabled(),
             &mut Counters::disabled(),
-        );
-    };
-    let started_unix_seconds = unix_seconds();
-    let mut timings = Timings::enabled();
-    let mut counters = Counters::enabled();
-    let result = collect_and_write(contexts, descriptors, builtins, &mut timings, &mut counters);
-    let document = CollectorMeasureDocument {
-        schema: COLLECTOR_MEASURE_SCHEMA.to_owned(),
-        started_unix_seconds,
-        spans: timings.take_spans(),
-        counters: counters.values().clone(),
-    };
-    let written = serde_json::to_vec_pretty(&document)
-        .map_err(Box::<dyn Error>::from)
-        .and_then(|bytes| std::fs::write(&sidecar, bytes).map_err(Into::into));
-    result?;
-    written.map_err(|error| {
-        format!(
-            "could not write collector measurement `{}`: {error}",
-            sidecar.display()
         )
-        .into()
-    })
+    };
+    if let Some(path) = read_set {
+        let bytes = serde_json::to_vec(&source::take_read_set())?;
+        std::fs::write(path, bytes)?;
+    }
+    result
 }
 
 fn collect_and_write<I>(

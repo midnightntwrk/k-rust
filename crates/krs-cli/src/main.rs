@@ -35,6 +35,7 @@ Options:
   --output DIRECTORY         Required for emit-k and build
   --timings FILE             Write krs-timings/1 phase timings as JSON
   --counters FILE            Write krs-counters/1 work counters as JSON
+  --no-reuse                 Run the collector and compiler even on an unchanged input
   --stdin                    Format stdin and write the result to stdout
   --check                    Report files that are not canonically formatted
   --trailing-comments STYLE  aligned or gutter (default: aligned)
@@ -176,6 +177,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
     let mut backend = Backend::Llvm;
     let mut output_directory = None;
     let mut registration = RegistrationMode::Inventory;
+    let mut no_reuse = false;
     let mut measure = MeasureOptions::default();
 
     while let Some(option) = arguments.next() {
@@ -183,6 +185,10 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
             return Ok(ParseResult::Help);
         }
         let option = utf8(option, "option")?;
+        if option == "--no-reuse" {
+            no_reuse = true;
+            continue;
+        }
         let value = arguments
             .next()
             .ok_or_else(|| format!("{option} requires a value"))?;
@@ -232,6 +238,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
             backend,
             output_directory,
             registration,
+            no_reuse,
         },
         measure,
     ))

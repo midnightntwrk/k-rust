@@ -9,7 +9,8 @@ use krs_compiler::{
     lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_ir::measure::{
-    COLLECTOR_MEASURE_ENV, CollectorMeasureDocument, Counters, Measurement, unix_seconds,
+    COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV, CollectorMeasureDocument, CollectorReadSet,
+    Counters, Measurement, unix_seconds,
 };
 use krs_ir::{
     DefinitionSentence, Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId,
@@ -27,6 +28,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+mod result_cache;
+use result_cache::ResultCache;
 
 const ARTIFACT_MARKER: &str = "KRS artifact directory schema 1; safe to update.\n";
 
@@ -78,6 +82,8 @@ pub struct CommandRequest {
     /// [`RegistrationMode::Explicit`] is build and parity tooling; authored
     /// packages use the default.
     pub registration: RegistrationMode,
+    /// Force the full pipeline even when an unchanged result is available.
+    pub no_reuse: bool,
 }
 
 /// Stable command output intended for stdout.
@@ -98,6 +104,22 @@ struct PreparedDefinition {
     bundle: DescriptorBundle,
     semantic: krs_ir::SemanticTheory,
     lowered: krs_compiler::LoweredDefinition,
+}
+
+type OutputArtifact = (String, Vec<u8>);
+
+struct CommandExecution {
+    outcome: CommandOutcome,
+    artifacts: Vec<OutputArtifact>,
+}
+
+impl CommandExecution {
+    fn without_artifacts(outcome: CommandOutcome) -> Self {
+        Self {
+            outcome,
+            artifacts: Vec::new(),
+        }
+    }
 }
 
 /// Execute one complete Cargo/collector/compiler command pipeline.
@@ -129,6 +151,7 @@ pub fn execute_command_measured(
     request: &CommandRequest,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
+    measurement.counters.set("result.reused", 0u64);
     validate_request(request)?;
     let timings = &mut measurement.timings;
     let metadata = timings.try_span("cargo.metadata.input", |_| {
@@ -153,15 +176,34 @@ pub fn execute_command_measured(
             RegistrationMode::Explicit => plan.with_explicit_registration()?,
         })
     })?;
-    let prepared = prepare(&metadata, &plan, measurement)?;
+    let collector_directory = generate_collector(&metadata, &plan, measurement)?;
+    let executable = build_collector_measured(&collector_directory, &metadata, measurement)?;
+    let cache = ResultCache::new(&collector_directory, &executable, request);
+    if request.command != CommandKind::Expand
+        && !request.no_reuse
+        && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"))
+    {
+        let started = std::time::Instant::now();
+        if let Some(outcome) = cache.restore(request, &mut measurement.counters)? {
+            measurement
+                .timings
+                .record("result.reuse", started.elapsed().as_secs_f64(), 0);
+            measurement.counters.set("result.reused", 1u64);
+            return Ok(outcome);
+        }
+    }
+    let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
+    let prepared = prepare(stdout, measurement)?;
 
     let outcome = match request.command {
         CommandKind::Check => measurement
             .timings
-            .try_span("check.adapt", |_| check(&prepared, request.backend)),
+            .try_span("check.adapt", |_| check(&prepared, request.backend))
+            .map(CommandExecution::without_artifacts),
         CommandKind::Expand => measurement
             .timings
-            .try_span("expand.render", |_| expand(&prepared, &plan)),
+            .try_span("expand.render", |_| expand(&prepared, &plan))
+            .map(CommandExecution::without_artifacts),
         CommandKind::EmitK => {
             required_output(request).and_then(|output| emit(&prepared, output, measurement))
         }
@@ -169,7 +211,18 @@ pub fn execute_command_measured(
             .and_then(|output| build(&prepared, request.backend, output, measurement)),
     };
     measurement.timings.span("release", |_| drop(prepared));
-    outcome
+    if let Ok(ref value) = outcome
+        && request.command != CommandKind::Expand
+    {
+        cache.store(
+            request,
+            &value.outcome,
+            &value.artifacts,
+            &read_set,
+            &measurement.counters,
+        );
+    }
+    outcome.map(|value| value.outcome)
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
@@ -196,12 +249,12 @@ fn required_output(request: &CommandRequest) -> Result<&Path, CommandError> {
     })
 }
 
-fn prepare(
+fn generate_collector(
     metadata: &CargoMetadata,
     plan: &CollectorPlan,
     measurement: &mut Measurement,
-) -> Result<PreparedDefinition, CommandError> {
-    let collector_directory = measurement.timings.try_span("collector.generate", |_| {
+) -> Result<PathBuf, CommandError> {
+    measurement.timings.try_span("collector.generate", |_| {
         let target = metadata.target_directory.as_deref().ok_or_else(|| {
             CommandError::InvalidMetadata(
                 "Cargo metadata did not provide an absolute target_directory".to_owned(),
@@ -217,8 +270,13 @@ fn prepare(
         let collector_directory = collector_directory(target, &collector);
         collector.write_to(&collector_directory)?;
         Ok(collector_directory)
-    })?;
-    let stdout = run_collector(&collector_directory, metadata, measurement)?;
+    })
+}
+
+fn prepare(
+    stdout: Vec<u8>,
+    measurement: &mut Measurement,
+) -> Result<PreparedDefinition, CommandError> {
     let bundle: DescriptorBundle = measurement
         .timings
         .try_span("protocol.decode", |_| {
@@ -257,25 +315,25 @@ fn prepare(
 /// started collecting.
 fn run_collector(
     collector_directory: &Path,
-    metadata: &CargoMetadata,
+    executable: &Path,
     measurement: &mut Measurement,
-) -> Result<Vec<u8>, CommandError> {
-    // Cargo discovers hierarchical config from its working directory, not from
-    // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut build = Command::new("cargo");
-    build
-        .current_dir(collector_directory)
-        .args(["build", "--manifest-path"])
-        .arg(collector_directory.join("Cargo.toml"))
-        .args(["--message-format", "json-diagnostic-rendered-ansi"]);
-    let executable = measurement
-        .timings
-        .try_span("collector.build", |_| build_collector(&mut build, metadata))?;
+) -> Result<(Vec<u8>, CollectorReadSet), CommandError> {
+    let read_set_path = std::env::temp_dir().join(format!(
+        "krs-collector-read-set-{}-{}.json",
+        std::process::id(),
+        unix_seconds().to_bits()
+    ));
+    let _ = fs::remove_file(&read_set_path);
     let mut command = Command::new(executable);
-    command.current_dir(collector_directory);
-    // The sidecar affects execution only, leaving Cargo's fingerprint intact.
+    command
+        .current_dir(collector_directory)
+        .env(COLLECTOR_READ_SET_ENV, &read_set_path);
     let sidecar = measurement.is_enabled().then(|| {
-        std::env::temp_dir().join(format!("krs-collector-measure-{}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "krs-collector-measure-{}-{}.json",
+            std::process::id(),
+            unix_seconds().to_bits()
+        ))
     });
     if let Some(sidecar) = &sidecar {
         let _ = fs::remove_file(sidecar);
@@ -301,7 +359,32 @@ fn run_collector(
             }
         }
     }
-    Ok(output?.stdout)
+    let output = output?;
+    let bytes = fs::read(&read_set_path).map_err(|source| CommandError::Io {
+        path: read_set_path.clone(),
+        source,
+    });
+    let _ = fs::remove_file(&read_set_path);
+    let read_set = serde_json::from_slice(&bytes?).map_err(CommandError::Serialization)?;
+    Ok((output.stdout, read_set))
+}
+
+fn build_collector_measured(
+    collector_directory: &Path,
+    metadata: &CargoMetadata,
+    measurement: &mut Measurement,
+) -> Result<PathBuf, CommandError> {
+    // Cargo discovers hierarchical config from its working directory, not from
+    // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
+    let mut build = Command::new("cargo");
+    build
+        .current_dir(collector_directory)
+        .args(["build", "--manifest-path"])
+        .arg(collector_directory.join("Cargo.toml"))
+        .args(["--message-format", "json-diagnostic-rendered-ansi"]);
+    measurement
+        .timings
+        .try_span("collector.build", |_| build_collector(&mut build, metadata))
 }
 
 fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, bytes: usize) {
@@ -592,7 +675,7 @@ fn emit(
     prepared: &PreparedDefinition,
     output: &Path,
     measurement: &mut Measurement,
-) -> Result<CommandOutcome, CommandError> {
+) -> Result<CommandExecution, CommandError> {
     let (descriptor_bundle, semantic_ir, definition_ir, emitted, symbols, sources) =
         measurement.timings.try_span("emit_k.render", |_| {
             let descriptor_bundle = prepared.bundle.to_canonical_json()?;
@@ -611,16 +694,22 @@ fn emit(
             ))
         })?;
     let mut artifacts = vec![
-        ("descriptor-bundle.json", descriptor_bundle.as_bytes()),
-        ("semantic-ir.json", semantic_ir.as_bytes()),
-        ("definition-ir.json", definition_ir.as_bytes()),
-        (DEFINITION_ARTIFACT, emitted.source().as_bytes()),
+        (
+            "descriptor-bundle.json".to_owned(),
+            descriptor_bundle.into_bytes(),
+        ),
+        ("semantic-ir.json".to_owned(), semantic_ir.into_bytes()),
+        ("definition-ir.json".to_owned(), definition_ir.into_bytes()),
+        (
+            DEFINITION_ARTIFACT.to_owned(),
+            emitted.source().as_bytes().to_vec(),
+        ),
     ];
     if let Some(spec) = emitted.spec() {
-        artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes()));
+        artifacts.push((SPEC_ARTIFACT.to_owned(), spec.source().as_bytes().to_vec()));
     }
-    artifacts.push(("symbols.json", symbols.as_bytes()));
-    artifacts.push(("sources.json", sources.as_bytes()));
+    artifacts.push(("symbols.json".to_owned(), symbols.into_bytes()));
+    artifacts.push(("sources.json".to_owned(), sources.into_bytes()));
     measurement.timings.try_span("emit_k.write", |_| {
         prepare_output(output)?;
         for (name, bytes) in &artifacts {
@@ -638,12 +727,15 @@ fn emit(
     } else {
         String::new()
     };
-    Ok(CommandOutcome {
-        stdout: format!(
-            "emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, \
-             {DEFINITION_ARTIFACT},{spec} symbols.json, sources.json\n"
-        )
-        .into_bytes(),
+    Ok(CommandExecution {
+        outcome: CommandOutcome {
+            stdout: format!(
+                "emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, \
+                 {DEFINITION_ARTIFACT},{spec} symbols.json, sources.json\n"
+            )
+            .into_bytes(),
+        },
+        artifacts,
     })
 }
 
@@ -652,7 +744,7 @@ fn build(
     backend: Backend,
     output: &Path,
     measurement: &mut Measurement,
-) -> Result<CommandOutcome, CommandError> {
+) -> Result<CommandExecution, CommandError> {
     let artifacts = compile_definition_timed(
         prepared.lowered.definition(),
         CompileOptions {
@@ -666,24 +758,27 @@ fn build(
             native_command_error(prepared, backend, error)
         })
     })?;
-    let files = [
-        ("definition.kore", artifacts.definition_kore.as_bytes()),
+    let files = vec![
         (
-            "syntaxDefinition.kore",
-            artifacts.syntax_definition_kore.as_bytes(),
+            "definition.kore".to_owned(),
+            artifacts.definition_kore.into_bytes(),
         ),
-        ("macros.kore", artifacts.macros_kore.as_bytes()),
+        (
+            "syntaxDefinition.kore".to_owned(),
+            artifacts.syntax_definition_kore.into_bytes(),
+        ),
+        ("macros.kore".to_owned(), artifacts.macros_kore.into_bytes()),
     ];
     // Do not create the output directory until structured compilation has
     // succeeded. A native rejection therefore leaves no artifacts.
     measurement.timings.try_span("native.write", |_| {
         prepare_output(output)?;
-        for (name, bytes) in files {
+        for (name, bytes) in &files {
             write_output(output, name, bytes)?;
         }
         Ok::<_, CommandError>(())
     })?;
-    for (name, bytes) in files {
+    for (name, bytes) in &files {
         measurement
             .counters
             .set(format!("native.bytes.{name}"), bytes.len());
@@ -698,8 +793,11 @@ fn build(
         count => format!("omitted {count} claims: the llvm backend executes but does not prove\n"),
     };
     let stdout = format!("built definition.kore, syntaxDefinition.kore, macros.kore\n{omitted}");
-    Ok(CommandOutcome {
-        stdout: stdout.into_bytes(),
+    Ok(CommandExecution {
+        outcome: CommandOutcome {
+            stdout: stdout.into_bytes(),
+        },
+        artifacts: files,
     })
 }
 
@@ -758,7 +856,19 @@ fn prepare_output(path: &Path) -> Result<(), CommandError> {
         path: path.to_path_buf(),
         source,
     })?;
-    write_output(path, ".krs-artifacts", ARTIFACT_MARKER.as_bytes())
+    write_output_if_different(path, ".krs-artifacts", ARTIFACT_MARKER.as_bytes())
+}
+
+fn write_output_if_different(
+    directory: &Path,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), CommandError> {
+    let path = directory.join(name);
+    if fs::read(&path).is_ok_and(|existing| existing == bytes) {
+        return Ok(());
+    }
+    write_output(directory, name, bytes)
 }
 
 fn write_output(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), CommandError> {
@@ -1234,6 +1344,7 @@ mod tests {
             backend: Backend::Llvm,
             output_directory: None,
             registration: RegistrationMode::Inventory,
+            no_reuse: false,
         };
         assert!(validate_request(&base).is_ok());
         let mut emit = base.clone();

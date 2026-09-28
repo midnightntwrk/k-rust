@@ -53,6 +53,7 @@
 //! | `collector.plan` | facet and dependency-closure planning |
 //! | `collector.generate` | render and write the collector package |
 //! | `collector.build` | `cargo build` of the generated collector package |
+//! | `result.reuse` | validate and restore a cached successful result |
 //! | `collector.run` | execute the built collector binary, with children below |
 //! | `protocol.decode` | decode collector stdout as a descriptor bundle |
 //! | `semantic.lower` | descriptor bundle to semantic theory |
@@ -120,6 +121,7 @@
 //! | `definition.symbols`, `definition.source_map_entries` | lowering sidecars |
 //! | `emit_k.bytes.<artifact>` | `emit-k` artifact bytes |
 //! | `native.omitted_claims`, `native.bytes.<artifact>` | `build` KORE bytes |
+//! | `result.reused` | 1 when a saved result was restored, otherwise 0 |
 //!
 //! A counter is present only when its stage ran.
 //!
@@ -145,6 +147,28 @@ pub const COUNTERS_SCHEMA: &str = "krs-counters/1";
 pub const COLLECTOR_MEASURE_SCHEMA: &str = "krs-collector-measure/1";
 /// Environment variable naming the collector's measurement sidecar path.
 pub const COLLECTOR_MEASURE_ENV: &str = "KRS_COLLECTOR_MEASURE";
+/// Environment variable naming the collector's source read-set sidecar.
+pub const COLLECTOR_READ_SET_ENV: &str = "KRS_COLLECTOR_READ_SET";
+
+/// Files actually read by one collector execution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectorReadSet {
+    /// Canonical paths and SHA-256 digests of their bytes.
+    pub files: Vec<(std::path::PathBuf, String)>,
+    /// Paths whose resolution or existence affected collection.
+    pub probes: Vec<CollectorPathProbe>,
+}
+
+/// One path observation made during collection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectorPathProbe {
+    /// The path tested by the collector.
+    pub path: std::path::PathBuf,
+    /// Its canonical target, when it existed.
+    pub canonical: Option<std::path::PathBuf>,
+    /// Whether it resolved to a regular file.
+    pub is_file: bool,
+}
 
 /// One completed phase.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

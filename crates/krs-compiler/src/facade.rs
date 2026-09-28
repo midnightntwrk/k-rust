@@ -26,6 +26,7 @@ use syn::visit::Visit;
 use syn::{Attribute, UseTree};
 use toml_edit::{Document, Item, TableLike};
 
+use crate::collect::{record_file, record_probe};
 use crate::{CollectionError, CollectionErrorKind};
 
 /// The Cargo package name of the KRS facade.
@@ -391,6 +392,8 @@ fn read_manifest(manifest: &Path) -> Result<Document<String>, CollectionError> {
             ),
         )
     })?;
+    record_probe(manifest);
+    record_file(manifest, text.as_bytes());
     text.parse().map_err(|error| {
         CollectionError::new(
             CollectionErrorKind::InvalidPackageContext,
@@ -478,6 +481,7 @@ fn workspace_root(
     }
     for directory in package_dir.ancestors().skip(1) {
         let candidate = directory.join("Cargo.toml");
+        record_probe(&candidate);
         if candidate.is_file()
             && read_manifest(&candidate)?
                 .as_table()

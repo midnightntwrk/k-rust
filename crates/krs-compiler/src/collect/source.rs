@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use krs_ir::measure::CollectorPathProbe;
 use krs_ir::{Sha256Digest, SourceFileId};
 use sha2::{Digest, Sha256};
 
@@ -13,6 +16,51 @@ use super::provenance::SourceLineIndex;
 use super::trivia::validate_dsl_trivia;
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
+
+static READ_FILES: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+static PROBES: Mutex<Vec<CollectorPathProbe>> = Mutex::new(Vec::new());
+static TRACK_READS: AtomicBool = AtomicBool::new(false);
+
+pub(super) fn start_read_set() {
+    READ_FILES.lock().expect("read set lock poisoned").clear();
+    PROBES.lock().expect("probe lock poisoned").clear();
+    TRACK_READS.store(true, Ordering::Relaxed);
+}
+
+pub(super) fn take_read_set() -> krs_ir::measure::CollectorReadSet {
+    TRACK_READS.store(false, Ordering::Relaxed);
+    let mut files = std::mem::take(&mut *READ_FILES.lock().expect("read set lock poisoned"));
+    files.sort();
+    files.dedup();
+    let mut probes = std::mem::take(&mut *PROBES.lock().expect("probe lock poisoned"));
+    probes.sort_by(|left, right| left.path.cmp(&right.path));
+    probes.dedup();
+    krs_ir::measure::CollectorReadSet { files, probes }
+}
+
+pub(crate) fn record_file(path: &Path, bytes: &[u8]) {
+    if !TRACK_READS.load(Ordering::Relaxed) {
+        return;
+    }
+    READ_FILES.lock().expect("read set lock poisoned").push((
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
+        format!("{:x}", Sha256::digest(bytes)),
+    ));
+}
+
+pub(crate) fn record_probe(path: &Path) {
+    if !TRACK_READS.load(Ordering::Relaxed) {
+        return;
+    }
+    PROBES
+        .lock()
+        .expect("probe lock poisoned")
+        .push(CollectorPathProbe {
+            path: path.to_path_buf(),
+            canonical: fs::canonicalize(path).ok(),
+            is_file: path.is_file(),
+        });
+}
 
 #[derive(Debug)]
 pub(super) struct SourceDocument {
@@ -36,6 +84,7 @@ pub(super) fn load_source_document(
             ),
         )
     })?;
+    record_file(&canonical, &bytes);
     let text = String::from_utf8(bytes).map_err(|error| {
         CollectionError::new(
             CollectionErrorKind::SourceSyntax,
@@ -88,6 +137,7 @@ fn resolve_display_source(
         if !lexical_candidates.insert(lexical.clone()) {
             continue;
         }
+        record_probe(&lexical);
         let canonical = match fs::canonicalize(&lexical) {
             Ok(canonical) => canonical,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -205,6 +255,7 @@ pub(super) fn normalize_display_file(display_file: &str) -> Result<String, Colle
 }
 
 pub(super) fn canonicalize_path(path: &Path, role: &str) -> Result<PathBuf, CollectionError> {
+    record_probe(path);
     fs::canonicalize(path).map_err(|error| {
         CollectionError::new(
             CollectionErrorKind::HostIo,

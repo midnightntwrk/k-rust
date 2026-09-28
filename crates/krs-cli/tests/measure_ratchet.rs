@@ -125,6 +125,7 @@ fn medium_definition_counters_and_second_check_are_stable() {
     assert_eq!(document["schema"], "krs-counters/1");
     assert_eq!(document["status"], "ok");
     let measured = &document["counters"];
+    assert_eq!(measured["result.reused"], 0);
     for &(key, baseline, headroom) in BOUNDS {
         let actual = measured[key]
             .as_u64()
@@ -146,4 +147,10 @@ fn medium_definition_counters_and_second_check_are_stable() {
                 || line.contains("--crate-name krs_generated_collector_")),
         "unchanged check invoked rustc for the fixture or collector:\n{second_invocations}"
     );
+    let second: serde_json::Value = serde_json::from_slice(&fs::read(&counters).unwrap()).unwrap();
+    assert_eq!(second["status"], "ok");
+    assert_eq!(second["counters"]["result.reused"], 1);
+    for &(key, _, _) in BOUNDS {
+        assert_eq!(second["counters"][key], measured[key], "{key}");
+    }
 }

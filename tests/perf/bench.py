@@ -290,6 +290,8 @@ def stage_command(
         if stage.output:
             assert output is not None
             argv += ["--output", os.fspath(output)]
+        if context.arguments.no_reuse:
+            argv.append("--no-reuse")
         if timings is not None and context.krs_flags.get("timings"):
             argv += ["--timings", os.fspath(timings)]
         if timings is not None and context.krs_flags.get("counters"):
@@ -353,6 +355,10 @@ def run_cell(context: Context, port: Port, stage: Stage, scenarios: Sequence[str
         output = context.work / "out" / "settle"
         shutil.rmtree(output, ignore_errors=True)
         argv, cwd = stage_command(context, port, stage, output=output, timings=None)
+        if stage.krs_command is not None and context.krs_flags.get("counters"):
+            counters = context.receipts_dir / "timings" / f"{port.key}.{stage.name}.{label}.krs-counters.json"
+            counters.parent.mkdir(parents=True, exist_ok=True)
+            argv += ["--counters", os.fspath(counters)]
         log = context.receipts_dir / "logs" / f"{port.key}.{stage.name}.{label}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("wb") as handle:
@@ -604,6 +610,7 @@ def run_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario", action="append", choices=list(SCENARIOS),
                         help="scenario (repeatable; default: all)")
     parser.add_argument("--runs", type=int, default=3, help="repetitions per scenario (default 3)")
+    parser.add_argument("--no-reuse", action="store_true", help="measure krs without result reuse")
     parser.add_argument("--cold-runs", type=int, help="repetitions for the cold scenario (default: --runs)")
     parser.add_argument("--list", action="store_true", help="list ports, stages, scenarios, and profiles")
     parser.add_argument("--dry-run", action="store_true", help="print the selected matrix and verify edit anchors")

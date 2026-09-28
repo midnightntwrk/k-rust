@@ -53,6 +53,9 @@ krs build \
 
 `build` continues through K frontend and selected backend compilation.
 The LLVM backend executes but does not prove, so an LLVM build omits the definition's claims and says how many it omitted.
+Successful `check`, `emit-k`, and `build` commands reuse a previous result when the command options, collector executable, and files read by the collector are unchanged.
+A reused command returns the same stdout and restores any missing or modified output files.
+Pass `--no-reuse`, or set `KRS_NO_REUSE=1`, to run the collector and later stages again.
 The current commands are `fmt`, `check`, `expand`, `emit-k`, and `build`.
 There is no `krs run` command and no `krs prove` command; execution and proof are owned by named downstream K/KORE tools or repository harnesses.
 
