@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import sys
@@ -209,4 +210,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry("tour proof evidence", main)
+    entry(
+        "tour proof evidence",
+        main,
+        errors=(OSError, json.JSONDecodeError, tomllib.TOMLDecodeError),
+    )

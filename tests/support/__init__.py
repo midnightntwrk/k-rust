@@ -58,10 +58,14 @@ def entry(
     *,
     errors: tuple[type[Exception], ...] = (),
 ) -> None:
-    """Run a gate entry point and report expected setup failures consistently."""
+    """Run a gate entry point and report expected failures consistently.
+
+    `GateError` is always an expected failure; a gate names any other exception
+    type it reports without a traceback in `errors`.
+    """
     try:
         result = main()
-    except (GateError, OSError, ValueError, *errors) as error:
+    except (GateError, *errors) as error:
         print(f"FAIL {label}: {error}", file=sys.stderr)
         raise SystemExit(1) from error
     if result is None:

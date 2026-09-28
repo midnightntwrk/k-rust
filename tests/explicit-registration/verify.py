@@ -495,4 +495,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry("explicit-registration", main)
+    entry("explicit-registration", main, errors=(OSError, json.JSONDecodeError))

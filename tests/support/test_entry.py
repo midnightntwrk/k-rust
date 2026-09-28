@@ -24,13 +24,18 @@ class EntryTests(unittest.TestCase):
     def test_integer_is_exit_code(self):
         self.assertEqual(self.run_entry(lambda: 3), (3, "", ""))
 
-    def test_expected_failure(self):
-        for error in (GateError("bad evidence"), OSError("missing file"), ValueError("bad value")):
-            with self.subTest(error=type(error).__name__):
-                def fail():
-                    raise error
+    def test_gate_error_is_expected(self):
+        def fail():
+            raise GateError("bad evidence")
 
-                self.assertEqual(self.run_entry(fail), (1, "", f"FAIL sample: {error}\n"))
+        self.assertEqual(self.run_entry(fail), (1, "", "FAIL sample: bad evidence\n"))
+
+    def test_other_errors_propagate_by_default(self):
+        def fail():
+            raise ValueError("bad value")
+
+        with self.assertRaises(ValueError):
+            entry("sample", fail)
 
     def test_extra_expected_failure(self):
         def fail():

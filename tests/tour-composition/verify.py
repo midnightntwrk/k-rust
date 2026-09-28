@@ -158,4 +158,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    entry("tour-composition", main, errors=(KeyError,))
+    entry("tour-composition", main, errors=(OSError, ValueError, KeyError))

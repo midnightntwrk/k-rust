@@ -171,4 +171,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    entry("tour-imp", main, errors=(KeyError,))
+    entry("tour-imp", main, errors=(OSError, ValueError, KeyError))

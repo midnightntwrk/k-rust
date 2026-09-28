@@ -278,4 +278,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry("tour-minimal", main)
+    entry("tour-minimal", main, errors=(OSError,))

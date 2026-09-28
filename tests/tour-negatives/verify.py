@@ -122,4 +122,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    entry("tour-negatives", main, errors=(KeyError, TypeError))
+    entry("tour-negatives", main, errors=(OSError, KeyError, TypeError, ValueError))

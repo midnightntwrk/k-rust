@@ -385,4 +385,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry("IMP static semantics", main)
+    entry("IMP static semantics", main, errors=(OSError, ValueError))

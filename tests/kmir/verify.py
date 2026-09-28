@@ -313,4 +313,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry(HOOKS.label, main)
+    entry(HOOKS.label, main, errors=(OSError,))
