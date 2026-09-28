@@ -3,7 +3,7 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
@@ -739,6 +739,130 @@ fn binding_names(fixture: Fixture, program: Pattern) -> Vec<(&'static str, Vec<S
             Some((fixture.labels()[ordinal], names))
         })
         .collect()
+}
+
+#[test]
+fn before_terms_agree_with_named_bindings() {
+    for (fixture, programs) in [
+        (
+            Fixture::Sym,
+            vec![
+                ("p1", p1()),
+                ("p2", p2()),
+                ("p3", p3()),
+                ("p4", p4()),
+                ("p5", p5()),
+                ("p6", p6()),
+                ("p7", p7()),
+                ("p8", p8()),
+                ("p9", p9()),
+            ],
+        ),
+        (
+            Fixture::Guard,
+            vec![("g1", g1()), ("g2", g2()), ("g3", g3())],
+        ),
+    ] {
+        let validator =
+            NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
+        let side = validator.compile_baseline().expect("fixture compiles");
+        let mut rules = observations(fixture, &validator);
+        for rule in &mut rules {
+            let named = rule.domain_events[0].constructor.clone();
+            let is_free = matches!(fixture, Fixture::Sym) && named == "memoryFree";
+            let (a, v) = if matches!(fixture, Fixture::Sym) {
+                (support::k_head(&[0, 0]), support::k_head(&[0, 1]))
+            } else {
+                (support::k_head(&[0, 0, 0]), support::k_head(&[0, 1]))
+            };
+            let mut named_payload = vec![PayloadSource::BindingValueNamed("RuleVarA".into())];
+            let mut state_payload = vec![PayloadSource::BeforeTerm(a)];
+            if !is_free {
+                named_payload.push(PayloadSource::BindingValueNamed("RuleVarV".into()));
+                state_payload.push(PayloadSource::BeforeTerm(v));
+            }
+            rule.domain_events = vec![
+                DomainEventSpec {
+                    constructor: named.clone(),
+                    payload: named_payload,
+                },
+                DomainEventSpec {
+                    constructor: format!("{named}State"),
+                    payload: state_payload,
+                },
+            ];
+        }
+        let manifest = validator
+            .observation_manifest(&side, &rules)
+            .expect("probe manifest");
+        let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
+        let adapter = adapter(manifest);
+        for (program_name, program) in programs {
+            let state = support::initial_state(program, "SortProg");
+            let execution = adapter
+                .execute(&mut backend, &state, BUDGET)
+                .expect("probe execution");
+            let mut compared = 0;
+            for leaf in execution.leaves() {
+                let mut by_transition = BTreeMap::<usize, Vec<_>>::new();
+                for event in &leaf.branch.events {
+                    let NativeEvent::Domain(domain) = event else {
+                        continue;
+                    };
+                    by_transition
+                        .entry(domain.transition_ordinal)
+                        .or_default()
+                        .push(domain);
+                }
+                for (ordinal, pair) in by_transition {
+                    assert_eq!(
+                        pair.len(),
+                        2,
+                        "{program_name} transition {ordinal}: event pair"
+                    );
+                    assert_eq!(pair[0].rule, pair[1].rule);
+                    assert_eq!(pair[1].constructor, format!("{}State", pair[0].constructor));
+                    let decode = |payload: &[DomainPayload]| -> Vec<Pattern> {
+                        payload
+                            .iter()
+                            .map(|value| {
+                                let DomainPayload::Term(value) = value else {
+                                    panic!("expected a term payload")
+                                };
+                                codec::from_value(value).expect("payload KORE")
+                            })
+                            .collect()
+                    };
+                    let named = decode(&pair[0].payload);
+                    let state = decode(&pair[1].payload);
+                    assert_eq!(
+                        named, state,
+                        "{program_name} transition {ordinal}: named and pre-state payloads"
+                    );
+                    compared += 1;
+                }
+            }
+            let solver_blocked = by_profile(
+                matches!(fixture, Fixture::Guard) && matches!(program_name, "g1" | "g2"),
+                false,
+            );
+            if solver_blocked {
+                assert_eq!(
+                    compared, 0,
+                    "{program_name}: unexpected observed transition"
+                );
+                let leaves = execution.leaves();
+                assert_eq!(leaves.len(), 1, "{program_name}: expected one blocked leaf");
+                assert_eq!(leaves[0].halt, HaltClass::Indeterminate);
+                assert!(leaves[0].cause.as_ref().is_some_and(|cause| {
+                    matches!(cause, k_rust::backend::SearchFailureOutput::Requires { .. })
+                        && cause.solver_unavailable()
+                }));
+            } else {
+                assert!(compared > 0, "{program_name}: no compared transitions");
+            }
+        }
+    }
 }
 
 #[test]
