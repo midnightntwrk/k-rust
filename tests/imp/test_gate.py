@@ -57,10 +57,10 @@ class PhaseDependencyTests(unittest.TestCase):
         ):
             self.assertEqual(verify.main(), 1)
         artifacts.assert_not_called()
-        proofs.assert_called_once()
+        proofs.assert_not_called()
         self.assertIn("SKIP deterministic-artifacts: requires rust-and-lsp", stdout.getvalue())
         self.assertIn("SKIP source-definition: requires deterministic-artifacts", stdout.getvalue())
-        self.assertIn("PASS IMP.7 bounded-proofs", stdout.getvalue())
+        self.assertIn("SKIP bounded-proofs: requires rust-and-lsp", stdout.getvalue())
         self.assertIn("FAIL IMP.2 rust-and-lsp: rust failed", stderr.getvalue())
 
     def test_audit_runs_independent_phases_after_source_failure(self) -> None:

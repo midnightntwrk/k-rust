@@ -978,7 +978,7 @@ def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
     return canonical_json(observed)
 
 
-def phase_proofs(context: Context) -> str:
+def phase_proofs(context: Context, rust_build: RustBuild) -> str:
     proof_pins = table(context.pins.get("proof_outcomes"), "pins.proof_outcomes")
     if len(proof_pins) != 21:
         raise GateError(f"expected 21 proof invocations, found {len(proof_pins)}")
@@ -990,7 +990,7 @@ def phase_proofs(context: Context) -> str:
             context.tools["python"], harness, "--pins", PINS_PATH,
             "--workspace", context.workspace / "proofs",
             "--k-version", lock.k_version(), "--k-commit", lock.k_commit(),
-            "--krs", context.target / "debug/krs",
+            "--krs", rust_build.krs,
         ],
         timeout=7200,
         environment={
@@ -1156,8 +1156,8 @@ def main() -> int:
                     6, PHASES[5], (PHASES[3],), passed, failures, arguments.audit_all,
                     lambda: phase_behavior(context, cast(SourceDefinitions, definitions)),
                 )
-                run_phase(7, PHASES[6], (PHASES[0],), passed, failures,
-                          arguments.audit_all, lambda: phase_proofs(context))
+                run_phase(7, PHASES[6], (PHASES[1],), passed, failures, arguments.audit_all,
+                          lambda: phase_proofs(context, cast(RustBuild, rust_build)))
                 run_phase(
                     8, PHASES[7], (PHASES[1], PHASES[2]), passed, failures,
                     arguments.audit_all,
