@@ -12,14 +12,14 @@ use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CrashPolicy, FinalResult, MutantStatus, OracleDeclaration, OracleOutcome, OracleSide,
     OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection,
-    TestCase, TestRun, run_campaign, tally,
+    TestCase, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::execution::ExecutionBudget;
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
-    Baseline, CandidateGeneration, Edit, Patch, SelectionPolicy, SiteSelector, TermRef,
-    derive_sites, select,
+    Baseline, CandidateDisposition, CandidateGeneration, Edit, Patch, SelectionPolicy,
+    SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
@@ -288,6 +288,14 @@ fn release_after_write(baseline: &Baseline) -> CandidateGeneration<'_> {
 }
 
 fn coupled(baseline: &Baseline, value: bool) -> CandidateGeneration<'_> {
+    coupled_with_stale_load(baseline, value, false)
+}
+
+fn coupled_with_stale_load(
+    baseline: &Baseline,
+    value: bool,
+    stale_load: bool,
+) -> CandidateGeneration<'_> {
     let path = if value {
         vec![0, 0, 0, 1]
     } else {
@@ -332,7 +340,13 @@ fn coupled(baseline: &Baseline, value: bool) -> CandidateGeneration<'_> {
                         } else {
                             TermRef::new(site.at.sentence.clone(), [0, 1])
                         };
-                        let expected = baseline.term(&at).expect("term").clone();
+                        let expected = if stale_load
+                            && at.sentence == support::rule(baseline, "SYMMEM.load")
+                        {
+                            Term::apply("halt", vec![])
+                        } else {
+                            baseline.term(&at).expect("term").clone()
+                        };
                         let replacement = if value {
                             Term::apply("s", vec![bound.clone()])
                         } else {
@@ -352,8 +366,10 @@ fn coupled(baseline: &Baseline, value: bool) -> CandidateGeneration<'_> {
             .expect("patch")
         })
         .expect("generation");
-    assert!(generation.scored());
-    assert_eq!(generation.candidates().len(), 1);
+    if !stale_load {
+        assert!(generation.scored());
+        assert_eq!(generation.candidates().len(), 1);
+    }
     generation
 }
 
@@ -531,5 +547,146 @@ fn coherent_value_representation_is_not_killed() {
         assert_eq!(outcomes(&ground_run), vec![vec![A, A, A, A]]);
         assert_eq!(ground_run.mutants[0].report.status, MutantStatus::Survived);
         assert!(ground_run.mutants[0].report.killing_test_ids.is_empty());
+    });
+}
+
+#[test]
+fn stale_coupled_edit_publishes_no_mutant() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled_with_stale_load(fixture.validator.baseline(), false, true);
+        assert!(matches!(
+            generation.dispositions(),
+            [CandidateDisposition::Rejected(_)]
+        ));
+        assert!(generation.candidates().is_empty());
+        assert!(!generation.scored());
+
+        let run = run_campaign(
+            &fixture.campaign(&fixture.tests),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("baseline campaign");
+        assert!(run.mutants.is_empty());
+        assert_eq!(run.score, None);
+        assert_eq!(tally(&generation, &run).expect("tally").rejected_origins, 1);
+    });
+}
+
+#[test]
+fn bounded_mutant_evidence_kills_only_by_a_match() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let coupled_generation = coupled(baseline, false);
+        let single_generation = release_after_write(baseline);
+        for (depth, generation, expected, status) in [
+            (
+                3,
+                &coupled_generation,
+                vec![U, U, A, U],
+                MutantStatus::Unknown,
+            ),
+            (
+                3,
+                &single_generation,
+                vec![U, U, A, U],
+                MutantStatus::Unknown,
+            ),
+            (
+                4,
+                &coupled_generation,
+                vec![U, U, A, D],
+                MutantStatus::Killed,
+            ),
+        ] {
+            let mut campaign = fixture.campaign(&fixture.tests[..1]);
+            campaign.budget.max_depth = Some(depth);
+            let run = run_campaign(&campaign, generation, ScheduleMode::Full)
+                .expect("bounded baseline admitted");
+            assert_eq!(outcomes(&run), vec![expected], "depth {depth}");
+            assert_eq!(run.mutants[0].report.status, status, "depth {depth}");
+            assert_eq!(
+                run.mutants[0].report.killing_test_ids.is_empty(),
+                depth == 3
+            );
+            if depth == 4 {
+                assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-shared"]);
+                let TestRun::Compared(slots) = &run.mutants[0].plan.tests[0].run else {
+                    panic!("expected compared slots")
+                };
+                assert_eq!(slots.iter().filter(|slot| **slot == D).count(), 1);
+                assert_eq!(slots[3], D);
+            }
+        }
+    });
+}
+
+#[test]
+fn first_kill_stops_the_coupled_mutant_after_its_first_kill() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), false);
+        let campaign = fixture.campaign(&fixture.tests);
+        let full = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("full");
+        let stopped =
+            run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
+        let mutant = &stopped.mutants[0];
+        assert_eq!(mutant.plan.tests[0], full.mutants[0].plan.tests[0]);
+        assert!(
+            mutant.plan.tests[1..]
+                .iter()
+                .all(|test| test.run == TestRun::SkippedAfterKill)
+        );
+        assert_eq!(mutant.evidence, full.mutants[0].evidence[..1]);
+        assert_eq!(mutant.report.executed_test_ids, ["ground-shared"]);
+        assert_eq!(mutant.report.killing_test_ids, ["ground-shared"]);
+        assert_eq!(
+            mutant.report.skipped_test_ids,
+            ["sym-shared", "sym-distinct", "sym-clash"]
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Killed);
+        let manifest = fixture
+            .tests
+            .iter()
+            .map(|test| kink_campaign::ManifestTest {
+                test_id: test.id.clone(),
+                slot_count: test.oracles.len(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mutant.report,
+            derive_mutant_report(&full.mutants[0].plan, &manifest, ScheduleMode::FirstKill)
+                .expect("derived report")
+        );
+    });
+}
+
+#[test]
+fn repeated_coupled_campaigns_are_identical() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), false);
+        let campaign = fixture.campaign(&fixture.tests);
+        let first = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("first");
+        let second = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("second");
+        assert_eq!(first, second);
+
+        let fresh_fixture = Symmem::new();
+        let fresh_generation = coupled(fresh_fixture.validator.baseline(), false);
+        let fresh = run_campaign(
+            &fresh_fixture.campaign(&fresh_fixture.tests),
+            &fresh_generation,
+            ScheduleMode::Full,
+        )
+        .expect("fresh");
+        assert_eq!(
+            first.mutants[0].report.status,
+            fresh.mutants[0].report.status
+        );
+        assert_eq!(outcomes(&first), outcomes(&fresh));
+        assert_eq!(first.baseline, fresh.baseline);
+        assert_eq!(first.mutants[0].evidence, fresh.mutants[0].evidence);
     });
 }
