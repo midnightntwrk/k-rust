@@ -1226,7 +1226,11 @@ impl fmt::Display for CommandError {
             Self::ReferenceExpansion(error) => error.fmt(formatter),
             Self::Native(error) => error.fmt(formatter),
             Self::UnsupportedBackend(backend) => {
-                write!(formatter, "native backend {backend:?} is unavailable")
+                write!(
+                    formatter,
+                    "native backend `{}` is unavailable",
+                    backend.as_str()
+                )
             }
             Self::Serialization(error) => {
                 write!(

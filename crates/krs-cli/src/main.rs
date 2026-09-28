@@ -204,11 +204,11 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
             "--dependency" => dependencies.push(parse_dependency(value)?),
             "--cfg" => cfg.push(parse_cfg(value)?),
             "--backend" => {
-                backend = match utf8(value, "backend")?.as_str() {
-                    "llvm" => Backend::Llvm,
-                    "haskell" => Backend::Haskell,
-                    value => return Err(format!("unknown backend `{value}`")),
-                };
+                let value = utf8(value, "backend")?;
+                backend = Backend::ALL
+                    .into_iter()
+                    .find(|backend| backend.as_str() == value)
+                    .ok_or_else(|| format!("unknown backend `{value}`"))?;
             }
             "--output" => output_directory = Some(PathBuf::from(value)),
             "--timings" => measure.timings = Some(PathBuf::from(value)),

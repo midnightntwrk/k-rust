@@ -4,7 +4,6 @@ use super::{
 };
 use crate::{FacetSelector, KrsCfg, RegistrationMode};
 use krs_ir::measure::CollectorReadSet;
-use krs_k_rust::Backend;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -69,7 +68,7 @@ impl ResultCache {
             path: directory.join(format!(
                 "krs-result-{}-{}.bin",
                 request.command.as_str(),
-                backend_name(request.backend)
+                request.backend.as_str()
             )),
             collector: collector.to_path_buf(),
         }
@@ -210,26 +209,30 @@ fn decode(bytes: &[u8]) -> Option<(Image, &[u8])> {
 }
 
 fn request_key(request: &CommandRequest) -> String {
+    let CommandRequest {
+        command,
+        manifest_path,
+        root,
+        dependencies,
+        cfg,
+        backend,
+        output_directory: _,
+        registration,
+        no_reuse: _,
+    } = request;
     let key = CacheRequest {
-        command: request.command.as_str(),
-        manifest_path: request.manifest_path.as_os_str().as_bytes(),
-        root: &request.root,
-        dependencies: &request.dependencies,
-        cfg: &request.cfg,
-        backend: backend_name(request.backend),
-        registration: match request.registration {
+        command: command.as_str(),
+        manifest_path: manifest_path.as_os_str().as_bytes(),
+        root,
+        dependencies,
+        cfg,
+        backend: backend.as_str(),
+        registration: match registration {
             RegistrationMode::Inventory => "inventory",
             RegistrationMode::Explicit => "explicit",
         },
     };
     serde_json::to_string(&key).expect("cache request serialization cannot fail")
-}
-
-const fn backend_name(backend: Backend) -> &'static str {
-    match backend {
-        Backend::Llvm => "llvm",
-        Backend::Haskell => "haskell",
-    }
 }
 
 fn executable(path: &Path, krs: bool) -> Option<Executable> {

@@ -79,6 +79,18 @@ pub enum Backend {
 }
 
 impl Backend {
+    /// Every backend, in command-line catalog order.
+    pub const ALL: [Self; 2] = [Self::Llvm, Self::Haskell];
+
+    /// Returns the command-line spelling of this backend.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Llvm => "llvm",
+            Self::Haskell => "haskell",
+        }
+    }
+
     /// Returns whether this backend consumes claims.
     ///
     /// Claims are proof obligations. A concrete execution backend has no
