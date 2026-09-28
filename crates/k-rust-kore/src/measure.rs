@@ -86,6 +86,8 @@ algorithms! {
     BackendRewriteStep => "backend.rewrite.step",
     /// Depth-first exploration of a rewrite tree.
     BackendRewriteExecute => "backend.rewrite.execute",
+    /// Captured stdout buffer discovery in a backend execution leaf.
+    BackendExecutionCapturedStdout => "backend.execution.captured_stdout",
     /// Breadth-first search over configurations.
     BackendSearchConfigurations => "backend.search.configurations",
     /// Breadth-first enumeration of simple rewrite paths.

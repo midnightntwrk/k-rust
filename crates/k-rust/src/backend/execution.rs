@@ -1,7 +1,20 @@
 //! Shared execution orchestration and the CLI result contract.
+//!
+//! ```toml algorithm
+//! id = "backend.execution.captured_stdout"
+//! name = "find captured stdout buffers in backend execution leaves"
+//! sites = ["captured_stdout_buffer", "stdout_stream_buffers", "stdout_stream_buffer", "stream_list_items", "stream_buffer"]
+//! variable = "d = distinct backend terms, l = candidate stream-list nodes, b = buffered stdout bytes in the expanded term, h = maximum term depth"
+//! counters = []
+//! no_counter = "the output byte count and allocations are recorded for captured workloads"
+//!
+//! [[cost]]
+//! mode = "one final leaf"
+//! bound = "O(d + l + b * h) term visits and buffer copies; only stream-cell paths are externalized"
+//! ```
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
@@ -40,7 +53,7 @@ use crate::{
     kore::{
         ast::{Pattern as KorePattern, Sort as KoreSort},
         codec as kore_codec,
-        node::{compare, materialize},
+        node::{PatternNode, PatternSource, compare, materialize},
         printer::Printer as KorePrinter,
     },
     names::BuiltinSort,
@@ -267,8 +280,10 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Erro
     let details = finals
         .iter()
         .map(|leaf| {
-            let term = externalize::term(&leaf.pattern.term);
-            (leaf.pattern.constraints.len(), stdout_stream_buffers(&term))
+            (
+                leaf.pattern.constraints.len(),
+                stdout_stream_buffers(&leaf.pattern.term),
+            )
         })
         .collect::<Vec<_>>();
     let valid_shape =
@@ -305,41 +320,117 @@ fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Erro
     Ok(details[0].1[0].clone())
 }
 
-fn stdout_stream_buffers(pattern: &KorePattern) -> Vec<Vec<u8>> {
-    fn visit(pattern: &KorePattern, buffers: &mut Vec<Vec<u8>>) {
-        if let KorePattern::Application { symbol, arguments } = pattern {
-            if symbol.name.starts_with("Lbl'-LT-'")
-                && symbol.name.contains("'-GT-'")
-                && arguments.len() == 1
-                && let Some(items) = stream_list_items(&arguments[0])
-                && let [descriptor, mode, buffer] = items.as_slice()
-                && is_stream_descriptor(descriptor, "Lbl'Hash'ostream", "SortInt", "1")
-                && domain_value(unwrap_injections(mode), "SortString") == Some("off")
-                && let Some(value) = stream_buffer(buffer)
-            {
-                buffers.push(value.to_vec());
-            }
-            for argument in arguments {
-                visit(argument, buffers);
-            }
+fn stdout_stream_buffers(term: &Term) -> Vec<Vec<u8>> {
+    fn visit(term: &Term, memo: &mut HashMap<Term, Vec<Vec<u8>>>) -> Vec<Vec<u8>> {
+        if let Some(buffers) = memo.get(term) {
+            return buffers.clone();
         }
+        let mut buffers = Vec::new();
+        match term.kind() {
+            TermKind::Application { arguments, .. } => {
+                if let Some(buffer) = stdout_stream_buffer(External::Term(term)) {
+                    buffers.push(buffer);
+                }
+                for argument in arguments {
+                    buffers.extend(visit(argument, memo));
+                }
+            }
+            TermKind::Injection { term, .. } => buffers.extend(visit(term, memo)),
+            TermKind::Map { entries, rest, .. } => {
+                for (key, value) in entries {
+                    buffers.extend(visit(key, memo));
+                    buffers.extend(visit(value, memo));
+                }
+                if let Some(rest) = rest {
+                    buffers.extend(visit(rest, memo));
+                }
+            }
+            TermKind::List {
+                definition,
+                heads,
+                rest,
+            } => {
+                for head in heads {
+                    if let Some(buffer) =
+                        stdout_stream_buffer(External::Element(&definition.symbols.element, head))
+                    {
+                        buffers.push(buffer);
+                    }
+                    buffers.extend(visit(head, memo));
+                }
+                if let Some((middle, tails)) = rest {
+                    buffers.extend(visit(middle, memo));
+                    for tail in tails {
+                        if let Some(buffer) = stdout_stream_buffer(External::Element(
+                            &definition.symbols.element,
+                            tail,
+                        )) {
+                            buffers.push(buffer);
+                        }
+                        buffers.extend(visit(tail, memo));
+                    }
+                }
+            }
+            TermKind::Set {
+                definition,
+                elements,
+                rest,
+            } => {
+                for element in elements {
+                    if let Some(buffer) = stdout_stream_buffer(External::Element(
+                        &definition.symbols.element,
+                        element,
+                    )) {
+                        buffers.push(buffer);
+                    }
+                    buffers.extend(visit(element, memo));
+                }
+                if let Some(rest) = rest {
+                    buffers.extend(visit(rest, memo));
+                }
+            }
+            // The previous KORE-pattern visitor did not descend through an And node.
+            TermKind::And(..) | TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+        memo.insert(term.clone(), buffers.clone());
+        buffers
     }
 
-    let mut buffers = Vec::new();
-    visit(pattern, &mut buffers);
-    buffers
+    visit(term, &mut HashMap::new())
 }
 
-fn stream_list_items(pattern: &KorePattern) -> Option<Vec<&KorePattern>> {
-    fn append<'a>(pattern: &'a KorePattern, items: &mut Vec<&'a KorePattern>) -> bool {
-        let pattern = unwrap_injections(pattern);
-        let KorePattern::Application { symbol, arguments } = pattern else {
+fn stdout_stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+    let PatternNode::Application { symbol, arguments } = pattern.node() else {
+        return None;
+    };
+    if !symbol.name.starts_with("Lbl'-LT-'")
+        || !symbol.name.contains("'-GT-'")
+        || arguments.len() != 1
+    {
+        return None;
+    }
+    let items = stream_list_items(arguments.into_iter().next()?)?;
+    let [descriptor, mode, buffer] = items.as_slice() else {
+        return None;
+    };
+    if !is_stream_descriptor(descriptor.clone(), "Lbl'Hash'ostream", "SortInt", "1")
+        || !domain_value(unwrap_injections(mode.clone()), "SortString", "off")
+    {
+        return None;
+    }
+    stream_buffer(buffer.clone())
+}
+
+fn stream_list_items<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<S>> {
+    fn append<'a, S: PatternSource<'a>>(pattern: S, items: &mut Vec<S>) -> bool {
+        let PatternNode::Application { symbol, arguments } = unwrap_injections(pattern).node()
+        else {
             return false;
         };
         if symbol.name == "Lbl'Unds'List'Unds'" && arguments.len() == 2 {
-            append(&arguments[0], items) && append(&arguments[1], items)
+            append(arguments[0].clone(), items) && append(arguments[1].clone(), items)
         } else if symbol.name == "LblListItem" && arguments.len() == 1 {
-            items.push(&arguments[0]);
+            items.push(arguments[0].clone());
             true
         } else {
             false
@@ -350,77 +441,150 @@ fn stream_list_items(pattern: &KorePattern) -> Option<Vec<&KorePattern>> {
     append(pattern, &mut items).then_some(items)
 }
 
-fn unwrap_injections(mut pattern: &KorePattern) -> &KorePattern {
-    while let KorePattern::Application { symbol, arguments } = pattern
-        && symbol.name == "inj"
-        && arguments.len() == 1
-    {
-        pattern = &arguments[0];
+fn unwrap_injections<'a, S: PatternSource<'a>>(mut pattern: S) -> S {
+    loop {
+        match pattern.clone().node() {
+            PatternNode::Application { symbol, arguments }
+                if symbol.name == "inj" && arguments.len() == 1 =>
+            {
+                pattern = arguments[0].clone();
+            }
+            _ => return pattern,
+        }
     }
-    pattern
 }
 
-fn domain_value<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a str> {
-    let KorePattern::DomainValue { sort, value } = pattern else {
-        return None;
-    };
-    matches!(sort, KoreSort::Application { name, arguments }
-        if name == sort_name && arguments.is_empty())
-    .then(|| value.as_utf8().ok())
-    .flatten()
+fn domain_value<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str, expected: &str) -> bool {
+    matches!(pattern.node(), PatternNode::DomainValue { sort, value }
+        if matches!(sort.as_ref(), KoreSort::Application { name, arguments }
+            if name == sort_name && arguments.is_empty())
+        && value.as_utf8().ok() == Some(expected))
 }
 
-fn is_stream_descriptor(
-    pattern: &KorePattern,
+fn is_stream_descriptor<'a, S: PatternSource<'a>>(
+    pattern: S,
     symbol_prefix: &str,
     sort_name: &str,
     value: &str,
 ) -> bool {
-    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+    let PatternNode::Application { symbol, arguments } = unwrap_injections(pattern).node() else {
         return false;
     };
     symbol.name.starts_with(symbol_prefix)
         && arguments.len() == 1
-        && domain_value(unwrap_injections(&arguments[0]), sort_name) == Some(value)
+        && domain_value(unwrap_injections(arguments[0].clone()), sort_name, value)
 }
 
-fn stream_buffer(pattern: &KorePattern) -> Option<&[u8]> {
-    let KorePattern::Application { symbol, arguments } = unwrap_injections(pattern) else {
+fn stream_buffer<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<u8>> {
+    let PatternNode::Application { symbol, arguments } = unwrap_injections(pattern).node() else {
         return None;
     };
     if !symbol.name.starts_with("Lbl'Hash'buffer") || arguments.len() != 1 {
         return None;
     }
-    let KorePattern::Application {
+    let PatternNode::Application {
         symbol: sequence,
         arguments: sequence_arguments,
-    } = unwrap_injections(&arguments[0])
+    } = unwrap_injections(arguments[0].clone()).node()
     else {
         return None;
     };
     if sequence.name != "kseq" || sequence_arguments.len() != 2 {
         return None;
     }
-    let KorePattern::Application {
+    let PatternNode::Application {
         symbol: terminator,
         arguments: terminator_arguments,
-    } = &sequence_arguments[1]
+    } = sequence_arguments[1].clone().node()
     else {
         return None;
     };
     if terminator.name != "dotk" || !terminator_arguments.is_empty() {
         return None;
     }
-    domain_value_bytes(unwrap_injections(&sequence_arguments[0]), "SortString")
+    domain_value_bytes(
+        unwrap_injections(sequence_arguments[0].clone()),
+        "SortString",
+    )
 }
 
-fn domain_value_bytes<'a>(pattern: &'a KorePattern, sort_name: &str) -> Option<&'a [u8]> {
-    let KorePattern::DomainValue { sort, value } = pattern else {
+fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> Option<Vec<u8>> {
+    let PatternNode::DomainValue { sort, value } = pattern.node() else {
         return None;
     };
-    matches!(sort, KoreSort::Application { name, arguments }
+    matches!(sort.as_ref(), KoreSort::Application { name, arguments }
         if name == sort_name && arguments.is_empty())
-    .then(|| value.as_bytes())
+    .then(|| value.as_bytes().to_vec())
+}
+
+#[cfg(test)]
+mod captured_stdout_tests {
+    use std::sync::Arc;
+
+    use k_rust_backend::term::{Sort, Symbol, Term};
+
+    use super::stdout_stream_buffers;
+
+    fn app(name: &str, arguments: Vec<Term>) -> Term {
+        let sort = Sort::simple("SortK");
+        let symbol = Symbol::constructor(name, arguments.iter().map(Term::sort).collect(), sort);
+        Term::application(Arc::new(symbol), Vec::new(), arguments)
+    }
+
+    fn item(term: Term) -> Term {
+        app("LblListItem", vec![term])
+    }
+
+    fn list(items: Vec<Term>) -> Term {
+        let mut items = items.into_iter();
+        let first = items.next().unwrap();
+        items.fold(first, |left, right| {
+            app("Lbl'Unds'List'Unds'", vec![left, right])
+        })
+    }
+
+    fn stdout_cell(buffer: Term) -> Term {
+        app(
+            "Lbl'-LT-'output'-GT-'",
+            vec![list(vec![
+                item(app(
+                    "Lbl'Hash'ostream",
+                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
+                )),
+                item(Term::domain_value(Sort::simple("SortString"), "off")),
+                item(buffer),
+            ])],
+        )
+    }
+
+    fn buffer(value: Term) -> Term {
+        app(
+            "Lbl'Hash'buffer",
+            vec![app("kseq", vec![value, app("dotk", vec![])])],
+        )
+    }
+
+    #[test]
+    fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
+        let output = stdout_cell(buffer(Term::domain_value(
+            Sort::simple("SortString"),
+            vec![0, b'o', b'k', 255],
+        )));
+        let shared = app("wrap", vec![output]);
+        let doubled = app("pair", vec![shared.clone(), shared]);
+        assert_eq!(
+            stdout_stream_buffers(&doubled),
+            vec![vec![0, b'o', b'k', 255]; 2]
+        );
+
+        let missing = app("other", vec![]);
+        let non_list = app("Lbl'-LT-'output'-GT-'", vec![app("other", vec![])]);
+        let non_string = stdout_cell(buffer(Term::domain_value(Sort::simple("SortInt"), "2")));
+        let non_buffer = stdout_cell(app("other", vec![]));
+        for malformed in [missing, non_list, non_string, non_buffer] {
+            assert!(stdout_stream_buffers(&malformed).is_empty());
+        }
+    }
 }
 
 impl Backend {

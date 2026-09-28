@@ -1363,6 +1363,51 @@ bound = "one alias expansion plus O(pattern nodes)"
 
 [[node]]
 kind = "algorithm"
+id = "backend.execution.captured_stdout"
+provenance = "declared"
+area = "backend"
+name = "find captured stdout buffers in backend execution leaves"
+variable = "d = distinct backend terms, l = candidate stream-list nodes, b = buffered stdout bytes in the expanded term, h = maximum term depth"
+no_counter = "the output byte count and allocations are recorded for captured workloads"
+table = "Algorithm::ALL"
+registry_name = "BackendExecutionCapturedStdout"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "captured_stdout_buffer"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "captured_stdout_buffer"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "stdout_stream_buffers"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "stdout_stream_buffer"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "stream_list_items"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/execution.rs"
+symbol = "stream_buffer"
+
+[[node.cost]]
+mode = "one final leaf"
+bound = "O(d + l + b * h) term visits and buffer copies; only stream-cell paths are externalized"
+
+[[node]]
+kind = "algorithm"
 id = "backend.fresh.object_language"
 provenance = "declared"
 area = "backend"
