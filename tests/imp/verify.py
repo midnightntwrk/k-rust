@@ -990,6 +990,7 @@ def phase_proofs(context: Context) -> str:
             context.tools["python"], harness, "--pins", PINS_PATH,
             "--workspace", context.workspace / "proofs",
             "--k-version", lock.k_version(), "--k-commit", lock.k_commit(),
+            "--krs", context.target / "debug/krs",
         ],
         timeout=7200,
         environment={
