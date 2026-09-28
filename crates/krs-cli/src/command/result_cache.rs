@@ -2,7 +2,7 @@ use super::{
     CommandError, CommandOutcome, CommandRequest, Counters, OutputArtifact, prepare_output,
     write_output_if_different,
 };
-use crate::{FacetSelector, KrsCfg, RegistrationMode};
+use crate::{Backend, FacetSelector, KrsCfg, RegistrationMode};
 use krs_ir::measure::CollectorReadSet;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,7 +13,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const SCHEMA: u32 = 3;
+const SCHEMA: u32 = 4;
 
 #[derive(Serialize)]
 struct CacheRequest<'a> {
@@ -22,7 +22,7 @@ struct CacheRequest<'a> {
     root: &'a FacetSelector,
     dependencies: &'a [FacetSelector],
     cfg: &'a [KrsCfg],
-    backend: &'static str,
+    backend: Option<&'static str>,
     registration: &'static str,
 }
 
@@ -64,12 +64,13 @@ struct FileEntry {
 
 impl ResultCache {
     pub(super) fn new(directory: &Path, collector: &Path, request: &CommandRequest) -> Self {
+        let kind = request.command.kind().as_str();
+        let name = match request.command.backend() {
+            Some(backend) => format!("krs-result-{kind}-{}.bin", backend.as_str()),
+            None => format!("krs-result-{kind}.bin"),
+        };
         Self {
-            path: directory.join(format!(
-                "krs-result-{}-{}.bin",
-                request.command.as_str(),
-                request.backend.as_str()
-            )),
+            path: directory.join(name),
             collector: collector.to_path_buf(),
         }
     }
@@ -123,7 +124,7 @@ impl ResultCache {
         if !tail.is_empty() {
             return Ok(None);
         }
-        if let Some(directory) = &request.output_directory {
+        if let Some(directory) = request.command.output() {
             prepare_output(directory)?;
             for (name, contents) in files {
                 write_output_if_different(directory, &name, contents)?;
@@ -215,18 +216,16 @@ fn request_key(request: &CommandRequest) -> String {
         root,
         dependencies,
         cfg,
-        backend,
-        output_directory: _,
         registration,
         no_reuse: _,
     } = request;
     let key = CacheRequest {
-        command: command.as_str(),
+        command: command.kind().as_str(),
         manifest_path: manifest_path.as_os_str().as_bytes(),
         root,
         dependencies,
         cfg,
-        backend: backend.as_str(),
+        backend: command.backend().map(Backend::as_str),
         registration: match registration {
             RegistrationMode::Inventory => "inventory",
             RegistrationMode::Explicit => "explicit",

@@ -21,6 +21,7 @@ krs-compiler = { path = "../krs-compiler" }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
+lexopt = "0.3.2"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"

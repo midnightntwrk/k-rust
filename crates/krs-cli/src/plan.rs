@@ -1089,7 +1089,9 @@ fn validate_runtime_manifest(path: &Path, package: &str) -> Result<(), PlanningE
     Ok(())
 }
 
-fn valid_identifier_segment(segment: &str) -> bool {
+/// Return whether a segment is a Rust identifier accepted by KRS planning.
+#[must_use]
+pub fn valid_identifier_segment(segment: &str) -> bool {
     let mut bytes = segment.bytes();
     matches!(bytes.next(), Some(first) if first.is_ascii_alphabetic() || first == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')

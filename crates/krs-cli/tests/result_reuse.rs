@@ -1,5 +1,6 @@
 //! Command result reuse across repeated CLI invocations.
 
+use std::collections::BTreeSet;
 use std::fs::{self, File, FileTimes};
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -101,6 +102,15 @@ impl Fixture {
     fn source(&self) -> PathBuf {
         self.manifest.parent().unwrap().join("src/lib.rs")
     }
+
+    fn cache_file_names(&self) -> BTreeSet<String> {
+        fs::read_dir(self.target.join("krs/collectors"))
+            .unwrap()
+            .flat_map(|entry| fs::read_dir(entry.unwrap().path()).unwrap())
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("krs-result-"))
+            .collect()
+    }
 }
 
 struct Run {
@@ -186,6 +196,21 @@ fn hit_skips_collector_and_restores_only_changed_outputs() {
     assert_eq!(second.output.stdout, first.output.stdout);
     assert_eq!(artifact_bytes(&second_directory), expected);
 
+    let other_backend_directory = fixture.root.path().join("other-backend");
+    let other_backend = fixture.run(
+        "emit-k",
+        "haskell",
+        Some(&other_backend_directory),
+        &[],
+        false,
+    );
+    other_backend.assert_reused(1);
+    assert_eq!(artifact_bytes(&other_backend_directory), expected);
+    assert_eq!(
+        fixture.cache_file_names(),
+        ["krs-result-emit-k.bin".to_owned()].into()
+    );
+
     let unchanged = second_directory.join("semantic-ir.json");
     let old_time = UNIX_EPOCH + Duration::from_secs(12_345);
     File::options()
@@ -247,6 +272,9 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
     fixture
         .run("check", "haskell", None, &[], false)
         .assert_reused(1);
+    let cache_files = fixture.cache_file_names();
+    assert!(cache_files.contains("krs-result-check-llvm.bin"));
+    assert!(cache_files.contains("krs-result-check-haskell.bin"));
     fixture
         .run("check", "llvm", None, &[], false)
         .assert_reused(1);
@@ -265,6 +293,11 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
     reused_build.assert_reused(1);
     assert_eq!(reused_build.output.stdout, build.output.stdout);
     assert_eq!(artifact_bytes(&native), native_bytes);
+    assert!(
+        fixture
+            .cache_file_names()
+            .contains("krs-result-build-llvm.bin")
+    );
 
     fixture
         .run("check", "llvm", None, &["--no-reuse"], false)

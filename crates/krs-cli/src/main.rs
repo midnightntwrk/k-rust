@@ -1,12 +1,14 @@
 //! Cargo-style command-line frontend for the KRS definition compiler.
 
 use krs_cli::{
-    Backend, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector, RegistrationMode,
-    execute_command_measured,
+    Backend, Command, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector,
+    RegistrationMode, execute_command_measured, valid_identifier_segment,
 };
 use krs_fmt::{FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
+use lexopt::Arg::{Long, Short, Value};
 use std::ffi::OsString;
+use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -57,8 +59,12 @@ fn main() {
             let mut measurement =
                 Measurement::new(measure.timings.is_some(), measure.counters.is_some());
             let result = execute_command_measured(&request, &mut measurement);
-            let measured =
-                write_measurement(&measure, &measurement, request.command, result.is_ok());
+            let measured = write_measurement(
+                &measure,
+                &measurement,
+                request.command.kind(),
+                result.is_ok(),
+            );
             if !report_outcome(result) || !measured {
                 std::process::exit(1);
             }
@@ -149,152 +155,244 @@ struct FormatRequest {
     trailing_comments: TrailingCommentStyle,
 }
 
-fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
-    let mut arguments = arguments.into_iter();
-    let Some(command) = arguments.next() else {
-        return Err("missing command".to_owned());
+#[derive(Default)]
+struct RunOptions {
+    manifest_path: Option<PathBuf>,
+    package: Option<String>,
+    package_id: Option<String>,
+    definition: Option<String>,
+    dependencies: Vec<FacetSelector>,
+    cfg: Vec<KrsCfg>,
+    backend: Option<Backend>,
+    output: Option<PathBuf>,
+    registration: Option<RegistrationMode>,
+    no_reuse: bool,
+    measure: MeasureOptions,
+}
+
+#[derive(Debug)]
+enum UsageError {
+    Argument(lexopt::Error),
+    Message(String),
+}
+
+impl fmt::Display for UsageError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Argument(error) => error.fmt(formatter),
+            Self::Message(message) => message.fmt(formatter),
+        }
+    }
+}
+
+impl From<lexopt::Error> for UsageError {
+    fn from(error: lexopt::Error) -> Self {
+        Self::Argument(error)
+    }
+}
+
+fn usage(message: impl Into<String>) -> UsageError {
+    UsageError::Message(message.into())
+}
+
+fn set_once<T>(slot: &mut Option<T>, value: T, option: &str) -> Result<(), UsageError> {
+    if slot.replace(value).is_some() {
+        return Err(usage(format!("{option} specified more than once")));
+    }
+    Ok(())
+}
+
+fn option_value(parser: &mut lexopt::Parser, role: &str) -> Result<String, UsageError> {
+    utf8(parser.value()?, role)
+}
+
+fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
+    let mut parser = lexopt::Parser::from_args(arguments);
+    let command = match parser.next()? {
+        Some(Short('h') | Long("help")) => return Ok(ParseResult::Help),
+        Some(Value(value)) => utf8(value, "command")?,
+        Some(argument) => return Err(argument.unexpected().into()),
+        None => return Err(usage("missing command")),
     };
-    if command == "-h" || command == "--help" {
-        return Ok(ParseResult::Help);
-    }
-    let command = utf8(command, "command")?;
     if command == "fmt" {
-        return parse_format(arguments.collect());
+        return parse_format(&mut parser);
     }
-    let command = match command.as_str() {
+    let kind = match command.as_str() {
         "check" => CommandKind::Check,
         "expand" => CommandKind::Expand,
         "emit-k" => CommandKind::EmitK,
         "build" => CommandKind::Build,
-        unknown => return Err(format!("unknown command `{unknown}`")),
+        unknown => return Err(usage(format!("unknown command `{unknown}`"))),
     };
+    parse_run(&mut parser, kind)
+}
 
-    let mut manifest_path = PathBuf::from("Cargo.toml");
-    let mut root_package = None;
-    let mut definition = None;
-    let mut dependencies = Vec::new();
-    let mut cfg = Vec::new();
-    let mut backend = Backend::Llvm;
-    let mut output_directory = None;
-    let mut registration = RegistrationMode::Inventory;
-    let mut no_reuse = false;
-    let mut measure = MeasureOptions::default();
-
-    while let Some(option) = arguments.next() {
-        if option == "-h" || option == "--help" {
-            return Ok(ParseResult::Help);
-        }
-        let option = utf8(option, "option")?;
-        if option == "--no-reuse" {
-            no_reuse = true;
-            continue;
-        }
-        let value = arguments
-            .next()
-            .ok_or_else(|| format!("{option} requires a value"))?;
-        match option.as_str() {
-            "--manifest-path" => manifest_path = PathBuf::from(value),
-            "--package" => {
-                root_package = Some(PackageSelector::Name(utf8(value, "package")?));
-            }
-            "--package-id" => {
-                root_package = Some(PackageSelector::Id(utf8(value, "package ID")?));
-            }
-            "--definition" => definition = Some(utf8(value, "definition")?),
-            "--dependency" => dependencies.push(parse_dependency(value)?),
-            "--cfg" => cfg.push(parse_cfg(value)?),
-            "--backend" => {
-                let value = utf8(value, "backend")?;
-                backend = Backend::ALL
+fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResult, UsageError> {
+    let mut options = RunOptions::default();
+    while let Some(argument) = parser.next()? {
+        match argument {
+            Short('h') | Long("help") => return Ok(ParseResult::Help),
+            Long("no-reuse") => options.no_reuse = true,
+            Long("manifest-path") => set_once(
+                &mut options.manifest_path,
+                PathBuf::from(option_value(parser, "manifest path")?),
+                "--manifest-path",
+            )?,
+            Long("package") => set_once(
+                &mut options.package,
+                option_value(parser, "package")?,
+                "--package",
+            )?,
+            Long("package-id") => set_once(
+                &mut options.package_id,
+                option_value(parser, "package ID")?,
+                "--package-id",
+            )?,
+            Long("definition") => set_once(
+                &mut options.definition,
+                option_value(parser, "definition")?,
+                "--definition",
+            )?,
+            Long("dependency") => options
+                .dependencies
+                .push(parse_dependency(parser.value()?)?),
+            Long("cfg") => options.cfg.push(parse_cfg(parser.value()?)?),
+            Long("backend") => {
+                let value = option_value(parser, "backend")?;
+                let selected = Backend::ALL
                     .into_iter()
                     .find(|backend| backend.as_str() == value)
-                    .ok_or_else(|| format!("unknown backend `{value}`"))?;
+                    .ok_or_else(|| usage(format!("unknown backend `{value}`")))?;
+                set_once(&mut options.backend, selected, "--backend")?;
             }
-            "--output" => output_directory = Some(PathBuf::from(value)),
-            "--timings" => measure.timings = Some(PathBuf::from(value)),
-            "--counters" => measure.counters = Some(PathBuf::from(value)),
-            // Hidden build and parity tooling; deliberately absent from USAGE.
-            "--registration" => {
-                registration = match utf8(value, "registration")?.as_str() {
+            Long("output") => set_once(
+                &mut options.output,
+                PathBuf::from(option_value(parser, "output")?),
+                "--output",
+            )?,
+            Long("timings") => set_once(
+                &mut options.measure.timings,
+                PathBuf::from(option_value(parser, "timings")?),
+                "--timings",
+            )?,
+            Long("counters") => set_once(
+                &mut options.measure.counters,
+                PathBuf::from(option_value(parser, "counters")?),
+                "--counters",
+            )?,
+            Long("registration") => {
+                let value = option_value(parser, "registration")?;
+                let selected = match value.as_str() {
                     "inventory" => RegistrationMode::Inventory,
                     "explicit" => RegistrationMode::Explicit,
-                    value => return Err(format!("unknown registration mode `{value}`")),
+                    _ => return Err(usage(format!("unknown registration mode `{value}`"))),
                 };
+                set_once(&mut options.registration, selected, "--registration")?;
             }
-            _ => return Err(format!("unknown option `{option}`")),
+            _ => return Err(argument.unexpected().into()),
         }
     }
+    finish_run(kind, options)
+}
 
+fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, UsageError> {
+    let RunOptions {
+        manifest_path,
+        package,
+        package_id,
+        definition,
+        dependencies,
+        cfg,
+        backend,
+        output,
+        registration,
+        no_reuse,
+        measure,
+    } = options;
+    if package.is_some() && package_id.is_some() {
+        return Err(usage("--package and --package-id cannot be combined"));
+    }
+    let root = FacetSelector {
+        package: match (package, package_id) {
+            (Some(name), None) => PackageSelector::Name(name),
+            (None, Some(id)) => PackageSelector::Id(id),
+            _ => return Err(usage("missing --package or --package-id")),
+        },
+        definition: definition.ok_or_else(|| usage("missing --definition"))?,
+    };
+    let command = match kind {
+        CommandKind::Check | CommandKind::Expand if output.is_some() => {
+            return Err(usage(format!(
+                "--output does not apply to {}",
+                kind.as_str()
+            )));
+        }
+        CommandKind::Check => Command::Check {
+            backend: backend.unwrap_or(Backend::Llvm),
+        },
+        CommandKind::Expand => Command::Expand,
+        CommandKind::EmitK => Command::EmitK {
+            output: output.ok_or_else(|| usage("missing --output"))?,
+        },
+        CommandKind::Build => Command::Build {
+            backend: backend.unwrap_or(Backend::Llvm),
+            output: output.ok_or_else(|| usage("missing --output"))?,
+        },
+    };
     Ok(ParseResult::Run(
         CommandRequest {
             command,
-            manifest_path,
-            root: FacetSelector {
-                package: root_package.ok_or("missing --package or --package-id")?,
-                definition: definition.ok_or("missing --definition")?,
-            },
+            manifest_path: manifest_path.unwrap_or_else(|| PathBuf::from("Cargo.toml")),
+            root,
             dependencies,
             cfg,
-            backend,
-            output_directory,
-            registration,
+            registration: registration.unwrap_or(RegistrationMode::Inventory),
             no_reuse,
         },
         measure,
     ))
 }
 
-fn parse_format(arguments: Vec<OsString>) -> Result<ParseResult, String> {
-    let mut arguments = arguments.into_iter();
+fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> {
     let mut stdin = false;
     let mut check = false;
     let mut manifest_path = None;
     let mut paths = Vec::new();
-    let mut trailing_comments = TrailingCommentStyle::AlignedColumn;
-    let mut positional_only = false;
-    while let Some(argument) = arguments.next() {
-        if positional_only {
-            paths.push(PathBuf::from(argument));
-            continue;
-        }
-        if argument == "--" {
-            positional_only = true;
-        } else if argument == "-h" || argument == "--help" {
-            return Ok(ParseResult::Help);
-        } else if argument == "--stdin" {
-            stdin = true;
-        } else if argument == "--check" {
-            check = true;
-        } else if argument == "--manifest-path" {
-            let value = arguments.next().ok_or("--manifest-path requires a value")?;
-            manifest_path = Some(PathBuf::from(value));
-        } else if argument == "--trailing-comments" {
-            let value = arguments
-                .next()
-                .ok_or("--trailing-comments requires a value")?;
-            trailing_comments = match utf8(value, "trailing comment style")?.as_str() {
-                "aligned" => TrailingCommentStyle::AlignedColumn,
-                "gutter" => TrailingCommentStyle::FixedGutter,
-                value => return Err(format!("unknown trailing comment style `{value}`")),
-            };
-        } else if argument.to_string_lossy().starts_with('-') {
-            return Err(format!(
-                "unknown fmt option `{}`",
-                argument.to_string_lossy()
-            ));
-        } else {
-            paths.push(PathBuf::from(argument));
+    let mut trailing_comments = None;
+    while let Some(argument) = parser.next()? {
+        match argument {
+            Short('h') | Long("help") => return Ok(ParseResult::Help),
+            Long("stdin") => stdin = true,
+            Long("check") => check = true,
+            Long("manifest-path") => set_once(
+                &mut manifest_path,
+                PathBuf::from(option_value(parser, "manifest path")?),
+                "--manifest-path",
+            )?,
+            Long("trailing-comments") => {
+                let value = option_value(parser, "trailing comment style")?;
+                let selected = match value.as_str() {
+                    "aligned" => TrailingCommentStyle::AlignedColumn,
+                    "gutter" => TrailingCommentStyle::FixedGutter,
+                    _ => return Err(usage(format!("unknown trailing comment style `{value}`"))),
+                };
+                set_once(&mut trailing_comments, selected, "--trailing-comments")?;
+            }
+            Value(path) => paths.push(PathBuf::from(path)),
+            _ => return Err(argument.unexpected().into()),
         }
     }
     if stdin && (!paths.is_empty() || manifest_path.is_some()) {
-        return Err("--stdin cannot be combined with paths or --manifest-path".to_owned());
+        return Err(usage(
+            "--stdin cannot be combined with paths or --manifest-path",
+        ));
     }
     Ok(ParseResult::Format(FormatRequest {
         stdin,
         check,
         manifest_path,
         paths,
-        trailing_comments,
+        trailing_comments: trailing_comments.unwrap_or(TrailingCommentStyle::AlignedColumn),
     }))
 }
 
@@ -366,15 +464,17 @@ fn execute_format(request: &FormatRequest) -> Result<bool, String> {
     Ok(true)
 }
 
-fn parse_dependency(value: OsString) -> Result<FacetSelector, String> {
+fn parse_dependency(value: OsString) -> Result<FacetSelector, UsageError> {
     let value = utf8(value, "dependency")?;
     let (package, definition) = value.rsplit_once(':').ok_or_else(|| {
-        format!("dependency `{value}` must have the form CargoPackage:definition")
+        usage(format!(
+            "dependency `{value}` must have the form CargoPackage:definition"
+        ))
     })?;
     if package.is_empty() || definition.is_empty() {
-        return Err(format!(
+        return Err(usage(format!(
             "dependency `{value}` must have non-empty package and definition names"
-        ));
+        )));
     }
     Ok(FacetSelector {
         package: PackageSelector::Name(package.to_owned()),
@@ -382,15 +482,15 @@ fn parse_dependency(value: OsString) -> Result<FacetSelector, String> {
     })
 }
 
-fn parse_cfg(value: OsString) -> Result<KrsCfg, String> {
+fn parse_cfg(value: OsString) -> Result<KrsCfg, UsageError> {
     let value = utf8(value, "cfg")?;
     let (key, value) = value
         .split_once('=')
         .map_or((value.as_str(), None), |(key, value)| {
             (key, Some(value.to_owned()))
         });
-    if key.is_empty() {
-        return Err("cfg key cannot be empty".to_owned());
+    if !valid_identifier_segment(key) {
+        return Err(usage(format!("invalid cfg key `{key}`")));
     }
     Ok(KrsCfg {
         key: key.to_owned(),
@@ -398,80 +498,285 @@ fn parse_cfg(value: OsString) -> Result<KrsCfg, String> {
     })
 }
 
-fn utf8(value: OsString, role: &str) -> Result<String, String> {
+fn utf8(value: OsString, role: &str) -> Result<String, UsageError> {
     value
         .into_string()
-        .map_err(|_| format!("{role} is not valid UTF-8"))
+        .map_err(|_| usage(format!("{role} is not valid UTF-8")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn parse_args(args: &[&str]) -> Result<ParseResult, UsageError> {
+        parse(args.iter().map(OsString::from).collect())
+    }
+
+    fn error(args: &[&str]) -> String {
+        match parse_args(args) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("expected error for {args:?}"),
+        }
+    }
+
+    fn run(args: &[&str]) -> (CommandRequest, MeasureOptions) {
+        match parse_args(args).unwrap() {
+            ParseResult::Run(request, measure) => (request, measure),
+            _ => panic!("expected run command"),
+        }
+    }
+
     #[test]
-    fn parses_complete_build() {
-        let ParseResult::Run(request, measure) = parse(
-            [
-                "build",
+    fn parses_value_options_with_equals() {
+        let (request, measure) = run(&[
+            "build",
+            "--manifest-path=Cargo.toml",
+            "--package=imp",
+            "--definition=main",
+            "--dependency=base:core",
+            "--cfg=feature=enabled",
+            "--backend=haskell",
+            "--output=out",
+            "--timings=timings.json",
+            "--counters=counters.json",
+            "--registration=explicit",
+        ]);
+        assert_eq!(
+            request.command,
+            Command::Build {
+                backend: Backend::Haskell,
+                output: PathBuf::from("out")
+            }
+        );
+        assert_eq!(request.dependencies.len(), 1);
+        assert_eq!(request.cfg[0].value.as_deref(), Some("enabled"));
+        assert_eq!(request.registration, RegistrationMode::Explicit);
+        assert_eq!(measure.timings, Some(PathBuf::from("timings.json")));
+        assert_eq!(measure.counters, Some(PathBuf::from("counters.json")));
+    }
+
+    #[test]
+    fn parses_command_variants_and_repeatable_values() {
+        let (request, _) = run(&[
+            "emit-k",
+            "--package",
+            "imp",
+            "--definition",
+            "main",
+            "--backend",
+            "haskell",
+            "--output",
+            "out",
+            "--dependency",
+            "a:b",
+            "--dependency",
+            "c:d",
+            "--cfg",
+            "flag",
+            "--cfg",
+            "mode=fast",
+            "--no-reuse",
+            "--no-reuse",
+        ]);
+        assert_eq!(
+            request.command,
+            Command::EmitK {
+                output: "out".into()
+            }
+        );
+        assert_eq!(request.dependencies.len(), 2);
+        assert_eq!(request.cfg.len(), 2);
+        assert_eq!(request.cfg[0].value, None);
+        assert!(request.no_reuse);
+
+        let (request, _) = run(&[
+            "check",
+            "--package-id",
+            "exact-id",
+            "--definition",
+            "main",
+            "--backend",
+            "haskell",
+        ]);
+        assert_eq!(
+            request.command,
+            Command::Check {
+                backend: Backend::Haskell
+            }
+        );
+        assert_eq!(request.root.package, PackageSelector::Id("exact-id".into()));
+
+        let (request, _) = run(&["expand", "--package", "imp", "--definition", "main"]);
+        assert_eq!(request.command, Command::Expand);
+    }
+
+    #[test]
+    fn rejects_repeated_singular_options() {
+        let required = [
+            "build",
+            "--package-id",
+            "id",
+            "--definition",
+            "main",
+            "--output",
+            "out",
+        ];
+        for (option, value) in [
+            ("--manifest-path", "Cargo.toml"),
+            ("--package", "imp"),
+            ("--package-id", "id"),
+            ("--definition", "main"),
+            ("--backend", "llvm"),
+            ("--output", "out"),
+            ("--timings", "timings.json"),
+            ("--counters", "counters.json"),
+            ("--registration", "inventory"),
+        ] {
+            let mut args = required.to_vec();
+            if !args.contains(&option) {
+                args.extend([option, value]);
+            }
+            args.extend([option, value]);
+            assert_eq!(
+                error(&args),
+                format!("{option} specified more than once"),
+                "{args:?}"
+            );
+        }
+        for (option, value) in [
+            ("--manifest-path", "Cargo.toml"),
+            ("--trailing-comments", "gutter"),
+        ] {
+            assert_eq!(
+                error(&["fmt", option, value, option, value]),
+                format!("{option} specified more than once")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_combinations_and_spellings() {
+        let base = ["--package", "imp", "--definition", "main"];
+        assert!(
+            error(&[
+                "check",
                 "--package",
                 "imp",
+                "--package-id",
+                "id",
                 "--definition",
-                "main",
-                "--dependency",
-                "base:core",
-                "--backend",
-                "haskell",
-                "--output",
-                "out",
-                "--timings",
-                "timings.json",
-            ]
-            .into_iter()
-            .map(OsString::from)
-            .collect(),
-        )
-        .unwrap() else {
-            panic!("expected command")
-        };
-        assert_eq!(request.command, CommandKind::Build);
-        assert_eq!(request.backend, Backend::Haskell);
-        assert_eq!(request.dependencies.len(), 1);
-        assert_eq!(request.output_directory, Some(PathBuf::from("out")));
-        assert_eq!(measure.timings, Some(PathBuf::from("timings.json")));
-        assert_eq!(measure.counters, None);
+                "main"
+            ])
+            .contains("--package and --package-id")
+        );
+        for key in ["1abc", "a-b", "fn", ""] {
+            assert!(
+                error(&[
+                    "check",
+                    "--package",
+                    "imp",
+                    "--definition",
+                    "main",
+                    "--cfg",
+                    key
+                ])
+                .contains("invalid cfg key")
+            );
+        }
+        for command in ["check", "expand"] {
+            assert!(
+                error(&[
+                    command, base[0], base[1], base[2], base[3], "--output", "out"
+                ])
+                .contains(&format!("--output does not apply to {command}"))
+            );
+        }
+        for command in ["emit-k", "build"] {
+            assert!(
+                error(&[command, base[0], base[1], base[2], base[3]]).contains("missing --output")
+            );
+        }
+        assert!(error(&["check", "--package", "imp"]).contains("missing --definition"));
+        assert!(!error(&["check", "--wat"]).is_empty());
+        assert!(error(&["wat"]).contains("unknown command"));
+        assert!(error(&["check", "--backend", "unknown"]).contains("unknown backend"));
+        for dependency in ["base", ":core", "base:"] {
+            assert!(error(&["check", "--dependency", dependency]).contains("dependency"));
+        }
     }
 
     #[test]
-    fn rejects_ambiguous_dependency_spelling() {
-        assert!(parse_dependency(OsString::from("base")).is_err());
-        assert!(parse_dependency(OsString::from(":core")).is_err());
-    }
-
-    #[test]
-    fn parses_fmt_editor_mode() {
-        let ParseResult::Format(request) = parse(
-            ["fmt", "--stdin", "--trailing-comments", "gutter"]
-                .into_iter()
-                .map(OsString::from)
-                .collect(),
-        )
+    fn parses_fmt_modes() {
+        let ParseResult::Format(request) = parse_args(&[
+            "fmt",
+            "--stdin",
+            "--stdin",
+            "--check",
+            "--check",
+            "--trailing-comments=gutter",
+        ])
         .unwrap() else {
             panic!("expected fmt command")
         };
         assert!(request.stdin);
+        assert!(request.check);
         assert_eq!(request.trailing_comments, TrailingCommentStyle::FixedGutter);
+        let ParseResult::Format(request) =
+            parse_args(&["fmt", "--", "--check", "--help", "src/lib.rs"]).unwrap()
+        else {
+            panic!("expected fmt command")
+        };
+        assert_eq!(
+            request.paths,
+            [
+                PathBuf::from("--check"),
+                PathBuf::from("--help"),
+                PathBuf::from("src/lib.rs")
+            ]
+        );
+        assert!(!request.check);
+        let ParseResult::Format(request) =
+            parse_args(&["fmt", "--manifest-path=Cargo.toml"]).unwrap()
+        else {
+            panic!("expected fmt command")
+        };
+        assert_eq!(request.manifest_path, Some(PathBuf::from("Cargo.toml")));
     }
 
     #[test]
-    fn rejects_fmt_stdin_with_paths() {
+    fn rejects_fmt_stdin_conflicts() {
+        assert!(error(&["fmt", "--stdin", "src"]).contains("--stdin cannot"));
         assert!(
-            parse(
-                ["fmt", "--stdin", "src"]
-                    .into_iter()
-                    .map(OsString::from)
-                    .collect()
-            )
-            .is_err()
+            error(&["fmt", "--stdin", "--manifest-path", "Cargo.toml"]).contains("--stdin cannot")
+        );
+    }
+
+    #[test]
+    fn help_and_missing_values() {
+        for args in [vec!["--help"], vec!["check", "--help"], vec!["fmt", "-h"]] {
+            assert!(matches!(parse_args(&args), Ok(ParseResult::Help)));
+        }
+        assert!(
+            error(&["check", "--definition"])
+                .contains("missing argument for option '--definition'")
+        );
+        assert!(
+            error(&["fmt", "--trailing-comments"])
+                .contains("missing argument for option '--trailing-comments'")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_option_values() {
+        use std::os::unix::ffi::OsStringExt;
+        let args = vec![
+            OsString::from("check"),
+            OsString::from("--definition"),
+            OsString::from_vec(vec![0xff]),
+        ];
+        assert!(
+            matches!(parse(args), Err(UsageError::Message(message)) if message.contains("UTF-8"))
         );
     }
 }

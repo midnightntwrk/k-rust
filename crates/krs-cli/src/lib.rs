@@ -13,7 +13,7 @@ mod metadata;
 mod plan;
 
 pub use command::{
-    CommandError, CommandKind, CommandOutcome, CommandRequest, execute_command,
+    Command, CommandError, CommandKind, CommandOutcome, CommandRequest, execute_command,
     execute_command_measured,
 };
 pub use diagnostic::{
@@ -26,6 +26,7 @@ pub use krs_k_rust::Backend;
 pub use metadata::{
     CargoMetadata, MetadataError, MetadataNode, MetadataPackage, MetadataResolve, MetadataTarget,
 };
+pub use plan::valid_identifier_segment;
 pub use plan::{
     CollectorEntrypoint, CollectorPlan, CollectorRequest, CollectorRuntime, DefinitionRequest,
     FacetSelector, KrsCfg, PackageSelector, PlanningError, PlanningErrorKind, RegistrationMode,

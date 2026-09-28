@@ -27,14 +27,14 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command as ProcessCommand, Output};
 
 mod result_cache;
 use result_cache::ResultCache;
 
 const ARTIFACT_MARKER: &str = "KRS artifact directory schema 1; safe to update.\n";
 
-/// One production KRS command.
+/// Category of a production KRS command.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
     /// Check Rust and the complete selected KRS theory.
@@ -60,11 +60,66 @@ impl CommandKind {
     }
 }
 
+/// A production command with its command-specific inputs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Command {
+    /// Check Rust and the selected KRS theory with a native backend dialect.
+    Check {
+        /// Native backend dialect to check.
+        backend: Backend,
+    },
+    /// Print the deterministic layer-2 Rust reference surface.
+    Expand,
+    /// Emit the canonical source projection and shared sidecars.
+    EmitK {
+        /// Artifact directory to populate.
+        output: PathBuf,
+    },
+    /// Compile Definition IR with a native backend dialect into an artifact directory.
+    Build {
+        /// Native backend dialect to compile.
+        backend: Backend,
+        /// Artifact directory to populate.
+        output: PathBuf,
+    },
+}
+
+impl Command {
+    /// Return the command category recorded in measurements and cache file names.
+    #[must_use]
+    pub const fn kind(&self) -> CommandKind {
+        match self {
+            Self::Check { .. } => CommandKind::Check,
+            Self::Expand => CommandKind::Expand,
+            Self::EmitK { .. } => CommandKind::EmitK,
+            Self::Build { .. } => CommandKind::Build,
+        }
+    }
+
+    /// The native backend dialect, for the commands that check or compile one.
+    #[must_use]
+    pub const fn backend(&self) -> Option<Backend> {
+        match self {
+            Self::Check { backend } | Self::Build { backend, .. } => Some(*backend),
+            Self::Expand | Self::EmitK { .. } => None,
+        }
+    }
+
+    /// The artifact directory, for the commands that write one.
+    #[must_use]
+    pub fn output(&self) -> Option<&Path> {
+        match self {
+            Self::EmitK { output } | Self::Build { output, .. } => Some(output),
+            Self::Check { .. } | Self::Expand => None,
+        }
+    }
+}
+
 /// Explicit input to one production command execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandRequest {
     /// Command to execute.
-    pub command: CommandKind,
+    pub command: Command,
     /// Cargo manifest used for metadata and collector planning.
     pub manifest_path: PathBuf,
     /// Selected root definition facet.
@@ -73,10 +128,6 @@ pub struct CommandRequest {
     pub dependencies: Vec<FacetSelector>,
     /// KRS-owned rustc cfg values.
     pub cfg: Vec<KrsCfg>,
-    /// Native backend dialect checked or built.
-    pub backend: Backend,
-    /// Artifact directory for `emit-k` and `build`.
-    pub output_directory: Option<PathBuf>,
     /// Descriptor registration mechanism of the generated collector.
     ///
     /// [`RegistrationMode::Explicit`] is build and parity tooling; authored
@@ -179,7 +230,7 @@ pub fn execute_command_measured(
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &metadata, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
-    if request.command != CommandKind::Expand
+    if request.command.kind() != CommandKind::Expand
         && !request.no_reuse
         && std::env::var_os("KRS_NO_REUSE").as_deref() != Some(OsStr::new("1"))
     {
@@ -195,24 +246,21 @@ pub fn execute_command_measured(
     let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
     let prepared = prepare(stdout, measurement)?;
 
-    let outcome = match request.command {
-        CommandKind::Check => measurement
+    let outcome = match &request.command {
+        Command::Check { backend } => measurement
             .timings
-            .try_span("check.adapt", |_| check(&prepared, request.backend))
+            .try_span("check.adapt", |_| check(&prepared, *backend))
             .map(CommandExecution::without_artifacts),
-        CommandKind::Expand => measurement
+        Command::Expand => measurement
             .timings
             .try_span("expand.render", |_| expand(&prepared, &plan))
             .map(CommandExecution::without_artifacts),
-        CommandKind::EmitK => {
-            required_output(request).and_then(|output| emit(&prepared, output, measurement))
-        }
-        CommandKind::Build => required_output(request)
-            .and_then(|output| build(&prepared, request.backend, output, measurement)),
+        Command::EmitK { output } => emit(&prepared, output, measurement),
+        Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
     };
     measurement.timings.span("release", |_| drop(prepared));
     if let Ok(ref value) = outcome
-        && request.command != CommandKind::Expand
+        && request.command.kind() != CommandKind::Expand
     {
         cache.store(
             request,
@@ -232,21 +280,7 @@ fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
             request.manifest_path.display()
         )));
     }
-    match (request.command, &request.output_directory) {
-        (CommandKind::EmitK | CommandKind::Build, None) => Err(CommandError::InvalidRequest(
-            "emit-k and build require an output directory".to_owned(),
-        )),
-        (CommandKind::Check | CommandKind::Expand, Some(_)) => Err(CommandError::InvalidRequest(
-            "check and expand do not accept an output directory".to_owned(),
-        )),
-        _ => Ok(()),
-    }
-}
-
-fn required_output(request: &CommandRequest) -> Result<&Path, CommandError> {
-    request.output_directory.as_deref().ok_or_else(|| {
-        CommandError::InvalidRequest("command requires an output directory".to_owned())
-    })
+    Ok(())
 }
 
 fn generate_collector(
@@ -324,7 +358,7 @@ fn run_collector(
         unix_seconds().to_bits()
     ));
     let _ = fs::remove_file(&read_set_path);
-    let mut command = Command::new(executable);
+    let mut command = ProcessCommand::new(executable);
     command
         .current_dir(collector_directory)
         .env(COLLECTOR_READ_SET_ENV, &read_set_path);
@@ -376,7 +410,7 @@ fn build_collector_measured(
 ) -> Result<PathBuf, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut build = Command::new("cargo");
+    let mut build = ProcessCommand::new("cargo");
     build
         .current_dir(collector_directory)
         .args(["build", "--manifest-path"])
@@ -883,7 +917,7 @@ fn write_output(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), Comman
 fn cargo_metadata(manifest: &Path) -> Result<CargoMetadata, CommandError> {
     let output = cargo(
         "Cargo metadata",
-        Command::new("cargo")
+        ProcessCommand::new("cargo")
             .args(["metadata", "--format-version", "1", "--manifest-path"])
             .arg(manifest),
     )?;
@@ -918,7 +952,10 @@ fn unique_manifest(metadata: &CargoMetadata, name: &str) -> Result<PathBuf, Comm
 }
 
 fn rustc_host_target() -> Result<String, CommandError> {
-    let output = process("rustc host discovery", Command::new("rustc").arg("-vV"))?;
+    let output = process(
+        "rustc host discovery",
+        ProcessCommand::new("rustc").arg("-vV"),
+    )?;
     let stdout = String::from_utf8(output.stdout)
         .map_err(|_| CommandError::InvalidMetadata("rustc -vV output is not UTF-8".to_owned()))?;
     stdout
@@ -931,7 +968,7 @@ fn rustc_host_target() -> Result<String, CommandError> {
 }
 
 fn build_collector(
-    command: &mut Command,
+    command: &mut ProcessCommand,
     metadata: &CargoMetadata,
 ) -> Result<PathBuf, CommandError> {
     let output = command
@@ -1110,11 +1147,11 @@ fn rust_source_range(
     SourceRange::new(file, span.byte_start, span.byte_end).ok()
 }
 
-fn cargo(stage: &'static str, command: &mut Command) -> Result<Output, CommandError> {
+fn cargo(stage: &'static str, command: &mut ProcessCommand) -> Result<Output, CommandError> {
     process(stage, command)
 }
 
-fn process(stage: &'static str, command: &mut Command) -> Result<Output, CommandError> {
+fn process(stage: &'static str, command: &mut ProcessCommand) -> Result<Output, CommandError> {
     let output = command
         .output()
         .map_err(|source| CommandError::ProcessStart { stage, source })?;
@@ -1132,7 +1169,7 @@ fn process(stage: &'static str, command: &mut Command) -> Result<Output, Command
 /// Failure from a named production-command stage.
 #[derive(Debug)]
 pub enum CommandError {
-    /// Command options are internally inconsistent.
+    /// The request or its selected source cannot satisfy the command.
     InvalidRequest(String),
     /// Cargo metadata output was malformed.
     Metadata(crate::MetadataError),
@@ -1339,9 +1376,11 @@ mod tests {
     use crate::PackageSelector;
 
     #[test]
-    fn output_contract_is_command_specific() {
+    fn manifest_path_must_name_cargo_toml() {
         let base = CommandRequest {
-            command: CommandKind::Check,
+            command: Command::Check {
+                backend: Backend::Llvm,
+            },
             manifest_path: PathBuf::from("Cargo.toml"),
             root: FacetSelector {
                 package: PackageSelector::Name("language".to_owned()),
@@ -1349,19 +1388,15 @@ mod tests {
             },
             dependencies: Vec::new(),
             cfg: Vec::new(),
-            backend: Backend::Llvm,
-            output_directory: None,
             registration: RegistrationMode::Inventory,
             no_reuse: false,
         };
         assert!(validate_request(&base).is_ok());
-        let mut emit = base.clone();
-        emit.command = CommandKind::EmitK;
+        let mut invalid = base;
+        invalid.manifest_path = PathBuf::from("Other.toml");
         assert!(matches!(
-            validate_request(&emit),
+            validate_request(&invalid),
             Err(CommandError::InvalidRequest(_))
         ));
-        emit.output_directory = Some(PathBuf::from("out"));
-        assert!(validate_request(&emit).is_ok());
     }
 }
