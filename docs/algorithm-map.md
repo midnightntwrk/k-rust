@@ -205,7 +205,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.prediction.first_sets — O(S x L x R) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
 - parser.prediction.nullability — O(I) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
 - parser.scanner.winner — O(B x (L + Y) x m) — at k-rust/inner/parser/scanner.rs `Scanner::winner`
-- rpc.json.decode — O(B + N) to parse the JSON envelope and decode… — at k-rust/rpc.rs `parse_json_value`
+- rpc.json.decode — O(B + N) to frame and parse the JSON envelope and… — at k-rust/rpc.rs `read_json_message`
 - rpc.json.encode — O(N + B) to materialize KORE JSON values and… — at k-rust/rpc.rs `encode_kore_source`
 
 ## Representations

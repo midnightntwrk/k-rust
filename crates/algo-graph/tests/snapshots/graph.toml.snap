@@ -7580,12 +7580,12 @@ registry_name = "RpcJsonDecode"
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/rpc.rs"
-symbol = "parse_json_value"
+symbol = "read_json_message"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/rpc.rs"
-symbol = "parse_json_value"
+symbol = "read_json_message"
 
 [[node.sites]]
 crate = "k-rust"
@@ -7594,7 +7594,7 @@ symbol = "decode_params"
 
 [[node.cost]]
 mode = "request decode"
-bound = "O(B + N) to parse the JSON envelope and decode its KORE parameters"
+bound = "O(B + N) to frame and parse the JSON envelope and decode its KORE parameters"
 
 [[node]]
 kind = "algorithm"

@@ -3,7 +3,7 @@
 //! ```toml algorithm
 //! id = "rpc.json.decode"
 //! name = "JSON-RPC request decoding"
-//! sites = ["parse_json_value", "decode_params"]
+//! sites = ["read_json_message", "decode_params"]
 //! variable = "B = request bytes; N = KORE pattern nodes"
 //! no_counter = "request decoding has no dedicated input counter"
 //! span = "per call"
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "request decode"
-//! bound = "O(B + N) to parse the JSON envelope and decode its KORE parameters"
+//! bound = "O(B + N) to frame and parse the JSON envelope and decode its KORE parameters"
 //! ```
 //!
 //! ```toml algorithm
@@ -132,11 +132,11 @@ struct RequestControl {
 }
 
 impl RequestControl {
-    fn new(message: &str) -> Self {
+    fn new(message: Option<&Value>) -> Self {
         Self {
             token: CancellationToken::new(),
             state: AtomicU8::new(REQUEST_PENDING),
-            cancellation_response: cancellation_response(message),
+            cancellation_response: message.and_then(cancellation_response),
         }
     }
 
@@ -479,10 +479,15 @@ impl RpcService {
     }
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
+    #[cfg(test)]
     pub(super) fn handle_line(&mut self, line: &str) -> Option<String> {
-        let message = match parse_json_value(line) {
-            Ok(message) => message,
-            Err(_) => {
+        self.handle_parsed(parse_json_value(line).ok())
+    }
+
+    fn handle_parsed(&mut self, message: Option<Value>) -> Option<String> {
+        let message = match message {
+            Some(message) => message,
+            None => {
                 let error = RpcFault {
                     code: -32700,
                     message: "Parse error".into(),
@@ -1559,6 +1564,7 @@ fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFa
     serde_json::from_value(params).map_err(|_| RpcFault::invalid_params(data))
 }
 
+#[cfg(test)]
 fn parse_json_value(source: &str) -> serde_json::Result<Value> {
     #[cfg(feature = "measure")]
     let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
@@ -1869,7 +1875,7 @@ fn serve_connection(
     let mut reader = stream.try_clone()?;
     let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
     let controls = Arc::new(Mutex::new(VecDeque::<Arc<RequestControl>>::new()));
-    let (sender, receiver) = mpsc::channel::<(String, Arc<RequestControl>)>();
+    let (sender, receiver) = mpsc::channel::<(Option<Value>, Arc<RequestControl>)>();
     let worker_writer = Arc::clone(&writer);
     let worker_controls = Arc::clone(&controls);
     let worker = thread::Builder::new()
@@ -1880,7 +1886,7 @@ fn serve_connection(
             let _merge = k_rust_kore::measure::MergeOnDrop;
             #[cfg(feature = "measure")]
             let _default = tracing::dispatcher::set_default(&dispatch);
-            for (line, control) in receiver {
+            for (message, control) in receiver {
                 // A request cancelled before it runs (its session ended while it was queued, or
                 // while this worker waited for another connection's request) is not run.
                 let response = if control.is_cancelled() {
@@ -1896,7 +1902,7 @@ fn serve_connection(
                                 if control.is_cancelled() {
                                     None
                                 } else {
-                                    service.handle_line(&line)
+                                    service.handle_parsed(message)
                                 }
                             })
                     })?
@@ -1926,7 +1932,7 @@ fn serve_connection(
                 break;
             }
         };
-        if is_standalone_cancel(&message) {
+        if message.value.as_ref().is_some_and(is_standalone_cancel) {
             let active = controls
                 .lock()
                 .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
@@ -1942,12 +1948,12 @@ fn serve_connection(
             }
             continue;
         }
-        let control = Arc::new(RequestControl::new(&message));
+        let control = Arc::new(RequestControl::new(message.value.as_ref()));
         controls
             .lock()
             .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
             .push_back(Arc::clone(&control));
-        if sender.send((message, control)).is_err() {
+        if sender.send((message.value, control)).is_err() {
             break;
         }
     }
@@ -1982,45 +1988,107 @@ fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-fn read_json_message(reader: &mut impl Read, buffer: &mut Vec<u8>) -> io::Result<Option<String>> {
-    loop {
-        let mut deserializer = serde_json::Deserializer::from_slice(buffer);
-        deserializer.disable_recursion_limit();
-        let mut values = deserializer.into_iter::<Value>();
-        match values.next() {
-            Some(Ok(_)) => {
-                let consumed = values.byte_offset();
-                let message = buffer.drain(..consumed).collect::<Vec<_>>();
-                return String::from_utf8(message).map(Some).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidData, error.utf8_error())
-                });
-            }
-            Some(Err(error)) if !error.is_eof() => {
-                let consumed = buffer
-                    .iter()
-                    .position(|byte| *byte == b'\n')
-                    .map_or(buffer.len(), |newline| newline + 1);
-                let message = buffer.drain(..consumed).collect::<Vec<_>>();
-                return String::from_utf8(message).map(Some).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidData, error.utf8_error())
-                });
-            }
-            Some(Err(_)) | None => {}
-        }
+struct FramedMessage {
+    value: Option<Value>,
+    #[cfg(test)]
+    raw: String,
+}
 
-        let mut chunk = [0; 4096];
-        let read = reader.read(&mut chunk)?;
-        if read == 0 {
-            if buffer.iter().all(u8::is_ascii_whitespace) {
-                buffer.clear();
-                return Ok(None);
+fn read_json_message(
+    reader: &mut impl Read,
+    buffer: &mut Vec<u8>,
+) -> io::Result<Option<FramedMessage>> {
+    struct Input<'a, R> {
+        reader: &'a mut R,
+        buffer: &'a mut Vec<u8>,
+        offset: usize,
+        scalar_root: Option<bool>,
+        chunk_end: &'a mut bool,
+    }
+
+    impl<R: Read> Read for Input<'_, R> {
+        fn read(&mut self, destination: &mut [u8]) -> io::Result<usize> {
+            if self.offset == self.buffer.len() {
+                // A primitive at a read boundary is already a complete message in the old
+                // slice parser. A temporary EOF lets serde finish it without waiting for the
+                // peer's next write. Incomplete primitives are retried after another read.
+                if self.scalar_root == Some(true) {
+                    *self.chunk_end = true;
+                    return Ok(0);
+                }
+                let mut chunk = [0; 4096];
+                let read = self.reader.read(&mut chunk)?;
+                self.buffer.extend_from_slice(&chunk[..read]);
             }
-            let message = std::mem::take(buffer);
-            return String::from_utf8(message)
-                .map(Some)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.utf8_error()));
+            if self.scalar_root.is_none() {
+                self.scalar_root = self
+                    .buffer
+                    .iter()
+                    .find(|byte| !byte.is_ascii_whitespace())
+                    .map(|byte| matches!(byte, b't' | b'f' | b'n' | b'-' | b'0'..=b'9'));
+            }
+            let available = &self.buffer[self.offset..];
+            let count = destination.len().min(available.len());
+            destination[..count].copy_from_slice(&available[..count]);
+            self.offset += count;
+            Ok(count)
         }
-        buffer.extend_from_slice(&chunk[..read]);
+    }
+
+    loop {
+        let mut chunk_end = false;
+        let (parsed, parsed_bytes) = {
+            let input = Input {
+                reader,
+                scalar_root: buffer
+                    .iter()
+                    .find(|byte| !byte.is_ascii_whitespace())
+                    .map(|byte| matches!(byte, b't' | b'f' | b'n' | b'-' | b'0'..=b'9')),
+                buffer,
+                offset: 0,
+                chunk_end: &mut chunk_end,
+            };
+            let mut deserializer = serde_json::Deserializer::from_reader(input);
+            deserializer.disable_recursion_limit();
+            let mut values = deserializer.into_iter::<Value>();
+            let parsed = values.next();
+            (parsed, values.byte_offset())
+        };
+        let (consumed, value) = match parsed {
+            Some(Ok(value)) => (parsed_bytes, Some(value)),
+            Some(Err(error)) if !error.is_eof() => buffer
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or((buffer.len(), None), |newline| (newline + 1, None)),
+            Some(Err(_)) | None if chunk_end => {
+                let mut chunk = [0; 4096];
+                let read = reader.read(&mut chunk)?;
+                if read != 0 {
+                    buffer.extend_from_slice(&chunk[..read]);
+                    continue;
+                }
+                (buffer.len(), None)
+            }
+            Some(Err(_)) | None => {
+                if buffer.iter().all(u8::is_ascii_whitespace) {
+                    buffer.clear();
+                    return Ok(None);
+                }
+                (buffer.len(), None)
+            }
+        };
+        let raw = std::str::from_utf8(&buffer[..consumed])
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        #[cfg(test)]
+        let raw = raw.to_owned();
+        #[cfg(not(test))]
+        let _ = raw;
+        buffer.drain(..consumed);
+        return Ok(Some(FramedMessage {
+            value,
+            #[cfg(test)]
+            raw,
+        }));
     }
 }
 
@@ -2037,8 +2105,8 @@ fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::R
     writer.flush()
 }
 
-fn is_standalone_cancel(message: &str) -> bool {
-    let Ok(Value::Object(request)) = parse_json_value(message) else {
+fn is_standalone_cancel(message: &Value) -> bool {
+    let Value::Object(request) = message else {
         return false;
     };
     request.get("jsonrpc").and_then(Value::as_str) == Some(JSON_RPC_VERSION)
@@ -2048,8 +2116,7 @@ fn is_standalone_cancel(message: &str) -> bool {
             .is_none_or(|id| id.is_null() || id.is_number() || id.is_string())
 }
 
-fn cancellation_response(message: &str) -> Option<String> {
-    let message = parse_json_value(message).ok()?;
+fn cancellation_response(message: &Value) -> Option<String> {
     let response = match message {
         Value::Object(request) => cancellation_error_for_request(&request),
         Value::Array(requests) => {
@@ -2085,6 +2152,114 @@ mod tests {
     use k_rust_backend::term::Term;
 
     use super::*;
+
+    struct Chunks(VecDeque<Vec<u8>>);
+
+    impl Read for Chunks {
+        fn read(&mut self, destination: &mut [u8]) -> io::Result<usize> {
+            let Some(chunk) = self.0.pop_front() else {
+                return Ok(0);
+            };
+            assert!(chunk.len() <= destination.len());
+            destination[..chunk.len()].copy_from_slice(&chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    fn read_raw(reader: &mut impl Read, buffer: &mut Vec<u8>) -> Option<String> {
+        read_json_message(reader, buffer)
+            .unwrap()
+            .map(|message| message.raw)
+    }
+
+    #[test]
+    fn framing_keeps_split_and_coalesced_messages_and_trailing_whitespace() {
+        let mut reader = Chunks(VecDeque::from([
+            b"  {\"id\":1,\"message\":\"part".to_vec(),
+            b" two\"}\n{\"id\":2} \n{\"id\":3}\n \t".to_vec(),
+        ]));
+        let mut buffer = Vec::new();
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some("  {\"id\":1,\"message\":\"part two\"}")
+        );
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some("\n{\"id\":2}")
+        );
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some(" \n{\"id\":3}")
+        );
+        assert_eq!(read_raw(&mut reader, &mut buffer), None);
+    }
+
+    #[test]
+    fn framing_returns_malformed_line_then_next_message() {
+        let mut reader = Chunks(VecDeque::from([b"{bad}\n{\"id\":4}\n".to_vec()]));
+        let mut buffer = Vec::new();
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some("{bad}\n")
+        );
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some("{\"id\":4}")
+        );
+    }
+
+    #[test]
+    fn framing_returns_incomplete_message_at_eof() {
+        let mut reader = Chunks(VecDeque::from([b"  {\"id\":".to_vec(), b"5".to_vec()]));
+        let mut buffer = Vec::new();
+        assert_eq!(
+            read_raw(&mut reader, &mut buffer).as_deref(),
+            Some("  {\"id\":5")
+        );
+        assert_eq!(read_raw(&mut reader, &mut buffer), None);
+    }
+
+    #[test]
+    fn framing_ends_complete_scalar_at_read_boundary() {
+        struct OneRead(bool);
+        impl Read for OneRead {
+            fn read(&mut self, destination: &mut [u8]) -> io::Result<usize> {
+                assert!(!self.0, "complete scalar must not wait for another read");
+                self.0 = true;
+                destination[..4].copy_from_slice(b"true");
+                Ok(4)
+            }
+        }
+        let mut buffer = Vec::new();
+        assert_eq!(
+            read_raw(&mut OneRead(false), &mut buffer),
+            Some("true".into())
+        );
+
+        let mut split = Chunks(VecDeque::from([b"tr".to_vec(), b"ue".to_vec()]));
+        assert_eq!(read_raw(&mut split, &mut buffer), Some("true".into()));
+    }
+
+    #[test]
+    fn malformed_message_then_valid_message_keeps_error_response_bytes() {
+        let expected_error = service().handle_line("{bad}\n").unwrap();
+        let valid = r#"{"jsonrpc":"2.0","id":5,"method":"missing"}"#;
+        let expected_valid = service().handle_line(valid).unwrap();
+        let (address, done) = spawn_server(service(), 1);
+        let mut client = TcpStream::connect(address).unwrap();
+        client
+            .write_all(format!("{{bad}}\n{valid}").as_bytes())
+            .unwrap();
+        let mut responses = BufReader::new(client.try_clone().unwrap());
+        let mut line = String::new();
+        responses.read_line(&mut line).unwrap();
+        assert_eq!(line, format!("{expected_error}\n"));
+        line.clear();
+        responses.read_line(&mut line).unwrap();
+        assert_eq!(line, format!("{expected_valid}\n"));
+        client.shutdown(Shutdown::Write).unwrap();
+        done.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+    }
 
     const DEFINITION: &str = r#"[]
         module TEST
