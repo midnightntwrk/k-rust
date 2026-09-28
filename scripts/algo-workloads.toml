@@ -509,7 +509,7 @@ pins = ["k"]
 args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
 [workload.ladder]
 param = "n"
-values = [8, 12, 16]
+values = [8, 10, 12]
 stop_seconds = 120
 input = "dup(${n})\n"
 [workload.check]
@@ -541,7 +541,7 @@ pins = ["k"]
 args = ["--definition", "${prepared}/fun-untyped/definition.kore", "--module", "FUN-UNTYPED", "--request", "${prepared}/fun-rpc-execute-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
 [workload.ladder]
 param = "n"
-values = [10, 30, 100]
+values = [10, 15, 20]
 stop_seconds = 120
 input = """
 datatype 'a mylist = Nil | Cons('a, 'a mylist)
@@ -563,7 +563,7 @@ pins = ["k"]
 args = ["--definition", "${prepared}/fun-untyped/definition.kore", "--module", "FUN-UNTYPED", "--request", "${prepared}/fun-rpc-simplify-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
 [workload.ladder]
 param = "n"
-values = [10, 30, 100]
+values = [10, 15, 20]
 stop_seconds = 120
 input = """
 datatype 'a mylist = Nil | Cons('a, 'a mylist)

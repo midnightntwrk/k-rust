@@ -57,6 +57,9 @@ def main():
                     raise TimeoutError("KORE JSON-RPC server did not start within 30 seconds")
                 time.sleep(0.05)
         with connection:
+            # Large single-request outputs can take longer than the connection probe's
+            # one-second timeout. The receipt also applies its workload timeout.
+            connection.settimeout(120)
             request = Path(args.request).read_bytes().rstrip(b"\r\n") + b"\n"
             started = time.monotonic()
             connection.sendall(request)
