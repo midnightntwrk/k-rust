@@ -27,11 +27,13 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="krs-precedence-associativity-") as temporary:
         workspace = Path(temporary)
-        binary = build()
+        target = workspace / "target"
+        environment = {"CARGO_TARGET_DIR": str(target)}
+        binary = build(target=target)
         emitted = workspace / "emitted"
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
-        invocation.run("check")
-        invocation.run("emit-k", "--output", emitted)
+        invocation.run("check", environment=environment)
+        invocation.run("emit-k", "--output", emitted, environment=environment)
 
         source = (emitted / "definition.k").read_text(encoding="utf-8")
         if source.count("syntax non-assoc") != 1:
@@ -81,4 +83,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    entry("precedence/associativity", main)
+    entry("precedence/associativity", main, errors=(OSError,))
