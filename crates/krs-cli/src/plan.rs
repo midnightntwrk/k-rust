@@ -8,7 +8,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// An exact Cargo package selector or a convenient, ambiguity-checked name.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum PackageSelector {
     /// Cargo's exact package ID from the same metadata snapshot.
     Id(String),
@@ -17,7 +17,7 @@ pub enum PackageSelector {
 }
 
 /// An explicitly selected definition facet in a Cargo package.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct FacetSelector {
     /// Package containing the facet.
     pub package: PackageSelector,

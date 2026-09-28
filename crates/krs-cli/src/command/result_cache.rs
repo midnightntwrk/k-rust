@@ -2,16 +2,30 @@ use super::{
     CommandError, CommandOutcome, CommandRequest, Counters, OutputArtifact, prepare_output,
     write_output_if_different,
 };
+use crate::{FacetSelector, KrsCfg, RegistrationMode};
 use krs_ir::measure::CollectorReadSet;
+use krs_k_rust::Backend;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const SCHEMA: u32 = 2;
+const SCHEMA: u32 = 3;
+
+#[derive(Serialize)]
+struct CacheRequest<'a> {
+    command: &'static str,
+    manifest_path: &'a [u8],
+    root: &'a FacetSelector,
+    dependencies: &'a [FacetSelector],
+    cfg: &'a [KrsCfg],
+    backend: &'static str,
+    registration: &'static str,
+}
 
 pub(super) struct ResultCache {
     path: PathBuf,
@@ -53,9 +67,9 @@ impl ResultCache {
     pub(super) fn new(directory: &Path, collector: &Path, request: &CommandRequest) -> Self {
         Self {
             path: directory.join(format!(
-                "krs-result-{}-{:?}.bin",
+                "krs-result-{}-{}.bin",
                 request.command.as_str(),
-                request.backend
+                backend_name(request.backend)
             )),
             collector: collector.to_path_buf(),
         }
@@ -196,10 +210,26 @@ fn decode(bytes: &[u8]) -> Option<(Image, &[u8])> {
 }
 
 fn request_key(request: &CommandRequest) -> String {
-    let mut request = request.clone();
-    request.output_directory = None;
-    request.no_reuse = false;
-    format!("{request:?}")
+    let key = CacheRequest {
+        command: request.command.as_str(),
+        manifest_path: request.manifest_path.as_os_str().as_bytes(),
+        root: &request.root,
+        dependencies: &request.dependencies,
+        cfg: &request.cfg,
+        backend: backend_name(request.backend),
+        registration: match request.registration {
+            RegistrationMode::Inventory => "inventory",
+            RegistrationMode::Explicit => "explicit",
+        },
+    };
+    serde_json::to_string(&key).expect("cache request serialization cannot fail")
+}
+
+const fn backend_name(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Llvm => "llvm",
+        Backend::Haskell => "haskell",
+    }
 }
 
 fn executable(path: &Path, krs: bool) -> Option<Executable> {
