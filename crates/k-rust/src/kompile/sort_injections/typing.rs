@@ -216,9 +216,11 @@ impl<'a> SentenceTyper<'a> {
                     Some(location) => format!("{source}:{}", location.start_line),
                     None => source.to_owned(),
                 });
-        super::reject_label_parameters(sentence).map_err(|error| SentenceTypingError::Sort {
-            location: location.clone(),
-            error,
+        crate::definition::checks::reject_label_parameters(sentence).map_err(|error| {
+            SentenceTypingError::Sort {
+                location: location.clone(),
+                error: SortInjectionError::label_parameters(error),
+            }
         })?;
         let variables = semantic_cast_variable_sorts(sentence, &self.declared)
             .map_err(SentenceTypingError::SemanticCasts)?;

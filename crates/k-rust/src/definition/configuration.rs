@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
+use super::checks::{LabelParameterError, reject_label_parameters};
 use super::{
     Attributes, Definition, EquivalenceAccumulator, LabelHead, ProductionCatalog, ProductionItem,
     ResolveError, ResolvedDefinition, Sentence,
@@ -47,6 +48,22 @@ pub enum ConfigurationError {
         location: Option<super::Location>,
         message: String,
     },
+    /// A configuration whose label carries a written sort parameter. Expansion recognizes cell
+    /// wrappers by label name and moves configuration content into generated sentences, so it
+    /// would drop the parameter or attach it to a sentence the caller did not write.
+    LabelParameters(Box<ConfigurationLabelParameters>),
+}
+
+/// The configuration sentence and the label of a [`ConfigurationError::LabelParameters`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigurationLabelParameters {
+    pub module: String,
+    /// The configuration's index among the module's local sentences.
+    pub sentence: usize,
+    pub source: Option<String>,
+    pub location: Option<super::Location>,
+    pub label: String,
+    pub parameters: Vec<Sort>,
 }
 
 impl fmt::Display for ConfigurationError {
@@ -58,6 +75,16 @@ impl fmt::Display for ConfigurationError {
             } => write!(
                 formatter,
                 "invalid configuration in module {module:?}: {message}"
+            ),
+            Self::LabelParameters(rejected) => write!(
+                formatter,
+                "configuration sentence {} of module {:?}: {}; configuration expansion identifies cells by label name and would drop them: remove them",
+                rejected.sentence,
+                rejected.module,
+                LabelParameterError {
+                    label: rejected.label.clone(),
+                    parameters: rejected.parameters.clone(),
+                }
             ),
         }
     }
@@ -73,12 +100,18 @@ pub fn expand_configurations(definition: &Definition) -> Result<Definition, Conf
     expand_configurations_with_diagnostics(definition).map(|(expanded, _)| expanded)
 }
 
+/// [`expand_configurations`] with the warnings expansion reports.
+///
+/// Rejects a configuration whose label carries a written sort parameter
+/// ([`ConfigurationError::LabelParameters`]) before expanding anything: expansion identifies
+/// cell wrappers by label name, so it would drop the parameter.
 pub fn expand_configurations_with_diagnostics(
     definition: &Definition,
 ) -> Result<(Definition, Vec<Diagnostic>), ConfigurationError> {
     if !has_structured_configuration(definition) {
         return Ok((definition.clone(), Vec::new()));
     }
+    reject_configuration_label_parameters(definition)?;
     expand_configurations_inner(definition, false).map(|(expanded, diagnostics)| {
         (
             record_generated_origins(definition, expanded, GeneratingPass::ConfigurationExpansion),
@@ -87,7 +120,34 @@ pub fn expand_configurations_with_diagnostics(
     })
 }
 
+/// Reject the first `Sentence::Configuration` of `definition` with a label that carries a
+/// written sort parameter, on the sentences as the caller wrote them.
+fn reject_configuration_label_parameters(
+    definition: &Definition,
+) -> Result<(), ConfigurationError> {
+    for module in &definition.modules {
+        for (index, sentence) in module.local_sentences.iter().enumerate() {
+            if !matches!(&**sentence, Sentence::Configuration { .. }) {
+                continue;
+            }
+            reject_label_parameters(sentence).map_err(|error| {
+                ConfigurationError::LabelParameters(Box::new(ConfigurationLabelParameters {
+                    module: module.name.clone(),
+                    sentence: index,
+                    source: sentence.attributes().source().map(str::to_owned),
+                    location: sentence.attributes().location(),
+                    label: error.label,
+                    parameters: error.parameters,
+                }))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 /// Expand configurations synthesized by a kompile pass, which may use K's reserved cell names.
+///
+/// Their label parameters are compiler-written, so this entry does not reject them.
 pub(crate) fn expand_configurations_allowing_reserved_cells(
     definition: &Definition,
 ) -> Result<Definition, ConfigurationError> {
@@ -1272,6 +1332,82 @@ mod tests {
             },
             other => other.clone(),
         }
+    }
+
+    /// Rebuilds `term` with the sort parameters of every `name` label replaced by `parameters`.
+    fn with_label_parameters(term: &Term, name: &str, parameters: &[Sort]) -> Term {
+        match term.unannotated() {
+            Term::Apply { label, arguments } => Term::Apply {
+                label: if label.name == name {
+                    Label {
+                        parameters: parameters.to_vec(),
+                        ..label.clone()
+                    }
+                } else {
+                    label.clone()
+                },
+                arguments: arguments
+                    .iter()
+                    .map(|argument| with_label_parameters(argument, name, parameters))
+                    .collect(),
+            },
+            other => other.clone(),
+        }
+    }
+
+    /// Expansion identifies a cell wrapper by its label name and replaces the configuration with
+    /// generated sentences, so a caller's `#configCell{Nat}` would vanish from the expanded
+    /// definition; the public entry rejects it on the caller's configuration sentence instead.
+    #[test]
+    fn a_written_label_parameter_on_a_configuration_is_rejected_before_expansion() {
+        let definition = parsed(indoc! {r#"
+            module MAIN
+              syntax Nat ::= r"[0-9]+" [token]
+              configuration <top> <k> $PGM:Nat </k> <count> 0 </count> </top>
+            endmodule
+        "#});
+        expand_configurations_with_diagnostics(&definition)
+            .expect("the configuration as written expands");
+
+        let nat = Sort::new("Nat");
+        let mut written = definition.clone();
+        let module = written
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "MAIN")
+            .unwrap();
+        let index = module
+            .local_sentences
+            .iter()
+            .position(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
+            .unwrap();
+        let Sentence::Configuration { body, .. } =
+            crate::definition::sentence_mut(&mut module.local_sentences[index])
+        else {
+            unreachable!()
+        };
+        let rewritten = with_label_parameters(body, "#configCell", std::slice::from_ref(&nat));
+        assert_ne!(
+            *body, rewritten,
+            "the configuration has a #configCell label"
+        );
+        *body = rewritten;
+
+        let error = expand_configurations_with_diagnostics(&written)
+            .expect_err("a written label parameter on a configuration is rejected");
+        let ConfigurationError::LabelParameters(rejected) = &error else {
+            panic!("{error}")
+        };
+        assert_eq!(
+            (
+                rejected.module.as_str(),
+                rejected.sentence,
+                rejected.label.as_str(),
+                rejected.parameters.as_slice()
+            ),
+            ("MAIN", index, "#configCell", std::slice::from_ref(&nat)),
+            "{error}"
+        );
     }
 
     #[test]

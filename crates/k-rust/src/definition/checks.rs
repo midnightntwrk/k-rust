@@ -33,6 +33,7 @@ mod attributes;
 mod deprecated;
 mod functions;
 mod kompile_checks;
+mod label_parameters;
 mod labels;
 mod production_shapes;
 mod regexes;
@@ -48,6 +49,10 @@ pub use kompile_checks::{
     check_claims_in_definition, check_is_sort_predicates, check_proof_module,
 };
 use kompile_checks::{check_is_sort_predicates_with_views, check_proof_module_with_views};
+pub(crate) use label_parameters::{
+    LabelParameterError, SentenceLabelParameterError, reject_label_parameters,
+    reject_label_parameters_in_definition,
+};
 pub(crate) use labels::internal_labels;
 pub use labels::{
     check_duplicate_klabels, check_duplicate_overloads, check_function_rule_attributes,

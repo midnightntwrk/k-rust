@@ -427,6 +427,11 @@ classification = "responsibility-only"
 reason = "Java-compatible checks composed by definition.checks.run; no submodule states a distinct asymptotic bound"
 
 [[without_primary_card]]
+files = ["crates/k-rust/src/definition/checks/label_parameters.rs"]
+classification = "responsibility-only"
+reason = "the written-label-parameter check that loading, configuration expansion and compilation run on the caller's sentences before any pass writes parameters; one linear walk over rule-like sentence terms"
+
+[[without_primary_card]]
 files = ["crates/k-rust/src/kompile/passes.rs"]
 classification = "responsibility-only"
 reason = "shared pass scaffolding and re-exports; it does not define one transformation algorithm"

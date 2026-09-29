@@ -61,7 +61,8 @@ pub use checks::{
 };
 pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{
-    ConfigurationError, expand_configurations, expand_configurations_with_diagnostics,
+    ConfigurationError, ConfigurationLabelParameters, expand_configurations,
+    expand_configurations_with_diagnostics,
 };
 pub(crate) use equivalence::{
     EquivalenceAccumulator, dedup_by_equivalence, extend_with_new_sentences, push_if_inequivalent,

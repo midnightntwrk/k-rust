@@ -27,6 +27,7 @@ use std::fmt;
 use k_rust_kore::measure::{self, Counter};
 use serde_json::json;
 
+use crate::definition::checks::{LabelParameterError, SentenceLabelParameterError};
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
     ProductionCatalog, ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
@@ -36,77 +37,6 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
 use super::passes::{injectable, placeable};
-
-/// Reject the first label of a rule-like sentence (rule, claim, context, context alias,
-/// configuration) that carries sort parameters.
-///
-/// A loaded sentence has none unless its caller wrote one: the source parser writes none, and
-/// every compiler-generated parameter is produced by a pass after this check. Sort injection
-/// instantiates each parametric label from its arguments and position, which casts fix, so a
-/// written parameter is either redundant or would be silently replaced.
-pub(crate) fn reject_label_parameters(sentence: &Sentence) -> Result<(), SortInjectionError> {
-    let terms: &[&Term] = match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => &[body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => &[body, requires],
-        Sentence::Configuration { body, ensures, .. } => &[body, ensures],
-        _ => &[],
-    };
-    let mut found = None;
-    for term in terms {
-        term.visit_preorder(&mut |term| {
-            if found.is_some() {
-                return;
-            }
-            if let Term::Apply { label, .. } | Term::InjectedLabel(label) = term
-                && !label.parameters.is_empty()
-            {
-                found = Some(SortInjectionError::LabelParameters {
-                    label: label.name.clone(),
-                    parameters: label.parameters.clone(),
-                });
-            }
-        });
-    }
-    found.map_or(Ok(()), Err)
-}
-
-/// [`reject_label_parameters`] over every sentence of `definition`, reporting the first one
-/// with its module, index and source location.
-pub(crate) fn reject_label_parameters_in_definition(
-    definition: &crate::definition::Definition,
-) -> Result<(), SortInjectionError> {
-    for module in &definition.modules {
-        for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
-            reject_label_parameters(sentence).map_err(|error| SortInjectionError::Sentence {
-                module: module.name.clone(),
-                sentence: sentence_index,
-                source: sentence.attributes().source().map(str::to_owned),
-                line: sentence
-                    .attributes()
-                    .location()
-                    .map(|location| location.start_line),
-                origin: sentence
-                    .attributes()
-                    .origin_record()
-                    .map(|record| record.pass),
-                error: Box::new(error),
-            })?;
-        }
-    }
-    Ok(())
-}
 
 mod typing;
 use super::view::View;
@@ -177,6 +107,30 @@ pub enum SortInjectionError {
         label: String,
         parameters: Vec<Sort>,
     },
+}
+
+impl SortInjectionError {
+    /// The public shape of a label rejected by
+    /// [`reject_label_parameters`](crate::definition::checks::reject_label_parameters).
+    pub(crate) fn label_parameters(error: LabelParameterError) -> Self {
+        Self::LabelParameters {
+            label: error.label,
+            parameters: error.parameters,
+        }
+    }
+
+    /// The public shape of a sentence rejected by
+    /// [`reject_label_parameters_in_definition`](crate::definition::checks::reject_label_parameters_in_definition).
+    pub(crate) fn sentence_label_parameters(error: SentenceLabelParameterError) -> Self {
+        Self::Sentence {
+            module: error.module,
+            sentence: error.sentence,
+            source: error.source,
+            line: error.location.map(|location| location.start_line),
+            origin: error.origin,
+            error: Box::new(Self::label_parameters(*error.error)),
+        }
+    }
 }
 
 /// A parametric production's arguments with several incomparable least instantiations.

@@ -47,7 +47,7 @@ use crate::{
         ConfigError, RuleError, resolve_configuration_bubbles, resolve_rule_bubbles_with_resolved,
     },
     kast::WellKnownModule,
-    kompile::pipeline::load_phase,
+    kompile::{SortInjectionError, pipeline::load_phase},
     provenance::{
         InputSpace, LogicalSourceId, SourceTable, input_sentence_kinds, stamp_input_addresses,
     },
@@ -190,7 +190,7 @@ pub enum LoadError {
     RuleParsing(RuleError),
     /// A structured rule-like sentence whose labels carry sort parameters, which are inferred;
     /// the error names the sentence by its module and index in the caller's definition.
-    LabelParameters(crate::kompile::SortInjectionError),
+    LabelParameters(SortInjectionError),
 }
 
 impl fmt::Display for LoadError {
@@ -590,8 +590,9 @@ pub fn load_structured(
 ) -> Result<LoadedDefinition, LoadError> {
     // Configuration expansion recognizes cell wrappers by name, so a parameter on one would be
     // dropped before compilation's own check: reject on exactly the caller's sentences.
-    crate::kompile::reject_label_parameters_in_definition(&definition)
-        .map_err(LoadError::LabelParameters)?;
+    crate::definition::checks::reject_label_parameters_in_definition(&definition).map_err(
+        |error| LoadError::LabelParameters(SortInjectionError::sentence_label_parameters(error)),
+    )?;
     stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
     let mut resolver = |_: &str, required: &str| {

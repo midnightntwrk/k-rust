@@ -33,7 +33,10 @@ use crate::{
     definition::{
         AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolvedDefinition,
         Sentence, StructuralCheckBackend, StructuralCheckOptions,
-        checks::{check_definition_with_options, check_singleton_overloads},
+        checks::{
+            check_definition_with_options, check_singleton_overloads,
+            reject_label_parameters_in_definition,
+        },
         expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
@@ -51,7 +54,7 @@ use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::passes::number_sentence;
 use super::pipeline::{emission_phase, prologue_phase};
-use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
+use super::{ModuleToKoreOptions, SortInjectionError, rust_backend_hook_namespaces};
 
 /// Backend whose KORE input should be generated.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -747,8 +750,12 @@ fn transform_loaded_definition(
     );
     // A label parameter can only have been written by the caller; reject it before any pass
     // generates parameters of its own. One walk over the input terms, too cheap to time.
-    super::sort_injections::reject_label_parameters_in_definition(&loaded.definition)
-        .map_err(|error| CompileError::from_error(REJECT_LABEL_PARAMETERS, error))?;
+    reject_label_parameters_in_definition(&loaded.definition).map_err(|error| {
+        CompileError::from_error(
+            REJECT_LABEL_PARAMETERS,
+            SortInjectionError::sentence_label_parameters(error),
+        )
+    })?;
     let stamped = || {
         let mut definition = loaded.definition.clone();
         stamp_input_addresses(
