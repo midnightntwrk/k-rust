@@ -1,10 +1,10 @@
 //! ```toml algorithm
 //! id = "parser.programs.parse"
 //! name = "user-program parsing with a cached grammar"
-//! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance", "parse_program", "parse_program_for_presentation"]
+//! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance", "ProgramParser::present", "ProgramParser::parse_for_presentation", "parse_program"]
 //! variable = "g = grammar construction work; p = parse work"
 //! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
-//! produces = [{ type = "k_rust::kast::Term", role = "parsed program" }]
+//! produces = [{ type = "k_rust::inner::ParsedProgram", role = "parsed program" }]
 //! constrains = [
 //!   { id = "definition.catalog.production", site = "ProgramParser::parse", via = "the per-module ProductionCatalog that ProgramParser::from_resolved reads from ResolvedDefinition::production_catalog" },
 //! ]
@@ -40,11 +40,13 @@ use std::sync::Arc;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
-    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionCatalog, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, ModuleId, ProductionItem, ResolveError,
+    ResolvedDefinition, Sentence, SortCatalog, push_if_inequivalent,
 };
+use crate::kast::json as kast_json;
 use crate::kast::names::PROGRAM_PARSING_POSTFIX;
-use crate::kast::{Sort, Term};
+use crate::kast::printer::Printer;
+use crate::kast::{ProductionIdentity, Sort, Term};
 use crate::provenance::SourceId;
 
 use super::parser::{Grammar, ParseError, is_parser_sort, named_projection_productions};
@@ -99,11 +101,96 @@ impl fmt::Display for ProgramParseError {
 
 impl std::error::Error for ProgramParseError {}
 
+/// A program or configuration value as the program parser produced it: sort inference has
+/// instantiated parametric productions, so labels carry inferred sort arguments, and macro
+/// applications are as parsed.
+///
+/// It is neither user-facing KAST nor an executable input: [`ProgramParser::present`] produces
+/// the first, and macro expansion in the executable module the second. The typed term is
+/// reachable only through [`Self::typed_term`], which is for inspection, so a printer or a
+/// converter cannot receive it by accident:
+///
+/// ```compile_fail,E0308
+/// # use k_rust::{inner::ProgramParser, kast::{Sort, printer::Printer}};
+/// # fn show(parser: &ProgramParser) -> Result<String, Box<dyn std::error::Error>> {
+/// let parsed = parser.parse(&Sort::new("Pgm"), "p")?;
+/// Ok(Printer::new().print_term(&parsed)) // 7c31c79d, b7fd8629
+/// # }
+/// ```
+///
+/// User-facing KAST prints the presentation of the parse:
+///
+/// ```
+/// # use k_rust::{inner::ProgramParser, kast::{Sort, printer::Printer}};
+/// # fn show(parser: &ProgramParser) -> Result<String, Box<dyn std::error::Error>> {
+/// let presented = parser.parse_for_presentation(&Sort::new("Pgm"), "p")?;
+/// assert_eq!(presented.to_kast_text(), Printer::new().print_term(presented.term()));
+/// Ok(presented.to_kast_text())
+/// # }
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct ParsedProgram(Term);
+
+impl ParsedProgram {
+    /// A program term built without the parser, at the parser's stage.
+    pub fn from_term(term: Term) -> Self {
+        Self(term)
+    }
+
+    /// The typed parser term, for inspection only.
+    ///
+    /// It is neither a presentation nor an executable input; see [`ParsedProgram`].
+    #[must_use]
+    pub fn typed_term(&self) -> &Term {
+        &self.0
+    }
+
+    /// The typed parser term, handed to macro expansion by the initial-configuration assembler.
+    pub(crate) fn into_typed_term(self) -> Term {
+        self.0
+    }
+}
+
+/// A program as user-facing KAST shows it: the parsed term with every inferred production sort
+/// argument removed from its labels, and macro applications as parsed.
+///
+/// Only [`ProgramParser::present`] produces one, from the parser's own catalog.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PresentedProgram(Term);
+
+impl PresentedProgram {
+    /// The presented term.
+    #[must_use]
+    pub fn term(&self) -> &Term {
+        &self.0
+    }
+
+    /// The presented term as textual KAST.
+    #[must_use]
+    pub fn to_kast_text(&self) -> String {
+        Printer::new().print_term(&self.0)
+    }
+
+    /// The presented term as compact KAST JSON.
+    pub fn to_kast_json(&self) -> Result<String, kast_json::Error> {
+        kast_json::to_string(&self.0)
+    }
+
+    /// The presented term as indented KAST JSON.
+    pub fn to_kast_json_pretty(&self) -> Result<String, kast_json::Error> {
+        kast_json::to_string_pretty(&self.0)
+    }
+}
+
 /// A reusable parser for the concrete program syntax visible from one module.
 #[derive(Clone, Debug)]
 pub struct ProgramParser {
     module: String,
     grammar: Grammar,
+    /// The identities of the parametric productions of the catalog the grammar was built from:
+    /// a label a parse builds from one of them carries sort arguments that inference supplied.
+    parametric_productions: BTreeSet<ProductionIdentity>,
 }
 
 impl ProgramParser {
@@ -128,9 +215,20 @@ impl ProgramParser {
                     error: Box::new(error),
                 }
             })?;
+        let parametric_productions = source_catalog
+            .productions()
+            .filter(|(_, production)| {
+                matches!(
+                    production,
+                    Sentence::Production { parameters, .. } if !parameters.is_empty()
+                )
+            })
+            .map(|(id, _)| source_catalog.identity(id))
+            .collect();
         Ok(Self {
             module: module.to_owned(),
             grammar,
+            parametric_productions,
         })
     }
 
@@ -142,10 +240,14 @@ impl ProgramParser {
     ///
     /// Production and sort metadata remain available, but source spans are omitted.
     /// Use [`Self::parse_with_provenance`] when the caller owns a [`SourceId`].
-    pub fn parse(&self, start_sort: &Sort, source: &str) -> Result<Term, ProgramParseError> {
+    pub fn parse(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+    ) -> Result<ParsedProgram, ProgramParseError> {
         self.grammar
             .parse(start_sort, source)
-            .map(without_source_spans)
+            .map(|term| ParsedProgram(without_source_spans(term)))
             .map_err(|error| ProgramParseError {
                 module: self.module.clone(),
                 start_sort: start_sort.clone(),
@@ -159,14 +261,34 @@ impl ProgramParser {
         start_sort: &Sort,
         source: &str,
         source_id: SourceId,
-    ) -> Result<Term, ProgramParseError> {
+    ) -> Result<ParsedProgram, ProgramParseError> {
         self.grammar
             .parse_with_provenance(start_sort, source, source_id, 0)
+            .map(ParsedProgram)
             .map_err(|error| ProgramParseError {
                 module: self.module.clone(),
                 start_sort: start_sort.clone(),
                 error: Box::new(error),
             })
+    }
+
+    /// Present a parse as user-facing KAST: remove from its labels the sort arguments that
+    /// inference supplied for this parser's parametric productions.
+    pub fn present(&self, program: ParsedProgram) -> PresentedProgram {
+        PresentedProgram(strip_inferred_parameters(
+            program.0,
+            &self.parametric_productions,
+        ))
+    }
+
+    /// Parse a program for user-facing KAST; see [`Self::present`].
+    pub fn parse_for_presentation(
+        &self,
+        start_sort: &Sort,
+        source: &str,
+    ) -> Result<PresentedProgram, ProgramParseError> {
+        self.parse(start_sort, source)
+            .map(|program| self.present(program))
     }
 }
 
@@ -253,30 +375,11 @@ pub fn parse_program(
     start_sort: &Sort,
     source: &str,
     source_id: SourceId,
-) -> Result<Term, ProgramError> {
+) -> Result<ParsedProgram, ProgramError> {
     let parser = ProgramParser::new(definition, module)?;
     parser
         .parse_with_provenance(start_sort, source, source_id)
         .map_err(ProgramError::Parse)
-}
-
-/// Parse a program and apply the reference `kast` presentation boundary.
-/// User-facing KAST must use this helper; compilation and execution must use [`ProgramParser::parse`].
-pub fn parse_program_for_presentation(
-    definition: &ResolvedDefinition,
-    module: &str,
-    parser: &ProgramParser,
-    start_sort: &Sort,
-    source: &str,
-) -> Result<Term, ProgramParseError> {
-    let module_id = definition
-        .module_id(module)
-        .expect("the program parser resolved this module");
-    let productions = definition.production_catalog(module_id);
-    Ok(prepare_reference_kast(
-        parser.parse(start_sort, source)?,
-        &productions,
-    ))
 }
 
 fn program_sentences(
@@ -416,22 +519,22 @@ fn append_unique<'a>(
     sentences.extend(accepted);
 }
 
-/// Match the reference `kast` presentation boundary without weakening the typed term used by
-/// execution and compilation. The reference concrete parser infers parametric production sorts
-/// but omits those inferred arguments from the user-facing KLabel.
-pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -> Term {
+/// Remove, from every label of `term` built by one of `parametric_productions`, the sort
+/// arguments that sort inference supplied.
+///
+/// A user-facing KAST term describes the parse of the user's text. That text wrote no sort
+/// argument for a parametric production: inference instantiated the production's parameters to
+/// type the term, so the arguments are facts of the typed term, not of the text. Labels of
+/// non-parametric productions, labels without production metadata, and every other node are kept.
+fn strip_inferred_parameters(
+    term: Term,
+    parametric_productions: &BTreeSet<ProductionIdentity>,
+) -> Term {
     let metadata = term.metadata().cloned();
     let inferred_production_parameters = metadata
         .as_ref()
         .and_then(|metadata| metadata.production)
-        .is_some_and(|production| {
-            productions.lookup(&production).is_some_and(|production| {
-                matches!(
-                    productions.production(production),
-                    Sentence::Production { parameters, .. } if !parameters.is_empty()
-                )
-            })
-        });
+        .is_some_and(|production| parametric_productions.contains(&production));
     let rebuilt = match term.into_unannotated() {
         Term::Apply {
             mut label,
@@ -444,7 +547,7 @@ pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -
                 label,
                 arguments: arguments
                     .into_iter()
-                    .map(|argument| prepare_reference_kast(argument, productions))
+                    .map(|argument| strip_inferred_parameters(argument, parametric_productions))
                     .collect(),
             }
         }
@@ -455,17 +558,17 @@ pub fn prepare_reference_kast(term: Term, productions: &ProductionCatalog<'_>) -
             Term::InjectedLabel(label)
         }
         Term::Rewrite { left, right } => Term::Rewrite {
-            left: Box::new(prepare_reference_kast(*left, productions)),
-            right: Box::new(prepare_reference_kast(*right, productions)),
+            left: Box::new(strip_inferred_parameters(*left, parametric_productions)),
+            right: Box::new(strip_inferred_parameters(*right, parametric_productions)),
         },
         Term::As { pattern, alias } => Term::As {
-            pattern: Box::new(prepare_reference_kast(*pattern, productions)),
-            alias: Box::new(prepare_reference_kast(*alias, productions)),
+            pattern: Box::new(strip_inferred_parameters(*pattern, parametric_productions)),
+            alias: Box::new(strip_inferred_parameters(*alias, parametric_productions)),
         },
         Term::Sequence(items) => Term::Sequence(
             items
                 .into_iter()
-                .map(|item| prepare_reference_kast(item, productions))
+                .map(|item| strip_inferred_parameters(item, parametric_productions))
                 .collect(),
         ),
         leaf @ (Term::Variable { .. } | Term::Token { .. }) => leaf,

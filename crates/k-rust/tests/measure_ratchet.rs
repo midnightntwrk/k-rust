@@ -253,7 +253,7 @@ fn parse_program_chain(operands: usize) -> Snapshot {
         .collect::<Vec<_>>()
         .join("+");
     let (term, delta) = measured(|| parser.parse(&Sort::new("S"), &chain));
-    term.expect("program chain should parse");
+    let _ = term.expect("program chain should parse");
     delta
 }
 

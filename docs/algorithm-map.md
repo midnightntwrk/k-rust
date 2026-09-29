@@ -222,9 +222,9 @@ No phase contains these algorithms and no representation connects them to a comm
 - [production lookup] k_rust::definition::ProductionCatalog<'a>: definition.catalog.production → definition.relations.build, kompile.kore.convert_term, kompile.kore.declarations
 - [resolved definition] k_rust::definition::ResolvedDefinition: definition.resolve.imports → definition.catalog.production, definition.catalog.sort, definition.relations.build, kompile.kore.declarations
 - [sort lookup] k_rust::definition::SortCatalog<'a>: definition.catalog.sort → kompile.kore.convert_term, kompile.kore.declarations
+- [parsed program] k_rust::inner::ParsedProgram: parser.programs.parse → kompile.kore.convert_term
 - [packed forest] k_rust::inner::parser::forest::PackedTerm: parser.forest.pack → parser.inference.portable, parser.inference.z3
 - [sorted tree] k_rust::inner::parser::forest::ParsedTerm (2 producers): parser.inference.portable, parser.inference.z3 → parser.disambiguation.resolve_ambiguity, parser.lower.term
-- [parsed program] k_rust::kast::Term: parser.programs.parse → kompile.kore.convert_term
 - [parsed term] k_rust::kast::Term: parser.lower.term → kompile.kore.convert_term
 - [loaded definition] k_rust::outer::LoadedDefinition: definition.outer.requires → none
 - [resolved source text] k_rust::outer::ResolvedSource: none → definition.outer.requires

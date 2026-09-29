@@ -10,7 +10,7 @@ use k_rust::{
     builtin::embedded,
     definition::checks::check_definition,
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
-    inner::{ProgramParser, parse_program_for_presentation},
+    inner::ProgramParser,
     kast::{
         json as kast_json,
         parser::{parse_sort, parse_term},
@@ -380,17 +380,12 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
     let sort = parse_sort(&options.sort).map_err(napi_error)?;
     let parser =
         ProgramParser::from_resolved(&loaded.resolved, &options.module_name).map_err(napi_error)?;
-    let term = parse_program_for_presentation(
-        &loaded.resolved,
-        &options.module_name,
-        &parser,
-        &sort,
-        &options.program,
-    )
-    .map_err(napi_error)?;
+    let program = parser
+        .parse_for_presentation(&sort, &options.program)
+        .map_err(napi_error)?;
     Ok(NativeParsedProgram {
-        text: KastPrinter::new().print_term(&term),
-        json: kast_json::to_string(&term).map_err(napi_error)?,
+        text: program.to_kast_text(),
+        json: program.to_kast_json().map_err(napi_error)?,
         diagnostics: diagnostics.into_iter().map(Into::into).collect(),
     })
 }

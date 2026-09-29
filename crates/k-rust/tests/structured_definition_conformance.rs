@@ -1382,8 +1382,8 @@ fn assert_labelled_bracket_is_syntax_only(loaded: &LoadedDefinition) {
         .parse(&Sort::new("Exp"), "(1 + 2) * 3")
         .expect("the program parses");
     assert_eq!(
-        parsed,
-        Term::apply(
+        parsed.typed_term(),
+        &Term::apply(
             "mul",
             vec![
                 Term::apply("plus", vec![token("1"), token("2")]),

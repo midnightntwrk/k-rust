@@ -4055,6 +4055,20 @@ symbol = "SortCatalog"
 
 [[node]]
 kind = "representation"
+id = "k_rust::inner::ParsedProgram [parsed program]"
+provenance = "declared"
+area = "kompile"
+name = "k_rust::inner::ParsedProgram"
+type_path = "k_rust::inner::ParsedProgram"
+role = "parsed program"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "ParsedProgram"
+
+[[node]]
+kind = "representation"
 id = "k_rust::inner::parser::forest::PackedTerm [packed forest]"
 provenance = "declared"
 area = "kompile"
@@ -4080,20 +4094,6 @@ role = "sorted tree"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "ParsedTerm"
-
-[[node]]
-kind = "representation"
-id = "k_rust::kast::Term [parsed program]"
-provenance = "declared"
-area = "kompile"
-name = "k_rust::kast::Term"
-type_path = "k_rust::kast::Term"
-role = "parsed program"
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/kast/ast.rs"
-symbol = "Term"
 
 [[node]]
 kind = "representation"
@@ -7004,12 +7004,17 @@ symbol = "ProgramParser::parse_with_provenance"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/programs.rs"
-symbol = "parse_program"
+symbol = "ProgramParser::present"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/programs.rs"
-symbol = "parse_program_for_presentation"
+symbol = "ProgramParser::parse_for_presentation"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/programs.rs"
+symbol = "parse_program"
 
 [[node.cost]]
 mode = "one parser and its parses"
@@ -8596,7 +8601,7 @@ provenance = "declared"
 [[edge]]
 kind = "consumes"
 from = "kompile.kore.convert_term"
-to = "k_rust::kast::Term [parsed program]"
+to = "k_rust::inner::ParsedProgram [parsed program]"
 provenance = "declared"
 
 [[edge]]
@@ -9061,7 +9066,7 @@ provenance = "declared"
 [[edge]]
 kind = "produces"
 from = "parser.programs.parse"
-to = "k_rust::kast::Term [parsed program]"
+to = "k_rust::inner::ParsedProgram [parsed program]"
 provenance = "declared"
 
 [[edge]]

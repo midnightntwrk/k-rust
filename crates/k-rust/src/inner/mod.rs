@@ -18,8 +18,8 @@ pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions};
 #[cfg(feature = "cli")]
 pub(crate) use programs::prepared_bison_program_sentences;
 pub use programs::{
-    ProgramError, ProgramParseError, ProgramParser, definition_with_named_projections,
-    parse_program, parse_program_for_presentation, prepare_reference_kast,
+    ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
+    definition_with_named_projections, parse_program,
 };
 pub(crate) use rules::resolve_rule_bubbles_with_resolved;
 pub use rules::{RuleError, RuleParseError, parse_rule_content, resolve_rule_bubbles};

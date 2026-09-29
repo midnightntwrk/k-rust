@@ -242,10 +242,10 @@ impl<'g> ConfigurationAssembler<'g> {
             return Err(ConfigurationError::Duplicate { name: "PGM".into() });
         }
         let parser = ProgramParser::from_resolved(self.grammar.resolved(), &self.syntax_module)?;
-        let term = parser
+        let program = parser
             .parse(start_sort, text)
             .map_err(ConfigurationError::Program)?;
-        let term = self.expand(term)?;
+        let term = self.expand(program.into_typed_term())?;
         // The program has its own injector: a fresh one numbers the sort parameters it
         // introduces from zero, independently of the configuration values.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
@@ -305,14 +305,14 @@ impl<'g> ConfigurationAssembler<'g> {
         } else {
             sort.clone()
         };
-        let term = self.parsers[&parser_module]
+        let parsed = self.parsers[&parser_module]
             .parse(&parse_sort, text)
             .map_err(|error| ConfigurationError::Parse {
                 variable: name.into(),
                 sort: sort.clone(),
                 error: Box::new(error),
             })?;
-        let term = self.expand(term)?;
+        let term = self.expand(parsed.into_typed_term())?;
         if self.injector.is_none() {
             self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
         }

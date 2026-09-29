@@ -80,11 +80,15 @@ fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
         .parse(&Sort::new("State"), "a")
         .expect("program should parse");
     let production = parsed
+        .typed_term()
         .metadata()
         .and_then(|metadata| metadata.production)
         .expect("parsed application should retain its production identity");
     assert_eq!(
-        parsed.metadata().and_then(|metadata| metadata.span),
+        parsed
+            .typed_term()
+            .metadata()
+            .and_then(|metadata| metadata.span),
         None,
         "legacy parsing must not fabricate an unknown source identity",
     );
@@ -111,11 +115,11 @@ fn legacy_program_parser_omits_nested_spans_but_retains_productions() {
         .unwrap()
         .parse(&Sort::new("State"), "f(a)")
         .unwrap();
-    let Term::Apply { arguments, .. } = parsed.unannotated() else {
+    let Term::Apply { arguments, .. } = parsed.typed_term().unannotated() else {
         panic!("expected an application")
     };
 
-    for term in [&parsed, &arguments[0]] {
+    for term in [parsed.typed_term(), &arguments[0]] {
         let metadata = term.metadata().expect("production metadata should remain");
         assert_eq!(metadata.span, None);
         assert!(metadata.production.is_some());
@@ -135,7 +139,10 @@ fn parse_program_records_the_callers_logical_source_identity() {
     let parsed = parse_program(&definition, "MAIN", &Sort::new("State"), "a", SourceId(7)).unwrap();
 
     assert_eq!(
-        parsed.metadata().and_then(|metadata| metadata.span),
+        parsed
+            .typed_term()
+            .metadata()
+            .and_then(|metadata| metadata.span),
         Some(k_rust::kast::TermSpan {
             source: SourceId(7),
             start: 0,
@@ -226,7 +233,7 @@ fn parses_a_user_sort_program_at_kitem_and_returns_the_bare_term() {
         .expect("KItem should include every user-sort program");
 
     assert_eq!(at_kitem, concrete);
-    assert_eq!(at_kitem.to_string(), r#"#token("1","Int")"#);
+    assert_eq!(at_kitem.typed_term().to_string(), r#"#token("1","Int")"#);
 }
 
 #[test]
@@ -277,7 +284,7 @@ fn excludes_user_list_sorts_from_the_kitem_closure() {
         "MAIN",
     );
     let parser = ProgramParser::new(&definition, "MAIN").unwrap();
-    parser
+    let _ = parser
         .parse(&Sort::new("Ids"), "a,b")
         .expect("the list sort itself should remain parseable");
     let error = parser
@@ -352,6 +359,7 @@ fn reference_punctuation_token_argument_parses_as_kitem() {
     assert_eq!(
         parsed
             .expect("the preferred punctuation token should inhabit KItem")
+            .typed_term()
             .to_string(),
         r#"foo(#token("%abc","Aa"))"#
     );
@@ -414,6 +422,7 @@ macro_rules! program_snapshot {
                 SourceId(0),
             )
             .expect("program should parse")
+            .typed_term()
             .to_string();
             insta::with_settings!({
                 description => format!(
@@ -519,7 +528,12 @@ fn reference_regex_backslash_d_is_a_literal_d() {
     let parsed = parser
         .parse(&Sort::new("Pgm"), "ddd")
         .expect(r"K treats \d as the literal character d");
-    assert!(parsed.to_string().contains("#token(\"ddd\",\"Foo\")"));
+    assert!(
+        parsed
+            .typed_term()
+            .to_string()
+            .contains("#token(\"ddd\",\"Foo\")")
+    );
     parser
         .parse(&Sort::new("Pgm"), "123")
         .expect_err(r"K does not treat \d as a digit character class");
@@ -535,13 +549,13 @@ fn reference_regex_line_anchors_follow_flex_printing() {
         ProgramParser::new(&definition, "ANCHOR-SYNTAX").expect("program grammar should build");
 
     for source in ["a", " a", "a\n"] {
-        parser
+        let _ = parser
             .parse(&Sort::new("Foo"), source)
             .unwrap_or_else(|error| {
                 panic!("lone end anchor should be dropped for {source:?}: {error}")
             });
     }
-    parser
+    let _ = parser
         .parse(&Sort::new("Bar"), "b\n")
         .expect("a start anchor should imply an end anchor before a newline");
     for source in ["b", " b\n"] {
@@ -592,7 +606,7 @@ fn regex_terminals_do_not_depend_on_unrelated_lexical_declarations() {
     let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
 
     for sort in ["Foo", "Bar"] {
-        parser
+        let _ = parser
             .parse(&Sort::new(sort), "ddd")
             .unwrap_or_else(|error| panic!("{sort} should parse literal d characters: {error}"));
         assert!(
@@ -680,7 +694,7 @@ fn treats_user_list_terminators_as_invisible_in_programs() {
     let parser = ProgramParser::new(&definition, "MAIN").expect("program grammar should build");
 
     for source in ["a", "a, b"] {
-        parser
+        let _ = parser
             .parse(&Sort::new("Pgm"), source)
             .unwrap_or_else(|error| panic!("NeList program {source:?} should parse: {error}"));
     }
@@ -694,11 +708,11 @@ fn treats_user_list_terminators_as_invisible_in_programs() {
         );
     }
 
-    parser
+    let _ = parser
         .parse(&Sort::new("ListPgm"), "")
         .expect("List program should accept the empty list");
     for source in ["a", "a, b"] {
-        parser
+        let _ = parser
             .parse(&Sort::new("ListPgm"), source)
             .unwrap_or_else(|error| panic!("List program {source:?} should parse: {error}"));
     }
@@ -734,7 +748,7 @@ fn reconstructs_a_singleton_nelist_through_a_transparent_start_sort() {
         let parsed = parser
             .parse(&Sort::new("Pgm"), source)
             .unwrap_or_else(|error| panic!("NeList program {source:?} should parse: {error}"));
-        assert_eq!(parsed.to_string(), expected);
+        assert_eq!(parsed.typed_term().to_string(), expected);
     }
 }
 
@@ -758,7 +772,7 @@ fn rejects_a_trailing_separator_in_a_program_user_list() {
         let term = parser
             .parse(&Sort::new("Exp"), source)
             .unwrap_or_else(|error| panic!("{source}: {error}"));
-        let rendered = term.to_string();
+        let rendered = term.typed_term().to_string();
         assert!(rendered.contains("ints"), "{source}: {rendered}");
     }
     for source in ["0[1,]", "0[1,2,]", "0[,]"] {
@@ -790,7 +804,7 @@ fn parses_empty_and_singleton_overloaded_user_lists() {
         let term = parser
             .parse(&Sort::new("Module"), source)
             .unwrap_or_else(|error| panic!("{source}: {error}"));
-        let rendered = term.to_string();
+        let rendered = term.typed_term().to_string();
         assert!(rendered.contains("defns"), "{source}: {rendered}");
         assert!(!rendered.contains("items"), "{source}: {rendered}");
     }
@@ -807,7 +821,7 @@ fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
         SourceId(0),
     )
     .unwrap();
-    let rendered = parsed.to_string();
+    let rendered = parsed.typed_term().to_string();
 
     for label in ["module", "defns", "func", "results", "instrs"] {
         assert!(rendered.contains(label), "missing {label}: {rendered}");
@@ -827,6 +841,7 @@ fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
             SourceId(0),
         )
         .expect("an empty function should parse uniquely inside its module")
+        .typed_term()
         .to_string();
 
         for label in ["module", "defns", "func"] {
@@ -855,6 +870,7 @@ fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
             SourceId(0),
         )
         .expect("a root singleton should be reconstructed as a list")
+        .typed_term()
         .to_string();
 
         assert!(rendered.contains("instrs"), "{rendered}");
@@ -869,6 +885,7 @@ fn parses_an_empty_program_at_a_root_list_sort() {
     {
         let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "", SourceId(0))
             .expect("the empty list should parse at a root list sort")
+            .typed_term()
             .to_string();
 
         assert!(rendered.contains(".List"), "{rendered}");
@@ -886,6 +903,7 @@ fn parses_multiple_defns_with_empty_inner_lists() {
         SourceId(0),
     )
     .expect("an outer list should accept multiple elements with empty inner lists")
+    .typed_term()
     .to_string();
 
     assert_eq!(rendered.matches("func(").count(), 2, "{rendered}");
@@ -904,6 +922,7 @@ fn program_parsing_is_layout_insensitive() {
         SourceId(0),
     )
     .expect("compact program should parse")
+    .typed_term()
     .to_string();
     let laid_out = parse_program(
         &definition,
@@ -913,7 +932,7 @@ fn program_parsing_is_layout_insensitive() {
         SourceId(0),
     )
     .expect("layout and comments should not affect parsing")
-    .to_string();
+    .typed_term().to_string();
 
     assert_eq!(compact, laid_out);
 }
@@ -1011,16 +1030,18 @@ fn reference_named_field_projections_parse_in_programs() {
         .parse(&Sort::new("KItem"), "foo(test(5, 10, 15))")
         .expect("the foo projection is program syntax");
     assert_eq!(
-        foo.to_string(),
+        foo.typed_term().to_string(),
         "`project:test(_,_,_)_TEST_Foo_Int_Int_Int:foo`(`test(_,_,_)_TEST_Foo_Int_Int_Int`(#token(\"5\",\"Int\"),#token(\"10\",\"Int\"),#token(\"15\",\"Int\")))"
     );
     let bar = parser
         .parse(&Sort::new("Int"), "bar(test(5, 10, 15))")
         .expect("the bar projection parses at its field sort");
     assert!(
-        bar.to_string()
+        bar.typed_term()
+            .to_string()
             .starts_with("`project:test(_,_,_)_TEST_Foo_Int_Int_Int:bar`("),
-        "{bar}"
+        "{}",
+        bar.typed_term()
     );
     let error = parser
         .parse(&Sort::new("KItem"), "project:Foo(test(5, 10, 15))")

@@ -3674,6 +3674,8 @@ fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
             k_rust::provenance::SourceId(0),
         )
         .unwrap()
+        .typed_term()
+        .clone()
     };
 
     let int = program("Int", "m(1)");
@@ -3720,6 +3722,8 @@ fn parametric_macro_rules_apply_only_at_their_head_instance() {
             k_rust::provenance::SourceId(0),
         )
         .unwrap()
+        .typed_term()
+        .clone()
     };
     for (sort, token) in [("Bool", "true"), ("Int", "1")] {
         let term = program(sort);
@@ -3760,7 +3764,9 @@ fn a_parametric_macro_head_takes_the_instance_its_rule_is_typed_at() {
             "m()",
             k_rust::provenance::SourceId(0),
         )
-        .unwrap();
+        .unwrap()
+        .typed_term()
+        .clone();
         let expanded = MacroExpansionDefinition::prepare(&definition)
             .unwrap()
             .expand_term("MAIN", program)
@@ -3976,7 +3982,9 @@ fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
         "f(a)",
         k_rust::provenance::SourceId(0),
     )
-    .unwrap();
+    .unwrap()
+    .typed_term()
+    .clone();
     let Term::Apply { label, .. } = program.unannotated() else {
         panic!("{program:?}")
     };
@@ -4012,7 +4020,9 @@ fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() 
         "f(m())",
         k_rust::provenance::SourceId(0),
     )
-    .unwrap();
+    .unwrap()
+    .typed_term()
+    .clone();
     let expanded = MacroExpansionDefinition::prepare(&definition)
         .unwrap()
         .expand_term("MAIN", program)

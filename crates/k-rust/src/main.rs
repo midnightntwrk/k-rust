@@ -47,11 +47,8 @@ use k_rust::{
         AttributeKey, Attributes, CheckMode, checks::check_definition, json as definition_json,
     },
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity, WarningLevel},
-    inner::{ProgramParser, parse_program_for_presentation},
-    kast::{
-        Sort as KastSort, WellKnownModule, json as kast_json, parser::parse_sort,
-        printer::Printer as KastPrinter,
-    },
+    inner::ProgramParser,
+    kast::{Sort as KastSort, WellKnownModule, parser::parse_sort},
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
         ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
@@ -2182,16 +2179,10 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         for case in options.batch_cases {
             let sort = parse_sort(&case.sort)
                 .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let term = parse_program_for_presentation(
-                &loaded.resolved,
-                &options.common.module,
-                &parser,
-                &sort,
-                &case.expression,
-            )
-            .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
-            let encoded: serde_json::Value =
-                serde_json::from_str(&kast_json::to_string_pretty(&term)?)?;
+            let program = parser
+                .parse_for_presentation(&sort, &case.expression)
+                .map_err(|error| format!("KAST batch case {:?}: {error}", case.name))?;
+            let encoded: serde_json::Value = serde_json::from_str(&program.to_kast_json_pretty()?)?;
             if output.insert(case.name.clone(), encoded).is_some() {
                 return Err(format!("duplicate KAST batch case name {:?}", case.name).into());
             }
@@ -2212,16 +2203,10 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     }
     let source = read_program_source(options.expression, options.program_file)?;
     let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
-    let term = parse_program_for_presentation(
-        &loaded.resolved,
-        &options.common.module,
-        &parser,
-        &sort,
-        &source,
-    )?;
+    let program = parser.parse_for_presentation(&sort, &source)?;
     match options.output {
-        OutputFormat::Text => println!("{}", KastPrinter::new().print_term(&term)),
-        OutputFormat::Json => println!("{}", kast_json::to_string_pretty(&term)?),
+        OutputFormat::Text => println!("{}", program.to_kast_text()),
+        OutputFormat::Json => println!("{}", program.to_kast_json_pretty()?),
     }
     Ok(())
 }
