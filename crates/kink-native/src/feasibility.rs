@@ -32,7 +32,7 @@
 //! assumptions. Unification preserves the solutions of the equation set, so a proved clash means
 //! no instance satisfies them, and a solved form without residual constraints is equivalent to
 //! them. Only clashes that hold in K's constructor algebra count (distinct free constructors, a
-//! free constructor against an injection, distinct canonical `Int`/`Bool`/ASCII `String` values, and a
+//! free constructor against an injection, distinct domain values with an injective codec, and a
 //! variable occurring under free constructors); anything else, including a residual function
 //! equation, is undecided. Two distinct ground terms are not assumed unequal. Terms that the
 //! unifier would decompose on a non-`anywhere` `injective` declaration or a non-free
@@ -238,7 +238,7 @@ pub(crate) fn shared_leaf_feasibility(
         return LeafFeasibility::Unknown;
     };
     if contains_non_strict_injection(definition, &pattern)
-        || contains_non_ascii_string_value(&pattern)
+        || contains_untrusted_domain_value(definition, &pattern)
     {
         return LeafFeasibility::Unknown;
     }
@@ -253,7 +253,11 @@ pub(crate) fn shared_leaf_feasibility(
             LeafFeasibility::Unknown
         };
     }
-    if !internal.constraints.iter().all(interpreted_predicate) {
+    if !internal
+        .constraints
+        .iter()
+        .all(|predicate| shared_predicate_interpreted(definition, predicate))
+    {
         return LeafFeasibility::Unknown;
     }
     match solver.is_sat(&internal.constraints, &Substitution::new()) {
@@ -311,14 +315,64 @@ pub(crate) fn contains_non_strict_injection(
     found
 }
 
-/// Decoded non-ASCII String bytes do not identify a unique K String value.
-pub(crate) fn contains_non_ascii_string_value(pattern: &Pattern) -> bool {
+/// Only these decoded domain values have a proven injective codec at the current k-rust pin.
+pub(crate) fn domain_value_identity_safe(
+    definition: &BackendDefinition,
+    sort: &KoreSort,
+    bytes: &[u8],
+) -> bool {
+    let KoreSort::Application { name, arguments } = sort else {
+        return false;
+    };
+    if !arguments.is_empty() {
+        return false;
+    }
+    domain_bytes_identity_safe(definition, name, bytes)
+}
+
+fn domain_bytes_identity_safe(definition: &BackendDefinition, name: &str, bytes: &[u8]) -> bool {
+    let Some(info) = definition.sorts.get(name) else {
+        return false;
+    };
+    if !info.has_domain_values {
+        return false;
+    }
+    match info.hook.as_deref() {
+        Some("INT.Int") => {
+            let digits = bytes.strip_prefix(b"-").unwrap_or(bytes);
+            !digits.is_empty()
+                && digits.iter().all(u8::is_ascii_digit)
+                && (digits == b"0" || !digits.starts_with(b"0"))
+                && bytes != b"-0"
+        }
+        Some("BOOL.Bool") => bytes == b"true" || bytes == b"false",
+        Some("STRING.String") | None => bytes.is_ascii(),
+        _ => false,
+    }
+}
+
+fn internal_domain_value_identity_safe(
+    definition: &BackendDefinition,
+    sort: &Sort,
+    bytes: &[u8],
+) -> bool {
+    match sort {
+        Sort::Application { name, arguments } if arguments.is_empty() => {
+            domain_bytes_identity_safe(definition, name, bytes)
+        }
+        _ => false,
+    }
+}
+
+/// An untrusted domain codec blocks decoded-term identity and shared proofs.
+pub(crate) fn contains_untrusted_domain_value(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+) -> bool {
     let mut found = false;
     k_rust::kore::walk::for_each_post_order(pattern, |node| {
         if let Pattern::DomainValue { sort, value } = node {
-            found |= matches!(sort, KoreSort::Application { name, arguments }
-                if name == "SortString" && arguments.is_empty())
-                && !value.as_bytes().is_ascii();
+            found |= !domain_value_identity_safe(definition, sort, value.as_bytes());
         }
     });
     found
@@ -349,6 +403,16 @@ pub(crate) fn interpreted_predicate(predicate: &Predicate) -> bool {
     let mut all = true;
     predicate.visit_terms(&mut |term| all &= interpreted(term));
     all
+}
+
+fn shared_predicate_interpreted(definition: &BackendDefinition, predicate: &Predicate) -> bool {
+    let mut safe = interpreted_predicate(predicate);
+    predicate.visit_terms(&mut |term| {
+        if let TermKind::DomainValue { sort, value } = term.kind() {
+            safe &= internal_domain_value_identity_safe(definition, sort, value.as_bytes());
+        }
+    });
+    safe
 }
 
 /// The first free element variable of `state` whose sort is not shown inhabited, or the
@@ -400,6 +464,19 @@ pub(crate) fn proves_clash(failure: &UnificationFailure) -> bool {
         }
         // Raised for disjoint injections and ill-sorted pairs alike; not claimed.
         UnificationFailure::DifferentSorts(..) => false,
+    }
+}
+
+fn proves_shared_clash(definition: &BackendDefinition, failure: &UnificationFailure) -> bool {
+    match failure {
+        UnificationFailure::DifferentValues(left, right) => {
+            let safe = |term: &Term| {
+                matches!(term.kind(), TermKind::DomainValue { sort, value }
+                    if internal_domain_value_identity_safe(definition, sort, value.as_bytes()))
+            };
+            safe(left) && safe(right)
+        }
+        _ => proves_clash(failure),
     }
 }
 
@@ -475,6 +552,13 @@ pub struct BackendRelations<'a> {
 }
 
 impl<'a> BackendRelations<'a> {
+    fn proves_clash(&self, failure: &UnificationFailure) -> bool {
+        if self.interpreted_only {
+            proves_shared_clash(self.definition, failure)
+        } else {
+            proves_clash(failure)
+        }
+    }
     #[must_use]
     pub fn new(
         definition: &'a BackendDefinition,
@@ -625,7 +709,11 @@ impl<'a> BackendRelations<'a> {
                 Feasibility::Unknown
             };
         }
-        if self.interpreted_only && !query.iter().all(interpreted_predicate) {
+        if self.interpreted_only
+            && !query
+                .iter()
+                .all(|predicate| shared_predicate_interpreted(self.definition, predicate))
+        {
             return Feasibility::Unknown;
         }
         // Every variable of an exact `Sat` must be an initial-state variable, which names one
@@ -661,14 +749,14 @@ impl RelationDecider for BackendRelations<'_> {
             && (contains_non_strict_injection(self.definition, left)
                 || contains_non_strict_injection(self.definition, right)
                 || contains_non_strict_injection(self.definition, &path.path_predicate)
-                || contains_non_ascii_string_value(left)
-                || contains_non_ascii_string_value(right)
-                || contains_non_ascii_string_value(&path.path_predicate)
+                || contains_untrusted_domain_value(self.definition, left)
+                || contains_untrusted_domain_value(self.definition, right)
+                || contains_untrusted_domain_value(self.definition, &path.path_predicate)
                 || assumed.iter().any(|relation| {
                     contains_non_strict_injection(self.definition, &relation.left)
                         || contains_non_strict_injection(self.definition, &relation.right)
-                        || contains_non_ascii_string_value(&relation.left)
-                        || contains_non_ascii_string_value(&relation.right)
+                        || contains_untrusted_domain_value(self.definition, &relation.left)
+                        || contains_untrusted_domain_value(self.definition, &relation.right)
                 }))
         {
             return RelationDecision::Indeterminate;
@@ -703,7 +791,7 @@ impl RelationDecider for BackendRelations<'_> {
         }
         pairs.push((left, right));
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
-            UnificationResult::Bottom(failure) if proves_clash(&failure) => {
+            UnificationResult::Bottom(failure) if self.proves_clash(&failure) => {
                 RelationDecision::Unequal
             }
             UnificationResult::Unified(joint) if joint.constraints.is_empty() => {
@@ -735,12 +823,12 @@ impl RelationDecider for BackendRelations<'_> {
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
         if self.interpreted_only
             && (contains_non_strict_injection(self.definition, &path.path_predicate)
-                || contains_non_ascii_string_value(&path.path_predicate)
+                || contains_untrusted_domain_value(self.definition, &path.path_predicate)
                 || assumptions.iter().any(|relation| {
                     contains_non_strict_injection(self.definition, &relation.left)
                         || contains_non_strict_injection(self.definition, &relation.right)
-                        || contains_non_ascii_string_value(&relation.left)
-                        || contains_non_ascii_string_value(&relation.right)
+                        || contains_untrusted_domain_value(self.definition, &relation.left)
+                        || contains_untrusted_domain_value(self.definition, &relation.right)
                 }))
         {
             return Feasibility::Unknown;
@@ -758,7 +846,7 @@ impl RelationDecider for BackendRelations<'_> {
             return Feasibility::Unknown;
         }
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
-            UnificationResult::Bottom(failure) if proves_clash(&failure) => Feasibility::Unsat,
+            UnificationResult::Bottom(failure) if self.proves_clash(&failure) => Feasibility::Unsat,
             UnificationResult::Unified(solved) => self.decide(path, solved),
             UnificationResult::Bottom(_) | UnificationResult::Unsupported { .. } => {
                 Feasibility::Unknown
@@ -827,6 +915,44 @@ mod tests {
             value(b"a"),
             value(b"b")
         )));
+    }
+
+    #[test]
+    fn shared_relations_refuse_noncanonical_integer_identity() {
+        let mut backend = backend("symmem.k", "SYMMEM");
+        let state = symmem_state();
+        let real = path(PathStop::DepthLimit, top());
+        backend
+            .with_solver(None, |definition, solver| {
+                let relations = BackendRelations::shared(definition, solver, &state, false);
+                for (bytes, canonical) in [
+                    (b"01".as_slice(), b"1".as_slice()),
+                    (b"+1", b"1"),
+                    (b"-0", b"0"),
+                ] {
+                    let value = Pattern::DomainValue {
+                        sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                        value: bytes.to_vec().into(),
+                    };
+                    let internal = definition
+                        .internalize_term(&value, &[])
+                        .expect("Int accepts this decimal form");
+                    assert_eq!(
+                        externalize::term(&internal),
+                        Pattern::DomainValue {
+                            sort: k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                            value: canonical.to_vec().into(),
+                        }
+                    );
+                    assert_eq!(relations.relate(&real, &[], &value, &value), Indeterminate);
+                    assert_eq!(
+                        relations.feasible(&real, &[relation(value.clone(), value)]),
+                        Unknown
+                    );
+                }
+                Ok::<_, BackendError>(())
+            })
+            .expect("shared decider");
     }
 
     fn nat(name: &str) -> Pattern {

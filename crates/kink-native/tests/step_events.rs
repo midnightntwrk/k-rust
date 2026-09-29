@@ -47,6 +47,18 @@ fn contains_symbol(pattern: &Pattern, name: &str) -> bool {
     }
 }
 
+fn contains_domain_value(pattern: &Pattern, sort_name: &str, bytes: &[u8]) -> bool {
+    match pattern {
+        Pattern::DomainValue { sort, value } => {
+            *sort == kore_sort(sort_name) && value.as_bytes() == bytes
+        }
+        Pattern::Application { arguments, .. } | Pattern::And { arguments, .. } => arguments
+            .iter()
+            .any(|argument| contains_domain_value(argument, sort_name, bytes)),
+        _ => false,
+    }
+}
+
 fn symmem_program() -> Pattern {
     let z = || app("Lblz", vec![]);
     let address = || app("Lbladdr", vec![z()]);
@@ -278,6 +290,174 @@ fn string_value(bytes: &[u8]) -> Pattern {
     }
 }
 
+fn custom_value(sort: &str, bytes: &[u8]) -> Pattern {
+    Pattern::DomainValue {
+        sort: kore_sort(sort),
+        value: bytes.to_vec().into(),
+    }
+}
+
+#[test]
+fn hooked_string_sort_identity_is_undecided() {
+    let directory = std::env::temp_dir().join(format!(
+        "so03-mystr-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&directory).expect("temporary definition directory");
+    let source = "module MYSTR-SYNTAX\n  imports INT-SYNTAX\n  imports STRING-SYNTAX\n  syntax MyStr [hook(STRING.String)]\n  syntax MyStr ::= r\"#mystr[0-9]+\" [token]\n  syntax MyStr ::= chrM(Int) [function, total, hook(STRING.chr), symbol(chrM)]\n                 | MyStr \"+M\" MyStr [function, total, hook(STRING.concat), symbol(concatM)]\n  syntax Bool ::= MyStr \"==M\" MyStr [function, total, hook(STRING.eq), symbol(eqM)]\n  syntax Prog ::= step(Int) [symbol(step)]\n                | done(MyStr, MyStr) [symbol(done)]\n                | verdict(Bool) [symbol(verdict)]\nendmodule\nmodule MYSTR\n  imports MYSTR-SYNTAX\n  imports INT\n  imports STRING\n  imports BOOL\n  configuration <k> .K </k>\n  rule [step]: step(0) => done(chrM(937), chrM(206) +M chrM(169))\n  rule [eqc]: step(1) => verdict(chrM(937) ==M (chrM(206) +M chrM(169)))\nendmodule\n";
+    let source_path = directory.join("mystr.k");
+    std::fs::write(&source_path, source).expect("definition source");
+    let side = NativeValidator::bind(
+        support::load_path(&source_path, "MYSTR"),
+        CompileOptions::default(),
+    )
+    .compile_baseline()
+    .expect("MyStr definition compiles");
+    let state = support::initial_state(app("Lblstep", vec![support::int(0)]), "SortProg");
+    let steps = run_steps(&side, "MYSTR", &state);
+    let equality_state = support::initial_state(app("Lblstep", vec![support::int(1)]), "SortProg");
+    let equality_steps = run_steps(&side, "MYSTR", &equality_state);
+    assert!(
+        equality_steps.states[0]
+            .iter()
+            .any(|state| contains_domain_value(state, "SortBool", b"false"))
+    );
+    let path = paths_for(&side, &side, "MYSTR", &state, vec![]).remove(0);
+    let spec = StepEventSpec {
+        constructor: "probe".into(),
+        pre: support::k_config(
+            app("Lblstep", vec![support::var("N", "SortInt")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app(
+                "Lbldone",
+                vec![
+                    support::var("X", "SortMyStr"),
+                    support::var("X", "SortMyStr"),
+                ],
+            ),
+            "SortProg",
+            "R2",
+            "C2",
+        )),
+        payload: vec![],
+    };
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "MYSTR",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    StepObservation::new(&mut backend, vec![spec.clone()]).expect("declaration validates");
+    backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, false);
+            assert!(matches!(
+                decider.classify_step(&spec, &steps.states[0][0], Some(&steps.states[0][1]), &path),
+                StepPresence::Undecided
+            ));
+            let relations = BackendRelations::shared(definition, solver, &state, false);
+            let value = custom_value("SortMyStr", &[206, 169]);
+            assert_eq!(
+                relations.relate(&path, &[], &value, &value),
+                RelationDecision::Indeterminate
+            );
+            assert!(matches!(
+                decider.classify_step(&bare_spec(value.clone(), &[]), &value, None, &path),
+                StepPresence::Undecided
+            ));
+            assert_eq!(
+                relations.feasible(
+                    &path,
+                    &[TermRelation {
+                        left: value.clone(),
+                        right: value.clone()
+                    }]
+                ),
+                Feasibility::Unknown
+            );
+            let other = custom_value("SortMyStr", &[195, 142, 194, 169]);
+            assert_eq!(
+                relations.relate(&path, &[], &value, &other),
+                RelationDecision::Indeterminate
+            );
+            assert_eq!(
+                relations.feasible(
+                    &path,
+                    &[TermRelation {
+                        left: value.clone(),
+                        right: other,
+                    }]
+                ),
+                Feasibility::Unknown
+            );
+            assert!(!decider.definition_independent(&value));
+            Ok::<_, k_rust::backend::BackendError>(())
+        })
+        .expect("decider");
+    std::fs::remove_dir_all(directory).expect("remove temporary definition");
+}
+
+#[test]
+fn unknown_domain_codec_blocks_identity() {
+    let (side, directory) = string_definition("\"a\"");
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "STRINGS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let state = support::initial_state(app("Lblstep", vec![support::int(0)]), "SortProg");
+    let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
+    backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let spec = StepEventSpec {
+                constructor: "probe".into(),
+                pre: support::var("X", "SortGeneratedTopCell"),
+                post: Some(support::var("X", "SortGeneratedTopCell")),
+                payload: vec![],
+            };
+            assert_eq!(
+                definition
+                    .sorts
+                    .get("SortFloat")
+                    .and_then(|info| info.hook.as_deref()),
+                Some("FLOAT.Float")
+            );
+            for value in [
+                custom_value("SortFloat", b"1.0"),
+                custom_value("SortInt", b"01"),
+                custom_value("SortInt", b"+1"),
+                custom_value("SortInt", b"-0"),
+            ] {
+                assert!(matches!(
+                    decider.classify_step(&spec, &value, Some(&value), &path),
+                    StepPresence::Undecided
+                ));
+                assert_eq!(
+                    BackendRelations::shared(definition, solver, &state, false).relate(
+                        &path,
+                        &[],
+                        &value,
+                        &value
+                    ),
+                    RelationDecision::Indeterminate
+                );
+            }
+            Ok::<_, k_rust::backend::BackendError>(())
+        })
+        .expect("decider");
+    std::fs::remove_dir_all(directory).expect("remove temporary definition");
+}
+
 fn string_definition(result: &str) -> (ValidatedDefinition, std::path::PathBuf) {
     let directory = std::env::temp_dir().join(format!(
         "so03-string-{}-{}",
@@ -289,7 +469,7 @@ fn string_definition(result: &str) -> (ValidatedDefinition, std::path::PathBuf) 
     ));
     std::fs::create_dir(&directory).expect("temporary definition directory");
     let source = format!(
-        "module STRINGS-SYNTAX\n  imports INT-SYNTAX\n  imports STRING-SYNTAX\n  syntax Prog ::= step(Int) [symbol(step)]\n                | done(String) [symbol(done)]\nendmodule\nmodule STRINGS\n  imports STRINGS-SYNTAX\n  imports INT\n  imports STRING\n  configuration <k> .K </k>\n  rule [step]: step(_N) => done({result})\nendmodule\n"
+        "module STRINGS-SYNTAX\n  imports INT-SYNTAX\n  imports STRING-SYNTAX\n  imports FLOAT-SYNTAX\n  syntax Prog ::= step(Int) [symbol(step)]\n                | done(String) [symbol(done)]\nendmodule\nmodule STRINGS\n  imports STRINGS-SYNTAX\n  imports INT\n  imports STRING\n  imports FLOAT\n  configuration <k> .K </k>\n  rule [step]: step(_N) => done({result})\nendmodule\n"
     );
     let path = directory.join("strings.k");
     std::fs::write(&path, source).expect("definition source");

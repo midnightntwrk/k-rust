@@ -13,8 +13,8 @@ use kink_pattern::{
 };
 
 use crate::feasibility::{
-    BackendRelations, Inhabitation, contains_non_strict_injection, free_constructor,
-    non_strict_injection_node, strict_injection_sorts,
+    BackendRelations, Inhabitation, contains_non_strict_injection, domain_value_identity_safe,
+    free_constructor, non_strict_injection_node, strict_injection_sorts,
 };
 use crate::names::names_exact;
 
@@ -160,28 +160,6 @@ fn internal_sort(sort: &Sort) -> Option<InternalSort> {
     }
 }
 
-fn canonical_value(sort: &Sort, value: &[u8]) -> bool {
-    let Ok(value) = std::str::from_utf8(value) else {
-        return false;
-    };
-    match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => match name.as_str() {
-            "SortBool" => value == "true" || value == "false",
-            "SortInt" => {
-                let digits = value.strip_prefix('-').unwrap_or(value);
-                !digits.is_empty()
-                    && digits.bytes().all(|byte| byte.is_ascii_digit())
-                    && (digits == "0" || !digits.starts_with('0'))
-                    && value != "-0"
-            }
-            // k-rust's Unicode folding and byte-oriented KORE decoding agree on ASCII.
-            "SortString" => value.is_ascii(),
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
 fn validate_pattern(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -216,7 +194,7 @@ fn validate_node(
             }
         }
         Pattern::DomainValue { sort, value } => {
-            if !canonical_value(sort, value.as_bytes()) {
+            if !domain_value_identity_safe(definition, sort, value.as_bytes()) {
                 return Err(StepObservationError::NonCanonicalValue(format!(
                     "{value:?}"
                 )));
@@ -309,7 +287,9 @@ impl<'a> ObservationDecider<'a> {
     pub fn definition_independent(&self, term: &Pattern) -> bool {
         match term {
             Pattern::Variable(_) => true,
-            Pattern::DomainValue { sort, value } => canonical_value(sort, value.as_bytes()),
+            Pattern::DomainValue { sort, value } => {
+                domain_value_identity_safe(self.definition, sort, value.as_bytes())
+            }
             Pattern::Application { symbol, arguments } if symbol.name == "inj" => {
                 arguments.iter().all(|arg| self.definition_independent(arg))
             }
@@ -379,7 +359,7 @@ impl<'a> ObservationDecider<'a> {
             let decision = if left == *right
                 && names_exact(&left)
                 && names_exact(right)
-                && !crate::feasibility::contains_non_ascii_string_value(&left)
+                && !crate::feasibility::contains_untrusted_domain_value(self.definition, &left)
             {
                 RelationDecision::Equal
             } else {
@@ -470,8 +450,8 @@ impl Walk {
                 },
             ) => {
                 if ps != ss
-                    || !canonical_value(ps, pv.as_bytes())
-                    || !canonical_value(ss, sv.as_bytes())
+                    || !domain_value_identity_safe(definition, ps, pv.as_bytes())
+                    || !domain_value_identity_safe(definition, ss, sv.as_bytes())
                 {
                     self.undecided = true;
                 } else if pv != sv {
