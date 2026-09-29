@@ -11,9 +11,9 @@ use k_rust::{
         walk,
     },
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum CollectionKind {
     List,
     Map,
@@ -23,21 +23,9 @@ enum CollectionKind {
 /// Definition-derived symbol and cell metadata for structural observations.
 #[derive(Default)]
 pub struct PatternContext {
-    concat: BTreeMap<String, CollectionKind>,
-    units: BTreeMap<CollectionKind, Symbol>,
+    concat: BTreeMap<String, (CollectionKind, Symbol)>,
+    units: BTreeSet<String>,
     cell_sorts: BTreeMap<String, KastSort>,
-}
-
-impl Ord for CollectionKind {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (*self as u8).cmp(&(*other as u8))
-    }
-}
-
-impl PartialOrd for CollectionKind {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 fn hook(attributes: &k_rust::kore::ast::Attributes) -> Option<&str> {
@@ -55,13 +43,21 @@ fn hook(attributes: &k_rust::kore::ast::Attributes) -> Option<&str> {
 
 impl PatternContext {
     /// Discover builtin collection hooks in compiled KORE.
-    #[must_use]
-    pub fn from_definition(definition: &Definition) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a collection concat has no unit of the same result sort.
+    pub fn from_definition(definition: &Definition) -> Result<Self, String> {
         let mut result = Self::default();
+        let mut concat_sorts = BTreeMap::new();
+        let mut units_by_sort = BTreeMap::new();
         for module in &definition.modules {
             for sentence in &module.sentences {
                 if let Sentence::SymbolDeclaration {
-                    symbol, attributes, ..
+                    symbol,
+                    result_sort,
+                    attributes,
+                    ..
                 } = sentence
                 {
                     let kind = match hook(attributes) {
@@ -73,10 +69,12 @@ impl PatternContext {
                     if let Some(kind) = kind {
                         match hook(attributes) {
                             Some("LIST.concat" | "MAP.concat" | "SET.concat") => {
-                                result.concat.insert(symbol.name.clone(), kind);
+                                concat_sorts
+                                    .insert(symbol.name.clone(), (kind, result_sort.clone()));
                             }
                             Some("LIST.unit" | "MAP.unit" | "SET.unit") => {
-                                result.units.insert(kind, symbol.clone());
+                                units_by_sort.insert((kind, result_sort.clone()), symbol.clone());
+                                result.units.insert(symbol.name.clone());
                             }
                             _ => {}
                         }
@@ -84,7 +82,13 @@ impl PatternContext {
                 }
             }
         }
-        result
+        for (name, (kind, sort)) in concat_sorts {
+            let unit = units_by_sort.get(&(kind, sort)).ok_or_else(|| {
+                format!("collection concat `{name}` has no unit of the same result sort")
+            })?;
+            result.concat.insert(name, (kind, unit.clone()));
+        }
+        Ok(result)
     }
 
     /// Read single-content cell sorts from expanded frontend productions.
@@ -131,18 +135,18 @@ impl PatternContext {
         self.cell_sorts.get(cell)
     }
 
-    fn unit_name(&self, kind: CollectionKind) -> Option<&str> {
-        self.units.get(&kind).map(|symbol| symbol.name.as_str())
-    }
-
-    fn flatten(&self, pattern: &Pattern, kind: CollectionKind, output: &mut Vec<Pattern>) {
+    fn flatten(&self, pattern: &Pattern, unit: &Symbol, output: &mut Vec<Pattern>) {
         if let Pattern::Application { symbol, arguments } = pattern {
-            if self.unit_name(kind) == Some(symbol.name.as_str()) && arguments.is_empty() {
+            if symbol.name == unit.name && arguments.is_empty() {
                 return;
             }
-            if self.concat.get(&symbol.name) == Some(&kind) {
+            if self
+                .concat
+                .get(&symbol.name)
+                .is_some_and(|(_, concat_unit)| concat_unit == unit)
+            {
                 for argument in arguments {
-                    self.flatten(argument, kind, output);
+                    self.flatten(argument, unit, output);
                 }
                 return;
             }
@@ -164,10 +168,10 @@ impl PatternContext {
                     symbol: symbol.clone(),
                     arguments,
                 };
-                if let Some(kind) = self.concat.get(&symbol.name).copied() {
+                if let Some((kind, unit)) = self.concat.get(&symbol.name) {
                     let mut elements = Vec::new();
-                    self.flatten(&rebuilt, kind, &mut elements);
-                    if kind != CollectionKind::List {
+                    self.flatten(&rebuilt, unit, &mut elements);
+                    if *kind != CollectionKind::List {
                         elements.sort();
                     }
                     let mut iter = elements.into_iter();
@@ -176,13 +180,11 @@ impl PatternContext {
                             symbol: symbol.clone(),
                             arguments: vec![left, right],
                         })
-                    } else if let Some(unit) = self.units.get(&kind) {
+                    } else {
                         Pattern::Application {
                             symbol: unit.clone(),
                             arguments: Vec::new(),
                         }
-                    } else {
-                        unreachable!("collection concat has no unit")
                     }
                 } else {
                     rebuilt
@@ -198,10 +200,10 @@ impl PatternContext {
                     .cloned()
                     .map(|arg| self.normalize(arg))
                     .collect::<Vec<_>>();
-                if let Some(kind) = self.concat.get(&symbol.name) {
+                if let Some((_, unit)) = self.concat.get(&symbol.name) {
                     let mut iter = arguments.into_iter();
                     let first = iter.next().unwrap_or_else(|| Pattern::Application {
-                        symbol: self.units[kind].clone(),
+                        symbol: unit.clone(),
                         arguments: Vec::new(),
                     });
                     self.normalize(iter.fold(first, |left, right| Pattern::Application {
@@ -341,7 +343,7 @@ impl PatternContext {
     #[must_use]
     pub fn collection_size(&self, pattern: &Pattern) -> Option<usize> {
         if let Pattern::Application { symbol, arguments } = pattern {
-            if self.units.values().any(|unit| unit.name == symbol.name) && arguments.is_empty() {
+            if self.units.contains(&symbol.name) && arguments.is_empty() {
                 return Some(0);
             }
             if self.concat.contains_key(&symbol.name) {
@@ -405,12 +407,15 @@ pub fn cell<'a>(state: &'a Pattern, name: &str) -> Result<&'a Pattern, String> {
 #[cfg(test)]
 mod tests {
     use super::{PatternContext, cell};
-    use k_rust::kore::parser::{parse_definition, parse_pattern};
+    use k_rust::kore::{
+        ast::{Associativity, Pattern, Symbol},
+        parser::{parse_definition, parse_pattern},
+    };
 
     #[test]
     fn normalizes_nested_collection_axioms() {
         let definition = parse_definition("[] module M hooked-symbol lc{}(SortList{},SortList{}):SortList{} [hook{}(\"LIST.concat\")] hooked-symbol lu{}():SortList{} [hook{}(\"LIST.unit\")] hooked-symbol mc{}(SortMap{},SortMap{}):SortMap{} [hook{}(\"MAP.concat\")] hooked-symbol mu{}():SortMap{} [hook{}(\"MAP.unit\")] hooked-symbol sc{}(SortSet{},SortSet{}):SortSet{} [hook{}(\"SET.concat\")] hooked-symbol su{}():SortSet{} [hook{}(\"SET.unit\")] endmodule []").unwrap();
-        let context = PatternContext::from_definition(&definition);
+        let context = PatternContext::from_definition(&definition).unwrap();
         let left = parse_pattern("lc{}(a{}(),lc{}(lu{}(),b{}()))").unwrap();
         let right = parse_pattern("lc{}(a{}(),b{}())").unwrap();
         assert_eq!(context.normalize(left), context.normalize(right.clone()));
@@ -436,6 +441,54 @@ mod tests {
             context.normalize(wrapped_simple)
         );
         assert_eq!(context.collection_size(&context.normalize(right)), Some(2));
+    }
+
+    #[test]
+    fn collection_units_are_paired_by_result_sort() {
+        let definition = parse_definition(concat!(
+            "[] module M ",
+            "hooked-symbol mc{}(SortMap{},SortMap{}):SortMap{} [hook{}(\"MAP.concat\")] ",
+            "hooked-symbol mu{}():SortMap{} [hook{}(\"MAP.unit\")] ",
+            "hooked-symbol ac{}(SortAccountCellMap{},SortAccountCellMap{}):SortAccountCellMap{} [hook{}(\"MAP.concat\")] ",
+            "hooked-symbol au{}():SortAccountCellMap{} [hook{}(\"MAP.unit\")] ",
+            "endmodule []",
+        ))
+        .unwrap();
+        let context = PatternContext::from_definition(&definition).unwrap();
+        let item = parse_pattern("x{}()").unwrap();
+        for (concat, unit) in [("mc", "mu"), ("ac", "au")] {
+            let unit_pattern = parse_pattern(&format!("{unit}{{}}()")).unwrap();
+            let nonempty = parse_pattern(&format!("{concat}{{}}({unit}{{}}(),x{{}}())")).unwrap();
+            assert_eq!(context.normalize(nonempty), item);
+            let empty = parse_pattern(&format!("{concat}{{}}({unit}{{}}(),{unit}{{}}())")).unwrap();
+            assert_eq!(context.normalize(empty), unit_pattern);
+            let associative_empty = Pattern::AssociativeApplication {
+                associativity: Associativity::Left,
+                symbol: Symbol {
+                    name: concat.to_owned(),
+                    sort_parameters: Vec::new(),
+                },
+                arguments: Vec::new(),
+            };
+            assert_eq!(context.normalize(associative_empty), unit_pattern);
+            assert_eq!(context.collection_size(&unit_pattern), Some(0));
+        }
+    }
+
+    #[test]
+    fn collection_concat_requires_a_unit_of_its_result_sort() {
+        let definition = parse_definition(concat!(
+            "[] module M ",
+            "hooked-symbol mc{}(SortMap{},SortMap{}):SortMap{} [hook{}(\"MAP.concat\")] ",
+            "hooked-symbol au{}():SortAccountCellMap{} [hook{}(\"MAP.unit\")] ",
+            "endmodule []",
+        ))
+        .unwrap();
+        let error = PatternContext::from_definition(&definition).err().unwrap();
+        assert_eq!(
+            error,
+            "collection concat `mc` has no unit of the same result sort"
+        );
     }
 
     #[test]

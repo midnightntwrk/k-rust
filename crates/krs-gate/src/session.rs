@@ -194,7 +194,7 @@ impl Session {
             .into());
         }
         let patterns =
-            PatternContext::from_definition(&parse_definition(&artifacts.definition_kore)?)
+            PatternContext::from_definition(&parse_definition(&artifacts.definition_kore)?)?
                 .with_frontend_cells(&context.frontend_definition)?;
         let configuration = Configuration::new(context)?;
         let backend = Backend::new(
