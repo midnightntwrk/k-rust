@@ -39,12 +39,6 @@ impl ConfigurationVariableAttribute {
         &self.name
     }
 
-    /// Returns the authored `main` marker token.
-    #[must_use]
-    pub const fn main_token(&self) -> Option<&Ident> {
-        self.main.as_ref()
-    }
-
     /// Whether this variable is the sole positional main input.
     #[must_use]
     pub const fn is_main(&self) -> bool {

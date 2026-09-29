@@ -491,12 +491,6 @@ impl TermExpression {
         &self.expression
     }
 
-    /// Consumes the validated wrapper and returns its Rust expression.
-    #[must_use]
-    pub fn into_expression(self) -> Expr {
-        self.expression
-    }
-
     /// Returns the syntactic root kind.
     #[must_use]
     pub const fn root_kind(&self) -> TermRootKind {

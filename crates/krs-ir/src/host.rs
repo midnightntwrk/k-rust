@@ -10,10 +10,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GrammarTransportError, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
-    HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
-    HostStructuredRuleDescriptor, ItemKind, ProvenanceRole, SchemaVersion, SentenceKind,
-    StateTransportError,
+    HostCellDeclaration, HostConfigurationRule, HostContextAlias, HostDeclarationIdentity,
+    HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule, HostStructuredRuleDescriptor,
+    ItemKind, ProvenanceRole, SchemaVersion, StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -657,39 +656,6 @@ pub struct HostDescriptor {
 }
 
 impl HostDescriptor {
-    /// Checks grammar and structured-rule outer ownership before stable collection.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`GrammarTransportError`] when a grammar or structured rule is
-    /// registered under the wrong stable namespace.
-    pub fn validate_grammar_ownership(&self) -> Result<(), GrammarTransportError> {
-        let expected = match &self.payload {
-            HostDescriptorPayload::Grammar(_) => Some(ItemKind::Grammar),
-            HostDescriptorPayload::StructuredRule(rule) => Some(match rule.sentence_kind {
-                SentenceKind::Transition => ItemKind::Rule,
-                SentenceKind::Equation => ItemKind::Equation,
-                SentenceKind::Simplification => ItemKind::Simplification,
-                SentenceKind::Alias => ItemKind::Alias,
-                SentenceKind::Claim => ItemKind::Claim,
-            }),
-            HostDescriptorPayload::Sort(_)
-            | HostDescriptorPayload::Constructor(_)
-            | HostDescriptorPayload::FixedConfiguration(_)
-            | HostDescriptorPayload::Cell(_)
-            | HostDescriptorPayload::ConfigurationRule(_)
-            | HostDescriptorPayload::HeadRule(_)
-            | HostDescriptorPayload::ContextAlias(_) => None,
-        };
-        if let Some(expected) = expected.filter(|expected| self.id.item_kind() != *expected) {
-            return Err(GrammarTransportError::DescriptorItemKind {
-                expected,
-                actual: self.id.item_kind(),
-            });
-        }
-        Ok(())
-    }
-
     /// Validates configuration/cell/rule ownership and host joins.
     ///
     /// # Errors

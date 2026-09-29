@@ -278,21 +278,6 @@ impl RuleHeadResult {
         }
     }
 
-    /// Returns splice items, if this is `k![...]`.
-    #[must_use]
-    pub fn splice_items(&self) -> Option<&[TermExpression]> {
-        match self {
-            Self::Splice { items, .. } => Some(items),
-            Self::Replace(_) | Self::Erase(_) => None,
-        }
-    }
-
-    /// Returns whether this result erases the head.
-    #[must_use]
-    pub const fn is_erase(&self) -> bool {
-        matches!(self, Self::Erase(_))
-    }
-
     /// Returns a deterministic source-like spelling.
     #[must_use]
     pub fn spelling(&self) -> String {

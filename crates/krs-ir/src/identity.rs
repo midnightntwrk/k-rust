@@ -64,12 +64,6 @@ impl RustVisibility {
         Ok(Self::Restricted { path, explicit_in })
     }
 
-    /// Whether this declaration authored unrestricted public visibility.
-    #[must_use]
-    pub const fn is_public(&self) -> bool {
-        matches!(self, Self::Public)
-    }
-
     /// Whether no `pub` token was authored.
     #[must_use]
     pub const fn is_inherited(&self) -> bool {

@@ -1,5 +1,3 @@
-#![allow(clippy::result_large_err)]
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -619,7 +617,7 @@ impl SourceMap {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SidecarError {
-    DuplicateIdentity(MappedIdentity),
+    DuplicateIdentity(Box<MappedIdentity>),
     DuplicateSourceMapKey(SourceMapKey),
     AbsolutePath(String),
     InvalidGeneratedRange,
@@ -657,7 +655,7 @@ fn push_symbol(
     entry: SymbolMapEntry,
 ) -> Result<(), SidecarError> {
     if !identities.insert(entry.identity.clone()) {
-        return Err(SidecarError::DuplicateIdentity(entry.identity));
+        return Err(SidecarError::DuplicateIdentity(Box::new(entry.identity)));
     }
     entries.push(entry);
     Ok(())

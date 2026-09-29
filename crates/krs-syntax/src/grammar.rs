@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Field, Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Token, Type};
+use syn::{Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Token, Type};
 
 use crate::attribute::{is_plain_path, path_spelling};
 use crate::parse::{
@@ -689,7 +689,6 @@ fn invalid_regex(reason: &'static str, span: Span) -> ParseError {
 #[derive(Clone, Debug)]
 pub struct TokenDeclaration {
     item: ItemStruct,
-    field: Field,
 }
 
 impl TokenDeclaration {
@@ -718,7 +717,7 @@ impl TokenDeclaration {
                 fields.span(),
             ));
         }
-        let Some(field) = fields.unnamed.first().cloned() else {
+        let Some(field) = fields.unnamed.first() else {
             return Err(unsupported_token(
                 "a token must contain exactly one representation field",
                 fields.span(),
@@ -749,7 +748,7 @@ impl TokenDeclaration {
                 field.ty.span(),
             ));
         }
-        Ok(Self { item, field })
+        Ok(Self { item })
     }
 
     /// Returns the original span-preserving item.
@@ -762,12 +761,6 @@ impl TokenDeclaration {
     #[must_use]
     pub const fn name(&self) -> &Ident {
         &self.item.ident
-    }
-
-    /// Returns the host-only `String` representation field.
-    #[must_use]
-    pub const fn representation_field(&self) -> &Field {
-        &self.field
     }
 
     /// Returns the token declaration anchor.

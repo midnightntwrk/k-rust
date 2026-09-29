@@ -133,14 +133,6 @@ pub enum CapabilityAvailability {
     Unavailable(&'static str),
 }
 
-impl CapabilityAvailability {
-    /// Returns whether the capability is available.
-    #[must_use]
-    pub const fn is_available(self) -> bool {
-        matches!(self, Self::Available)
-    }
-}
-
 const SUPPORTED_BACKENDS: &[Backend] = &[Backend::Llvm, Backend::Haskell];
 
 /// Capabilities compiled into the pinned frontend and supplied by this adapter.

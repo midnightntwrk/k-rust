@@ -6,12 +6,12 @@ use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
     ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
     DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
-    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    DefinitionValidationError, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
-    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
-    GrammarProductionItemKind, GroupAssociativitySentence, IrIdentityError, LabelId, LabelIdentity,
-    ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
+    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
+    FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
+    GroupAssociativitySentence, IrIdentityError, LabelId, LabelIdentity, ModuleId, NodeOrigin,
+    OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
     ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
     RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
@@ -48,12 +48,6 @@ impl LoweredDefinition {
     #[must_use]
     pub const fn source_map(&self) -> &SourceMap {
         &self.source_map
-    }
-
-    /// Consumes the lowering result and returns its checked Definition IR.
-    #[must_use]
-    pub fn into_definition(self) -> DefinitionIr {
-        self.definition
     }
 }
 
@@ -1490,20 +1484,6 @@ fn lower_camel(value: &str) -> String {
         Some(first) => first.to_lowercase().chain(characters).collect(),
         None => String::new(),
     }
-}
-
-#[allow(dead_code)]
-fn _term_kind_is_exhaustive(kind: &DefinitionTermKind) -> bool {
-    matches!(
-        kind,
-        DefinitionTermKind::Variable { .. }
-            | DefinitionTermKind::Application { .. }
-            | DefinitionTermKind::Token { .. }
-            | DefinitionTermKind::KSequence { .. }
-            | DefinitionTermKind::Map { .. }
-            | DefinitionTermKind::List { .. }
-            | DefinitionTermKind::Rewrite { .. }
-    )
 }
 
 #[cfg(test)]
