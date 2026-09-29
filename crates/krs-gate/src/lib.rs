@@ -46,7 +46,7 @@
 //! It uses definition-derived structural cell lookup and collection normalization in [`pattern`] and canonical text from [`k_rust::kore::printer::Printer`].
 //! `expect` requires `state`, `cell`, and exactly one of `text` (surface K text), `size` (an unsigned collection element count), or `head` (surface text for the first item of a K sequence).
 //! Surface text is parsed at the declared frontend cell content sort, macro expanded, sort injected, and lowered through the same Rust API pipeline as `configure`; [`pattern`] compares the resulting KORE structures.
-//! For the `K` sort, a single item parses at `KItem`; `.K` and sequences parse at `K`.
+//! For the `K` sort, items parse at `KItem` and `.K` and sequences are assembled with [`k_rust::kast::Term::sequence`] because the program grammar does not supply implicit `KSEQ` productions.
 //! A `head` expectation parses at `KItem` and injects the parsed item's declared sort into `KItem`, matching the stored K sequence head.
 //! Its result contains `met`, `expected`, and `actual`; the latter two are canonical KORE text for text and head checks, or decimal counts for size.
 //! Comparisons normalize nested builtin List association and unit, and Map and Set association, commutation, and unit using the compiled definition's hooks.

@@ -1,5 +1,8 @@
 //! Assemble krun's `-c` pipeline from k-rust's public parser, macro, injection, and initializer pieces.
 //! Replace this assembly with a k-rust library function when one is available.
+//! `ProgramParser` uses visible program productions and adds `KItem` subsorts, but does not add the implicit `KSEQ` productions `K ::= ".K"` and `K ::= K "~>" K`.
+//! `BASIC-K` supplies the subsort path for a single item at `K`, but supplies neither sequence production.
+//! Cell expectations must therefore split top-level sequence delimiters outside quoted strings, parse each item at `KItem`, and assemble `Term::sequence`.
 
 use k_rust::{
     definition::ResolvedDefinition,
@@ -236,8 +239,7 @@ impl Configuration {
         source: &str,
     ) -> Result<Pattern, Box<dyn Error>> {
         let parser_module = self.main_module.clone();
-        let k_item = source.trim() != ".K" && !source.contains("~>");
-        self.parse_surface(&parser_module, sort, source, k_item)
+        self.parse_surface(&parser_module, sort, source, false)
             .map(|(value, _)| value)
             .map_err(|error| format!("could not parse <{cell}> at sort {sort}: {error}").into())
     }
@@ -330,7 +332,7 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::{split_k_sequence, validate_variables};
-    use k_rust::{kast::Sort, names::BuiltinSort};
+    use k_rust::{inner::ProgramParser, kast::Sort, names::BuiltinSort};
     use serde_json::{Map, json};
     use std::collections::BTreeMap;
 
@@ -374,6 +376,32 @@ mod tests {
             split_k_sequence("f(\"~>\") ~> g(1)").unwrap(),
             Some(vec!["f(\"~>\")", "g(1)"])
         );
+        assert_eq!(split_k_sequence(r#""~>""#).unwrap(), None);
+        assert_eq!(split_k_sequence(r#"f("~>")"#).unwrap(), None);
+        assert_eq!(split_k_sequence(r#""\"~>""#).unwrap(), None);
         assert!(split_k_sequence("a ~> ").is_err());
+    }
+
+    #[test]
+    fn program_grammar_does_not_supply_implicit_kseq_productions() {
+        let parsed = k_rust::outer::parse(
+            "sequence.k",
+            r#"
+module MAIN
+  imports BASIC-K
+  syntax Item ::= "a" [symbol(a)] | "b" [symbol(b)]
+endmodule
+"#,
+        )
+        .unwrap();
+        let definition = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+        let loaded =
+            krs_k_rust::prepare_definition(definition, krs_k_rust::Backend::Haskell).unwrap();
+        let parser = ProgramParser::new(&loaded.definition, "MAIN").unwrap();
+        let sort = Sort::builtin(BuiltinSort::K);
+        assert!(parser.parse(&sort, "a").is_ok());
+        for source in [".K", "a ~> b", "a ~> .K"] {
+            assert!(parser.parse(&sort, source).is_err(), "{source}");
+        }
     }
 }
