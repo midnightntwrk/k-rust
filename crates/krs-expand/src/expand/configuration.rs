@@ -12,7 +12,6 @@ use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, s
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn configuration(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,

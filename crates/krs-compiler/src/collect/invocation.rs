@@ -947,7 +947,6 @@ fn parsed_anchor_map(
     Ok(parsed)
 }
 
-#[allow(clippy::match_same_arms)]
 pub(super) fn validate_reparsed_payload(
     payload: &HostDescriptorPayload,
     invocation: &ParsedInvocation,
@@ -1130,7 +1129,6 @@ fn with_declaration_metadata(
     invocation
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn source_syntax(error: krs_syntax::SyntaxError) -> CollectionError {
     source_syntax_at(error, 0)
 }

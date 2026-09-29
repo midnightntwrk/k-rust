@@ -1,7 +1,5 @@
 //! Indexed, unresolved host payloads emitted as static macro data.
 
-#![allow(missing_docs)]
-
 use serde::{Deserialize, Serialize};
 
 use crate::{

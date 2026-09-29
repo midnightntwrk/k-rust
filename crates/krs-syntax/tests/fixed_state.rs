@@ -428,7 +428,6 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // One table-driven block freezes the complete cells grammar.
 fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands() {
     let pattern = krs_syntax::parse_cells_pattern(
         krs_syntax::parse::tokens_from_source(

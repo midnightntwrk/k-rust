@@ -764,7 +764,6 @@ pub enum HostProductionItem {
 }
 
 /// Classified production metadata transported without raw K attributes.
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DescriptorProductionAttribute {

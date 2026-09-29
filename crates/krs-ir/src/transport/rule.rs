@@ -1574,7 +1574,6 @@ fn validate_host_claim_binders(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_descriptor_cells(
     cells: &DescriptorRuleCells,
     owner: &StableItemId,
@@ -1625,7 +1624,6 @@ fn validate_descriptor_cells(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_host_cells(
     cells: &HostRuleCells,
     _owner: crate::HostTypeKey,
@@ -1969,7 +1967,6 @@ fn validate_host_state(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_k_shell<T>(
     sequence: &ProtocolRuleKSequence<T>,
     side: RuleSide,

@@ -2383,7 +2383,6 @@ fn collect_initializer_variables(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_initializer_forest(
     cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
@@ -2428,7 +2427,6 @@ fn validate_initializer_forest(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_configuration_rewrite(
     rewrite: &FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
@@ -2755,7 +2753,6 @@ fn validate_rule(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_claim(
     sentence: &RuleSentence,
     claim: &DefinitionClaim,

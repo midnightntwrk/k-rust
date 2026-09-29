@@ -1070,7 +1070,6 @@ impl Expander<'_> {
 
     /// Finds the KRS invocations in an expansion's output: function-like
     /// invocations to expand, and attribute invocations to reject.
-    #[allow(clippy::type_complexity)]
     fn rescan(
         &mut self,
         stream: &TokenStream,

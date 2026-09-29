@@ -25,21 +25,18 @@ use krs_ir::{
 
 type IntAlias = u16;
 
-#[allow(dead_code)]
 struct Add;
 
 type AddAlias = Add;
 
-#[allow(dead_code, non_snake_case)]
+#[allow(dead_code)]
 enum Boolean {
     True,
     False,
 }
 
-#[allow(dead_code)]
 struct TrueVariantMarker;
 
-#[allow(dead_code)]
 struct FalseVariantMarker;
 
 #[allow(non_snake_case)]
@@ -61,12 +58,11 @@ mod boolean_api {
     pub(super) use super::Boolean as ReexportAlias;
 }
 
-#[allow(dead_code, non_snake_case)]
+#[allow(dead_code)]
 enum OtherBoolean {
     False,
 }
 
-#[allow(dead_code)]
 struct OtherFalseVariantMarker;
 
 #[allow(non_snake_case)]

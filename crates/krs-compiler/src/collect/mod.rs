@@ -46,7 +46,6 @@ impl PackageContext {
     /// Returns an error for invalid stable identity components, a non-absolute
     /// manifest path, or an invalid one-segment Rust crate-root name. Filesystem
     /// existence and symlink resolution are checked during collection.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         k_namespace: impl Into<String>,
         cargo_name: impl Into<String>,
@@ -295,7 +294,6 @@ fn collect_pending_descriptors(
     Ok(pending)
 }
 
-#[allow(clippy::too_many_lines)] // One resolution pass; the timers add no branches of their own.
 fn resolve_pending_descriptors(
     mut pending: Vec<PendingDescriptor>,
     contexts: &[PreparedContext],

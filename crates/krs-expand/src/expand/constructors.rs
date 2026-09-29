@@ -70,7 +70,6 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
     Ok(item.into_token_stream())
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn constructor(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,

@@ -2235,7 +2235,6 @@ fn collect_initializer_variables(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_initializer_forest(
     cells: &[FixedCell<SemanticSortRef, SemanticId>],
     initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
@@ -2280,7 +2279,6 @@ fn validate_initializer_forest(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_configuration_rewrite(
     rewrite: &FixedConfigurationRewrite<SemanticId, SemanticTerm>,
     configuration: &FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>,
@@ -2609,7 +2607,6 @@ fn validate_rule(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_claim(
     rule: &SemanticRule,
     claim: &SemanticClaim,

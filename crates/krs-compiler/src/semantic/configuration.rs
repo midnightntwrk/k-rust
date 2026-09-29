@@ -222,7 +222,6 @@ fn lower_initializer_cell(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,

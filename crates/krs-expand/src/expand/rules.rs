@@ -56,7 +56,6 @@ pub(super) fn rule_owise_tokens(
     }
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn rule(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -174,7 +173,6 @@ pub(crate) fn priority(
     )
 }
 
-#[allow(clippy::too_many_lines)]
 fn ordinary_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,

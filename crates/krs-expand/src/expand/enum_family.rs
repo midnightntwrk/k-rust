@@ -275,7 +275,6 @@ fn enum_precedence_group_name(
     declaration.precedence_groups()[ordinal].emitted_name(declaration.sort_name(), ordinal)
 }
 
-#[allow(clippy::too_many_lines)]
 fn expand_enum_family_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,

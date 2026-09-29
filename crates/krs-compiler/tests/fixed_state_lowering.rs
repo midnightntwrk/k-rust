@@ -559,7 +559,6 @@ endmodule
     .assert_eq(source);
 }
 
-#[allow(clippy::too_many_lines)]
 fn assert_complete_sidecars(emitted: &EmittedK) {
     let mut symbol_names = BTreeMap::new();
     for name in emitted

@@ -1119,7 +1119,6 @@ fn lower_production_items(
         .collect()
 }
 
-#[allow(clippy::too_many_lines)]
 fn lower_production_attributes(
     production: &SemanticProduction,
     names: &NamingPass,

@@ -85,7 +85,6 @@ pub struct SymbolMap {
 }
 
 impl SymbolMap {
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn from_definition(definition: &DefinitionIr) -> Result<Self, SidecarError> {
         let mut entries = Vec::new();
         let mut identities = BTreeSet::new();
