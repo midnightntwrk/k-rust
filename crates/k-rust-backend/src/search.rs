@@ -58,7 +58,7 @@
 //!
 //! [[cost]]
 //! mode = "search result normalization"
-//! bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and O(f x t) to apply the binding to the facts when f > 0"
+//! bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and, when f > 0, O(f x t) per solved binding to eliminate it from the facts (a binding from the subject's own constraints) or to move the facts it rewrites into the constraints (any other binding, which also reads the variable sets of the c constraints)"
 //! ```
 //!
 //! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
@@ -2170,12 +2170,14 @@ fn match_pattern_with_variables(
     ));
     // The knowledge the subject's constraints do not already carry is decided with the match
     // condition, not reported in it: it holds on every instance of the subject, which the
-    // match's state carries. The subject's constraints themselves travel in the condition.
+    // match's state carries. The subject's constraints themselves travel in the condition, and
+    // so does a fact that an equation of the target rewrites (`normalize_match_condition`).
     let facts = subject_facts(subject_knowledge, &subject.constraints);
     let (substitution, constraints, facts) = normalize_match_condition(
         definition,
         substitution,
         constraints,
+        subject.constraints.len(),
         facts,
         output_variables,
     );
@@ -2236,23 +2238,41 @@ fn subject_facts(knowledge: Cow<'_, [Predicate]>, constraints: &[Predicate]) -> 
 /// from the remaining constraints with its definedness kept (I2): an element variable denotes a
 /// defined element, so `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`.
 ///
-/// `facts` hold on every instance the condition is decided over, so the decision is on
-/// `facts ∧ constraints`, and each binding is eliminated from that whole conjunction: `facts` are
-/// returned under the solved bindings, and an obligation `⌈t⌉` is omitted where those facts, or
-/// the constraints, already hold it. Comparing `⌈t⌉` against the facts before the bindings are
-/// applied would miss a fact over an eliminated variable and restate it.
+/// The condition is a predicate over the instances of the state; its first `state_constraints`
+/// constraints are the state's own, and `facts` are further predicates that hold on every
+/// instance of the state. The decision is on `facts ∧ constraints`, and the facts are passed to
+/// the caller as known, so a predicate stays among them only while it holds on every instance:
+///
+/// - An equation that holds on every instance (one of the state's own constraints, or one
+///   derived from them by such equations) leaves that set unchanged when it is eliminated:
+///   there `x = t`, so `F[t/x]` holds wherever `F` does, and so does `⌈t⌉`. The binding is
+///   applied to the facts, and its `⌈t⌉` joins them.
+/// - Any other equation (one instantiated from the target's constraints, or rewritten by one)
+///   holds only on the instances the match selects. On those `F[t/x]` holds, but elsewhere it
+///   can be false (`⌈10 /Int X⌉` under `X ↦ 0` is `⌈10 /Int 0⌉`, which is `⊥`), so a fact the
+///   binding rewrites is no longer known: it joins the constraints as a conjunct of the match
+///   condition, decided and reported like the other obligations. A fact that does not mention
+///   `x` is unchanged and stays known, as does every constraint's status that `x` leaves alone.
+///
+/// An obligation `⌈t⌉` is omitted only where the remaining facts, or the constraints, hold it.
 fn normalize_match_condition(
     definition: &BackendDefinition,
     output: Substitution,
     mut constraints: Vec<Predicate>,
+    state_constraints: usize,
     mut facts: Vec<Predicate>,
     output_variables: &BTreeSet<crate::term::Variable>,
 ) -> (Substitution, Vec<Predicate>, Vec<Predicate>) {
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
     let mut solved = Substitution::new();
+    // `on_every_instance[i]`: constraint `i` holds on every instance of the state.
+    let mut on_every_instance = (0..constraints.len())
+        .map(|index| index < state_constraints)
+        .collect::<Vec<_>>();
     // Invariant: each round moves one solvable equality into `solved`; exit when none remains.
     // No variable of `solved` occurs in `constraints` or `facts` after a round: the bound value
-    // is read from the substituted constraints, and the binding is applied to both.
+    // is read from the substituted constraints, and the binding is eliminated from both (a fact
+    // that mentions it is either rewritten in place or moved into the constraints).
     loop {
         let mut binding = None;
         for (index, constraint) in constraints.iter().enumerate() {
@@ -2287,26 +2307,51 @@ fn normalize_match_condition(
             break;
         };
         constraints.remove(index);
+        let equation_on_every_instance = on_every_instance.remove(index);
         let Some((variable, value)) = binding else {
             continue;
         };
-        let binding = Substitution::from([(variable, value)]);
+        let binding = Substitution::from([(variable.clone(), value)]);
         solved = compose(&binding, &solved);
+        // No round adds a fact once none remains, so the statuses matter only while some do.
         if !facts.is_empty() {
-            facts = substitute_predicates(&facts, &binding);
+            if equation_on_every_instance {
+                facts = eliminate_bindings(definition, &facts, &binding, &[]);
+            } else {
+                for (holds, constraint) in on_every_instance.iter_mut().zip(&constraints) {
+                    if *holds && mentions_variable(constraint, &variable) {
+                        *holds = false;
+                    }
+                }
+                let (rewritten, kept): (Vec<_>, Vec<_>) = facts
+                    .into_iter()
+                    .partition(|fact| mentions_variable(fact, &variable));
+                facts = kept;
+                on_every_instance.extend(rewritten.iter().map(|_| false));
+                constraints.extend(rewritten);
+            }
         }
+        // `eliminate_bindings` keeps the order of `constraints` and appends the obligations,
+        // which hold wherever the equation does.
         constraints = eliminate_bindings(definition, &constraints, &binding, &facts);
+        on_every_instance.resize(constraints.len(), equation_on_every_instance);
     }
 
     let mut output = compose(&solved, &output);
     output.retain(|variable, _| output_variables.contains(variable));
-    // Each binding's definedness was stated when it was eliminated above, and the later
-    // bindings were applied to it since: a composed value is `s[t/x]` for bindings `y ↦ s` and
-    // `x ↦ t`, whose definedness `⌈s⌉[t/x] ∧ ⌈t⌉` is already among the constraints or the
-    // facts. So only the substitution is applied here, and it leaves the constraints as they
-    // are (none of them mentions a solved variable).
-    let constraints = substitute_predicates(&constraints, &solved);
+    // Each binding was eliminated from the constraints and the facts with its definedness
+    // stated, and the later bindings were eliminated from those obligations too: a composed
+    // value is `s[t/x]` for bindings `y ↦ s` and `x ↦ t`, whose definedness `⌈s⌉[t/x] ∧ ⌈t⌉`
+    // is among the constraints or the facts. No constraint mentions a solved variable, so
+    // `solved` is not applied to them again.
     (output, constraints, facts)
+}
+
+/// Whether a term of `predicate` has `variable` free.
+fn mentions_variable(predicate: &Predicate, variable: &crate::term::Variable) -> bool {
+    let mut found = false;
+    predicate.visit_terms(&mut |term| found |= term.attributes().variables.contains(variable));
+    found
 }
 
 fn simplification_options(options: SearchOptions) -> SimplificationOptions {
@@ -4673,6 +4718,7 @@ mod tests {
                 Term::variable(configuration_variable),
                 value.clone(),
             )],
+            0,
             Vec::new(),
             &BTreeSet::from([result_variable.clone()]),
         );
@@ -5002,5 +5048,87 @@ mod tests {
         )
         .expect("the match should be decided");
         assert_unsaturated_partial_subject_matches(&definition, &matches);
+    }
+
+    /// The state `pair(X, 10 /Int X)` and the target `pair(A, B) ∧ A = 0`, with `⌈B⌉` also
+    /// among the target's constraints when `ceil_second` is set.
+    fn target_fixing_the_divisor(
+        definition: &BackendDefinition,
+        ceil_second: bool,
+    ) -> (Pattern, Pattern) {
+        let int = Sort::simple("SortInt");
+        let mut constraints = vec![Predicate::Equals(
+            Term::variable(Variable::new("A", int.clone())),
+            pattern(definition, r#"\dv{SortInt{}}("0")"#).term,
+        )];
+        if ceil_second {
+            constraints.push(Predicate::Ceil(Term::variable(Variable::new("B", int))));
+        }
+        let target = Pattern {
+            term: pattern(definition, r#"pair{}(A:SortInt{}, B:SortInt{})"#).term,
+            constraints,
+        };
+        let subject = pattern(
+            definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#,
+        );
+        (target, subject)
+    }
+
+    /// `⌈10 /Int X⌉` holds on every instance of the state `pair(X, 10 /Int X)`, so no instance
+    /// has `X = 0` and the state matches neither form of `target_fixing_the_divisor`. The
+    /// target's equation `A = 0`, instantiated as `X = 0`, holds only on the instances the match
+    /// would select; eliminating it rewrites that fact to `⌈10 /Int 0⌉`, which is a conjunct of
+    /// the match condition (and `⊥`), not a fact about the state. Taking it as known would
+    /// discharge the target's `⌈B⌉` (instantiated as `⌈10 /Int 0⌉`); leaving it out would drop
+    /// the only conjunct that refutes the plain target.
+    fn assert_the_divisor_cannot_be_zero(
+        definition: &BackendDefinition,
+        ceil_second: bool,
+        solver: Option<&dyn SmtSolver>,
+    ) {
+        let (target, subject) = target_fixing_the_divisor(definition, ceil_second);
+        let matches = match solver {
+            Some(solver) => match_disjunction_with_solver(
+                definition,
+                &target,
+                &[subject],
+                SimplificationOptions::default(),
+                solver,
+            ),
+            None => match_disjunction(definition, &target, &[subject]),
+        }
+        .expect("the match should be computed");
+        assert!(matches.is_empty(), "{matches:#?}");
+    }
+
+    #[test]
+    fn a_target_equation_does_not_make_a_rewritten_state_fact_known() {
+        let definition = partial_target_definition();
+        assert_the_divisor_cannot_be_zero(&definition, true, Some(&NoSolver));
+        assert_the_divisor_cannot_be_zero(&definition, true, None);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_target_equation_does_not_make_a_rewritten_state_fact_known_with_a_solver() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        assert_the_divisor_cannot_be_zero(&definition, true, Some(&solver));
+    }
+
+    #[test]
+    fn a_target_equation_refuted_by_the_state_term_definedness_does_not_match() {
+        let definition = partial_target_definition();
+        assert_the_divisor_cannot_be_zero(&definition, false, Some(&NoSolver));
+        assert_the_divisor_cannot_be_zero(&definition, false, None);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_target_equation_refuted_by_the_state_term_definedness_does_not_match_with_a_solver() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        assert_the_divisor_cannot_be_zero(&definition, false, Some(&solver));
     }
 }

@@ -2624,7 +2624,7 @@ symbol = "normalize_match_condition"
 
 [[node.cost]]
 mode = "search result normalization"
-bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and O(f x t) to apply the binding to the facts when f > 0"
+bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and, when f > 0, O(f x t) per solved binding to eliminate it from the facts (a binding from the subject's own constraints) or to move the facts it rewrites into the constraints (any other binding, which also reads the variable sets of the c constraints)"
 
 [[node]]
 kind = "algorithm"
