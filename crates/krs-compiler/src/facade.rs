@@ -471,7 +471,8 @@ fn workspace_dependencies(
 
 /// The workspace root manifest of the package of `manifest`: the path that
 /// `package.workspace` names, the manifest itself when it has a `[workspace]`
-/// table, or else the nearest ancestor workspace that includes the package.
+/// table, or else the nearest ancestor with a `[workspace]` table that does
+/// not exclude the package, as Cargo discovers it.
 fn workspace_root(
     manifest: &Path,
     table: &toml_edit::Table,
@@ -490,12 +491,12 @@ fn workspace_root(
     for directory in package_dir.ancestors().skip(1) {
         let candidate = directory.join("Cargo.toml");
         record_probe(&candidate);
-        if candidate.is_file()
-            && workspace_includes_package(
-                read_manifest(&candidate)?.as_table(),
-                directory,
-                package_dir,
-            )
+        if !candidate.is_file() {
+            continue;
+        }
+        let document = read_manifest(&candidate)?;
+        if let Some(workspace) = document.get("workspace").and_then(Item::as_table_like)
+            && !workspace_excludes(workspace, directory, manifest)
         {
             return Ok(Some(candidate));
         }
@@ -503,77 +504,24 @@ fn workspace_root(
     Ok(None)
 }
 
-fn workspace_includes_package(table: &toml_edit::Table, root: &Path, package: &Path) -> bool {
-    let Some(workspace) = table.get("workspace").and_then(Item::as_table_like) else {
-        return false;
-    };
-    let Some(relative) = package.strip_prefix(root).ok().and_then(Path::to_str) else {
-        return false;
-    };
-    let excluded = workspace
-        .get("exclude")
-        .and_then(Item::as_array)
-        .is_some_and(|patterns| {
-            patterns
-                .iter()
-                .filter_map(toml_edit::Value::as_str)
-                .any(|pattern| {
-                    relative
-                        .match_indices('/')
-                        .map(|(index, _)| &relative[..index])
-                        .chain(std::iter::once(relative))
-                        .any(|prefix| workspace_path_matches(pattern, prefix))
-                })
-        });
-    !excluded
-        && workspace
-            .get("members")
+/// Whether the workspace rooted at `root` excludes the package of `manifest`.
+///
+/// Like Cargo, this compares `exclude` and `members` entries as literal path
+/// prefixes without expanding globs, and an explicit member overrides an
+/// exclusion.
+fn workspace_excludes(workspace: &dyn TableLike, root: &Path, manifest: &Path) -> bool {
+    let lists_package = |key: &str| {
+        workspace
+            .get(key)
             .and_then(Item::as_array)
-            .is_some_and(|patterns| {
-                patterns
+            .is_some_and(|entries| {
+                entries
                     .iter()
                     .filter_map(toml_edit::Value::as_str)
-                    .any(|pattern| workspace_path_matches(pattern, relative))
+                    .any(|entry| manifest.starts_with(root.join(entry)))
             })
-}
-
-fn workspace_path_matches(pattern: &str, path: &str) -> bool {
-    fn component_matches(pattern: &str, component: &str) -> bool {
-        match pattern.chars().next() {
-            None => component.is_empty(),
-            Some('*') => {
-                component_matches(&pattern[1..], component)
-                    || component.chars().next().is_some_and(|first| {
-                        component_matches(pattern, &component[first.len_utf8()..])
-                    })
-            }
-            Some('?') => component.chars().next().is_some_and(|first| {
-                component_matches(&pattern[1..], &component[first.len_utf8()..])
-            }),
-            Some(first) => component
-                .strip_prefix(first)
-                .is_some_and(|rest| component_matches(&pattern[first.len_utf8()..], rest)),
-        }
-    }
-
-    fn components_match(pattern: &[&str], path: &[&str]) -> bool {
-        match pattern.split_first() {
-            None => path.is_empty(),
-            Some((&"**", rest)) => {
-                components_match(rest, path)
-                    || (!path.is_empty() && components_match(pattern, &path[1..]))
-            }
-            Some((first, rest)) => path.split_first().is_some_and(|(component, tail)| {
-                component_matches(first, component) && components_match(rest, tail)
-            }),
-        }
-    }
-
-    let pattern = pattern.trim_start_matches("./").trim_end_matches('/');
-    components_match(
-        &pattern.split('/').collect::<Vec<_>>(),
-        &path.split('/').collect::<Vec<_>>(),
-    )
+    };
+    lists_package("exclude") && !lists_package("members")
 }
 
 #[cfg(test)]
@@ -649,6 +597,8 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let package_dir = if let Some(workspace_manifest) = workspace_manifest {
             fs::write(temporary.path().join("Cargo.toml"), workspace_manifest).unwrap();
+            fs::create_dir(temporary.path().join("src")).unwrap();
+            fs::write(temporary.path().join("src/lib.rs"), "").unwrap();
             let package_dir = temporary.path().join("member");
             fs::create_dir(&package_dir).unwrap();
             package_dir
@@ -754,6 +704,30 @@ mod tests {
                 "[workspace]\nmembers = [\"m*\"]\nexclude = [\"member\"]\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
             ),
             "error",
+        );
+        assert_proc_macro_crate_parity(
+            "explicit member that is also excluded",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nworkspace-krs = { workspace = true }\n",
+            Some(
+                "[workspace]\nmembers = [\"member\"]\nexclude = [\"member\"]\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            ),
+            "name:workspace_krs",
+        );
+        assert_proc_macro_crate_parity(
+            "glob exclude entries are literal prefixes",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nworkspace-krs = { workspace = true }\n",
+            Some(
+                "[workspace]\nmembers = [\"m*\"]\nexclude = [\"m*\"]\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            ),
+            "name:workspace_krs",
+        );
+        assert_proc_macro_crate_parity(
+            "path-dependency member of a root package",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nworkspace-krs = { workspace = true }\n",
+            Some(
+                "[package]\nname = \"root\"\nversion = \"0.1.0\"\n[workspace]\n[dependencies]\nfixture = { path = \"member\" }\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            ),
+            "name:workspace_krs",
         );
     }
 
