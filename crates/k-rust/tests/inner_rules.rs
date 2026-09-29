@@ -4335,6 +4335,52 @@ fn parametric_result_in_a_placeholder_slot_agrees_under_checked_inference() {
     );
 }
 
+#[test]
+fn a_declared_mint_k_keeps_its_subsorts_while_the_bridges_stay_recognition_only() {
+    // `syntax MInt{K}` declares the spelling the rule grammar also uses for the slot of an
+    // `MInt` whose width has no parse-time value. The declared instance is a defined sort, so
+    // its unary productions state inclusions: the generated `KItem ::= MInt{K}`, which
+    // `g(X) => f(X)` needs, and the definition's `Thing ::= MInt{K}`, which
+    // `g(B:MInt{K}) => t(B)` needs. The bridge `MInt{K} ::= MInt{64}` only lets an `MInt{64}` be
+    // recognized at that slot; `MInt{64}` and `MInt{K}` are different instances of `MInt`, so
+    // `h(X) => f(X)` is still rejected.
+    let definition = |sentences: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports MINT\n  imports BOOL\n  syntax MInt{{64}}\n  \
+             syntax MInt{{K}}\n  syntax Bool ::= f(MInt{{K}}) [function]\n  \
+             rule f(_) => true\n{sentences}endmodule\n"
+        )
+    };
+    let load = |sentences: &str| {
+        load_with_prelude_options(&definition(sentences), "test.k", "TEST", Vec::new())
+    };
+
+    // Only the generated `KItem ::= MInt{K}` relates `MInt{K}` to `KItem` here.
+    load(indoc! {"
+        syntax Bool ::= g(KItem) [function]
+        rule g(X) => f(X)
+    "})
+    .expect("MInt{K} <= KItem holds for the declared instance MInt{K}");
+
+    load(indoc! {r#"
+        syntax Thing ::= MInt{K} | "thing"
+        syntax Bool ::= g(KItem) [function] | t(Thing) [function]
+        rule t(_) => true
+        rule g(B:MInt{K}) => t(B)
+    "#})
+    .expect("MInt{K} <= Thing holds for the declared instance MInt{K}");
+
+    let Err(error) = load(indoc! {"
+        syntax Bool ::= h(MInt{64}) [function]
+        rule h(X) => f(X)
+    "}) else {
+        panic!("MInt{{64}} <= MInt{{K}} must not hold through the recognition bridge");
+    };
+    let message = error.to_string();
+    assert!(message.contains("Unexpected sort MInt{64}"), "{message}");
+    assert!(message.contains("Expected: MInt{K}"), "{message}");
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {

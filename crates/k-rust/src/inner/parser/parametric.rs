@@ -16,7 +16,7 @@
 //! Construction is O(concrete sorts * formal productions), including the four K-specific
 //! instantiation cases; substitution is linear in the traversed sort tree.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
@@ -25,7 +25,7 @@ use crate::definition::{
 use crate::kast::{FrontendSort, Label, Sort};
 use crate::names::BuiltinSort;
 
-use super::grammar::placeholder_of;
+use super::grammar::{Placeholder, placeholder_of};
 use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -218,19 +218,49 @@ pub(crate) fn concretize_parametric_productions<'a>(
     }
 }
 
+impl ParsingOnlySubsort {
+    /// The declared instance this bridge lets a placeholder slot recognize.
+    fn instance(&self) -> &Sort {
+        let Sentence::Production { items, .. } = &self.sentence else {
+            unreachable!("a bridge is a production")
+        };
+        let [ProductionItem::NonTerminal { sort, .. }] = items.as_slice() else {
+            unreachable!("a bridge has one nonterminal")
+        };
+        sort
+    }
+}
+
 impl Grammar {
+    /// Register the placeholder of every parametric head the plan bridges, as a declared instance
+    /// when the plan's declared instances include its spelling and as scaffolding otherwise.
+    pub(super) fn register_placeholders(&mut self, concretization: &ParametricConcretization<'_>) {
+        let instances = concretization
+            .parsing_only_subsorts
+            .iter()
+            .map(ParsingOnlySubsort::instance)
+            .collect::<BTreeSet<_>>();
+        let heads = concretization
+            .parsing_only_subsorts
+            .iter()
+            .map(|bridge| &bridge.head)
+            .collect::<BTreeSet<_>>();
+        for head in heads {
+            let role = if instances.contains(&placeholder_of(head)) {
+                Placeholder::DeclaredInstance
+            } else {
+                Placeholder::Scaffolding
+            };
+            self.placeholder_sort(head, role);
+        }
+    }
+
     pub(super) fn add_parametric_productions(
         &mut self,
-        sentences: &[&Sentence],
+        concretization: ParametricConcretization<'_>,
         lexical: &BTreeMap<String, KRegex>,
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<(), ParseError> {
-        let concretization = concretize_parametric_productions(sentences);
-        // The placeholders are registered before any production is added, so no instance and no
-        // bridge can put one into a subsort relation.
-        for bridge in &concretization.parsing_only_subsorts {
-            self.placeholder_sort(&bridge.head);
-        }
         for family in concretization.families {
             let sentence = family.formal_source;
             // All temporary concrete variants of this source production become the same original
@@ -245,8 +275,9 @@ impl Grammar {
         }
 
         // Let a concrete instance such as `MInt{6}` be recognized at the placeholder `MInt{K}` of
-        // a slot whose parameter has no parse-time value. The placeholder is registered, so the
-        // bridge contributes no subsort pair.
+        // a slot whose parameter has no parse-time value. The placeholder was registered before
+        // any production (`register_placeholders`), so the bridge is a recognition step and
+        // contributes no subsort pair.
         for bridge in concretization.parsing_only_subsorts {
             let Sentence::Production { sort, items, .. } = bridge.sentence else {
                 unreachable!()
@@ -539,7 +570,10 @@ mod tests {
     fn placeholders_are_registered_and_stay_out_of_both_subsort_relations() {
         let grammar = parametric_grammar();
         let placeholder = Sort::with_parameters("MInt", vec![Sort::new("K")]);
-        assert_eq!(grammar.placeholders, BTreeSet::from([placeholder.clone()]));
+        assert_eq!(
+            grammar.placeholders,
+            BTreeMap::from([(placeholder.clone(), Placeholder::Scaffolding)])
+        );
         for (lesser, greater) in grammar
             .subsort_relations
             .iter()
@@ -557,6 +591,64 @@ mod tests {
                 .subsort_relations
                 .contains(&(mint_8, Sort::new("KItem")))
         );
+    }
+
+    #[test]
+    fn a_declared_placeholder_spelling_keeps_its_own_subsorts_and_only_the_bridges_are_dropped() {
+        // `syntax MInt{K}` declares the placeholder spelling as an instance. Its own unary
+        // productions (the user's `Thing ::= MInt{K}`, added before the parametric pass, and the
+        // generated `KItem ::= MInt{K}`) state inclusions; the bridges into it from `MInt{8}` and
+        // from itself do not.
+        let mint_k = Sort::with_parameters("MInt", vec![Sort::new("K")]);
+        let mint_8 = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        let thing = Sort::new("Thing");
+        let mut sentences = parametric_sentences();
+        sentences.extend([
+            syntax_sort(Vec::new(), mint_k.clone()),
+            syntax_sort(Vec::new(), thing.clone()),
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: thing.clone(),
+                items: vec![nonterminal(mint_k.clone())],
+                attributes: Attributes::default(),
+            },
+        ]);
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+        assert_eq!(
+            grammar.placeholders,
+            BTreeMap::from([(mint_k.clone(), Placeholder::DeclaredInstance)])
+        );
+        for pair in [
+            (mint_k.clone(), thing),
+            (mint_k.clone(), Sort::new("KItem")),
+            (mint_8.clone(), Sort::new("KItem")),
+        ] {
+            assert!(grammar.subsort_relations.contains(&pair), "{pair:?}");
+            assert!(
+                grammar.syntactic_subsort_relations.contains(&pair),
+                "{pair:?}"
+            );
+        }
+        for bridge in [
+            (mint_8.clone(), mint_k.clone()),
+            (mint_k.clone(), mint_k.clone()),
+        ] {
+            assert!(!grammar.subsort_relations.contains(&bridge), "{bridge:?}");
+            assert!(
+                !grammar.syntactic_subsort_relations.contains(&bridge),
+                "{bridge:?}"
+            );
+        }
+        // The bridge is still there for the recognizer.
+        assert!(grammar.productions.iter().any(|production| {
+            production.result == mint_k
+                && matches!(
+                    production.items.as_slice(),
+                    [super::super::Item::NonTerminal(sort)] if sort == &mint_8
+                )
+        }));
     }
 
     #[test]

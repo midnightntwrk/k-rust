@@ -100,6 +100,7 @@ use self::chart::*;
 use self::cycles::{SameSpanCycles, check_same_span_repetition};
 use self::disambiguation::PackedPriorityMemos;
 use self::forest::*;
+use self::grammar::Placeholder;
 use self::grammar::ProductionText;
 use self::grammar::catalog_production;
 pub(super) use self::grammar::named_projection_productions;
@@ -806,11 +807,12 @@ pub struct Grammar {
     overloads: PartialOrder<ProductionIdentity>,
     user_lists: BTreeMap<Sort, UserList>,
     /// Recognition placeholders `H{K}`: the sort a slot of the parametric head `H` is recognized
-    /// at when its parameter has no parse-time value. A placeholder denotes no set of terms, so a
-    /// unary production touching it only widens what the recognizer accepts and contributes no
-    /// subsort pair (`add_production_with_lexical`). Registered only by `placeholder_sort`, before
-    /// any production that mentions the placeholder, never recognized by spelling.
-    placeholders: BTreeSet<Sort>,
+    /// at when its parameter has no parse-time value, with whether the definition also declares
+    /// that spelling as an instance of `H` (`Placeholder`). A unary production that is a
+    /// recognition step at a placeholder only widens what the recognizer accepts and contributes
+    /// no subsort pair (`add_production_with_lexical`). Registered only by `placeholder_sort`,
+    /// before any production is added, never recognized by spelling.
+    placeholders: BTreeMap<Sort, Placeholder>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,
 }
@@ -841,7 +843,7 @@ impl Default for Grammar {
             syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
-            placeholders: BTreeSet::new(),
+            placeholders: BTreeMap::new(),
             productive_unary_cycles: BTreeSet::new(),
             role: ParserRole::Rule,
         }

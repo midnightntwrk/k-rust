@@ -51,6 +51,7 @@ use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
 use crate::names::BuiltinSort;
 
 use super::disambiguation::parse_apply_priority;
+use super::parametric::concretize_parametric_productions;
 use super::scanner::{DeclarationSite, Item, Layout, Scanner, compile_item};
 use super::{
     CyclicDerivation, Grammar, ParseError, ParseProvenance, ParserRole, Production,
@@ -245,6 +246,10 @@ impl Grammar {
             role,
             ..Self::default()
         };
+        // The placeholders come from the parametric plan and are registered before any
+        // production is added, so every unary production is judged against them.
+        let concretization = concretize_parametric_productions(&sentences);
+        grammar.register_placeholders(&concretization);
         for sentence in &sentences {
             let Sentence::Production {
                 label,
@@ -295,7 +300,7 @@ impl Grammar {
                 &lexical,
             )?;
         }
-        grammar.add_parametric_productions(&sentences, &lexical, source_links.catalog)?;
+        grammar.add_parametric_productions(concretization, &lexical, source_links.catalog)?;
         grammar.initialize_user_lists()?;
         let original_productions = grammar.productions.len();
         for production in 0..original_productions {
@@ -705,28 +710,47 @@ impl Grammar {
         )
     }
 
-    /// Register and return the recognition placeholder of the parametric head `head`.
+    /// Register and return the recognition placeholder of the parametric head `head`, in the
+    /// role the definition gives its spelling.
     ///
-    /// Registration must precede every production that mentions the placeholder: a subsort pair
-    /// inserted before it would put the placeholder in a relation it can never be part of.
-    pub(super) fn placeholder_sort(&mut self, head: &SortHead) -> Sort {
-        let placeholder = placeholder_of(head);
+    /// Registration must precede every production: a unary production added before it would be
+    /// judged without the placeholder and could put a recognition step into a subsort relation.
+    pub(super) fn placeholder_sort(&mut self, head: &SortHead, role: Placeholder) -> Sort {
         debug_assert!(
-            !self
-                .subsort_relations
-                .iter()
-                .chain(self.syntactic_subsort_relations.iter())
-                .any(|(lesser, greater)| lesser == &placeholder || greater == &placeholder),
-            "placeholder {placeholder} registered after a subsort pair mentioning it"
+            self.productions.is_empty(),
+            "placeholder of {head:?} registered after a production was added"
         );
-        self.placeholders.insert(placeholder.clone());
+        let placeholder = placeholder_of(head);
+        self.placeholders.insert(placeholder.clone(), role);
         placeholder
+    }
+
+    /// Whether the unary production `result ::= child` is a recognition step: it widens what the
+    /// recognizer accepts at a placeholder and states no inclusion between sorts.
+    ///
+    /// A scaffolding placeholder denotes no set of terms, so no unary production touching it
+    /// states an inclusion. A placeholder spelling that the definition also declares as an
+    /// instance is a defined sort, and its own unary productions (`KItem ::= MInt{K}`,
+    /// `Thing ::= MInt{K}`) state inclusions like those of any defined sort; only a production
+    /// into it from an instance of its own head is a recognition step. That production is the
+    /// bridge by which a slot whose parameter has no parse-time value recognizes the instance:
+    /// `MInt{64}` and `MInt{K}` are the instances of `MInt` at two different parameters, so they
+    /// are different sorts and the bridge states no inclusion between them.
+    fn is_recognition_step(&self, child: &Sort, result: &Sort) -> bool {
+        self.placeholders.get(child) == Some(&Placeholder::Scaffolding)
+            || match self.placeholders.get(result) {
+                None => false,
+                Some(Placeholder::Scaffolding) => true,
+                Some(Placeholder::DeclaredInstance) => {
+                    SortHead::from(child) == SortHead::from(result)
+                }
+            }
     }
 
     fn insert_subsort_pair(&mut self, lesser: &Sort, greater: &Sort, relation: SubsortRelation) {
         debug_assert!(
-            !self.placeholders.contains(lesser) && !self.placeholders.contains(greater),
-            "subsort pair ({lesser}, {greater}) has a recognition placeholder side"
+            !self.is_recognition_step(lesser, greater),
+            "subsort pair ({lesser}, {greater}) is a recognition step at a placeholder"
         );
         let relations = match relation {
             SubsortRelation::Semantic => &mut self.subsort_relations,
@@ -810,15 +834,13 @@ impl Grammar {
             .apply_priority
             .map(parse_apply_priority)
             .transpose()?;
-        // A unary production whose child or result is a recognition placeholder only widens
-        // what the recognizer accepts at the placeholder; the placeholder denotes no set of terms,
-        // so the production states no inclusion between sorts. `MInt{64} <= MInt{K}` in either
-        // relation would let inference choose `K` for a parameter constrained by that slot
+        // A recognition step at a placeholder (`is_recognition_step`) only widens what the
+        // recognizer accepts, so it states no inclusion between sorts. `MInt{64} <= MInt{K}` in
+        // either relation would let inference choose `K` for a parameter constrained by that slot
         // instead of the width its token or cast anchors, and would let bracket-overload
         // selection rank productions through a recognition step.
         if let [Item::NonTerminal(child)] = items.as_slice()
-            && !self.placeholders.contains(child)
-            && !self.placeholders.contains(&result)
+            && !self.is_recognition_step(child, &result)
         {
             if label.is_none() && syntactic_subsort {
                 self.insert_subsort_pair(child, &result, SubsortRelation::Semantic);
@@ -1131,11 +1153,26 @@ pub(super) fn render_parsing_production(production: &Production) -> String {
 }
 
 /// The recognition placeholder `H{K}` of the parametric head `H`: the sort a slot of head `H` is
-/// recognized at when its parameter has no parse-time value, reached from every declared instance
-/// of `H` by a recognition-only bridge. The one spelling shared by the grammar's registration
-/// (`Grammar::placeholder_sort`) and the concretization plan's bridges.
+/// recognized at when its parameters have no parse-time value, reached from every declared
+/// instance of `H` by a recognition-only bridge. The concretization plan substitutes `K` for each
+/// parameter without a parse-time value, so the placeholder has one `K` per parameter of `H`.
+/// The one spelling shared by the grammar's registration (`Grammar::placeholder_sort`) and the
+/// concretization plan's bridges.
 pub(super) fn placeholder_of(head: &SortHead) -> Sort {
-    Sort::with_parameters(head.as_str(), vec![Sort::new(BuiltinSort::K.k_name())])
+    Sort::with_parameters(
+        head.as_str(),
+        vec![Sort::new(BuiltinSort::K.k_name()); head.parameters()],
+    )
+}
+
+/// The role a definition gives the spelling of a recognition placeholder `H{K}`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Placeholder {
+    /// No visible sentence declares `H{K}`: parser scaffolding that denotes no set of terms.
+    Scaffolding,
+    /// A visible sentence declares `H{K}` as an instance of `H`: a defined sort that is also the
+    /// recognition target of the bridges from the instances of `H`.
+    DeclaredInstance,
 }
 
 /// Which of a grammar's two subsort relations a unary production contributes to.
@@ -1198,7 +1235,8 @@ mod tests {
             }]
         };
         let mut grammar = Grammar::default();
-        let placeholder = grammar.placeholder_sort(&SortHead::new("MInt", 1));
+        let placeholder =
+            grammar.placeholder_sort(&SortHead::new("MInt", 1), Placeholder::Scaffolding);
         assert_eq!(
             placeholder,
             Sort::with_parameters("MInt", vec![Sort::new("K")])
@@ -1247,6 +1285,63 @@ mod tests {
         let control = (mint_64, int);
         assert!(grammar.subsort_relations.contains(&control));
         assert!(grammar.syntactic_subsort_relations.contains(&control));
+    }
+
+    #[test]
+    fn a_declared_placeholder_spelling_drops_only_the_bridges_from_its_own_head() {
+        let mint_64 = Sort::with_parameters("MInt", vec![Sort::new("64")]);
+        let unary = |sort: &Sort| {
+            vec![ProductionItem::NonTerminal {
+                sort: sort.clone(),
+                name: None,
+            }]
+        };
+        let mut grammar = Grammar::default();
+        let mint_k =
+            grammar.placeholder_sort(&SortHead::new("MInt", 1), Placeholder::DeclaredInstance);
+
+        // The bridges from an instance of `MInt`, including the declared `MInt{K}` itself.
+        for instance in [&mint_64, &mint_k] {
+            grammar
+                .add(mint_k.clone(), unary(instance), None, false, false)
+                .unwrap();
+            let bridge = (instance.clone(), mint_k.clone());
+            assert!(!grammar.subsort_relations.contains(&bridge), "{bridge:?}");
+            assert!(
+                !grammar.syntactic_subsort_relations.contains(&bridge),
+                "{bridge:?}"
+            );
+        }
+
+        // The declared sort's own unary productions state inclusions in both directions.
+        let kitem = Sort::new("KItem");
+        let kbott = Sort::new("KBott");
+        grammar
+            .add(kitem.clone(), unary(&mint_k), None, false, false)
+            .unwrap();
+        grammar
+            .add(mint_k.clone(), unary(&kbott), None, false, false)
+            .unwrap();
+        for pair in [(mint_k.clone(), kitem), (kbott, mint_k)] {
+            assert!(grammar.subsort_relations.contains(&pair), "{pair:?}");
+            assert!(
+                grammar.syntactic_subsort_relations.contains(&pair),
+                "{pair:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_placeholder_has_one_k_per_parameter_of_its_head() {
+        let k = Sort::new("K");
+        assert_eq!(
+            placeholder_of(&SortHead::new("MInt", 1)),
+            Sort::with_parameters("MInt", vec![k.clone()])
+        );
+        assert_eq!(
+            placeholder_of(&SortHead::new("Pair", 2)),
+            Sort::with_parameters("Pair", vec![k.clone(), k])
+        );
     }
 
     #[test]
