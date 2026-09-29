@@ -3,11 +3,11 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr, DefinitionRuleBody,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
-    FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent, LabelId,
-    ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, StableItemId, SymbolId,
-    SymbolKind,
+    ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr,
+    DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent,
+    LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, StableItemId,
+    SymbolId, SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -277,26 +277,31 @@ impl GeneratedRange {
     pub(crate) fn new(
         artifact: &str,
         source: &str,
+        index: &LineIndex,
         start: usize,
         end: usize,
     ) -> Result<Self, SidecarError> {
-        if start > end
+        if ByteRange::new(start, end).is_err()
             || end > source.len()
             || !source.is_char_boundary(start)
             || !source.is_char_boundary(end)
         {
             return Err(SidecarError::InvalidGeneratedRange);
         }
-        let (start_line, start_column) = line_column(source, start)?;
-        let (end_line, end_column) = line_column(source, end)?;
+        let start_position = index
+            .byte_to_position(start)
+            .map_err(|_| SidecarError::RangeOverflow)?;
+        let end_position = index
+            .byte_to_position(end)
+            .map_err(|_| SidecarError::RangeOverflow)?;
         Ok(Self {
             artifact: artifact.to_owned(),
             start_byte: u64::try_from(start).map_err(|_| SidecarError::RangeOverflow)?,
             end_byte: u64::try_from(end).map_err(|_| SidecarError::RangeOverflow)?,
-            start_line,
-            start_column,
-            end_line,
-            end_column,
+            start_line: start_position.line(),
+            start_column: start_position.scalar_column(),
+            end_line: end_position.line(),
+            end_column: end_position.scalar_column(),
         })
     }
 
@@ -564,13 +569,18 @@ impl SourceMap {
         mut self,
         artifacts: &[(&str, &str, &GeneratedRanges)],
     ) -> Result<Self, SidecarError> {
+        let indexes: Vec<_> = artifacts
+            .iter()
+            .map(|(_, source, _)| LineIndex::new(source))
+            .collect();
         for entry in &mut self.entries {
-            for (artifact, source, ranges) in artifacts {
+            for ((artifact, source, ranges), index) in artifacts.iter().zip(&indexes) {
                 if let Some((start, end)) = ranges.get(&entry.key) {
                     if entry.generated.is_some() {
                         return Err(SidecarError::DuplicateSourceMapKey(entry.key.clone()));
                     }
-                    entry.generated = Some(GeneratedRange::new(artifact, source, *start, *end)?);
+                    entry.generated =
+                        Some(GeneratedRange::new(artifact, source, index, *start, *end)?);
                 }
             }
         }
@@ -826,18 +836,6 @@ fn canonical_json(value: &impl Serialize) -> serde_json::Result<String> {
     let mut json = serde_json::to_string_pretty(value)?;
     json.push('\n');
     Ok(json)
-}
-
-fn line_column(source: &str, offset: usize) -> Result<(u32, u32), SidecarError> {
-    let prefix = &source[..offset];
-    let line = u32::try_from(prefix.bytes().filter(|byte| *byte == b'\n').count() + 1)
-        .map_err(|_| SidecarError::RangeOverflow)?;
-    let column_source = prefix
-        .rsplit_once('\n')
-        .map_or(prefix, |(_, suffix)| suffix);
-    let column = u32::try_from(column_source.chars().count() + 1)
-        .map_err(|_| SidecarError::RangeOverflow)?;
-    Ok((line, column))
 }
 
 fn looks_absolute_path(value: &str) -> bool {

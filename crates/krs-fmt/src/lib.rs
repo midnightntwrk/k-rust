@@ -466,7 +466,7 @@ mod tests {
 ";
         let stream = TokenStream::from_str(source).expect("tokenize fixture");
         let mut offsets = Vec::new();
-        collect_safe_token_ends(source, stream, &mut offsets);
+        collect_safe_token_ends(stream, &mut offsets);
         offsets.sort_unstable();
         offsets.dedup();
         let options = FormatOptions {
@@ -484,24 +484,16 @@ mod tests {
         }
     }
 
-    fn collect_safe_token_ends(source: &str, stream: TokenStream, output: &mut Vec<usize>) {
+    fn collect_safe_token_ends(stream: TokenStream, output: &mut Vec<usize>) {
         for token in stream {
             match token {
                 TokenTree::Group(group) => {
-                    output.push(
-                        rustfmt::line_column_to_byte(source, group.span_open().end())
-                            .expect("open delimiter offset"),
-                    );
-                    collect_safe_token_ends(source, group.stream(), output);
-                    output.push(
-                        rustfmt::line_column_to_byte(source, group.span_close().end())
-                            .expect("close delimiter offset"),
-                    );
+                    output.push(group.span_open().byte_range().end);
+                    collect_safe_token_ends(group.stream(), output);
+                    output.push(group.span_close().byte_range().end);
                 }
                 TokenTree::Punct(punct) if punct.spacing() == Spacing::Joint => {}
-                token => output.push(
-                    rustfmt::line_column_to_byte(source, token.span().end()).expect("token offset"),
-                ),
+                token => output.push(token.span().byte_range().end),
             }
         }
     }

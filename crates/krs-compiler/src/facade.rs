@@ -15,6 +15,7 @@
 //!
 //! Resolution is exact and delegated to [`krs_syntax::surface::resolve`].
 
+use krs_ir::Position;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -268,15 +269,22 @@ impl<'a> AttributeResolver<'a> {
             if self.resolves_attribute(attribute.path(), &entry) {
                 continue;
             }
-            let start = attribute.pound_token.span.start();
+            let start = Position::from_proc_macro2(attribute.pound_token.span.start()).map_err(
+                |error| {
+                    CollectionError::new(
+                        CollectionErrorKind::SourcePositionOutOfBounds,
+                        error.to_string(),
+                    )
+                },
+            )?;
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedAttribute,
                 format!(
                     "attribute `{}` at `{}`:{}:{} is named like the KRS entry point `{}` but does not invoke it; KRS attributes are written only under a name that binds the `krs` facade, so {}",
                     attribute_spelling(attribute.path()),
                     self.display_file,
-                    start.line,
-                    start.column + 1,
+                    start.line(),
+                    start.scalar_column(),
                     entry,
                     self.facade.suggest(&entry, false),
                 ),
@@ -303,15 +311,21 @@ impl<'a> AttributeResolver<'a> {
         if entry.name().starts_with("__") || self.resolve_macro(&invocation.path) == Some(entry) {
             return Ok(());
         }
-        let start = invocation.path.span().start();
+        let start =
+            Position::from_proc_macro2(invocation.path.span().start()).map_err(|error| {
+                CollectionError::new(
+                    CollectionErrorKind::SourcePositionOutOfBounds,
+                    error.to_string(),
+                )
+            })?;
         Err(CollectionError::new(
             CollectionErrorKind::UnresolvedAttribute,
             format!(
                 "macro `{}` at `{}`:{}:{} is named like the KRS entry point `{}` but does not invoke it; KRS macros are written only under a name that binds the `krs` facade, so {}",
                 attribute_spelling(&invocation.path),
                 self.display_file,
-                start.line,
-                start.column + 1,
+                start.line(),
+                start.scalar_column(),
                 name,
                 self.facade.suggest(&name, true),
             ),

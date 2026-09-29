@@ -11,7 +11,7 @@ use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance,
     HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
-    ItemKind, ProvenanceRole, RustVisibility, SchemaVersion,
+    ItemKind, Position, ProvenanceRole, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
 use krs_syntax::{ConstructorDeclaration, ProvenanceAnchor, SortDeclaration};
@@ -1043,14 +1043,12 @@ fn source_anchor(
 ) -> HostSourceAnchor {
     let start = range.start();
     let end = range.end();
-    let start_line = u32::try_from(start.line).unwrap();
-    let start_column = u32::try_from(start.column).unwrap() + 1;
-    let end_line = u32::try_from(end.line).unwrap();
-    let end_column = u32::try_from(end.column).unwrap() + 1;
+    let start = Position::from_proc_macro2(start).unwrap();
+    let end = Position::from_proc_macro2(end).unwrap();
     HostSourceAnchor::new(
         display,
-        HostSourcePosition::new(start_line, start_column).unwrap(),
-        HostSourcePosition::new(end_line, end_column).unwrap(),
+        HostSourcePosition::new(start.line(), start.scalar_column()).unwrap(),
+        HostSourcePosition::new(end.line(), end.scalar_column()).unwrap(),
         precision,
     )
     .unwrap()

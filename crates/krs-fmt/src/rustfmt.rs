@@ -3,7 +3,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
+use krs_ir::LineIndex;
+use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::visit::Visit;
 
 use crate::rules::{self, TrailingCommentStyle};
@@ -28,6 +29,7 @@ struct BodyRange {
 
 struct RuleBodyVisitor<'source> {
     source: &'source str,
+    line_index: &'source LineIndex,
     ranges: Vec<BodyRange>,
     error: Option<FormatError>,
 }
@@ -53,9 +55,26 @@ impl<'ast> Visit<'ast> for RuleBodyVisitor<'_> {
             ));
             return;
         }
+        // `syn::parse_file` strips a shebang before assigning span byte ranges.
         let open = invocation.delimiter.span().open().end();
         let close = invocation.delimiter.span().close().start();
-        let range = line_columns_to_range(self.source, open, close);
+        let range = (|| {
+            let start = self
+                .line_index
+                .line_column_to_byte(open)
+                .map_err(span_index_error)?;
+            let end = self
+                .line_index
+                .line_column_to_byte(close)
+                .map_err(span_index_error)?;
+            self.source.get(start..end).ok_or_else(|| {
+                FormatError::new(
+                    FormatErrorKind::RustSyntax,
+                    "a `rules!` body span escaped its source",
+                )
+            })?;
+            Ok((start, end))
+        })();
         match range {
             Ok((start, end)) => self.ranges.push(BodyRange { start, end }),
             Err(error) => self.error = Some(error),
@@ -70,8 +89,10 @@ fn find_rule_bodies(source: &str) -> Result<Vec<BodyRange>, FormatError> {
             format!("cannot parse Rust source before formatting: {error}"),
         )
     })?;
+    let line_index = LineIndex::new(source);
     let mut visitor = RuleBodyVisitor {
         source,
+        line_index: &line_index,
         ranges: Vec::new(),
         error: None,
     };
@@ -318,56 +339,39 @@ fn collect_ranges(
 }
 
 fn span_range(source: &str, span: Span) -> Result<krs_syntax::SourceRange, FormatError> {
-    let (start, end) = line_columns_to_range(source, span.start(), span.end())?;
-    Ok(krs_syntax::SourceRange::new(start, end))
+    let range = span.byte_range();
+    source.get(range.clone()).ok_or_else(|| {
+        FormatError::new(
+            FormatErrorKind::RustSyntax,
+            "a token span escaped its source",
+        )
+    })?;
+    Ok(krs_syntax::SourceRange::new(range.start, range.end))
 }
 
-fn line_columns_to_range(
-    source: &str,
-    start: LineColumn,
-    end: LineColumn,
-) -> Result<(usize, usize), FormatError> {
-    Ok((
-        line_column_to_byte(source, start)?,
-        line_column_to_byte(source, end)?,
-    ))
+fn span_index_error(error: krs_ir::LineIndexError) -> FormatError {
+    FormatError::new(FormatErrorKind::RustSyntax, error.to_string())
 }
 
-pub(crate) fn line_column_to_byte(
-    source: &str,
-    location: LineColumn,
-) -> Result<usize, FormatError> {
-    let line_start = if location.line == 1 {
-        0
-    } else {
-        source
-            .match_indices('\n')
-            .nth(location.line - 2)
-            .map(|(offset, _)| offset + 1)
-            .ok_or_else(|| {
-                FormatError::new(
-                    FormatErrorKind::RustSyntax,
-                    format!("span line {} is outside its source", location.line),
-                )
-            })?
-    };
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |offset| line_start + offset);
-    source[line_start..line_end]
-        .char_indices()
-        .nth(location.column)
-        .map(|(offset, _)| line_start + offset)
-        .or_else(|| {
-            (location.column == source[line_start..line_end].chars().count()).then_some(line_end)
-        })
-        .ok_or_else(|| {
-            FormatError::new(
-                FormatErrorKind::RustSyntax,
-                format!(
-                    "span column {} is outside source line {}",
-                    location.column, location.line
-                ),
-            )
-        })
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn byte_ranges_follow_each_parsed_source_string() {
+        let source =
+            "#!/usr/bin/env rustx\nfn f() { let s = \"🦀\"; k::rules! { for Expr; one: A => A; } }";
+        let bodies = find_rule_bodies(source).unwrap();
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(
+            &source[bodies[0].start..bodies[0].end],
+            " for Expr; one: A => A; "
+        );
+
+        let fragment = "\"🦀\" + x";
+        let tokens = TokenStream::from_str(fragment).unwrap();
+        let first = tokens.into_iter().next().unwrap();
+        let range = span_range(fragment, first.span()).unwrap();
+        assert_eq!(range.text(fragment), Some("\"🦀\""));
+    }
 }

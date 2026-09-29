@@ -147,6 +147,7 @@ dependencies = [
 name = "krs-ir"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
  "serde",
  "serde_json",
 ]
@@ -156,6 +157,7 @@ name = "krs-macros"
 version = "0.1.0"
 dependencies = [
  "krs-expand",
+ "krs-ir",
  "krs-syntax",
  "proc-macro-crate",
  "proc-macro2",

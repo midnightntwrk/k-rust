@@ -14,6 +14,7 @@
 
 use std::cell::Cell;
 
+use krs_ir::Position;
 use proc_macro2::{LineColumn, Span};
 use syn::Path;
 
@@ -60,10 +61,7 @@ impl<'a> BrowserEnvironment<'a> {
     }
 
     fn position(location: LineColumn) -> Option<SourcePosition> {
-        Some(SourcePosition {
-            line: u32::try_from(location.line).ok()?,
-            column: u32::try_from(location.column).ok()?.checked_add(1)?,
-        })
+        Position::from_proc_macro2(location).ok().map(Into::into)
     }
 }
 

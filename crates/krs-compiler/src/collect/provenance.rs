@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    AnchorPrecision, DescriptorNodeOrigin, DescriptorProvenance, HostDescriptor,
+    AnchorPrecision, CoordinateError, DescriptorNodeOrigin, DescriptorProvenance, HostDescriptor,
     HostDescriptorPayload, HostGrammarDescriptor, HostProductionOwner, HostProvenance,
-    HostSourceAnchor, ItemKind, OriginFrame, OriginStack, ProvenanceKey, RangedOriginKind,
-    RustVisibility, SourceRange, StableItemId, TransformationOriginKind,
+    HostSourceAnchor, ItemKind, OriginFrame, OriginStack, Position, ProvenanceKey,
+    RangedOriginKind, RustVisibility, SourceRange, StableItemId, TransformationOriginKind,
 };
 use krs_syntax::{ProvenanceRole, TokenRange};
 
@@ -21,20 +21,6 @@ pub(super) struct Coordinates {
     start_column: u32,
     end_line: u32,
     end_column: u32,
-}
-
-#[derive(Debug)]
-pub(super) struct SourceLineIndex {
-    starts: Vec<usize>,
-}
-
-impl SourceLineIndex {
-    pub(super) fn new(text: &str) -> Self {
-        let mut starts = Vec::new();
-        starts.push(0);
-        starts.extend(text.match_indices('\n').map(|(offset, _)| offset + 1));
-        Self { starts }
-    }
 }
 
 pub(super) fn materialize_descriptor_provenance(
@@ -369,11 +355,13 @@ fn build_origins(
 pub(super) fn token_coordinates(range: TokenRange) -> Result<Coordinates, CollectionError> {
     let start = range.start();
     let end = range.end();
+    let start = Position::from_proc_macro2(start).map_err(|_| coordinate_overflow())?;
+    let end = Position::from_proc_macro2(end).map_err(|_| coordinate_overflow())?;
     Ok(Coordinates {
-        start_line: u32::try_from(start.line).map_err(|_| coordinate_overflow())?,
-        start_column: u32::try_from(start.column + 1).map_err(|_| coordinate_overflow())?,
-        end_line: u32::try_from(end.line).map_err(|_| coordinate_overflow())?,
-        end_column: u32::try_from(end.column + 1).map_err(|_| coordinate_overflow())?,
+        start_line: start.line(),
+        start_column: start.scalar_column(),
+        end_line: end.line(),
+        end_column: end.scalar_column(),
     })
 }
 
@@ -397,18 +385,20 @@ pub(super) fn source_range(
     document: &SourceDocument,
     anchor: &HostSourceAnchor,
 ) -> Result<SourceRange, CollectionError> {
-    let start = position_to_byte(
-        &document.text,
-        &document.line_index,
-        anchor.start().line(),
-        anchor.start().scalar_column(),
-    )?;
-    let end = position_to_byte(
-        &document.text,
-        &document.line_index,
-        anchor.end().line(),
-        anchor.end().scalar_column(),
-    )?;
+    let start = document
+        .line_index
+        .position_to_byte(
+            Position::new(anchor.start().line(), anchor.start().scalar_column())
+                .map_err(coordinate_error)?,
+        )
+        .map_err(line_index_error)?;
+    let end = document
+        .line_index
+        .position_to_byte(
+            Position::new(anchor.end().line(), anchor.end().scalar_column())
+                .map_err(coordinate_error)?,
+        )
+        .map_err(line_index_error)?;
     if start >= end {
         return Err(CollectionError::new(
             CollectionErrorKind::SourcePositionOutOfBounds,
@@ -428,53 +418,18 @@ pub(super) fn source_range(
     })
 }
 
-pub(super) fn position_to_byte(
-    text: &str,
-    line_index: &SourceLineIndex,
-    line: u32,
-    scalar_column: u32,
-) -> Result<usize, CollectionError> {
-    let requested_line = usize::try_from(line).map_err(|_| coordinate_overflow())?;
-    let requested_column = usize::try_from(scalar_column).map_err(|_| coordinate_overflow())?;
-    let line_index_position = requested_line.checked_sub(1);
-    let line_start = line_index_position
-        .and_then(|position| line_index.starts.get(position))
-        .copied()
-        .ok_or_else(|| {
-            CollectionError::new(
-                CollectionErrorKind::SourcePositionOutOfBounds,
-                format!("source line {line} is outside the exact file revision"),
-            )
-        })?;
-    let line_end = line_index
-        .starts
-        .get(requested_line)
-        .map_or(text.len(), |next_start| next_start - 1);
-    let line_text = &text[line_start..line_end];
-    if requested_column == 0 {
-        return Err(CollectionError::new(
-            CollectionErrorKind::SourcePositionOutOfBounds,
-            "source scalar columns are one-based",
-        ));
-    }
-    if requested_column == 1 {
-        return Ok(line_start);
-    }
-    line_text
-        .char_indices()
-        .nth(requested_column - 1)
-        .map(|(offset, _)| line_start + offset)
-        .or_else(|| {
-            (requested_column == line_text.chars().count() + 1).then_some(line_end)
-        })
-        .ok_or_else(|| {
-            CollectionError::new(
-                CollectionErrorKind::SourcePositionOutOfBounds,
-                format!(
-                    "source scalar column {scalar_column} is outside line {line} of the exact file revision"
-                ),
-            )
-        })
+pub(super) fn coordinate_error(error: CoordinateError) -> CollectionError {
+    CollectionError::new(
+        CollectionErrorKind::SourcePositionOutOfBounds,
+        error.to_string(),
+    )
+}
+
+pub(super) fn line_index_error(error: krs_ir::LineIndexError) -> CollectionError {
+    CollectionError::new(
+        CollectionErrorKind::SourcePositionOutOfBounds,
+        error.to_string(),
+    )
 }
 
 fn payload_primary_key(
@@ -537,9 +492,13 @@ fn descriptor_label(kind: ItemKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_ir::LineIndex;
 
     fn byte_at(text: &str, line: u32, column: u32) -> Result<usize, CollectionError> {
-        position_to_byte(text, &SourceLineIndex::new(text), line, column)
+        let position = Position::new(line, column).map_err(coordinate_error)?;
+        LineIndex::new(text)
+            .position_to_byte(position)
+            .map_err(line_index_error)
     }
 
     #[test]
@@ -577,7 +536,7 @@ mod tests {
     fn out_of_range_positions_keep_their_diagnostics() {
         let text = "x\n";
         for (line, column, detail) in [
-            (0, 1, "source line 0 is outside the exact file revision"),
+            (0, 1, "source lines are one-based"),
             (3, 1, "source line 3 is outside the exact file revision"),
             (1, 0, "source scalar columns are one-based"),
             (

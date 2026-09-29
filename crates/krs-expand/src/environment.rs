@@ -5,6 +5,7 @@
 //! for rustc (`ProcMacroEnvironment`); this crate never calls `Span::unwrap()`
 //! or queries Cargo manifests for the facade.
 
+use krs_ir::Position;
 use proc_macro2::Span;
 use syn::Path;
 
@@ -15,6 +16,15 @@ pub struct SourcePosition {
     pub line: u32,
     /// 1-based column, in the unit rustc span columns use.
     pub column: u32,
+}
+
+impl From<Position> for SourcePosition {
+    fn from(position: Position) -> Self {
+        Self {
+            line: position.line(),
+            column: position.scalar_column(),
+        }
+    }
 }
 
 /// The host of one macro invocation: source locations of its spans, its call
@@ -63,10 +73,7 @@ impl FixedEnvironment {
     }
 
     fn position(location: proc_macro2::LineColumn) -> Option<SourcePosition> {
-        Some(SourcePosition {
-            line: u32::try_from(location.line).ok()?,
-            column: u32::try_from(location.column).ok()?.checked_add(1)?,
-        })
+        Position::from_proc_macro2(location).ok().map(Into::into)
     }
 }
 

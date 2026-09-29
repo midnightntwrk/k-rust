@@ -12,10 +12,10 @@ use sha2::{Digest, Sha256};
 
 use super::PreparedContext;
 use super::invocation::{ParsedInvocation, collect_invocations};
-use super::provenance::SourceLineIndex;
 use super::trivia::validate_dsl_trivia;
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
+use krs_ir::LineIndex;
 
 static READ_FILES: Mutex<BTreeSet<(PathBuf, String)>> = Mutex::new(BTreeSet::new());
 static PROBES: Mutex<Vec<CollectorPathProbe>> = Mutex::new(Vec::new());
@@ -64,8 +64,7 @@ pub(crate) fn record_probe(path: &Path) {
 
 #[derive(Debug)]
 pub(super) struct SourceDocument {
-    pub(super) text: String,
-    pub(super) line_index: SourceLineIndex,
+    pub(super) line_index: LineIndex,
     pub(super) file: SourceFileId,
     pub(super) invocations: Vec<ParsedInvocation>,
 }
@@ -91,7 +90,7 @@ pub(super) fn load_source_document(
             format!("authored Rust source `{display_hint}` is not UTF-8: {error}"),
         )
     })?;
-    let line_index = SourceLineIndex::new(&text);
+    let line_index = LineIndex::new(&text);
     let digest = Sha256::digest(text.as_bytes());
     let digest = Sha256Digest::new(format!("{digest:x}")).map_err(|error| {
         CollectionError::new(
@@ -118,7 +117,6 @@ pub(super) fn load_source_document(
     let mut invocations = Vec::new();
     collect_invocations(&syntax.items, &resolver, &mut invocations)?;
     Ok(SourceDocument {
-        text,
         line_index,
         file,
         invocations,

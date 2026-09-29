@@ -6,7 +6,6 @@ use krs_syntax::{RuleBlock, SourceRange, TriviaKind, TriviaTable};
 use pretty::RcDoc;
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
-use crate::rustfmt::line_column_to_byte;
 use crate::{FormatError, FormatErrorKind};
 
 /// Canonical placement policy for comments trailing rule clauses.
@@ -67,7 +66,7 @@ pub(crate) fn format_rule_body(
                 format!("cannot parse `k::rules!` body{range}: {error}"),
             )
         })?;
-    let clauses = clause_sources(source, &block)?;
+    let clauses = clause_sources(&block)?;
     let comments = line_comments(source, &trivia);
     let first_clause = clauses.first().ok_or_else(|| {
         FormatError::new(
@@ -186,19 +185,15 @@ pub(crate) fn format_rule_body(
     })
 }
 
-fn clause_sources<'source>(
-    source: &str,
-    block: &'source RuleBlock,
-) -> Result<Vec<ClauseSource<'source>>, FormatError> {
+fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatError> {
     block
         .clauses()
         .iter()
         .map(|clause| {
             let range = clause.source_range();
-            let start = line_column_to_byte(source, range.start())?;
-            let end = line_column_to_byte(source, range.end())?;
-            let name_start =
-                line_column_to_byte(source, clause.rule().item().sig.ident.span().start())?;
+            let start = range.first().byte_range().start;
+            let end = range.last().byte_range().end;
+            let name_start = clause.rule().item().sig.ident.span().byte_range().start;
             if !(start <= name_start && name_start < end) {
                 return Err(FormatError::new(
                     FormatErrorKind::DslSyntax,

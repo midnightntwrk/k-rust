@@ -276,8 +276,7 @@ impl Error for HostIdentityError {}
 /// exact source revision to produce final byte-based [`crate::SourceRange`]s.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct HostSourcePosition {
-    line: u32,
-    scalar_column: u32,
+    position: crate::Position,
 }
 
 impl HostSourcePosition {
@@ -287,34 +286,30 @@ impl HostSourcePosition {
     ///
     /// Returns [`HostProvenanceError`] if either coordinate is zero.
     pub const fn new(line: u32, scalar_column: u32) -> Result<Self, HostProvenanceError> {
-        if line == 0 {
-            return Err(HostProvenanceError::ZeroLine);
+        match crate::Position::new(line, scalar_column) {
+            Ok(position) => Ok(Self { position }),
+            Err(crate::CoordinateError::ZeroLine) => Err(HostProvenanceError::ZeroLine),
+            Err(crate::CoordinateError::ZeroColumn) => Err(HostProvenanceError::ZeroColumn),
+            Err(_) => unreachable!(),
         }
-        if scalar_column == 0 {
-            return Err(HostProvenanceError::ZeroColumn);
-        }
-        Ok(Self {
-            line,
-            scalar_column,
-        })
     }
 
     /// Returns the one-based source line.
     #[must_use]
     pub const fn line(self) -> u32 {
-        self.line
+        self.position.line()
     }
 
     /// Returns the one-based Unicode-scalar column.
     #[must_use]
     pub const fn scalar_column(self) -> u32 {
-        self.scalar_column
+        self.position.scalar_column()
     }
 }
 
 impl fmt::Display for HostSourcePosition {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}:{}", self.line, self.scalar_column)
+        write!(formatter, "{}:{}", self.line(), self.scalar_column())
     }
 }
 

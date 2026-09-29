@@ -5,6 +5,7 @@
 //! source locations and `krs` facade discovery only through it.
 
 use krs_expand::{MacroEnvironment, SourcePosition};
+use krs_ir::Position;
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::Span;
 use syn::{Ident, Path, parse_quote};
@@ -14,10 +15,9 @@ pub(crate) struct ProcMacroEnvironment;
 
 impl ProcMacroEnvironment {
     fn position(location: proc_macro::Span) -> Option<SourcePosition> {
-        Some(SourcePosition {
-            line: u32::try_from(location.line()).ok()?,
-            column: u32::try_from(location.column()).ok()?,
-        })
+        Position::from_proc_macro_values(location.line(), location.column())
+            .ok()
+            .map(Into::into)
     }
 }
 

@@ -12,6 +12,7 @@
 //! or the KRS command-line interface.
 
 pub mod bundle;
+pub mod coordinates;
 pub mod definition;
 mod display;
 pub mod generated;
@@ -38,6 +39,7 @@ pub use bundle::{
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorProvenanceError, SentenceKind, SortDescriptor,
 };
+pub use coordinates::{ByteRange, CoordinateError, LineIndex, LineIndexError, Position};
 pub use definition::{
     ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
     DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,

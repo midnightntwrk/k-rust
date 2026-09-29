@@ -7,6 +7,7 @@ use std::cell::Cell;
 
 use krs_expand::sink::AuthoredFile;
 use krs_expand::{MacroEnvironment, SourcePosition};
+use krs_ir::Position;
 use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -49,10 +50,7 @@ impl<'a> TestEnvironment<'a> {
     }
 
     fn position(location: LineColumn) -> Option<SourcePosition> {
-        Some(SourcePosition {
-            line: u32::try_from(location.line).ok()?,
-            column: u32::try_from(location.column).ok()?.checked_add(1)?,
-        })
+        Position::from_proc_macro2(location).ok().map(Into::into)
     }
 }
 

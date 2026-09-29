@@ -600,6 +600,7 @@ name = "krs-fmt"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-ir",
  "krs-syntax",
  "pretty",
  "proc-macro2",
@@ -651,6 +652,7 @@ version = "0.1.0"
 dependencies = [
  "expect-test",
  "krs-expand",
+ "krs-ir",
  "krs-syntax",
  "krs-test-support",
  "proc-macro-crate",

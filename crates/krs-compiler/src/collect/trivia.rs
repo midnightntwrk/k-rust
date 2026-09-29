@@ -8,13 +8,14 @@ use krs_syntax::{
 use syn::visit::Visit;
 
 use super::invocation::source_syntax_at;
-use super::provenance::{SourceLineIndex, coordinate_overflow, position_to_byte};
+use super::provenance::line_index_error;
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
+use krs_ir::LineIndex;
 
 struct DslTriviaVisitor<'source, 'file> {
     source: &'source str,
-    line_index: &'source SourceLineIndex,
+    line_index: &'source LineIndex,
     resolver: AttributeResolver<'file>,
     error: Option<CollectionError>,
 }
@@ -65,7 +66,7 @@ impl<'ast> Visit<'ast> for DslTriviaVisitor<'_, '_> {
 pub(super) fn validate_dsl_trivia(
     syntax: &syn::File,
     source: &str,
-    line_index: &SourceLineIndex,
+    line_index: &LineIndex,
     resolver: &AttributeResolver<'_>,
 ) -> Result<(), CollectionError> {
     let mut visitor = DslTriviaVisitor {
@@ -136,30 +137,17 @@ fn validate_map_trivia(body: MacroBody<'_>) -> Result<(), CollectionError> {
 
 fn macro_body_source<'source>(
     source: &'source str,
-    line_index: &SourceLineIndex,
+    line_index: &LineIndex,
     invocation: &syn::Macro,
 ) -> Result<MacroBody<'source>, CollectionError> {
     let start = invocation.delimiter.span().open().end();
     let end = invocation.delimiter.span().close().start();
-    let start = position_to_byte(
-        source,
-        line_index,
-        u32::try_from(start.line).map_err(|_| coordinate_overflow())?,
-        u32::try_from(
-            start
-                .column
-                .checked_add(1)
-                .ok_or_else(coordinate_overflow)?,
-        )
-        .map_err(|_| coordinate_overflow())?,
-    )?;
-    let end = position_to_byte(
-        source,
-        line_index,
-        u32::try_from(end.line).map_err(|_| coordinate_overflow())?,
-        u32::try_from(end.column.checked_add(1).ok_or_else(coordinate_overflow)?)
-            .map_err(|_| coordinate_overflow())?,
-    )?;
+    let start = line_index
+        .line_column_to_byte(start)
+        .map_err(line_index_error)?;
+    let end = line_index
+        .line_column_to_byte(end)
+        .map_err(line_index_error)?;
     source
         .get(start..end)
         .map(|body| MacroBody {
