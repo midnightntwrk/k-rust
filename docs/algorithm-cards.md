@@ -326,6 +326,11 @@ classification = "responsibility-only"
 reason = "naming vocabulary of the shared term representation; term.rs has the primary card backend.term.macro_or_alias, and its constructor invariants are on its representation card, representation.backend.term"
 
 [[without_primary_card]]
+files = ["crates/k-rust-backend/src/term/head.rs"]
+classification = "responsibility-only"
+reason = "the rigidity classifier consumed by the matching, unification and rule-index algorithms, which carry the cards"
+
+[[without_primary_card]]
 files = ["crates/k-rust-backend/src/smt.rs"]
 classification = "responsibility-only"
 reason = "portable SMT-LIB translation responsibility; the bounded result-cache algorithm is in smt/z3.rs"

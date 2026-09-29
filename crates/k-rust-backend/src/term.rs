@@ -53,6 +53,7 @@ use rustc_hash::FxHasher;
 
 use crate::smt::SmtType;
 
+pub mod head;
 pub mod names;
 
 pub type Name = Arc<str>;

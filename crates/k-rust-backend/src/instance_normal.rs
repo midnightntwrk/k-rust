@@ -33,30 +33,49 @@
 //!   are not instance-normal: their value is whatever their equations make it, so their shape
 //!   does not determine their value.
 //!
+//! The equations scanned for an `anywhere` application or a collection are those equation
+//! selection offers it, so the scan answers for every equation of the definition only when
+//! selection reaches every term equation that could match an application
+//! (`BackendDefinition::equation_selection_complete`). In a definition where it does not (a
+//! simplification whose left-hand side is an `\and` of term patterns, filed apart), no
+//! `anywhere` application and no collection is instance-normal.
+//!
 //! [`BackendDefinition::instance_normal`] scans ground terms too. That
 //! [`Term::concrete_after_normalization`] holds is a syntactic fact (ground, every head a
 //! constructor or an anywhere non-function production), not evidence that no equation applies:
-//! the ground `wrap(s(z))` has it and is not a normal form.
-//! [`BackendDefinition::instance_normal_of_normal_form`] is the variant for a caller that can
-//! point at the equation normalization that made its term a fixed point: every subterm of a
-//! normal form is a normal form, so a ground subterm is instance-normal without the scan.
+//! the ground `wrap(s(z))` has it and is not a normal form. The answer is an [`InstanceNormal`]
+//! token (`token.rs`), whose constructors check the shape of the term they vouch for; the one
+//! for an `anywhere` application or a collection needs the token of a scan that enumerated the
+//! candidate equations itself, so no path can vouch for such a term without the scan.
 //!
 //! The syntactic unifiability test asks whether some instance of the subject could match the
 //! equation's pattern, not whether two values are equal, so it decomposes every equal-name
-//! application purely syntactically and does not recurse into instance normality. It treats a
-//! pair as possibly unifiable whenever its shape does not settle the question (a function or
-//! collection head, differing injection sources, a sort mismatch it cannot interpret), so an
-//! answer of "does not unify" is always a proof that no instance matches.
+//! application purely syntactically and does not recurse into instance normality. It reads the
+//! roots through the rigidity classifier (`term::head`): the equation's left-hand side up to
+//! equations, the subject as the values it denotes. It treats a pair as possibly unifiable
+//! whenever its shape does not settle the question (a function or collection head, differing
+//! injection sources, a sort mismatch it cannot interpret), so an answer of "does not unify" is
+//! always a proof that no instance matches.
+
+mod token;
 
 use std::{cell::RefCell, collections::HashMap};
 
 use rustc_hash::FxHashMap;
 
+pub(crate) use token::InstanceNormal;
+use token::{NoEquationReaches, NormalSubterms};
+
 use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
-    rule::{TermIndex, Theory, term_index},
-    term::{HeadRole, Sort, Term, TermKind, Variable},
+    term::{
+        HeadRole, Sort, Term, TermKind, Variable,
+        head::{
+            Fixed, FixedRoot, Head, InheritedFromArguments, PatternReading, RootComparison, Shape,
+            classify_pattern, classify_value, compare_roots,
+        },
+    },
 };
 
 /// Whether `term` is an application of an equation head ([`HeadRole::EquationHead`]: an
@@ -109,109 +128,68 @@ impl BackendDefinition {
     /// the [module documentation](self) for the definition and why it is sound to decompose or
     /// refute an `anywhere` head only on applications for which this holds. Makes no
     /// assumption about how `term` was produced.
-    pub(crate) fn instance_normal(&self, term: &Term) -> bool {
+    #[must_use]
+    pub(crate) fn instance_normal(&self, term: &Term) -> Option<InstanceNormal> {
         let _scope = ScanScope::enter();
-        self.instance_normal_under(term, false)
+        self.instance_normal_memoized(term)
     }
 
-    /// [`Self::instance_normal`] for a term the caller guarantees is a fixed point of equation
-    /// normalization, where a [`Term::concrete_after_normalization`] subterm is instance-normal
-    /// without the equation scan. A caller must cite the normalization that establishes the
-    /// precondition; a term assembled or substituted after normalization does not meet it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no matcher site can cite a fixed point: simplification may keep a partial result"
-        )
-    )]
-    pub(crate) fn instance_normal_of_normal_form(&self, term: &Term) -> bool {
-        self.instance_normal_under(term, true)
-    }
-
-    fn instance_normal_under(&self, term: &Term, normalized: bool) -> bool {
-        if normalized && term.concrete_after_normalization() {
-            return true;
-        }
-        if normalized {
-            return self.instance_normal_uncached(term, normalized);
-        }
+    fn instance_normal_memoized(&self, term: &Term) -> Option<InstanceNormal> {
         if let Some(known) = ScanScope::known(term) {
             return known;
         }
-        let normal = self.instance_normal_uncached(term, normalized);
+        let normal = self.instance_normal_uncached(term);
         ScanScope::record(term, normal);
         normal
     }
 
     #[deny(clippy::wildcard_enum_match_arm)]
-    fn instance_normal_uncached(&self, term: &Term, normalized: bool) -> bool {
-        let arguments_normal = |arguments: &[Term]| {
-            arguments
-                .iter()
-                .all(|argument| self.instance_normal_under(argument, normalized))
-        };
-        let rest_normal = |rest: Option<&Term>| {
-            rest.is_none_or(|rest| self.instance_normal_under(rest, normalized))
-        };
-        match term.kind() {
-            TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
-            TermKind::Injection { term, .. } => self.instance_normal_under(term, normalized),
-            TermKind::Application {
-                symbol, arguments, ..
-            } => match symbol.attributes.head_role() {
-                HeadRole::FreeConstructor => arguments_normal(arguments),
+    fn instance_normal_uncached(&self, term: &Term) -> Option<InstanceNormal> {
+        let subterms =
+            || NormalSubterms::of(term, |subterm| self.instance_normal_memoized(subterm));
+        match term.shape() {
+            Shape::DomainValue | Shape::Variable => InstanceNormal::of_value(term),
+            Shape::Injection => InstanceNormal::of_injection(term, subterms()),
+            Shape::Application(role) => match role {
+                HeadRole::FreeConstructor => InstanceNormal::of_free_constructor(term, subterms()),
                 HeadRole::EquationHead => {
-                    arguments_normal(arguments) && !self.some_equation_may_apply(term)
+                    let arguments = subterms()?;
+                    let reach = self.no_equation_reaches(term, &arguments)?;
+                    InstanceNormal::of_equation_head(term, Some(arguments), reach)
                 }
                 // A function application is rewritten by evaluation, and a macro or alias
                 // application denotes a value the definition does not describe.
-                HeadRole::Function { .. } | HeadRole::Residual => false,
+                HeadRole::Function { .. } | HeadRole::Residual => None,
             },
-            TermKind::Map { entries, rest, .. } => {
-                entries.iter().all(|(key, value)| {
-                    self.instance_normal_under(key, normalized)
-                        && self.instance_normal_under(value, normalized)
-                }) && rest_normal(rest.as_ref())
-                    && !self.some_equation_may_apply(term)
+            Shape::Collection(_) => {
+                let elements = subterms()?;
+                let reach = self.no_equation_reaches(term, &elements)?;
+                InstanceNormal::of_collection(term, Some(elements), reach)
             }
-            TermKind::List { heads, rest, .. } => {
-                arguments_normal(heads)
-                    && rest.as_ref().is_none_or(|(middle, tails)| {
-                        self.instance_normal_under(middle, normalized) && arguments_normal(tails)
-                    })
-                    && !self.some_equation_may_apply(term)
-            }
-            TermKind::Set { elements, rest, .. } => {
-                arguments_normal(elements)
-                    && rest_normal(rest.as_ref())
-                    && !self.some_equation_may_apply(term)
-            }
-            TermKind::And(..) => false,
+            Shape::And => None,
         }
     }
 
-    /// Whether some equation the evaluator may try on an application headed like `subject` may
-    /// apply to an instance of it. The candidates are those equation selection offers such a
-    /// subject: the rules indexed by its head symbol and the rules indexed by a bare variable.
-    /// A candidate is excluded when its left-hand side does not syntactically unify with
-    /// `subject`, or when equation matching, which decides for the evaluator whether an equation
-    /// applies to a term, fails on `subject`: a failure holds for every instance of `subject`
+    /// Whether no equation the evaluator may try on an application headed like `subject` may
+    /// apply to an instance of it, in a definition whose equation selection reaches every term
+    /// equation (none otherwise). The candidates are those equation selection offers such a
+    /// subject (`NoEquationReaches::scan` enumerates them). A candidate is excluded when its
+    /// left-hand side does not syntactically unify with `subject`, or when equation matching,
+    /// which decides for the evaluator whether an equation applies to a term, fails on
+    /// `subject`: a failure holds for every instance of `subject`
     /// (`matching::match_terms_in_definition`). The second test knows what the first does not:
     /// the sorts of injections and the productions of an overload family.
-    fn some_equation_may_apply(&self, subject: &Term) -> bool {
-        let indices = [term_index(subject), TermIndex::Variable];
-        let theory_may_apply = |theory: &Theory| {
-            indices.iter().any(|index| {
-                theory.get(index).is_some_and(|groups| {
-                    groups.values().flatten().any(|rule| {
-                        may_unify(&self.sort_graph, &rule.lhs, subject)
-                            && !self.matching_refutes(&rule.lhs, subject)
-                    })
-                })
-            })
-        };
-        theory_may_apply(self.function_theory()) || theory_may_apply(self.simplification_theory())
+    fn no_equation_reaches<'t>(
+        &self,
+        subject: &'t Term,
+        subterms: &NormalSubterms<'_>,
+    ) -> Option<NoEquationReaches<'t>> {
+        let selection = self.equation_selection_complete()?;
+        let subterm = subterms.subterm();
+        NoEquationReaches::scan(selection, self, subject, |rule| {
+            !may_unify(&self.sort_graph, &rule.lhs, subject, subterm)
+                || self.matching_refutes(&rule.lhs, subject)
+        })
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
@@ -234,7 +212,8 @@ thread_local! {
     /// [`BackendDefinition::instance_normal`] call on this thread, if one is open. Equation
     /// matching inside the scan asks about the subterms of the scanned term again; the answer
     /// is a function of the term and the definition, so it is kept for the call.
-    static SCAN: RefCell<(usize, FxHashMap<Term, bool>)> = RefCell::new((0, FxHashMap::default()));
+    static SCAN: RefCell<(usize, FxHashMap<Term, Option<InstanceNormal>>)> =
+        RefCell::new((0, FxHashMap::default()));
 }
 
 /// One outermost [`BackendDefinition::instance_normal`] call; nested calls share its memo.
@@ -246,11 +225,11 @@ impl ScanScope {
         Self(())
     }
 
-    fn known(term: &Term) -> Option<bool> {
+    fn known(term: &Term) -> Option<Option<InstanceNormal>> {
         SCAN.with(|scan| scan.borrow().1.get(term).copied())
     }
 
-    fn record(term: &Term, normal: bool) {
+    fn record(term: &Term, normal: Option<InstanceNormal>) {
         SCAN.with(|scan| {
             scan.borrow_mut().1.insert(term.clone(), normal);
         });
@@ -284,9 +263,10 @@ type Sided<'a> = (Side, &'a Term);
 /// Whether the equation pattern `pattern` and `subject` have a common syntactic instance, as far
 /// as their shape decides it; `false` is a proof that none exists.
 ///
-/// Precondition: the arguments of `subject` are instance-normal, so a subject subterm headed by
-/// an `anywhere` production denotes a value with that head and can be treated as rigid.
-fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term) -> bool {
+/// Precondition, carried by `subterm`: the arguments of `subject` are instance-normal, so a
+/// subject subterm headed by an `anywhere` production denotes a value with that head, and the
+/// subject's own root is the root the equation is tried on (`InheritedFromArguments`).
+fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term, subterm: InstanceNormal) -> bool {
     if let TermKind::Variable(variable) = pattern.kind()
         && sorts_differ(&variable.sort, &subject.sort())
     {
@@ -294,6 +274,7 @@ fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term) -> bool {
     }
     SyntacticUnifier {
         sorts,
+        subject_values: InheritedFromArguments(subterm),
         bindings: HashMap::new(),
         pending: Vec::new(),
     }
@@ -302,6 +283,8 @@ fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term) -> bool {
 
 struct SyntacticUnifier<'a> {
     sorts: &'a SortGraph,
+    /// The oracle that fixes the subject side's equation-head roots.
+    subject_values: InheritedFromArguments,
     bindings: HashMap<(Side, &'a Variable), Sided<'a>>,
     pending: Vec<(Sided<'a>, Sided<'a>)>,
 }
@@ -343,6 +326,7 @@ impl<'a> SyntacticUnifier<'a> {
     /// Unify one resolved pair; `false` only when the pair has no common instance. A pair whose
     /// shape does not decide the question is dropped, which keeps the answer an
     /// over-approximation of unifiability.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn unify_one(&mut self, left: Sided<'a>, right: Sided<'a>) -> bool {
         if left.0 == right.0 && left.1 == right.1 {
             return true;
@@ -436,11 +420,40 @@ impl<'a> SyntacticUnifier<'a> {
                     || self.sorts.known_overlap(left_source, right_source) != Some(false)
             }
             // An injection denotes a value of its source sort, which no application with a
-            // fixed head denotes: a constructor application is not an injection, and neither is
-            // an instance-normal `anywhere` application (the subject side).
-            (TermKind::Injection { .. }, TermKind::Application { .. }) => !rigid(right),
-            (TermKind::Application { .. }, TermKind::Injection { .. }) => !rigid(left),
-            _ => !(rigid(left) && rigid(right)),
+            // fixed root denotes: a free-constructor application is not an injection, and
+            // neither is an equation-head application on the subject side, whose root is fixed
+            // by the precondition of `may_unify`.
+            (TermKind::Injection { .. }, TermKind::Application { .. })
+            | (TermKind::Application { .. }, TermKind::Injection { .. }) => !self
+                .fixed(left)
+                .zip(self.fixed(right))
+                .is_some_and(|(left, right)| separated(compare_roots(left, right))),
+            // Two different fixed roots have no common instance. This test separates an
+            // injection only from an application (the arm above) and a collection from no root:
+            // answering "may unify" is always sound here, and equation matching, the scan's
+            // second test, compares those pairs with the sort graph and the collection axioms.
+            _ => !self
+                .fixed(left)
+                .zip(self.fixed(right))
+                .is_some_and(|(left, right)| {
+                    compared_by_root(left)
+                        && compared_by_root(right)
+                        && separated(compare_roots(left, right))
+                }),
+        }
+    }
+
+    /// The root of one side, when fixed: the equation's left-hand side is read up to equations,
+    /// so its equation-head roots are open; the subject is read as the values it denotes.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn fixed(&mut self, (side, term): Sided<'a>) -> Option<Fixed<'a>> {
+        let head = match side {
+            Side::Pattern => classify_pattern(PatternReading::UpToEquations, term),
+            Side::Subject => classify_value(term, &mut self.subject_values),
+        };
+        match head {
+            Head::Fixed(fixed) => Some(fixed),
+            Head::Open(_) | Head::Residual => None,
         }
     }
 
@@ -462,25 +475,30 @@ impl<'a> SyntacticUnifier<'a> {
     }
 }
 
-/// Whether the head of `term` fixes the head of every value it denotes, so two such terms with
-/// different heads have no common instance. On the subject side an equation-head application
-/// qualifies by the precondition of [`may_unify`]; on the pattern side only a free constructor
-/// or a domain value does. A function, macro or alias root fixes nothing.
+/// Whether this test separates a fixed root from another fixed root by root alone. An injection
+/// is separated only from an application, in the arm written for that pair, and a collection
+/// from no root.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn rigid((side, term): Sided<'_>) -> bool {
-    match term.kind() {
-        TermKind::DomainValue { .. } => true,
-        TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
-            HeadRole::FreeConstructor => true,
-            HeadRole::EquationHead => side == Side::Subject,
-            HeadRole::Function { .. } | HeadRole::Residual => false,
-        },
-        TermKind::Injection { .. }
-        | TermKind::Variable(_)
-        | TermKind::And(..)
-        | TermKind::Map { .. }
-        | TermKind::List { .. }
-        | TermKind::Set { .. } => false,
+fn compared_by_root(fixed: Fixed<'_>) -> bool {
+    match fixed.root() {
+        FixedRoot::DomainValue | FixedRoot::FreeConstructor | FixedRoot::EquationHead(_) => true,
+        FixedRoot::Injection | FixedRoot::Collection(_) => false,
+    }
+}
+
+/// Whether two fixed roots, compared by root, have no common instance.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn separated(comparison: RootComparison<'_>) -> bool {
+    match comparison {
+        RootComparison::Distinct(_) => true,
+        // Equal names, two domain values and two injections have arms of their own in
+        // `unify_one`; the root alone separates none of these pairs.
+        RootComparison::SameApplication(_)
+        | RootComparison::SameAlgebraicSymbol
+        | RootComparison::ArityMismatch
+        | RootComparison::DomainValues
+        | RootComparison::Injections
+        | RootComparison::Collections(_) => false,
     }
 }
 
@@ -562,13 +580,13 @@ mod tests {
         let term = definition
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize");
-        definition.instance_normal(&term)
+        definition.instance_normal(&term).is_some()
     }
 
-    /// The ground `wrap(s(z))` is concrete after normalization but not a normal form: only the
-    /// normal-form variant, whose caller vouches for normalization, may skip the scan.
+    /// 5104f81b: the ground `wrap(s(z))` is concrete after normalization but not a normal form,
+    /// so ground terms are scanned like any other.
     #[test]
-    fn ground_terms_are_scanned_unless_the_caller_vouches_for_normalization() {
+    fn ground_terms_are_scanned_whatever_their_shape() {
         let definition = definition();
         let term = |source: &str| {
             definition
@@ -577,10 +595,62 @@ mod tests {
         };
         let redex = term("wrap{}(s{}(z{}()))");
         assert!(redex.concrete_after_normalization());
-        assert!(!definition.instance_normal(&redex));
-        assert!(definition.instance_normal_of_normal_form(&redex));
-        assert!(definition.instance_normal(&term("wrap{}(s{}(s{}(z{}())))")));
-        assert!(!definition.instance_normal(&term("any{}(z{}())")));
+        assert_eq!(definition.instance_normal(&redex), None);
+        assert!(
+            definition
+                .instance_normal(&term("wrap{}(s{}(s{}(z{}())))"))
+                .is_some()
+        );
+        assert_eq!(definition.instance_normal(&term("any{}(z{}())")), None);
+    }
+
+    /// ece6117d, B4: a simplification whose left-hand side is an `\and` of term patterns is filed
+    /// in the predicate theory, which equation selection never offers an application; here
+    /// `\and(tag(s(X)), tag(s(X))) = tag(X)` rewrites `tag(s(z))`, which no offered equation
+    /// reaches. With selection incomplete no equation head and no collection is instance-normal;
+    /// without the axiom `tag(s(z))` is.
+    #[test]
+    fn an_equation_selection_does_not_offer_leaves_no_equation_head_instance_normal() {
+        let source = |lemma: &str| {
+            format!(
+                r#"[]
+            module MAIN
+                sort SortNat{{}} []
+                sort SortAddress{{}} []
+                hooked-sort SortMap{{}}
+                    [hook{{}}("MAP.Map"), unit{{}}(mapUnit{{}}()), element{{}}(mapItem{{}}()), concat{{}}(mapConcat{{}}())]
+                symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol tag{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}()]
+                hooked-symbol mapUnit{{}}() : SortMap{{}} [function{{}}(), total{{}}(), hook{{}}("MAP.unit")]
+                hooked-symbol mapItem{{}}(SortNat{{}}, SortNat{{}}) : SortMap{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("MAP.element")]
+                hooked-symbol mapConcat{{}}(SortMap{{}}, SortMap{{}}) : SortMap{{}}
+                    [function{{}}(), hook{{}}("MAP.concat"), assoc{{}}(), comm{{}}()]
+                {lemma}
+            endmodule []"#
+            )
+        };
+        let lemma = r#"axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortAddress{}, R}(
+                        \and{SortAddress{}}(tag{}(s{}(X:SortNat{})), tag{}(s{}(X:SortNat{}))),
+                        \and{SortAddress{}}(tag{}(X:SortNat{}), \top{SortAddress{}}())
+                    )
+                ) [simplification{}()]"#;
+        let internalize = |source: String| {
+            let syntax = parse_definition(&source).expect("definition should parse");
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+        };
+        let incomplete = internalize(source(lemma));
+        assert!(incomplete.equation_selection_complete().is_none());
+        assert!(!normal(&incomplete, "tag{}(s{}(z{}()))"));
+        assert!(!normal(&incomplete, "mapItem{}(z{}(), z{}())"));
+        assert!(normal(&incomplete, "s{}(z{}())"));
+        let complete = internalize(source(""));
+        assert!(complete.equation_selection_complete().is_some());
+        assert!(normal(&complete, "tag{}(s{}(z{}()))"));
+        assert!(normal(&complete, "mapItem{}(z{}(), z{}())"));
     }
 
     #[test]
@@ -649,5 +719,123 @@ mod tests {
     fn every_equation_counts_whatever_its_priority() {
         let definition = definition();
         assert!(!normal(&definition, "any{}(s{}(X:SortNat{}))"));
+    }
+    /// The classifier arms of the syntactic test separate two roots exactly where the rigidity
+    /// predicate the test had before them did (`rigid` below is that predicate, transcribed): a
+    /// domain value, a free-constructor application and, on the subject side only, an
+    /// equation-head application; an injection only from such an application; a collection from
+    /// nothing. Checked for every pair of root kinds those arms decide, on every combination of
+    /// sides a resolved pair can have.
+    #[test]
+    fn the_classifier_arms_separate_the_roots_the_rigidity_predicate_did() {
+        fn rigid((side, term): Sided<'_>) -> bool {
+            match term.kind() {
+                TermKind::DomainValue { .. } => true,
+                TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
+                    HeadRole::FreeConstructor => true,
+                    HeadRole::EquationHead => side == Side::Subject,
+                    HeadRole::Function { .. } | HeadRole::Residual => false,
+                },
+                TermKind::Injection { .. }
+                | TermKind::Variable(_)
+                | TermKind::And(..)
+                | TermKind::Map { .. }
+                | TermKind::List { .. }
+                | TermKind::Set { .. } => false,
+            }
+        }
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                sort SortAddress{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol f{}(SortNat{}) : SortNat{} [function{}(), total{}(), no-evaluators{}()]
+                symbol wrap{}(SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
+                symbol tag{}(SortNat{}) : SortAddress{} [anywhere{}(), functional{}()]
+                symbol label{}(SortNat{}) : SortAddress{} [constructor{}(), functional{}(), macro{}()]
+                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortNat{}, SortNat{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let zero = term("z{}()");
+        let terms = [
+            Term::domain_value(Sort::simple("SortNat"), "1"),
+            Term::injection(
+                Sort::simple("SortNat"),
+                Sort::simple("SortAddress"),
+                zero.clone(),
+            ),
+            term("mapItem{}(z{}(), z{}())"),
+            zero.clone(),
+            term("s{}(z{}())"),
+            term("wrap{}(z{}())"),
+            term("tag{}(z{}())"),
+            term("f{}(z{}())"),
+            term("label{}(z{}())"),
+        ];
+        let token = definition
+            .instance_normal(&zero)
+            .expect("a constructor value is instance-normal");
+        let sides = [Side::Pattern, Side::Subject];
+        let mut checked = 0;
+        for left in &terms {
+            for right in &terms {
+                let other_arm = match (left.kind(), right.kind()) {
+                    (TermKind::DomainValue { .. }, TermKind::DomainValue { .. })
+                    | (TermKind::Injection { .. }, TermKind::Injection { .. }) => true,
+                    (
+                        TermKind::Application { symbol: left, .. },
+                        TermKind::Application { symbol: right, .. },
+                    ) => left.name == right.name,
+                    _ => false,
+                };
+                if other_arm {
+                    continue;
+                }
+                for left_side in sides {
+                    for right_side in sides {
+                        let (left, right) = ((left_side, left), (right_side, right));
+                        let expected = match (left.1.kind(), right.1.kind()) {
+                            (TermKind::Injection { .. }, TermKind::Application { .. }) => {
+                                !rigid(right)
+                            }
+                            (TermKind::Application { .. }, TermKind::Injection { .. }) => {
+                                !rigid(left)
+                            }
+                            _ => !(rigid(left) && rigid(right)),
+                        };
+                        let mut unifier = SyntacticUnifier {
+                            sorts: &definition.sort_graph,
+                            subject_values: InheritedFromArguments(token),
+                            bindings: HashMap::new(),
+                            pending: Vec::new(),
+                        };
+                        assert_eq!(
+                            unifier.unify_one(left, right),
+                            expected,
+                            "{left:?} against {right:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        // Nine roots on each side, less the two same-kind pairs and the six same-name pairs.
+        assert_eq!(checked, 4 * (9 * 9 - 2 - 6));
     }
 }

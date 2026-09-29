@@ -282,12 +282,13 @@ impl Unifier<'_> {
     fn decomposable(&self, symbol: &Symbol, left: &Term, right: &Term) -> bool {
         match symbol.attributes.head_role() {
             HeadRole::FreeConstructor => true,
-            // Not `instance_normal_of_normal_form`: `run` substitutes the growing substitution
-            // into every popped pair (see `Unifier::run`), so even a caller's normalized input
-            // becomes a term no normalization has seen (`wrap(X)` with `X := s(z)` is the redex
-            // `wrap(s(z))`).
+            // The scan, whatever the shape of the pair: `run` substitutes the growing
+            // substitution into every popped pair (see `Unifier::run`), so even a caller's
+            // normalized input becomes a term no normalization has seen (`wrap(X)` with
+            // `X := s(z)` is the redex `wrap(s(z))`).
             HeadRole::EquationHead => {
-                self.definition.instance_normal(left) && self.definition.instance_normal(right)
+                self.definition.instance_normal(left).is_some()
+                    && self.definition.instance_normal(right).is_some()
             }
             HeadRole::Function { injective, .. } => injective,
             HeadRole::Residual => false,

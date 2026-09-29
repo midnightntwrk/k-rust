@@ -516,7 +516,7 @@ impl<'a> Matcher<'a> {
         }
         let normal = self
             .definition
-            .is_some_and(|definition| definition.instance_normal(subject));
+            .is_some_and(|definition| definition.instance_normal(subject).is_some());
         self.instance_normal.insert(subject.clone(), normal);
         normal
     }
@@ -1899,7 +1899,7 @@ pub(crate) fn rewrite_rigid_subject(definition: &BackendDefinition, term: &Term)
     is_rewrite_rigid(term.kind())
         && (!is_anywhere_application(term)
             || certified_normal_form(term)
-            || definition.instance_normal(term))
+            || definition.instance_normal(term).is_some())
 }
 
 fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {
