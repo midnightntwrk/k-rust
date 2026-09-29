@@ -1061,7 +1061,8 @@ pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
 #[cfg(test)]
 mod bytes_token_tests {
     use super::{TermExpression, TermNode, TermTree};
-    use crate::KrsSyntax;
+    use crate::{KrsSyntax, SyntaxErrorKind};
+    use krs_test_support::assert_rejects;
 
     #[test]
     fn byte_string_macro_parses_as_one_intrinsic_token() {
@@ -1076,6 +1077,12 @@ mod bytes_token_tests {
 
     #[test]
     fn byte_string_macro_rejects_non_byte_literals() {
-        assert!(TermExpression::parse_source(r#"k::bytes!("not bytes")"#).is_err());
+        assert_rejects!(
+            TermExpression::parse_source(r#"k::bytes!("not bytes")"#),
+            error if matches!(
+                error.kind(),
+                SyntaxErrorKind::RustSyntax(message) if message == "expected byte string literal"
+            )
+        );
     }
 }

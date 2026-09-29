@@ -6,6 +6,7 @@ use krs_syntax::{
     StateMacroRemainder, StateRuleReferenceKind, StateTerm, StructuredFormatFragment,
     SyntaxErrorKind,
 };
+use krs_test_support::assert_rejects;
 
 #[test]
 fn generated_and_named_roots_and_cell_payloads_are_closed() {
@@ -40,19 +41,51 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
         ]
     );
 
-    for source in [
-        r#"color = "a", color = "b""#,
-        r#"name = """#,
-        r#"stream = "stdin""#,
-        "color = green",
-        r#"multiplicity = "?""#,
-        r#"cell_type = "Map""#,
-        r#"multiplicity = "*", cell_type = "Queue""#,
+    for (source, expected_kind) in [
+        (
+            r#"color = "a", color = "b""#,
+            SyntaxErrorKind::DuplicateArgument { name: "color" },
+        ),
+        (
+            r#"name = """#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "cell metadata values must be nonempty strings",
+            },
+        ),
+        (
+            r#"stream = "stdin""#,
+            SyntaxErrorKind::UnknownArgument {
+                name: "stream".into(),
+            },
+        ),
+        (
+            "color = green",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "color",
+                expected: "a Rust string literal",
+            },
+        ),
+        (
+            r#"multiplicity = "?""#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "KRS currently supports only repeated-cell multiplicity `*`",
+            },
+        ),
+        (
+            r#"cell_type = "Map""#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "`cell_type` requires `multiplicity = \"*\"`",
+            },
+        ),
+        (
+            r#"multiplicity = "*", cell_type = "Queue""#,
+            SyntaxErrorKind::InvalidCellAttribute {
+                reason: "repeated-cell `cell_type` must be Bag, List, Map, or Set",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::CellAttributePayload::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::CellAttributePayload::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -113,17 +146,40 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
         "model::Frame".into()
     )));
 
-    for source in [
-        "struct Empty {}",
-        "struct Tuple(Cell<Map>);",
-        "struct Bad { env: OptionalCell<Map> }",
-        r#"struct Duplicate { #[k::cell(name = "same")] a: Cell<Map>, #[k::cell(name = "same")] b: Cell<Map> }"#,
-        r#"struct Unknown { #[k::cell(stream = "stdin")] env: Cell<Map> }"#,
+    for (source, expected_kind) in [
+        (
+            "struct Empty {}",
+            SyntaxErrorKind::UnsupportedConfigurationDeclaration {
+                reason: "a fixed configuration requires at least one cell",
+            },
+        ),
+        (
+            "struct Tuple(Cell<Map>);",
+            SyntaxErrorKind::UnsupportedConfigurationDeclaration {
+                reason: "a fixed configuration must be a named-field struct",
+            },
+        ),
+        (
+            "struct Bad { env: OptionalCell<Map> }",
+            SyntaxErrorKind::UnsupportedConfigurationField {
+                reason: "nested fixed-cell declarations cannot have generic arguments",
+            },
+        ),
+        (
+            r#"struct Duplicate { #[k::cell(name = "same")] a: Cell<Map>, #[k::cell(name = "same")] b: Cell<Map> }"#,
+            SyntaxErrorKind::UnsupportedConfigurationField {
+                reason: "two sibling fields cannot emit the same cell name",
+            },
+        ),
+        (
+            r#"struct Unknown { #[k::cell(stream = "stdin")] env: Cell<Map> }"#,
+            SyntaxErrorKind::UnknownArgument {
+                name: "stream".into(),
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::ConfigurationDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::ConfigurationDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -170,30 +226,62 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
         StateMacroRemainder::Bind { binding, .. } if binding == "tail"
     ));
 
-    for source in [
-        "S1,",
-        "S1 ~> tail @ ..",
-        "S1, ..tail, S2",
-        ".K, S1",
-        "S1, ~> S2",
+    for (source, expected_kind) in [
+        (
+            "S1,",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "k",
+                reason: "a sequence separator requires another item",
+            },
+        ),
+        (
+            "S1 ~> tail @ ..",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "k",
+                reason: "expressions reuse remainders as `..name`",
+            },
+        ),
+        (
+            "S1, ..tail, S2",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "k",
+                reason: "the sequence tail must be last",
+            },
+        ),
+        (
+            ".K, S1",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "k",
+                reason: "`.K` must be the complete empty sequence",
+            },
+        ),
+        (
+            "S1, S2 ~> S3",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "k",
+                reason: "cannot mix `,` and `~>` separators",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::parse_k_sequence_expression(
-                krs_syntax::parse::tokens_from_source(source).unwrap()
-            )
-            .is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::parse_k_sequence_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
-    assert!(
+    assert_rejects!(
         krs_syntax::parse_k_sequence_pattern(
             krs_syntax::parse::tokens_from_source("S1, ..tail").unwrap()
-        )
-        .is_err()
+        ),
+        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
+            macro_name: "k",
+            reason: "patterns bind remainders as `name @ ..`",
+        }
     );
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One table-driven block freezes the complete map grammar.
 fn maps_freeze_empty_items_remainders_and_functional_update() {
     assert!(matches!(
         krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source(".Map").unwrap())
@@ -240,58 +328,107 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
     .unwrap();
     assert!(matches!(update.body(), MapBody::Update { .. }));
 
-    for source in ["X", "X ->", "X -> V, X ->", ".Map, X -> V", "E; X <- V, Y"] {
-        assert!(
-            krs_syntax::parse_map_expression(
-                krs_syntax::parse::tokens_from_source(source).unwrap()
-            )
-            .is_err(),
-            "{source}"
-        );
-    }
-    for (source, expected) in [
+    for (source, expected_kind) in [
         (
-            "X => V",
-            "`=>` is reserved for rewrites; map entries use `->`",
+            "X",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "expected `->` after a map-item key",
+            },
         ),
         (
-            "X -> V, Y => Z",
-            "`=>` is reserved for rewrites; map entries use `->`",
+            "X ->",
+            SyntaxErrorKind::RustSyntax("unexpected end of input, expected an expression".into()),
         ),
         (
-            "E; X => V",
-            "`=>` is reserved for rewrites; map updates use `<-`",
+            "X -> V, X ->",
+            SyntaxErrorKind::RustSyntax("unexpected end of input, expected an expression".into()),
         ),
         (
-            "E [ X => V ]",
-            "`=>` is reserved for rewrites; map updates use `<-`",
+            ".Map, X -> V",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "`.Map` must be the complete empty map",
+            },
+        ),
+        (
+            "E; X <- V, Y",
+            SyntaxErrorKind::RustSyntax("unexpected token".into()),
         ),
     ] {
         let error = krs_syntax::parse_map_expression(
             krs_syntax::parse::tokens_from_source(source).unwrap(),
         )
         .unwrap_err();
-        assert!(error.to_string().contains(expected), "{source}: {error}");
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
-    assert!(
+    for (source, expected_kind) in [
+        (
+            "X => V",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "`=>` is reserved for rewrites; map entries use `->`",
+            },
+        ),
+        (
+            "X -> V, Y => Z",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "`=>` is reserved for rewrites; map entries use `->`",
+            },
+        ),
+        (
+            "E; X => V",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "`=>` is reserved for rewrites; map updates use `<-`",
+            },
+        ),
+        (
+            "E [ X => V ]",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "map",
+                reason: "`=>` is reserved for rewrites; map updates use `<-`",
+            },
+        ),
+    ] {
+        let error = krs_syntax::parse_map_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
+    }
+    assert_rejects!(
         krs_syntax::parse_map_pattern(
             krs_syntax::parse::tokens_from_source("E [ X <- V ]").unwrap()
-        )
-        .is_err()
+        ),
+        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
+            macro_name: "map",
+            reason: "functional updates are expression-only",
+        }
     );
-    assert!(
+    assert_rejects!(
         krs_syntax::parse_map_pattern(
             krs_syntax::parse::tokens_from_source("X -> V, ..rest").unwrap()
-        )
-        .is_err()
+        ),
+        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
+            macro_name: "map",
+            reason: "patterns bind remainders as `name @ ..`",
+        }
     );
-    assert!(
-        krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source(".. ").unwrap())
-            .is_err()
+    assert_rejects!(
+        krs_syntax::parse_map_expression(
+            krs_syntax::parse::tokens_from_source("X -> V, ..").unwrap()
+        ),
+        error if error.kind() == &SyntaxErrorKind::InvalidStateMacro {
+            macro_name: "map",
+            reason: "expression remainders must reuse a named binding as `..name`",
+        }
     );
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One table-driven block freezes the complete cells grammar.
 fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands() {
     let pattern = krs_syntax::parse_cells_pattern(
         krs_syntax::parse::tokens_from_source(
@@ -345,20 +482,48 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         matches!(expression.remainder(), StateMacroRemainder::Reuse { binding, .. } if binding == "state")
     );
 
-    for source in [
-        "",
-        "k: KCell(.K), k: KCell(.K)",
-        "k: Other(.K)",
-        "k: KCell(.K), ..state, env: Cell(E)",
-        "Account::storage: Cell(S), Account::storage: Cell(T)",
+    for (source, expected_kind) in [
+        (
+            "",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "at least one cell clause is required",
+            },
+        ),
+        (
+            "k: KCell(.K), k: KCell(.K)",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "an owner-qualified cell field occurs more than once",
+            },
+        ),
+        (
+            "k: Other(.K)",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "entries require `Cell(...)` or `KCell(...)`",
+            },
+        ),
+        (
+            "k: KCell(.K), ..state, env: Cell(E)",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "the configuration remainder must be last",
+            },
+        ),
+        (
+            "Account::storage: Cell(S), Account::storage: Cell(T)",
+            SyntaxErrorKind::InvalidStateMacro {
+                macro_name: "cells",
+                reason: "an owner-qualified cell field occurs more than once",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::parse_cells_expression(
-                krs_syntax::parse::tokens_from_source(source).unwrap()
-            )
-            .is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::parse_cells_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
     assert!(matches!(
         krs_syntax::parse_cells_pattern(
@@ -406,16 +571,28 @@ fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
     ));
     assert_eq!(initializer.cell().term().spelling(), "program");
 
-    for source in [
-        r#"fn init(#[k::config_var(name = "A", main)] a: Term<A>, #[k::config_var(name = "B", main)] b: Term<B>) -> Self { Self { k: KCell::new(k![a]) } }"#,
-        r#"fn init(#[k::config_var(name = "A", parser = "X")] a: Term<A>) -> Self { Self { k: KCell::new(k![a]) } }"#,
-        r#"fn init(#[k::config_var(name = "A")] a: Term<A>) -> Self { Self { env: Cell::new(a), env: Cell::new(a) } }"#,
-        r"fn init() -> Self { Self { env: Cell::new(map![X ->]) } }",
+    for (source, expected_kind) in [
+        (
+            r#"fn init(#[k::config_var(name = "A", main)] a: Term<A>, #[k::config_var(name = "B", main)] b: Term<B>) -> Self { Self { k: KCell::new(k![a]) } }"#,
+            SyntaxErrorKind::AmbiguousMainConfigurationVariable,
+        ),
+        (
+            r#"fn init(#[k::config_var(name = "A", parser = "X")] a: Term<A>) -> Self { Self { k: KCell::new(k![a]) } }"#,
+            SyntaxErrorKind::UnknownArgument {
+                name: "parser".into(),
+            },
+        ),
+        (
+            r#"fn init(#[k::config_var(name = "A")] a: Term<A>) -> Self { Self { env: Cell::new(a), env: Cell::new(a) } }"#,
+            SyntaxErrorKind::DuplicateConfigurationField { name: "fixed cell" },
+        ),
+        (
+            r"fn init() -> Self { Self { env: Cell::new(map![X ->]) } }",
+            SyntaxErrorKind::RustSyntax("unexpected end of input, expected an expression".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::InitializerFunction::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -436,11 +613,13 @@ fn structured_format_controls_do_not_change_percent_escaping() {
             StructuredFormatFragment::Literal("%".into()),
         ]
     );
-    assert!(
+    assert_rejects!(
         krs_syntax::ConstructorAttribute::parse_source(
             r#"sort = Stmt, syntax = "unit", format = "%x""#
-        )
-        .is_err()
+        ),
+        error if error.kind() == &SyntaxErrorKind::InvalidFormat {
+            reason: "`%` must be followed by `%`, `n`, `i`, `d`, or a one-based item position",
+        }
     );
 }
 
@@ -599,49 +778,67 @@ fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
 
 #[test]
 fn context_aliases_reject_missing_duplicate_or_structural_here_bindings() {
-    for (source, here) in [
+    for (source, here, expected_kind) in [
         (
             "fn bad(cells! { k: KCell(other, tail @ ..), state @ .. }: Machine) {}",
             "site",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "`here` must select exactly one ordinary term binding",
+            },
         ),
         (
             "fn bad(cells! { k: KCell(site, site, tail @ ..), state @ .. }: Machine) {}",
             "site",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "`here` must select exactly one ordinary term binding",
+            },
         ),
         (
             "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) {}",
             "tail",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "`here` must select exactly one ordinary term binding",
+            },
         ),
         (
             "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) {}",
             "state",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "`here` must select exactly one ordinary term binding",
+            },
         ),
     ] {
-        assert!(
-            krs_syntax::parse_state_context_alias_item(
-                krs_syntax::parse::tokens_from_source(source).unwrap(),
-                &syn::parse_str(here).unwrap()
-            )
-            .is_err(),
-            "{source} with HERE={here}"
-        );
+        let error = krs_syntax::parse_state_context_alias_item(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+            &syn::parse_str(here).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source} with HERE={here}");
     }
 }
 
 #[test]
 fn context_aliases_reject_return_values_and_nonempty_post_state_bodies() {
-    for source in [
-        "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) -> Machine { loop {} }",
-        "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) { let post_state = (); }",
+    for (source, expected_kind) in [
+        (
+            "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) -> Machine { loop {} }",
+            SyntaxErrorKind::UnsupportedRuleBody {
+                reason: "a context alias must return `()` and have an empty body",
+            },
+        ),
+        (
+            "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) { let post_state = (); }",
+            SyntaxErrorKind::UnsupportedRuleBody {
+                reason: "a context alias must return `()` and have an empty body",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::parse_state_context_alias_item(
-                krs_syntax::parse::tokens_from_source(source).unwrap(),
-                &syn::parse_str("site").unwrap()
-            )
-            .is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::parse_state_context_alias_item(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+            &syn::parse_str("site").unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -689,33 +886,79 @@ fn whole_configuration_rule_requires_uses_the_shared_typed_term_catalog() {
 
 #[test]
 fn whole_configuration_rules_reject_unbound_frames_and_non_rule_shells() {
-    for source in [
-        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
-        "fn bad(term![X]: Machine) -> Machine { cells! { k: KCell(X, ..state) } }",
-        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { let y = 1; cells! { k: KCell(x, ..tail) } }",
-        "fn bad(a: Machine, b: Machine) -> Machine { cells! { k: KCell(.K) } }",
-        "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) { cells! { k: KCell(x, ..tail) } }",
+    for (source, expected_kind) in [
+        (
+            "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..missing) } }",
+            SyntaxErrorKind::UnsupportedRuleBody {
+                reason: "a result remainder must reuse a subject frame of the same kind",
+            },
+        ),
+        (
+            "fn bad(term![X]: Machine) -> Machine { cells! { k: KCell(X, ..state) } }",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "configuration rules require the compiler-owned `cells!` island",
+            },
+        ),
+        (
+            "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { let y = 1; cells! { k: KCell(x, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleBody {
+                reason: "a configuration-rule body must contain exactly one `cells!` expression",
+            },
+        ),
+        (
+            "fn bad(a: Machine, b: Machine) -> Machine { cells! { k: KCell(.K) } }",
+            SyntaxErrorKind::UnsupportedRulePattern {
+                reason: "a configuration-rule subject must be `cells! { ... }`",
+            },
+        ),
+        (
+            "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) { cells! { k: KCell(x, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "a configuration rule must declare its configuration result type",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::StateRuleItem::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::StateRuleItem::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
 #[test]
 fn whole_configuration_rules_require_exact_typed_term_binding_order() {
-    for source in [
-        "fn bad(cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
-        "fn bad(x: Term<Id>, unused: Term<Int>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
-        "fn bad(v: Term<Value>, x: Term<Id>, cells! { k: KCell(x, v, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, v, ..tail) } }",
-        "fn bad(tail: Term<Id>, cells! { k: KCell(tail @ ..) }: Machine) -> Machine { cells! { k: KCell(..tail) } }",
-        "fn bad(x: Term<Id>, x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
+    for (source, expected_kind) in [
+        (
+            "fn bad(cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+            },
+        ),
+        (
+            "fn bad(x: Term<Id>, unused: Term<Int>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+            },
+        ),
+        (
+            "fn bad(v: Term<Value>, x: Term<Id>, cells! { k: KCell(x, v, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, v, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+            },
+        ),
+        (
+            "fn bad(tail: Term<Id>, cells! { k: KCell(tail @ ..) }: Machine) -> Machine { cells! { k: KCell(..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "typed term parameters must exactly match subject term bindings in first-occurrence order",
+            },
+        ),
+        (
+            "fn bad(x: Term<Id>, x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
+            SyntaxErrorKind::UnsupportedRuleSignature {
+                reason: "configuration-rule term parameters must be unique immutable bindings",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::StateRuleItem::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::StateRuleItem::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -738,10 +981,12 @@ fn whole_configuration_rule_patterns_retain_nested_wildcards() {
             .collect::<Vec<_>>(),
         [0]
     );
-    assert!(
+    assert_rejects!(
         krs_syntax::StateRuleItem::parse_source(
             "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(_, ..tail), ..state } }",
-        )
-        .is_err()
+        ),
+        error if error.kind() == &SyntaxErrorKind::UnsupportedTermExpression {
+            reason: "the root must be a named path/call/record or an Int/Bool literal",
+        }
     );
 }

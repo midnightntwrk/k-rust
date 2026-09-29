@@ -1,7 +1,7 @@
 //! Folded sort-block parser and provenance tests.
 
 use krs_syntax::KrsSyntax;
-use krs_syntax::{ProvenanceRole, SortsEntry};
+use krs_syntax::{ProvenanceRole, SortsEntry, SyntaxErrorKind};
 
 #[test]
 fn declarations_bounds_brackets_and_memberships_preserve_order() {
@@ -67,20 +67,49 @@ fn membership_only_blocks_are_supported() {
 
 #[test]
 fn malformed_or_ambiguous_lines_are_rejected_locally() {
-    for source in [
-        "",
-        "Expr",
-        "Value:;",
-        "impl Value Int;",
-        "impl Value for;",
-        "impl Value for Int,;",
-        "#[k::unknown] Expr;",
-        "#[k::bracket(\"(\", \")\")] impl Expr for Id;",
-        "impl Value<T> for Int;",
+    for (source, expected_kind) in [
+        (
+            "",
+            SyntaxErrorKind::RustSyntax(
+                "unexpected end of input, `sorts!` requires at least one sort or membership line"
+                    .into(),
+            ),
+        ),
+        ("Expr", SyntaxErrorKind::RustSyntax("expected `;`".into())),
+        (
+            "Value:;",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
+        (
+            "impl Value Int;",
+            SyntaxErrorKind::RustSyntax("expected `for`".into()),
+        ),
+        (
+            "impl Value for;",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
+        (
+            "impl Value for Int,;",
+            SyntaxErrorKind::RustSyntax("expected a member type after `,`".into()),
+        ),
+        (
+            "#[k::unknown] Expr;",
+            SyntaxErrorKind::RustSyntax(
+                "only `#[k::bracket(...)]` is supported on a `sorts!` declaration".into(),
+            ),
+        ),
+        (
+            "#[k::bracket(\"(\", \")\")] impl Expr for Id;",
+            SyntaxErrorKind::RustSyntax(
+                "membership lines in `sorts!` do not accept attributes".into(),
+            ),
+        ),
+        (
+            "impl Value<T> for Int;",
+            SyntaxErrorKind::RustSyntax("expected `for`".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::SortsDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::SortsDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }

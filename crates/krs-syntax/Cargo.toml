@@ -17,3 +17,4 @@ workspace = true
 
 [dev-dependencies]
 expect-test = { workspace = true }
+krs-test-support = { path = "../krs-test-support" }

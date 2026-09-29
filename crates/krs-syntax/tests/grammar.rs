@@ -5,6 +5,7 @@ use krs_syntax::{
     GroupAssociativity, ProvenanceRole, StrictnessKind, StructuredFormatFragment, SyntaxErrorKind,
     SyntaxTemplateItem, TermSymbolKind,
 };
+use krs_test_support::assert_rejects;
 
 #[test]
 fn nominal_expr_production_is_checked_and_keyed() {
@@ -183,19 +184,56 @@ fn syntax_layout_is_nonsemantic_and_terminals_match_k_token_boundaries() {
 
 #[test]
 fn group_avoid_and_structured_format_values_are_closed() {
-    for source in [
-        r#"sort = Expr, group = """#,
-        r#"sort = Expr, group = "a::b""#,
-        "sort = Expr, avoid = choice",
-        "sort = Expr, avoid = false",
-        r#"sort = Expr, format = "%""#,
-        r#"sort = Expr, format = "%0""#,
-        r#"sort = Expr, format = "%70000""#,
+    for (source, expected_kind) in [
+        (
+            r#"sort = Expr, group = """#,
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "group",
+                expected: "a nonempty identifier-shaped Rust string literal",
+            },
+        ),
+        (
+            r#"sort = Expr, group = "a::b""#,
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "group",
+                expected: "a nonempty identifier-shaped Rust string literal",
+            },
+        ),
+        (
+            "sort = Expr, avoid = choice",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "avoid",
+                expected: "a Rust Boolean literal",
+            },
+        ),
+        (
+            "sort = Expr, avoid = false",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "avoid",
+                expected: "the Rust Boolean literal `true`",
+            },
+        ),
+        (
+            r#"sort = Expr, format = "%""#,
+            SyntaxErrorKind::InvalidFormat {
+                reason: "`%` must be followed by `%`, `n`, `i`, `d`, or a one-based item position",
+            },
+        ),
+        (
+            r#"sort = Expr, format = "%0""#,
+            SyntaxErrorKind::InvalidFormat {
+                reason: "item positions are one-based and `%0` is invalid",
+            },
+        ),
+        (
+            r#"sort = Expr, format = "%70000""#,
+            SyntaxErrorKind::InvalidFormat {
+                reason: "an item position must fit in `u16`",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::ConstructorAttribute::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::ConstructorAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 
     let declaration = krs_syntax::ConstructorDeclaration::parse_source("struct Unit;").unwrap();
@@ -226,19 +264,52 @@ fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
         ProvenanceRole::TokenDeclaration
     );
 
-    for source in [
-        r#"regex = """#,
-        r#"regex = "[a-z""#,
-        r#"regex = "(abc""#,
-        r#"regex = "abc\\""#,
-        r#"regex = "abc", prec = -1"#,
-        r#"regex = "abc", prec = 2u8"#,
-        r#"regex = "abc", regex = "def""#,
+    for (source, expected_kind) in [
+        (
+            r#"regex = """#,
+            SyntaxErrorKind::InvalidTokenRegex {
+                reason: "the regex must not be empty",
+            },
+        ),
+        (
+            r#"regex = "[a-z""#,
+            SyntaxErrorKind::InvalidTokenRegex {
+                reason: "unclosed character class",
+            },
+        ),
+        (
+            r#"regex = "(abc""#,
+            SyntaxErrorKind::InvalidTokenRegex {
+                reason: "unclosed parenthesis",
+            },
+        ),
+        (
+            r#"regex = "abc\\""#,
+            SyntaxErrorKind::InvalidTokenRegex {
+                reason: "dangling escape",
+            },
+        ),
+        (
+            r#"regex = "abc", prec = -1"#,
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "prec",
+                expected: "an unsuffixed nonnegative `u32` integer literal",
+            },
+        ),
+        (
+            r#"regex = "abc", prec = 2u8"#,
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "prec",
+                expected: "an unsuffixed nonnegative `u32` integer literal",
+            },
+        ),
+        (
+            r#"regex = "abc", regex = "def""#,
+            SyntaxErrorKind::DuplicateArgument { name: "regex" },
+        ),
     ] {
-        assert!(
-            krs_syntax::TokenAttribute::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::TokenAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
     for source in [
         "struct Id;",
@@ -277,17 +348,42 @@ fn bracket_is_syntax_only_and_has_one_same_sort_value() {
             .count(),
         1
     );
-    for source in [
-        r#""({other})""#,
-        r#""({value}{value})""#,
-        r#""{value}""#,
-        r#""(""#,
-        r#""({value})", extra"#,
+    for (source, expected_kind) in [
+        (
+            r#""({other})""#,
+            SyntaxErrorKind::UnknownTemplateField {
+                name: "other".into(),
+            },
+        ),
+        (
+            r#""({value}{value})""#,
+            SyntaxErrorKind::InvalidTemplateFieldOccurrence {
+                name: "value".into(),
+                expected: 1,
+                actual: 2,
+            },
+        ),
+        (
+            r#""{value}""#,
+            SyntaxErrorKind::InvalidSyntaxTemplate {
+                reason: "a bracket must contain terminal text around `{value}`",
+            },
+        ),
+        (
+            r#""(""#,
+            SyntaxErrorKind::InvalidTemplateFieldOccurrence {
+                name: "value".into(),
+                expected: 1,
+                actual: 0,
+            },
+        ),
+        (
+            r#""({value})", extra"#,
+            SyntaxErrorKind::RustSyntax("expected string literal".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::BracketAttribute::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::BracketAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 
     let delimiters = krs_syntax::BracketAttribute::parse_source(r#""(", ")""#).unwrap();
@@ -301,15 +397,31 @@ fn bracket_is_syntax_only_and_has_one_same_sort_value() {
             .count(),
         1
     );
-    for source in [r#""", ")""#, r#""(", """#, r#""(", ")", "extra""#] {
-        assert!(
-            krs_syntax::BracketAttribute::parse_source(source).is_err(),
-            "{source}"
-        );
+    for (source, expected_kind) in [
+        (
+            r#""", ")""#,
+            SyntaxErrorKind::InvalidSyntaxTemplate {
+                reason: "bracket delimiters must not be empty",
+            },
+        ),
+        (
+            r#""(", """#,
+            SyntaxErrorKind::InvalidSyntaxTemplate {
+                reason: "bracket delimiters must not be empty",
+            },
+        ),
+        (
+            r#""(", ")", "extra""#,
+            SyntaxErrorKind::RustSyntax("expected exactly two bracket delimiter literals".into()),
+        ),
+    ] {
+        let error = krs_syntax::BracketAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn strictness_is_ordered_typed_and_field_checked() {
     let declaration = krs_syntax::ConstructorDeclaration::parse_source(
         "struct Add { lhs: Term<Expr>, rhs: Term<Expr> }",
@@ -352,23 +464,58 @@ fn strictness_is_ordered_typed_and_field_checked() {
         ProvenanceRole::StrictnessContextAliasReference
     );
 
-    for source in [
-        "sequence = [], result = Value",
-        "sequence = [lhs, lhs], result = Value",
-        "sequence = [module::lhs], result = Value",
-        "sequence = [lhs]",
-        "result = Value",
-        "sequence = [lhs], result = Vec<Value>",
-        "using = aliases::execute, sequence = [lhs], result = Value",
-        "using = execute, using = other, sequence = [lhs], result = Value",
+    for (source, expected_kind) in [
+        (
+            "sequence = [], result = Value",
+            SyntaxErrorKind::InvalidStrictness {
+                reason: "the field sequence must not be empty",
+            },
+        ),
+        (
+            "sequence = [lhs, lhs], result = Value",
+            SyntaxErrorKind::InvalidStrictness {
+                reason: "the field sequence must not contain duplicates",
+            },
+        ),
+        (
+            "sequence = [module::lhs], result = Value",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "sequence",
+                expected: "an array of unqualified Rust field identifiers",
+            },
+        ),
+        (
+            "sequence = [lhs]",
+            SyntaxErrorKind::MissingArgument { name: "result" },
+        ),
+        (
+            "result = Value",
+            SyntaxErrorKind::MissingArgument { name: "sequence" },
+        ),
+        (
+            "sequence = [lhs], result = Vec<Value>",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "result",
+                expected: "a plain Rust sort path",
+            },
+        ),
+        (
+            "using = aliases::execute, sequence = [lhs], result = Value",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "using",
+                expected: "an unqualified Rust context-alias identifier",
+            },
+        ),
+        (
+            "using = execute, using = other, sequence = [lhs], result = Value",
+            SyntaxErrorKind::DuplicateArgument { name: "using" },
+        ),
     ] {
-        assert!(
-            krs_syntax::parse_seqstrict_attribute(
-                krs_syntax::parse::tokens_from_source(source).unwrap()
-            )
-            .is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::parse_seqstrict_attribute(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
     let unknown = krs_syntax::parse_seqstrict_attribute(
         krs_syntax::parse::tokens_from_source("sequence = [missing], result = Value").unwrap(),
@@ -409,11 +556,34 @@ fn precedence_supports_unrelated_chains_and_stable_flattened_order() {
     assert_eq!(references.len(), 5);
     assert_eq!(references[4].ordinal(), 4);
 
-    for source in ["", "additive", "> additive", "a >", "a > b c > d"] {
-        assert!(
-            krs_syntax::PrecedenceDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+    for (source, expected_kind) in [
+        (
+            "",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "precedence must contain at least one chain",
+            },
+        ),
+        (
+            "additive",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "a precedence chain must contain at least one `>`",
+            },
+        ),
+        (
+            "> additive",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
+        (
+            "a >",
+            SyntaxErrorKind::RustSyntax("unexpected end of input, expected identifier".into()),
+        ),
+        (
+            "a > b c > d",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+    ] {
+        let error = krs_syntax::PrecedenceDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -435,17 +605,32 @@ fn precedence_accepts_an_optional_family_owner_and_rejects_malformed_owners() {
         4
     );
 
-    for source in [
-        "for; a > b",
-        "for syntax::Op; a > b",
-        "for Op a > b",
-        "for Op;",
-        "for Op;; a > b",
+    for (source, expected_kind) in [
+        (
+            "for; a > b",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
+        (
+            "for syntax::Op; a > b",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+        (
+            "for Op a > b",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+        (
+            "for Op;",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "precedence must contain at least one chain",
+            },
+        ),
+        (
+            "for Op;; a > b",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::PrecedenceDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::PrecedenceDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -475,18 +660,42 @@ fn associativity_is_typed_and_rejects_bad_punctuation() {
         4
     );
 
-    for source in [
-        "",
-        "left additive;",
-        "left:;",
-        "middle: additive;",
-        "left: additive additive;",
-        "left: additive, additive;",
+    for (source, expected_kind) in [
+        (
+            "",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "associativity must contain at least one sentence",
+            },
+        ),
+        (
+            "left additive;",
+            SyntaxErrorKind::RustSyntax("expected `:`".into()),
+        ),
+        (
+            "left:;",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "an associativity sentence must name at least one group",
+            },
+        ),
+        (
+            "middle: additive;",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "expected `left`, `right`, or `non_associative`",
+            },
+        ),
+        (
+            "left: additive additive;",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+        (
+            "left: additive, additive;",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "an associativity sentence must not repeat a group",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::AssociativityDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::AssociativityDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -508,17 +717,32 @@ fn associativity_accepts_an_optional_family_owner_and_rejects_malformed_owners()
         3
     );
 
-    for source in [
-        "for; left: addition;",
-        "for syntax::Op; left: addition;",
-        "for Op left: addition;",
-        "for Op;",
-        "for Op;; left: addition;",
+    for (source, expected_kind) in [
+        (
+            "for; left: addition;",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
+        (
+            "for syntax::Op; left: addition;",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+        (
+            "for Op left: addition;",
+            SyntaxErrorKind::RustSyntax("expected `;`".into()),
+        ),
+        (
+            "for Op;",
+            SyntaxErrorKind::InvalidGrammarMacro {
+                reason: "associativity must contain at least one sentence",
+            },
+        ),
+        (
+            "for Op;; left: addition;",
+            SyntaxErrorKind::RustSyntax("expected identifier".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::AssociativityDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::AssociativityDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -712,7 +936,10 @@ fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
             .all(|pair| pair[0].range().start().column < pair[1].range().start().column)
     );
 
-    assert!(krs_syntax::TermExpression::parse_source("_").is_err());
+    assert_rejects!(
+        krs_syntax::TermExpression::parse_source("_"),
+        error if matches!(error.kind(), SyntaxErrorKind::UnsupportedTermExpression { .. })
+    );
 }
 
 use quote::ToTokens;

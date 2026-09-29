@@ -393,17 +393,38 @@ enum Family {
 
 #[test]
 fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
-    for source in [
-        "#[k::constructors(sort = Expr, result = KResult)] enum Missing { #[k::syntax(\"x\")] X }",
-        "#[k::constructors(sort = Expr, result = KResult)] enum Bad { #[k::precedence(middle)] #[k::syntax(\"x\")] X }",
-        "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"{x}\")] X { x: Vec<Expr> } }",
-        "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"{x}\")] #[k::strict(y)] X { x: Expr } }",
-        "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"x\")] X(u8) }",
+    for (source, expected_kind) in [
+        (
+            "#[k::constructors(sort = Expr, result = KResult)] enum Missing { #[k::syntax(\"x\")] X }",
+            SyntaxErrorKind::InvalidEnumPrecedence {
+                reason: "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain".into(),
+            },
+        ),
+        (
+            "#[k::constructors(sort = Expr, result = KResult)] enum Bad { #[k::precedence(middle)] #[k::syntax(\"x\")] X }",
+            SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, and `alias` KRS helpers; precedence belongs on the enum",
+            },
+        ),
+        (
+            "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"{x}\")] X { x: Vec<Expr> } }",
+            SyntaxErrorKind::InvalidTermType,
+        ),
+        (
+            "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"{x}\")] #[k::strict(y)] X { x: Expr } }",
+            SyntaxErrorKind::InvalidStrictness {
+                reason: "strictness names a field absent from the production",
+            },
+        ),
+        (
+            "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"x\")] X(u8) }",
+            SyntaxErrorKind::UnsupportedEnumConstructorDeclaration {
+                reason: "tuple enum constructor variants are unsupported; readable families permit only zero-field tuple variants",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::EnumConstructorDeclaration::parse_source(source).is_err(),
-            "{source}"
-        );
+        let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 

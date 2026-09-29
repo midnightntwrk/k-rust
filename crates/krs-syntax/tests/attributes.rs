@@ -43,20 +43,56 @@ fn sort_accepts_explicit_alias_and_parent_carriers() {
 #[test]
 fn sort_rejects_incomplete_duplicate_unknown_and_malformed_reference_payloads() {
     let cases = [
-        "parents = [Expr]",
-        "alias = Expr, alias = Value",
-        "alias = Expr, parents = [], parents = [Value]",
-        "alias = crate::Expr",
-        "alias = \"Expr\"",
-        "alias = Expr, parents = Expr",
-        "alias = Expr, parents = [Vec<Expr>]",
-        "alias = Expr, result = KResult",
+        (
+            "parents = [Expr]",
+            SyntaxErrorKind::MissingArgument { name: "alias" },
+        ),
+        (
+            "alias = Expr, alias = Value",
+            SyntaxErrorKind::DuplicateArgument { name: "alias" },
+        ),
+        (
+            "alias = Expr, parents = [], parents = [Value]",
+            SyntaxErrorKind::DuplicateArgument { name: "parents" },
+        ),
+        (
+            "alias = crate::Expr",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "alias",
+                expected: "an unqualified Rust identifier",
+            },
+        ),
+        (
+            "alias = \"Expr\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "alias",
+                expected: "an unqualified Rust identifier",
+            },
+        ),
+        (
+            "alias = Expr, parents = Expr",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "parents",
+                expected: "an array of plain Rust sort paths",
+            },
+        ),
+        (
+            "alias = Expr, parents = [Vec::<Expr>]",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "parents",
+                expected: "an array of plain Rust sort paths without generic arguments",
+            },
+        ),
+        (
+            "alias = Expr, result = KResult",
+            SyntaxErrorKind::UnknownArgument {
+                name: "result".into(),
+            },
+        ),
     ];
-    for source in cases {
-        assert!(
-            krs_syntax::SortAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+    for (source, expected_kind) in cases {
+        let error = krs_syntax::SortAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
     let missing = krs_syntax::SortAttribute::parse_source("parents = [Expr]").unwrap_err();
     assert!(matches!(
@@ -73,17 +109,35 @@ fn subsort_reference_attribute_requires_one_semantic_sort_path() {
         "crate :: Value"
     );
 
-    for source in [
-        "",
-        "sort = Value, sort = Expr",
-        "supersort = Value",
-        "sort = \"Value\"",
-        "sort = Vec<Value>",
+    for (source, expected_kind) in [
+        ("", SyntaxErrorKind::MissingArgument { name: "sort" }),
+        (
+            "sort = Value, sort = Expr",
+            SyntaxErrorKind::DuplicateArgument { name: "sort" },
+        ),
+        (
+            "supersort = Value",
+            SyntaxErrorKind::UnknownArgument {
+                name: "supersort".into(),
+            },
+        ),
+        (
+            "sort = \"Value\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "sort",
+                expected: "a Rust trait path",
+            },
+        ),
+        (
+            "sort = Vec::<Value>",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "sort",
+                expected: "a plain Rust trait path without generic arguments",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::SubsortAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+        let error = krs_syntax::SubsortAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -113,17 +167,36 @@ fn constructors_distinguishes_closed_readable_and_reference_families() {
 
 #[test]
 fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
-    for source in [
-        "reference",
-        "sort = Expr, reference, reference",
-        "sort = Expr, reference = true",
-        "sort = Expr, reference, result = KResult",
-        "sort = Expr, result = KResult, reference",
+    for (source, expected_kind) in [
+        (
+            "reference",
+            SyntaxErrorKind::MissingArgument { name: "sort" },
+        ),
+        (
+            "sort = Expr, reference, reference",
+            SyntaxErrorKind::DuplicateArgument { name: "reference" },
+        ),
+        (
+            "sort = Expr, reference = true",
+            SyntaxErrorKind::RustSyntax("expected `,`".into()),
+        ),
+        (
+            "sort = Expr, reference, result = KResult",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "result",
+                expected: "omitted when bare `reference` is present",
+            },
+        ),
+        (
+            "sort = Expr, result = KResult, reference",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "reference",
+                expected: "omitted when `result = ...` is present",
+            },
+        ),
     ] {
-        assert!(
-            krs_syntax::ConstructorsAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+        let error = krs_syntax::ConstructorsAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 
     for source in [
@@ -140,11 +213,22 @@ fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
 
 #[test]
 fn alias_rejects_recursive_and_other_payloads() {
-    for source in ["recursive", "true", "mode = recursive"] {
-        assert!(
-            krs_syntax::AliasAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+    for (source, expected_kind) in [
+        (
+            "recursive",
+            SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
+        ),
+        (
+            "true",
+            SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
+        ),
+        (
+            "mode = recursive",
+            SyntaxErrorKind::UnexpectedAttributePayload { attribute: "alias" },
+        ),
+    ] {
+        let error = krs_syntax::AliasAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -167,20 +251,50 @@ fn context_alias_requires_typed_name_and_here_identifiers() {
 #[test]
 fn context_alias_rejects_missing_duplicate_unknown_and_qualified_values() {
     let cases = [
-        "",
-        "name = execute",
-        "here = site",
-        "name = execute, name = other, here = site",
-        "name = execute, here = site, result = Value",
-        "name = aliases::execute, here = site",
-        "name = execute, here = bindings::site",
-        "name = \"execute\", here = site",
+        ("", SyntaxErrorKind::MissingArgument { name: "name" }),
+        (
+            "name = execute",
+            SyntaxErrorKind::MissingArgument { name: "here" },
+        ),
+        (
+            "here = site",
+            SyntaxErrorKind::MissingArgument { name: "name" },
+        ),
+        (
+            "name = execute, name = other, here = site",
+            SyntaxErrorKind::DuplicateArgument { name: "name" },
+        ),
+        (
+            "name = execute, here = site, result = Value",
+            SyntaxErrorKind::UnknownArgument {
+                name: "result".into(),
+            },
+        ),
+        (
+            "name = aliases::execute, here = site",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "name",
+                expected: "an unqualified Rust identifier",
+            },
+        ),
+        (
+            "name = execute, here = bindings::site",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "here",
+                expected: "an unqualified Rust identifier",
+            },
+        ),
+        (
+            "name = \"execute\", here = site",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "name",
+                expected: "an unqualified Rust identifier",
+            },
+        ),
     ];
-    for source in cases {
-        assert!(
-            krs_syntax::ContextAliasAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+    for (source, expected_kind) in cases {
+        let error = krs_syntax::ContextAliasAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -207,11 +321,26 @@ fn priority_accepts_one_u32_and_anchors_its_literal() {
 
 #[test]
 fn priority_rejects_missing_noninteger_multiple_and_overflow_values() {
-    for source in ["", "high", "40, 80", "4294967296"] {
-        assert!(
-            krs_syntax::PriorityAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+    for (source, expected_kind) in [
+        (
+            "",
+            SyntaxErrorKind::RustSyntax("unexpected end of input, expected integer literal".into()),
+        ),
+        (
+            "high",
+            SyntaxErrorKind::RustSyntax("expected integer literal".into()),
+        ),
+        (
+            "40, 80",
+            SyntaxErrorKind::RustSyntax("priority accepts exactly one integer".into()),
+        ),
+        (
+            "4294967296",
+            SyntaxErrorKind::RustSyntax("number too large to fit in target type".into()),
+        ),
+    ] {
+        let error = krs_syntax::PriorityAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -230,17 +359,30 @@ fn simplification_accepts_empty_or_one_typed_priority() {
 
 #[test]
 fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
-    for source in [
-        "priority",
-        "priority = high",
-        "priority = 1, priority = 2",
-        "priority = 4294967296",
-        "label = 1",
+    for (source, expected_kind) in [
+        (
+            "priority",
+            SyntaxErrorKind::RustSyntax("expected `=`".into()),
+        ),
+        (
+            "priority = high",
+            SyntaxErrorKind::RustSyntax("expected integer literal".into()),
+        ),
+        (
+            "priority = 1, priority = 2",
+            SyntaxErrorKind::RustSyntax("simplification accepts only `priority = N`".into()),
+        ),
+        (
+            "priority = 4294967296",
+            SyntaxErrorKind::RustSyntax("number too large to fit in target type".into()),
+        ),
+        (
+            "label = 1",
+            SyntaxErrorKind::RustSyntax("expected `priority = N`".into()),
+        ),
     ] {
-        assert!(
-            krs_syntax::SimplificationAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+        let error = krs_syntax::SimplificationAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -284,16 +426,26 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
     )
     .unwrap();
     assert!(!partial.is_total());
-    for source in [
-        r#"sort = Int, syntax = "f({value})""#,
-        r#"total, partial, sort = Int, syntax = "f({value})""#,
-        r#"total, sort = Int, syntax = "f({value})", hook = krypto::keccak256_raw, hook = krypto::keccak256_raw"#,
-        r"total, sort = Int",
+    for (source, expected_kind) in [
+        (
+            r#"sort = Int, syntax = "f({value})""#,
+            SyntaxErrorKind::MissingArgument { name: "total" },
+        ),
+        (
+            r#"total, partial, sort = Int, syntax = "f({value})""#,
+            SyntaxErrorKind::DuplicateArgument { name: "totality" },
+        ),
+        (
+            r#"total, sort = Int, syntax = "f({value})", hook = krypto::keccak256_raw, hook = krypto::keccak256_raw"#,
+            SyntaxErrorKind::DuplicateArgument { name: "hook" },
+        ),
+        (
+            r"total, sort = Int",
+            SyntaxErrorKind::MissingArgument { name: "syntax" },
+        ),
     ] {
-        assert!(
-            krs_syntax::FunctionAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+        let error = krs_syntax::FunctionAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
@@ -313,20 +465,59 @@ fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
 #[test]
 fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
     let cases = [
-        "unknown = \"x\"",
-        "label = \"first\", label = \"second\"",
-        "owise, owise",
-        "label = identifier",
-        "label = \"\"",
-        "label = \"1starts-with-digit\"",
-        "label = \"contains space\"",
-        "label = \"contains/slash\"",
+        (
+            "unknown = \"x\"",
+            SyntaxErrorKind::UnknownArgument {
+                name: "unknown".into(),
+            },
+        ),
+        (
+            "label = \"first\", label = \"second\"",
+            SyntaxErrorKind::DuplicateArgument { name: "label" },
+        ),
+        (
+            "owise, owise",
+            SyntaxErrorKind::DuplicateArgument { name: "owise" },
+        ),
+        (
+            "label = identifier",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a Rust string literal",
+            },
+        ),
+        (
+            "label = \"\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter",
+            },
+        ),
+        (
+            "label = \"1starts-with-digit\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter",
+            },
+        ),
+        (
+            "label = \"contains space\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter",
+            },
+        ),
+        (
+            "label = \"contains/slash\"",
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "label",
+                expected: "a nonempty K rule label using ASCII letters, digits, `_`, or `-` and beginning with a letter",
+            },
+        ),
     ];
-    for source in cases {
-        assert!(
-            krs_syntax::RuleAttribute::parse_source(source).is_err(),
-            "unexpectedly accepted {source:?}"
-        );
+    for (source, expected_kind) in cases {
+        let error = krs_syntax::RuleAttribute::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected_kind, "{source}");
     }
 }
 
