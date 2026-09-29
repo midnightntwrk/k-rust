@@ -3,6 +3,9 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/step_support.rs"]
+mod step_support;
+
 use std::time::Duration;
 
 use k_rust::backend::{Backend, BackendOptions};
@@ -11,17 +14,18 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CrashPolicy, OracleDeclaration, OracleOutcome, OracleSide,
-    OracleValue, PatternValue, Projection, ScheduleMode, SideRun, TestCase, TestRun, run_campaign,
+    Campaign, CampaignFailureKind, CampaignObservation, CrashPolicy, OracleDeclaration,
+    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, ScheduleMode, SideRun,
+    TestCase, TestRun, run_campaign,
 };
+use kink_native::NativeValidator;
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
 };
-use kink_native::observation::{DomainEventSpec, PayloadSource};
-use kink_native::{NativeValidator, ObservedRule};
+use kink_native::step_events::StepObservation;
 use kink_patch::{Edit, Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select};
 use kink_pattern::{
-    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
+    Atom, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
     PayloadClause, Relation,
 };
 
@@ -69,31 +73,6 @@ fn state(write_address: Pattern, load_address: Pattern) -> Pattern {
         ),
         "SortProg",
     )
-}
-
-fn observed(validator: &NativeValidator, label: &str, constructor: &str) -> ObservedRule {
-    ObservedRule {
-        rule: support::rule(validator.baseline(), label),
-        emit_rule_applied: false,
-        domain_events: vec![DomainEventSpec {
-            constructor: constructor.into(),
-            payload: [support::k_head(&[0, 0]), support::k_head(&[0, 1])]
-                .map(PayloadSource::BeforeTerm)
-                .to_vec(),
-        }],
-    }
-}
-
-fn vocabulary() -> EventVocabulary {
-    EventVocabulary::new(
-        ["memoryWrite", "memoryLoad"]
-            .map(|name| Constructor {
-                name: name.into(),
-                payload_sorts: vec![kore_sort("SortAddress"), kore_sort("SortNat")],
-            })
-            .to_vec(),
-    )
-    .expect("vocabulary")
 }
 
 fn wl_after(vocabulary: &EventVocabulary) -> OracleDeclaration {
@@ -183,11 +162,8 @@ fn opaque_payloads_do_not_decide_a_pattern() {
         assert!(generation.scored());
         assert_eq!(generation.candidates().len(), 1);
 
-        let vocabulary = vocabulary();
-        let observed = [
-            observed(&validator, "OPAQUEMEM.write", "memoryWrite"),
-            observed(&validator, "OPAQUEMEM.load", "memoryLoad"),
-        ];
+        let specs = step_support::symmem(false)[..2].to_vec();
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let oracle = wl_after(&vocabulary);
         let z = app("z", vec![]);
         let opaque = TestCase {
@@ -198,8 +174,7 @@ fn opaque_payloads_do_not_decide_a_pattern() {
         let campaign = |tests| Campaign {
             validator: &validator,
             module: "OPAQUEMEM",
-            observed_rules: &observed,
-            vocabulary: &vocabulary,
+            observation: CampaignObservation::Steps(&specs),
             classify: &normal,
             tests,
             budget: BUDGET,
@@ -237,6 +212,19 @@ fn opaque_payloads_do_not_decide_a_pattern() {
             run.mutants[0].report.status,
             kink_campaign::MutantStatus::Killed
         );
+        assert_eq!(run.mutants[0].report.killing_test_ids, ["clash"]);
+        assert_eq!(
+            run.mutants[0].certificate_checks,
+            [kink_campaign::CertificateCheck {
+                test_id: "clash".into(),
+                certificate: kink_native::execution_difference::DifferenceCertificate::Proved {
+                    witness_side: kink_native::execution_difference::CertifiedSide::Mutant,
+                    witness_leaf: 0,
+                    exclusions: vec![kink_native::execution_difference::Exclusion::Length],
+                },
+                demoted_slots: vec![],
+            }]
+        );
     });
 }
 
@@ -250,16 +238,12 @@ fn campaign_runs_in_the_build_solver_profile() {
         let mut backend =
             Backend::from_definition(parsed, "SYMMEM", BackendOptions::default()).expect("backend");
         assert_eq!(SolverProfile::of(&backend), SolverProfile::BUILD);
-        let observed = [observed(&validator, "SYMMEM.write", "memoryWrite")];
-        let manifest = validator
-            .observation_manifest(&compiled, &observed)
-            .expect("manifest");
         let other = if SolverProfile::BUILD == SolverProfile::NoZ3 {
             SolverProfile::Z3
         } else {
             SolverProfile::NoZ3
         };
-        let adapter = ExecutionAdapter::with_profile(manifest, other);
+        let adapter = ExecutionAdapter::without_manifest(other);
         let z = app("z", vec![]);
         let initial_state = state(app("addr", vec![z.clone()]), app("addr", vec![z]));
         assert_eq!(

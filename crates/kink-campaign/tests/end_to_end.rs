@@ -3,31 +3,35 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+#[path = "../../../testdata/k/step_support.rs"]
+mod step_support;
+
 use std::time::Duration;
 
+use k_rust::backend::{Backend, BackendOptions};
 use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::{ast::Pattern, walk};
+use k_rust::kore::{ast::Pattern, parser::parse_definition, walk};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignRun, CertificateCheck, CrashPolicy,
+    Campaign, CampaignFailureKind, CampaignObservation, CampaignRun, CertificateCheck, CrashPolicy,
     ExecutionFailureKind, MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome,
     OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun,
     StateProjection, Tally, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
     run_campaign, tally,
 };
-use kink_native::execution::ExecutionBudget;
-use kink_native::execution_difference::{DifferenceCertificate, NotProvedReason};
-use kink_native::observation::{DomainEventSpec, PayloadSource};
-use kink_native::{NativeValidator, ObservedRule};
+use kink_native::NativeValidator;
+use kink_native::execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile};
+use kink_native::execution_difference::DifferenceCertificate;
+use kink_native::step_events::{StepEventSpec, StepObservation};
 use kink_patch::{
     Baseline, CandidateFailureKind, CandidateGeneration, Claim, Discovery, Edit, InsertPosition,
     Patch, SelectionPolicy, SentenceOrigin, SiteSelector, TermRef, Withdrawal, derive_sites,
     select,
 };
 use kink_pattern::{
-    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
+    Atom, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
     PayloadClause, Relation,
 };
 use serde_json::Value;
@@ -91,19 +95,6 @@ fn choose_state() -> Pattern {
         kore_application("Lblchoose", Vec::new(), vec![bool_value("true")]),
         "SortControl",
     )
-}
-
-fn vocabulary(names: &[&str]) -> EventVocabulary {
-    EventVocabulary::new(
-        names
-            .iter()
-            .map(|name| Constructor {
-                name: (*name).to_owned(),
-                payload_sorts: Vec::new(),
-            })
-            .collect(),
-    )
-    .expect("vocabulary")
 }
 
 /// A pattern oracle whose one atom is `constructor`.
@@ -227,29 +218,15 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
         let baseline = validator.baseline();
-        let vocabulary = vocabulary(&["rule:COUNTER.increment", "branchTaken"]);
-        let observed_rules = [
-            ObservedRule {
-                rule: support::rule(baseline, "COUNTER.increment"),
-                emit_rule_applied: true,
-                domain_events: Vec::new(),
-            },
-            ObservedRule {
-                rule: support::rule(baseline, "COUNTER.branch"),
-                emit_rule_applied: false,
-                domain_events: vec![DomainEventSpec {
-                    constructor: "branchTaken".to_owned(),
-                    payload: Vec::new(),
-                }],
-            },
-        ];
+        let specs = step_support::counter(true);
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let tests = [
             TestCase {
                 id: "t1".to_owned(),
                 initial_state: counter_state(),
                 oracles: vec![
                     whole_term(CrashPolicy::CompareIdentity),
-                    occurs(&vocabulary, "rule:COUNTER.increment"),
+                    occurs(&vocabulary, "increment"),
                 ],
             },
             TestCase {
@@ -288,8 +265,7 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observed_rules: &observed_rules,
-            vocabulary: &vocabulary,
+            observation: CampaignObservation::Steps(&specs),
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -327,11 +303,11 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
             .map(|mutant| mutant.report.status)
             .collect::<Vec<_>>();
         use MutantStatus::{Invalid, Killed, Survived};
-        assert_eq!(statuses, [Invalid, Killed, MutantStatus::Unknown, Survived]);
+        assert_eq!(statuses, [Invalid, Killed, Survived, Survived]);
         #[rustfmt::skip]
         let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
-            &[("t1", vec![Distinguish, Agree]), ("t2", vec![Agree, Agree])],
-            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, OracleOutcome::Unknown])],
+            &[("t1", vec![Distinguish, Distinguish]), ("t2", vec![Agree, Agree])],
+            &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
             &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
         ];
         for (mutant, expected) in run.mutants[1..].iter().zip(expected) {
@@ -342,12 +318,12 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
                 sides(evidence);
             }
         }
-        // The branch mutant ends where the baseline does, but branch never fires.
+        // The fallback takes the same declared branch transition as the baseline.
         assert_eq!(
             sides(&run.mutants[2].evidence[1]),
             [
                 final_state(t2_final),
-                OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch))
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }))
             ]
         );
         let invalid = &run.mutants[0];
@@ -360,18 +336,11 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
         assert!(invalid.report.executed_test_ids.is_empty());
         assert!(invalid.certificate_checks.is_empty());
         assert!(run.mutants[1].certificate_checks.is_empty());
-        assert_eq!(
-            run.mutants[2].certificate_checks,
-            [CertificateCheck {
-                test_id: "t2".into(),
-                certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
-                demoted_slots: vec![1],
-            }]
-        );
+        assert!(run.mutants[2].certificate_checks.is_empty());
         assert!(run.mutants[3].certificate_checks.is_empty());
 
         let score = run.score.expect("a complete generation is scored");
-        assert_eq!((score.killed, score.survived), (1, 1));
+        assert_eq!((score.killed, score.survived), (1, 2));
         let counts = tally(&generation, &run).expect("matching generation");
         assert_eq!(
             (counts.killed, counts.survived),
@@ -381,7 +350,7 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
             score.ratio,
             Some(Rational {
                 numerator: 1,
-                denominator: 2
+                denominator: 3
             })
         );
 
@@ -442,14 +411,10 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
         let baseline = validator.baseline();
-        let vocabulary = vocabulary(&["rule:COUNTER.increment"]);
-        let observed_rules = [ObservedRule {
-            rule: support::rule(baseline, "COUNTER.increment"),
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
-        }];
+        let specs = step_support::counter(true);
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let increment = || Atom {
-            constructor: "rule:COUNTER.increment".to_owned(),
+            constructor: "increment".to_owned(),
             payload: Vec::new(),
         };
         let twice = OracleDeclaration::new(
@@ -477,7 +442,7 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
             ),
             oracles: vec![
                 whole_term(CrashPolicy::CompareIdentity),
-                occurs(&vocabulary, "rule:COUNTER.increment"),
+                occurs(&vocabulary, "increment"),
                 twice,
             ],
         }];
@@ -498,8 +463,7 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observed_rules: &observed_rules,
-            vocabulary: &vocabulary,
+            observation: CampaignObservation::Steps(&specs),
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -529,12 +493,12 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
             };
             assert_eq!(
                 sides(&mutant.evidence[0]),
-                [final_counter.clone(), matched.clone(), no_match.clone()],
+                [final_counter.clone(), no_match.clone(), no_match.clone()],
                 "{schedule:?}"
             );
             assert_eq!(
                 outcomes(&mutant.plan.tests),
-                [("two", vec![Agree, Agree, Distinguish])],
+                [("two", vec![Agree, Distinguish, Distinguish])],
                 "{schedule:?}"
             );
             assert_eq!(mutant.report.status, MutantStatus::Killed, "{schedule:?}");
@@ -556,6 +520,79 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
     });
 }
 
+/// A symbolic choose baseline has a branch witness only in the Z3 profile.
+#[test]
+fn symbolic_choose_baseline_requires_a_decided_branch() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let specs = step_support::counter(true);
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+        let tests = [TestCase {
+            id: "choose-B".into(),
+            initial_state: support::initial_state(
+                support::app("Lblchoose", vec![support::var("B", "SortBool")]),
+                "SortControl",
+            ),
+            oracles: vec![occurs(&vocabulary, "branchTaken")],
+        }];
+        let compiled = validator.compile_baseline().expect("baseline compiles");
+        let definition =
+            parse_definition(&compiled.artifacts().definition_kore).expect("definition");
+        let mut backend =
+            Backend::from_definition(definition, "COUNTER", BackendOptions::default())
+                .expect("backend");
+        let stepped = ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+            .execute_steps(&mut backend, &tests[0].initial_state, BUDGET)
+            .expect("execution")
+            .expect("steps");
+        if cfg!(feature = "z3") {
+            assert_eq!(
+                stepped.adapted.leaves().len(),
+                2,
+                "branch and fallback leaves"
+            );
+        } else {
+            assert_eq!(
+                stepped.adapted.leaves().len(),
+                1,
+                "one indeterminate leaf without a solver"
+            );
+            assert_eq!(stepped.adapted.leaves()[0].halt, HaltClass::Indeterminate);
+            assert_eq!(
+                stepped.states.iter().map(Vec::len).collect::<Vec<_>>(),
+                [1],
+                "zero steps without a solver"
+            );
+        }
+        let result = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observation: CampaignObservation::Steps(&specs),
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation(validator.baseline(), &[]),
+            ScheduleMode::Full,
+        );
+        if cfg!(feature = "z3") {
+            assert_eq!(
+                sides(&result.expect("decided symbolic baseline").baseline[0]),
+                [matched()]
+            );
+        } else {
+            assert_eq!(
+                result
+                    .expect_err("zero steps cannot decide the baseline pattern")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+        }
+    });
+}
+
 /// Critique C2 through the runner: a mutant that no longer terminates is stopped by the
 /// watchdog, its test fails with `TimeLimit`, and the mutant is `Timeout`, never killed.
 #[test]
@@ -563,7 +600,6 @@ fn nonterminating_mutant_is_a_timeout() {
     with_stack(|| {
         let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
         let baseline = validator.baseline();
-        let vocabulary = vocabulary(&["unused"]);
         let tests = [TestCase {
             id: "mid1".to_owned(),
             initial_state: support::initial_state(constant("Lblmid1"), "SortS"),
@@ -579,8 +615,7 @@ fn nonterminating_mutant_is_a_timeout() {
         let campaign = Campaign {
             validator: &validator,
             module: "ND",
-            observed_rules: &[],
-            vocabulary: &vocabulary,
+            observation: CampaignObservation::Steps(&[]),
             classify: &normal,
             tests: &tests,
             budget: ExecutionBudget {
@@ -620,14 +655,12 @@ fn contains(term: &Pattern, symbol: &str) -> bool {
 
 /// Critique C6 and C7: the baseline gate runs before any mutant. A baseline crash its
 /// declaration rejects fails admission, one it admits is a crash side carrying its
-/// terminal term, and an observed position outside the baseline is a declaration
-/// error.
+/// terminal term, and an unbound payload is a declaration error.
 #[test]
-fn baseline_admission_gates_crashes_and_unknown_rules() {
+fn baseline_admission_gates_crashes_and_invalid_declarations() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let vocabulary = vocabulary(&["unused"]);
         let selected_is_a_crash = |term: &Pattern| {
             if contains(term, "Lblselected") {
                 ExecutionTerminalKind::SemanticCrash
@@ -642,25 +675,13 @@ fn baseline_admission_gates_crashes_and_unknown_rules() {
                 oracles: vec![whole_term(crash_policy)],
             }]
         };
-        let rules = |label: &str| {
-            [ObservedRule {
-                rule: if label == "COUNTER.nothing" {
-                    kink_patch::SentenceRef::new("COUNTER", 999)
-                } else {
-                    support::rule(validator.baseline(), label)
-                },
-                emit_rule_applied: true,
-                domain_events: Vec::new(),
-            }]
-        };
-        let run = |crash_policy, observed: &[ObservedRule]| {
+        let run = |crash_policy, specs: &[StepEventSpec]| {
             let tests = tests(crash_policy);
             run_campaign(
                 &Campaign {
                     validator: &validator,
                     module: "COUNTER",
-                    observed_rules: observed,
-                    vocabulary: &vocabulary,
+                    observation: CampaignObservation::Steps(specs),
                     classify: &selected_is_a_crash,
                     tests: &tests,
                     budget: BUDGET,
@@ -673,11 +694,16 @@ fn baseline_admission_gates_crashes_and_unknown_rules() {
         let rejected = run(CrashPolicy::Reject, &[]).expect_err("crash rejected");
         assert_eq!(rejected.kind(), CampaignFailureKind::BaselineOracleFailed);
 
-        let unknown =
-            run(CrashPolicy::CompareIdentity, &rules("COUNTER.nothing")).expect_err("unknown rule");
+        let invalid = [StepEventSpec {
+            constructor: "invalid".into(),
+            pre: support::var("S", "SortGeneratedTopCell"),
+            post: None,
+            payload: vec!["Missing".into()],
+        }];
+        let unknown = run(CrashPolicy::CompareIdentity, &invalid).expect_err("unbound payload");
         assert_eq!(unknown.kind(), CampaignFailureKind::InvalidDeclaration);
 
-        let admitted = run(CrashPolicy::CompareIdentity, &rules("COUNTER.branch"))
+        let admitted = run(CrashPolicy::CompareIdentity, &step_support::counter(true))
             .expect("a crash is admitted under CompareIdentity");
         let OracleSide::SemanticCrash(term) = &sides(&admitted.baseline[0])[0] else {
             panic!("a crash side");
@@ -700,16 +726,26 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
         let validator =
             NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
         let baseline = validator.baseline();
-        // The vocabulary, test and observed rule of a pattern oracle over `label`'s event.
-        let declared = |label: &str, initial_state| {
-            let constructor = format!("rule:{label}");
-            let vocabulary = vocabulary(&[constructor.as_str()]);
-            let tests = [TestCase {
-                id: "t".to_owned(),
-                initial_state,
-                oracles: vec![occurs(&vocabulary, &constructor)],
+        let declared = |symbol: &str, initial_state| {
+            let target = match symbol {
+                "Lblcarry" | "LblcarryAlways" => constant("Lblcarried"),
+                "Lbldraining" => support::app("Lbldrained", vec![support::var("D", "SortNat")]),
+                "Lblvacuous" => constant("Lblreached"),
+                _ => unreachable!("declared fixture source"),
+            };
+            let specs = [StepEventSpec {
+                constructor: "transition".into(),
+                pre: support::k_config(constant(symbol), "SortS", "R", "C"),
+                post: Some(support::k_config(target, "SortS", "R", "C2")),
+                payload: vec![],
             }];
-            (vocabulary, tests, [rule_applied(label)])
+            let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
+            let tests = [TestCase {
+                id: "t".into(),
+                initial_state,
+                oracles: vec![occurs(&vocabulary, "transition")],
+            }];
+            (tests, specs)
         };
 
         // (id, mutated rule, initial program, simplifier iterations)
@@ -719,14 +755,13 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 3),
         ];
         for (id, label, symbol, iterations) in mutants {
-            let (vocabulary, tests, observed) =
-                declared(label, support::initial_state(constant(symbol), "SortS"));
+            let (tests, specs) =
+                declared(symbol, support::initial_state(constant(symbol), "SortS"));
             let run = run_campaign(
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
-                    observed_rules: &observed,
-                    vocabulary: &vocabulary,
+                    observation: CampaignObservation::Steps(&specs),
                     classify: &normal,
                     tests: &tests,
                     budget: ExecutionBudget {
@@ -760,20 +795,19 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
         }
 
-        // (id, observed rule, initial state, expected baseline outcome)
+        // (id, source configuration, initial state, expected baseline outcome)
         #[rustfmt::skip]
         let baselines = [
-            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
-            ("vacuous-baseline-has-complete-absence", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
+            ("carried-ensures-baseline-is-refused", "LblcarryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
+            ("vacuous-baseline-has-complete-absence", "Lblvacuous", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
         ];
-        for (id, label, state, admitted) in baselines {
-            let (vocabulary, tests, observed) = declared(label, state);
+        for (id, symbol, state, admitted) in baselines {
+            let (tests, specs) = declared(symbol, state);
             let result = run_campaign(
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
-                    observed_rules: &observed,
-                    vocabulary: &vocabulary,
+                    observation: CampaignObservation::Steps(&specs),
                     classify: &normal,
                     tests: &tests,
                     budget: BUDGET,
@@ -837,12 +871,8 @@ fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
                 "SortProg",
             )
         };
-        let vocabulary = vocabulary(&["rule:GUARDEDDIV.load"]);
-        let observed = [ObservedRule {
-            rule: support::rule(baseline, "GUARDEDDIV.load"),
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
-        }];
+        let specs = vec![step_support::guardedmem(true)[1].clone()];
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let exit_stop = OracleDeclaration::new(
             CrashPolicy::CompareIdentity,
             Projection::State(StateProjection::ExitStop {
@@ -856,7 +886,7 @@ fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
             oracles: vec![
                 exit_stop.clone(),
                 whole_term(CrashPolicy::CompareIdentity),
-                occurs(&vocabulary, "rule:GUARDEDDIV.load"),
+                occurs(&vocabulary, "memoryLoad"),
             ],
         });
         // A configuration that still holds `divide` did not finish.
@@ -871,8 +901,7 @@ fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
             &Campaign {
                 validator: &validator,
                 module: "GUARDEDDIV",
-                observed_rules: &observed,
-                vocabulary: &vocabulary,
+                observation: CampaignObservation::Steps(&specs),
                 classify: &classify,
                 tests: &tests,
                 budget: BUDGET,
@@ -917,59 +946,36 @@ fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
     });
 }
 
-fn rule_applied(label: &str) -> ObservedRule {
-    ObservedRule {
-        rule: support::rule(
-            &support::load(if label.starts_with("UNDECIDED.") {
-                "undecided.k"
-            } else {
-                "counter.k"
-            }),
-            label,
-        ),
-        emit_rule_applied: true,
-        domain_events: Vec::new(),
-    }
-}
-
 #[test]
-fn selected_function_equation_is_infrastructure_failure() {
+fn function_symbol_declaration_is_refused() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
-        let observed = [ObservedRule {
-            rule: kink_patch::SentenceRef::new("UNDECIDED", 0),
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
+        let specs = [StepEventSpec {
+            constructor: "equation".into(),
+            pre: support::k_config(support::app("LblisZero", vec![z()]), "SortBool", "R", "C"),
+            post: None,
+            payload: vec![],
         }];
-        let vocabulary = vocabulary(&["equation"]);
         let tests = [TestCase {
-            id: "equation".to_owned(),
-            initial_state: support::initial_state(
-                kore_application(
-                    "LblisZero",
-                    Vec::new(),
-                    vec![kore_application("Lblz", Vec::new(), Vec::new())],
-                ),
-                "SortBool",
-            ),
+            id: "vacuous".into(),
+            initial_state: support::initial_state(constant("Lblvacuous"), "SortS"),
             oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
         }];
         let failure = run_campaign(
             &Campaign {
                 validator: &validator,
                 module: "UNDECIDED",
-                observed_rules: &observed,
-                vocabulary: &vocabulary,
-                classify: &|_| ExecutionTerminalKind::Normal,
+                observation: CampaignObservation::Steps(&specs),
+                classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
             },
             &generation(validator.baseline(), &[]),
             ScheduleMode::Full,
         )
-        .expect_err("equation filter is refused");
-        assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+        .expect_err("function symbols are refused");
+        assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
     });
 }
 
@@ -1003,23 +1009,17 @@ fn anonymous_clone_of_observed_rule_is_equivalent() {
         }])
         .expect("patch");
         let generation = generation(baseline, &[(TermRef::new(rule.clone(), [0]), patch)]);
-        let observed = [ObservedRule {
-            rule,
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
-        }];
+        let specs = step_support::counter(true);
         let tests = [TestCase {
             id: "increment".into(),
             initial_state: counter_state(),
             oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
         }];
-        let vocabulary = vocabulary(&[]);
         let run = run_campaign(
             &Campaign {
                 validator: &validator,
                 module: "COUNTER",
-                observed_rules: &observed,
-                vocabulary: &vocabulary,
+                observation: CampaignObservation::Steps(&specs),
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1067,13 +1067,11 @@ fn deleting_either_equal_copy_is_equivalent() {
             initial_state: support::initial_state(constant("Lbly"), "SortS"),
             oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
         }];
-        let vocabulary = vocabulary(&[]);
         let run = run_campaign(
             &Campaign {
                 validator: &validator,
                 module: "DUPLICATE'Unds'UNLABELLED",
-                observed_rules: &[],
-                vocabulary: &vocabulary,
+                observation: CampaignObservation::Steps(&[]),
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1127,23 +1125,23 @@ fn merged_observed_and_unobserved_authors_do_not_kill() {
                 .expect("replacement patch")
             })
             .expect("replacement applies");
-        let vocabulary = vocabulary(&["rule:UNLABELLED:0"]);
-        let observed = [ObservedRule {
-            rule: observed_rule,
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
+        let specs = [StepEventSpec {
+            constructor: "aStep".into(),
+            pre: support::k_config(constant("Lbla"), "SortS", "R", "C"),
+            post: Some(support::k_config(constant("Lblb"), "SortS", "R", "C2")),
+            payload: vec![],
         }];
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let tests = [TestCase {
             id: "C fires".into(),
             initial_state: support::initial_state(constant("Lblx"), "SortS"),
-            oracles: vec![occurs(&vocabulary, "rule:UNLABELLED:0")],
+            oracles: vec![occurs(&vocabulary, "aStep")],
         }];
         let run = run_campaign(
             &Campaign {
                 validator: &validator,
                 module: "UNLABELLED",
-                observed_rules: &observed,
-                vocabulary: &vocabulary,
+                observation: CampaignObservation::Steps(&specs),
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1153,11 +1151,12 @@ fn merged_observed_and_unobserved_authors_do_not_kill() {
         )
         .expect("campaign");
         assert_eq!(run.mutants.len(), 1);
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
+        assert!(run.mutants[0].certificate_checks.is_empty());
         assert_eq!(
             outcomes(&run.mutants[0].plan.tests),
-            [("C fires", vec![OracleOutcome::Unknown])]
+            [("C fires", vec![Agree])]
         );
     });
 }
@@ -1174,7 +1173,6 @@ fn incomplete_and_failed_generations_are_not_scored() {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
         let baseline = validator.baseline();
-        let vocabulary = vocabulary(&["unused"]);
         let tests = [TestCase {
             id: "t2".to_owned(),
             initial_state: choose_state(),
@@ -1183,8 +1181,7 @@ fn incomplete_and_failed_generations_are_not_scored() {
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observed_rules: &[],
-            vocabulary: &vocabulary,
+            observation: CampaignObservation::Steps(&[]),
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -1263,7 +1260,6 @@ fn incomplete_and_failed_generations_are_not_scored() {
 #[test]
 fn a_generation_of_another_baseline_is_refused() {
     let validator = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-    let vocabulary = vocabulary(&["unused"]);
     let tests = [TestCase {
         id: "t2".to_owned(),
         initial_state: choose_state(),
@@ -1272,8 +1268,7 @@ fn a_generation_of_another_baseline_is_refused() {
     let campaign = Campaign {
         validator: &validator,
         module: "COUNTER",
-        observed_rules: &[],
-        vocabulary: &vocabulary,
+        observation: CampaignObservation::Steps(&[]),
         classify: &normal,
         tests: &tests,
         budget: BUDGET,
@@ -1310,12 +1305,11 @@ fn tally_rejects_a_run_with_fewer_mutants_than_candidates() {
 }
 
 /// The write-then-load campaign of the attribute-trust probes over `file`: its validator,
-/// vocabulary, observed `write` and `load` rules, and the pattern oracle "a load from the
+/// declarations and the derived vocabulary of write and load transitions, and the pattern oracle "a load from the
 /// address written before".
 struct ClaimCampaign {
     validator: NativeValidator,
-    vocabulary: EventVocabulary,
-    observed_rules: Vec<ObservedRule>,
+    specs: Vec<StepEventSpec>,
     oracle: OracleDeclaration,
 }
 
@@ -1324,30 +1318,8 @@ impl ClaimCampaign {
         let baseline =
             support::load_path(&std::path::Path::new(support::DIR).join(file), "SYMPARTIAL");
         let validator = NativeValidator::bind(baseline, CompileOptions::default());
-        let vocabulary = EventVocabulary::new(
-            ["memoryWrite", "memoryLoad"]
-                .map(|name| Constructor {
-                    name: name.to_owned(),
-                    payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
-                })
-                .to_vec(),
-        )
-        .expect("vocabulary");
-        let observed_rules = [
-            ("SYMPARTIAL.write", "memoryWrite"),
-            ("SYMPARTIAL.load", "memoryLoad"),
-        ]
-        .map(|(label, constructor)| ObservedRule {
-            rule: support::rule(validator.baseline(), label),
-            emit_rule_applied: false,
-            domain_events: vec![DomainEventSpec {
-                constructor: constructor.to_owned(),
-                payload: [support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])]
-                    .map(PayloadSource::BeforeTerm)
-                    .to_vec(),
-            }],
-        })
-        .to_vec();
+        let specs = step_support::guardedmem(true)[..2].to_vec();
+        let vocabulary = StepObservation::vocabulary_of(&specs).expect("vocabulary");
         let atom = |constructor: &str, mode| Atom {
             constructor: constructor.to_owned(),
             payload: vec![PayloadClause {
@@ -1379,8 +1351,7 @@ impl ClaimCampaign {
         .expect("pattern oracle");
         Self {
             validator,
-            vocabulary,
-            observed_rules,
+            specs,
             oracle,
         }
     }
@@ -1445,8 +1416,7 @@ impl ClaimCampaign {
             &Campaign {
                 validator: &self.validator,
                 module: "SYMPARTIAL",
-                observed_rules: &self.observed_rules,
-                vocabulary: &self.vocabulary,
+                observation: CampaignObservation::Steps(&self.specs),
                 classify: &normal,
                 tests,
                 budget: BUDGET,
@@ -1508,61 +1478,46 @@ fn unmatched() -> OracleSide {
 }
 
 #[test]
-fn positional_binding_payloads_are_refused() {
+fn unbound_payload_is_refused() {
     with_stack(|| {
         let mut fixture = ClaimCampaign::load("symbolic-claim-mutation.k");
-        fixture.observed_rules[0].domain_events[0].payload[0] = PayloadSource::BindingValue(1);
-        let tests = [fixture.tests()[1].clone()];
-        let generation = generation(fixture.baseline(), &[]);
-        let failure = run_campaign(
-            &Campaign {
-                validator: &fixture.validator,
-                module: "SYMPARTIAL",
-                observed_rules: &fixture.observed_rules,
-                vocabulary: &fixture.vocabulary,
-                classify: &normal,
-                tests: &tests,
-                budget: BUDGET,
-            },
-            &generation,
-            ScheduleMode::Full,
-        )
-        .expect_err("positional binding payload is invalid");
-        assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
+        fixture.specs[0].payload[0] = "Missing".into();
+        assert_invalid_claim_declaration(&fixture);
     });
 }
 
 #[test]
-fn unstable_payload_sources_are_refused() {
+fn reserved_names_and_sort_mismatches_are_refused() {
     with_stack(|| {
-        for source in [
-            PayloadSource::IntroducedPredicate(0),
-            PayloadSource::Effect(0),
-            PayloadSource::BeforeState,
-            PayloadSource::AfterState,
-            PayloadSource::BindingValueNamed("RuleVarA".into()),
+        for pre in [
+            support::var("Reserved!0", "SortGeneratedTopCell"),
+            support::k_config(support::var("P", "SortInt"), "SortProg", "R", "C"),
         ] {
             let mut fixture = ClaimCampaign::load("symbolic-claim-mutation.k");
-            fixture.observed_rules[0].domain_events[0].payload[0] = source;
-            let tests = [fixture.tests()[1].clone()];
-            let generation = generation(fixture.baseline(), &[]);
-            let failure = run_campaign(
-                &Campaign {
-                    validator: &fixture.validator,
-                    module: "SYMPARTIAL",
-                    observed_rules: &fixture.observed_rules,
-                    vocabulary: &fixture.vocabulary,
-                    classify: &normal,
-                    tests: &tests,
-                    budget: BUDGET,
-                },
-                &generation,
-                ScheduleMode::Full,
-            )
-            .expect_err("unstable payload source is invalid");
-            assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
+            fixture.specs[0].pre = pre;
+            fixture.specs[0].post = None;
+            fixture.specs[0].payload.clear();
+            assert_invalid_claim_declaration(&fixture);
         }
     });
+}
+
+fn assert_invalid_claim_declaration(fixture: &ClaimCampaign) {
+    let tests = [fixture.tests()[1].clone()];
+    let failure = run_campaign(
+        &Campaign {
+            validator: &fixture.validator,
+            module: "SYMPARTIAL",
+            observation: CampaignObservation::Steps(&fixture.specs),
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        },
+        &generation(fixture.baseline(), &[]),
+        ScheduleMode::Full,
+    )
+    .expect_err("invalid step declaration");
+    assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
 }
 
 /// The sides of every test of a run, `None` for a test that did not run.

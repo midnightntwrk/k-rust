@@ -263,8 +263,10 @@ impl Symmem {
         Campaign {
             validator: &self.validator,
             module: "SYMMEM",
-            observed_rules: &self.observed,
-            vocabulary: &self.vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &self.observed,
+                vocabulary: &self.vocabulary,
+            },
             classify: &normal,
             tests,
             budget: BUDGET,
@@ -366,8 +368,10 @@ impl Guarded {
         Campaign {
             validator: &self.validator,
             module: "GUARDEDMEM",
-            observed_rules: &self.observed,
-            vocabulary: &self.vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &self.observed,
+                vocabulary: &self.vocabulary,
+            },
             classify: &normal,
             tests,
             budget: BUDGET,
@@ -1435,8 +1439,10 @@ fn audit_a5_withdrawn_claims_do_not_kill() {
             &Campaign {
                 validator: &validator,
                 module: "SYMPARTIAL",
-                observed_rules: &observed,
-                vocabulary: &vocabulary,
+                observation: kink_campaign::CampaignObservation::Rules {
+                    observed_rules: &observed,
+                    vocabulary: &vocabulary,
+                },
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1729,8 +1735,10 @@ impl GuardedEq {
         Campaign {
             validator: &self.validator,
             module: "GUARDEDEQ",
-            observed_rules: &self.observed,
-            vocabulary: &self.vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &self.observed,
+                vocabulary: &self.vocabulary,
+            },
             classify: &normal,
             tests,
             budget: BUDGET,
@@ -2823,8 +2831,10 @@ impl EiMemory {
         Campaign {
             validator: &self.validator,
             module: &self.module,
-            observed_rules: &self.observed,
-            vocabulary: &self.vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &self.observed,
+                vocabulary: &self.vocabulary,
+            },
             classify: &normal,
             tests,
             budget: BUDGET,
@@ -3050,8 +3060,10 @@ fn audit_ei_at2_function_residue_is_unknown() {
         let campaign = Campaign {
             validator: &validator,
             module: "RESIDUE",
-            observed_rules: &observed,
-            vocabulary: &vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+            },
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -3404,8 +3416,10 @@ fn audit_ei_at8_stuck_against_undefined_step_is_unknown() {
         let campaign = Campaign {
             validator: &validator,
             module: "GUARDEDDIV",
-            observed_rules: &observed,
-            vocabulary: &vocabulary,
+            observation: kink_campaign::CampaignObservation::Rules {
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+            },
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -3750,8 +3764,10 @@ fn audit_ei_conflated_names_leave_the_state_slot_refused() {
             let campaign = Campaign {
                 validator: &validator,
                 module: "CONFLATE",
-                observed_rules: &[],
-                vocabulary: &vocabulary,
+                observation: kink_campaign::CampaignObservation::Rules {
+                    observed_rules: &[],
+                    vocabulary: &vocabulary,
+                },
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
