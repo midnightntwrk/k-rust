@@ -11,13 +11,15 @@ use k_rust_backend::matching::SortGraph;
 use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::Substitution;
-use k_rust_backend::term::names::VariableProvenance;
 use k_rust_backend::term::{Name, Sort, Symbol, Term, TermKind, Variable, VariableKind};
 use k_rust_backend::unification::{UnificationResult, unify_term_pairs};
 
 use crate::{
     execution::HaltClass,
-    feasibility::{Inhabitation, LeafFeasibility, free_constructor, proves_clash},
+    feasibility::{
+        Inhabitation, LeafFeasibility, free_constructor, interpreted_predicate, proves_clash,
+    },
+    names::identifies_one_variable,
 };
 
 /// One path's states; its rewrite length is `states.len() - 1`, never its halt depth.
@@ -537,53 +539,6 @@ impl Scope<'_> {
             | TermKind::Set { .. } => Term::variable(self.fresh(term.sort())),
         }
     }
-}
-
-/// Whether `name`, read in a decoded (externalized) state, can only be the external name of the
-/// backend variable of that very name (README 6.2).
-///
-/// k-rust's `external_variable_name` prints a provenance marker `Rule#`, `Ex#` or `Eq#` without
-/// its `#`, appends a fresh counter `!N` as the bare digits `N`, and writes every other
-/// character outside `[a-zA-Z0-9'-]` as an apostrophe-delimited word; it is not injective
-/// (`Ex#VarI1!0` and `Ex#VarI!10` both print as `ExVarI10`, and `Ex#VarI!0` prints as the
-/// user name `ExVarI0`). A non-empty name of letters, digits and `-` that ends in no digit and
-/// starts with none of `Rule`, `Ex` and `Eq` is printed only by the variable of the same name:
-/// a marked name prints with the marker's letters first, a counted name ends in a digit, and a
-/// name with any other character prints with an apostrophe. Any other name may stand for
-/// several backend variables.
-fn identifies_one_variable(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        && !name.ends_with(|character: char| character.is_ascii_digit())
-        && !VariableProvenance::ALL
-            .iter()
-            .any(|provenance| name.starts_with(provenance.external_prefix()))
-}
-
-/// Every term of `predicate` is built from hooked symbols, free constructors, injections,
-/// domain values and variables only (no collection and no conjunction term).
-fn interpreted_predicate(predicate: &Predicate) -> bool {
-    fn interpreted(term: &Term) -> bool {
-        match term.kind() {
-            TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
-            TermKind::Injection { term, .. } => interpreted(term),
-            TermKind::Application {
-                symbol, arguments, ..
-            } => {
-                (symbol.attributes.hook.is_some() || free_constructor(symbol))
-                    && arguments.iter().all(interpreted)
-            }
-            TermKind::And(..)
-            | TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. } => false,
-        }
-    }
-    let mut all = true;
-    predicate.visit_terms(&mut |term| all &= interpreted(term));
-    all
 }
 
 /// A leaf with no defined successor for its instances.

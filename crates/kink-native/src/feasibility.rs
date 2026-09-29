@@ -226,6 +226,64 @@ pub(crate) fn leaf_feasibility(
     }
 }
 
+/// Leaf feasibility under the observation decider's definition-independent query policy.
+/// The baseline definition and solver are shared by both sides of a mutant pair.
+pub(crate) fn shared_leaf_feasibility(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    inhabitation: &Inhabitation,
+    state: &serde_json::Value,
+) -> LeafFeasibility {
+    let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
+        return LeafFeasibility::Unknown;
+    };
+    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
+        return LeafFeasibility::Unknown;
+    };
+    let instances = constructor_term(&internal.term, inhabitation);
+    if internal.constraints.is_empty() {
+        return if instances {
+            LeafFeasibility::Syntactic
+        } else {
+            LeafFeasibility::Unknown
+        };
+    }
+    if !internal.constraints.iter().all(interpreted_predicate) {
+        return LeafFeasibility::Unknown;
+    }
+    match solver.is_sat(&internal.constraints, &Substitution::new()) {
+        Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
+        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+            LeafFeasibility::Solver
+        }
+        Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
+    }
+}
+
+/// Every term of `predicate` is built from hooked symbols, free constructors, injections,
+/// domain values and variables only (no collection and no conjunction term).
+pub(crate) fn interpreted_predicate(predicate: &Predicate) -> bool {
+    fn interpreted(term: &Term) -> bool {
+        match term.kind() {
+            TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
+            TermKind::Injection { term, .. } => interpreted(term),
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                (symbol.attributes.hook.is_some() || free_constructor(symbol))
+                    && arguments.iter().all(interpreted)
+            }
+            TermKind::And(..)
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => false,
+        }
+    }
+    let mut all = true;
+    predicate.visit_terms(&mut |term| all &= interpreted(term));
+    all
+}
+
 /// The first free element variable of `state` whose sort is not shown inhabited, or the
 /// internalization error of a variable.
 pub(crate) fn uninhabited_variable(
@@ -346,6 +404,7 @@ pub struct BackendRelations<'a> {
     inhabitation: Inhabitation,
     /// The initial-state element variables, when they are stable and all inhabited.
     variables: Option<BTreeSet<Variable>>,
+    interpreted_only: bool,
 }
 
 impl<'a> BackendRelations<'a> {
@@ -355,13 +414,35 @@ impl<'a> BackendRelations<'a> {
         solver: &'a dyn SmtSolver,
         initial_state: &Pattern,
     ) -> Self {
-        let inhabitation = Inhabitation::of(definition);
         let existentials = definition
             .rewrite_theory
             .values()
             .flat_map(|priorities| priorities.values())
             .flatten()
             .any(|rule| !rule.existentials.is_empty());
+        Self::build(definition, solver, initial_state, existentials, false)
+    }
+
+    /// Relations for pattern observations on both sides of a mutant pair. The caller supplies
+    /// the pair's existential flag; only interpreted predicates may reach the solver.
+    #[must_use]
+    pub fn shared(
+        definition: &'a BackendDefinition,
+        solver: &'a dyn SmtSolver,
+        initial_state: &Pattern,
+        existentials: bool,
+    ) -> Self {
+        Self::build(definition, solver, initial_state, existentials, true)
+    }
+
+    fn build(
+        definition: &'a BackendDefinition,
+        solver: &'a dyn SmtSolver,
+        initial_state: &Pattern,
+        existentials: bool,
+        interpreted_only: bool,
+    ) -> Self {
+        let inhabitation = Inhabitation::of(definition);
         let variables = initial_state
             .free_variables()
             .into_iter()
@@ -387,6 +468,7 @@ impl<'a> BackendRelations<'a> {
             solver,
             inhabitation,
             variables,
+            interpreted_only,
         }
     }
 
@@ -475,6 +557,9 @@ impl<'a> BackendRelations<'a> {
             } else {
                 Feasibility::Unknown
             };
+        }
+        if self.interpreted_only && !query.iter().all(interpreted_predicate) {
+            return Feasibility::Unknown;
         }
         // Every variable of an exact `Sat` must be an initial-state variable, which names one
         // value along the whole path (R9); a variable introduced during execution may not.
@@ -1635,5 +1720,27 @@ mod tests {
             })
             .expect("relations");
         assert_eq!(answers, [Indeterminate, Indeterminate, Unequal]);
+    }
+
+    #[test]
+    fn shared_relations_use_the_pair_existential_flag() {
+        let mut symmem = backend("symmem.k", "SYMMEM");
+        let state = symmem_state();
+        let real = path(PathStop::DepthLimit, top());
+        let (x, y) = (nat("X"), nat("Y"));
+        let answers = symmem
+            .with_solver(None, |definition, solver| {
+                let stable = BackendRelations::shared(definition, solver, &state, false);
+                let unstable = BackendRelations::shared(definition, solver, &state, true);
+                Ok::<_, BackendError>([
+                    stable.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
+                    unstable.relate(&real, &[], &addr(x), &addr(y)),
+                ])
+            })
+            .expect("relations");
+        assert_eq!(
+            answers,
+            [EqualIf(vec![relation(nat("X"), nat("Y"))]), Indeterminate]
+        );
     }
 }

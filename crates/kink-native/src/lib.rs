@@ -14,9 +14,11 @@ mod equivalence;
 pub mod execution;
 pub mod execution_difference;
 pub mod feasibility;
+mod names;
 pub mod observation;
 pub mod report;
 mod selector;
+pub mod step_events;
 #[cfg(test)]
 #[path = "../../../testdata/k/support.rs"]
 mod support;

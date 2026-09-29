@@ -53,9 +53,10 @@ use kink_pattern::{
     ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
 };
 
-use crate::execution::{AdaptedExecution, HaltClass};
+use crate::execution::{AdaptedExecution, HaltClass, SteppedExecution};
 use crate::feasibility::LeafFeasibility;
 use crate::observation::{AdaptedBranch, DomainPayload, NativeEvent};
+use crate::step_events::{ObservationDecider, StepObservation, StepPresence};
 
 /// What the bridge needs besides the adapted response.
 pub struct BridgeContext<'a> {
@@ -590,6 +591,217 @@ pub fn paths_from_execution(
     Ok(paths.finish())
 }
 
+/// Turns a stepped run into declaration events using one baseline-owned decider.
+pub fn paths_from_steps(
+    context: &BridgeContext<'_>,
+    execution: &SteppedExecution,
+    observation: &StepObservation,
+    decider: &ObservationDecider<'_>,
+) -> Result<BridgedPaths, BridgeFailure> {
+    if execution.adapted.timed_out {
+        return Ok(BridgedPaths {
+            paths: Vec::new(),
+            collection: CollectionEvidence {
+                stop: CollectionStop::TimeLimit,
+                pending_work: 1,
+                empty_search_decision: None,
+            },
+        });
+    }
+    if execution.states.len() != execution.adapted.leaves.len() {
+        return Err(BridgeFailure::UndecodableState(format!(
+            "stepped state count {} differs from leaf count {}",
+            execution.states.len(),
+            execution.adapted.leaves.len()
+        )));
+    }
+    if execution.adapted.leaves.is_empty() {
+        return Err(BridgeFailure::NoLeaves);
+    }
+    let mut paths = Vec::new();
+    for (leaf, states) in execution.adapted.leaves.iter().zip(&execution.states) {
+        halt_stop(leaf.halt)?;
+        let feasibility = decider.shared_leaf_feasibility(&leaf.branch.state);
+        if leaf.halt == HaltClass::Vacuous && !diagnosed(leaf) {
+            continue;
+        }
+        if matches!(
+            leaf.halt,
+            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound | HaltClass::BreadthBound
+        ) && feasibility == LeafFeasibility::Unsat
+            && !diagnosed(leaf)
+        {
+            continue;
+        }
+        let state = codec::from_value(&leaf.branch.state)
+            .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
+        let sort = context
+            .sorts
+            .sort_of(&state)
+            .ok_or(BridgeFailure::UndecidedStateSort)?;
+        let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
+        let split = SplitState {
+            sort: sort.clone(),
+            terms,
+            predicates,
+        };
+        let feasible = match feasibility {
+            LeafFeasibility::Syntactic => split.predicates.is_empty(),
+            LeafFeasibility::Solver => true,
+            LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
+        };
+        let complete_term = match split.terms.as_slice() {
+            [term] if feasible => Some(term.clone()),
+            _ => None,
+        };
+        let mapped = match leaf_path(
+            leaf.halt,
+            split.decided_term(),
+            feasible,
+            complete_term,
+            context.classify,
+        )? {
+            _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
+            LeafPath::Incomplete(_) if leaf.halt == HaltClass::Indeterminate => {
+                LeafPath::Incomplete(indeterminate_stop(leaf.cause.as_ref()))
+            }
+            mapped => mapped,
+        };
+        let (complete, stop, execution_terminal) = match mapped {
+            LeafPath::Complete(terminal) => {
+                let stop = match terminal.kind {
+                    ExecutionTerminalKind::Normal | ExecutionTerminalKind::SemanticCrash => {
+                        PathStop::Terminal
+                    }
+                    ExecutionTerminalKind::Stuck => PathStop::Stuck,
+                    ExecutionTerminalKind::UndefinedStep => PathStop::UndefinedStep,
+                };
+                (true, stop, Some(terminal))
+            }
+            LeafPath::Incomplete(stop) => (false, stop, None),
+        };
+        let mut path = PathInput {
+            test_id: context.test_id.to_owned(),
+            path_ordinal: 0,
+            path_key: None,
+            complete,
+            stop,
+            execution_stop: execution_stop(stop),
+            execution_terminal,
+            events: Vec::new(),
+            path_predicate: split.path_predicate(),
+            equivalences: Vec::new(),
+            inequalities: Vec::new(),
+        };
+        for (step, pair) in states.windows(2).enumerate() {
+            let before = term_conjunct(&pair[0], context.sorts);
+            let after = term_conjunct(&pair[1], context.sorts);
+            for spec in observation.specs() {
+                let presence = match (&before, &after) {
+                    (Some(before), Some(after)) => {
+                        decider.classify_step(spec, before, Some(after), &path)
+                    }
+                    _ => StepPresence::Undecided,
+                };
+                let (payload, presence) = match presence {
+                    StepPresence::Certain(payload) => (payload, EventPresence::Certain),
+                    StepPresence::Conditional(payload, relations) => {
+                        (payload, EventPresence::Conditional(relations))
+                    }
+                    StepPresence::Absent => continue,
+                    StepPresence::Undecided => (Vec::new(), EventPresence::Undecided),
+                };
+                path.events.push(Event {
+                    index: path.events.len(),
+                    constructor: spec.constructor.clone(),
+                    payload,
+                    presence,
+                    step: widen(step),
+                    emission_ordinal: widen(
+                        path.events
+                            .iter()
+                            .filter(|event| event.step == widen(step))
+                            .count(),
+                    ),
+                });
+            }
+        }
+        paths.push(path);
+    }
+    canonicalize_step_paths(&mut paths);
+    let stop = paths
+        .iter()
+        .filter(|path| !path.complete)
+        .map(|path| path.stop)
+        .min()
+        .map_or(CollectionStop::SearchExhausted, collection_stop);
+    let empty_search_decision = (paths.is_empty() && stop == CollectionStop::SearchExhausted)
+        .then_some(EmptySearchDecision);
+    Ok(BridgedPaths {
+        paths,
+        collection: CollectionEvidence {
+            stop,
+            pending_work: u64::from(stop != CollectionStop::SearchExhausted),
+            empty_search_decision,
+        },
+    })
+}
+
+fn canonicalize_step_paths(paths: &mut Vec<PathInput>) {
+    paths.sort_by(|left, right| {
+        left.events
+            .iter()
+            .map(|event| {
+                (
+                    &event.constructor,
+                    &event.presence,
+                    &event.payload,
+                    event.step,
+                    event.emission_ordinal,
+                )
+            })
+            .cmp(right.events.iter().map(|event| {
+                (
+                    &event.constructor,
+                    &event.presence,
+                    &event.payload,
+                    event.step,
+                    event.emission_ordinal,
+                )
+            }))
+            .then_with(|| left.stop.cmp(&right.stop))
+            .then_with(|| left.execution_terminal.cmp(&right.execution_terminal))
+            .then_with(|| left.path_predicate.cmp(&right.path_predicate))
+            .then_with(|| left.complete.cmp(&right.complete))
+            .then_with(|| left.execution_stop.cmp(&right.execution_stop))
+            .then_with(|| left.equivalences.cmp(&right.equivalences))
+            .then_with(|| left.inequalities.cmp(&right.inequalities))
+    });
+    paths.dedup_by(|left, right| {
+        left.events == right.events
+            && left.stop == right.stop
+            && left.execution_terminal == right.execution_terminal
+            && left.path_predicate == right.path_predicate
+            && left.complete == right.complete
+            && left.execution_stop == right.execution_stop
+            && left.equivalences == right.equivalences
+            && left.inequalities == right.inequalities
+    });
+    for (ordinal, path) in paths.iter_mut().enumerate() {
+        path.path_ordinal = ordinal;
+        path.path_key = Some(format!("leaf:{ordinal}"));
+    }
+}
+
+fn term_conjunct(state: &Pattern, sorts: &SymbolSorts) -> Option<Pattern> {
+    let sort = sorts.sort_of(state)?;
+    let (terms, _) = partition_conjuncts(state.clone().into_conjuncts_at(&sort));
+    match terms.as_slice() {
+        [term] => Some(term.clone()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,6 +830,123 @@ mod tests {
     /// The state k-rust reports for an initial state whose constraints are false.
     const BARE_BOTTOM: &str = r"\bottom{SortS{}}()";
     const SYMBOLIC_CONSTRAINED: &str = r#"\and{SortS{}}(X:SortS{}, \equals{SortInt{}, SortS{}}(Y:SortInt{}, \dv{SortInt{}}("1")))"#;
+
+    #[test]
+    fn canonical_step_paths_keep_every_semantically_distinct_field() {
+        let term = parse_pattern(GROUND).expect("ground term");
+        let relation = kink_pattern::TermRelation {
+            left: parse_pattern(SYMBOLIC).expect("variable"),
+            right: term.clone(),
+        };
+        let base = PathInput {
+            test_id: "one".into(),
+            path_ordinal: 7,
+            path_key: Some("old".into()),
+            complete: false,
+            stop: PathStop::DepthLimit,
+            execution_stop: ExecutionStop::DepthLimit,
+            execution_terminal: None,
+            events: Vec::new(),
+            path_predicate: Pattern::Top {
+                sort: sorts().sort_of(&term).expect("sort"),
+            },
+            equivalences: Vec::new(),
+            inequalities: Vec::new(),
+        };
+        let mut variants = vec![base.clone()];
+        let mut changed = base.clone();
+        changed.events.push(Event {
+            index: 0,
+            constructor: "event".into(),
+            payload: Vec::new(),
+            presence: EventPresence::Certain,
+            step: 0,
+            emission_ordinal: 0,
+        });
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.stop = PathStop::BranchLimit;
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.execution_terminal = Some(ExecutionTerminal {
+            kind: ExecutionTerminalKind::Normal,
+            state: term,
+        });
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.path_predicate = parse_pattern(SYMBOLIC).expect("predicate");
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.complete = true;
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.execution_stop = ExecutionStop::BranchLimit;
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.equivalences.push(relation.clone());
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.inequalities.push(relation);
+        variants.push(changed);
+        let mut duplicate = base;
+        duplicate.test_id = "other".into();
+        duplicate.path_ordinal = 99;
+        duplicate.path_key = Some("other".into());
+        variants.push(duplicate);
+        let mut reversed = variants.clone();
+        reversed.reverse();
+        canonicalize_step_paths(&mut variants);
+        canonicalize_step_paths(&mut reversed);
+        assert_eq!(variants.len(), 9, "only the non-semantic duplicate merges");
+        for path in variants.iter_mut().chain(reversed.iter_mut()) {
+            path.test_id = "one".into();
+        }
+        assert_eq!(
+            variants, reversed,
+            "input leaf order cannot affect canonical order"
+        );
+        assert!(
+            variants
+                .iter()
+                .enumerate()
+                .all(|(index, path)| path.path_ordinal == index
+                    && path.path_key.as_deref() == Some(format!("leaf:{index}").as_str()))
+        );
+    }
+
+    #[test]
+    fn canonical_step_paths_order_by_constructor_before_event_index() {
+        let event = |index, constructor: &str| Event {
+            index,
+            constructor: constructor.into(),
+            payload: Vec::new(),
+            presence: EventPresence::Certain,
+            step: 0,
+            emission_ordinal: 0,
+        };
+        let path = |event| PathInput {
+            test_id: "order".into(),
+            path_ordinal: 0,
+            path_key: None,
+            complete: true,
+            stop: PathStop::Terminal,
+            execution_stop: ExecutionStop::Terminal,
+            execution_terminal: None,
+            events: vec![event],
+            path_predicate: Pattern::Top {
+                sort: Sort::Application {
+                    name: "SortS".into(),
+                    arguments: Vec::new(),
+                },
+            },
+            equivalences: Vec::new(),
+            inequalities: Vec::new(),
+        };
+        let mut paths = vec![path(event(0, "b")), path(event(1, "a"))];
+        canonicalize_step_paths(&mut paths);
+        assert_eq!(paths[0].events[0].constructor, "a");
+        assert_eq!(paths[1].events[0].constructor, "b");
+    }
 
     fn kore(source: &str) -> Value {
         kore_json::to_value(&parse_pattern(source).expect("test KORE")).expect("KORE JSON")

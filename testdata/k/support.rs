@@ -154,6 +154,28 @@ pub fn initial_state(program: Pattern, sort: &str) -> Pattern {
     )
 }
 
+/// A complete generated configuration with an explicit K tail and counter.
+pub fn k_config(program: Pattern, sort: &str, rest: &str, counter: &str) -> Pattern {
+    let item = kore_application(
+        "inj",
+        vec![kore_sort(sort), kore_sort("SortKItem")],
+        vec![program],
+    );
+    let k = kore_application("kseq", Vec::new(), vec![item, var(rest, "SortK")]);
+    kore_application(
+        "Lbl'-LT-'generatedTop'-GT-'",
+        Vec::new(),
+        vec![
+            kore_application("Lbl'-LT-'k'-GT-'", Vec::new(), vec![k]),
+            kore_application(
+                "Lbl'-LT-'generatedCounter'-GT-'",
+                Vec::new(),
+                vec![var(counter, "SortInt")],
+            ),
+        ],
+    )
+}
+
 /// `initial_state(program, sort)` of `undecided.k` under the path condition
 /// `X = z /\ isZero(X) = false`, which is contradictory only once its substitution is
 /// applied: k-rust defers that vacuity past the first rewrite and then halts the successor

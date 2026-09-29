@@ -6,7 +6,7 @@
 //! bridge needs to use them ([`crate::feasibility`]).
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     sync::{
         Arc,
@@ -18,8 +18,8 @@ use std::{
 };
 
 use k_rust::backend::{
-    Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionResult,
-    ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
+    Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionLeaf,
+    ExecutionResult, ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
     ResultModalityOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput,
     TransitionIdOutput,
 };
@@ -231,6 +231,44 @@ pub struct AdaptedExecution {
     pub(crate) timed_out: bool,
 }
 
+/// An observation-layer failure of a stepped run. The execution itself can still be used
+/// through an event-free run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StepRunFailure {
+    AmbiguousRule(String),
+    Unobservable,
+    Decode(String),
+}
+
+/// One observed run's leaves and configuration sequence for each leaf.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SteppedExecution {
+    pub adapted: AdaptedExecution,
+    pub states: Vec<Vec<Pattern>>,
+}
+
+impl SteppedExecution {
+    /// The sequence view used by the temporary execution-difference certificate.
+    pub fn certificate_sequences(&self) -> Result<StateSequences, NotProvedReason> {
+        if self.adapted.timed_out {
+            return Err(NotProvedReason::Timeout);
+        }
+        Ok(StateSequences {
+            leaves: self
+                .adapted
+                .leaves
+                .iter()
+                .zip(&self.states)
+                .map(|(leaf, states)| StateSequence {
+                    halt: leaf.halt,
+                    states: states.clone(),
+                    feasibility: leaf.feasibility,
+                })
+                .collect(),
+        })
+    }
+}
+
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
 /// observation does not produce, and its branch identity.
 #[derive(Clone, Debug, PartialEq)]
@@ -346,6 +384,16 @@ pub struct ExecutionAdapter {
 }
 
 impl ExecutionAdapter {
+    /// An adapter that observes no rule in its ordinary execution.
+    #[must_use]
+    pub fn without_manifest(profile: SolverProfile) -> Self {
+        Self::with_profile(
+            InstalledObservationManifest::install_with_authors(Vec::new(), BTreeMap::new())
+                .expect("empty observation manifest"),
+            profile,
+        )
+    }
+
     /// An adapter that expects the qualified no-Z3 profile.
     #[must_use]
     pub const fn new(manifest: InstalledObservationManifest) -> Self {
@@ -421,7 +469,81 @@ impl ExecutionAdapter {
                 )
             })?
         };
-        self.adapt(result, timed_out, &budget, feasibility)
+        Self::adapt(
+            result,
+            timed_out,
+            &budget,
+            feasibility,
+            Some(&self.manifest),
+        )
+    }
+
+    /// Execute once with every rewrite transition observed, retaining the states of each step.
+    /// An observation failure is returned separately from an execution failure.
+    pub fn execute_steps(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+    ) -> Result<Result<SteppedExecution, StepRunFailure>, ExecutionAdapterFailure> {
+        self.check_profile(backend)?;
+        let encoded = codec::to_value(state)
+            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let (inhabitation, ids) = with_definition(backend, |definition| {
+            let inhabitation = Inhabitation::of(definition);
+            match uninhabited_variable(definition, &inhabitation, state) {
+                Ok(None) => Ok((inhabitation, rewrite_ids(definition))),
+                Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
+                Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
+            }
+        })?;
+        let ids = match ids {
+            Ok(ids) => ids,
+            Err(failure) => return Ok(Err(failure)),
+        };
+        let (result, timed_out) =
+            execute_with_watchdog(backend, encoded, budget, |backend, request| {
+                backend.execute_observed(ObservedRequest {
+                    request,
+                    rules: Some(ids),
+                })
+            })?;
+        if timed_out {
+            let feasibility = vec![LeafFeasibility::Unknown; result.leaves.len()];
+            let mut result = result;
+            for leaf in &mut result.leaves {
+                leaf.observations.clear();
+            }
+            return Ok(Ok(SteppedExecution {
+                adapted: Self::adapt(result, true, &budget, feasibility, None)?,
+                states: Vec::new(),
+            }));
+        }
+        let states = match result
+            .leaves
+            .iter()
+            .map(step_states)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(states) => states,
+            Err(failure) => return Ok(Err(failure)),
+        };
+        let feasibility = backend.with_solver(None, |definition, solver| {
+            Ok::<_, ExecutionAdapterFailure>(
+                result
+                    .leaves
+                    .iter()
+                    .map(|leaf| leaf_feasibility(definition, solver, &inhabitation, &leaf.state))
+                    .collect(),
+            )
+        })?;
+        // The adapter must not interpret these observations through its rule manifest.
+        let mut result = result;
+        for leaf in &mut result.leaves {
+            leaf.observations.clear();
+        }
+        let adapted = Self::adapt(result, false, &budget, feasibility, None)?;
+        Ok(Ok(SteppedExecution { adapted, states }))
     }
 
     /// Runs the same PathSet request with every rewrite rule observed, yielding Rewrite positions.
@@ -609,11 +731,11 @@ impl ExecutionAdapter {
     }
 
     fn adapt(
-        &self,
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
+        manifest: Option<&InstalledObservationManifest>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
@@ -640,7 +762,7 @@ impl ExecutionAdapter {
                         .remainder
                         .map_or_else(Vec::new, |remainder| remainder.diagnostics),
                     branch: adapt_branch(
-                        Some(&self.manifest),
+                        manifest,
                         leaf.branch,
                         leaf.state,
                         leaf.depth,
@@ -686,6 +808,97 @@ fn execute_with_watchdog(
     Ok((result, fired.load(Ordering::Acquire)))
 }
 
+/// Mirror the ambiguity checks of k-rust's observation allow-list before a run, so a
+/// rejected observation filter is reported as a step failure rather than a backend error.
+fn rewrite_ids(
+    definition: &k_rust_backend::definition::BackendDefinition,
+) -> Result<Vec<String>, StepRunFailure> {
+    let mut available = BTreeMap::<(String, Option<usize>), usize>::new();
+    let mut identities = BTreeMap::<&str, usize>::new();
+    for axiom in &definition.classified_axioms {
+        *identities
+            .entry(axiom.attributes().unique_id.as_str())
+            .or_default() += 1;
+    }
+    let mut selected = BTreeSet::new();
+    for priorities in definition.rewrite_theory.values() {
+        for rules in priorities.values() {
+            for rule in rules {
+                let id = &rule.rule.attributes.unique_id;
+                selected.insert(id.clone());
+                *available
+                    .entry((id.clone(), rule.rule.lhs_alternative))
+                    .or_default() += 1;
+            }
+        }
+    }
+    for theory in [
+        &definition.function_theory,
+        &definition.simplification_theory,
+        &definition.ceil_theory,
+    ] {
+        for priorities in theory.values() {
+            for rules in priorities.values() {
+                for rule in rules {
+                    *available
+                        .entry((rule.attributes.unique_id.clone(), rule.lhs_alternative))
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+    for id in &selected {
+        if available
+            .iter()
+            .any(|((available_id, _), count)| available_id == id && *count > 1)
+            || identities.get(id.as_str()).is_some_and(|count| *count > 1)
+        {
+            return Err(StepRunFailure::AmbiguousRule(id.clone()));
+        }
+    }
+    Ok(selected.into_iter().collect())
+}
+
+/// Decode only committed rewrites; every reported id must equal its branch entry.
+fn step_states(leaf: &ExecutionLeaf) -> Result<Vec<Pattern>, StepRunFailure> {
+    let mut reported = Vec::new();
+    let mut states = Vec::new();
+    for event in &leaf.observations {
+        if let ObservationEventOutput::Transition {
+            id, class, before, ..
+        } = event
+        {
+            match class {
+                TransitionClassOutput::Rewrite => {
+                    reported.push(id.clone());
+                    states.push(
+                        codec::from_value(before)
+                            .map_err(|error| StepRunFailure::Decode(error.to_string()))?,
+                    );
+                }
+                TransitionClassOutput::Remainder | TransitionClassOutput::Claim => {
+                    return Err(StepRunFailure::Unobservable);
+                }
+            }
+        }
+    }
+    if leaf
+        .branch
+        .iter()
+        .filter(|id| !id.rule.starts_with("remainder:"))
+        .cloned()
+        .collect::<Vec<_>>()
+        != reported
+    {
+        return Err(StepRunFailure::Unobservable);
+    }
+    states.push(
+        codec::from_value(&leaf.state)
+            .map_err(|error| StepRunFailure::Decode(error.to_string()))?,
+    );
+    Ok(states)
+}
+
 /// Runs `operation` on the definition of `backend`'s default module.
 fn with_definition<T>(
     backend: &mut Backend,
@@ -705,6 +918,61 @@ impl From<BackendError> for ExecutionAdapterFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use k_rust::kore::ast::Symbol;
+
+    #[test]
+    fn stepped_run_failure_is_reported_as_step_run_failure() {
+        let state = codec::to_value(&Pattern::Application {
+            symbol: Symbol {
+                name: "Lblunit".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        })
+        .expect("encode state");
+        let id = TransitionIdOutput {
+            rule: "rewrite".into(),
+            target: "target".into(),
+        };
+        let event = |class, before| ObservationEventOutput::Transition {
+            id: id.clone(),
+            class,
+            rule_label: None,
+            bindings: Vec::new(),
+            introduced_predicates: Vec::new(),
+            before,
+            after: state.clone(),
+            effects: Vec::new(),
+        };
+        let mut leaf = ExecutionLeaf {
+            state: state.clone(),
+            diagnostics: Vec::new(),
+            candidates: None,
+            remainder: None,
+            depth: 1,
+            reason: HaltReasonOutput::Stuck,
+            rule_id: None,
+            rule_label: None,
+            contradicted_total: None,
+            cause: None,
+            detail: None,
+            trace: Vec::new(),
+            branch: vec![id.clone()],
+            effects: Vec::new(),
+            observations: vec![event(TransitionClassOutput::Remainder, state.clone())],
+        };
+        assert_eq!(step_states(&leaf), Err(StepRunFailure::Unobservable));
+        leaf.observations = vec![event(TransitionClassOutput::Rewrite, state.clone())];
+        leaf.branch[0].target = "other".into();
+        assert_eq!(step_states(&leaf), Err(StepRunFailure::Unobservable));
+        leaf.branch[0] = id.clone();
+        leaf.observations = vec![event(
+            TransitionClassOutput::Rewrite,
+            serde_json::Value::Null,
+        )];
+        assert!(matches!(step_states(&leaf), Err(StepRunFailure::Decode(_))));
+    }
 
     #[test]
     fn every_halt_variant_is_classified_exhaustively() {
