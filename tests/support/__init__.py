@@ -9,7 +9,7 @@ A verifier puts `tests/` on `sys.path` in one line and imports what it needs:
 The modules are:
 
 - `support.krs_gate`: compile, definition.load, configure, execute, kore.read,
-  observe, expect, and prove through the native gate protocol;
+  kore.digest, observe, expect, and prove through the native gate protocol;
 - `support.behavior`: shared native and Java case expectations and outcomes;
 - `support.process`: subprocess execution with captured output and process-group
   cleanup;
@@ -26,7 +26,7 @@ The modules are:
 - `support.report`: gate result lines and failure accounting;
 - `support.diagnostics`: JSON diagnostic envelope extraction;
 - `support.checkouts`: pinned external checkout verification;
-- `support.kdefinition`: emitted K definition checks and the normalized KORE digest;
+- `support.kdefinition`: emitted K definition checks;
 - `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;
 - `support.imp_oracle`: orchestration for the two strict IMP reference oracles;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.

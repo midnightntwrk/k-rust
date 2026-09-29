@@ -3,6 +3,7 @@
 use crate::{
     compile::compile_ir,
     configuration::Configuration,
+    kore_digest,
     pattern::{self, PatternContext},
 };
 use k_rust::{
@@ -145,12 +146,13 @@ impl Session {
                 | "execute"
                 | "prove"
                 | "kore.read"
+                | "kore.digest"
                 | "observe"
                 | "expect"
         ) {
             return Err(format!("unsupported operation `{operation}`").into());
         }
-        if self.backend.is_none() && operation != "definition.load" {
+        if self.backend.is_none() && !matches!(operation, "definition.load" | "kore.digest") {
             return Err(format!("operation `{operation}` before definition.load").into());
         }
         if self.load_attempted && operation == "definition.load" {
@@ -165,6 +167,7 @@ impl Session {
             "execute" => self.execute(request),
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
             "kore.read" => self.read(request),
+            "kore.digest" => Self::digest(request),
             "observe" => self.observe(request),
             "expect" => self.expect(request),
             _ => unreachable!("validated operation"),
@@ -232,6 +235,12 @@ impl Session {
         let state = parse_pattern(required_string(request, "text")?)?;
         self.states.insert(name.to_owned(), state);
         Ok(json!({"state": name}))
+    }
+
+    fn digest(request: &Value) -> Result<Value, Box<dyn Error>> {
+        let kore = Path::new(required_string(request, "kore")?);
+        let semantics = Path::new(required_string(request, "semantics")?);
+        Ok(json!({"sha256": kore_digest::digest_file(kore, semantics)?}))
     }
 
     fn state(&self, request: &Value) -> Result<&Pattern, Box<dyn Error>> {
@@ -378,6 +387,15 @@ mod tests {
     #[test]
     fn rejects_protocol_violations_before_loading() {
         let mut session = Session::new();
+        let digest = session
+            .dispatch(&json!({
+                "id": "digest", "operation": "kore.digest",
+                "kore": "/nonexistent/krs-gate-definition.kore",
+                "semantics": "/tmp/semantics.k"
+            }))
+            .unwrap();
+        assert_eq!(digest["id"], "digest");
+        assert!(digest["error"]["message"].is_string());
         assert!(
             session
                 .dispatch(&json!({"operation": "definition.load"}))

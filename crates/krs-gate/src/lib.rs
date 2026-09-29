@@ -6,7 +6,8 @@
 //! Every request must be an object with string `id` and `operation` fields.
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
-//! The first request must be `definition.load` with string `module` (the main module) and `definition_ir` (a path to emitted Definition IR).
+//! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
+//! `kore.digest` may precede it.
 //! Loading compiles with the Haskell backend in process using the same options as `compile` and retains its frontend definition and variable sorts.
 //! Its result is an object containing the loaded `module`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -19,6 +20,8 @@
 //! With `keep`, execution must have exactly one leaf, its final state replaces any previously retained state of that name, and the result contains only the modality and the leaf's reason, depth, optional detail, and trace.
 //! `kore.read` requires KORE pattern `text` and a `keep` name; it parses and retains the pattern, replacing a previous state of that name.
 //! Its result contains the retained `state` name.
+//! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
+//! It parses the definition, canonicalizes its source paths and compiler-generated variable names, and returns `sha256` of the pretty-printed KORE definition.
 //! `observe` requires a retained `state` name and an array of `cells` names.
 //! Its result maps each name to `kore`, the canonical content KORE text, and `size`, the element count for collection content or null otherwise.
 //! Each named cell must occur exactly once in the state.
@@ -32,8 +35,8 @@
 //! `prove` requires a string `claim` and returns the backend's serialized `ProveResult`.
 //!
 //! A failure while handling a valid operation, including a pattern parse or backend error, produces an error response and leaves the session open.
-//! After a failed load, no further operation can succeed in that session.
-//! A malformed JSON line, missing `id` or `operation`, unknown operation, operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
+//! After a failed load, only `kore.digest` can succeed in that session.
+//! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
 /// Compile Definition IR into native KORE.
 pub mod compile;
@@ -42,6 +45,8 @@ pub mod configuration;
 mod kore_attributes;
 /// Compare parsed reference and native KORE definitions.
 pub mod kore_compare;
+/// Digest parsed reference KORE independently of source locations and generated names.
+pub mod kore_digest;
 /// Normalize and inspect retained KORE states.
 pub mod pattern;
 /// Split and classify parsed proof artifacts.

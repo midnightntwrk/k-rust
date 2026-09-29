@@ -57,6 +57,16 @@ def compile(
     process.run(command, environment=environment, timeout=900)
 
 
+def digest(
+    krs_gate: Path, kore: Path, semantics: Path, *,
+    environment: Mapping[str, str] | None = None,
+) -> str:
+    """Open one unloaded session and digest a kompiled KORE definition."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return session.digest(kore, semantics)
+
+
 class Session:
     """Exchange one request and one response at a time with a gate session."""
 
@@ -179,6 +189,11 @@ class Session:
         """Retain a Java KORE result under a session state name."""
 
         return self.request("kore.read", text=text, keep=keep)
+
+    def digest(self, kore: Path, semantics: Path) -> str:
+        """Digest a kompiled definition independently of source paths and generated names."""
+
+        return self.request("kore.digest", kore=os.fspath(kore), semantics=os.fspath(semantics))["sha256"]
 
     def observe(self, state: str, cells: list[str]) -> dict[str, Any]:
         """Read canonical cell contents and collection sizes."""

@@ -29,6 +29,8 @@ for line in sys.stdin:
         response = {"id": request["id"], "result": {
             "met": False, "expected": "wanted", "actual": "found",
         }}
+    elif request["operation"] == "kore.digest" and mode == "normal":
+        response = {"id": request["id"], "result": {"sha256": "abc123"}}
     elif mode == "error":
         response = {"id": request["id"], "error": {"message": "bad request"}}
     elif mode == "wrong_id":
@@ -66,6 +68,14 @@ class ClientTests(unittest.TestCase):
             [str(self.binary), "compile", "--timings", "timings.json", "definition-ir.json", "definition.kore"],
             environment={"A": "b"},
             timeout=900,
+        )
+
+    def test_digest_needs_no_definition_load(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            self.assertEqual(session.digest(Path("definition.kore"), Path("/tmp/semantics.k")), "abc123")
+        self.assertEqual(
+            krs_gate.digest(self.binary, Path("definition.kore"), Path("/tmp/semantics.k")),
+            "abc123",
         )
 
     def test_session_exchanges_matching_ids_in_lockstep(self) -> None:

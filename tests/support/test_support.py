@@ -284,29 +284,6 @@ class KDefinitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(GateError, "no spec.k"):
             kdefinition.emitted_claims(Path(directory), "M", 2)
 
-    def test_normalized_kore_is_location_and_binder_independent(self) -> None:
-        def kore(directory: Path, variable: str, k_install: str) -> str:
-            return (
-                f'[source("{directory / "semantics.k"}")]\n'
-                f'[Source("Source({k_install}/include/kframework/builtin/domains.md)")]\n'
-                f"\\exists{{R}} ({variable}:SortInt{{}}, f({variable}:SortInt{{}}) \\bottom{{R}}())\n"
-            )
-
-        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
-            digests = []
-            for directory, variable, k_install in (
-                (Path(first), "Var'Unds'Gen1", "/nix/store/aaaa-k-7.1.337"),
-                (Path(second), "Var'Unds'Gen7", "/opt/k"),
-            ):
-                (directory / "definition.kore").write_text(kore(directory, variable, k_install))
-                digests.append(
-                    kdefinition.normalized_kore_sha256(
-                        directory / "definition.kore", directory / "semantics.k"
-                    )
-                )
-            self.assertEqual(digests[0], digests[1])
-
-
 class LedgerTests(unittest.TestCase):
     TOML = (
         'schema = 1\n'

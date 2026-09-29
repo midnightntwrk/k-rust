@@ -13,6 +13,7 @@ krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

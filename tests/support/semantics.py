@@ -28,7 +28,7 @@ from typing import Any, Callable, Mapping, Sequence
 from support import ROOT, GateError, behavior as behavior_module, krs_gate, lsp
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
-from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256
+from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims
 from support.krs import Invocation, build, fresh_deterministic_emissions
 from support.lock import k_version, krs_ir_schema, msrv
 from support.pins import Ledger, load_toml
@@ -372,6 +372,8 @@ def reference_definition(
     kompile: str,
     claim_count: int,
     pins: Ledger,
+    gate: Path,
+    environment: Mapping[str, str],
 ) -> tuple[Path, Path]:
     """Kompile the emitted claim-free definition with the pinned K frontend.
 
@@ -393,7 +395,10 @@ def reference_definition(
         ],
         timeout=900,
     )
-    pins.expect("definition_kore_sha256", normalized_kore_sha256(definition / "definition.kore", semantics))
+    pins.expect(
+        "definition_kore_sha256",
+        krs_gate.digest(gate, definition / "definition.kore", semantics, environment=environment),
+    )
     return definition, spec
 
 
@@ -424,7 +429,7 @@ def java_reference_gate(
     """Compare the pinned Java route with native outcomes and prove emitted claims."""
 
     definition, spec = reference_definition(
-        port, workspace, artifacts, k["kompile"], hooks.claim_count, pins
+        port, workspace, artifacts, k["kompile"], hooks.claim_count, pins, gate, environment
     )
     behavior = corpus.get("behavior")
     if not isinstance(behavior, list) or not behavior:

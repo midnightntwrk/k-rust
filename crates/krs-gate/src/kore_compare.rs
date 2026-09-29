@@ -564,34 +564,56 @@ fn alpha_normalize_pattern(
     pattern: &mut Pattern,
     names: &mut BTreeMap<(VariableKind, String, Sort), String>,
 ) {
+    alpha_normalize_pattern_with(pattern, names, false);
+}
+
+/// Normalize only compiler-generated variable names in a sentence for location-independent digests.
+///
+/// Generated free variables are implicitly quantified by their sentence, so their names are alpha names too.
+pub(crate) fn alpha_normalize_generated_variables(sentence: &mut Sentence) {
+    let mut names = BTreeMap::new();
+    for pattern in sentence_patterns_mut(sentence) {
+        alpha_normalize_pattern_with(pattern, &mut names, true);
+    }
+}
+
+fn alpha_normalize_pattern_with(
+    pattern: &mut Pattern,
+    names: &mut BTreeMap<(VariableKind, String, Sort), String>,
+    generated_only: bool,
+) {
     match pattern {
-        Pattern::Variable(variable) => alpha_normalize_variable(variable, names),
+        Pattern::Variable(variable) => {
+            alpha_normalize_variable_with(variable, names, generated_only);
+        }
         Pattern::Application { arguments, .. }
         | Pattern::And { arguments, .. }
         | Pattern::Or { arguments, .. }
         | Pattern::AssociativeApplication { arguments, .. } => {
             for argument in arguments {
-                alpha_normalize_pattern(argument, names);
+                alpha_normalize_pattern_with(argument, names, generated_only);
             }
         }
         Pattern::Not { argument, .. }
         | Pattern::Next { argument, .. }
         | Pattern::Ceil { argument, .. }
-        | Pattern::Floor { argument, .. } => alpha_normalize_pattern(argument, names),
+        | Pattern::Floor { argument, .. } => {
+            alpha_normalize_pattern_with(argument, names, generated_only);
+        }
         Pattern::Implies { left, right, .. }
         | Pattern::Iff { left, right, .. }
         | Pattern::Rewrites { left, right, .. }
         | Pattern::Equals { left, right, .. }
         | Pattern::In { left, right, .. } => {
-            alpha_normalize_pattern(left, names);
-            alpha_normalize_pattern(right, names);
+            alpha_normalize_pattern_with(left, names, generated_only);
+            alpha_normalize_pattern_with(right, names, generated_only);
         }
         Pattern::Exists { variable, body, .. }
         | Pattern::Forall { variable, body, .. }
         | Pattern::Mu { variable, body }
         | Pattern::Nu { variable, body } => {
-            alpha_normalize_variable(variable, names);
-            alpha_normalize_pattern(body, names);
+            alpha_normalize_variable_with(variable, names, generated_only);
+            alpha_normalize_pattern_with(body, names, generated_only);
         }
         Pattern::String(_)
         | Pattern::Top { .. }
@@ -600,10 +622,21 @@ fn alpha_normalize_pattern(
     }
 }
 
-fn alpha_normalize_variable(
+fn alpha_normalize_variable_with(
     variable: &mut Variable,
     names: &mut BTreeMap<(VariableKind, String, Sort), String>,
+    generated_only: bool,
 ) {
+    if generated_only
+        && !variable
+            .name
+            .strip_prefix("Var'Unds'Gen")
+            .is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+    {
+        return;
+    }
     let key = (variable.kind, variable.name.clone(), variable.sort.clone());
     let next = names.len();
     variable.name.clone_from(
@@ -903,7 +936,7 @@ fn sentence_patterns_mut(sentence: &mut Sentence) -> Vec<&mut Pattern> {
     }
 }
 
-fn sentence_attributes_mut(sentence: &mut Sentence) -> &mut Attributes {
+pub(crate) fn sentence_attributes_mut(sentence: &mut Sentence) -> &mut Attributes {
     match sentence {
         Sentence::Import { attributes, .. }
         | Sentence::SortDeclaration { attributes, .. }
