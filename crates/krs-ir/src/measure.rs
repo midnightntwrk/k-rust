@@ -65,6 +65,7 @@
 //! | `native.adapt` | `build`: structural adaptation |
 //! | `native.prepare` | `build`: k-rust structured loading |
 //! | `native.compile` | `build`: k-rust compilation, k-rust phases below |
+//! | `native.diagnostics` | `build`, on compilation failure: translate compiler diagnostics |
 //! | `native.reparse.definition` | `build`: reparse `definition.kore` |
 //! | `native.reparse.syntax` | `build`: reparse `syntaxDefinition.kore` |
 //! | `native.provenance` | `build`: join emitted-sentence provenance |

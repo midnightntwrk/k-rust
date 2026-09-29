@@ -183,8 +183,10 @@ impl CommandExecution {
 ///
 /// # Errors
 ///
-/// Returns a typed stage error. In particular, the currently pinned native
-/// frontend blocker is preserved as [`CommandError::Native`].
+/// Returns a typed stage error.
+/// A native compilation or adapter failure is [`CommandError::Native`],
+/// except that a compilation failure whose every diagnostic maps to an
+/// authored source range is [`CommandError::Diagnostics`].
 pub fn execute_command(request: &CommandRequest) -> Result<CommandOutcome, CommandError> {
     execute_command_measured(request, &mut Measurement::disabled())
 }
