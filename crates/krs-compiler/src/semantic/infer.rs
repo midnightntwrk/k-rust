@@ -975,7 +975,6 @@ fn builtin_production_signature(operation: BuiltinOperation) -> ProductionSignat
                 )
             })
             .collect(),
-        grammar_owned: false,
     }
 }
 

@@ -13,7 +13,6 @@ use super::error::DescriptorLoweringError;
 pub(super) struct ProductionSignature {
     pub(super) result_sort: SemanticSortRef,
     pub(super) fields: Vec<(ProductionFieldId, SemanticSortRef)>,
-    pub(super) grammar_owned: bool,
 }
 
 pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
@@ -132,7 +131,6 @@ pub(super) fn build_production_catalog(
                 ProductionSignature {
                     result_sort: semantic_sort_ref(&production.result_sort.sort),
                     fields,
-                    grammar_owned: true,
                 },
             )
             .is_some()
@@ -143,38 +141,14 @@ pub(super) fn build_production_catalog(
             });
         }
     }
-    for descriptor in descriptors {
-        let DescriptorPayload::Constructor(constructor) = &descriptor.payload else {
-            continue;
-        };
-        if catalog.contains_key(&descriptor.id) {
-            continue;
-        }
-        let fields = constructor_field_order(&descriptor.id, constructor)?
-            .into_iter()
-            .map(|name| {
-                let field = constructor
-                    .fields
-                    .iter()
-                    .find(|field| field.name == name)
-                    .expect("field order is validated against declarations");
-                let sort = field.sort.clone().ok_or_else(|| {
-                    DescriptorLoweringError::UnsupportedShape {
-                        node: "constructor field",
-                        detail: format!("constructor {} field {name:?} has no sort", descriptor.id),
-                    }
-                })?;
-                Ok((ProductionFieldId::new(name)?, semantic_sort_ref(&sort)))
-            })
-            .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-        catalog.insert(
-            descriptor.id.clone(),
-            ProductionSignature {
-                result_sort: semantic_sort_ref(&constructor.sort),
-                fields,
-                grammar_owned: false,
-            },
-        );
+    if let Some(descriptor) = descriptors.iter().find(|descriptor| {
+        matches!(descriptor.payload, DescriptorPayload::Constructor(_))
+            && !catalog.contains_key(&descriptor.id)
+    }) {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "constructor",
+            detail: format!("no grammar descriptor owns constructor {}", descriptor.id),
+        });
     }
     Ok(catalog)
 }
@@ -230,46 +204,4 @@ pub(super) fn semantic_sort_closure(
         }
     }
     closure
-}
-
-fn constructor_field_order(
-    production: &StableItemId,
-    constructor: &krs_ir::ConstructorDescriptor,
-) -> Result<Vec<String>, DescriptorLoweringError> {
-    if constructor.fields.is_empty() {
-        return Ok(Vec::new());
-    }
-    let source = constructor
-        .syntax
-        .as_deref()
-        .unwrap_or_else(|| production.item_name());
-    let mut names = Vec::new();
-    let mut index = 0_usize;
-    while index < source.len() {
-        let Some(open) = source[index..].find('{') else {
-            break;
-        };
-        let open = index + open;
-        let remainder = &source[open + 1..];
-        let Some(close) = remainder.find('}') else {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "constructor syntax",
-                detail: format!("constructor {production} has an unclosed placeholder"),
-            });
-        };
-        names.push(remainder[..close].to_owned());
-        index = open + close + 2;
-    }
-    if names.len() != constructor.fields.len()
-        || names.iter().collect::<BTreeSet<_>>().len() != names.len()
-        || names
-            .iter()
-            .any(|name| !constructor.fields.iter().any(|field| &field.name == name))
-    {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "constructor syntax",
-            detail: format!("constructor {production} has inconsistent field placeholders"),
-        });
-    }
-    Ok(names)
 }

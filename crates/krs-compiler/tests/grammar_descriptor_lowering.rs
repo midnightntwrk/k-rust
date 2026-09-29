@@ -182,6 +182,14 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
     let add_grammar_id = id("Add", ItemKind::Grammar);
     let unit_grammar_id =
         StableItemId::new(package(), ["expr"], "Unit", ItemKind::Grammar, "production").unwrap();
+    let start_grammar_id = StableItemId::new(
+        package(),
+        ["expr"],
+        "Start",
+        ItemKind::Grammar,
+        "production",
+    )
+    .unwrap();
     let bracket_grammar_id = id("ExprBracket", ItemKind::Grammar);
     let additive = ProductionGroupId::new("additive").unwrap();
     let atom = ProductionGroupId::new("atom").unwrap();
@@ -334,6 +342,34 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                         group: atom.clone(),
                     },
                 }],
+            },
+        ))),
+    });
+
+    let start_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
+    descriptors.push(Descriptor {
+        id: start_grammar_id,
+        cfg: BTreeMap::new(),
+        provenance: provenance(
+            start_primary.clone(),
+            [key(ProvenanceRole::ConstructorSort, 0)],
+        ),
+        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+            DescriptorProduction {
+                key: start_primary.clone(),
+                template_key: None,
+                owner: DescriptorProductionOwner::Constructor {
+                    constructor: DescriptorApplicationReference {
+                        key: start_primary.clone(),
+                        application: DescriptorApplicationRef::Declared(start.clone()),
+                    },
+                },
+                result_sort: declared_sort(ProvenanceRole::ConstructorSort, 0, expr.clone()),
+                items: vec![DescriptorProductionItem::Terminal {
+                    key: start_primary,
+                    text: "start".into(),
+                }],
+                attributes: Vec::new(),
             },
         ))),
     });
@@ -1027,6 +1063,34 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
     assert!(
         error.contains("use `k::builtin::String` instead"),
         "{error}"
+    );
+}
+
+#[test]
+fn constructor_without_grammar_descriptor_is_rejected() {
+    let (mut bundle, _) = bundle();
+    let escaped = id("Escaped", ItemKind::Constructor);
+    bundle.descriptors.push(declaration(
+        escaped.clone(),
+        DescriptorPayload::Constructor(ConstructorDescriptor {
+            sort: DescriptorSortRef::Declared(id("Expr", ItemKind::Sort)),
+            syntax: Some("{{ {value} }}".into()),
+            fields: vec![ConstructorFieldDescriptor {
+                name: "value".into(),
+                sort: Some(DescriptorSortRef::Declared(id("Expr", ItemKind::Sort))),
+            }],
+        }),
+        ProvenanceRole::ConstructorSort,
+    ));
+
+    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail } = error else {
+        panic!("unexpected error: {error:?}")
+    };
+    assert_eq!(node, "constructor");
+    assert_eq!(
+        detail,
+        format!("no grammar descriptor owns constructor {escaped}")
     );
 }
 

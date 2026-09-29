@@ -14,13 +14,13 @@ use krs_ir::{
 };
 use krs_syntax::ProvenanceRole;
 
-use super::catalog::{DeclarationCatalog, ProductionSignature, semantic_sort_ref};
+use super::catalog::{DeclarationCatalog, ProductionSignature};
 use super::configuration::lower_fixed_configuration_descriptor;
 use super::configuration_rules::{
     lower_configuration_rule_descriptor, lower_context_alias_descriptor,
 };
 use super::error::DescriptorLoweringError;
-use super::grammar::{lower_constructor_grammar, lower_grammar_descriptor};
+use super::grammar::lower_grammar_descriptor;
 use super::origin::{role_key, semantic_origin, semantic_origin_from_primary};
 use super::rules::{lower_head_rule_descriptor, lower_structured_rule_descriptor};
 
@@ -134,31 +134,6 @@ fn lower_module_descriptor(
         DescriptorPayload::Sort(sort) => {
             lower_sort_descriptor(descriptor, sort, declaration, sentences)?;
         }
-        DescriptorPayload::Constructor(constructor) => {
-            if production_catalog
-                .get(&descriptor.id)
-                .is_some_and(|signature| signature.grammar_owned)
-            {
-                return Ok(());
-            }
-            let syntax = constructor
-                .syntax
-                .clone()
-                .unwrap_or_else(|| lower_camel(descriptor.id.item_name()));
-            sentences.productions.push(SemanticProduction::with_api(
-                semantic_origin(
-                    descriptor,
-                    role_key(ProvenanceRole::ConstructorDeclaration, 0),
-                    "production",
-                )?,
-                descriptor.id.clone(),
-                semantic_sort_ref(&constructor.sort),
-                lower_constructor_grammar(descriptor, constructor, &syntax)?,
-                Vec::new(),
-                declaration.visibility.clone(),
-                declaration.explicit_symbol.clone(),
-            )?);
-        }
         DescriptorPayload::Grammar(grammar) => {
             lower_grammar_descriptor(descriptor, grammar, declaration, sentences)?;
         }
@@ -182,7 +157,7 @@ fn lower_module_descriptor(
                 production_catalog,
             )?);
         }
-        DescriptorPayload::Cell(_) => {}
+        DescriptorPayload::Constructor(_) | DescriptorPayload::Cell(_) => {}
         DescriptorPayload::ConfigurationRule(rule) => {
             sentences.rules.push(lower_configuration_rule_descriptor(
                 descriptor,
@@ -535,13 +510,5 @@ fn collect_rule_cells_packages(cells: &DescriptorRuleCells, packages: &mut BTree
                 }
             },
         }
-    }
-}
-
-fn lower_camel(value: &str) -> String {
-    let mut characters = value.chars();
-    match characters.next() {
-        Some(first) => first.to_lowercase().chain(characters).collect(),
-        None => String::new(),
     }
 }
