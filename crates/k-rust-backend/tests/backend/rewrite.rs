@@ -1370,10 +1370,15 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
     };
     assert_eq!(trivial.rule_id, "trivial");
     assert_eq!(trivial.label.as_deref(), Some("trivial"));
-    assert_ne!(trivial.applicability, Predicate::True);
-    assert_eq!(
-        trivial.remainder,
-        Predicate::Not(Box::new(trivial.applicability.clone()))
+    // No other rule of its priority group applies, so its undefined instances are its whole
+    // sub-case: a proper part of the subject, whose complement the fallback group is offered.
+    assert_ne!(trivial.undefined, Predicate::True);
+    assert!(
+        branches[0]
+            .pattern
+            .constraints
+            .contains(&Predicate::Not(Box::new(trivial.undefined.clone()))),
+        "{branches:#?}"
     );
 
     let execution = execute_with_solver(
@@ -1394,7 +1399,7 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
     assert_eq!(undefined.pattern.term, initial.term);
     assert_eq!(
         undefined.pattern.constraints,
-        vec![trivial.applicability.clone()]
+        vec![trivial.undefined.clone()]
     );
     assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
     assert!(matches!(
@@ -1438,9 +1443,10 @@ fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     assert_eq!(branches.len(), 1);
     assert_eq!(trivial.len(), 1);
     assert_eq!(trivial[0].rule_id, "trivial");
-    assert_eq!(trivial[0].applicability, Predicate::True);
-    assert_eq!(trivial[0].remainder, Predicate::False);
-    // The survivor takes every instance to a defined successor: no instance is undefined.
+    assert_eq!(trivial[0].before, initial);
+    // The trivial rule's sub-case is the whole subject, so the group leaves no remainder
+    // (`remainder: None` above). The survivor takes every instance to a defined successor: no
+    // instance is undefined.
     assert_eq!(trivial[0].undefined, Predicate::False);
 
     let execution = execute(&definition, initial, ExecutionOptions::default());
@@ -1477,7 +1483,14 @@ fn sequential_mode_narrows_by_trivial_rules() {
         branch.pattern.term.kind(),
         TermKind::DomainValue { value, .. } if value == "20"
     ));
-    assert!(branch.pattern.constraints.contains(&trivial[0].remainder));
+    // The trivial rule is alone in its priority, so its undefined instances are its whole
+    // sub-case, and the fallback is offered exactly their complement.
+    assert!(
+        branch
+            .pattern
+            .constraints
+            .contains(&Predicate::Not(Box::new(trivial[0].undefined.clone())))
+    );
 }
 
 #[test]
@@ -1502,7 +1515,7 @@ fn trivial_only_sequence_with_a_satisfiable_remainder_is_not_bottom() {
         remainder
             .pattern
             .constraints
-            .contains(&trivial[0].remainder)
+            .contains(&Predicate::Not(Box::new(trivial[0].undefined.clone())))
     );
 }
 
@@ -2420,11 +2433,20 @@ fn assert_solver_verdicts(
                     result => panic!("{validity:?} should rewrite, got {result:?}"),
                 };
                 assert_eq!(&applied.pattern.constraints, constraints, "{validity:?}");
+                // The entry a carried condition leaves is the rest of the applied candidate's
+                // sub-case: the same rule's, undefined exactly where the condition fails. An
+                // entry refuting the whole sub-case would be undefined on all of it instead.
                 assert!(
                     trivial.len() <= 1
-                        && trivial
-                            .iter()
-                            .all(|entry| entry.kind == TrivialKind::Carried),
+                        && trivial.iter().all(|entry| {
+                            entry.rule_id == applied.unique_id
+                                && matches!(
+                                    constraints.as_slice(),
+                                    [carried]
+                                        if entry.undefined
+                                            == Predicate::Not(Box::new(carried.clone()))
+                                )
+                        }),
                     "{validity:?}: {trivial:?}"
                 );
                 assert_eq!(

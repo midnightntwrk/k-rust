@@ -8,5 +8,5 @@ mod matching_oracle;
 mod rewrite;
 mod walk_flags;
 
-mod alpha;
+pub(crate) mod alpha;
 mod cascade;

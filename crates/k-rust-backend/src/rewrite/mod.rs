@@ -212,8 +212,12 @@ impl UndecidedStep {
 }
 
 /// Which part of a rule application's sub-case a [`TrivialApplication`] stands for.
+///
+/// Tests only: a consumer decides on an entry by its `undefined` instances, whichever kind
+/// produced them, so no production code reads the kind.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum TrivialKind {
+pub(crate) enum TrivialKind {
     /// The application's result is bottom on its whole sub-case: its right-hand side, a
     /// definedness obligation or its `ensures` was refuted, or the right-hand side is `\bottom`.
     /// The rule has no applied candidate for this sub-case.
@@ -231,11 +235,35 @@ pub enum TrivialKind {
 ///
 /// Such an instance is not stuck, since a rule applies to it and blocks the lower priorities,
 /// and it has no successor from this rule: its step is undefined.
+///
+/// Outside `rewrite` the entry's verdict is `undefined`, the instances whose step is undefined.
+/// The sub-case `applicability` and its complement `remainder` are inputs of the priority
+/// group's remainder, which `rewrite` alone builds, so they cannot be read outside it:
+///
+/// ```compile_fail,E0616
+/// use k_rust_backend::{rewrite::TrivialApplication, rule::Predicate};
+///
+/// fn undefined_instances(trivial: &TrivialApplication) -> &Predicate {
+///     &trivial.applicability
+/// }
+/// ```
+///
+/// The entry's verdict is readable:
+///
+/// ```
+/// use k_rust_backend::{rewrite::TrivialApplication, rule::Predicate};
+///
+/// fn undefined_instances(trivial: &TrivialApplication) -> &Predicate {
+///     &trivial.undefined
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrivialApplication {
     pub rule_id: String,
     pub label: Option<String>,
-    pub kind: TrivialKind,
+    /// Which sub-case this entry stands for; no consumer's decision depends on it.
+    #[cfg(test)]
+    pub(crate) kind: TrivialKind,
     /// The definedness or ensures obligation that fails on the instances this entry stands for:
     /// refuted for a `Refuted` entry, and the carried conjunction for a `Carried` one.
     pub obligation: Predicate,
@@ -246,10 +274,10 @@ pub struct TrivialApplication {
     /// it is `A /\ not D`, where `D` is the existential closure, over those variables and the
     /// rule's freshened existentials (`?X`), of the match conditions, undecided `requires` and
     /// carried result condition: `D` is the sub-case with a defined result of this application.
-    pub applicability: Predicate,
+    pub(in crate::rewrite) applicability: Predicate,
     /// The complementary sub-case retained in the priority-group remainder: `not A` for either
     /// kind, so a `Carried` entry does not change the group remainder.
-    pub remainder: Predicate,
+    pub(in crate::rewrite) remainder: Predicate,
     /// The instances of `before` whose step is undefined because of this entry: `applicability`
     /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so
     /// that an instance another rule (or another right-hand-side alternative) takes to a defined
@@ -273,6 +301,55 @@ pub struct TrivialApplication {
     /// application of it to bottom: a diagnostic about the definition that changes nothing else
     /// about the entry ([`ContradictedTotal`]).
     pub contradicted_total: Option<Box<ContradictedTotal>>,
+}
+
+/// Alpha equality of trivial entries for the cascade differential tests. It compares and
+/// renames every field, including the rewrite-internal `applicability` and `remainder`, so it
+/// lives where those fields are visible.
+#[cfg(test)]
+impl crate::tests::alpha::AlphaComparable for TrivialApplication {
+    fn collect_alpha(
+        &self,
+        other: &Self,
+        context: &mut crate::tests::alpha::AlphaContext,
+    ) -> Result<(), String> {
+        use crate::tests::alpha::collect_predicate;
+        collect_predicate(&self.obligation, &other.obligation, context)?;
+        collect_predicate(&self.applicability, &other.applicability, context)?;
+        collect_predicate(&self.remainder, &other.remainder, context)?;
+        collect_predicate(&self.undefined, &other.undefined, context)?;
+        self.before.collect_alpha(&other.before, context)?;
+        self.remainder_simplifications
+            .collect_alpha(&other.remainder_simplifications, context)?;
+        if self.rule_id != other.rule_id
+            || self.label != other.label
+            || self.kind != other.kind
+            || self.effects != other.effects
+        {
+            return Err("non-predicate trivial-application fields differ".into());
+        }
+        self.diagnostics
+            .collect_alpha(&other.diagnostics, context)?;
+        Ok(())
+    }
+
+    fn rename_alpha(&self, context: &crate::tests::alpha::AlphaContext) -> Result<Self, String> {
+        use crate::tests::alpha::rename_predicate;
+        Ok(Self {
+            rule_id: self.rule_id.clone(),
+            label: self.label.clone(),
+            kind: self.kind,
+            obligation: rename_predicate(&self.obligation, context),
+            applicability: rename_predicate(&self.applicability, context),
+            remainder: rename_predicate(&self.remainder, context),
+            undefined: rename_predicate(&self.undefined, context),
+            before: self.before.rename_alpha(context)?,
+            effects: self.effects.clone(),
+            diagnostics: self.diagnostics.rename_alpha(context)?,
+            remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
+            contradicted_total: self.contradicted_total.clone(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

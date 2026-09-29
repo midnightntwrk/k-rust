@@ -7,7 +7,7 @@ use crate::{
     diagnostic::BackendDiagnostic,
     rewrite::{
         AppliedRule, ExecutionLeaf, ExecutionResult, HaltReason, IndeterminateReason, Pattern,
-        RemainderBranch, RemainderSimplification, TrivialApplication, UndecidedStep,
+        RemainderBranch, RemainderSimplification, UndecidedStep,
     },
     rule::Predicate,
     simplify::{ConditionIndeterminacy, ContradictedTotal, SimplificationError},
@@ -46,7 +46,7 @@ fn fresh_class(variable: &Variable) -> Option<FreshClass> {
 }
 
 #[derive(Clone, Default)]
-struct AlphaContext {
+pub(crate) struct AlphaContext {
     forward: BTreeMap<Variable, Variable>,
     reverse: BTreeMap<Variable, Variable>,
     choice_plan: Vec<usize>,
@@ -127,7 +127,7 @@ impl AlphaContext {
     }
 }
 
-trait AlphaComparable: Sized + PartialEq + std::fmt::Debug {
+pub(crate) trait AlphaComparable: Sized + PartialEq + std::fmt::Debug {
     fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String>;
     fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String>;
 }
@@ -182,7 +182,7 @@ fn assert_alpha_equal<T: AlphaComparable>(left: &T, right: &T, case: &str) {
 #[derive(Debug, Eq, PartialEq)]
 struct StepOutcome<'a> {
     branches: &'a [AppliedRule],
-    remainder: &'a Option<RemainderBranch>,
+    remainder_branch: &'a Option<RemainderBranch>,
     error: &'a Result<(), SimplificationError>,
 }
 
@@ -194,7 +194,8 @@ impl AlphaComparable for StepOutcome<'_> {
             context,
             AppliedRule::collect_alpha,
         )?;
-        self.remainder.collect_alpha(other.remainder, context)?;
+        self.remainder_branch
+            .collect_alpha(other.remainder_branch, context)?;
         match (self.error, other.error) {
             (Ok(()), Ok(())) => Ok(()),
             (Err(left), Err(right)) => left.collect_alpha(right, context),
@@ -242,12 +243,12 @@ pub(super) fn step_alpha_equal(
 ) -> Result<BTreeMap<String, String>, String> {
     let left_outcome = StepOutcome {
         branches: left.0,
-        remainder: left.1,
+        remainder_branch: left.1,
         error: left.2,
     };
     let right_outcome = StepOutcome {
         branches: right.0,
-        remainder: right.1,
+        remainder_branch: right.1,
         error: right.2,
     };
     let mut choice_plan = Vec::new();
@@ -602,7 +603,7 @@ fn rename_term(term: &Term, context: &AlphaContext) -> Term {
     substitute(term, &renaming)
 }
 
-fn collect_predicate(
+pub(crate) fn collect_predicate(
     left: &Predicate,
     right: &Predicate,
     context: &mut AlphaContext,
@@ -635,7 +636,7 @@ fn collect_predicate(
     }
 }
 
-fn rename_predicate(predicate: &Predicate, context: &AlphaContext) -> Predicate {
+pub(crate) fn rename_predicate(predicate: &Predicate, context: &AlphaContext) -> Predicate {
     use Predicate::*;
     match predicate {
         True => True,
@@ -890,45 +891,6 @@ impl AlphaComparable for RemainderSimplification {
             after: self.after.rename_alpha(context)?,
             applied_rules: self.applied_rules.clone(),
             effects: self.effects.clone(),
-        })
-    }
-}
-
-impl AlphaComparable for TrivialApplication {
-    fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
-        collect_predicate(&self.obligation, &other.obligation, context)?;
-        collect_predicate(&self.applicability, &other.applicability, context)?;
-        collect_predicate(&self.remainder, &other.remainder, context)?;
-        collect_predicate(&self.undefined, &other.undefined, context)?;
-        self.before.collect_alpha(&other.before, context)?;
-        self.remainder_simplifications
-            .collect_alpha(&other.remainder_simplifications, context)?;
-        if self.rule_id != other.rule_id
-            || self.label != other.label
-            || self.kind != other.kind
-            || self.effects != other.effects
-        {
-            return Err("non-predicate trivial-application fields differ".into());
-        }
-        self.diagnostics
-            .collect_alpha(&other.diagnostics, context)?;
-        Ok(())
-    }
-
-    fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
-        Ok(Self {
-            rule_id: self.rule_id.clone(),
-            label: self.label.clone(),
-            kind: self.kind,
-            obligation: rename_predicate(&self.obligation, context),
-            applicability: rename_predicate(&self.applicability, context),
-            remainder: rename_predicate(&self.remainder, context),
-            undefined: rename_predicate(&self.undefined, context),
-            before: self.before.rename_alpha(context)?,
-            effects: self.effects.clone(),
-            diagnostics: self.diagnostics.rename_alpha(context)?,
-            remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
-            contradicted_total: self.contradicted_total.clone(),
         })
     }
 }

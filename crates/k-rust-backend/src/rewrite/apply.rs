@@ -59,12 +59,12 @@ use crate::{
 
 use super::{
     AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, TrivialApplication,
-    TrivialKind, Truth, collection_unification_definedness,
-    conjunctively_contains_alpha_equivalent, extend_unique, freshen_unbound_rule_variables,
-    pattern_variable_names, predicates_truth, quantify_introduced_variables,
-    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
-    recover_functional_symbolic_match, recover_general_unification, recover_indeterminate_match,
-    recover_ite_matches, recover_map_not_in_keys_matches, recover_overload_symbolic_match,
+    Truth, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
+    extend_unique, freshen_unbound_rule_variables, pattern_variable_names, predicates_truth,
+    quantify_introduced_variables, recover_boolean_matches, recover_equality_matches,
+    recover_function_equality_match, recover_functional_symbolic_match,
+    recover_general_unification, recover_indeterminate_match, recover_ite_matches,
+    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
     substitute_predicates,
 };
@@ -155,7 +155,8 @@ fn trivial_application(
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
-        kind: TrivialKind::Refuted,
+        #[cfg(test)]
+        kind: super::TrivialKind::Refuted,
         obligation,
         applicability: applicability.clone(),
         remainder: remainder_of(applicability),
@@ -181,7 +182,8 @@ fn carried_trivial_application(
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
-        kind: TrivialKind::Carried,
+        #[cfg(test)]
+        kind: super::TrivialKind::Carried,
         obligation,
         applicability: undefined.clone(),
         remainder: remainder_of(applicability),
