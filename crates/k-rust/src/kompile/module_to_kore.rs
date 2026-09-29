@@ -45,6 +45,7 @@ use crate::definition::{
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
     SortCatalog, SortHead, match_rule_label,
+    production_kind::{BracketName, ProductionKind, is_builtin_label},
 };
 use crate::kast::{
     FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, WellKnownModule, identifier,
@@ -535,18 +536,30 @@ pub fn declaration_modules_from_resolved_with_options(
         else {
             continue;
         };
-        if is_builtin_label(&label.name) {
-            continue;
-        }
-        // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
-        // `format`, and the priority and associativity tags its label names; it gets no
-        // semantic-module declaration because no term contains it (`is_bracket_production`).
-        let semantic_attributes = if is_bracket_production(production) {
-            None
-        } else {
+        let declared_semantically = match ProductionKind::of(production) {
+            // A labelled production is neither a subsort nor unlabelled; the prelude declares a
+            // builtin.
+            ProductionKind::Subsort | ProductionKind::Unlabelled | ProductionKind::Builtin => {
+                continue;
+            }
+            // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
+            // `format`, and the priority and associativity tags its label names; it gets no
+            // semantic-module declaration because no term contains it (`ProductionKind::Bracket`).
+            ProductionKind::Bracket(_) => false,
+            ProductionKind::Function { .. }
+            | ProductionKind::MacroProduction
+            | ProductionKind::Token { .. }
+            | ProductionKind::Algebraic
+            | ProductionKind::Base => true,
+        };
+        // The claims a bracket's syntax declaration carries are those of the same production
+        // without `bracket`; every other production has one kind.
+        let kind = ProductionKind::of_unbracketed(production);
+        let semantic_attributes = if declared_semantically {
             Some(symbol_attributes(
                 attributes,
                 label,
+                kind,
                 id,
                 &productions,
                 &valued_attributes,
@@ -559,10 +572,13 @@ pub fn declaration_modules_from_resolved_with_options(
                 items,
                 hook_namespaces,
             )?)
+        } else {
+            None
         };
         let syntax_attributes = symbol_attributes(
             attributes,
             label,
+            kind,
             id,
             &productions,
             &valued_attributes,
@@ -598,6 +614,11 @@ pub fn declaration_modules_from_resolved_with_options(
         syntax_sentences.push(declaration(syntax_attributes));
     }
     for (id, production) in productions.productions() {
+        // An unlabelled bracket is declared in the syntax module under its `bracketLabel`.
+        let ProductionKind::Bracket(BracketName::BracketLabel) = ProductionKind::of(production)
+        else {
+            continue;
+        };
         let Sentence::Production {
             label: None,
             parameters,
@@ -606,10 +627,10 @@ pub fn declaration_modules_from_resolved_with_options(
             attributes,
         } = production
         else {
-            continue;
+            unreachable!("a bracket declared under its bracketLabel is an unlabelled production")
         };
         let Some(mut bracket_label) = attributes.label(AttributeKey::BracketLabel) else {
-            continue;
+            unreachable!("a bracket declared under its bracketLabel carries a readable one")
         };
         if attributes.string(AttributeKey::BracketLabel).is_some() {
             bracket_label.parameters = parameters.clone();
@@ -618,6 +639,7 @@ pub fn declaration_modules_from_resolved_with_options(
         let attributes = symbol_attributes(
             attributes,
             &label,
+            ProductionKind::of_unbracketed(production),
             id,
             &productions,
             &valued_attributes,
@@ -1386,6 +1408,7 @@ fn injectivity_withheld(
 fn symbol_attributes(
     source: &KAttributes,
     label: &Label,
+    kind: ProductionKind,
     id: crate::definition::ProductionId,
     productions: &ProductionCatalog<'_>,
     valued: &BTreeSet<String>,
@@ -1416,7 +1439,18 @@ fn symbol_attributes(
     let function = source.has(AttributeKey::Function);
     let base_constructor = is_base_constructor(source);
     let injective = base_constructor && !injectivity_withheld.contains(&id);
-    let macro_like = source.has_any(&AttributeKey::MACRO_LIKE);
+    let macro_like = kind.is_macro_like();
+    let token = match kind {
+        ProductionKind::Token { .. } => true,
+        ProductionKind::Subsort
+        | ProductionKind::Builtin
+        | ProductionKind::Bracket(_)
+        | ProductionKind::Function { .. }
+        | ProductionKind::MacroProduction
+        | ProductionKind::Unlabelled
+        | ProductionKind::Algebraic
+        | ProductionKind::Base => false,
+    };
     // A macro-like rule headed by this production is an emitted equation between its
     // applications and other terms, so they are not free values (`constructor_productions`).
     // The declaration still carries no `macro` attribute: that would claim every application is
@@ -1428,12 +1462,9 @@ fn symbol_attributes(
     {
         entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
-    if base_constructor
-        && !macro_like
-        && !rewritten_by_macro_rule
-        && !anywhere
-        && !is_token_production(source)
-    {
+    // A token production's symbol is never applied (`ProductionKind::Token`), so it is no
+    // constructor.
+    if base_constructor && !macro_like && !rewritten_by_macro_rule && !anywhere && !token {
         entries.insert(
             AttributeKey::Constructor.as_str().into(),
             Value::String(String::new()),
@@ -1872,29 +1903,6 @@ fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
                 || hook_namespaces.iter().any(|admitted| admitted == namespace)
         })
     })
-}
-
-/// Whether `production` is a bracket, which only groups program or rule text.
-///
-/// Every parser erases a bracket node before a term exists, and the generated bison grammar
-/// reduces a bracket to its child, so no term the frontend builds contains a bracket's symbol,
-/// whatever its label. A bracket's label (or `bracketLabel` when it has none) names only its
-/// syntax-module declaration and its priority and associativity tag: it is never declared in
-/// the semantic module, and no generated axiom mentions it.
-fn is_bracket_production(production: &Sentence) -> bool {
-    production.attributes().has(AttributeKey::Bracket)
-}
-
-fn is_builtin_label(label: &str) -> bool {
-    InternalLabel::of(label).is_some_and(|label| InternalLabel::MATCHING_LOGIC.contains(&label))
-}
-
-/// A `token` production defines the lexical form of its sort's domain values: every term it
-/// parses is a domain value, its sort is declared `hasDomainValues`, and its label is never
-/// applied. Its symbol therefore denotes no element of the term algebra, and classifying it as a
-/// constructor would assert a rigid element provably distinct from every domain value of the sort.
-fn is_token_production(attributes: &KAttributes) -> bool {
-    attributes.has(AttributeKey::Token)
 }
 
 /// Encode a K label as a KORE symbol head.

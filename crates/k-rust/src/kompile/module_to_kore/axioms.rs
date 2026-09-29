@@ -16,6 +16,9 @@
 
 use super::equations::substitute_equation_sort;
 use super::*;
+use crate::definition::production_kind::{
+    NoJunkAlternative, ProductionKind, SortGenerators, match_sort_parameters,
+};
 
 pub(super) struct GeneratedAxioms {
     pub(super) semantics: Vec<KoreSentence>,
@@ -33,16 +36,31 @@ pub(super) fn generated_axioms(
     let mut syntax = Vec::new();
     let mut no_confusion_pairs = BTreeSet::new();
     for (id, production) in productions.productions() {
-        if let Some(axiom) = subsort_axiom(production) {
-            semantics.push(axiom.clone());
-            syntax.push(axiom);
-            continue;
-        }
-        if is_builtin_production(production) || is_bracket_production(production) {
-            continue;
+        let kind = ProductionKind::of(production);
+        match kind {
+            ProductionKind::Subsort => {
+                // An injection into `K` has no subsort axiom and declares no symbol; like any
+                // unlabelled production it still reaches `algebraic_axioms`, which rejects an
+                // algebraic attribute on it.
+                if let Some(axiom) = subsort_axiom(production) {
+                    semantics.push(axiom.clone());
+                    syntax.push(axiom);
+                    continue;
+                }
+            }
+            // The prelude declares and axiomatises a builtin, and no term contains a bracket.
+            ProductionKind::Builtin | ProductionKind::Bracket(_) => continue,
+            ProductionKind::Function { .. }
+            | ProductionKind::MacroProduction
+            | ProductionKind::Token { .. }
+            | ProductionKind::Unlabelled
+            | ProductionKind::Algebraic
+            | ProductionKind::Base => {}
         }
         semantics.extend(algebraic_axioms(id, production, subsorts)?);
-        if let Some(axiom) = functional_axiom(production) {
+        if kind.functional()
+            && let Some(axiom) = functional_axiom(production)
+        {
             semantics.push(axiom);
         }
         if constructors.contains(&id) {
@@ -95,28 +113,22 @@ pub(super) fn constructor_productions(
     productions
         .productions()
         .filter_map(|(id, production)| {
-            let Sentence::Production {
-                label: Some(label),
-                attributes,
-                ..
-            } = production
-            else {
+            // Every other kind is excluded by its own declaration: a subsort, a builtin, an
+            // unlabelled production or a bracket declares no semantic symbol, a function or a
+            // macro production heads its own equations, an algebraic production's axioms equate
+            // applications, and a token's applications are domain values.
+            let ProductionKind::Base = ProductionKind::of(production) else {
                 return None;
             };
-            if is_bracket_production(production) {
-                return None;
-            }
-            let algebraic =
-                attributes.has_any(&[AttributeKey::Assoc, AttributeKey::Comm, AttributeKey::Idem]);
-            let is_macro = attributes.has_any(&AttributeKey::MACRO_LIKE)
-                || rules.macro_labels().contains(&LabelHead::from(label));
-            (!attributes.has(AttributeKey::Function)
-                && !algebraic
-                && !is_macro
-                && !anywhere_labels.contains(&LabelHead::from(label))
-                && !is_builtin_label(&label.name)
-                && !is_token_production(attributes))
-            .then_some(id)
+            let Sentence::Production {
+                label: Some(label), ..
+            } = production
+            else {
+                unreachable!("a base production is labelled")
+            };
+            let head = LabelHead::from(label);
+            (!rules.macro_labels().contains(&head) && !anywhere_labels.contains(&head))
+                .then_some(id)
         })
         .collect()
 }
@@ -269,113 +281,78 @@ fn no_junk_axioms(
 ) -> Vec<KoreSentence> {
     let mut axioms = Vec::new();
     for sort in sorts.sorted_all_sorts() {
+        let generators = SortGenerators::of(productions, sorts, subsorts, sort);
+        if generators.is_empty() {
+            continue;
+        }
         let result_sort = encode_kore_sort(sort);
-        let result_head = SortHead::from(sort);
-        let mut alternatives = Vec::new();
         let mut variable_names = BTreeMap::new();
         let mut used_variable_names = BTreeSet::new();
         let mut variable_suffixes = BTreeMap::new();
-        let mut has_token = false;
-        // Invariant: `alternatives` holds one pattern for every admitted labelled non-token production of `result_head` before this one, plus exactly one top pattern if any token production precedes it, as tracked by `has_token`; this scan of `productions.productions()` runs once per sort, O(|sorts| * |productions|).
-        for (_, production) in productions.productions() {
-            let Sentence::Production {
-                label,
-                sort: production_sort,
-                attributes,
-                ..
-            } = production
-            else {
-                unreachable!("production catalogs contain productions")
-            };
-            if SortHead::from(production_sort) != result_head
-                || attributes.has(AttributeKey::Function)
-                || is_subsort_production(production)
-                || is_builtin_production(production)
-                || is_macro_production(production)
-                || is_bracket_production(production)
-            {
-                continue;
-            }
-            if attributes.has(AttributeKey::Token) {
-                // A token production parses to domain values of its sort, which no symbol
-                // generates, so `\top` is its complete alternative; its symbol is never a
-                // generator, whatever its label or its position among the sort's productions.
-                if !has_token {
-                    alternatives.push(Pattern::Top {
-                        sort: result_sort.clone(),
-                    });
-                    has_token = true;
-                }
-            } else if label.is_some()
-                && let Some(production) = generated_production_for_sort(production, sort)
-            {
-                let variables = production
-                    .arguments
-                    .iter()
-                    .enumerate()
-                    .map(|(index, argument_sort)| {
-                        consistent_generated_variable(
-                            &format!("X{index}"),
-                            argument_sort,
-                            &mut variable_names,
-                            &mut used_variable_names,
-                            &mut variable_suffixes,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let mut alternative = Pattern::Application {
-                    symbol: production.symbol,
-                    arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
-                };
-                for variable in variables.into_iter().rev() {
-                    alternative = Pattern::Exists {
-                        sort: result_sort.clone(),
-                        variable: Box::new(variable),
-                        body: Box::new(alternative),
-                    };
-                }
-                alternatives.push(alternative);
-            }
-        }
-        if sort.name != BuiltinSort::K.k_name() {
-            // Invariant: `alternatives` has gained one injection alternative for every strict subsort of `sort` before `subsort`; this scan of `sorts.sorted_all_sorts()` runs once per sort of the same list, O(|sorts|^2).
-            for subsort in sorts
-                .sorted_all_sorts()
-                .filter(|subsort| subsorts.less_than(subsort, sort))
-            {
-                let subsort = encode_kore_sort(subsort);
-                let variable = consistent_generated_variable(
-                    "Val",
-                    &subsort,
-                    &mut variable_names,
-                    &mut used_variable_names,
-                    &mut variable_suffixes,
-                );
-                alternatives.push(Pattern::Exists {
+        let mut alternatives = generators
+            .alternatives()
+            .map(|alternative| match alternative {
+                NoJunkAlternative::DomainValues => Pattern::Top {
                     sort: result_sort.clone(),
-                    variable: Box::new(variable.clone()),
-                    body: Box::new(Pattern::Application {
-                        symbol: Symbol {
-                            name: WellKnownSymbol::Inj.as_str().into(),
-                            sort_parameters: vec![subsort, result_sort.clone()],
-                        },
-                        arguments: vec![Pattern::Variable(variable)],
-                    }),
-                });
-            }
-        }
-        if !has_token
-            && sorts
-                .attributes_for(&result_head)
-                .is_some_and(|attributes| attributes.has(AttributeKey::Token))
-        {
-            alternatives.push(Pattern::Top {
-                sort: result_sort.clone(),
-            });
-        }
-        if alternatives.is_empty() {
-            continue;
-        }
+                },
+                NoJunkAlternative::Generator(id) => {
+                    let Some(production) =
+                        generated_production_for_sort(productions.production(id), sort)
+                    else {
+                        unreachable!(
+                            "SortGenerators admits a labelled generator only when its result sort instantiates to the sort"
+                        )
+                    };
+                    let variables = production
+                        .arguments
+                        .iter()
+                        .enumerate()
+                        .map(|(index, argument_sort)| {
+                            consistent_generated_variable(
+                                &format!("X{index}"),
+                                argument_sort,
+                                &mut variable_names,
+                                &mut used_variable_names,
+                                &mut variable_suffixes,
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let mut alternative = Pattern::Application {
+                        symbol: production.symbol,
+                        arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
+                    };
+                    for variable in variables.into_iter().rev() {
+                        alternative = Pattern::Exists {
+                            sort: result_sort.clone(),
+                            variable: Box::new(variable),
+                            body: Box::new(alternative),
+                        };
+                    }
+                    alternative
+                }
+                NoJunkAlternative::Injection(subsort) => {
+                    let subsort = encode_kore_sort(subsort);
+                    let variable = consistent_generated_variable(
+                        "Val",
+                        &subsort,
+                        &mut variable_names,
+                        &mut used_variable_names,
+                        &mut variable_suffixes,
+                    );
+                    Pattern::Exists {
+                        sort: result_sort.clone(),
+                        variable: Box::new(variable.clone()),
+                        body: Box::new(Pattern::Application {
+                            symbol: Symbol {
+                                name: WellKnownSymbol::Inj.as_str().into(),
+                                sort_parameters: vec![subsort, result_sort.clone()],
+                            },
+                            arguments: vec![Pattern::Variable(variable)],
+                        }),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
         alternatives.push(Pattern::Bottom {
             sort: result_sort.clone(),
         });
@@ -464,58 +441,19 @@ fn generated_production_for_sort(
     })
 }
 
-// Invariant: each call matches one node of `pattern` against `concrete` and recurses only into their `parameters`, so the finite `pattern` bounds the calls; `substitution` binds every element of `parameters` met so far to one concrete sort.
-fn match_sort_parameters(
-    pattern: &Sort,
-    concrete: &Sort,
-    parameters: &[Sort],
-    substitution: &mut BTreeMap<Sort, Sort>,
-) -> Option<()> {
-    if parameters.contains(pattern) {
-        return match substitution.get(pattern) {
-            Some(existing) if existing != concrete => None,
-            Some(_) => Some(()),
-            None => {
-                substitution.insert(pattern.clone(), concrete.clone());
-                Some(())
-            }
-        };
-    }
-    if pattern.name != concrete.name || pattern.parameters.len() != concrete.parameters.len() {
-        return None;
-    }
-    for (pattern, concrete) in pattern.parameters.iter().zip(&concrete.parameters) {
-        match_sort_parameters(pattern, concrete, parameters, substitution)?;
-    }
-    Some(())
-}
-
-fn is_subsort_production(production: &Sentence) -> bool {
-    matches!(
-        production,
-        Sentence::Production { label: None, items, .. }
-            if matches!(items.as_slice(), [ProductionItem::NonTerminal { .. }])
-    )
-}
-
-fn is_macro_production(production: &Sentence) -> bool {
-    production.attributes().has_any(&AttributeKey::MACRO_LIKE)
-}
-
+/// `∃ Val. Val = f(K0, …)` for a labelled production `f`; its caller emits it only when the
+/// production's kind is [`ProductionKind::functional`].
 fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
     let Sentence::Production {
         label: Some(label),
         parameters,
         sort,
         items,
-        attributes,
+        ..
     } = production
     else {
         return None;
     };
-    if attributes.has(AttributeKey::Function) && !attributes.has(AttributeKey::Total) {
-        return None;
-    }
     let result_sort = encode_kore_sort_with_formals(sort, parameters);
     let arguments = items
         .iter()
@@ -556,13 +494,6 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
         }),
         attributes: marker_attribute(KoreAttribute::Functional),
     })
-}
-
-fn is_builtin_production(production: &Sentence) -> bool {
-    matches!(
-        production,
-        Sentence::Production { label: Some(label), .. } if is_builtin_label(&label.name)
-    )
 }
 
 fn algebraic_axioms(

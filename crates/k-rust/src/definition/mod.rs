@@ -14,6 +14,7 @@ pub mod configuration;
 pub mod equivalence;
 pub mod json;
 pub mod partial_order;
+pub(crate) mod production_kind;
 /// K token regexes, defined in the dependency-free `k-rust-regex` crate.
 pub use k_rust_regex as regex;
 pub mod relations;

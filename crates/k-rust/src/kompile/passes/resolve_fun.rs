@@ -24,6 +24,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::definition::production_kind::{ProductionKind, Totality};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition};
 use crate::names::BuiltinSort;
@@ -470,8 +471,9 @@ impl Resolver<'_, '_, '_> {
     /// - A lambda generated earlier in this module is defined when it was declared `total`.
     /// - Any other compiler-internal label (the matching-logic connectives, `#Bottom` among
     ///   them) is not known to be defined.
-    /// - A written label is defined when every production that declares it is a constructor or
-    ///   a `total` function, which is the claim the compiled symbol carries; a macro-like
+    /// - A written label is defined when every production that declares it is functional by its
+    ///   kind (`ProductionKind::functional`), which is the claim the compiled symbol carries; a
+    ///   bracket's label is declared in no semantic module, so it is not; a macro-like
     ///   production is excluded because its application is replaced by the macro's right-hand
     ///   side after this pass, and a label with no visible production yet (a sort projection or
     ///   predicate generated later) is not known to be defined.
@@ -493,10 +495,11 @@ impl Resolver<'_, '_, '_> {
         let productions = self.catalog.productions_for(&LabelHead::from(label));
         let declared = !productions.is_empty()
             && productions.iter().all(|id| {
-                let attributes = self.catalog.production(*id).attributes();
-                (!attributes.has(AttributeKey::Function) || attributes.has(AttributeKey::Total))
-                    && !attributes.has_any(&AttributeKey::MACRO_LIKE)
-                    && !attributes.has(AttributeKey::MlOp)
+                let production = self.catalog.production(*id);
+                let kind = ProductionKind::of(production);
+                kind.functional()
+                    && !kind.is_macro_like()
+                    && !production.attributes().has(AttributeKey::MlOp)
             });
         declared
             || knowledge == Knowledge::Equations
@@ -559,18 +562,19 @@ impl Resolver<'_, '_, '_> {
             let [production] = self.catalog.productions_for(&LabelHead::from(label)) else {
                 continue;
             };
-            let Sentence::Production {
-                items, attributes, ..
-            } = self.catalog.production(*production)
-            else {
-                continue;
-            };
-            if !attributes.has(AttributeKey::Function)
-                || attributes.has(AttributeKey::Total)
-                || attributes.has_any(&AttributeKey::MACRO_LIKE)
-            {
+            let production = self.catalog.production(*production);
+            if !matches!(
+                ProductionKind::of(production),
+                ProductionKind::Function {
+                    totality: Totality::Partial,
+                    macro_like: false
+                }
+            ) {
                 continue;
             }
+            let Sentence::Production { items, .. } = production else {
+                continue;
+            };
             let parameter_sorts = items.iter().filter_map(|item| match item {
                 ProductionItem::NonTerminal { sort, .. } => Some(sort),
                 _ => None,
