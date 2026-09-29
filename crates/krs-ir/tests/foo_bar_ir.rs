@@ -4,12 +4,14 @@ use krs_ir::testing::{assert_canonical_contract, item, origin as node};
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
     DefinitionSortRef, DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration,
-    FixedInitializerCell, ItemKind, LabelId, LabelIdentity, ModuleId, ProductionItem,
-    ProductionSentence, RuleSentence, SchemaVersion, SemanticId, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError, SentenceKind,
-    SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    FixedInitializerCell, IrIdentityError, ItemKind, LabelId, LabelIdentity, ModuleId,
+    OriginStackError, ProductionItem, ProductionSentence, RuleSentence, SchemaVersion, SemanticId,
+    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
+    SentenceKind, SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
+    SyntaxSortSentence,
 };
+use krs_test_support::{assert_rejects, assert_rejects_with_message};
 
 #[allow(clippy::too_many_lines, clippy::disallowed_names)] // Stable golden fixture vocabulary.
 fn semantic_theory(
@@ -318,10 +320,19 @@ fn semantic_and_definition_ir_carry_the_one_schema_version() {
 
 #[test]
 fn empty_and_path_shaped_ids_are_rejected() {
-    assert!(SourceMapKey::new(" ").is_err());
-    assert!(ModuleId::new("/tmp/SMOKE").is_err());
-    assert!(SymbolId::new("native/production/7").is_err());
-    assert!(LabelId::new("").is_err());
+    assert_rejects!(
+        SourceMapKey::new(" "),
+        IrIdentityError::Empty("source_map_key")
+    );
+    assert_rejects!(
+        ModuleId::new("/tmp/SMOKE"),
+        IrIdentityError::PathLike("module_id", _)
+    );
+    assert_rejects!(
+        SymbolId::new("native/production/7"),
+        IrIdentityError::PathLike("symbol_id", _)
+    );
+    assert_rejects!(LabelId::new(""), IrIdentityError::Empty("label_id"));
 }
 
 #[test]
@@ -347,7 +358,10 @@ fn dangling_definition_symbol_is_rejected() {
 fn missing_origin_is_rejected_during_deserialization() {
     let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
     json["modules"][0]["origin"]["origin"] = serde_json::json!([]);
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        OriginStackError::Empty,
+    );
 }
 
 #[test]
@@ -355,7 +369,12 @@ fn duplicate_node_key_is_rejected() {
     let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
     let duplicate = json["modules"][0]["origin"]["key"].clone();
     json["modules"][1]["origin"]["key"] = duplicate;
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        DefinitionValidationError::DuplicateSourceMapKey(
+            SourceMapKey::new("def.module.main").unwrap(),
+        ),
+    );
 }
 
 #[test]
@@ -368,5 +387,8 @@ fn adapter_specific_fields_are_rejected() {
         .find(|sentence| sentence["sentence_kind"] == "production")
         .unwrap();
     sentence["sentence"]["k_rust_resolved_production_id"] = serde_json::json!(7);
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        "unknown field `k_rust_resolved_production_id`",
+    );
 }

@@ -6,10 +6,12 @@ use krs_ir::testing::{assert_canonical_contract, authored, item};
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    ProvenanceKey, ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor,
-    StableItemId, TransformationOriginKind,
+    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortRef, ExplicitSymbol,
+    IdentityError, ItemKind, OriginFrame, OriginStack, OriginStackError, ProvenanceKey,
+    ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
+    TransformationOriginKind,
 };
+use krs_test_support::{assert_rejects, assert_rejects_with_message};
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
 
@@ -178,28 +180,39 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
         .as_array_mut()
         .unwrap()
         .pop();
-    assert!(
-        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&short).unwrap()).is_err()
+    assert_rejects_with_message(
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&short).unwrap()),
+        "invalid length 5, expected a collector frame array",
     );
     let mut long = wire.clone();
     long["descriptors"][0]["provenance"]["origins"][0]["origin"][1]
         .as_array_mut()
         .unwrap()
         .push(serde_json::Value::Null);
-    assert!(
-        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&long).unwrap()).is_err()
+    assert_rejects_with_message(
+        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&long).unwrap()),
+        "collector frame has extra fields",
     );
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][1] = 999.into();
     let bad_file = serde_json::to_vec(&wire).unwrap();
-    assert!(DescriptorBundle::from_collector_protocol(&bad_file).is_err());
+    assert_rejects_with_message(
+        DescriptorBundle::from_collector_protocol(&bad_file),
+        "invalid file index 999",
+    );
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][1] = 0.into();
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][4] = 999.into();
     let bad_item = serde_json::to_vec(&wire).unwrap();
-    assert!(DescriptorBundle::from_collector_protocol(&bad_item).is_err());
+    assert_rejects_with_message(
+        DescriptorBundle::from_collector_protocol(&bad_item),
+        "invalid item index 999",
+    );
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][4] = 0.into();
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 99.into();
     let bad_code = serde_json::to_vec(&wire).unwrap();
-    assert!(DescriptorBundle::from_collector_protocol(&bad_code).is_err());
+    assert_rejects_with_message(
+        DescriptorBundle::from_collector_protocol(&bad_code),
+        "unknown collector frame code 99",
+    );
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 1.into();
 }
 
@@ -306,13 +319,30 @@ fn restricted_visibility_wire_data_is_exact_and_validated() {
         })
     );
 
-    for path in ["", "crate::::private", "crate/private", "crate\\private"] {
+    for (path, expected_kind) in [
+        ("", IdentityError::InvalidVisibilityPath(String::new())),
+        (
+            "crate::::private",
+            IdentityError::InvalidVisibilityPath("crate::::private".into()),
+        ),
+        (
+            "crate/private",
+            IdentityError::InvalidVisibilityPath("crate/private".into()),
+        ),
+        (
+            "crate\\private",
+            IdentityError::InvalidVisibilityPath("crate\\private".into()),
+        ),
+    ] {
         let wire = serde_json::json!({
             "visibility": "restricted",
             "path": path,
             "explicit_in": false
         });
-        assert!(serde_json::from_value::<RustVisibility>(wire).is_err());
+        assert_rejects_with_message(
+            serde_json::from_value::<RustVisibility>(wire),
+            expected_kind,
+        );
     }
 }
 
@@ -405,23 +435,26 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
 fn descriptor_provenance_rejects_empty_duplicate_and_missing_primary_tables() {
     let primary = ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0);
     let nested = ProvenanceKey::new(ProvenanceRole::RuleRightPath, 0);
-    assert!(DescriptorProvenance::new(primary.clone(), Vec::new()).is_err());
-    assert!(
+    assert_rejects!(
+        DescriptorProvenance::new(primary.clone(), Vec::new()),
+        DescriptorProvenanceError::Empty
+    );
+    assert_rejects!(
         DescriptorProvenance::new(
             primary.clone(),
             vec![DescriptorNodeOrigin::new(nested, origin())]
-        )
-        .is_err()
+        ),
+        DescriptorProvenanceError::MissingPrimary(key) if key == primary
     );
-    assert!(
+    assert_rejects!(
         DescriptorProvenance::new(
             primary.clone(),
             vec![
                 DescriptorNodeOrigin::new(primary.clone(), origin()),
-                DescriptorNodeOrigin::new(primary, origin()),
+                DescriptorNodeOrigin::new(primary.clone(), origin()),
             ]
-        )
-        .is_err()
+        ),
+        DescriptorProvenanceError::DuplicateKey(key) if key == primary
     );
 }
 
@@ -464,12 +497,18 @@ fn provenance_keys_round_trip_with_validation() {
     let key = ProvenanceKey::new(ProvenanceRole::RuleRightPath, 7);
     let json = serde_json::to_string(&key).unwrap();
     assert_eq!(serde_json::from_str::<ProvenanceKey>(&json).unwrap(), key);
-    assert!(serde_json::from_str::<ProvenanceKey>(r#"{"role":"","ordinal":0}"#).is_err());
+    assert_rejects_with_message(
+        serde_json::from_str::<ProvenanceKey>(r#"{"role":"","ordinal":0}"#),
+        "unknown provenance role ``",
+    );
 }
 
 #[test]
 fn empty_origin_stack_is_rejected_at_the_protocol_boundary() {
-    assert!(serde_json::from_str::<OriginStack>("[]").is_err());
+    assert_rejects_with_message(
+        serde_json::from_str::<OriginStack>("[]"),
+        OriginStackError::Empty,
+    );
 }
 
 #[test]
@@ -493,5 +532,8 @@ fn transformation_frame_cannot_begin_an_origin_stack() {
         "kind":"generated_descriptor",
         "label":"payload"
     }]"#;
-    assert!(serde_json::from_str::<OriginStack>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_str::<OriginStack>(json),
+        OriginStackError::FirstFrameNotAuthored,
+    );
 }

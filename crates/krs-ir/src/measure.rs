@@ -556,6 +556,7 @@ impl io::Write for ProvenanceCountingWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_test_support::assert_rejects;
 
     #[test]
     fn disabled_recorders_record_nothing() {
@@ -578,7 +579,7 @@ mod tests {
                 Err("no")
             })
         });
-        assert!(result.is_err());
+        assert_rejects!(result, "no");
         let ids = timings
             .spans()
             .iter()

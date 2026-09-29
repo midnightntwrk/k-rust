@@ -546,6 +546,7 @@ fn validate_component(name: &'static str, value: &str) -> Result<(), IdentityErr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_test_support::{assert_rejects, assert_rejects_with_message};
 
     fn package(namespace: &str, name: &str) -> PackageId {
         crate::testing::package_with(namespace, name, "1.0.0", "workspace")
@@ -574,7 +575,10 @@ mod tests {
             SourceFileId::new(package("ORG-A", "a"), "src\\nested\\mod.rs", digest.clone())
                 .unwrap();
         assert_eq!(source.package_relative_path(), "src/nested/mod.rs");
-        assert!(SourceFileId::new(package("ORG-A", "a"), "../outside.rs", digest).is_err());
+        assert_rejects!(
+            SourceFileId::new(package("ORG-A", "a"), "../outside.rs", digest),
+            IdentityError::InvalidSourcePath(path) if path == "../outside.rs"
+        );
     }
 
     #[test]
@@ -617,9 +621,18 @@ mod tests {
             "cargo_version":"1.0.0",
             "cargo_source":"/tmp/checkout"
         }"#;
-        assert!(serde_json::from_str::<PackageId>(absolute_source).is_err());
+        assert_rejects_with_message(
+            serde_json::from_str::<PackageId>(absolute_source),
+            IdentityError::AbsoluteCargoSource,
+        );
         let file_source = absolute_source.replace("/tmp/checkout", "file:relative");
-        assert!(serde_json::from_str::<PackageId>(&file_source).is_err());
-        assert!(serde_json::from_str::<Sha256Digest>(r#""NOT-A-DIGEST""#).is_err());
+        assert_rejects_with_message(
+            serde_json::from_str::<PackageId>(&file_source),
+            IdentityError::AbsoluteCargoSource,
+        );
+        assert_rejects_with_message(
+            serde_json::from_str::<Sha256Digest>(r#""NOT-A-DIGEST""#),
+            IdentityError::InvalidSha256,
+        );
     }
 }

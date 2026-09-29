@@ -18,6 +18,7 @@ serde_json.workspace = true
 [dev-dependencies]
 expect-test = { workspace = true }
 krs-ir = { path = ".", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }
 proc-macro2 = { workspace = true }
 serde-reflection = "0.6.0"
 static_assertions = "1.1.0"

@@ -884,25 +884,45 @@ mod tests {
             HostSourceAnchor::new("src/lib.rs", start, end, AnchorPrecision::Exact),
             Err(HostProvenanceError::ReversedEndpoints { .. })
         ));
-        for filename in [
-            "",
-            "/tmp/lib.rs",
-            r"C:\checkout\lib.rs",
-            r"\\server\lib.rs",
-            r"\lib.rs",
-            "file:relative.rs",
-            "file:/lib.rs",
-            "file:",
+        for (filename, expected_kind) in [
+            ("", HostProvenanceError::EmptyDisplayFile),
+            (
+                "/tmp/lib.rs",
+                HostProvenanceError::AbsoluteDisplayFile("/tmp/lib.rs".to_owned()),
+            ),
+            (
+                r"C:\checkout\lib.rs",
+                HostProvenanceError::AbsoluteDisplayFile(r"C:\checkout\lib.rs".to_owned()),
+            ),
+            (
+                r"\\server\lib.rs",
+                HostProvenanceError::AbsoluteDisplayFile(r"\\server\lib.rs".to_owned()),
+            ),
+            (
+                r"\lib.rs",
+                HostProvenanceError::AbsoluteDisplayFile(r"\lib.rs".to_owned()),
+            ),
+            (
+                "file:relative.rs",
+                HostProvenanceError::AbsoluteDisplayFile("file:relative.rs".to_owned()),
+            ),
+            (
+                "file:/lib.rs",
+                HostProvenanceError::AbsoluteDisplayFile("file:/lib.rs".to_owned()),
+            ),
+            (
+                "file:",
+                HostProvenanceError::AbsoluteDisplayFile("file:".to_owned()),
+            ),
         ] {
-            assert!(
-                HostSourceAnchor::new(
-                    filename,
-                    position(1, 1),
-                    position(1, 2),
-                    AnchorPrecision::Exact
-                )
-                .is_err()
-            );
+            let error = HostSourceAnchor::new(
+                filename,
+                position(1, 1),
+                position(1, 2),
+                AnchorPrecision::Exact,
+            )
+            .unwrap_err();
+            assert_eq!(error, expected_kind, "{filename}");
         }
         assert!(
             HostSourceAnchor::new(

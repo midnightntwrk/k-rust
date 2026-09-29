@@ -10,9 +10,10 @@ use krs_ir::{
     ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
     ProductionItem, ProductionResultSort, ProductionSentence, SemanticId, SemanticModule,
     SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, StableItemId, StrictnessKind,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, SourceMapKey, StableItemId,
+    StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
+use krs_test_support::assert_rejects_with_message;
 
 fn node(key: &str) -> NodeOrigin {
     testing::origin_in(
@@ -788,7 +789,10 @@ fn production_mut<'a>(json: &'a mut serde_json::Value, id: &str) -> &'a mut serd
 fn rejects_regex_without_classified_token_metadata() {
     let mut json = expression_json();
     production_mut(&mut json, "production.id")["sentence"]["attributes"] = serde_json::json!([]);
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        DefinitionValidationError::RegexWithoutToken,
+    );
 }
 
 #[test]
@@ -805,7 +809,10 @@ fn rejects_strictness_for_an_unknown_field() {
         "origin": serde_json::to_value(node("production.add.seqstrict.missing")).unwrap(),
         "field": "missing"
     }]);
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        DefinitionValidationError::InvalidStrictnessField,
+    );
 }
 
 #[test]
@@ -822,7 +829,10 @@ fn rejects_precedence_cycles_and_dangling_groups() {
                 "lower": ["prefix"]
             }
         }));
-    assert!(serde_json::from_value::<DefinitionIr>(cycle).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(cycle),
+        DefinitionValidationError::PrecedenceCycle(group("additive")),
+    );
 
     let mut dangling = expression_json();
     let precedence = syntax_module_mut(&mut dangling)["sentences"]
@@ -832,7 +842,10 @@ fn rejects_precedence_cycles_and_dangling_groups() {
         .find(|sentence| sentence["sentence_kind"] == "precedence")
         .unwrap();
     precedence["sentence"]["higher"] = serde_json::json!(["unknown"]);
-    assert!(serde_json::from_value::<DefinitionIr>(dangling).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(dangling),
+        DefinitionValidationError::DanglingProductionGroup(group("unknown")),
+    );
 }
 
 #[test]
@@ -849,7 +862,10 @@ fn rejects_subsort_cycles() {
                 "supersort": {"sort_source": "builtin", "sort": "int"}
             }
         }));
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(json),
+        DefinitionValidationError::SubsortCycle(declared("sort.expr")),
+    );
 }
 
 #[test]
@@ -871,17 +887,26 @@ fn rejects_wrong_builtin_signature_and_raw_or_adapter_attributes() {
         .unwrap();
     neg["sentence"]["body"]["to"]["arguments"][0]["sort"] =
         serde_json::json!({"sort_source": "builtin", "sort": "bool"});
-    assert!(serde_json::from_value::<DefinitionIr>(signature).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(signature),
+        DefinitionValidationError::BuiltinApplicationSignature(BuiltinOperation::IntSub),
+    );
 
     let mut raw = expression_json();
     production_mut(&mut raw, "production.add")["sentence"]["attributes"][0]["raw_hook"] =
         serde_json::json!("INT.add");
-    assert!(serde_json::from_value::<DefinitionIr>(raw).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(raw),
+        "unknown field `raw_hook`",
+    );
 
     let mut adapter = expression_json();
     production_mut(&mut adapter, "production.add")["sentence"]["k_rust_production_id"] =
         serde_json::json!(17);
-    assert!(serde_json::from_value::<DefinitionIr>(adapter).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(adapter),
+        "unknown field `k_rust_production_id`",
+    );
 }
 
 #[test]
@@ -891,11 +916,19 @@ fn rejects_missing_or_reused_nested_provenance() {
         .as_object_mut()
         .unwrap()
         .remove("origin");
-    assert!(serde_json::from_value::<DefinitionIr>(missing).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(missing),
+        "missing field `origin`",
+    );
 
     let mut duplicate = expression_json();
     let production = production_mut(&mut duplicate, "production.add");
     production["sentence"]["items"][1]["origin"] =
         production["sentence"]["items"][0]["origin"].clone();
-    assert!(serde_json::from_value::<DefinitionIr>(duplicate).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<DefinitionIr>(duplicate),
+        DefinitionValidationError::DuplicateSourceMapKey(
+            SourceMapKey::new("production.add.lhs").unwrap(),
+        ),
+    );
 }
