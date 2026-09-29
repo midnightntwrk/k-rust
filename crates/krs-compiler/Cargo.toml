@@ -29,3 +29,5 @@ expect-test = { workspace = true }
 krs-compiler = { path = ".", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }
+proc-macro-crate = "3.4.0"
+tempfile = "3.27.0"

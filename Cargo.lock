@@ -559,12 +559,14 @@ dependencies = [
  "krs-syntax",
  "krs-test-support",
  "prettyplease",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.119",
+ "tempfile",
  "toml_edit",
 ]
 

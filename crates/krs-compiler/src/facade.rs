@@ -471,7 +471,7 @@ fn workspace_dependencies(
 
 /// The workspace root manifest of the package of `manifest`: the path that
 /// `package.workspace` names, the manifest itself when it has a `[workspace]`
-/// table, or else the nearest ancestor manifest with one.
+/// table, or else the nearest ancestor workspace that includes the package.
 fn workspace_root(
     manifest: &Path,
     table: &toml_edit::Table,
@@ -491,9 +491,11 @@ fn workspace_root(
         let candidate = directory.join("Cargo.toml");
         record_probe(&candidate);
         if candidate.is_file()
-            && read_manifest(&candidate)?
-                .as_table()
-                .contains_key("workspace")
+            && workspace_includes_package(
+                read_manifest(&candidate)?.as_table(),
+                directory,
+                package_dir,
+            )
         {
             return Ok(Some(candidate));
         }
@@ -501,9 +503,84 @@ fn workspace_root(
     Ok(None)
 }
 
+fn workspace_includes_package(table: &toml_edit::Table, root: &Path, package: &Path) -> bool {
+    let Some(workspace) = table.get("workspace").and_then(Item::as_table_like) else {
+        return false;
+    };
+    let Some(relative) = package.strip_prefix(root).ok().and_then(Path::to_str) else {
+        return false;
+    };
+    let excluded = workspace
+        .get("exclude")
+        .and_then(Item::as_array)
+        .is_some_and(|patterns| {
+            patterns
+                .iter()
+                .filter_map(toml_edit::Value::as_str)
+                .any(|pattern| {
+                    relative
+                        .match_indices('/')
+                        .map(|(index, _)| &relative[..index])
+                        .chain(std::iter::once(relative))
+                        .any(|prefix| workspace_path_matches(pattern, prefix))
+                })
+        });
+    !excluded
+        && workspace
+            .get("members")
+            .and_then(Item::as_array)
+            .is_some_and(|patterns| {
+                patterns
+                    .iter()
+                    .filter_map(toml_edit::Value::as_str)
+                    .any(|pattern| workspace_path_matches(pattern, relative))
+            })
+}
+
+fn workspace_path_matches(pattern: &str, path: &str) -> bool {
+    fn component_matches(pattern: &str, component: &str) -> bool {
+        match pattern.chars().next() {
+            None => component.is_empty(),
+            Some('*') => {
+                component_matches(&pattern[1..], component)
+                    || component.chars().next().is_some_and(|first| {
+                        component_matches(pattern, &component[first.len_utf8()..])
+                    })
+            }
+            Some('?') => component.chars().next().is_some_and(|first| {
+                component_matches(&pattern[1..], &component[first.len_utf8()..])
+            }),
+            Some(first) => component
+                .strip_prefix(first)
+                .is_some_and(|rest| component_matches(&pattern[first.len_utf8()..], rest)),
+        }
+    }
+
+    fn components_match(pattern: &[&str], path: &[&str]) -> bool {
+        match pattern.split_first() {
+            None => path.is_empty(),
+            Some((&"**", rest)) => {
+                components_match(rest, path)
+                    || (!path.is_empty() && components_match(pattern, &path[1..]))
+            }
+            Some((first, rest)) => path.split_first().is_some_and(|(component, tail)| {
+                component_matches(first, component) && components_match(rest, tail)
+            }),
+        }
+    }
+
+    let pattern = pattern.trim_start_matches("./").trim_end_matches('/');
+    components_match(
+        &pattern.split('/').collect::<Vec<_>>(),
+        &path.split('/').collect::<Vec<_>>(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proc_macro_crate::{FoundCrate, crate_name};
+    use std::process::Command;
 
     fn aliases(manifest: &str) -> BTreeSet<String> {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -547,6 +624,137 @@ mod tests {
             BTreeSet::from(["language_host".to_owned()])
         );
         assert!(aliases("[package]\nname = \"p\"\n[workspace]\n").is_empty());
+    }
+
+    #[test]
+    #[ignore = "run by manifest_aliases_match_proc_macro_crate in a child process"]
+    fn proc_macro_crate_child() {
+        let result = match crate_name(FACADE_PACKAGE) {
+            Ok(FoundCrate::Itself) => "itself".to_owned(),
+            Ok(FoundCrate::Name(name)) => format!("name:{name}"),
+            Err(error) => {
+                eprintln!("KRS_FACADE_PARITY_ERROR={error}");
+                "error".to_owned()
+            }
+        };
+        println!("KRS_FACADE_PARITY={result}");
+    }
+
+    fn assert_proc_macro_crate_parity(
+        case: &str,
+        package_manifest: &str,
+        workspace_manifest: Option<&str>,
+        expected: &str,
+    ) {
+        let temporary = tempfile::tempdir().unwrap();
+        let package_dir = if let Some(workspace_manifest) = workspace_manifest {
+            fs::write(temporary.path().join("Cargo.toml"), workspace_manifest).unwrap();
+            let package_dir = temporary.path().join("member");
+            fs::create_dir(&package_dir).unwrap();
+            package_dir
+        } else {
+            temporary.path().to_owned()
+        };
+        let manifest = package_dir.join("Cargo.toml");
+        fs::write(&manifest, package_manifest).unwrap();
+        fs::create_dir(package_dir.join("src")).unwrap();
+        fs::write(package_dir.join("src/lib.rs"), "").unwrap();
+
+        let aliases = FacadeAliases::from_manifest(&manifest).unwrap().aliases;
+        let child = Command::new(std::env::current_exe().unwrap())
+            .arg("facade::tests::proc_macro_crate_child")
+            .arg("--exact")
+            .arg("--ignored")
+            .arg("--nocapture")
+            .env("CARGO_MANIFEST_DIR", &package_dir)
+            .env(
+                "CARGO",
+                std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()),
+            )
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success(),
+            "{case}: child test failed: {}",
+            String::from_utf8_lossy(&child.stderr)
+        );
+        let stdout = String::from_utf8(child.stdout).unwrap();
+        let found = stdout
+            .lines()
+            .find_map(|line| {
+                line.split_once("KRS_FACADE_PARITY=")
+                    .map(|(_, value)| value)
+            })
+            .unwrap_or_else(|| panic!("{case}: child result missing from {stdout:?}"));
+        assert_eq!(
+            found,
+            expected,
+            "{case}: unexpected proc-macro-crate result: {}",
+            String::from_utf8_lossy(&child.stderr)
+        );
+        assert_eq!(
+            found == "itself",
+            aliases.contains("crate"),
+            "{case}: Itself must agree with the `crate` alias"
+        );
+        if let Some(name) = found.strip_prefix("name:") {
+            assert!(
+                aliases.contains(name),
+                "{case}: alias {name:?} is missing from {aliases:?}"
+            );
+        } else if found == "error" {
+            assert!(aliases.is_empty(), "{case}: aliases must be empty on error");
+        }
+    }
+
+    #[test]
+    fn manifest_aliases_match_proc_macro_crate() {
+        assert_proc_macro_crate_parity(
+            "renamed dependency",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[workspace]\n[dependencies]\nrenamed-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            None,
+            "name:renamed_krs",
+        );
+        assert_proc_macro_crate_parity(
+            "dev-dependency",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[workspace]\n[dev-dependencies]\nkrs = \"0.1.0\"\n",
+            None,
+            "name:krs",
+        );
+        assert_proc_macro_crate_parity(
+            "target-specific dependency",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[workspace]\n[target.'cfg(unix)'.dependencies]\ntarget-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            None,
+            "name:target_krs",
+        );
+        assert_proc_macro_crate_parity(
+            "the facade package itself",
+            "[package]\nname = \"krs\"\nversion = \"0.1.0\"\n[workspace]\n",
+            None,
+            "itself",
+        );
+        assert_proc_macro_crate_parity(
+            "workspace-inherited dependency",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nworkspace-krs = { workspace = true }\n",
+            Some(
+                "[workspace]\nmembers = [\"m*\"]\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            ),
+            "name:workspace_krs",
+        );
+        assert_proc_macro_crate_parity(
+            "no facade dependency",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[workspace]\n",
+            None,
+            "error",
+        );
+        assert_proc_macro_crate_parity(
+            "excluded workspace package",
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nworkspace-krs = { workspace = true }\n",
+            Some(
+                "[workspace]\nmembers = [\"m*\"]\nexclude = [\"member\"]\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
+            ),
+            "error",
+        );
     }
 
     #[test]
