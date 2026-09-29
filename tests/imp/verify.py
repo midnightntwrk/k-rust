@@ -502,26 +502,24 @@ def phase_rust(context: Context) -> RustBuild:
         timeout=900,
         environment=env,
     )
-    # Supplemental v0.1 toolchain unit: the closed host builtin registry and
-    # IR alias-safety contract are selected by name in addition to the full
-    # workspace suite.  Native Haskell and LLVM evidence is exercised below.
-    run(
+    kompile_tests = run(
         [
-            "cargo", "test", "--locked", "-p", "krs", "--lib",
-            "tests::builtin_registry_is_complete_and_exact", "--", "--exact",
+            "cargo", "test", "--locked", "-p", "krs-compiler",
+            "--test", "control_flow_lowering", "--test", "fixed_state_lowering",
+            "--", "--ignored",
         ],
-        timeout=300,
-        environment=env,
+        timeout=900,
+        environment={**env, "KRS_K_BIN": os.fspath(Path(context.tools["kompile"]).parent)},
     )
-    run(
-        [
-            "cargo", "test", "--locked", "-p", "krs-ir", "--test",
-            "transport_grammar", "builtin_registry_is_complete_exact_and_alias_safe",
-            "--", "--exact",
-        ],
-        timeout=300,
-        environment=env,
+    results = re.findall(
+        r"^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed;",
+        kompile_tests.stdout,
+        flags=re.MULTILINE,
     )
+    if sum(int(passed) for _, passed, _ in results) != 2 or any(
+        status != "ok" or int(failed) != 0 for status, _, failed in results
+    ):
+        raise GateError(f"expected exactly two passing kompile tests: {compact(kompile_tests)}")
     doc_env = {**env, "RUSTDOCFLAGS": "-D warnings"}
     run(
         ["cargo", "doc", "--workspace", "--no-deps", "--locked"],
