@@ -72,7 +72,7 @@ pub use identity::{
 pub use ir::{BuiltinSort, IrIdentityError, ModuleId, NodeOrigin, SemanticId, SourceMapKey};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
-    TransformationOriginKind,
+    SourceRangeOverflow, TransformationOriginKind,
 };
 pub use provenance_role::{ProvenanceRole, RuleRole, RuleSide};
 pub use semantic::{

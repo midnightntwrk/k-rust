@@ -3,14 +3,15 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
-    ClaimModality, ConfigurationRoot, ContextAliasSentence, DefinitionClaimBinder, DefinitionIr,
-    DefinitionModule, DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
-    GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ListOperation, MapOperation,
-    ProductionAttribute, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
+    ApplicationRef, BuiltinOperation, BuiltinSort, ByteRange, CellAttribute, CellContentFrame,
+    CellPost, ClaimModality, ConfigurationRoot, ContextAliasSentence, DefinitionClaimBinder,
+    DefinitionIr, DefinitionModule, DefinitionRuleBody, DefinitionSentence, DefinitionSortRef,
+    DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
+    FormatFragment, GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ListOperation,
+    MapOperation, ProductionAttribute, ProductionGroupId, ProductionSentence, RuleSentence,
+    SemanticId, SentenceKind, SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId,
+    SymbolIdentity,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -356,7 +357,8 @@ impl Writer {
     }
 
     fn record(&mut self, key: &SourceMapKey, start: usize, end: usize) -> Result<(), EmitError> {
-        if self.ranges.insert(key.clone(), (start, end)).is_some() {
+        let range = ByteRange::new(start, end).expect("rendered range is ordered");
+        if self.ranges.insert(key.clone(), range).is_some() {
             return Err(EmitError::DuplicateGeneratedRange(key.clone()));
         }
         Ok(())

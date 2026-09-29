@@ -5,7 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{SourceFileId, StableItemId};
+use crate::{ByteRange, SourceFileId, StableItemId};
 
 /// A half-open byte range in one exact source-file revision.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -19,6 +19,33 @@ pub struct SourceRange {
 }
 
 impl SourceRange {
+    /// Creates a source range from checked in-memory byte offsets.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either offset exceeds the `u32` wire limit.
+    pub fn from_byte_range(
+        file: SourceFileId,
+        range: ByteRange,
+    ) -> Result<Self, SourceRangeOverflow> {
+        let start_byte = u32::try_from(range.start()).map_err(|_| SourceRangeOverflow)?;
+        let end_byte = u32::try_from(range.end()).map_err(|_| SourceRangeOverflow)?;
+        Ok(Self {
+            file,
+            start_byte,
+            end_byte,
+        })
+    }
+
+    /// Returns the checked in-memory byte range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if wire data contains reversed offsets.
+    pub fn byte_range(&self) -> Result<ByteRange, crate::CoordinateError> {
+        ByteRange::new(self.start_byte as usize, self.end_byte as usize)
+    }
+
     /// Creates a half-open range, rejecting reversed offsets.
     ///
     /// # Errors
@@ -29,7 +56,7 @@ impl SourceRange {
         start_byte: u32,
         end_byte: u32,
     ) -> Result<Self, SourceRangeError> {
-        if start_byte > end_byte {
+        if ByteRange::new(start_byte as usize, end_byte as usize).is_err() {
             return Err(SourceRangeError {
                 start_byte,
                 end_byte,
@@ -42,6 +69,18 @@ impl SourceRange {
         })
     }
 }
+
+/// A source byte offset exceeds the `u32` wire limit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SourceRangeOverflow;
+
+impl fmt::Display for SourceRangeOverflow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("source byte offset exceeds protocol limits")
+    }
+}
+
+impl Error for SourceRangeOverflow {}
 
 /// A reversed source range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

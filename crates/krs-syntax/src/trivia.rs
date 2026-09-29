@@ -11,49 +11,7 @@ use proc_macro2::{Span, TokenStream, TokenTree};
 use crate::{SyntaxError, SyntaxErrorKind};
 
 /// Half-open byte range in the exact string passed to a `_source` parser.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SourceRange {
-    start: usize,
-    end: usize,
-}
-
-impl SourceRange {
-    /// Creates a half-open byte range. Validation happens when source is read.
-    #[must_use]
-    pub const fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    /// Inclusive start byte offset.
-    #[must_use]
-    pub const fn start(self) -> usize {
-        self.start
-    }
-
-    /// Exclusive end byte offset.
-    #[must_use]
-    pub const fn end(self) -> usize {
-        self.end
-    }
-
-    /// Length in bytes.
-    #[must_use]
-    pub const fn len(self) -> usize {
-        self.end.saturating_sub(self.start)
-    }
-
-    /// Whether the range contains no bytes.
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.start == self.end
-    }
-
-    /// Extracts this range from its source string.
-    #[must_use]
-    pub fn text(self, source: &str) -> Option<&str> {
-        source.get(self.start..self.end)
-    }
-}
+pub use krs_ir::ByteRange as SourceRange;
 
 /// Classified whitespace from one token gap.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,7 +145,7 @@ impl TriviaTable {
     #[must_use]
     pub fn at(&self, byte_offset: usize) -> Option<&Trivia> {
         self.trivia
-            .binary_search_by_key(&byte_offset, |item| item.range.start)
+            .binary_search_by_key(&byte_offset, |item| item.range.start())
             .ok()
             .map(|index| &self.trivia[index])
     }
@@ -226,6 +184,10 @@ impl TriviaTable {
 ///
 /// Returns [`SyntaxErrorKind::InvalidTrivia`] for an out-of-bounds token range,
 /// non-trivia bytes in a gap, an unterminated block comment, or failed totality.
+///
+/// # Panics
+///
+/// Panics if an internally constructed gap has reversed bounds.
 pub fn lex_gaps(source: &str, token_ranges: &[SourceRange]) -> Result<Vec<Trivia>, SyntaxError> {
     let token_ranges = normalize_token_ranges(source, token_ranges)?;
     let mut trivia = Vec::new();
@@ -233,22 +195,22 @@ pub fn lex_gaps(source: &str, token_ranges: &[SourceRange]) -> Result<Vec<Trivia
     let mut left = None;
 
     for right in token_ranges.iter().copied() {
-        if cursor < right.start {
+        if cursor < right.start() {
             lex_gap(
                 source,
-                SourceRange::new(cursor, right.start),
+                SourceRange::new(cursor, right.start()).expect("gap is ordered"),
                 left,
                 Some(right),
                 &mut trivia,
             )?;
         }
-        cursor = right.end;
+        cursor = right.end();
         left = Some(right);
     }
     if cursor < source.len() {
         lex_gap(
             source,
-            SourceRange::new(cursor, source.len()),
+            SourceRange::new(cursor, source.len()).expect("gap is ordered"),
             left,
             None,
             &mut trivia,
@@ -292,7 +254,7 @@ fn collect_token_ranges(tokens: &TokenStream) -> Vec<SourceRange> {
     fn push_span(span: Span, output: &mut Vec<SourceRange>) {
         let range = span.byte_range();
         if range.start != range.end {
-            output.push(SourceRange::new(range.start, range.end));
+            output.push(SourceRange::from_proc_macro2(span).expect("span byte range is ordered"));
         }
     }
 
@@ -310,24 +272,24 @@ fn normalize_token_ranges(
     let mut normalized: Vec<SourceRange> = Vec::with_capacity(ranges.len());
 
     for range in ranges {
-        if range.start > range.end
-            || range.end > source.len()
-            || !source.is_char_boundary(range.start)
-            || !source.is_char_boundary(range.end)
+        if range.end() > source.len()
+            || !source.is_char_boundary(range.start())
+            || !source.is_char_boundary(range.end())
         {
-            let diagnostic_start = min(min(range.start, range.end), source.len());
-            let diagnostic_end = min(max(range.start, range.end), source.len());
+            let diagnostic_start = min(range.start(), source.len());
+            let diagnostic_end = min(range.end(), source.len());
             return Err(trivia_error(
                 "token byte range is outside the source or splits a UTF-8 code point",
-                SourceRange::new(diagnostic_start, diagnostic_end),
+                SourceRange::new(diagnostic_start, diagnostic_end).expect("token range is ordered"),
             ));
         }
         if range.is_empty() {
             continue;
         }
         match normalized.last_mut() {
-            Some(previous) if range.start < previous.end => {
-                previous.end = max(previous.end, range.end);
+            Some(previous) if range.start() < previous.end() => {
+                *previous = SourceRange::new(previous.start(), max(previous.end(), range.end()))
+                    .expect("merged token range is ordered");
             }
             _ => normalized.push(range),
         }
@@ -342,26 +304,26 @@ fn lex_gap(
     right: Option<SourceRange>,
     output: &mut Vec<Trivia>,
 ) -> Result<(), SyntaxError> {
-    let first_newline = source[gap.start..gap.end]
+    let first_newline = source[gap.start()..gap.end()]
         .find('\n')
-        .map(|relative| gap.start + relative);
+        .map(|relative| gap.start() + relative);
     let bytes = source.as_bytes();
-    let mut cursor = gap.start;
+    let mut cursor = gap.start();
 
-    while cursor < gap.end {
+    while cursor < gap.end() {
         let start = cursor;
-        let (kind, end) = if bytes[cursor..gap.end].starts_with(b"//") {
-            let end = bytes[cursor..gap.end]
+        let (kind, end) = if bytes[cursor..gap.end()].starts_with(b"//") {
+            let end = bytes[cursor..gap.end()]
                 .iter()
                 .position(|byte| *byte == b'\n')
-                .map_or(gap.end, |relative| cursor + relative);
+                .map_or(gap.end(), |relative| cursor + relative);
             (TriviaKind::LineComment(LineCommentTrivia), end)
-        } else if bytes[cursor..gap.end].starts_with(b"/*") {
-            let (end, maximum_nesting) = block_comment_end(bytes, cursor, gap.end)?;
+        } else if bytes[cursor..gap.end()].starts_with(b"/*") {
+            let (end, maximum_nesting) = block_comment_end(bytes, cursor, gap.end())?;
             let documentation =
-                if bytes[cursor..gap.end].starts_with(b"/**") && end - cursor != "/**/".len() {
+                if bytes[cursor..gap.end()].starts_with(b"/**") && end - cursor != "/**/".len() {
                     Some(DocCommentStyle::Outer)
-                } else if bytes[cursor..gap.end].starts_with(b"/*!") {
+                } else if bytes[cursor..gap.end()].starts_with(b"/*!") {
                     Some(DocCommentStyle::Inner)
                 } else {
                     None
@@ -374,21 +336,22 @@ fn lex_gap(
                 end,
             )
         } else {
-            let Some(character) = source[cursor..gap.end].chars().next() else {
+            let Some(character) = source[cursor..gap.end()].chars().next() else {
                 break;
             };
             if !character.is_whitespace() {
                 return Err(trivia_error(
                     "a token gap contains bytes which are neither whitespace nor a comment",
-                    SourceRange::new(cursor, cursor + character.len_utf8()),
+                    SourceRange::new(cursor, cursor + character.len_utf8())
+                        .expect("character range is ordered"),
                 ));
             }
             let split_limit = first_newline
                 .filter(|split| cursor < *split)
-                .unwrap_or(gap.end);
+                .unwrap_or(gap.end());
             cursor += character.len_utf8();
-            while cursor < gap.end && cursor < split_limit {
-                let character = source[cursor..gap.end]
+            while cursor < gap.end() && cursor < split_limit {
+                let character = source[cursor..gap.end()]
                     .chars()
                     .next()
                     .expect("cursor is inside the source gap");
@@ -397,8 +360,8 @@ fn lex_gap(
                 }
                 cursor += character.len_utf8();
             }
-            let range = SourceRange::new(start, cursor);
-            let newline_count = source[range.start..range.end]
+            let range = SourceRange::new(start, cursor).expect("whitespace range is ordered");
+            let newline_count = source[range.start()..range.end()]
                 .bytes()
                 .filter(|byte| *byte == b'\n')
                 .count();
@@ -408,7 +371,7 @@ fn lex_gap(
             )
         };
         cursor = end;
-        let range = SourceRange::new(start, end);
+        let range = SourceRange::new(start, end).expect("trivia range is ordered");
         let attachment = attachment(range, first_newline, left, right);
         output.push(Trivia {
             range,
@@ -429,7 +392,7 @@ fn attachment(
         (None, Some(right)) => TriviaAttachment::Leading(right),
         (Some(left), None) => TriviaAttachment::Trailing(left),
         (Some(left), Some(right)) => match first_newline {
-            Some(split) if trivia.start >= split => TriviaAttachment::Leading(right),
+            Some(split) if trivia.start() >= split => TriviaAttachment::Leading(right),
             Some(_) | None => TriviaAttachment::Trailing(left),
         },
         (None, None) => TriviaAttachment::Detached,
@@ -461,7 +424,7 @@ fn block_comment_end(
     }
     Err(trivia_error(
         "unterminated block comment",
-        SourceRange::new(start, gap_end),
+        SourceRange::new(start, gap_end).expect("comment lies in gap"),
     ))
 }
 
@@ -475,18 +438,23 @@ fn validate_totality(
     ranges.sort_unstable();
     let mut cursor = 0;
     for range in ranges {
-        if range.start != cursor {
+        if range.start() != cursor {
             return Err(trivia_error(
                 "tokens and trivia do not cover every source byte exactly once",
-                SourceRange::new(min(cursor, source_len), min(range.start, source_len)),
+                SourceRange::new(
+                    min(cursor, range.start()),
+                    min(max(cursor, range.start()), source_len),
+                )
+                .expect("diagnostic range is ordered"),
             ));
         }
-        cursor = range.end;
+        cursor = range.end();
     }
     if cursor != source_len {
         return Err(trivia_error(
             "tokens and trivia do not cover every source byte exactly once",
-            SourceRange::new(min(cursor, source_len), source_len),
+            SourceRange::new(min(cursor, source_len), source_len)
+                .expect("remaining range is ordered"),
         ));
     }
     Ok(())

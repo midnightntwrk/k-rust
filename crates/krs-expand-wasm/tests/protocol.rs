@@ -13,6 +13,25 @@ use std::path::PathBuf;
 use krs_expand_wasm::protocol::{self, SCHEMA};
 use serde_json::{Value, json};
 
+#[test]
+fn source_map_rejects_reversed_wire_ranges() {
+    let map = krs_expand_wasm::protocol::SourceMapJson {
+        version: 1,
+        generated_file: "generated.rs".to_owned(),
+        authored_file: "src/lib.rs".to_owned(),
+        authored_sha256: String::new(),
+        invocations: Vec::new(),
+        segments: vec![krs_expand_wasm::protocol::SegmentJson {
+            generated: [2, 1],
+            class: "generated-only".to_owned(),
+            authored: None,
+            owner: None,
+            respanned: None,
+        }],
+    };
+    assert!(map.to_map().unwrap_err().contains("reversed"));
+}
+
 const TOUR_MINIMAL: &str = include_str!("../../../tests/tour-minimal/src/lib.rs");
 
 fn request(source: &str, mode: &Value) -> Value {

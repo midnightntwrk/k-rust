@@ -22,6 +22,8 @@ use std::ops::Range;
 
 use proc_macro2::{Delimiter, LexError, Spacing, Span, TokenStream, TokenTree};
 
+pub use krs_ir::ByteRange;
+
 /// Version of the [`SourceMap`] format.
 pub const SOURCE_MAP_VERSION: u32 = 1;
 

@@ -346,7 +346,12 @@ fn span_range(source: &str, span: Span) -> Result<krs_syntax::SourceRange, Forma
             "a token span escaped its source",
         )
     })?;
-    Ok(krs_syntax::SourceRange::new(range.start, range.end))
+    krs_syntax::SourceRange::new(range.start, range.end).map_err(|_| {
+        FormatError::new(
+            FormatErrorKind::RustSyntax,
+            "a token span has reversed byte offsets",
+        )
+    })
 }
 
 fn span_index_error(error: krs_ir::LineIndexError) -> FormatError {

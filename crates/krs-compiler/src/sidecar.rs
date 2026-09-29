@@ -258,7 +258,7 @@ pub enum SourceMapNodeKind {
 }
 
 /// Byte ranges rendered for each Definition node in one generated artifact.
-pub(crate) type GeneratedRanges = BTreeMap<SourceMapKey, (usize, usize)>;
+pub(crate) type GeneratedRanges = BTreeMap<SourceMapKey, ByteRange>;
 
 /// Half-open range in one canonical generated `.k` artifact.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -278,14 +278,11 @@ impl GeneratedRange {
         artifact: &str,
         source: &str,
         index: &LineIndex,
-        start: usize,
-        end: usize,
+        range: ByteRange,
     ) -> Result<Self, SidecarError> {
-        if ByteRange::new(start, end).is_err()
-            || end > source.len()
-            || !source.is_char_boundary(start)
-            || !source.is_char_boundary(end)
-        {
+        let start = range.start();
+        let end = range.end();
+        if end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
             return Err(SidecarError::InvalidGeneratedRange);
         }
         let start_position = index
@@ -575,12 +572,11 @@ impl SourceMap {
             .collect();
         for entry in &mut self.entries {
             for ((artifact, source, ranges), index) in artifacts.iter().zip(&indexes) {
-                if let Some((start, end)) = ranges.get(&entry.key) {
+                if let Some(range) = ranges.get(&entry.key) {
                     if entry.generated.is_some() {
                         return Err(SidecarError::DuplicateSourceMapKey(entry.key.clone()));
                     }
-                    entry.generated =
-                        Some(GeneratedRange::new(artifact, source, index, *start, *end)?);
+                    entry.generated = Some(GeneratedRange::new(artifact, source, index, *range)?);
                 }
             }
         }

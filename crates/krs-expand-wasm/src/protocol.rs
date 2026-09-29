@@ -319,11 +319,15 @@ pub struct SegmentJson {
 }
 
 fn pair(range: &Range<usize>) -> [usize; 2] {
-    [range.start, range.end]
+    let range = krs_expand::sink::ByteRange::try_from(range.clone())
+        .expect("source map ranges are ordered");
+    [range.start(), range.end()]
 }
 
-fn range([start, end]: [usize; 2]) -> Range<usize> {
-    start..end
+fn range([start, end]: [usize; 2]) -> Result<Range<usize>, String> {
+    krs_expand::sink::ByteRange::new(start, end)
+        .map(Into::into)
+        .map_err(|error| error.to_string())
 }
 
 /// Lowercase hexadecimal SHA-256.
@@ -377,7 +381,7 @@ impl SourceMapJson {
     ///
     /// # Errors
     ///
-    /// Returns a message for an unknown class name.
+    /// Returns a message for an unknown class name or reversed byte range.
     pub fn to_map(&self) -> Result<SourceMap, String> {
         let class = |name: &str| {
             [
@@ -397,24 +401,26 @@ impl SourceMapJson {
             invocations: self
                 .invocations
                 .iter()
-                .map(|invocation| Invocation {
-                    id: InvocationId(invocation.id),
-                    kind: invocation.kind.clone(),
-                    call_site: range(invocation.call_site),
-                    replaced: range(invocation.replaced),
-                    parent: invocation.parent.map(InvocationId),
+                .map(|invocation| {
+                    Ok(Invocation {
+                        id: InvocationId(invocation.id),
+                        kind: invocation.kind.clone(),
+                        call_site: range(invocation.call_site)?,
+                        replaced: range(invocation.replaced)?,
+                        parent: invocation.parent.map(InvocationId),
+                    })
                 })
-                .collect(),
+                .collect::<Result<_, String>>()?,
             segments: self
                 .segments
                 .iter()
                 .map(|segment| {
                     Ok(Segment {
-                        generated: range(segment.generated),
+                        generated: range(segment.generated)?,
                         class: class(&segment.class)?,
-                        authored: segment.authored.map(range),
+                        authored: segment.authored.map(range).transpose()?,
                         owner: segment.owner.map(InvocationId),
-                        respanned: segment.respanned.map(range),
+                        respanned: segment.respanned.map(range).transpose()?,
                     })
                 })
                 .collect::<Result<_, String>>()?,
@@ -559,16 +565,21 @@ pub fn run(request_bytes: &[u8]) -> Response {
     }
 
     let selection = match &request.mode {
-        Mode::WholeFile => Selection::WholeFile,
-        Mode::Invocations(selected) => Selection::Invocations(
-            selected
-                .iter()
-                .map(|selected| SelectedInvocation {
+        Mode::WholeFile => Ok(Selection::WholeFile),
+        Mode::Invocations(selected) => selected
+            .iter()
+            .map(|selected| {
+                Ok(SelectedInvocation {
                     kind: selected.kind.clone(),
-                    replaced: range(selected.replaced),
+                    replaced: range(selected.replaced)?,
                 })
-                .collect(),
-        ),
+            })
+            .collect::<Result<_, String>>()
+            .map(Selection::Invocations),
+    };
+    let selection = match selection {
+        Ok(selection) => selection,
+        Err(message) => return Response::failed(vec![Diagnostic::protocol(message)], evidence),
     };
     let expansion = whole_file::expand_file(&FileRequest {
         display_file: &request.file.display_file,
@@ -707,11 +718,11 @@ fn lookup_inner(request: &[u8]) -> Result<Vec<MappingJson>, String> {
         text: request.text,
         map,
     };
-    Ok(request
+    request
         .ranges
         .iter()
-        .map(
-            |&generated| match sink::lookup(&source, &authored, range(generated)) {
+        .map(|&generated| {
+            Ok(match sink::lookup(&source, &authored, range(generated)?) {
                 Mapping::ExactAuthored { authored, owner } => MappingJson {
                     class: MappingClass::ExactAuthored.name(),
                     authored: Some(pair(&authored)),
@@ -732,9 +743,9 @@ fn lookup_inner(request: &[u8]) -> Result<Vec<MappingJson>, String> {
                     authored: None,
                     invocation: None,
                 },
-            },
-        )
-        .collect())
+            })
+        })
+        .collect()
 }
 
 /// Runs one lookup request given as JSON bytes and returns the JSON response

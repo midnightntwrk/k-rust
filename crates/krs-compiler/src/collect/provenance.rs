@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    AnchorPrecision, CoordinateError, DescriptorNodeOrigin, DescriptorProvenance, HostDescriptor,
-    HostDescriptorPayload, HostGrammarDescriptor, HostProductionOwner, HostProvenance,
-    HostSourceAnchor, ItemKind, OriginFrame, OriginStack, Position, ProvenanceKey,
+    AnchorPrecision, ByteRange, CoordinateError, DescriptorNodeOrigin, DescriptorProvenance,
+    HostDescriptor, HostDescriptorPayload, HostGrammarDescriptor, HostProductionOwner,
+    HostProvenance, HostSourceAnchor, ItemKind, OriginFrame, OriginStack, Position, ProvenanceKey,
     RangedOriginKind, RustVisibility, SourceRange, StableItemId, TransformationOriginKind,
 };
 use krs_syntax::{ProvenanceRole, TokenRange};
@@ -405,10 +405,9 @@ pub(super) fn source_range(
             "materialized source anchor is empty or reversed",
         ));
     }
-    SourceRange::new(
+    SourceRange::from_byte_range(
         document.file.clone(),
-        u32::try_from(start).map_err(|_| coordinate_overflow())?,
-        u32::try_from(end).map_err(|_| coordinate_overflow())?,
+        ByteRange::new(start, end).map_err(coordinate_error)?,
     )
     .map_err(|error| {
         CollectionError::new(

@@ -12,8 +12,8 @@ use krs_syntax::{
 fn unicode_offsets_are_bytes_and_first_newline_splits_attachment() {
     let source = "α // λ\n β";
     let beta = source.find('β').unwrap();
-    let alpha = SourceRange::new(0, 'α'.len_utf8());
-    let beta = SourceRange::new(beta, beta + 'β'.len_utf8());
+    let alpha = SourceRange::new(0, 'α'.len_utf8()).unwrap();
+    let beta = SourceRange::new(beta, beta + 'β'.len_utf8()).unwrap();
     let trivia = lex_gaps(source, &[alpha, beta]).unwrap();
 
     assert_eq!(trivia.len(), 3);
@@ -38,8 +38,8 @@ fn unicode_offsets_are_bytes_and_first_newline_splits_attachment() {
 fn nested_block_comments_are_classified_before_the_dsl_policy_rejects_them() {
     let source = "x /* outer /* inner */ tail */ y";
     let y = source.rfind('y').unwrap();
-    let x_range = SourceRange::new(0, 1);
-    let y_range = SourceRange::new(y, y + 1);
+    let x_range = SourceRange::new(0, 1).unwrap();
+    let y_range = SourceRange::new(y, y + 1).unwrap();
     let trivia = lex_gaps(source, &[x_range, y_range]).unwrap();
     let block = trivia
         .iter()
@@ -62,7 +62,7 @@ fn nested_block_comments_are_classified_before_the_dsl_policy_rejects_them() {
     );
     assert_eq!(
         error.source_range(),
-        Some(SourceRange::new(expected_start, source.len()))
+        Some(SourceRange::new(expected_start, source.len()).unwrap())
     );
     assert!(error.to_string().contains("use `//`"));
 }
@@ -109,7 +109,7 @@ fn doc_comment_synthetic_tokens_share_one_authored_union_range() {
 
     let doc_start = source.find("///").unwrap();
     let doc_end = source[doc_start..].find('\n').unwrap() + doc_start;
-    let doc_range = SourceRange::new(doc_start, doc_end);
+    let doc_range = SourceRange::new(doc_start, doc_end).unwrap();
     assert_eq!(
         table
             .token_ranges()
@@ -126,7 +126,7 @@ fn doc_comment_synthetic_tokens_share_one_authored_union_range() {
     );
 
     let shared_source = "/** docs */ ";
-    let shared = SourceRange::new(0, shared_source.len() - 1);
+    let shared = SourceRange::new(0, shared_source.len() - 1).unwrap();
     let manually_lexed = lex_gaps(shared_source, &[shared, shared]).unwrap();
     assert_eq!(manually_lexed.len(), 1);
     assert_eq!(manually_lexed[0].range().text(shared_source), Some(" "));
@@ -153,15 +153,15 @@ fn doc_comment_synthetic_tokens_share_one_authored_union_range() {
 #[test]
 fn totality_rejects_unclassified_bytes_and_invalid_utf8_boundaries() {
     let source = "x?";
-    let error = lex_gaps(source, &[SourceRange::new(0, 1)]).unwrap_err();
+    let error = lex_gaps(source, &[SourceRange::new(0, 1).unwrap()]).unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::InvalidTrivia { .. }
     ));
-    assert_eq!(error.source_range(), Some(SourceRange::new(1, 2)));
+    assert_eq!(error.source_range(), Some(SourceRange::new(1, 2).unwrap()));
 
     let source = "λ";
-    let error = lex_gaps(source, &[SourceRange::new(0, 1)]).unwrap_err();
+    let error = lex_gaps(source, &[SourceRange::new(0, 1).unwrap()]).unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::InvalidTrivia { .. }

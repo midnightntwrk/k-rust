@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::ops::Range;
 
 /// A normalized, slash-separated display path relative to a package root.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -119,6 +120,48 @@ impl ByteRange {
     #[must_use]
     pub const fn end(self) -> usize {
         self.end
+    }
+
+    /// Returns the number of bytes in the range.
+    #[must_use]
+    pub const fn len(self) -> usize {
+        self.end - self.start
+    }
+
+    /// Reports whether the range contains no bytes.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.start == self.end
+    }
+
+    /// Extracts the range from a source string when both offsets are UTF-8 boundaries.
+    #[must_use]
+    pub fn text(self, source: &str) -> Option<&str> {
+        source.get(self.start..self.end)
+    }
+
+    /// Converts a `proc_macro2` span's byte range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the span reports reversed offsets.
+    #[cfg(feature = "proc-macro2")]
+    pub fn from_proc_macro2(span: proc_macro2::Span) -> Result<Self, CoordinateError> {
+        Self::try_from(span.byte_range())
+    }
+}
+
+impl From<ByteRange> for Range<usize> {
+    fn from(range: ByteRange) -> Self {
+        range.start..range.end
+    }
+}
+
+impl TryFrom<Range<usize>> for ByteRange {
+    type Error = CoordinateError;
+
+    fn try_from(range: Range<usize>) -> Result<Self, Self::Error> {
+        Self::new(range.start, range.end)
     }
 }
 
@@ -408,6 +451,24 @@ mod tests {
         );
         assert_eq!(ByteRange::new(2, 1), Err(CoordinateError::ReversedRange));
         assert_eq!(ByteRange::new(1, 2).unwrap().end(), 2);
+    }
+
+    #[test]
+    fn byte_ranges_preserve_half_open_text_boundaries() {
+        let range = ByteRange::new(2, 6).unwrap();
+        assert_eq!(range.len(), 4);
+        assert!(!range.is_empty());
+        assert_eq!(range.text("é🦀z"), Some("🦀"));
+        assert_eq!(range.text("short"), None);
+        assert_eq!(ByteRange::new(2, 2).unwrap().len(), 0);
+        assert!(ByteRange::new(2, 2).unwrap().is_empty());
+        assert_eq!(Range::<usize>::from(range), 2..6);
+        assert_eq!(ByteRange::try_from(2..6), Ok(range));
+        let reversed = Range { start: 6, end: 2 };
+        assert_eq!(
+            ByteRange::try_from(reversed),
+            Err(CoordinateError::ReversedRange)
+        );
     }
 
     #[cfg(feature = "proc-macro2")]

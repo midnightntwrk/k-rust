@@ -329,11 +329,8 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
                             .get(file)
                             .ok_or_else(|| invalid(format!("invalid file index {file}")))?
                             .clone();
-                        let range = SourceRange {
-                            file,
-                            start_byte: start,
-                            end_byte: end,
-                        };
+                        let range = SourceRange::new(file, start, end)
+                            .map_err(|error| invalid(error.to_string()))?;
                         let item = item
                             .map(|index| {
                                 wire.items
