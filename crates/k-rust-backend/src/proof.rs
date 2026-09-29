@@ -163,8 +163,9 @@ pub enum ProofLeafOutcome {
     BreadthBound,
     /// The state's step stopped before it produced its answer: the step deadline passed (the
     /// proof then ends) or the thread's stack ran out (the proof goes on with the other states).
-    /// A cancelled request or a failed solver prelude ends the proof without a leaf for the state
-    /// being explored ([`ProofResult::stopped`]).
+    /// A cancelled request or a failed solver prelude is never a leaf: it ends the proof without
+    /// a leaf for the state being explored, and a leaf whose outcome was already decided when it
+    /// arrived keeps that outcome; [`ProofResult::stopped`] is the one place it is named.
     Stopped(StopCause),
     Indeterminate(ProofIndeterminateReason),
 }
@@ -212,9 +213,14 @@ pub struct ProofResult {
     pub explored_states: u64,
     pub unexplored_states: u64,
     /// Set when the exploration ended early because it stopped: a cancelled request, a failed
-    /// solver prelude, or a passed step deadline (whose state is also a `Stopped` leaf). The
-    /// status is still the one the leaves found establish, so a `Disproved` or `Failed` verdict
-    /// reached before the stop stands; `Proven` is not reachable, since states remain unexplored.
+    /// solver prelude, or a passed step deadline (whose state is also a `Stopped` leaf). Also set
+    /// to `Cancelled` when the request was cancelled while a leaf whose outcome was already
+    /// decided (`Stuck`, `DepthBound`, `BreadthBound`, `Indeterminate`) was being normalised or
+    /// certified, even if no state remains: that leaf keeps its outcome, but its pattern may be
+    /// left unsimplified and a `Stuck` leaf uncertified. The status is still the one the leaves
+    /// found establish, so a `Disproved` or `Failed` verdict reached before the stop stands;
+    /// `Proven` is not reachable, since states remain unexplored or a leaf that is not proven
+    /// was being refined.
     pub stopped: Option<StopCause>,
 }
 
@@ -286,11 +292,19 @@ pub fn prove_claim(
         manual: options.step_timeout,
         moving_average: options.moving_average_timeout,
     });
+    // A stop observed after a leaf's outcome was decided, while the leaf was refined; the
+    // leaf keeps its outcome and every exit names the stop (`forgone_refinement_stop`).
+    let mut forgone_stop = None;
     macro_rules! record_leaf {
         ($leaf:expr) => {{
             leaves.push($leaf);
             if counterexample_limit_reached(&leaves, options) {
-                return Ok(finish(leaves, explored_states, pending.len() as u64));
+                return Ok(finish_explored(
+                    leaves,
+                    explored_states,
+                    pending.len() as u64,
+                    forgone_stop,
+                ));
             }
         }};
     }
@@ -312,11 +326,18 @@ pub fn prove_claim(
         explored_states += 1;
         measure::bump(Counter::ProofStatesExplored);
         let mut step_timer = timeout_controller.begin_step();
-        // Publish a stop of this state's step as `proof_stop` decides; never falls through.
+        // Publish a stop as `proof_stop` decides; never falls through. A stop of this state's
+        // step, or (`carried`) one its parent's step observed on this remainder.
         macro_rules! publish_stop {
-            ($cause:expr) => {{
+            ($cause:expr) => {
+                publish_stop!(@origin $cause, StopOrigin::ThisStep)
+            };
+            (carried $cause:expr) => {
+                publish_stop!(@origin $cause, StopOrigin::ParentStep)
+            };
+            (@origin $cause:expr, $origin:expr) => {{
                 let cause: StopCause = $cause;
-                match proof_stop(&cause, &mut step_timer) {
+                match proof_stop(&cause, $origin, &mut step_timer) {
                     ProofStop::Leaf => {
                         record_leaf!(state.leaf(ProofLeafOutcome::Stopped(cause)));
                         continue 'states;
@@ -350,6 +371,23 @@ pub fn prove_claim(
                     publish_stop!(StopCause::Deadline(mode));
                 }
             };
+        }
+        // Record a leaf built by `externalise_leaf` or `stuck_leaf`, which refine an outcome that
+        // is already decided, then poll for the stop that refinement may have forgone. A leaf the
+        // refinement proved (an empty state under `allow_vacuous`) rests on no missing answer. A
+        // leaf the refinement made `Stopped` (an exhausted stack) is the step's published answer,
+        // so the step's measurement is discarded as for any stop of the step (`proof_stop`).
+        macro_rules! record_refined_leaf {
+            ($leaf:expr) => {{
+                let leaf: ProofLeaf = $leaf;
+                if matches!(leaf.outcome, ProofLeafOutcome::Stopped(_)) {
+                    step_timer.discard_measurement();
+                }
+                if !is_proven(&leaf) {
+                    forgone_stop = forgone_stop.or_else(forgone_refinement_stop);
+                }
+                record_leaf!(leaf);
+            }};
         }
         finish_if_interrupted!();
         let simplified_constraints = simplify_predicates_with_solver(
@@ -474,7 +512,7 @@ pub fn prove_claim(
                     // The uncovered part's destination obligation is refuted, so the stuck
                     // check stops it.
                     if options.stuck_check {
-                        record_leaf!(stuck_leaf(
+                        record_refined_leaf!(stuck_leaf(
                             definition,
                             state.remaining(remainder),
                             StuckEvidence::StepNotRun,
@@ -499,7 +537,7 @@ pub fn prove_claim(
                     ));
                 }
                 Coverage::ConditionRefuted { .. } if options.stuck_check => {
-                    record_leaf!(stuck_leaf(
+                    record_refined_leaf!(stuck_leaf(
                         definition,
                         state,
                         StuckEvidence::StepNotRun,
@@ -533,7 +571,7 @@ pub fn prove_claim(
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason))
                 }
                 Some(UndecidedStep::Simplification(error)) => match simplification_stop(error) {
-                    Ok(cause) => publish_stop!(cause),
+                    Ok(cause) => publish_stop!(carried cause),
                     Err(error) => ProofLeafOutcome::Indeterminate(
                         ProofIndeterminateReason::Simplification(error),
                     ),
@@ -542,7 +580,7 @@ pub fn prove_claim(
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
                 }
                 None => {
-                    record_leaf!(stuck_leaf(
+                    record_refined_leaf!(stuck_leaf(
                         definition,
                         state,
                         StuckEvidence::StepNotRun,
@@ -554,14 +592,14 @@ pub fn prove_claim(
                     continue;
                 }
             };
-            record_leaf!(externalise_leaf(
+            record_refined_leaf!(externalise_leaf(
                 definition, state, outcome, options, solver
             ));
             continue;
         }
 
         if state.depth >= options.max_depth {
-            record_leaf!(externalise_leaf(
+            record_refined_leaf!(externalise_leaf(
                 definition,
                 state,
                 ProofLeafOutcome::DepthBound,
@@ -627,6 +665,7 @@ pub fn prove_claim(
                                 leaves,
                                 pending,
                                 explored_states,
+                                forgone_stop,
                                 options,
                                 solver,
                             ));
@@ -646,6 +685,7 @@ pub fn prove_claim(
                                 leaves,
                                 pending,
                                 explored_states,
+                                forgone_stop,
                                 options,
                                 solver,
                             ));
@@ -713,6 +753,7 @@ pub fn prove_claim(
                         leaves,
                         pending,
                         explored_states,
+                        forgone_stop,
                         options,
                         solver,
                     ));
@@ -737,6 +778,7 @@ pub fn prove_claim(
                         leaves,
                         pending,
                         explored_states,
+                        forgone_stop,
                         options,
                         solver,
                     ));
@@ -769,7 +811,7 @@ pub fn prove_claim(
                 } else if let Some(reason) = claim_indeterminate {
                     ProofLeafOutcome::Indeterminate(reason)
                 } else {
-                    record_leaf!(stuck_leaf(
+                    record_refined_leaf!(stuck_leaf(
                         definition,
                         state,
                         StuckEvidence::StepStuck,
@@ -780,7 +822,7 @@ pub fn prove_claim(
                     ));
                     continue;
                 };
-                record_leaf!(externalise_leaf(
+                record_refined_leaf!(externalise_leaf(
                     definition, state, outcome, options, solver
                 ));
             }
@@ -807,7 +849,7 @@ pub fn prove_claim(
                 record_leaf!(state.leaf(outcome));
             }
             RewriteResult::Indeterminate { reason, .. } => {
-                record_leaf!(externalise_leaf(
+                record_refined_leaf!(externalise_leaf(
                     definition,
                     state,
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason)),
@@ -818,7 +860,7 @@ pub fn prove_claim(
             RewriteResult::Simplification { error, .. } => match simplification_stop(error) {
                 Ok(cause) => publish_stop!(cause),
                 Err(error) => {
-                    record_leaf!(externalise_leaf(
+                    record_refined_leaf!(externalise_leaf(
                         definition,
                         state,
                         ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
@@ -832,7 +874,7 @@ pub fn prove_claim(
         }
     }
 
-    Ok(finish(leaves, explored_states, 0))
+    Ok(finish_explored(leaves, explored_states, 0, forgone_stop))
 }
 
 fn extend_frontier(
@@ -844,11 +886,15 @@ fn extend_frontier(
     breadth_limit.is_some_and(|limit| pending.len() > limit)
 }
 
+/// The result of a proof whose frontier exceeded the breadth limit: every pending state is a
+/// `BreadthBound` leaf. Their normalisation is a refinement, so a stop it forgoes is polled after
+/// it, as the loop does for its own refined leaves.
 fn finish_at_breadth_limit(
     definition: &BackendDefinition,
     mut leaves: Vec<ProofLeaf>,
     pending: VecDeque<ProofState>,
     explored_states: u64,
+    forgone_stop: Option<StopCause>,
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> ProofResult {
@@ -862,7 +908,9 @@ fn finish_at_breadth_limit(
             solver,
         )
     }));
-    finish(leaves, explored_states, unexplored_states)
+    // `unexplored_states > 0`, so a stop named here never comes with a `Proven` status.
+    let forgone_stop = forgone_stop.or_else(forgone_refinement_stop);
+    finish_explored(leaves, explored_states, unexplored_states, forgone_stop)
 }
 
 /// Externalise a proof leaf in the simplifier's normal form (`rewrite::simplify_leaf_pattern`).
@@ -872,9 +920,8 @@ fn finish_at_breadth_limit(
 /// proven, trusted, trivial, vacuous, or stopped leaf is reported as it stands. A constraint
 /// set that simplifies to `\bottom` is an empty state and takes the outcome the loop head gives
 /// one. When the simplification fails, an `Indeterminate` leaf keeps its pattern and reason;
-/// any other leaf reports the failure, or the stop, as a failed loop-head simplification does.
-/// The outcome is decided before externalisation, which only normalises the pattern, so a step
-/// deadline that passes during it leaves the leaf as it stands with its unsimplified pattern.
+/// any other leaf reports the failure as a failed loop-head simplification does. A stop is
+/// handled by [`refinement_stopped`].
 fn externalise_leaf(
     definition: &BackendDefinition,
     mut state: ProofState,
@@ -916,13 +963,33 @@ fn externalise_leaf(
             state.leaf(outcome)
         }
         Err(SimplificationError::Interrupted) => state.leaf(outcome),
-        Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => state.leaf(outcome),
         Err(error) => state.leaf(match simplification_stop(error) {
-            Ok(cause) => ProofLeafOutcome::Stopped(cause),
+            Ok(cause) => refinement_stopped(cause, outcome),
+            Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => outcome,
             Err(error) => {
                 ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(error))
             }
         }),
+    }
+}
+
+/// The outcome of a leaf whose normalisation ([`externalise_leaf`]) stopped with `cause`.
+///
+/// The outcome was decided before the normalisation, which can only refine it (to `Vacuous`,
+/// say), so it stays sound with the unsimplified pattern. A step deadline belongs to the step,
+/// which is over. A cancelled request or a failed solver prelude keeps its signal raised, so it
+/// is not lost: the proof polls it after the refinement (`forgone_refinement_stop`) and names it
+/// in [`ProofResult::stopped`], never as a leaf. An exhausted stack raises no signal a later poll
+/// could observe, so the leaf is where it is published, unless the outcome is `Indeterminate`,
+/// which already says the state was not decided.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn refinement_stopped(cause: StopCause, outcome: ProofLeafOutcome) -> ProofLeafOutcome {
+    match cause {
+        StopCause::Cancelled | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => outcome,
+        StopCause::StackExhausted if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => {
+            outcome
+        }
+        StopCause::StackExhausted => ProofLeafOutcome::Stopped(cause),
     }
 }
 
@@ -1749,6 +1816,30 @@ fn finish_stopped(
     }
 }
 
+/// [`finish`] for an exploration that ended without a stop of its own: every state was explored
+/// or a bound was reached. `forgone_stop` is a stop observed while a decided leaf was refined.
+fn finish_explored(
+    leaves: Vec<ProofLeaf>,
+    explored_states: u64,
+    unexplored_states: u64,
+    forgone_stop: Option<StopCause>,
+) -> ProofResult {
+    match forgone_stop {
+        Some(cause) => finish_stopped(leaves, explored_states, unexplored_states, cause),
+        None => finish(leaves, explored_states, unexplored_states),
+    }
+}
+
+/// Poll, after a decided leaf was refined (normalised by [`externalise_leaf`], certified by
+/// [`stuck_leaf`]), for a stop that refinement may have forgone. The refinement keeps the leaf's
+/// outcome when the request is cancelled (or the solver prelude fails, which raises the same
+/// signal), and a solver query it made may have answered unknown for that reason. The signal
+/// stays raised, so this poll observes it; a cancellation arriving after the refinement is also
+/// observed, which only names a stop the result may not depend on.
+fn forgone_refinement_stop() -> Option<StopCause> {
+    cancellation_requested().then_some(StopCause::Cancelled)
+}
+
 /// What the proof does with a state whose step stopped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProofStop {
@@ -1760,14 +1851,30 @@ enum ProofStop {
     Finish,
 }
 
-/// Publish a stop of a state's step: the step produced no answer, so its duration measures no
-/// step and is not recorded. A passed step deadline ends the proof after recording the state,
-/// whose step ran out of its time; an exhausted stack stops the state being stepped only, and
-/// the rest of the proof can still be decided; a cancelled request or a failed solver prelude
-/// ends every remaining state, so the proof ends with the state unexplored.
+/// Which step observed a stop the proof publishes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StopOrigin {
+    /// The step of the state being explored, which therefore produced no answer.
+    ThisStep,
+    /// The step of the state's parent, which left this state as a remainder carrying the stop
+    /// (`UndecidedStep::Simplification`). That step's duration was recorded when it ended, and
+    /// this state's step did its own work before it classified the remainder.
+    ParentStep,
+}
+
+/// Publish a stop. A stop of the state's own step means the step produced no answer, so its
+/// duration measures no step and is not recorded; a stop carried from the parent's step leaves
+/// the current step's measurement alone, since this step ran to its end. A passed step deadline
+/// ends the proof after recording the state, whose step ran out of its time; an exhausted stack
+/// stops the state being stepped only, and the rest of the proof can still be decided; a
+/// cancelled request or a failed solver prelude ends every remaining state, so the proof ends
+/// with the state unexplored.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn proof_stop(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> ProofStop {
-    step_timer.discard_measurement();
+fn proof_stop(cause: &StopCause, origin: StopOrigin, step_timer: &mut StepTimer<'_>) -> ProofStop {
+    match origin {
+        StopOrigin::ThisStep => step_timer.discard_measurement(),
+        StopOrigin::ParentStep => {}
+    }
     match cause {
         StopCause::Deadline(_) => ProofStop::LeafAndFinish,
         StopCause::StackExhausted => ProofStop::Leaf,
@@ -4567,6 +4674,197 @@ mod tests {
             assert_eq!(result.explored_states, explored, "{result:#?}");
             assert_eq!(result.unexplored_states, 1, "{result:#?}");
             assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        }
+    }
+
+    /// Answers every query as satisfiable or contingent until its `at`-th query, where it cancels
+    /// the request and, as a solver interrupted by the cancellation does, answers that query and
+    /// every later one as unknown. Counts the queries it was asked.
+    struct CancelAtQuery {
+        token: crate::cancellation::CancellationToken,
+        at: usize,
+        queries: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CancelAtQuery {
+        fn new(token: crate::cancellation::CancellationToken, at: usize) -> Self {
+            Self {
+                token,
+                at,
+                queries: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        /// Counts this query; whether it is answered as unknown because the request is cancelled.
+        fn cancelled(&self) -> bool {
+            let query = self
+                .queries
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if query >= self.at {
+                self.token.cancel();
+            }
+            query >= self.at
+        }
+    }
+
+    impl SmtSolver for CancelAtQuery {
+        fn is_sat(
+            &self,
+            _predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            Ok(if self.cancelled() {
+                Satisfiability::Unknown("request cancelled".into())
+            } else {
+                Satisfiability::Sat
+            })
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(if self.cancelled() {
+                Validity::Unknown("request cancelled".into())
+            } else {
+                Validity::Contingent
+            })
+        }
+    }
+
+    /// `state(f(X), f(Y))`, where `f(Z) = Z` only under `Z >Int 0`: simplifying the state asks
+    /// the solver about that condition for each argument in turn, and the simplifier polls the
+    /// cancellation between them. So every normalisation of a leaf's pattern queries the solver
+    /// and then polls, and a cancellation raised by its first query ends it.
+    fn refined_leaf_definition(rules: &str, destination: &str) -> BackendDefinition {
+        let source = format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                sort SortState{{}} []
+                symbol state{{}}(SortInt{{}}, SortInt{{}}) : SortState{{}} [constructor{{}}()]
+                symbol done{{}}() : SortState{{}} [constructor{{}}()]
+                symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                hooked-symbol gtInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.gt"), smt-hook{{}}(">")]
+                alias {destination}{{S}}(S) : S
+                    where {destination}{{S}}(@X:S) := @X:S []
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \equals{{SortBool{{}}, R}}(
+                            gtInt{{}}(X0:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                            \dv{{SortBool{{}}}}("true")
+                        ),
+                        \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, Z:SortInt{{}}), \top{{R}}())
+                    ),
+                    \equals{{SortInt{{}}, R}}(
+                        f{{}}(X0:SortInt{{}}),
+                        \and{{SortInt{{}}}}(Z:SortInt{{}}, \top{{SortInt{{}}}}())
+                    )
+                ) [label{{}}("f-positive")]
+                {rules}
+                claim{{}} \implies{{SortState{{}}}}(
+                    \and{{SortState{{}}}}(
+                        \top{{SortState{{}}}}(),
+                        state{{}}(f{{}}(X:SortInt{{}}), f{{}}(Y:SortInt{{}}))
+                    ),
+                    {destination}{{SortState{{}}}}(
+                        \and{{SortState{{}}}}(done{{}}(), \top{{SortState{{}}}}())
+                    )
+                ) [label{{}}("refined")]
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    #[test]
+    fn a_cancellation_during_a_decided_leafs_refinement_is_named_once_by_the_result() {
+        const TWO_SUCCESSORS: &str = r#"
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(state{}(X:SortInt{}, Y:SortInt{}), \top{SortState{}}()),
+                \and{SortState{}}(state{}(Y:SortInt{}, X:SortInt{}), \top{SortState{}}())
+            ) [label{}("swap")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(state{}(X:SortInt{}, Y:SortInt{}), \top{SortState{}}()),
+                \and{SortState{}}(state{}(X:SortInt{}, X:SortInt{}), \top{SortState{}}())
+            ) [label{}("copy")]
+        "#;
+        // Each proof ends with an empty frontier after its last leaf was refined: a `DepthBound`
+        // leaf (the exit after the loop), a `Stuck` leaf normalised and then certified, and the
+        // `BreadthBound` leaves of the two successors that exceed the breadth limit.
+        let no_rules = refined_leaf_definition("", "weakExistsFinally");
+        let breadth_bound = refined_leaf_definition(TWO_SUCCESSORS, "weakAlwaysFinally");
+        let cases = [
+            (
+                "depth bound",
+                &no_rules,
+                ProofOptions {
+                    max_depth: 0,
+                    ..ProofOptions::default()
+                },
+                ProofLeafOutcome::DepthBound,
+            ),
+            (
+                "stuck",
+                &no_rules,
+                ProofOptions::default(),
+                ProofLeafOutcome::Stuck,
+            ),
+            (
+                "breadth bound",
+                &breadth_bound,
+                ProofOptions {
+                    breadth_limit: Some(1),
+                    ..ProofOptions::default()
+                },
+                ProofLeafOutcome::BreadthBound,
+            ),
+        ];
+        for (name, definition, options, decided) in cases {
+            let claim = claim_with_label(definition, "refined");
+            let uncancelled =
+                CancelAtQuery::new(crate::cancellation::CancellationToken::new(), usize::MAX);
+            let complete = prove_claim(definition, claim, options, &uncancelled).unwrap();
+            assert_eq!(complete.stopped, None, "{name}: {complete:#?}");
+            assert!(
+                !complete.leaves.is_empty()
+                    && complete.leaves.iter().all(|leaf| leaf.outcome == decided),
+                "{name}: {complete:#?}"
+            );
+            let queries = uncancelled
+                .queries
+                .load(std::sync::atomic::Ordering::SeqCst);
+            // Cancel at every query the proof makes, so that some cancellation arrives while a
+            // leaf whose outcome is decided is being refined.
+            let mut cancelled_after_a_decision = 0;
+            for at in 1..=queries {
+                let token = crate::cancellation::CancellationToken::new();
+                let solver = CancelAtQuery::new(token.clone(), at);
+                let result = token
+                    .scope(|| prove_claim(definition, claim, options, &solver))
+                    .unwrap();
+                // The stop is named once, by the result, whether states remain or not; a leaf
+                // keeps the outcome decided before the cancellation arrived.
+                assert_eq!(
+                    result.stopped,
+                    Some(StopCause::Cancelled),
+                    "{name}, cancelled at query {at}: {result:#?}"
+                );
+                assert!(
+                    result.leaves.iter().all(|leaf| leaf.outcome == decided),
+                    "{name}, cancelled at query {at}: {result:#?}"
+                );
+                assert_ne!(result.status, ProofStatus::Proven, "{name}: {result:#?}");
+                if !result.leaves.is_empty() {
+                    cancelled_after_a_decision += 1;
+                }
+            }
+            assert!(cancelled_after_a_decision > 0, "{name}: {queries} queries");
         }
     }
 

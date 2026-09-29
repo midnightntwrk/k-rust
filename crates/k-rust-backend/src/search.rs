@@ -189,8 +189,11 @@ pub enum IncompleteSearch {
         reason: IndeterminateReason,
     },
     /// The state's exploration stopped before it produced its answer. A cancelled request (or a
-    /// failed solver prelude) ends the search with [`SearchEnd::Stopped`]; an exhausted stack
-    /// ends this state only.
+    /// failed solver prelude) ends the search: observed before a state's step, it lists that
+    /// state here and ends with [`SearchEnd::Stopped`]; observed after a state's step, it lists
+    /// that state here, and the search ends with [`SearchEnd::Stopped`] at the next state or,
+    /// when no state remains, with [`SearchEnd::Exhausted`]. An exhausted stack ends this state
+    /// only.
     Stopped {
         state: SearchState,
         cause: StopCause,
