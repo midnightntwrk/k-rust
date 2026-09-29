@@ -339,6 +339,26 @@ impl DefinitionIr {
         definition.validate()?;
         Ok(definition)
     }
+
+    /// Rebuilds the definition and its modules from permuted set-like inputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this validated definition cannot be rebuilt.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut modules = self
+            .modules
+            .iter()
+            .map(|module| module.permute_sets(seed))
+            .collect::<Vec<_>>();
+        crate::testing::permute(&mut modules, seed);
+        Self::new(self.main_module.clone(), modules).unwrap_or_else(|error| {
+            panic!("DefinitionIr seed {seed}: permuted rebuild failed: {error}")
+        })
+    }
+
     /// Returns the independent IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -621,6 +641,26 @@ impl DefinitionModule {
             sentences: SortedByKey::new(sentences),
         }
     }
+
+    /// Rebuilds every set-like module collection from permuted inputs.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut imports = self.imports.iter().cloned().collect::<Vec<_>>();
+        let mut production_groups = self.production_groups.iter().cloned().collect::<Vec<_>>();
+        let mut sentences = self.sentences.iter().cloned().collect::<Vec<_>>();
+        crate::testing::permute(&mut imports, seed);
+        crate::testing::permute(&mut production_groups, seed);
+        crate::testing::permute(&mut sentences, seed);
+        Self::new(
+            self.origin.clone(),
+            self.id.clone(),
+            imports,
+            production_groups,
+            sentences,
+        )
+    }
+
     /// Returns node provenance.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {

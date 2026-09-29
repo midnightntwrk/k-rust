@@ -1,6 +1,6 @@
 //! Typed hook signatures in semantic and Definition IR.
 
-use krs_ir::testing::{item, origin as node};
+use krs_ir::testing::{assert_canonical_contract, item, origin as node};
 use krs_ir::{
     ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef,
     DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration, FixedInitializerCell,
@@ -525,7 +525,8 @@ fn bn128_definition(
 #[test]
 fn bn128_hooks_require_a_unique_point_constructor_with_the_expected_sort_and_signature() {
     let hook = HookOperation::KryptoBn128Valid;
-    assert!(bn128_definition("G1Point", &[("Point", 2)], hook, None).is_ok());
+    let definition = bn128_definition("G1Point", &[("Point", 2)], hook, None).unwrap();
+    assert_canonical_contract(&definition);
     for (sort, constructors, count) in [
         ("OtherPoint", vec![("Point", 2)], 1),
         ("G1Point", vec![], 0),
@@ -556,13 +557,12 @@ fn bn128_hooks_require_a_unique_point_constructor_with_the_expected_sort_and_sig
             matching_constructors: 0,
         })
     );
-    assert!(
-        bn128_definition(
-            "G1Point",
-            &[("Point", 2)],
-            HookOperation::KryptoBn128Ate,
-            Some(4),
-        )
-        .is_ok()
-    );
+    let definition = bn128_definition(
+        "G1Point",
+        &[("Point", 2)],
+        HookOperation::KryptoBn128Ate,
+        Some(4),
+    )
+    .unwrap();
+    assert_canonical_contract(&definition);
 }

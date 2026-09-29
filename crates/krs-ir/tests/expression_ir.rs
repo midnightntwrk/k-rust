@@ -100,13 +100,13 @@ fn application(
 }
 
 #[allow(clippy::too_many_lines)]
-fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionValidationError> {
+fn expression_definition() -> Result<DefinitionIr, DefinitionValidationError> {
     let expr = declared("sort.expr");
     let value = declared("sort.value");
     let k_item = declared("sort.kitem");
     let k_result = declared("sort.kresult");
 
-    let mut groups = vec![
+    let groups = vec![
         ProductionGroupIdentity::new(node("group.prefix"), group("prefix"), "exprPrefix")?,
         ProductionGroupIdentity::new(node("group.additive"), group("additive"), "exprAdditive")?,
         ProductionGroupIdentity::new(
@@ -116,7 +116,7 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         )?,
     ];
 
-    let mut syntax = vec![
+    let syntax = vec![
         DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
             node("sort.kitem"),
             symbol("sort.kitem", "KItem", SymbolKind::Sort),
@@ -421,10 +421,6 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         DefinitionTerm::rewrite(node("term.and.rewrite"), expr.clone(), and_lhs, and_rhs)?,
     )?);
 
-    if reverse_sets {
-        groups.reverse();
-        syntax.reverse();
-    }
     let syntax_id = ModuleId::new("EXPR-SYNTAX").unwrap();
     let syntax_module = DefinitionModule::new(
         node("module.syntax"),
@@ -474,10 +470,7 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         )
         .unwrap(),
     );
-    let mut rules = vec![configuration, neg_rule, addition_rule, conjunction_rule];
-    if reverse_sets {
-        rules.reverse();
-    }
+    let rules = vec![configuration, neg_rule, addition_rule, conjunction_rule];
     let main_id = ModuleId::new("EXPR").unwrap();
     let main_module = DefinitionModule::new(
         node("module.main"),
@@ -486,25 +479,14 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         vec![],
         rules,
     );
-    let modules = if reverse_sets {
-        vec![main_module, syntax_module]
-    } else {
-        vec![syntax_module, main_module]
-    };
-    DefinitionIr::new(main_id, modules)
+    DefinitionIr::new(main_id, vec![syntax_module, main_module])
 }
 
 #[test]
 fn representative_expression_definition_has_canonical_bytes() {
-    let normal = expression_definition(false)
-        .unwrap()
-        .to_canonical_json()
-        .unwrap();
-    let reordered = expression_definition(true)
-        .unwrap()
-        .to_canonical_json()
-        .unwrap();
-    assert_eq!(normal, reordered);
+    let definition = expression_definition().unwrap();
+    testing::assert_canonical_contract(&definition);
+    let normal = definition.to_canonical_json().unwrap();
     expect_test::expect_file!["golden/definition_expr.json"].assert_eq(&normal);
     assert!(normal.contains("\"sort\": \"int\""));
     assert!(normal.contains("\"sort\": \"bool\""));
@@ -771,6 +753,7 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         vec![rule],
     );
     let theory = SemanticTheory::new(vec![main, syntax]).unwrap();
+    testing::assert_canonical_contract(&theory);
     let json = theory.to_canonical_json().unwrap();
     assert!(json.contains("\"application\": \"int_add\""));
     assert!(json.contains("\"sort\": \"int\""));
@@ -778,7 +761,7 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
 }
 
 fn expression_json() -> serde_json::Value {
-    serde_json::to_value(expression_definition(false).unwrap()).unwrap()
+    serde_json::to_value(expression_definition().unwrap()).unwrap()
 }
 
 fn syntax_module_mut(json: &mut serde_json::Value) -> &mut serde_json::Value {

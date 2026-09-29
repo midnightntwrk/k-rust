@@ -182,6 +182,25 @@ impl SemanticTheory {
         Ok(theory)
     }
 
+    /// Rebuilds the theory and its modules from permuted set-like inputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this validated theory cannot be rebuilt.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut modules = self
+            .modules
+            .iter()
+            .map(|module| module.permute_sets(seed))
+            .collect::<Vec<_>>();
+        crate::testing::permute(&mut modules, seed);
+        Self::new(modules).unwrap_or_else(|error| {
+            panic!("SemanticTheory seed {seed}: permuted rebuild failed: {error}")
+        })
+    }
+
     /// Returns the IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -514,6 +533,41 @@ impl SemanticModule {
             context_aliases: SortedByKey::new(context_aliases),
             rules: SortedByKey::new(rules),
         }
+    }
+
+    /// Rebuilds every set-like module collection from permuted inputs.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut imports = self.imports.iter().cloned().collect::<Vec<_>>();
+        let mut sorts = self.sorts.iter().cloned().collect::<Vec<_>>();
+        let mut subsorts = self.subsorts.iter().cloned().collect::<Vec<_>>();
+        let mut productions = self.productions.iter().cloned().collect::<Vec<_>>();
+        let mut precedences = self.precedences.iter().cloned().collect::<Vec<_>>();
+        let mut associativities = self.associativities.iter().cloned().collect::<Vec<_>>();
+        let mut context_aliases = self.context_aliases.iter().cloned().collect::<Vec<_>>();
+        let mut rules = self.rules.iter().cloned().collect::<Vec<_>>();
+        crate::testing::permute(&mut imports, seed);
+        crate::testing::permute(&mut sorts, seed);
+        crate::testing::permute(&mut subsorts, seed);
+        crate::testing::permute(&mut productions, seed);
+        crate::testing::permute(&mut precedences, seed);
+        crate::testing::permute(&mut associativities, seed);
+        crate::testing::permute(&mut context_aliases, seed);
+        crate::testing::permute(&mut rules, seed);
+        Self::new_with_context_aliases(
+            self.origin.clone(),
+            self.id.clone(),
+            imports,
+            sorts,
+            subsorts,
+            productions,
+            precedences,
+            associativities,
+            self.configuration.clone(),
+            context_aliases,
+            rules,
+        )
     }
 
     /// Returns this module's stable identity.

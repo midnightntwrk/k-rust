@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::testing::{authored, item};
+use krs_ir::testing::{assert_canonical_contract, authored, item};
 use krs_ir::transport::collector;
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
@@ -44,7 +44,7 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
     }
 }
 
-fn populated_bundle(reverse: bool) -> DescriptorBundle {
+fn populated_bundle() -> DescriptorBundle {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let value = item("syntax", "Value", ItemKind::Sort);
     let foo_constructor = item("syntax", "Foo", ItemKind::Constructor);
@@ -76,15 +76,14 @@ fn populated_bundle(reverse: bool) -> DescriptorBundle {
         }),
     );
 
-    let mut descriptors = vec![bar, sort, constructor];
-    if reverse {
-        descriptors.reverse();
-    }
-    DescriptorBundle::new(descriptors)
+    let bundle = DescriptorBundle::new(vec![bar, sort, constructor]);
+    assert_canonical_contract(&bundle);
+    bundle
 }
 
 #[test]
 fn empty_bundle_matches_golden() {
+    assert_canonical_contract(&DescriptorBundle::empty());
     expect_test::expect_file!["golden/empty_bundle.json"]
         .assert_eq(&DescriptorBundle::empty().to_canonical_json().unwrap());
 }
@@ -103,8 +102,9 @@ fn prior_protocols_have_no_compatibility_reader() {
 
 #[test]
 fn populated_bundle_matches_golden() {
+    assert_canonical_contract(&populated_bundle());
     expect_test::expect_file!["golden/sort_constructors.json"]
-        .assert_eq(&populated_bundle(false).to_canonical_json().unwrap());
+        .assert_eq(&populated_bundle().to_canonical_json().unwrap());
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
     expect_test::expect_file!["golden/collector_empty_bundle.json"]
         .assert_eq(std::str::from_utf8(&empty_bytes).unwrap());
 
-    let bundle = populated_bundle(false);
+    let bundle = populated_bundle();
     let owned = bundle.clone();
     let (bytes, provenance) = owned.to_collector_protocol_measured().unwrap();
     expect_test::expect_file!["golden/collector_sort_constructors.json"]
@@ -144,7 +144,7 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
 
 #[test]
 fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
-    let mut descriptors = populated_bundle(false).descriptors.to_vec();
+    let mut descriptors = populated_bundle().descriptors.to_vec();
     let descriptor = &mut descriptors[0];
     let id = descriptor.id.clone();
     let mut stack = origin();
@@ -180,6 +180,7 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
         DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, stack)])
             .unwrap();
     let bundle = DescriptorBundle::new(descriptors);
+    assert_canonical_contract(&bundle);
     let bytes = bundle.to_collector_protocol_measured().unwrap().0;
     let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
     assert_eq!(decoded, bundle);
@@ -226,15 +227,12 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
 
 #[test]
 fn canonical_json_ignores_insertion_order() {
-    assert_eq!(
-        populated_bundle(false).to_canonical_json().unwrap(),
-        populated_bundle(true).to_canonical_json().unwrap()
-    );
+    assert_canonical_contract(&populated_bundle());
 }
 
 #[test]
 fn declaration_metadata_requires_exact_descriptor_coverage() {
-    let bundle = populated_bundle(false);
+    let bundle = populated_bundle();
     let declarations = || {
         bundle
             .descriptors
@@ -277,7 +275,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
 
 #[test]
 fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
-    let bundle = populated_bundle(false);
+    let bundle = populated_bundle();
     let pinned_id = bundle.descriptors[0].id.clone();
     let mut declarations = bundle.declarations.to_vec();
     declarations[0] = DescriptorDeclaration::new(
@@ -342,7 +340,7 @@ fn restricted_visibility_wire_data_is_exact_and_validated() {
 
 #[test]
 fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
-    let mut forward = populated_bundle(false);
+    let mut forward = populated_bundle();
     let mut alternate = forward.descriptors[0].clone();
     if let DescriptorPayload::Constructor(constructor) = &mut alternate.payload {
         constructor.syntax = Some("baz".into());
@@ -363,7 +361,7 @@ fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
 fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0);
     let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldDeclaration, 0);
-    let mut descriptors = populated_bundle(false).descriptors.to_vec();
+    let mut descriptors = populated_bundle().descriptors.to_vec();
     let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
@@ -378,6 +376,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     .unwrap();
 
     let forward = DescriptorBundle::new(descriptors);
+    assert_canonical_contract(&forward);
     let mut ordered_descriptors = forward.descriptors.to_vec();
     ordered_descriptors
         .iter_mut()
@@ -392,6 +391,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     )
     .unwrap();
     let ordered = DescriptorBundle::new(ordered_descriptors);
+    assert_canonical_contract(&ordered);
     assert_eq!(
         forward.to_canonical_json().unwrap(),
         ordered.to_canonical_json().unwrap()

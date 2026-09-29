@@ -333,13 +333,9 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     for descriptor in &descriptors {
         descriptor.validate_grammar_contract().unwrap();
     }
-    let forward = DescriptorBundle::new(descriptors.clone())
-        .to_canonical_json()
-        .unwrap();
-    let reverse = DescriptorBundle::new(descriptors.into_iter().rev().collect())
-        .to_canonical_json()
-        .unwrap();
-    assert_eq!(forward, reverse);
+    let bundle = DescriptorBundle::new(descriptors);
+    testing::assert_canonical_contract(&bundle);
+    let forward = bundle.to_canonical_json().unwrap();
     assert!(forward.contains(&format!(
         "\"protocol_version\": {}",
         krs_ir::SchemaVersion::CURRENT.0
@@ -607,9 +603,9 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         arguments: vec![],
     };
     descriptors[1].validate_grammar_contract().unwrap();
-    let json = DescriptorBundle::new(descriptors)
-        .to_canonical_json()
-        .unwrap();
+    let bundle = DescriptorBundle::new(descriptors);
+    testing::assert_canonical_contract(&bundle);
+    let json = bundle.to_canonical_json().unwrap();
     assert!(json.contains("\"head_class\": \"bare_reference\""));
 
     let mut descriptors = expression_descriptors();
@@ -1075,9 +1071,9 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     for descriptor in &descriptors {
         descriptor.validate_grammar_contract().unwrap();
     }
-    let json = DescriptorBundle::new(descriptors)
-        .to_canonical_json()
-        .unwrap();
+    let bundle = DescriptorBundle::new(descriptors);
+    testing::assert_canonical_contract(&bundle);
+    let json = bundle.to_canonical_json().unwrap();
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded.descriptors.len(), 5);
     assert!(json.contains("\"sort_source\": \"builtin\""));

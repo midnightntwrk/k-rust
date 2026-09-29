@@ -122,6 +122,27 @@ impl DescriptorBundle {
         })
     }
 
+    /// Rebuilds every set-like bundle collection from permuted inputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this validated bundle cannot be rebuilt.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut descriptors = self
+            .descriptors
+            .iter()
+            .map(|descriptor| descriptor.permute_sets(seed))
+            .collect::<Vec<_>>();
+        let mut declarations = self.declarations.iter().cloned().collect::<Vec<_>>();
+        crate::testing::permute(&mut descriptors, seed);
+        crate::testing::permute(&mut declarations, seed);
+        Self::with_declarations(descriptors, declarations).unwrap_or_else(|error| {
+            panic!("DescriptorBundle seed {seed}: permuted rebuild failed: {error}")
+        })
+    }
+
     /// Creates an empty bundle using the current protocol.
     #[must_use]
     pub fn empty() -> Self {
@@ -342,6 +363,21 @@ pub struct Descriptor {
 }
 
 impl Descriptor {
+    /// Rebuilds the descriptor's set-like provenance and payload collections.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let payload = match &self.payload {
+            DescriptorPayload::Sort(sort) => DescriptorPayload::Sort(sort.permute_sets(seed)),
+            other => other.clone(),
+        };
+        Self {
+            provenance: self.provenance.permute_sets(seed),
+            payload,
+            ..self.clone()
+        }
+    }
+
     /// Returns the primary declaration's authored-to-descriptor provenance.
     #[must_use]
     pub fn origin(&self) -> &OriginStack {
@@ -550,6 +586,21 @@ impl DescriptorProvenance {
         })
     }
 
+    /// Rebuilds the parser-owned origin set from a permuted input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this validated provenance cannot be rebuilt.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut origins = self.origins.iter().cloned().collect::<Vec<_>>();
+        crate::testing::permute(&mut origins, seed);
+        Self::new(self.primary_key.clone(), origins).unwrap_or_else(|error| {
+            panic!("DescriptorProvenance seed {seed}: permuted rebuild failed: {error}")
+        })
+    }
+
     /// Returns the parser key identifying the descriptor's declaration node.
     #[must_use]
     pub const fn primary_key(&self) -> &ProvenanceKey {
@@ -651,6 +702,19 @@ pub enum DescriptorPayload {
 pub struct SortDescriptor {
     /// Direct super-sorts in canonical order.
     pub parents: BTreeSet<StableItemId>,
+}
+
+#[cfg(feature = "test-support")]
+impl SortDescriptor {
+    /// Rebuilds the direct parent-sort set from a permuted input.
+    #[must_use]
+    pub fn permute_sets(&self, seed: u64) -> Self {
+        let mut parents = self.parents.iter().cloned().collect::<Vec<_>>();
+        crate::testing::permute(&mut parents, seed);
+        Self {
+            parents: parents.into_iter().collect(),
+        }
+    }
 }
 
 /// Resolved constructor payload.

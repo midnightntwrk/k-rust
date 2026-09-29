@@ -379,6 +379,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
 #[test]
 fn calc_fixed_state_is_target_neutral_and_deterministic() {
     let definition = calc_definition(Variants::default()).unwrap();
+    testing::assert_canonical_contract(&definition);
     let first = definition.to_canonical_json().unwrap();
     let wire: serde_json::Value = serde_json::from_str(&first).unwrap();
     let configuration = wire["modules"][0]["sentences"]
@@ -392,8 +393,6 @@ fn calc_fixed_state_is_target_neutral_and_deterministic() {
         configuration,
     )
     .unwrap();
-    let round_trip: DefinitionIr = serde_json::from_str(&first).unwrap();
-    assert_eq!(round_trip.to_canonical_json().unwrap(), first);
     assert!(first.contains("\"operation\": \"item\""));
     assert!(first.contains("\"operation\": \"update\""));
     assert!(first.contains("\"sort\": \"id\""));
@@ -403,7 +402,7 @@ fn calc_fixed_state_is_target_neutral_and_deterministic() {
 
 #[test]
 fn builtin_id_can_be_added_post_hoc_as_an_expr_subsort() {
-    calc_definition(Variants::default()).unwrap();
+    testing::assert_canonical_contract(&calc_definition(Variants::default()).unwrap());
     assert_eq!(
         calc_definition(Variants {
             include_id_subsort: false,

@@ -747,14 +747,13 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         provenance,
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
+    testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
     assert!(json.contains(&format!(
         "\"protocol_version\": {}",
         krs_ir::SchemaVersion::CURRENT.0
     )));
     assert!(json.contains("\"configuration_rule\""));
-    let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
-    assert_eq!(decoded, bundle);
 }
 
 #[test]
