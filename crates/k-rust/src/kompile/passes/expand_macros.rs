@@ -39,7 +39,7 @@ use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
         ResolvedDefinition, Sentence, SortCatalog,
-        checks::{self, check_functions_with_internal_labels, check_smt_lemmas},
+        checks::{self, check_functions_with_internal_labels},
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -81,6 +81,14 @@ struct MacroRule {
 }
 
 /// Apply Java's forward `ExpandMacros` sentence transformation.
+///
+/// ```compile_fail,E0432
+/// use k_rust::definition::checks::check_smt_lemmas; // 6e56f086: validated before expansion
+/// ```
+///
+/// ```
+/// use k_rust::definition::checks::check_sorts;
+/// ```
 pub fn expand_macros(definition: &Definition) -> Result<Definition, ExpandMacrosError> {
     super::super::pipeline::run_standalone(
         definition,
@@ -158,6 +166,46 @@ pub(crate) fn expand_macros_pass(
         diagnostics.dedup();
         Err(ExpandMacrosError { diagnostics })
     }
+}
+
+/// Every label applied in the body of an smt-lemma rule has an SMT interpretation (an smt-hook or smtlib attribute); defined only on alias- and macro-free bodies, so it runs on expanded sentences.
+fn check_smt_lemmas(
+    sentences: &[&Sentence],
+    productions: &ProductionCatalog<'_>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    // Invariant: `diagnostics` holds an error for every label application in the `smt-lemma` rules before `sentence` none of whose productions carries `smt-hook` or `smtlib`; each iteration consumes one entry of `sentences`.
+    for sentence in sentences {
+        let Sentence::Rule {
+            body, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !attributes.has(AttributeKey::SmtLemma) {
+            continue;
+        }
+        body.visit_preorder(&mut |term| {
+            let Term::Apply { label, .. } = term else {
+                return;
+            };
+            let ids = productions.productions_for(&LabelHead::from(label));
+            if ids.is_empty() {
+                return;
+            }
+            if ids.iter().all(|id| {
+                let attributes = productions.production(*id).attributes();
+                !attributes.has(AttributeKey::SmtHook) && !attributes.has(AttributeKey::Smtlib)
+            }) {
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidSmtLemma,
+                    "Invalid term in smt-lemma detected. All terms in smt-lemma rules require smt-hook or smtlib labels",
+                    sentence,
+                ));
+            }
+        });
+    }
+    diagnostics
 }
 
 /// Expand macros in a term parsed outside the definition, such as a program or
@@ -1363,4 +1411,76 @@ fn located_at(mut diagnostic: Diagnostic, sentence: &Sentence) -> Diagnostic {
         }
     }
     diagnostic
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::definition::ProductionItem;
+    use serde_json::{Value, json};
+
+    fn attrs(entries: &[(&str, Value)]) -> Attributes {
+        Attributes::new(
+            entries
+                .iter()
+                .map(|(key, value)| ((*key).into(), value.clone()))
+                .collect::<BTreeMap<_, _>>(),
+        )
+    }
+
+    fn truth() -> Term {
+        Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        }
+    }
+
+    fn production(
+        label: Option<&str>,
+        sort: &str,
+        arguments: &[&str],
+        attributes: Attributes,
+    ) -> Sentence {
+        Sentence::Production {
+            label: label.map(Label::new),
+            parameters: Vec::new(),
+            sort: Sort::new(sort),
+            items: arguments
+                .iter()
+                .map(|argument| ProductionItem::NonTerminal {
+                    sort: Sort::new(*argument),
+                    name: None,
+                })
+                .collect(),
+            attributes,
+        }
+    }
+
+    #[test]
+    fn smt_lemma_terms_require_smt_backed_visible_productions() {
+        let good = production(
+            Some("good"),
+            "Bool",
+            &["Bool"],
+            attrs(&[("smt-hook", json!("good"))]),
+        );
+        let bad = production(Some("bad"), "Bool", &[], Attributes::default());
+        let rule = Sentence::Rule {
+            body: Term::apply(
+                "good",
+                vec![
+                    Term::apply("bad", Vec::new()),
+                    Term::apply("unknown", Vec::new()),
+                ],
+            ),
+            requires: truth(),
+            ensures: truth(),
+            attributes: attrs(&[("smt-lemma", json!(""))]),
+        };
+        let productions = ProductionCatalog::from_visible([&good, &bad]);
+        let diagnostics = check_smt_lemmas(&[&rule], &productions);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidSmtLemma);
+    }
 }

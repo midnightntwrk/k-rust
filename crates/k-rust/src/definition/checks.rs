@@ -37,7 +37,6 @@ mod labels;
 mod production_shapes;
 mod regexes;
 mod rhs_variables;
-mod smt_lemmas;
 mod sorts;
 mod term_position;
 
@@ -63,7 +62,6 @@ pub use regexes::check_regexes;
 pub use rhs_variables::{
     CheckMode, StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables,
 };
-pub use smt_lemmas::check_smt_lemmas;
 pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [

@@ -420,7 +420,6 @@ files = [
   "crates/k-rust/src/definition/checks/production_shapes.rs",
   "crates/k-rust/src/definition/checks/regexes.rs",
   "crates/k-rust/src/definition/checks/rhs_variables.rs",
-  "crates/k-rust/src/definition/checks/smt_lemmas.rs",
   "crates/k-rust/src/definition/checks/sorts.rs",
   "crates/k-rust/src/definition/checks/term_position.rs",
 ]

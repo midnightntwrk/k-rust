@@ -9,7 +9,7 @@ use k_rust::definition::{
     check_associativity, check_attribute_semantics, check_attributes, check_configuration_cells,
     check_definition, check_duplicate_klabels, check_duplicate_labels,
     check_function_rule_attributes, check_functions, check_holes, check_k_terms, check_klabels,
-    check_module, check_module_with_options, check_rewrites, check_rhs_variables, check_smt_lemmas,
+    check_module, check_module_with_options, check_rewrites, check_rhs_variables,
     check_sort_top_uniqueness, check_streams, check_syntax_groups, check_tokens,
     compute_priorities,
 };
@@ -2421,34 +2421,6 @@ fn symbol_migration_and_overload_attributes_are_checked_together() {
             .message
             .contains("Production would not be a KORE symbol")
     }));
-}
-
-#[test]
-fn smt_lemma_terms_require_smt_backed_visible_productions() {
-    let good = production(
-        Some("good"),
-        "Bool",
-        &["Bool"],
-        attrs(&[("smt-hook", json!("good"))]),
-    );
-    let bad = production(Some("bad"), "Bool", &[], Attributes::default());
-    let rule = Sentence::Rule {
-        body: Term::apply(
-            "good",
-            vec![
-                Term::apply("bad", Vec::new()),
-                Term::apply("unknown", Vec::new()),
-            ],
-        ),
-        requires: truth(),
-        ensures: truth(),
-        attributes: attrs(&[("smt-lemma", json!(""))]),
-    };
-    let productions = ProductionCatalog::from_visible([&good, &bad]);
-    let diagnostics = check_smt_lemmas(&[&rule], &productions);
-
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, DiagnosticCode::InvalidSmtLemma);
 }
 
 fn outer_check_module(name: &str, imports: &[&str], local_sentences: Vec<Sentence>) -> FlatModule {
