@@ -1071,11 +1071,9 @@ fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, B
     })
 }
 
-/// Search arms no step deadline, so request cancellation is its only interruption source, and it
-/// reports every interruption signal (the simplifier's `Cancelled` and `Interrupted`, and a
-/// hook's `Interrupted`) as the state's `cancelled` incomplete entry, never as a failure reason.
-/// An interruption signal inside a failure therefore means search produced an outcome its
-/// contract cannot produce.
+/// Search reports every interruption (the simplifier's `Stopped` and a hook's `Interrupted`) as
+/// the state's stopped entry, never as a failure reason. An interruption inside a failure
+/// therefore means search produced an outcome its contract cannot produce.
 fn interruption_published_as_failure() -> BackendError {
     BackendError(
         "search reported an interruption as a failure, but search reports every interruption \
@@ -1307,10 +1305,7 @@ fn simplification_failure_output<K: WireKore>(
     result_sort: &Sort,
 ) -> Result<SearchFailureOutput<K>, BackendError> {
     Ok(match error {
-        SimplificationError::Cancelled | SimplificationError::Interrupted => {
-            return Err(interruption_published_as_failure());
-        }
-        SimplificationError::StackExhausted => SearchFailureOutput::StackExhausted,
+        SimplificationError::Stopped(cause) => return stopped_failure_output(cause),
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error)?,
         },
@@ -1460,6 +1455,22 @@ fn incomplete_search_output<K: WireKore>(
             }
         }
     })
+}
+
+/// A stop found inside a search's simplification failure. Search publishes every stop of its
+/// simplifier as the state's stopped entry, so only an exhausted stack has a failure kind, the
+/// `stack-exhausted` kind it is published as; a cancellation or a step deadline inside a failure
+/// is an outcome search's contract cannot produce, and a failed solver prelude leaves no answer
+/// of the operation meaningful: each is the operation's error.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stopped_failure_output<K: WireKore>(
+    cause: StopCause,
+) -> Result<SearchFailureOutput<K>, BackendError> {
+    match cause {
+        StopCause::StackExhausted => Ok(SearchFailureOutput::StackExhausted),
+        StopCause::Cancelled | StopCause::Deadline(_) => Err(interruption_published_as_failure()),
+        cause @ StopCause::SolverPrelude(_) => Err(BackendError(cause.to_string())),
+    }
 }
 
 /// The entry of a state whose exploration stopped. A cancelled state is `cancelled`; an exhausted
@@ -2217,8 +2228,12 @@ mod tests {
     fn no_interruption_signal_is_a_published_search_failure() {
         let sort = Sort::simple("SortS");
         for error in [
-            SimplificationError::Cancelled,
-            SimplificationError::Interrupted,
+            SimplificationError::Stopped(StopCause::Cancelled),
+            SimplificationError::Stopped(StopCause::Deadline(
+                k_rust_backend::timeout::StepTimeoutMode::Manual(std::time::Duration::from_millis(
+                    1,
+                )),
+            )),
             SimplificationError::Builtin(BuiltinError::Interrupted),
         ] {
             let described = format!("{error:?}");

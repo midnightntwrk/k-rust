@@ -962,7 +962,6 @@ fn externalise_leaf(
             state.pattern = simplified.pattern;
             state.leaf(outcome)
         }
-        Err(SimplificationError::Interrupted) => state.leaf(outcome),
         Err(error) => state.leaf(match simplification_stop(error) {
             Ok(cause) => refinement_stopped(cause, outcome),
             Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => outcome,
@@ -1604,9 +1603,9 @@ fn apply_claim(
 /// The remainder of a claim application is the subject under the negated, quantified match
 /// condition. It is unsatisfiable when that condition simplifies to false or the solver refutes
 /// it together with `subject_knowledge`, the subject's `pattern_knowledge`; an undecided or
-/// unavailable solver, or a failed simplification, keeps it. An exhausted stack is returned
-/// instead: keeping the remainder would turn the lack of stack into a state the claim does not
-/// cover.
+/// unavailable solver, or a failed simplification, keeps it. A stop (a cancelled request, a
+/// passed step deadline, a failed solver prelude or an exhausted stack) is returned instead:
+/// keeping the remainder would turn a missing answer into a state the claim does not cover.
 fn remainder_is_unsatisfiable(
     definition: &BackendDefinition,
     subject_knowledge: &[crate::rule::Predicate],
@@ -1622,7 +1621,7 @@ fn remainder_is_unsatisfiable(
         solver,
     ) {
         Ok(simplified) => simplified,
-        Err(error @ SimplificationError::StackExhausted) => return Err(error),
+        Err(error @ SimplificationError::Stopped(_)) => return Err(error),
         Err(_) => return Ok(false),
     };
     if predicates_truth(&simplified) == Truth::False {
@@ -4866,6 +4865,176 @@ mod tests {
             }
             assert!(cancelled_after_a_decision > 0, "{name}: {queries} queries");
         }
+    }
+
+    /// `pair(Int, Int)` with `f(Z) = Z` only under `Z >Int 0`, so that simplifying `f(X)` asks the
+    /// solver about `X >Int 0` and then polls for a stop.
+    fn conditional_identity_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pair{}(SortInt{}, SortInt{}) : SortState{} [constructor{}()]
+                symbol f{}(SortInt{}) : SortInt{} [function{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            gtInt{}(X0:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())
+                    ),
+                    \equals{SortInt{}, R}(
+                        f{}(X0:SortInt{}),
+                        \and{SortInt{}}(Z:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("f-positive")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// The remainder of a claim application is kept or pruned from an answer about it; a stop
+    /// before that answer is returned with its cause, never taken for "satisfiable".
+    #[test]
+    fn a_stop_during_the_remainder_check_is_returned_instead_of_keeping_the_remainder() {
+        let definition = conditional_identity_definition();
+        let x = term(&definition, "X:SortInt{}");
+        let negated = crate::rule::Predicate::Not(Box::new(crate::rule::Predicate::Equals(
+            term(&definition, "f{}(X:SortInt{})"),
+            x,
+        )));
+        let options = SimplificationOptions::default();
+        let check = || remainder_is_unsatisfiable(&definition, &[], &negated, options, &NoSolver);
+
+        assert_eq!(check(), Ok(false));
+        let token = crate::cancellation::CancellationToken::new();
+        token.cancel();
+        assert_eq!(
+            token.scope(check),
+            Err(SimplificationError::Stopped(StopCause::Cancelled))
+        );
+    }
+
+    /// Cancels the request at a query that mentions `gtInt` and, as a solver interrupted by the
+    /// cancellation does, answers it and every later query as unknown; answers every other query
+    /// as satisfiable or contingent. Counts the `gtInt` queries.
+    struct CancelOnCondition {
+        token: crate::cancellation::CancellationToken,
+        cancels: bool,
+        condition_queries: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CancelOnCondition {
+        fn cancelled(&self, predicates: &[&[crate::rule::Predicate]]) -> bool {
+            if format!("{predicates:?}").contains("gtInt") {
+                self.condition_queries
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if self.cancels {
+                    self.token.cancel();
+                }
+            }
+            self.token.is_cancelled()
+        }
+    }
+
+    impl SmtSolver for CancelOnCondition {
+        fn is_sat(
+            &self,
+            predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            Ok(if self.cancelled(&[predicates]) {
+                Satisfiability::Unknown("request cancelled".into())
+            } else {
+                Satisfiability::Sat
+            })
+        }
+
+        fn check_predicates(
+            &self,
+            known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(if self.cancelled(&[known, checked]) {
+                Validity::Unknown("request cancelled".into())
+            } else {
+                Validity::Contingent
+            })
+        }
+    }
+
+    /// A cancellation that arrives inside the implication check reaches the check's result as a
+    /// stop; the proof publishes it as `stopped`, as it does every cancellation, and does not
+    /// fail with a `ProofError`. Only the destination's obligation `f(X) = X` mentions `gtInt`,
+    /// so the solver cancels while the implication check simplifies that obligation.
+    #[test]
+    fn a_cancellation_during_the_implication_check_is_published_as_the_proofs_stop() {
+        let definition = conditional_identity_definition();
+        let state = term(&definition, "pair{}(X:SortInt{}, Y:SortInt{})");
+        let claim = ReachabilityClaim {
+            lhs: Pattern {
+                term: state.clone(),
+                constraints: Vec::new(),
+            },
+            rhs: vec![Pattern {
+                term: state,
+                constraints: vec![crate::rule::Predicate::Equals(
+                    term(&definition, "f{}(X:SortInt{})"),
+                    term(&definition, "X:SortInt{}"),
+                )],
+            }],
+            existentials: BTreeSet::new(),
+            mode: ReachabilityMode::OnePath,
+            attributes: crate::claim::ClaimAttributes {
+                label: Some("conditional-identity".into()),
+                unique_id: "conditional-identity".into(),
+                trusted: false,
+                source: None,
+                location: None,
+            },
+        };
+        let prove = |cancels| {
+            let token = crate::cancellation::CancellationToken::new();
+            let solver = CancelOnCondition {
+                token: token.clone(),
+                cancels,
+                condition_queries: std::sync::atomic::AtomicUsize::new(0),
+            };
+            let result = token.scope(|| {
+                super::prove_claim(&definition, &claim, &[], ProofOptions::default(), &solver)
+            });
+            let queries = solver
+                .condition_queries
+                .load(std::sync::atomic::Ordering::SeqCst);
+            (result, queries, token.is_cancelled())
+        };
+
+        let (uncancelled, queries, _) = prove(false);
+        let uncancelled = uncancelled.expect("the uncancelled proof ends");
+        assert_eq!(uncancelled.stopped, None, "{uncancelled:#?}");
+        assert!(queries > 0, "the implication check asks about `gtInt`");
+
+        let (cancelled, _, was_cancelled) = prove(true);
+        assert!(was_cancelled);
+        let cancelled = cancelled.expect("a cancellation is the proof's stop, not its error");
+        assert_eq!(
+            cancelled.stopped,
+            Some(StopCause::Cancelled),
+            "{cancelled:#?}"
+        );
+        assert!(cancelled.leaves.is_empty(), "{cancelled:#?}");
+        assert_eq!(
+            cancelled.status,
+            ProofStatus::Indeterminate,
+            "{cancelled:#?}"
+        );
     }
 
     #[test]

@@ -2075,36 +2075,24 @@ fn step_observed_cancellation() -> bool {
 /// Classify a simplification failure that ends the exploration of `state`.
 ///
 /// Until the simplifier returns its stops apart from its failures (CBC-04-T7), a stop reaches
-/// search as a legacy spelling inside the failure. Search arms no step deadline, so request
-/// cancellation is its only interruption source, and every interruption spelling reports the
-/// cancellation: the fixed-point loops' `Cancelled` and `Interrupted`, and a native hook's
-/// `Interrupted` ([`builtin_interruption`]), which a hook returns when it observes the
-/// cancellation first. An exhausted stack stops this state only. Any other failure, or a stack
-/// exhaustion, recorded once the request is cancelled reports the cancellation too (see
-/// [`rewrite_incomplete`]).
+/// search inside the failure as `Stopped(cause)`, with the cause its poll observed
+/// ([`stopped_incomplete`]). A native hook's `Interrupted` ([`builtin_interruption`]) is still a
+/// legacy spelling of a stop until hooks return their stops apart (CBC-04-T4); a hook returns it
+/// when it observes a stop signal, and search arms no step deadline, so it reports the request's
+/// cancellation. Any other failure recorded once the request is cancelled reports the
+/// cancellation too (see [`rewrite_incomplete`]).
 ///
 /// The match names every variant, so a new spelling of a stop cannot fall into the failure arm
 /// unnoticed.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
-        SimplificationError::Cancelled | SimplificationError::Interrupted => {
-            IncompleteSearch::Stopped {
-                state,
-                cause: StopCause::Cancelled,
-            }
-        }
+        SimplificationError::Stopped(cause) => stopped_incomplete(state, cause),
         SimplificationError::Builtin(error) if builtin_interruption(&error) => {
             IncompleteSearch::Stopped {
                 state,
                 cause: StopCause::Cancelled,
             }
-        }
-        SimplificationError::StackExhausted => {
-            recorded_unless_cancelled(state, |state| IncompleteSearch::Stopped {
-                state,
-                cause: StopCause::StackExhausted,
-            })
         }
         error @ (SimplificationError::Builtin(_)
         | SimplificationError::DisjunctiveResult { .. }
@@ -2119,6 +2107,24 @@ fn simplification_incomplete(state: SearchState, error: SimplificationError) -> 
                 state,
                 error,
             })
+        }
+    }
+}
+
+/// The entry of a state whose simplification stopped with `cause`. A cause of `Request` or
+/// `Solver` scope (a cancelled request, a failed solver prelude) is published as observed. A
+/// cause of `Step` scope (an exhausted stack; a passed deadline, which only a caller that armed
+/// one around the search can raise) stops this state only, unless the request is cancelled by
+/// the time it is recorded: the cancellation then ends every remaining state, this one included,
+/// and is the stop of wider scope (see [`rewrite_incomplete`]).
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stopped_incomplete(state: SearchState, cause: StopCause) -> IncompleteSearch {
+    match cause {
+        cause @ (StopCause::Cancelled | StopCause::SolverPrelude(_)) => {
+            IncompleteSearch::Stopped { state, cause }
+        }
+        cause @ (StopCause::Deadline(_) | StopCause::StackExhausted) => {
+            recorded_unless_cancelled(state, |state| IncompleteSearch::Stopped { state, cause })
         }
     }
 }
@@ -2996,7 +3002,7 @@ mod tests {
     }
 
     #[test]
-    fn every_interruption_signal_is_classified_as_cancellation() {
+    fn every_stop_is_published_with_its_cause() {
         let definition = definition();
         let state = SearchState {
             pattern: initial(&definition),
@@ -3007,16 +3013,32 @@ mod tests {
             diagnostics: Vec::new(),
         };
 
-        for error in [
-            SimplificationError::Cancelled,
-            SimplificationError::Interrupted,
-            SimplificationError::Builtin(BuiltinError::Interrupted),
+        let deadline = StopCause::Deadline(crate::timeout::StepTimeoutMode::Manual(
+            std::time::Duration::from_millis(1),
+        ));
+        let prelude = StopCause::SolverPrelude(crate::stop::PreludeFailure::Inconsistent);
+        for (error, cause) in [
+            (
+                SimplificationError::Stopped(StopCause::Cancelled),
+                StopCause::Cancelled,
+            ),
+            (SimplificationError::Stopped(deadline.clone()), deadline),
+            (SimplificationError::Stopped(prelude.clone()), prelude),
+            (
+                SimplificationError::Stopped(StopCause::StackExhausted),
+                StopCause::StackExhausted,
+            ),
+            // A hook's legacy spelling: search arms no deadline, so it is the cancellation.
+            (
+                SimplificationError::Builtin(BuiltinError::Interrupted),
+                StopCause::Cancelled,
+            ),
         ] {
             assert_eq!(
                 simplification_incomplete(state.clone(), error.clone()),
                 IncompleteSearch::Stopped {
                     state: state.clone(),
-                    cause: StopCause::Cancelled,
+                    cause,
                 },
                 "{error:?}"
             );
@@ -3041,7 +3063,10 @@ mod tests {
         });
 
         assert_eq!(
-            simplification_incomplete(state.clone(), SimplificationError::StackExhausted),
+            simplification_incomplete(
+                state.clone(),
+                SimplificationError::Stopped(StopCause::StackExhausted),
+            ),
             IncompleteSearch::Stopped {
                 state: state.clone(),
                 cause: StopCause::StackExhausted,
@@ -3060,7 +3085,10 @@ mod tests {
         token.cancel();
         token.scope(|| {
             assert_eq!(
-                simplification_incomplete(state.clone(), SimplificationError::StackExhausted),
+                simplification_incomplete(
+                    state.clone(),
+                    SimplificationError::Stopped(StopCause::StackExhausted),
+                ),
                 IncompleteSearch::Stopped {
                     state: state.clone(),
                     cause: StopCause::Cancelled,

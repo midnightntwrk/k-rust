@@ -1130,21 +1130,35 @@ impl RpcService {
 
 /// The request ran out of the native stack of the thread serving it. The error ends this request
 /// only: the thread unwound to the request's entry, so the connection keeps serving.
-fn stack_exhausted_fault(error: &impl std::fmt::Display) -> RpcFault {
-    RpcFault::runtime(error.to_string(), None)
+fn stack_exhausted_fault(cause: &StopCause) -> RpcFault {
+    RpcFault::runtime(cause.to_string(), None)
 }
 
 /// The `execute` reason of a leaf whose state stopped. A passed step deadline is the `timeout`
 /// reason the protocol has for it; every other cause leaves the request without an answer, so it
-/// is the request's fault: a cancelled request, the stack exhaustion fault, and the runtime error
-/// of a failed solver prelude.
+/// is the request's fault ([`stop_fault`]).
 #[deny(clippy::wildcard_enum_match_arm)]
 fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
     match cause {
         StopCause::Deadline(_) => Ok("timeout"),
-        StopCause::Cancelled => Err(RpcFault::cancelled()),
-        StopCause::StackExhausted => Err(stack_exhausted_fault(cause)),
-        StopCause::SolverPrelude(_) => Err(RpcFault::runtime(cause.to_string(), None)),
+        StopCause::Cancelled | StopCause::StackExhausted | StopCause::SolverPrelude(_) => {
+            Err(stop_fault(cause))
+        }
+    }
+}
+
+/// The fault of a request whose work stopped before producing its answer: a cancelled request,
+/// the stack exhaustion fault, and the runtime error of a failed solver prelude. A step deadline
+/// is armed only by `execute`'s and proofs' steps, which publish it in-band, so reaching a fault
+/// with one is a runtime error that names it.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stop_fault(cause: &StopCause) -> RpcFault {
+    match cause {
+        StopCause::Cancelled => RpcFault::cancelled(),
+        StopCause::StackExhausted => stack_exhausted_fault(cause),
+        StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
+            RpcFault::runtime(cause.to_string(), None)
+        }
     }
 }
 
@@ -1152,8 +1166,8 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
     if let SimplificationError::UnsupportedHook { term, .. } = &error {
         return RpcFault::runtime(error.to_string(), Some(term));
     }
-    if let SimplificationError::StackExhausted = &error {
-        return stack_exhausted_fault(&error);
+    if let SimplificationError::Stopped(cause) = &error {
+        return stop_fault(cause);
     }
     let SimplificationError::SmtPredicate { predicate, error } = error else {
         return RpcFault::aborted(error.to_string());
@@ -1487,7 +1501,12 @@ fn simplified_not_consequent_response_syntax(
     })
 }
 
+/// The fault of an implication check that returned `error`. A stop is not a failure of the check:
+/// the request's work stopped, so it is the request's fault ([`stop_fault`]).
 fn implication_backend_fault(error: ImplicationError) -> RpcFault {
+    if let ImplicationError::Simplification(SimplificationError::Stopped(cause)) = &error {
+        return stop_fault(cause);
+    }
     RpcFault::backend_error(
         BackendErrorKind::ImplicationCheckError,
         serde_json::to_value(ErrorDetail::message(format!(
@@ -2321,6 +2340,45 @@ mod tests {
             destination[..chunk.len()].copy_from_slice(&chunk);
             Ok(chunk.len())
         }
+    }
+
+    /// A stop inside `implies` is the request's fault, with the fault every method gives that
+    /// cause; only a failure of the check itself is an implication-check error.
+    #[test]
+    fn a_stopped_implication_check_is_the_requests_fault() {
+        let stopped = |cause| {
+            implication_backend_fault(ImplicationError::Simplification(
+                SimplificationError::Stopped(cause),
+            ))
+        };
+        let fault = stopped(StopCause::StackExhausted);
+        assert_eq!(
+            (fault.code, fault.message.as_str()),
+            (-32002, "Runtime error")
+        );
+        assert_eq!(
+            fault.data.unwrap()["error"],
+            StopCause::StackExhausted.to_string()
+        );
+        let fault = stopped(StopCause::Cancelled);
+        assert_eq!(
+            (fault.code, fault.message.as_str()),
+            (-32000, "Request cancelled")
+        );
+
+        let fault = implication_backend_fault(ImplicationError::Simplification(
+            SimplificationError::DisjunctiveResult {
+                rule_id: "r".into(),
+                alternatives: 2,
+            },
+        ));
+        assert_eq!(
+            (fault.code, fault.message.as_str()),
+            (
+                BackendErrorKind::ImplicationCheckError as i64,
+                "Implication check error"
+            )
+        );
     }
 
     fn read_raw(reader: &mut impl Read, buffer: &mut Vec<u8>) -> Option<String> {
@@ -5360,7 +5418,7 @@ endmodule
         assert_eq!(responses[0]["error"]["code"], -32002, "{:#}", responses[0]);
         assert_eq!(
             responses[0]["error"]["data"]["error"],
-            SimplificationError::StackExhausted.to_string(),
+            StopCause::StackExhausted.to_string(),
             "{:#}",
             responses[0]
         );

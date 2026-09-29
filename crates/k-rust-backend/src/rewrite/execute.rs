@@ -58,7 +58,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::SmtSolver,
-    stop::{self, StopCause},
+    stop::StopCause,
     timeout::{StepTimeoutController, StepTimeoutOptions, StepTimer},
     transition::{
         EffectJournal, ExecutionIoState, ObservationHead, ObservationLog, ObservationOptions,
@@ -1192,28 +1192,17 @@ fn simplification_halt(error: SimplificationError) -> HaltReason {
     }
 }
 
-/// The stop a simplification error spells, or the failure it reports, for a loop that arms step
-/// deadlines (execution and proof). Until the simplifier returns its stops apart from its
-/// failures (CBC-04-T7), a stop reaches the loop as one of the simplifier's three legacy
-/// spellings, each raised only once its signal was observed: `Cancelled` when the request was
-/// cancelled (a failed solver prelude raises the same signal), `Interrupted` when the step
-/// deadline had passed, and `StackExhausted` near the end of the thread's stack. A native hook's
-/// interruption stays inside its `Builtin` failure until hooks return their stops apart
-/// (CBC-04-T4).
-///
-/// `Interrupted` names the earliest armed deadline, whose mode the stop registry holds; nothing
-/// raises it without an armed deadline, so the error is then kept as the failure it is spelled
-/// as.
+/// The stop a simplification error carries, or the failure it reports, for a loop that arms
+/// step deadlines (execution and proof). Until the simplifier returns its stops apart from its
+/// failures (CBC-04-T7), a stop reaches the loop inside the failure as `Stopped(cause)`, with the
+/// cause its poll observed. A native hook's interruption stays inside its `Builtin` failure until
+/// hooks return their stops apart (CBC-04-T4).
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn simplification_stop(
     error: SimplificationError,
 ) -> Result<StopCause, SimplificationError> {
     match error {
-        SimplificationError::Cancelled => Ok(StopCause::Cancelled),
-        SimplificationError::Interrupted => stop::legacy_deadline_mode()
-            .map(StopCause::Deadline)
-            .ok_or(SimplificationError::Interrupted),
-        SimplificationError::StackExhausted => Ok(StopCause::StackExhausted),
+        SimplificationError::Stopped(cause) => Ok(cause),
         error @ (SimplificationError::Builtin(_)
         | SimplificationError::DisjunctiveResult { .. }
         | SimplificationError::TopEquationOutsideConjunction { .. }
@@ -1472,7 +1461,7 @@ fn externalise_leaf(
             state.effects.commit(simplified.effects);
             state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
         }
-        Err(SimplificationError::Interrupted) => {
+        Err(SimplificationError::Stopped(StopCause::Deadline(_))) => {
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
         Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {

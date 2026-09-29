@@ -332,20 +332,6 @@ pub(crate) fn legacy_interruption_requested() -> bool {
     REGISTRY.with(|registry| registry.borrow().raised().is_some())
 }
 
-/// Legacy: the mode of the earliest armed step deadline. The simplifier's legacy `Interrupted`
-/// spelling is raised only once that deadline has passed, so this is the deadline it stands for.
-/// Deleted with the legacy spellings by CBC-04-T7.
-pub(crate) fn legacy_deadline_mode() -> Option<StepTimeoutMode> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        REGISTRY.with(|registry| registry.borrow().deadline.map(|(_, mode)| mode))
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        None
-    }
-}
-
 /// Bytes of native stack that must remain when the simplifier enters a round of
 /// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
 /// checks the stack.
@@ -369,10 +355,8 @@ const STACK_RED_ZONE: usize = 128 * 1024;
 /// `stacker` reads for every native thread whoever created it. A thread whose bounds cannot be
 /// read, and every wasm32 build, where the engine's call-stack limit is invisible to the module,
 /// is unguarded: an unknown remaining stack never counts as exhausted.
-///
-/// The simplifier reads this form until it propagates [`Stop`] (CBC-04-T3).
 #[inline]
-pub(crate) fn stack_exhausted() -> bool {
+fn stack_exhausted() -> bool {
     #[cfg(not(target_family = "wasm"))]
     {
         stacker::remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
@@ -384,13 +368,6 @@ pub(crate) fn stack_exhausted() -> bool {
 }
 
 /// The stack guard: a [`StopCause::StackExhausted`] stop when `stack_exhausted` holds.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the simplifier reads `stack_exhausted` until it propagates stops (CBC-04-T3)"
-    )
-)]
 #[inline]
 #[cfg_attr(debug_assertions, track_caller)]
 pub(crate) fn check_stack() -> Result<(), Stop> {
@@ -568,7 +545,7 @@ impl<F> Unwind<F> {
         not(test),
         expect(
             dead_code,
-            reason = "no module propagates `Unwind` before the layering tickets (CBC-04-T3, T4)"
+            reason = "no module propagates `Unwind` before the layering tickets (CBC-04-T4, T5)"
         )
     )]
     pub(crate) fn map_fail<G>(self, map: impl FnOnce(F) -> G) -> Unwind<G> {
@@ -625,7 +602,7 @@ impl From<crate::matching::SortError> for Unwind<crate::implication::Implication
     not(test),
     expect(
         dead_code,
-        reason = "no module boundary is layered before the layering tickets (CBC-04-T3, T4)"
+        reason = "no module boundary is layered before the layering tickets (CBC-04-T4, T5)"
     )
 )]
 pub(crate) trait Layered<T, F> {
@@ -1058,7 +1035,11 @@ mod tests {
     fn displays_reproduce_the_surface_texts() {
         assert_eq!(
             StopCause::StackExhausted.to_string(),
-            SimplificationError::StackExhausted.to_string()
+            "simplification exhausted the native stack of the current thread"
+        );
+        assert_eq!(
+            SimplificationError::Stopped(StopCause::StackExhausted).to_string(),
+            StopCause::StackExhausted.to_string()
         );
         assert_eq!(
             PreludeFailure::Inconsistent.to_string(),

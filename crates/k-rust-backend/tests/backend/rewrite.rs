@@ -5898,7 +5898,10 @@ fn unbounded_non_tail_recursion_reports_an_exhausted_stack() {
             SimplificationOptions::unbounded(),
         )
     });
-    assert_eq!(result, Err(SimplificationError::StackExhausted));
+    assert_eq!(
+        result,
+        Err(SimplificationError::Stopped(StopCause::StackExhausted))
+    );
 }
 
 #[test]
@@ -5913,7 +5916,10 @@ fn an_embedder_sized_thread_reports_an_exhausted_stack() {
             SimplificationOptions::unbounded(),
         )
     });
-    assert_eq!(result, Err(SimplificationError::StackExhausted));
+    assert_eq!(
+        result,
+        Err(SimplificationError::Stopped(StopCause::StackExhausted))
+    );
 }
 
 #[test]

@@ -1029,7 +1029,7 @@ fn establish_disjunction(
             ) {
                 Ok(obligations) => obligations,
                 Err(error) => {
-                    stack_exhaustion(error)?;
+                    stopped_error(error)?;
                     open = Some(Established::Unprepared);
                     continue;
                 }
@@ -1043,7 +1043,7 @@ fn establish_disjunction(
             ) {
                 Ok(predicates) => predicates,
                 Err(error) => {
-                    stack_exhaustion(error)?;
+                    stopped_error(error)?;
                     open = Some(Established::Unprepared);
                     continue;
                 }
@@ -1103,7 +1103,7 @@ fn establish_disjunction(
             ) {
                 Ok(simplified) => simplified,
                 Err(error) => {
-                    stack_exhaustion(error)?;
+                    stopped_error(error)?;
                     combined
                 }
             };
@@ -1129,7 +1129,7 @@ fn establish_disjunction(
                     ) && refuted_by_simplification(
                         definition, &knowledge, &combined, options, solver,
                     )
-                    .or_else(|error| stack_exhaustion(error).map(|()| false))?
+                    .or_else(|error| stopped_error(error).map(|()| false))?
                     {
                         return Ok((holds(witnesses), antecedent));
                     }
@@ -1521,8 +1521,8 @@ fn grade_outside(
 /// (Kore/Reachability/Claim.hs simplify', simplifyRightHandSide: Pattern.makeEvaluate under the
 /// left-hand side's side condition). A top equation result erases its conjunction operand, so
 /// `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A simplification failure keeps the
-/// destination as written; the check then proceeds exactly as before. An exhausted stack is
-/// returned instead (`stack_exhaustion`).
+/// destination as written; the check then proceeds exactly as before. A stop is returned
+/// instead (`stopped_error`).
 fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -1545,24 +1545,26 @@ fn simplify_consequent(
             constraints: merge_predicates(consequent.constraints, simplified.constraints),
         }),
         Err(error) => {
-            stack_exhaustion(error)?;
+            stopped_error(error)?;
             Ok(consequent)
         }
     }
 }
 
-/// Return an exhausted native stack as the check's error; any other simplification failure is
-/// left to the caller's fallback.
+/// Return a stop as the check's error; any other simplification failure is left to the
+/// caller's fallback.
 ///
 /// Where a simplification inside the check fails, the check falls back to a weaker but sound
 /// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
-/// to an error of the input. An exhausted stack is neither: it is a limit of the thread that ran
-/// the check, visible to the caller only through this error, whereas cancellation and the step
-/// deadline stay observable on the caller's own token and timer after the check returns.
-fn stack_exhaustion(error: SimplificationError) -> Result<(), ImplicationError> {
-    match error {
-        SimplificationError::StackExhausted => Err(ImplicationError::Simplification(error)),
-        _ => Ok(()),
+/// to an error of the input. A stop is neither: the cancelled request, the passed step deadline,
+/// the failed solver prelude or the exhausted stack belongs to the step or operation that runs
+/// the check, and says nothing about the implication. Falling back would decide the verdict from
+/// a missing answer, so every stop ends the check and reaches its owner as this error.
+fn stopped_error(error: SimplificationError) -> Result<(), ImplicationError> {
+    if error.stopped().is_some() {
+        Err(ImplicationError::Simplification(error))
+    } else {
+        Ok(())
     }
 }
 
@@ -1698,7 +1700,7 @@ fn discharge_consequent(
     ) {
         Ok(obligations) => obligations,
         Err(error) => {
-            stack_exhaustion(error)?;
+            stopped_error(error)?;
             return Ok(Established::Unprepared);
         }
     };
@@ -1719,7 +1721,7 @@ fn discharge_consequent(
     ) {
         Ok(predicates) => predicates,
         Err(error) => {
-            stack_exhaustion(error)?;
+            stopped_error(error)?;
             return Ok(Established::Unprepared);
         }
     };
@@ -1746,7 +1748,7 @@ fn discharge_consequent(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
     ) && refuted_by_simplification(definition, &knowledge, &obligations, options, solver)
-        .or_else(|error| stack_exhaustion(error).map(|()| false))?
+        .or_else(|error| stopped_error(error).map(|()| false))?
     {
         return Ok(Established::Holds(bindings));
     }
@@ -4248,5 +4250,61 @@ mod tests {
         let result = check_complete(&definition, &antecedent, &consequent, &solver)
             .expect("implication should be checked");
         assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    /// A stop observed inside the check is returned with its cause, never folded into a verdict.
+    /// The destination's obligation `f(X) = X` holds by `identity-f`, so the check covers the
+    /// state; a check whose request was cancelled, or whose step deadline passed, before it could
+    /// simplify the obligation has no answer about it, and the owner of the stop publishes it.
+    #[test]
+    fn a_stop_inside_the_check_is_returned_with_its_cause_instead_of_a_verdict() {
+        use std::time::Duration;
+
+        use crate::{
+            stop::{CancellationToken, StopCause},
+            timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
+        };
+
+        let definition = definition();
+        let antecedent = pattern(&definition, "pair{}(X:SortInt{}, Y:SortInt{})");
+        let consequent = Pattern {
+            constraints: vec![Predicate::Equals(
+                term(&definition, "f{}(X:SortInt{})"),
+                term(&definition, "X:SortInt{}"),
+            )],
+            ..antecedent.clone()
+        };
+        let check = || {
+            check_disjunctive_implication_with_existentials(
+                &definition,
+                &antecedent,
+                std::slice::from_ref(&consequent),
+                &BTreeSet::new(),
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+        };
+        let stopped = |cause| {
+            Err(ImplicationError::Simplification(
+                SimplificationError::Stopped(cause),
+            ))
+        };
+
+        let covered = check().expect("an unstopped check decides the implication");
+        assert!(matches!(covered, Coverage::Covered(_)), "{covered:#?}");
+
+        let token = CancellationToken::new();
+        token.cancel();
+        assert_eq!(token.scope(check), stopped(StopCause::Cancelled));
+
+        let controller = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::ZERO),
+            moving_average: false,
+        });
+        let _step = controller.begin_step();
+        assert_eq!(
+            check(),
+            stopped(StopCause::Deadline(StepTimeoutMode::Manual(Duration::ZERO)))
+        );
     }
 }

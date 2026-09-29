@@ -53,7 +53,6 @@ use crate::{
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
-    cancellation::cancellation_requested,
     definedness::{ceil_term, condition_definedness, ground_terms_structurally_distinct},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
@@ -70,10 +69,9 @@ use crate::{
         applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
-    stop::stack_exhausted,
+    stop::{self, StopCause},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
-    timeout::interruption_requested,
     transition::ExecutionEvaluationContext,
 };
 
@@ -83,7 +81,7 @@ use crate::{
 /// builtin, or a function equation on a symbolic redex or with residual constraints. A function
 /// equation applied to a variable-free redex with a determined result is the definition's own
 /// computation and is not counted; its divergence ends through cancellation, the step deadline,
-/// or `SimplificationError::StackExhausted`.
+/// or the stack guard, each reported as `SimplificationError::Stopped`.
 pub const DEFAULT_MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -232,15 +230,16 @@ pub(crate) struct PatternSimplification {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
-    Cancelled,
-    /// The active step deadline passed during simplification. The step that armed the deadline
-    /// checks its timer after the simplification returns and reports its own timeout outcome;
-    /// this error only unwinds the simplifier to that check.
-    Interrupted,
-    /// The native stack of the current thread came within `STACK_RED_ZONE` bytes of its end.
-    /// Simplification recursion is bounded by the host thread's stack, not by a depth count, and
-    /// running out of it is reported instead of overflowing, which would abort the process.
-    StackExhausted,
+    /// The simplification stopped before producing its answer (design CBC-04): the request was
+    /// cancelled, the active step deadline passed, the solver's prelude failed, or the native
+    /// stack of the current thread came within its red zone (simplification recursion is bounded
+    /// by the host thread's stack, not by a depth count, and running out of it is reported
+    /// instead of overflowing, which would abort the process). The cause belongs to the owner of
+    /// the exhausted resource, so no site inside the simplifier or its callers may substitute a
+    /// value for the missing answer; the stop only unwinds to the step or operation that
+    /// publishes it. Transitional: the simplifier returns its stops apart from its failures
+    /// once CBC-04-T7 lands.
+    Stopped(StopCause),
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -283,23 +282,22 @@ impl fmt::Display for SimplificationError {
                 formatter,
                 "unsupported hook '{hook}' on constructor-like arguments: {reason}"
             ),
-            Self::StackExhausted => formatter
-                .write_str("simplification exhausted the native stack of the current thread"),
+            Self::Stopped(cause) => cause.fmt(formatter),
             _ => write!(formatter, "{self:?}"),
         }
     }
 }
 
 impl SimplificationError {
-    /// Whether the error reports that a resource of the request ran out (cancellation, the step
-    /// deadline, or the thread's stack) rather than a fact about the simplified input or a bound
-    /// the simplifier chose. An unsimplified value is no substitute for the result of such an
-    /// error: deciding with it turns the lack of a resource into a verdict.
-    pub fn is_resource_exhaustion(&self) -> bool {
-        matches!(
-            self,
-            Self::Cancelled | Self::Interrupted | Self::StackExhausted
-        )
+    /// The cause, when the error reports that the simplification stopped (a resource or context
+    /// it ran under ran out or failed) rather than a fact about the simplified input or a bound
+    /// the simplifier chose. An unsimplified value is no substitute for the result of a stopped
+    /// simplification: deciding with it turns the lack of a resource into a verdict.
+    pub fn stopped(&self) -> Option<&StopCause> {
+        match self {
+            Self::Stopped(cause) => Some(cause),
+            _ => None,
+        }
     }
 }
 
@@ -839,7 +837,7 @@ pub(crate) fn simplify_condition(
             Ok(simplified) if predicates_truth(&simplified) != Truth::Unknown => {
                 return Ok(simplified);
             }
-            Err(error) if error.is_resource_exhaustion() => return Err(error),
+            Err(error) if error.stopped().is_some() => return Err(error),
             _ => {}
         }
         // The general path redoes the nested conditions the attempt met; they take the general
@@ -871,7 +869,7 @@ thread_local! {
 }
 
 /// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
-/// them unsimplified when simplification fails for a reason other than an exhausted resource.
+/// them unsimplified when simplification fails for a reason other than a stop.
 ///
 /// The unsimplified predicates are the same condition, so deciding them instead is sound; it
 /// is only weaker, and may leave the condition undecided where the simplified form would have
@@ -879,11 +877,11 @@ thread_local! {
 /// otherwise an equation left unapplied for lack of budget is indistinguishable from one whose
 /// condition is open (`diagnostic::emit_rule_condition_budget_exhausted`).
 ///
-/// A resource error (`SimplificationError::is_resource_exhaustion`) is returned instead. The
-/// budget is a bound the simplifier chose, and a weaker condition is a fit answer to it; a
-/// cancelled request, a passed deadline, or an exhausted stack says nothing about the
-/// condition, and deciding the unsimplified predicates would leave the equation blocked and
-/// report a silent `Stuck` one level up, a wrong answer in place of the error.
+/// A stop (`SimplificationError::stopped`) is returned instead. The budget is a bound the
+/// simplifier chose, and a weaker condition is a fit answer to it; a cancelled request, a passed
+/// deadline, a failed solver prelude, or an exhausted stack says nothing about the condition,
+/// and deciding the unsimplified predicates would leave the equation blocked and report a silent
+/// `Stuck` one level up, a wrong answer in place of the stop.
 #[allow(clippy::too_many_arguments)]
 fn simplify_rule_predicates_or_keep(
     definition: &BackendDefinition,
@@ -912,7 +910,7 @@ fn simplify_rule_predicates_or_keep(
             diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
             Ok(predicates)
         }
-        Err(error) if error.is_resource_exhaustion() => Err(error),
+        Err(error) if error.stopped().is_some() => Err(error),
         Err(_) => Ok(predicates),
     }
 }
@@ -1164,12 +1162,8 @@ fn simplify_predicate_with_budget(
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
     let _apart = crate::rule::ApartScope::enter();
-    if interruption_requested() {
-        return Err(interruption_error());
-    }
-    if stack_exhausted() {
-        return Err(stack_exhausted_error());
-    }
+    stop::check().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
+    stop::check_stack().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
     if assumptions.contains(predicate) {
         return Ok(Predicate::True);
     }
@@ -2401,29 +2395,6 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     }
 }
 
-/// The error that stops a fixed-point loop at a cooperative interruption point, when
-/// `interruption_requested` holds: cancellation of the request, or the deadline of the step that
-/// runs the simplification. Neither is bounded by the iteration budget, which counts rewrites of
-/// one lineage rather than time, so every round checks both. Kept out of line so the check adds
-/// nothing to the frames of the recursive loops.
-#[cold]
-#[inline(never)]
-fn interruption_error() -> SimplificationError {
-    if cancellation_requested() {
-        SimplificationError::Cancelled
-    } else {
-        SimplificationError::Interrupted
-    }
-}
-
-/// The error that stops the simplifier when `stack_exhausted` holds. Kept out of line, as
-/// `interruption_error` is, so the check adds nothing to the frames of the recursive loops.
-#[cold]
-#[inline(never)]
-fn stack_exhausted_error() -> SimplificationError {
-    SimplificationError::StackExhausted
-}
-
 #[allow(clippy::too_many_arguments)]
 fn simplify_with_budget(
     definition: &BackendDefinition,
@@ -2452,12 +2423,10 @@ fn simplify_with_budget(
     // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
     loop {
         measure::bump(Counter::SimplifyRounds);
-        if interruption_requested() {
-            return Err(interruption_error());
-        }
-        if stack_exhausted() {
-            return Err(stack_exhausted_error());
-        }
+        // Neither the request's cancellation nor the step's deadline is bounded by the iteration
+        // budget, which counts rewrites of one lineage rather than time, so every round polls.
+        stop::check().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
+        stop::check_stack().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
             return Ok(Simplification {
