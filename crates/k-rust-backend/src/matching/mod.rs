@@ -1880,7 +1880,7 @@ fn is_rigid(kind: &TermKind) -> bool {
 
 /// Whether rewrite matching compares a term by its head: a rigid term or an equation-head
 /// application ([`HeadRole::EquationHead`]). On the subject side the equation-head case also
-/// needs a fixed head ([`rewrite_rigid_subject`]).
+/// needs a fixed head ([`Matcher::subject_head_is_fixed`]).
 fn is_rewrite_rigid(kind: &TermKind) -> bool {
     is_rigid(kind)
         || matches!(
@@ -1888,18 +1888,6 @@ fn is_rewrite_rigid(kind: &TermKind) -> bool {
             TermKind::Application { symbol, .. }
                 if symbol.attributes.head_role() == HeadRole::EquationHead
         )
-}
-
-/// Whether the rewrite matcher compares the subject term `term` by its head, so that a rule
-/// whose pattern has another rigid head fails on it: `term` is rewrite-rigid and, when it is an
-/// `anywhere` application, certified as a normal form by the simplifier or instance-normal.
-/// These are the conditions of [`Matcher::subject_head_is_fixed`]. The rule index keys a subject
-/// by its head exactly when this holds, since a key may drop only rules the matcher refutes.
-pub(crate) fn rewrite_rigid_subject(definition: &BackendDefinition, term: &Term) -> bool {
-    is_rewrite_rigid(term.kind())
-        && (!is_anywhere_application(term)
-            || certified_normal_form(term)
-            || definition.instance_normal(term).is_some())
 }
 
 fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {

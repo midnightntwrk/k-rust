@@ -96,7 +96,7 @@ fn candidate_ids(
     definition: &BackendDefinition,
     subject: &k_rust_backend::term::Term,
 ) -> Vec<String> {
-    applicable_rewrite_groups(definition, subject, &subject_index(definition, subject))
+    applicable_rewrite_groups(definition, &subject_index(definition, subject))
         .into_values()
         .flatten()
         .map(|rule| rule.attributes.unique_id.clone())

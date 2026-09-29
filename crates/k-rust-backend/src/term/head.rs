@@ -47,13 +47,6 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternReading {
     /// A rewrite rule's left-hand side, matched as written: an equation-head root is fixed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read on the rule side of rewrite matching and rule selection (CBC-02-T4, CBC-02-T6)"
-        )
-    )]
     AsWritten,
     /// An equation's left-hand side or an implication pattern: an equation-head subterm denotes
     /// the value of its normal form, which the pattern does not fix.
@@ -157,13 +150,6 @@ impl NormalEvidence {
 
     /// The simplifier's certificate: `Some` exactly for an equation-head application that
     /// carries the `evaluated` mark (`Term::with_evaluated_cache`).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by structural distinctness and rule selection (CBC-02-T5, CBC-02-T6)"
-        )
-    )]
     #[must_use]
     pub(crate) fn certified(term: &Term) -> Option<Self> {
         (term.shape() == Shape::Application(HeadRole::EquationHead) && term.attributes().evaluated)
@@ -174,13 +160,6 @@ impl NormalEvidence {
     /// every instance. The token is zero-sized and names no term, so the caller passes only the
     /// token `BackendDefinition::instance_normal` returned for the classified application or for
     /// a term it is a subterm of.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the unifier's and the rule index's oracles (CBC-02-T4, CBC-02-T6)"
-        )
-    )]
     #[must_use]
     pub(crate) fn instance_normal(_token: InstanceNormal) -> Self {
         Self(Source::InstanceNormal)
@@ -240,10 +219,6 @@ impl NormalForms for Scanned<'_> {
 }
 
 /// The certificate, then the instance-normal scan (the rule index's top key).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first read by rule selection (CBC-02-T6)")
-)]
 pub(crate) struct CertifiedOrScanned<'d>(pub &'d BackendDefinition);
 
 impl NormalForms for CertifiedOrScanned<'_> {

@@ -23,18 +23,22 @@
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
 //! rewrite rules additionally filter by the head of their `<k>` cell and by the item after it
-//! (the frozen context a cooling rule waits for). Candidate count is the old
-//! exact-symbol then variable-symbol sequence for rigid subjects, or every term-index bucket for
-//! non-rigid subjects, filtered by `rule.index.covers(subject_index)`. Selection costs O(log k)
-//! index lookups plus one `covers` check per rule in the selected buckets;
-//! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
+//! (the frozen context a cooling rule waits for). A subject's keys are a `SubjectKey`, built
+//! only by `subject_index` from `term::head::classify_value`; a rule's cell keys are built by
+//! `rule_index` from `term::head::classify_pattern` with the left-hand side read as written.
+//! Candidate count is the exact-symbol then variable-symbol sequence for a subject whose root is
+//! fixed, or every term-index bucket for any other subject (`SubjectKey::buckets`), filtered by
+//! `rule.index.covers(subject)`. Selection costs O(log k) index lookups plus one `covers` check
+//! per rule in the selected buckets; `Counter::RewriteRuleAttempts` is bumped by the caller per
+//! candidate tried.
 //!
-//! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions,
-//! associative or idempotent heads, subject-side `anywhere` heads that are not overloaded or
-//! not instance-normal, and `anywhere` heads in the item after the head. A rigid overloaded
-//! head is `Overloaded`, which covers only `Overloaded`, `Anywhere` and `Anything`; on the
-//! subject side an overloaded `anywhere` head is rigid only when it is instance-normal
-//! (`BackendDefinition::instance_normal`), since an equation may give an instance of any other
+//! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions, macro
+//! and alias applications, associative or idempotent heads, subject-side `anywhere` heads that
+//! are not overloaded or whose root is not fixed, and `anywhere` heads in the item after the
+//! head. A fixed overloaded head is `Overloaded`, which covers only `Overloaded`, `Anywhere` and
+//! `Anything`; on the subject side an overloaded `anywhere` head is fixed only with evidence
+//! that it is a normal form on every instance (the simplifier's certificate or
+//! `BackendDefinition::instance_normal`), since an equation may give an instance of any other
 //! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. It strips
 //! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
 //! conjuncts, covers only `Anything`. These
@@ -60,9 +64,15 @@ use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
-    matching::rewrite_rigid_subject,
     substitution::{Substitution, substitute},
-    term::{HeadRole, Name, Term, TermKind, Variable, names::VariableProvenance},
+    term::{
+        HeadRole, Name, Term, TermKind, Variable,
+        head::{
+            CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
+            classify_value,
+        },
+        names::VariableProvenance,
+    },
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -298,17 +308,72 @@ impl CellIndex {
 pub struct RuleIndex(Vec<CellIndex>);
 
 impl RuleIndex {
-    pub fn covers(&self, subject: &Self) -> bool {
-        self.0.len() == subject.0.len()
+    /// Whether a rule with these keys may match the subject `subject` was computed from: every
+    /// cell key covers the subject's.
+    pub fn covers(&self, subject: &SubjectKey) -> bool {
+        let subject = subject.cells();
+        self.0.len() == subject.len()
             && self
                 .0
                 .iter()
-                .zip(&subject.0)
+                .zip(subject)
                 .all(|(rule, subject)| rule.covers(subject))
     }
 
     pub fn cells(&self) -> &[CellIndex] {
         &self.0
+    }
+}
+
+/// The keys rewrite selection uses for one subject, built only by [`subject_index`]: whether the
+/// subject's root is fixed, with its term index, and the cell keys of its `<k>` cell. Two subjects
+/// with equal keys are offered the same candidates, so a caller that reselects rules only when the
+/// keys change (the rewrite loop's remainder) compares this whole key, root fixedness included.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubjectKey {
+    top: TopKey,
+    cells: RuleIndex,
+}
+
+/// The subject's term index, and whether its root is the root of every value the subject
+/// denotes (`term::head::classify_value`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TopKey {
+    /// The root is fixed: a rule stored under another root's bucket has a left-hand side whose
+    /// root differs from the subject's, which the rewrite matcher refutes.
+    Fixed(TermIndex),
+    /// The root may be the root of another value (a variable, a conjunction, a function
+    /// application, an equation head without evidence): every bucket is offered, the own bucket
+    /// first.
+    Open(TermIndex),
+}
+
+impl SubjectKey {
+    /// The cell keys: the head of the subject's one `<k>` cell and the item after it.
+    pub fn cells(&self) -> &[CellIndex] {
+        self.cells.cells()
+    }
+
+    /// The term-index buckets this key offers, in trial order: the own bucket, then `Variable`,
+    /// then, for an open root only, every other bucket of `theory` in `TermIndex` order. The
+    /// single definition of which buckets a subject may match.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn buckets<'r>(&'r self, theory: &'r RewriteTheory) -> impl Iterator<Item = &'r TermIndex> {
+        const VARIABLE: &TermIndex = &TermIndex::Variable;
+        let (own, open) = match &self.top {
+            TopKey::Fixed(own) => (own, false),
+            TopKey::Open(own) => (own, true),
+        };
+        let variable = (own != VARIABLE).then_some(VARIABLE);
+        let others = open
+            .then(|| {
+                theory
+                    .keys()
+                    .filter(move |key| *key != own && *key != VARIABLE)
+            })
+            .into_iter()
+            .flatten();
+        std::iter::once(own).chain(variable).chain(others)
     }
 }
 
@@ -1409,14 +1474,24 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     RuleIndex(vec![head, next])
 }
 
-/// The keys of a subject. They differ from [`rule_index`] only at `anywhere` applications that
-/// are not declared functions: such a head is `Overloaded` when it is overloaded and
-/// instance-normal, the case in which the matcher refutes it against a rigid head outside its
-/// overload relation (`matching::rewrite_rigid_subject`), and `Anything` otherwise. An
-/// application that is not instance-normal may denote a value with any head an equation of its
-/// production produces, so it keys nothing.
-pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
-    index_of(definition, term, KeySide::Subject)
+/// The keys of a subject. The top key is fixed exactly when `classify_value`, with the
+/// simplifier's certificate and then the instance-normal scan as evidence, fixes the subject's
+/// root, or the root is a macro or alias application, which the rewrite matcher compares by its
+/// root. The cell keys differ from [`rule_index`] only at equation heads (`anywhere` productions
+/// that are not declared functions): such a head is `Overloaded` when it is overloaded and its
+/// root is fixed as a value, the case in which the matcher refutes it against a rigid head outside
+/// its overload relation, and `Anything` otherwise. An application whose root is not fixed may
+/// denote a value with any head an equation of its production produces, so it keys nothing.
+pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey {
+    let index = term_index(term);
+    let top = match classify_value(term, &mut CertifiedOrScanned(definition)) {
+        Head::Fixed(_) | Head::Residual => TopKey::Fixed(index),
+        Head::Open(_) => TopKey::Open(index),
+    };
+    SubjectKey {
+        top,
+        cells: index_of(definition, term, KeySide::Subject),
+    }
 }
 
 /// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
@@ -1589,40 +1664,46 @@ fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> Cel
         {
             CellIndex::Anything
         }
-        // An overloaded head meets another overloaded head through a common overload, and a
-        // declared function through evaluation. A rigid one (as the rewrite matcher reads it)
-        // is still refuted against a rigid head outside every overload relation: overload
-        // resolution needs both heads in one (`Matcher::resolve_overloads`), and the matcher
-        // then fails the two distinct rigid heads.
-        TermKind::Application { symbol, .. }
-            if definition.overloads.is_overloaded(&symbol.name) =>
-        {
-            let rigid = match side {
-                KeySide::Rule => match symbol.attributes.head_role() {
-                    HeadRole::FreeConstructor | HeadRole::EquationHead => true,
-                    HeadRole::Function { .. } | HeadRole::Residual => false,
-                },
-                KeySide::Subject => rewrite_rigid_subject(definition, term),
+        TermKind::Application { symbol, .. } => {
+            let overloaded = definition.overloads.is_overloaded(&symbol.name);
+            let head = match side {
+                KeySide::Rule => classify_pattern(PatternReading::AsWritten, term),
+                // A subject's equation head outside every overload relation keys nothing,
+                // whatever its evidence: only a rule's key uses `Anywhere`. Its evidence is
+                // therefore not asked for, which would run the instance-normal scan once per
+                // rewrite step.
+                KeySide::Subject
+                    if !overloaded
+                        && term.shape() == Shape::Application(HeadRole::EquationHead) =>
+                {
+                    return CellIndex::Anything;
+                }
+                KeySide::Subject => classify_value(term, &mut CertifiedOrScanned(definition)),
             };
-            if rigid {
-                CellIndex::Overloaded
-            } else {
-                CellIndex::Anything
+            match head {
+                // An overloaded head meets another overloaded head through a common overload,
+                // and a declared function through evaluation. A fixed one is still refuted
+                // against a rigid head outside every overload relation: overload resolution
+                // needs both heads in one (`Matcher::resolve_overloads`), and the matcher then
+                // fails the two distinct roots.
+                Head::Fixed(_) if overloaded => CellIndex::Overloaded,
+                Head::Fixed(fixed) => match fixed.root() {
+                    FixedRoot::FreeConstructor => CellIndex::Constructor(symbol.name.clone()),
+                    // Reached on the rule side only: a subject's non-overloaded equation head
+                    // returned above.
+                    FixedRoot::EquationHead(_) => CellIndex::Anywhere(symbol.name.clone()),
+                    // Not the root of an application; `Anything` drops nothing.
+                    FixedRoot::DomainValue | FixedRoot::Injection | FixedRoot::Collection(_) => {
+                        CellIndex::Anything
+                    }
+                },
+                // The rewrite matcher evaluates or defers a function application, and an
+                // equation head without evidence may denote a value with another head; neither
+                // is refuted by its root. A macro or alias application denotes a value the
+                // definition does not describe, so it selects no rules by its head.
+                Head::Open(_) | Head::Residual => CellIndex::Anything,
             }
         }
-        TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
-            HeadRole::FreeConstructor => CellIndex::Constructor(symbol.name.clone()),
-            // A subject's non-overloaded equation head keys nothing, whether or not it is
-            // instance-normal: only a rule's key uses `Anywhere`.
-            HeadRole::EquationHead => match side {
-                KeySide::Rule => CellIndex::Anywhere(symbol.name.clone()),
-                KeySide::Subject => CellIndex::Anything,
-            },
-            // The rewrite matcher evaluates or defers a function application; it refutes it
-            // against no head. A macro or alias application denotes a value the definition does
-            // not describe, so it selects no rules by its head.
-            HeadRole::Function { .. } | HeadRole::Residual => CellIndex::Anything,
-        },
         TermKind::DomainValue { value, .. } => CellIndex::Value(value.clone()),
         TermKind::Map { .. } => CellIndex::Map,
         TermKind::List { .. } => CellIndex::List,
@@ -1679,32 +1760,57 @@ pub(crate) fn applicable_groups(
     groups
 }
 
-/// Rewrite candidates in priority order. A subject whose top can instantiate to another head
-/// sees every term-index bucket; rigid subjects keep the top-symbol and variable lookup.
-/// Within a priority, the subject's bucket precedes `Variable`, then the remaining buckets
-/// follow `TermIndex` order. Cell keys still filter each bucket.
+/// Rewrite candidates in priority order: the rules stored under the buckets `subject` offers
+/// (`SubjectKey::buckets`: a subject whose root is fixed sees its own bucket and `Variable`, any
+/// other subject every bucket), in bucket order within a priority, each filtered by the cell keys.
+///
+/// The function receives the subject's keys and no term, so whether the subject's root is fixed
+/// is read only from the key [`subject_index`] built; handing it the term and a rule-side index
+/// does not compile:
+///
+/// ```compile_fail
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::{applicable_rewrite_groups, rule_index},
+///     term::Term,
+/// };
+/// fn select(definition: &BackendDefinition, term: &Term) -> usize {
+///     applicable_rewrite_groups(definition, term, &rule_index(definition, term)).len()
+/// }
+/// ```
+///
+/// ```
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::{applicable_rewrite_groups, subject_index},
+///     term::Term,
+/// };
+/// fn select(definition: &BackendDefinition, term: &Term) -> usize {
+///     applicable_rewrite_groups(definition, &subject_index(definition, term)).len()
+/// }
+/// ```
+///
+/// A rule's index is not a subject's key either:
+///
+/// ```compile_fail
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::{applicable_rewrite_groups, rule_index},
+///     term::Term,
+/// };
+/// fn select(definition: &BackendDefinition, term: &Term) -> usize {
+///     applicable_rewrite_groups(definition, &rule_index(definition, term)).len()
+/// }
+/// ```
+#[deny(clippy::wildcard_enum_match_arm)]
 pub fn applicable_rewrite_groups(
     definition: &BackendDefinition,
-    term: &Term,
-    subject: &RuleIndex,
+    subject: &SubjectKey,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
     let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
     let theory = &definition.rewrite_theory;
     let mut groups = BTreeMap::new();
-    let index = term_index(term);
-    let rigid = crate::matching::rewrite_rigid_subject(definition, term);
-    let mut covered = vec![&index];
-    if index != TermIndex::Variable {
-        covered.push(&TermIndex::Variable);
-    }
-    if !rigid {
-        covered.extend(
-            theory
-                .keys()
-                .filter(|key| **key != index && **key != TermIndex::Variable),
-        );
-    }
-    for covered in covered {
+    for covered in subject.buckets(theory) {
         if let Some(found) = theory.get(covered) {
             for (priority, rules) in found {
                 groups.entry(*priority).or_insert_with(Vec::new).extend(
@@ -3733,5 +3839,253 @@ mod tests {
         let (_, renaming) = rename_predicate_rule_apart(&rule, &subject, &[])
             .expect("the subject mentions the left-hand side variable");
         assert_eq!(renaming.keys().collect::<Vec<_>>(), [&x]);
+    }
+
+    /// Rule selection by `SubjectKey`. `wrap` is an equation head whose equation `wrap(s(z)) =
+    /// wrap(z)` rewrites `wrap(s(z))` but reaches no instance of `wrap(s(s(z)))`; `app` is an
+    /// equation head overloading the constructor `appv`, whose overload equation rewrites
+    /// `app(inj(v), inj(v))`; `f` is a function. Rewrite rules are stored under the buckets
+    /// `top`, `other`, `wrap`, `w0` and `Variable`.
+    fn selection_definition() -> BackendDefinition {
+        let rewrite = |sort: &str, label: &str, lhs: &str, rhs: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{{sort}{{}}}}(
+                    \and{{{sort}{{}}}}({lhs}, \top{{{sort}{{}}}}()),
+                    {rhs}
+                  ) [label{{}}("{label}"), priority{{}}("50")]
+                "#
+            )
+        };
+        let top =
+            |head: &str| format!("top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, R:SortK{{}})))");
+        let source = r#"[]
+            module MAIN
+              sort SortK{} []
+              sort SortKItem{} []
+              sort SortKCell{} []
+              sort SortGeneratedTopCell{} []
+              sort SortExp{} []
+              sort SortVal{} []
+              sort SortNat{} []
+              sort SortW{} []
+              symbol inj{From, To}(From) : To [sortInjection{}()]
+              symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+              symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+              symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
+              symbol top{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+              symbol other{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+              symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+              symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+              symbol f{}(SortNat{}) : SortGeneratedTopCell{} [function{}(), total{}()]
+              symbol wrap{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]
+              symbol w0{}() : SortW{} [constructor{}(), functional{}(), injective{}()]
+              symbol v{}() : SortVal{} [constructor{}(), total{}()]
+              symbol appv{}(SortVal{}, SortVal{}) : SortVal{} [constructor{}(), total{}()]
+              symbol app{}(SortExp{}, SortExp{}) : SortExp{}
+                [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+              symbol plus{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}(), total{}()]
+              axiom{R} \exists{R}(
+                  Value:SortExp{},
+                  \equals{SortExp{}, R}(Value:SortExp{}, inj{SortVal{}, SortExp{}}(From:SortVal{}))
+              ) [subsort{SortVal{}, SortExp{}}()]
+              axiom{R} \exists{R}(
+                  Value:SortKItem{},
+                  \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortExp{}, SortKItem{}}(From:SortExp{}))
+              ) [subsort{SortExp{}, SortKItem{}}()]
+              axiom{R} \exists{R}(
+                  Value:SortKItem{},
+                  \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortVal{}, SortKItem{}}(From:SortVal{}))
+              ) [subsort{SortVal{}, SortKItem{}}()]
+              axiom{} \equals{SortExp{}, SortExp{}}(
+                  app{}(inj{SortVal{}, SortExp{}}(V1:SortVal{}), inj{SortVal{}, SortExp{}}(V2:SortVal{})),
+                  inj{SortVal{}, SortExp{}}(appv{}(V1:SortVal{}, V2:SortVal{}))
+              ) [symbol-overload{}(app{}(), appv{}())]
+              axiom{R} \implies{R}(
+                  \and{R}(
+                      \top{R}(),
+                      \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+                  ),
+                  \equals{SortW{}, R}(
+                      wrap{}(X0:SortNat{}),
+                      \and{SortW{}}(wrap{}(z{}()), \top{SortW{}}())
+                  )
+              ) [label{}("collapse"), anywhere{}()]
+            "#
+        .to_owned()
+            + &rewrite(
+                "SortGeneratedTopCell",
+                "app",
+                &top("inj{SortExp{}, SortKItem{}}(app{}(X:SortExp{}, Y:SortExp{}))"),
+                "top{}(Lbl'-LT-'k'-GT-'{}(R:SortK{}))",
+            )
+            + &rewrite(
+                "SortGeneratedTopCell",
+                "plus",
+                &top("inj{SortExp{}, SortKItem{}}(plus{}(X:SortExp{}, Y:SortExp{}))"),
+                "top{}(Lbl'-LT-'k'-GT-'{}(R:SortK{}))",
+            )
+            + &rewrite(
+                "SortGeneratedTopCell",
+                "other",
+                "other{}(Lbl'-LT-'k'-GT-'{}(R:SortK{}))",
+                "top{}(Lbl'-LT-'k'-GT-'{}(R:SortK{}))",
+            )
+            + &rewrite(
+                "SortGeneratedTopCell",
+                "any-top",
+                "T:SortGeneratedTopCell{}",
+                "T:SortGeneratedTopCell{}",
+            )
+            + &rewrite("SortW", "wrap-z", "wrap{}(z{}())", "w0{}()")
+            + &rewrite("SortW", "w0", "w0{}()", "wrap{}(z{}())")
+            + "endmodule []";
+        BackendDefinition::internalize(
+            &parse_definition(&source).expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize")
+    }
+
+    fn selection_term(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(
+                &k_rust_kore::kore::parser::parse_pattern(source).expect("term should parse"),
+                &[],
+            )
+            .expect("term should internalize")
+    }
+
+    fn offered_buckets<'r>(key: &'r SubjectKey, theory: &'r RewriteTheory) -> Vec<&'r TermIndex> {
+        key.buckets(theory).collect()
+    }
+
+    fn candidate_labels(definition: &BackendDefinition, key: &SubjectKey) -> Vec<String> {
+        applicable_rewrite_groups(definition, key)
+            .into_values()
+            .flatten()
+            .map(|rule| rule.attributes.unique_id.clone())
+            .collect()
+    }
+
+    /// Acceptance (c83f65a7): a variable and a function application may denote a value with any
+    /// root, so their top keys are open and they are offered every bucket of the theory, their
+    /// own first and `Variable` next.
+    #[test]
+    fn a_variable_or_function_subject_is_open_and_offered_every_bucket() {
+        let definition = selection_definition();
+        let theory = &definition.rewrite_theory;
+        let every: BTreeSet<&TermIndex> = theory.keys().collect();
+        assert!(
+            every.len() >= 5,
+            "the theory has several buckets: {every:?}"
+        );
+        let all_rules: usize = theory
+            .values()
+            .flat_map(BTreeMap::values)
+            .map(Vec::len)
+            .sum();
+
+        let variable = selection_term(&definition, "X:SortK{}");
+        let key = subject_index(&definition, &variable);
+        assert_eq!(key.top, TopKey::Open(TermIndex::Variable));
+        let buckets = offered_buckets(&key, theory);
+        assert_eq!(buckets[0], &TermIndex::Variable);
+        assert_eq!(buckets.len(), every.len());
+        assert_eq!(buckets.iter().copied().collect::<BTreeSet<_>>(), every);
+        assert_eq!(candidate_labels(&definition, &key).len(), all_rules);
+
+        let function = selection_term(&definition, "f{}(z{}())");
+        let key = subject_index(&definition, &function);
+        let own = TermIndex::Symbol(Name::from("f"));
+        assert!(!every.contains(&own), "no rule is stored under `f`");
+        assert_eq!(key.top, TopKey::Open(own.clone()));
+        let buckets = offered_buckets(&key, theory);
+        assert_eq!(buckets[..2], [&own, &TermIndex::Variable]);
+        assert_eq!(buckets.len(), every.len() + 1);
+        assert!(every.iter().all(|bucket| buckets.contains(bucket)));
+        assert_eq!(candidate_labels(&definition, &key).len(), all_rules);
+
+        // Control: a free-constructor root is fixed and offered its own bucket and `Variable`.
+        let fixed = selection_term(
+            &definition,
+            "other{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortVal{}, SortKItem{}}(v{}()), dotk{}())))",
+        );
+        let key = subject_index(&definition, &fixed);
+        let own = TermIndex::Symbol(Name::from("other"));
+        assert_eq!(key.top, TopKey::Fixed(own.clone()));
+        assert_eq!(offered_buckets(&key, theory), [&own, &TermIndex::Variable]);
+        assert_eq!(candidate_labels(&definition, &key), ["other", "any-top"]);
+    }
+
+    /// Acceptance (d0e0762e): an overloaded equation-head `<k>` head that is neither certified by
+    /// the simplifier nor instance-normal may denote a value with another head, so its cell key
+    /// is `Anything`; the same head with no equation reaching any instance keys `Overloaded`.
+    #[test]
+    fn an_uncertified_redex_of_an_overloaded_equation_head_keys_anything() {
+        let definition = selection_definition();
+        let in_k = |head: &str| {
+            selection_term(
+                &definition,
+                &format!(
+                    "top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortExp{{}}, SortKItem{{}}}}({head}), dotk{{}}())))"
+                ),
+            )
+        };
+        let redex = "app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}()))";
+        let app = selection_term(&definition, redex);
+        assert!(definition.overloads.is_overloaded(&Name::from("app")));
+        assert!(!app.attributes().evaluated, "uncertified");
+        assert!(
+            definition.instance_normal(&app).is_none(),
+            "not instance-normal"
+        );
+        assert_eq!(
+            subject_index(&definition, &in_k(redex)).cells(),
+            &[CellIndex::Anything, CellIndex::Anything]
+        );
+        assert_eq!(
+            candidate_labels(&definition, &subject_index(&definition, &in_k(redex))),
+            ["app", "plus", "any-top"]
+        );
+
+        let normal = "app{}(plus{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())), inj{SortVal{}, SortExp{}}(v{}()))";
+        assert!(
+            definition
+                .instance_normal(&selection_term(&definition, normal))
+                .is_some()
+        );
+        assert_eq!(
+            subject_index(&definition, &in_k(normal)).cells(),
+            &[CellIndex::Overloaded, CellIndex::Anything]
+        );
+        assert_eq!(
+            candidate_labels(&definition, &subject_index(&definition, &in_k(normal))),
+            ["app", "any-top"]
+        );
+    }
+
+    /// Acceptance (finding 0.7): `wrap(s(z))`, which an equation rewrites, and `wrap(s(s(z)))`,
+    /// which no equation reaches, have one term index and equal cell keys, but only the second
+    /// root is fixed. Their keys differ, so the rewrite loop, which reselects rules only when a
+    /// remainder's key changes, does not hand one the groups selected for the other.
+    #[test]
+    fn subject_keys_differ_in_top_rigidity_alone() {
+        let definition = selection_definition();
+        let open = selection_term(&definition, "wrap{}(s{}(z{}()))");
+        let fixed = selection_term(&definition, "wrap{}(s{}(s{}(z{}())))");
+        let open_key = subject_index(&definition, &open);
+        let fixed_key = subject_index(&definition, &fixed);
+        let wrap = TermIndex::Symbol(Name::from("wrap"));
+        assert_eq!(term_index(&open), term_index(&fixed));
+        assert_eq!(open_key.cells(), fixed_key.cells());
+        assert_eq!(open_key.top, TopKey::Open(wrap.clone()));
+        assert_eq!(fixed_key.top, TopKey::Fixed(wrap));
+        assert_ne!(open_key, fixed_key);
+        // The two keys select different candidates: only the open root may denote `w0()`.
+        assert_eq!(
+            candidate_labels(&definition, &fixed_key),
+            ["wrap-z", "any-top"]
+        );
+        assert!(candidate_labels(&definition, &open_key).contains(&"w0".to_owned()));
     }
 }

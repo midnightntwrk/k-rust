@@ -44,10 +44,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
-    rule::{
-        Predicate, RewriteRule, RuleIndex, RuleRhs, TermIndex, applicable_rewrite_groups,
-        subject_index, term_index,
-    },
+    rule::{Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, subject_index},
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
         simplify_with_solver,
@@ -320,9 +317,8 @@ pub(super) fn rewrite_step_all(
 ) -> RewriteResult {
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
-    let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -355,7 +351,7 @@ pub(super) fn rewrite_step_all(
                 &mut trivial,
                 &mut remainder,
                 LowerGroups {
-                    selected_for: (index, subject),
+                    selected_for: subject,
                     visited,
                     groups: groups.collect(),
                 },
@@ -382,7 +378,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
 ) -> RewriteResult {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -406,10 +402,13 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     }
 }
 
-/// The priority groups below the first productive one, with the rule-index keys of the term they
-/// were selected for.
+/// The priority groups below the first productive one, with the rule-selection keys of the term
+/// they were selected for.
 struct LowerGroups {
-    selected_for: (TermIndex, RuleIndex),
+    /// The whole selection key, including whether the term's root is fixed: two terms with one
+    /// term index and equal cell keys are offered different buckets when one root is fixed and
+    /// the other is not, so a key without that fact would reuse groups selected for the other.
+    selected_for: SubjectKey,
     /// The priority of the last group applied.
     visited: u8,
     /// Every priority of the selection above `visited`, each with its candidates.
@@ -424,7 +423,8 @@ struct LowerGroups {
 /// computed from fails (`rule::rule_index`). A remainder is simplified under its own, stronger
 /// path condition before a lower group sees it, and simplification can rewrite the very heads
 /// the keys read: an `anywhere` equation turns an overloaded application into a different
-/// constructor, a function evaluates to a constructor, a new `<k>` cell appears. So each lower
+/// constructor, a function evaluates to a constructor, a new `<k>` cell appears, an equation-head
+/// root gains or loses the evidence that fixes it (`rule::subject_index`). So each lower
 /// group's candidates are those selected for the term the group is applied to: whenever a
 /// simplification changes the remainder's keys, the lower priorities are selected again for it,
 /// from just above the last priority applied. Keys that did not change select the same rules.
@@ -498,13 +498,9 @@ fn fold_lower_priority_groups(
                 }
             }
             needs_simplification = false;
-            let keys = (
-                term_index(&current.pattern.term),
-                subject_index(definition, &current.pattern.term),
-            );
+            let keys = subject_index(definition, &current.pattern.term);
             if keys != lower.selected_for {
-                let mut groups =
-                    applicable_rewrite_groups(definition, &current.pattern.term, &keys.1);
+                let mut groups = applicable_rewrite_groups(definition, &keys);
                 let visited = lower.visited;
                 groups.retain(|priority, _| *priority > visited);
                 lower.groups = groups;
@@ -797,7 +793,7 @@ pub(super) fn rewrite_step_any(
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
