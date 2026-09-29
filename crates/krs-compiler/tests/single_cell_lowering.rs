@@ -7,9 +7,10 @@ use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionSentence, FixedCell, FixedConfiguration,
     FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, SemanticId,
     SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, StableItemId,
-    TransformationOriginKind,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
+    SentenceKind, StableItemId, TransformationOriginKind,
 };
+use krs_test_support::assert_rejects_with_message;
 
 fn package() -> PackageId {
     testing::package("KRS-FOO-BAR", "foo-bar-semantics")
@@ -274,7 +275,10 @@ fn stale_template_shaped_production_is_rejected_by_schema_nine() {
         .unwrap();
     production["argument_sorts"] = serde_json::json!([]);
     production["syntax"] = serde_json::json!("box");
-    assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<SemanticTheory>(json),
+        "unknown field `argument_sorts`",
+    );
 }
 
 #[test]
@@ -283,15 +287,29 @@ fn invalid_equation_root_is_rejected_before_lowering() {
     let rule = &mut json["modules"][0]["rules"][0];
     rule["kind"] = serde_json::json!("equation");
     rule["id"]["item_kind"] = serde_json::json!("equation");
-    assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<SemanticTheory>(json),
+        SemanticValidationError::InvalidEquationRoot(Box::new(item(
+            "rules",
+            "foo_to_bar",
+            ItemKind::Equation,
+        ))),
+    );
 }
 
 #[test]
 fn dangling_semantic_references_are_rejected_before_lowering() {
     let mut json = serde_json::to_value(theory()).unwrap();
-    json["modules"][0]["rules"][0]["body"]["to"]["production"]["item_name"] =
+    json["modules"][0]["rules"][0]["body"]["to"]["application"]["application"]["item_name"] =
         serde_json::json!("Missing");
-    assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
+    assert_rejects_with_message(
+        serde_json::from_value::<SemanticTheory>(json),
+        SemanticValidationError::DanglingProduction(Box::new(item(
+            "syntax",
+            "Missing",
+            ItemKind::Constructor,
+        ))),
+    );
 }
 
 #[test]
