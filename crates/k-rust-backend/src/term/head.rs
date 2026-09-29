@@ -665,13 +665,6 @@ impl HeadClash {
 
 /// Witness that two ground terms denote distinct values. Zero-sized; minted only here.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "first read by structural distinctness (CBC-02-T5)"
-    )
-)]
 pub(crate) struct Distinct(());
 
 #[cfg_attr(
