@@ -1720,4 +1720,65 @@ mod tests {
         assert_eq!(term_alias_variables(&lhs), BTreeSet::from([alias]));
         assert!(!term_alias_variables(&lhs).contains(&ordinary));
     }
+
+    /// A rule whose right-hand side is `\bottom` and an unconditional rule of the same priority
+    /// both match `wrap(value)`. The survivor alone empties the group remainder and the entry's
+    /// `undefined`, so only the rewrite-internal fields show the trivial rule's own sub-case:
+    /// the whole subject, with an empty complement.
+    #[test]
+    fn a_mixed_group_trivial_entry_covers_the_whole_subject() {
+        use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+        use crate::rewrite::{RewriteResult, TrivialKind, rewrite_step};
+
+        let source = r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    \and{SortS{}}(\dv{SortS{}}("discarded"), \bottom{SortS{}}())
+                ) [label{}("trivial")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    \dv{SortS{}}("survivor")
+                ) [label{}("survivor")]
+            endmodule []"#;
+        let definition = BackendDefinition::internalize(
+            &parse_definition(source).expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let initial = Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(r#"wrap{}(\dv{SortS{}}("value"))"#).unwrap(),
+                    &[],
+                )
+                .expect("subject should internalize"),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            trivial,
+            ..
+        } = rewrite_step(&definition, &initial, &mut fresh)
+        else {
+            panic!("a mixed group must retain its bottom sub-case");
+        };
+        assert_eq!(branches.len(), 1);
+        let [entry] = trivial.as_slice() else {
+            panic!("one trivial entry: {trivial:?}");
+        };
+        assert_eq!(entry.rule_id, "trivial");
+        assert_eq!(entry.before, initial);
+        assert_eq!(entry.kind, TrivialKind::Refuted);
+        assert_eq!(entry.applicability, Predicate::True);
+        assert_eq!(entry.remainder, Predicate::False);
+        assert_eq!(entry.undefined, Predicate::False);
+    }
 }

@@ -265,18 +265,20 @@ pub struct TrivialApplication {
     #[cfg(test)]
     pub(crate) kind: TrivialKind,
     /// The definedness or ensures obligation that fails on the instances this entry stands for:
-    /// refuted for a `Refuted` entry, and the carried conjunction for a `Carried` one.
+    /// either the obligation refuted on the application's whole sub-case, or the carried result
+    /// condition whose failure leaves the instances in `undefined`.
     pub obligation: Predicate,
     /// The sub-case this application rewrites to bottom, under `before`'s constraints.
     ///
-    /// For `Refuted` it is the rule's applicability `A` (match conditions and undecided
-    /// `requires`, existentially closed over the variables the match introduced). For `Carried`
-    /// it is `A /\ not D`, where `D` is the existential closure, over those variables and the
+    /// For an entry whose obligation was refuted on the whole sub-case it is the rule's
+    /// applicability `A` (match conditions and undecided `requires`, existentially closed over
+    /// the variables the match introduced). For an entry left by a carried result condition it
+    /// is `A /\ not D`, where `D` is the existential closure, over those variables and the
     /// rule's freshened existentials (`?X`), of the match conditions, undecided `requires` and
     /// carried result condition: `D` is the sub-case with a defined result of this application.
     pub(in crate::rewrite) applicability: Predicate,
-    /// The complementary sub-case retained in the priority-group remainder: `not A` for either
-    /// kind, so a `Carried` entry does not change the group remainder.
+    /// The complementary sub-case retained in the priority-group remainder: `not A` in either
+    /// case, so an entry left by a carried result condition does not change the group remainder.
     pub(in crate::rewrite) remainder: Predicate,
     /// The instances of `before` whose step is undefined because of this entry: `applicability`
     /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so

@@ -1444,9 +1444,10 @@ fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     assert_eq!(trivial.len(), 1);
     assert_eq!(trivial[0].rule_id, "trivial");
     assert_eq!(trivial[0].before, initial);
-    // The trivial rule's sub-case is the whole subject, so the group leaves no remainder
-    // (`remainder: None` above). The survivor takes every instance to a defined successor: no
-    // instance is undefined.
+    // The unconditional survivor takes every instance to a defined successor, so it alone empties
+    // the group remainder (`remainder: None` above) and leaves no instance undefined. The trivial
+    // rule's own sub-case (the whole subject, with an empty complement) is rewrite-internal and is
+    // checked by `rewrite::apply::tests::a_mixed_group_trivial_entry_covers_the_whole_subject`.
     assert_eq!(trivial[0].undefined, Predicate::False);
 
     let execution = execute(&definition, initial, ExecutionOptions::default());
@@ -2399,7 +2400,8 @@ fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
 /// The rewriter's leaf for one solver verdict.
 enum VerdictLeaf {
     /// The step rewrites and its successor carries exactly these constraints. A carried
-    /// condition leaves the rest of the sub-case to one `Carried` trivial entry.
+    /// condition leaves at most one trivial entry, of the same rule, undefined exactly where the
+    /// carried condition fails.
     Finished(Vec<Predicate>),
     /// The step is trivial on the pre-step pattern.
     Trivial,
