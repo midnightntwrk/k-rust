@@ -237,330 +237,91 @@ fn native_claim_modalities_are_explicit() {
 }
 
 #[test]
-fn typed_hook_maps_to_the_exact_native_frontend_attribute() {
-    let production = ProductionSentence::new(
-        node("hook.production"),
-        symbol(
-            "production.keccak256raw",
-            "Keccak256raw",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::bytes(),
-        vec![
-            IrProductionItem::terminal(node("hook.open"), "Keccak256raw(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.value"),
-                ProductionFieldId::new("value").unwrap(),
-                DefinitionSortRef::bytes(),
-            ),
-            IrProductionItem::terminal(node("hook.close"), ")").unwrap(),
-        ],
-        vec![
-            DefinitionProductionAttribute::Function {
-                origin: node("hook.function"),
-            },
-            DefinitionProductionAttribute::Total {
-                origin: node("hook.total"),
-            },
-            DefinitionProductionAttribute::Hook {
-                origin: node("hook.attribute"),
-                operation: HookOperation::KryptoKeccak256Raw,
-            },
-        ],
-    )
-    .unwrap();
+fn typed_hooks_map_to_exact_native_frontend_attributes() {
     let definition = smoke_definition();
     let mut adapter = Adapter::new(&definition, true);
-    let native = adapter.production(&production, MODULE, 0).unwrap();
-    let Sentence::Production { attributes, .. } = native else {
-        panic!("hooked function must remain a native production")
-    };
-    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.keccak256raw"));
-    assert!(attributes.get("function").is_some());
-    assert!(attributes.get("total").is_some());
-}
-
-#[test]
-fn typed_sha256_hook_maps_to_the_exact_native_frontend_attribute() {
-    let production = ProductionSentence::new(
-        node("hook.sha256.production"),
-        symbol("production.sha256raw", "Sha256raw", SymbolKind::Production),
-        DefinitionSortRef::bytes(),
-        vec![
-            IrProductionItem::terminal(node("hook.sha256.open"), "Sha256raw(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.sha256.value"),
-                ProductionFieldId::new("value").unwrap(),
-                DefinitionSortRef::bytes(),
+    for (index, operation) in HookOperation::ALL.into_iter().enumerate() {
+        let expected = match operation {
+            HookOperation::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
+            HookOperation::KryptoSha256Raw => "KRYPTO.sha256raw",
+            HookOperation::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
+            HookOperation::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
+            HookOperation::KryptoBn128Valid => "KRYPTO.bn128valid",
+            HookOperation::KryptoBn128Add => "KRYPTO.bn128add",
+            HookOperation::KryptoBn128Mul => "KRYPTO.bn128mul",
+            HookOperation::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
+            HookOperation::KryptoBn128Ate => "KRYPTO.bn128ate",
+        };
+        let point = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
+        let (result_sort, argument_sorts) =
+            if let Some((result, arguments)) = operation.builtin_signature() {
+                (
+                    DefinitionSortRef::Builtin(result),
+                    arguments
+                        .iter()
+                        .copied()
+                        .map(DefinitionSortRef::Builtin)
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                match operation {
+                    HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
+                        (DefinitionSortRef::bool(), vec![point])
+                    }
+                    HookOperation::KryptoBn128Add => (point.clone(), vec![point.clone(), point]),
+                    HookOperation::KryptoBn128Mul => {
+                        (point.clone(), vec![point, DefinitionSortRef::int()])
+                    }
+                    HookOperation::KryptoKeccak256Raw
+                    | HookOperation::KryptoSha256Raw
+                    | HookOperation::KryptoRipemd160Raw
+                    | HookOperation::KryptoEcdsaRecover
+                    | HookOperation::KryptoBn128Ate => unreachable!(),
+                }
+            };
+        let items = argument_sorts
+            .into_iter()
+            .enumerate()
+            .map(|(field, sort)| {
+                IrProductionItem::non_terminal(
+                    node(&format!("hook.{index}.field.{field}")),
+                    ProductionFieldId::new(format!("field{field}")).unwrap(),
+                    sort,
+                )
+            })
+            .collect();
+        let production = ProductionSentence::new(
+            node(&format!("hook.{index}.production")),
+            symbol(
+                &format!("production.hook{index}"),
+                &format!("Hook{index}"),
+                SymbolKind::Production,
             ),
-            IrProductionItem::terminal(node("hook.sha256.close"), ")").unwrap(),
-        ],
-        vec![
-            DefinitionProductionAttribute::Function {
-                origin: node("hook.sha256.function"),
-            },
-            DefinitionProductionAttribute::Total {
-                origin: node("hook.sha256.total"),
-            },
-            DefinitionProductionAttribute::Hook {
-                origin: node("hook.sha256.attribute"),
-                operation: HookOperation::KryptoSha256Raw,
-            },
-        ],
-    )
-    .unwrap();
-    let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
-    let native = adapter.production(&production, MODULE, 0).unwrap();
-    let Sentence::Production { attributes, .. } = native else {
-        panic!("hooked function must remain a native production")
-    };
-    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.sha256raw"));
-    assert!(attributes.get("function").is_some());
-    assert!(attributes.get("total").is_some());
-}
-
-#[test]
-fn typed_ripemd160_hook_maps_to_the_exact_native_frontend_attribute() {
-    let production = ProductionSentence::new(
-        node("hook.ripemd160.production"),
-        symbol(
-            "production.ripemd160raw",
-            "Ripemd160raw",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::bytes(),
-        vec![
-            IrProductionItem::terminal(node("hook.ripemd160.open"), "Ripemd160raw(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.ripemd160.value"),
-                ProductionFieldId::new("value").unwrap(),
-                DefinitionSortRef::bytes(),
-            ),
-            IrProductionItem::terminal(node("hook.ripemd160.close"), ")").unwrap(),
-        ],
-        vec![
-            DefinitionProductionAttribute::Function {
-                origin: node("hook.ripemd160.function"),
-            },
-            DefinitionProductionAttribute::Total {
-                origin: node("hook.ripemd160.total"),
-            },
-            DefinitionProductionAttribute::Hook {
-                origin: node("hook.ripemd160.attribute"),
-                operation: HookOperation::KryptoRipemd160Raw,
-            },
-        ],
-    )
-    .unwrap();
-    let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
-    let native = adapter.production(&production, MODULE, 0).unwrap();
-    let Sentence::Production { attributes, .. } = native else {
-        panic!("hooked function must remain a native production")
-    };
-    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.ripemd160raw"));
-    assert!(attributes.get("function").is_some());
-    assert!(attributes.get("total").is_some());
-}
-
-#[test]
-fn typed_ecdsa_recover_hook_maps_to_the_exact_native_frontend_attribute() {
-    let production = ProductionSentence::new(
-        node("hook.ecdsa-recover.production"),
-        symbol(
-            "production.ecdsa-recover",
-            "EcdsaRecover",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::bytes(),
-        vec![
-            IrProductionItem::terminal(node("hook.ecdsa-recover.open"), "EcdsaRecover(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.ecdsa-recover.hash"),
-                ProductionFieldId::new("hash").unwrap(),
-                DefinitionSortRef::bytes(),
-            ),
-            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-1"), ", ").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.ecdsa-recover.recovery"),
-                ProductionFieldId::new("recovery").unwrap(),
-                DefinitionSortRef::int(),
-            ),
-            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-2"), ", ").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.ecdsa-recover.r"),
-                ProductionFieldId::new("r").unwrap(),
-                DefinitionSortRef::bytes(),
-            ),
-            IrProductionItem::terminal(node("hook.ecdsa-recover.comma-3"), ", ").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.ecdsa-recover.s"),
-                ProductionFieldId::new("s").unwrap(),
-                DefinitionSortRef::bytes(),
-            ),
-            IrProductionItem::terminal(node("hook.ecdsa-recover.close"), ")").unwrap(),
-        ],
-        vec![
-            DefinitionProductionAttribute::Function {
-                origin: node("hook.ecdsa-recover.function"),
-            },
-            DefinitionProductionAttribute::Total {
-                origin: node("hook.ecdsa-recover.total"),
-            },
-            DefinitionProductionAttribute::Hook {
-                origin: node("hook.ecdsa-recover.attribute"),
-                operation: HookOperation::KryptoEcdsaRecover,
-            },
-        ],
-    )
-    .unwrap();
-    let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
-    let native = adapter.production(&production, MODULE, 0).unwrap();
-    let Sentence::Production { attributes, .. } = native else {
-        panic!("hooked function must remain a native production")
-    };
-    assert_eq!(attributes.get_str("hook"), Some("KRYPTO.ecdsaRecover"));
-    assert!(attributes.get("function").is_some());
-    assert!(attributes.get("total").is_some());
-}
-
-#[test]
-#[allow(clippy::too_many_lines)] // Verifies the complete typed BN128 hook family.
-fn typed_bn128_hooks_map_to_exact_native_frontend_attributes() {
-    let point = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
-    let g2_point = point.clone();
-    let attributes = |operation| {
-        vec![
-            DefinitionProductionAttribute::Function {
-                origin: node("hook.bn128.function"),
-            },
-            DefinitionProductionAttribute::Total {
-                origin: node("hook.bn128.total"),
-            },
-            DefinitionProductionAttribute::Hook {
-                origin: node("hook.bn128.attribute"),
-                operation,
-            },
-        ]
-    };
-    let valid = ProductionSentence::new(
-        node("hook.bn128-valid.production"),
-        symbol(
-            "production.bn128-valid",
-            "Bn128Valid",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::bool(),
-        vec![
-            IrProductionItem::terminal(node("hook.bn128-valid.open"), "Bn128Valid(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-valid.point"),
-                ProductionFieldId::new("point").unwrap(),
-                point.clone(),
-            ),
-            IrProductionItem::terminal(node("hook.bn128-valid.close"), ")").unwrap(),
-        ],
-        attributes(HookOperation::KryptoBn128Valid),
-    )
-    .unwrap();
-    let add = ProductionSentence::new(
-        node("hook.bn128-add.production"),
-        symbol("production.bn128-add", "Bn128Add", SymbolKind::Production),
-        point.clone(),
-        vec![
-            IrProductionItem::terminal(node("hook.bn128-add.open"), "Bn128Add(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-add.left"),
-                ProductionFieldId::new("left").unwrap(),
-                point.clone(),
-            ),
-            IrProductionItem::terminal(node("hook.bn128-add.comma"), ",").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-add.right"),
-                ProductionFieldId::new("right").unwrap(),
-                point.clone(),
-            ),
-            IrProductionItem::terminal(node("hook.bn128-add.close"), ")").unwrap(),
-        ],
-        attributes(HookOperation::KryptoBn128Add),
-    )
-    .unwrap();
-    let mul = ProductionSentence::new(
-        node("hook.bn128-mul.production"),
-        symbol("production.bn128-mul", "Bn128Mul", SymbolKind::Production),
-        point.clone(),
-        vec![
-            IrProductionItem::terminal(node("hook.bn128-mul.open"), "Bn128Mul(").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-mul.point"),
-                ProductionFieldId::new("point").unwrap(),
-                point.clone(),
-            ),
-            IrProductionItem::terminal(node("hook.bn128-mul.comma"), ",").unwrap(),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-mul.scalar"),
-                ProductionFieldId::new("scalar").unwrap(),
-                DefinitionSortRef::int(),
-            ),
-            IrProductionItem::terminal(node("hook.bn128-mul.close"), ")").unwrap(),
-        ],
-        attributes(HookOperation::KryptoBn128Mul),
-    )
-    .unwrap();
-    let g2_valid = ProductionSentence::new(
-        node("hook.bn128-g2-valid.production"),
-        symbol(
-            "production.bn128-g2-valid",
-            "Bn128G2Valid",
-            SymbolKind::Production,
-        ),
-        DefinitionSortRef::bool(),
-        vec![IrProductionItem::non_terminal(
-            node("hook.bn128-g2-valid.point"),
-            ProductionFieldId::new("point").unwrap(),
-            g2_point,
-        )],
-        attributes(HookOperation::KryptoBn128G2Valid),
-    )
-    .unwrap();
-    let ate = ProductionSentence::new(
-        node("hook.bn128-ate.production"),
-        symbol("production.bn128-ate", "Bn128Ate", SymbolKind::Production),
-        DefinitionSortRef::bool(),
-        vec![
-            IrProductionItem::non_terminal(
-                node("hook.bn128-ate.g1"),
-                ProductionFieldId::new("g1").unwrap(),
-                DefinitionSortRef::list(),
-            ),
-            IrProductionItem::non_terminal(
-                node("hook.bn128-ate.g2"),
-                ProductionFieldId::new("g2").unwrap(),
-                DefinitionSortRef::list(),
-            ),
-        ],
-        attributes(HookOperation::KryptoBn128Ate),
-    )
-    .unwrap();
-    let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
-    for (index, (production, expected)) in [
-        (&valid, "KRYPTO.bn128valid"),
-        (&add, "KRYPTO.bn128add"),
-        (&mul, "KRYPTO.bn128mul"),
-        (&g2_valid, "KRYPTO.bn128g2valid"),
-        (&ate, "KRYPTO.bn128ate"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let native = adapter.production(production, MODULE, index).unwrap();
+            result_sort,
+            items,
+            vec![
+                DefinitionProductionAttribute::Function {
+                    origin: node(&format!("hook.{index}.function")),
+                },
+                DefinitionProductionAttribute::Total {
+                    origin: node(&format!("hook.{index}.total")),
+                },
+                DefinitionProductionAttribute::Hook {
+                    origin: node(&format!("hook.{index}.attribute")),
+                    operation,
+                },
+            ],
+        )
+        .unwrap();
+        let native = adapter.production(&production, MODULE, index).unwrap();
         let Sentence::Production { attributes, .. } = native else {
             panic!("hooked function must remain a native production")
         };
         assert_eq!(attributes.get_str("hook"), Some(expected));
+        assert_eq!(
+            attributes.get_str("hook"),
+            Some(operation.to_string().as_str())
+        );
         assert!(attributes.get("function").is_some());
         assert!(attributes.get("total").is_some());
     }

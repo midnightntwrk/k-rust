@@ -34,6 +34,178 @@ fn origin(key: &str) -> NodeOrigin {
 
 #[test]
 #[allow(clippy::too_many_lines)]
+fn every_hook_emits_its_catalog_spelling() {
+    let g1 = item("G1Point", ItemKind::Sort);
+    let g2 = item("G2Point", ItemKind::Sort);
+    let mut productions = Vec::new();
+    for (name, sort, arity) in [("G1Point", g1.clone(), 2), ("G2Point", g2.clone(), 4)] {
+        let items = (0..arity)
+            .map(|field| {
+                SemanticProductionItem::non_terminal(
+                    origin(&format!("{name}.field.{field}")),
+                    ProductionFieldId::new(format!("field{field}")).unwrap(),
+                    SemanticSortRef::int(),
+                )
+            })
+            .collect();
+        productions.push(
+            SemanticProduction::new(
+                origin(&format!("{name}.production")),
+                item(name, ItemKind::Constructor),
+                SemanticSortRef::declared(sort),
+                items,
+                vec![],
+            )
+            .unwrap(),
+        );
+    }
+    for (index, operation) in HookOperation::ALL.into_iter().enumerate() {
+        let expected = match operation {
+            HookOperation::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
+            HookOperation::KryptoSha256Raw => "KRYPTO.sha256raw",
+            HookOperation::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
+            HookOperation::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
+            HookOperation::KryptoBn128Valid => "KRYPTO.bn128valid",
+            HookOperation::KryptoBn128Add => "KRYPTO.bn128add",
+            HookOperation::KryptoBn128Mul => "KRYPTO.bn128mul",
+            HookOperation::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
+            HookOperation::KryptoBn128Ate => "KRYPTO.bn128ate",
+        };
+        let (result_sort, argument_sorts) =
+            if let Some((result, arguments)) = operation.builtin_signature() {
+                (
+                    SemanticSortRef::Builtin(result),
+                    arguments
+                        .iter()
+                        .copied()
+                        .map(SemanticSortRef::Builtin)
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                match operation {
+                    HookOperation::KryptoBn128Valid => (
+                        SemanticSortRef::bool(),
+                        vec![SemanticSortRef::declared(g1.clone())],
+                    ),
+                    HookOperation::KryptoBn128G2Valid => (
+                        SemanticSortRef::bool(),
+                        vec![SemanticSortRef::declared(g2.clone())],
+                    ),
+                    HookOperation::KryptoBn128Add => {
+                        let point = SemanticSortRef::declared(g1.clone());
+                        (point.clone(), vec![point.clone(), point])
+                    }
+                    HookOperation::KryptoBn128Mul => {
+                        let point = SemanticSortRef::declared(g1.clone());
+                        (point.clone(), vec![point, SemanticSortRef::int()])
+                    }
+                    HookOperation::KryptoKeccak256Raw
+                    | HookOperation::KryptoSha256Raw
+                    | HookOperation::KryptoRipemd160Raw
+                    | HookOperation::KryptoEcdsaRecover
+                    | HookOperation::KryptoBn128Ate => unreachable!(),
+                }
+            };
+        let mut items = vec![
+            SemanticProductionItem::terminal(
+                origin(&format!("hook.{index}.terminal")),
+                format!("Hook{index}("),
+            )
+            .unwrap(),
+        ];
+        items.extend(argument_sorts.into_iter().enumerate().map(|(field, sort)| {
+            SemanticProductionItem::non_terminal(
+                origin(&format!("hook.{index}.field.{field}")),
+                ProductionFieldId::new(format!("field{field}")).unwrap(),
+                sort,
+            )
+        }));
+        productions.push(
+            SemanticProduction::new(
+                origin(&format!("hook.{index}.production")),
+                item(&format!("Hook{index}"), ItemKind::Constructor),
+                result_sort,
+                items,
+                vec![
+                    ProductionAttribute::Function {
+                        origin: origin(&format!("hook.{index}.function")),
+                    },
+                    ProductionAttribute::Total {
+                        origin: origin(&format!("hook.{index}.total")),
+                    },
+                    ProductionAttribute::Hook {
+                        origin: origin(&format!("hook.{index}.attribute")),
+                        operation,
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        assert_eq!(operation.to_string(), expected);
+    }
+    let cell = SemanticId::new("cell.k").unwrap();
+    let configuration = FixedConfiguration::new(
+        origin("hooks.configuration"),
+        SemanticId::new("configuration").unwrap(),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                origin("hooks.cell"),
+                cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::int(),
+            )
+            .unwrap(),
+        ],
+        origin("hooks.initializer"),
+        SemanticId::new("initializer").unwrap(),
+        vec![],
+        vec![FixedInitializerCell::term(
+            origin("hooks.initializer.cell"),
+            cell,
+            SemanticTerm::token(origin("hooks.token"), SemanticSortRef::int(), "0").unwrap(),
+        )],
+    )
+    .unwrap();
+    let theory = SemanticTheory::new(vec![SemanticModule::new(
+        origin("hooks.module"),
+        ModuleId::new("HOOKS").unwrap(),
+        vec![],
+        vec![
+            SemanticSort::new(origin("hooks.g1"), g1),
+            SemanticSort::new(origin("hooks.g2"), g2),
+        ],
+        vec![],
+        productions,
+        vec![],
+        vec![],
+        Some(configuration),
+        vec![],
+    )])
+    .unwrap();
+    let lowered = krs_compiler::lower_semantic_theory(&theory).unwrap();
+    let emitted = krs_compiler::emit_k(&lowered).unwrap();
+    for (index, operation) in HookOperation::ALL.into_iter().enumerate() {
+        let marker = format!("Hook{index}(");
+        let line = emitted
+            .source()
+            .lines()
+            .find(|line| line.contains(&marker))
+            .unwrap();
+        let hook = line
+            .split("hook(")
+            .nth(1)
+            .unwrap()
+            .split(')')
+            .next()
+            .unwrap();
+        assert_eq!(hook, operation.to_string(), "{operation:?}");
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let expr = item("Expr", ItemKind::Sort);
     let id_sort = item("Id", ItemKind::Sort);
