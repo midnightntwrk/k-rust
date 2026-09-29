@@ -1036,11 +1036,10 @@ fn rust_source_range(
         package.source.as_deref().unwrap_or("workspace"),
     )
     .ok()?;
-    let digest = Sha256::digest(&source);
     let file = SourceFileId::new(
         package_id,
         relative,
-        Sha256Digest::new(format!("{digest:x}")).ok()?,
+        Sha256Digest::from_bytes(Sha256::digest(&source).into()),
     )
     .ok()?;
     SourceRange::new(file, span.byte_start, span.byte_end).ok()

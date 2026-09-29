@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{IdentityError, ItemKind, StableItemId};
+use crate::{IdentityError, ItemKind, StableItemId, lower_hex};
 
 /// The semantic-production domain synthesized from a grammar descriptor.
 ///
@@ -99,8 +99,8 @@ pub fn generated_production_id(
     let disambiguator = format!(
         "krs-generated-production-v1:{}:{}:{}",
         kind.domain_tag(),
-        hex_encode(grammar_descriptor.item_name()),
-        hex_encode(grammar_descriptor.disambiguator())
+        lower_hex(grammar_descriptor.item_name().as_bytes()),
+        lower_hex(grammar_descriptor.disambiguator().as_bytes())
     );
 
     StableItemId::new(
@@ -111,14 +111,4 @@ pub fn generated_production_id(
         disambiguator,
     )
     .map_err(GeneratedProductionIdError::InvalidDerivedIdentity)
-}
-
-fn hex_encode(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(value.len() * 2);
-    for byte in value.bytes() {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
 }

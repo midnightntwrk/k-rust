@@ -4,6 +4,7 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange};
@@ -570,13 +571,7 @@ fn canonical_readable_path(path: &Path) -> String {
 }
 
 fn rust_identifier_key(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(value.len().saturating_mul(2));
-    for byte in value.bytes() {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    lower_hex(value.as_bytes())
 }
 
 fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {

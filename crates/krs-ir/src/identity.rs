@@ -7,6 +7,18 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::DisplayPath;
 
+/// Encodes bytes as lowercase hexadecimal characters.
+#[must_use]
+pub fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 /// Exact source-level visibility of one Rust declaration.
 ///
 /// Restricted visibility retains whether the author wrote the explicit
@@ -365,6 +377,12 @@ impl TryFrom<StableItemIdWire> for StableItemId {
 pub struct Sha256Digest(String);
 
 impl Sha256Digest {
+    /// Encodes the 32 digest bytes as lowercase hexadecimal characters.
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(lower_hex(&bytes))
+    }
+
     /// Parses exactly 64 lowercase hexadecimal characters.
     ///
     /// # Errors
@@ -547,6 +565,22 @@ fn validate_component(name: &'static str, value: &str) -> Result<(), IdentityErr
 mod tests {
     use super::*;
     use krs_test_support::{assert_rejects, assert_rejects_with_message};
+
+    #[test]
+    fn lowercase_hex_and_digest_from_bytes() {
+        assert_eq!(lower_hex(&[0x00, 0x01, 0x0a, 0xab, 0xff]), "00010aabff");
+        let bytes = [
+            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae,
+            0x22, 0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61,
+            0xf2, 0x00, 0x15, 0xad,
+        ];
+        let hex = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(lower_hex(&bytes), hex);
+        assert_eq!(
+            Sha256Digest::from_bytes(bytes),
+            Sha256Digest::new(hex).unwrap()
+        );
+    }
 
     fn package(namespace: &str, name: &str) -> PackageId {
         crate::testing::package_with(namespace, name, "1.0.0", "workspace")

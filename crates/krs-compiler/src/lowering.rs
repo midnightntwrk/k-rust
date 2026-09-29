@@ -17,7 +17,7 @@ use krs_ir::{
     RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
     SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
     SourceMapKey, StableItemId, StableText, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence, TransformationOriginKind,
+    SyntaxSortSentence, TransformationOriginKind, lower_hex,
 };
 use sha2::{Digest, Sha256};
 
@@ -231,7 +231,7 @@ impl NamingPass {
                 .insert(module.id().clone(), module.id().clone());
             for sort in module.sorts() {
                 let owner = stable_symbol_text(sort.id(), sort.explicit_symbol());
-                let id = SymbolId::new(format!("sort:{}", hex_encode(owner.as_bytes())))?;
+                let id = SymbolId::new(format!("sort:{}", lower_hex(owner.as_bytes())))?;
                 let name = sort.explicit_symbol().map_or_else(
                     || sort.id().item_name().to_owned(),
                     |symbol| symbol.final_component().to_owned(),
@@ -258,7 +258,7 @@ impl NamingPass {
             }
             for production in module.productions() {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
-                let id = SymbolId::new(format!("production:{}", hex_encode(owner.as_bytes())))?;
+                let id = SymbolId::new(format!("production:{}", lower_hex(owner.as_bytes())))?;
                 let name = production_symbol_name(production, &owner);
                 validate_label_name("production symbol", &name)?;
                 claim(
@@ -300,7 +300,7 @@ impl NamingPass {
             }
             for rule in module.rules() {
                 let owner = stable_item_text(rule.id());
-                let id = LabelId::new(format!("rule:{}", hex_encode(owner.as_bytes())))?;
+                let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
                     || match rule.relational_body() {
                         SemanticRuleBody::Term(_) => format!("krsRule_{}", short_hash(&owner)),
@@ -373,10 +373,7 @@ fn name_fixed_cells(
 ) -> Result<(), LoweringError> {
     for cell in cells {
         let owner = format!("configuration cell {}", cell.id().as_str());
-        let id = SymbolId::new(format!(
-            "cell:{}",
-            hex_encode(cell.id().as_str().as_bytes())
-        ))?;
+        let id = SymbolId::new(format!("cell:{}", lower_hex(cell.id().as_str().as_bytes())))?;
         validate_cell_name(cell.name())?;
         claim(
             identities,
@@ -1464,17 +1461,7 @@ fn push_component(output: &mut String, value: &str) {
 
 fn short_hash(value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
-    hex_encode(&digest[..12])
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        result.push(char::from(HEX[usize::from(byte >> 4)]));
-        result.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    result
+    lower_hex(&digest[..12])
 }
 
 fn lower_camel(value: &str) -> String {

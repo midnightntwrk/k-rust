@@ -13,7 +13,7 @@ use krs_ir::{
     DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument, ListOperation,
     MapOperation, OriginFrame, PackageId, ProtocolHeadRuleExtra, ProtocolHeadRuleResult,
     ProvenanceRole, RangedOriginKind, SemanticRule, SemanticSortRef, SemanticTheory, SetOperation,
-    SourceFileId, StableItemId,
+    Sha256Digest, SourceFileId, StableItemId,
 };
 use krs_syntax::surface::FunctionMacro;
 use proc_macro2::{Ident, Span, TokenStream};
@@ -104,7 +104,7 @@ fn read_package_source<'bundle>(
         Ok(source) => source,
         Err(error) => return Err(ReferenceSourceError::Read { path, error }),
     };
-    if format!("{:x}", Sha256::digest(&source)) != file.content_sha256().as_str() {
+    if Sha256Digest::from_bytes(Sha256::digest(&source).into()) != *file.content_sha256() {
         return Err(ReferenceSourceError::Changed(path));
     }
     let source = match String::from_utf8(source) {

@@ -91,13 +91,7 @@ pub(super) fn load_source_document(
         )
     })?;
     let line_index = LineIndex::new(&text);
-    let digest = Sha256::digest(text.as_bytes());
-    let digest = Sha256Digest::new(format!("{digest:x}")).map_err(|error| {
-        CollectionError::new(
-            CollectionErrorKind::InvalidStableIdentity,
-            format!("cannot construct source content identity: {error}"),
-        )
-    })?;
+    let digest = Sha256Digest::from_bytes(Sha256::digest(text.as_bytes()).into());
     let file =
         SourceFileId::new(context.package.clone(), &package_relative, digest).map_err(|error| {
             CollectionError::new(

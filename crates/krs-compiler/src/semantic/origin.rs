@@ -1,6 +1,6 @@
 use krs_ir::{
     Descriptor, DescriptorCellIdentity, NodeOrigin, OriginFrame, ProvenanceKey, SemanticId,
-    SourceMapKey, StableItemId, StableText, TransformationOriginKind,
+    SourceMapKey, StableItemId, StableText, TransformationOriginKind, lower_hex,
 };
 use krs_syntax::ProvenanceRole;
 use sha2::{Digest, Sha256};
@@ -21,7 +21,7 @@ pub(super) fn generated_semantic_id(
     Ok(SemanticId::new(format!(
         "{family}.{}.{}",
         owner.item_name(),
-        hex_encode(&digest[..8])
+        lower_hex(&digest[..8])
     ))?)
 }
 
@@ -78,7 +78,7 @@ fn semantic_origin_from_stack(
         seed.push_str(&key.ordinal().to_string());
     }
     let digest = Sha256::digest(seed.as_bytes());
-    let source_key = SourceMapKey::new(format!("sem.{role}.{}", hex_encode(&digest[..12])))?;
+    let source_key = SourceMapKey::new(format!("sem.{role}.{}", lower_hex(&digest[..12])))?;
     let mut origin = origin.clone();
     origin.push(OriginFrame::Transformation {
         kind: TransformationOriginKind::SemanticIr,
@@ -111,14 +111,4 @@ fn push_component(output: &mut String, value: &str) {
     output.push_str(&value.len().to_string());
     output.push(':');
     output.push_str(value);
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
 }

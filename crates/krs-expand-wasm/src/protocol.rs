@@ -328,13 +328,7 @@ fn range([start, end]: [usize; 2]) -> Result<krs_expand::sink::ByteRange, String
 /// Lowercase hexadecimal SHA-256.
 #[must_use]
 pub fn sha256(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut text, byte| {
-            let _ = write!(text, "{byte:02x}");
-            text
-        })
+    krs_ir::lower_hex(&Sha256::digest(bytes))
 }
 
 impl SourceMapJson {

@@ -590,6 +590,7 @@ name = "krs-expand-wasm"
 version = "0.1.0"
 dependencies = [
  "krs-expand",
+ "krs-ir",
  "krs-lesson-policy",
  "krs-wasm-abi",
  "serde",

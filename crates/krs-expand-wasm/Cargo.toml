@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 krs-expand = { path = "../krs-expand" }
+krs-ir = { path = "../krs-ir" }
 # Without the default `abi` feature, so this module does not re-export the
 # policy module's `krs_lesson_policy_*` symbols.
 krs-lesson-policy = { path = "../krs-lesson-policy", default-features = false }

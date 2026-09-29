@@ -68,7 +68,7 @@ pub use host::{
 };
 pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
-    StableItemId,
+    StableItemId, lower_hex,
 };
 pub use ir::{BuiltinSort, IrIdentityError, ModuleId, NodeOrigin, SemanticId, SourceMapKey};
 pub use provenance::{
