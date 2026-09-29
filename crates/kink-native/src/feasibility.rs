@@ -58,7 +58,7 @@
 use std::collections::BTreeSet;
 
 use k_rust::backend::{Backend, BackendError};
-use k_rust::kore::ast::{Pattern, Variable as KoreVariable};
+use k_rust::kore::ast::{Pattern, Sort as KoreSort, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
@@ -237,6 +237,9 @@ pub(crate) fn shared_leaf_feasibility(
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
         return LeafFeasibility::Unknown;
     };
+    if contains_non_strict_injection(definition, &pattern) {
+        return LeafFeasibility::Unknown;
+    }
     let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
         return LeafFeasibility::Unknown;
     };
@@ -258,6 +261,52 @@ pub(crate) fn shared_leaf_feasibility(
         }
         Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
     }
+}
+
+/// Only a proper subsort injection has the free decomposition used by step observations.
+pub(crate) fn strict_injection_sorts(
+    definition: &BackendDefinition,
+    source: &KoreSort,
+    target: &KoreSort,
+) -> bool {
+    let simple = |sort: &KoreSort| match sort {
+        KoreSort::Application { name, arguments } if arguments.is_empty() => {
+            Some(Sort::simple(name.as_str()))
+        }
+        _ => None,
+    };
+    let (Some(source), Some(target)) = (simple(source), simple(target)) else {
+        return false;
+    };
+    source != target
+        && definition
+            .sort_graph
+            .check_subsort(&source, &target)
+            .unwrap_or(false)
+}
+
+pub(crate) fn non_strict_injection_node(definition: &BackendDefinition, pattern: &Pattern) -> bool {
+    let Pattern::Application { symbol, arguments } = pattern else {
+        return false;
+    };
+    if symbol.name != "inj" {
+        return false;
+    }
+    let [source, target] = symbol.sort_parameters.as_slice() else {
+        return true;
+    };
+    arguments.len() != 1 || !strict_injection_sorts(definition, source, target)
+}
+
+pub(crate) fn contains_non_strict_injection(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+) -> bool {
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(pattern, |node| {
+        found |= non_strict_injection_node(definition, node);
+    });
+    found
 }
 
 /// Every term of `predicate` is built from hooked symbols, free constructors, injections,
@@ -585,11 +634,22 @@ impl RelationDecider for BackendRelations<'_> {
     /// relations the pair adds (variable on the left), and otherwise `Indeterminate`.
     fn relate(
         &self,
-        _path: &PathInput,
+        path: &PathInput,
         assumed: &[TermRelation],
         left: &Pattern,
         right: &Pattern,
     ) -> RelationDecision {
+        if self.interpreted_only
+            && (contains_non_strict_injection(self.definition, left)
+                || contains_non_strict_injection(self.definition, right)
+                || contains_non_strict_injection(self.definition, &path.path_predicate)
+                || assumed.iter().any(|relation| {
+                    contains_non_strict_injection(self.definition, &relation.left)
+                        || contains_non_strict_injection(self.definition, &relation.right)
+                }))
+        {
+            return RelationDecision::Indeterminate;
+        }
         let (Some(mut pairs), Some(left), Some(right)) =
             (self.pairs(assumed), self.term(left), self.term(right))
         else {
@@ -650,6 +710,15 @@ impl RelationDecider for BackendRelations<'_> {
     /// (see the module documentation): `Sat` for an empty query or an exact solver `Sat`,
     /// `Unsat` for a solver `Unsat`, else `Unknown`.
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        if self.interpreted_only
+            && (contains_non_strict_injection(self.definition, &path.path_predicate)
+                || assumptions.iter().any(|relation| {
+                    contains_non_strict_injection(self.definition, &relation.left)
+                        || contains_non_strict_injection(self.definition, &relation.right)
+                }))
+        {
+            return Feasibility::Unknown;
+        }
         if !path.stop.has_real_prefix() {
             return Feasibility::Unknown;
         }
@@ -1742,5 +1811,52 @@ mod tests {
             answers,
             [EqualIf(vec![relation(nat("X"), nat("Y"))]), Indeterminate]
         );
+    }
+
+    #[test]
+    fn shared_relations_refuse_identity_injections() {
+        let mut backend = backend("subsort_steps.k", "SUBSORT'Unds'STEPS");
+        let y = support::var("Y", "SortLarge");
+        let state = support::initial_state(support::app("Lblstep", vec![y.clone()]), "SortProg");
+        let identity = k_rust::kompile::initial_configuration::kore_application(
+            "inj",
+            vec![
+                k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
+                k_rust::kompile::initial_configuration::kore_sort("SortLarge"),
+            ],
+            vec![y.clone()],
+        );
+        let real = path(PathStop::DepthLimit, top());
+        backend
+            .with_solver(None, |definition, solver| {
+                let shared = BackendRelations::shared(definition, solver, &state, false);
+                assert_eq!(
+                    shared.relate(&real, &[], &identity, &y),
+                    RelationDecision::Indeterminate
+                );
+                assert_eq!(
+                    shared.feasible(&real, &[relation(identity.clone(), y.clone())]),
+                    Feasibility::Unknown
+                );
+                assert_eq!(
+                    shared.relate(&real, &[relation(identity.clone(), y.clone())], &y, &y),
+                    RelationDecision::Indeterminate
+                );
+                let invalid_state = support::initial_state(
+                    support::app("Lblstep", vec![identity.clone()]),
+                    "SortProg",
+                );
+                assert_eq!(
+                    shared_leaf_feasibility(
+                        definition,
+                        solver,
+                        &Inhabitation::of(definition),
+                        &codec::to_value(&invalid_state).expect("state JSON"),
+                    ),
+                    LeafFeasibility::Unknown
+                );
+                Ok::<_, BackendError>(())
+            })
+            .expect("relations");
     }
 }

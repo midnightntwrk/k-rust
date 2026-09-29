@@ -919,3 +919,180 @@ fn injections_match_modulo_subsorts() {
         })
         .expect("decider");
 }
+
+#[test]
+fn identity_injection_declaration_is_refused() {
+    let validator =
+        NativeValidator::bind(support::load("subsort_steps.k"), CompileOptions::default());
+    let side = validator
+        .compile_baseline()
+        .expect("subsort fixture compiles");
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "SUBSORT'Unds'STEPS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let identity = k_rust::kompile::initial_configuration::kore_application(
+        "inj",
+        vec![kore_sort("SortLarge"), kore_sort("SortLarge")],
+        vec![support::var("X", "SortLarge")],
+    );
+    let spec = StepEventSpec {
+        constructor: "probe".into(),
+        pre: support::k_config(
+            app("Lblstep", vec![support::var("X", "SortLarge")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app("Lbldone", vec![identity]),
+            "SortProg",
+            "R2",
+            "C2",
+        )),
+        payload: vec![],
+    };
+    assert!(matches!(
+        StepObservation::new(&mut backend, vec![spec]),
+        Err(StepObservationError::VariableSort(_))
+    ));
+}
+
+#[test]
+fn unvalidated_identity_injections_are_undecided() {
+    let validator =
+        NativeValidator::bind(support::load("subsort_steps.k"), CompileOptions::default());
+    let side = validator
+        .compile_baseline()
+        .expect("subsort fixture compiles");
+    let inj = |source: &str, target: &str, value| {
+        k_rust::kompile::initial_configuration::kore_application(
+            "inj",
+            vec![kore_sort(source), kore_sort(target)],
+            vec![value],
+        )
+    };
+    let spec = StepEventSpec {
+        constructor: "probe".into(),
+        pre: support::k_config(
+            app("Lblstep", vec![support::var("X", "SortLarge")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app(
+                "Lbldone",
+                vec![inj(
+                    "SortLarge",
+                    "SortLarge",
+                    support::var("X", "SortLarge"),
+                )],
+            ),
+            "SortProg",
+            "R2",
+            "C2",
+        )),
+        payload: vec![],
+    };
+    for argument in [
+        support::var("Y", "SortLarge"),
+        inj("SortSmall", "SortLarge", app("Lbla", vec![])),
+        inj("SortOther", "SortLarge", app("Lblb", vec![])),
+    ] {
+        let state = support::initial_state(app("Lblstep", vec![argument]), "SortProg");
+        let stepped = run_steps(&side, "SUBSORT'Unds'STEPS", &state);
+        let paths = paths_for(&side, &side, "SUBSORT'Unds'STEPS", &state, vec![]);
+        let mut backend = Backend::new(
+            &side.artifacts().definition_kore,
+            "SUBSORT'Unds'STEPS",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        backend
+            .with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(definition, solver, &state, false);
+                assert!(matches!(
+                    decider.classify_step(
+                        &spec,
+                        &stepped.states[0][0],
+                        Some(&stepped.states[0][1]),
+                        &paths[0],
+                    ),
+                    StepPresence::Undecided
+                ));
+                let identity = inj("SortLarge", "SortLarge", support::var("Y", "SortLarge"));
+                assert!(matches!(
+                    decider.classify_step(
+                        &bare_spec(identity.clone(), &[]),
+                        &identity,
+                        None,
+                        &paths[0]
+                    ),
+                    StepPresence::Undecided
+                ));
+                assert!(matches!(
+                    decider.classify_step(
+                        &bare_spec(inj("SortSmall", "SortLarge", app("Lbla", vec![])), &[]),
+                        &identity,
+                        None,
+                        &paths[0],
+                    ),
+                    StepPresence::Undecided
+                ));
+                Ok::<_, k_rust::backend::BackendError>(())
+            })
+            .expect("decider");
+    }
+}
+
+#[test]
+fn ill_sorted_injection_constructor_heads_are_undecided() {
+    let validator =
+        NativeValidator::bind(support::load("subsort_steps.k"), CompileOptions::default());
+    let side = validator
+        .compile_baseline()
+        .expect("subsort fixture compiles");
+    let state = support::initial_state(app("Lblhalt", vec![]), "SortProg");
+    let paths = paths_for(&side, &side, "SUBSORT'Unds'STEPS", &state, vec![]);
+    let inj = |source: &str, target: &str, value| {
+        k_rust::kompile::initial_configuration::kore_application(
+            "inj",
+            vec![kore_sort(source), kore_sort(target)],
+            vec![value],
+        )
+    };
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "SUBSORT'Unds'STEPS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, false);
+            for (pattern, subject) in [
+                (
+                    inj("SortSmall", "SortKItem", support::var("X", "SortSmall")),
+                    inj("SortLarge", "SortKItem", app("Lbla", vec![])),
+                ),
+                (
+                    inj("SortLeft", "SortWide", support::var("X", "SortLeft")),
+                    inj("SortRight", "SortWide", app("Lblt", vec![])),
+                ),
+                (
+                    inj("SortLeft", "SortWide", app("Lblt", vec![])),
+                    inj("SortRight", "SortWide", support::var("Y", "SortRight")),
+                ),
+            ] {
+                assert!(matches!(
+                    decider.classify_step(&bare_spec(pattern, &[]), &subject, None, &paths[0]),
+                    StepPresence::Undecided
+                ));
+            }
+            Ok::<_, k_rust::backend::BackendError>(())
+        })
+        .expect("decider");
+}

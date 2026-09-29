@@ -12,7 +12,10 @@ use kink_pattern::{
     TermRelation,
 };
 
-use crate::feasibility::{BackendRelations, Inhabitation, free_constructor};
+use crate::feasibility::{
+    BackendRelations, Inhabitation, contains_non_strict_injection, free_constructor,
+    non_strict_injection_node, strict_injection_sorts,
+};
 use crate::names::names_exact;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -232,6 +235,11 @@ fn validate_node(
                     "injection arity".into(),
                 ));
             }
+            if !strict_injection_sorts(definition, source, target) {
+                return Err(StepObservationError::VariableSort(
+                    "injection must have a strict subsort source".into(),
+                ));
+            }
             if expected.is_some_and(|sort| internal_sort(target).as_ref() != Some(sort)) {
                 return Err(StepObservationError::VariableSort(
                     "injection target".into(),
@@ -332,6 +340,16 @@ impl<'a> ObservationDecider<'a> {
         post: Option<&Pattern>,
         path: &PathInput,
     ) -> StepPresence {
+        if contains_non_strict_injection(self.definition, &spec.pre)
+            || spec
+                .post
+                .as_ref()
+                .is_some_and(|post| contains_non_strict_injection(self.definition, post))
+            || contains_non_strict_injection(self.definition, pre)
+            || post.is_some_and(|post| contains_non_strict_injection(self.definition, post))
+        {
+            return StepPresence::Undecided;
+        }
         let mut walk = Walk::default();
         walk.pair(self.definition, &spec.pre, pre);
         if let Some(pattern) = &spec.post {
@@ -415,6 +433,12 @@ struct Walk {
 impl Walk {
     fn pair(&mut self, definition: &BackendDefinition, pattern: &Pattern, state: &Pattern) {
         if self.absent {
+            return;
+        }
+        if non_strict_injection_node(definition, pattern)
+            || non_strict_injection_node(definition, state)
+        {
+            self.undecided = true;
             return;
         }
         if let Pattern::Variable(var) = pattern {
@@ -522,13 +546,13 @@ impl Walk {
                 {
                     if matches!(sa[0], Pattern::Variable(_)) {
                         self.pairs.push((pattern.clone(), state.clone(), true));
-                    } else if free_top(definition, &sa[0]) {
+                    } else if free_top(definition, &sa[0], &s_sort) {
                         self.absent = true;
                     } else {
                         self.undecided = true;
                     }
-                } else if free_top(definition, &sa[0])
-                    || free_top(definition, &pa[0])
+                } else if free_top(definition, &sa[0], &s_sort)
+                    || free_top(definition, &pa[0], &p_sort)
                     || closures_disjoint(definition, &p_sort, &s_sort)
                 {
                     self.absent = true;
@@ -554,8 +578,10 @@ fn free_symbol(definition: &BackendDefinition, name: &str) -> bool {
         .get(name)
         .is_some_and(|symbol| free_constructor(symbol))
 }
-fn free_top(definition: &BackendDefinition, pattern: &Pattern) -> bool {
-    matches!(pattern, Pattern::Application { symbol, .. } if free_symbol(definition, &symbol.name))
+fn free_top(definition: &BackendDefinition, pattern: &Pattern, sort: &InternalSort) -> bool {
+    matches!(pattern, Pattern::Application { symbol, .. }
+        if definition.symbols.get(symbol.name.as_str()).is_some_and(|head|
+            free_constructor(head) && head.result_sort == *sort))
 }
 
 fn closures_disjoint(
