@@ -73,7 +73,7 @@ fn expand_head_rule(
     let cfg = call_site_cfg_attributes(&rule.item().attrs)?;
     let sort_path = call_site_path(rule.parameter().term_sort.sort())?;
     let sort_type = sort_type_tokens(&sort_path, rule.parameter().term_sort.is_dynamic());
-    let sort_spelling = rule.parameter().term_sort.sort_spelling();
+    let sort_spelling = rule.parameter().term_sort.sort_token_text();
     let mut slots = WireSlots::new(&facade);
     let sort_slot = slots.type_slot(quote!(#facade::HostTypeKey(#sort_key)));
     let binding_idents = clause.bindings().to_vec();

@@ -49,7 +49,7 @@ fn imp_expression_table_reuses_the_structured_rule_grammar() {
     )
     .unwrap();
 
-    assert_eq!(block.sort().sort_spelling(), "Expr");
+    assert_eq!(block.sort().sort_token_text(), "Expr");
     assert_eq!(block.imports().len(), 1);
     assert_eq!(block.imports()[0].owner().segments[0].ident, "Op");
     assert_eq!(block.clauses().len(), 18);
@@ -231,7 +231,7 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
     .unwrap();
 
     assert!(block.is_configuration());
-    assert_eq!(block.sort().sort_spelling(), "Machine");
+    assert_eq!(block.sort().sort_token_text(), "Machine");
     assert_eq!(block.imports()[0].owner().segments[0].ident, "StmtSyntax");
     assert_eq!(block.imports()[0].variant().unwrap(), "Assign");
     assert_eq!(

@@ -38,10 +38,16 @@ pub enum BooleanExpr {
     assert_eq!(record.result_sort(), "BooleanExpr");
     assert_eq!(record.fields().len(), 2);
     assert_eq!(record.fields()[0].name(), "lhs");
-    assert_eq!(record.fields()[0].term_sort().sort_spelling(), "ExprAlias");
+    assert_eq!(
+        record.fields()[0].term_sort().sort_token_text(),
+        "ExprAlias"
+    );
     assert!(record.fields()[0].term_sort().is_dynamic());
     assert_eq!(record.fields()[1].name(), "rhs");
-    assert_eq!(record.fields()[1].term_sort().sort_spelling(), "AliasValue");
+    assert_eq!(
+        record.fields()[1].term_sort().sort_token_text(),
+        "AliasValue"
+    );
 
     let syntax = record.syntax().unwrap();
     assert_eq!(
@@ -86,7 +92,7 @@ enum Family {
     assert_eq!(
         declaration.variants()[0].fields()[0]
             .term_sort()
-            .sort_spelling(),
+            .sort_token_text(),
         "InnerAlias"
     );
 
@@ -281,7 +287,7 @@ enum Op {
     assert_eq!(
         declaration.variants()[1].fields()[1]
             .term_sort()
-            .sort_spelling(),
+            .sort_token_text(),
         "builtin :: Int"
     );
     assert_eq!(
@@ -305,7 +311,7 @@ enum Op {
     assert_eq!(
         declaration.variants()[3].fields()[0]
             .term_sort()
-            .sort_spelling(),
+            .sort_token_text(),
         "ValueAlias"
     );
     assert_eq!(declaration.variants()[4].variant().fields.len(), 0);
@@ -431,9 +437,15 @@ enum Op {
     let constructor_sort = variant.constructor_sort();
     assert_eq!(quote::quote!(#constructor_sort).to_string(), "Expr");
     assert_eq!(variant.fields().len(), 2);
-    assert_eq!(variant.fields()[0].term_sort().sort_spelling(), "ExprSort");
+    assert_eq!(
+        variant.fields()[0].term_sort().sort_token_text(),
+        "ExprSort"
+    );
     assert!(variant.fields()[0].term_sort().is_dynamic());
-    assert_eq!(variant.fields()[1].term_sort().sort_spelling(), "k :: Int");
+    assert_eq!(
+        variant.fields()[1].term_sort().sort_token_text(),
+        "k :: Int"
+    );
     assert!(!variant.fields()[1].term_sort().is_dynamic());
 
     let syntax = variant.syntax().unwrap();

@@ -39,9 +39,9 @@ fn empty_init_attribute_and_zero_argument_foo_initializer_are_accepted() {
     assert_eq!(candidates[0].path_spelling(), "Self");
     assert_eq!(
         candidates[1].path_spelling(),
-        "k :: configuration :: KCell :: new"
+        "k::configuration::KCell::new"
     );
-    assert_eq!(candidates[2].path_spelling(), "model :: Foo");
+    assert_eq!(candidates[2].path_spelling(), "model::Foo");
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn one_main_variable_preserves_parameter_body_and_resolution_candidates() {
         .iter()
         .map(krs_syntax::ReferenceCandidate::path_spelling)
         .collect::<Vec<_>>();
-    assert_eq!(paths, ["Self", "model :: KItem", "KCell :: new"]);
+    assert_eq!(paths, ["Self", "model::KItem", "KCell::new"]);
     assert!(!paths.iter().any(|path| path == "program"));
 }
 
@@ -102,7 +102,7 @@ fn main_variable_accepts_a_declared_open_syntax_sort() {
         "Expr"
     );
     let candidates = initializer.reference_candidates().unwrap();
-    assert_eq!(candidates[1].path_spelling(), "model :: Expr");
+    assert_eq!(candidates[1].path_spelling(), "model::Expr");
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn readable_initializer_infers_variables_wrappers_and_main_input() {
         .into_iter()
         .map(|candidate| candidate.path_spelling())
         .collect::<Vec<_>>();
-    assert_eq!(candidates, ["Self", "model :: Stmt", "builtin :: Map"]);
+    assert_eq!(candidates, ["Self", "model::Stmt", "builtin::Map"]);
 
     let roles = initializer
         .provenance()

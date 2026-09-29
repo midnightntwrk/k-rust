@@ -88,7 +88,7 @@ pub(crate) fn context_alias(
                         #[doc(hidden)]
                         fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() }
                     });
-                    let sort_spelling = sort.sort_spelling();
+                    let sort_spelling = sort.sort_token_text();
                     let ordinal = term_ordinal;
                     term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
                         syn::Error::new(binding.name().span(), "too many context bindings")
@@ -251,7 +251,7 @@ pub(super) fn configuration_rule(
                         ::core::any::TypeId::of::<#ty>()
                     }
                 });
-                let authored = sort.sort_spelling();
+                let authored = sort.sort_token_text();
                 let ordinal = term_ordinal;
                 term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
                     syn::Error::new(binding.name().span(), "too many term bindings")

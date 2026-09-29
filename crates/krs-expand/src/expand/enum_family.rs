@@ -429,7 +429,7 @@ fn expand_enum_variant(
             let path = call_site_path(field.term_sort().sort())?;
             sort_type_tokens(&path, field.term_sort().is_dynamic())
         };
-        let spelling = field.term_sort().sort_spelling();
+        let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();
         field_key_functions.push(quote! {
             #(#cfg)*
@@ -648,7 +648,7 @@ fn enum_variant_production_wire_items(
                             ProvenanceRole::ConstructorFieldSort,
                             declaration_ordinal,
                             &sort_key,
-                            &field.term_sort().sort_spelling(),
+                            &field.term_sort().sort_token_text(),
                         )),
                     });
                     field_ordinal = field_ordinal
@@ -680,7 +680,7 @@ fn enum_variant_production_wire_items(
                     ProvenanceRole::ConstructorFieldSort,
                     ordinal,
                     &sort_key,
-                    &field.term_sort().sort_spelling(),
+                    &field.term_sort().sort_token_text(),
                 )),
             });
         }

@@ -7,8 +7,9 @@ use syn::{
     LitByteStr, LitInt, LitStr, Member, Path, Token,
 };
 
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::surface::path_text;
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// Syntactic shape at the root of an accepted term.
@@ -1051,7 +1052,7 @@ pub(crate) fn is_term_macro(path: &Path) -> bool {
 pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::UnexpectedMacro {
-            path: path_spelling(path),
+            path: path_text(path),
         },
         path.span(),
     )

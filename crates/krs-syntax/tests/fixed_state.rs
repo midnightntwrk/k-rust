@@ -105,12 +105,12 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
     assert!(refs.contains(&(
         ProvenanceRole::ConfigurationCellContent,
         1,
-        "k :: builtin :: Map".into()
+        "k::builtin::Map".into()
     )));
     assert!(refs.contains(&(
         ProvenanceRole::ConfigurationCellContent,
         2,
-        "model :: Frame".into()
+        "model::Frame".into()
     )));
 
     for source in [
@@ -321,14 +321,14 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
     assert_eq!(
         qualified.entries()[0]
             .owner()
-            .map(krs_syntax::state_path_spelling)
+            .map(krs_syntax::surface::path_text)
             .as_deref(),
-        Some("crate :: model :: Account")
+        Some("crate::model::Account")
     );
     assert_eq!(
         qualified.entries()[1]
             .owner()
-            .map(krs_syntax::state_path_spelling)
+            .map(krs_syntax::surface::path_text)
             .as_deref(),
         Some("Account")
     );
@@ -527,7 +527,11 @@ fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
     assert_eq!(
         rule.bindings()
             .iter()
-            .filter_map(|binding| { binding.term_sort().map(krs_syntax::TermSort::sort_spelling) })
+            .filter_map(|binding| {
+                binding
+                    .term_sort()
+                    .map(krs_syntax::TermSort::sort_token_text)
+            })
             .collect::<Vec<_>>(),
         ["Id", "Value"]
     );
@@ -580,11 +584,11 @@ fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
             (StateRuleReferenceKind::BindingSort, "Value".into()),
             (
                 StateRuleReferenceKind::Configuration,
-                "model :: Machine".into()
+                "model::Machine".into()
             ),
             (
                 StateRuleReferenceKind::Configuration,
-                "model :: Machine".into()
+                "model::Machine".into()
             ),
             (StateRuleReferenceKind::CellWrapper, "KCell".into()),
             (StateRuleReferenceKind::CellWrapper, "Cell".into()),

@@ -8,7 +8,7 @@ use proc_macro2::{Span, TokenStream};
 use syn::parse::{ParseStream, Parser};
 use syn::{Attribute, Path};
 
-use crate::attribute::path_spelling;
+use crate::surface::path_text;
 use crate::{ProvenanceRole, SyntaxError, SyntaxErrorKind};
 
 /// An error from a parser that accepts both Rust and structured syntax failures.
@@ -196,10 +196,10 @@ impl<K> ReferenceCandidate<K> {
         &self.path
     }
 
-    /// Returns a deterministic spelling of the authored path.
+    /// Returns the authored path as [`path_text`] spells it.
     #[must_use]
     pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
+        path_text(&self.path)
     }
 
     /// Returns the parser-owned semantic kind.

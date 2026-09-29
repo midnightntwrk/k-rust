@@ -14,7 +14,10 @@ fn term_macro_rule_preserves_signature_references_and_roles() {
         &rule.parameter().pattern,
         RulePattern::TermMacro { .. }
     ));
-    assert_eq!(rule.parameter().term_sort.sort_spelling(), "model :: Expr");
+    assert_eq!(
+        rule.parameter().term_sort.sort_token_text(),
+        "model :: Expr"
+    );
     assert!(rule.parameter().term_sort.is_dynamic());
     assert_eq!(rule.result().symbols().len(), 2);
 
@@ -101,7 +104,7 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
         references,
         [(
             ProvenanceRole::RuleRequiresApplicationHead,
-            "builtin :: int :: gt".into()
+            "builtin::int::gt".into()
         )]
     );
 }
@@ -252,12 +255,12 @@ fn term_rule_candidates_preserve_ast_ordinals_across_binding_gaps() {
     assert_eq!(
         actual,
         [
-            (ProvenanceRole::RuleType, 0, "model :: Expr".into()),
-            (ProvenanceRole::RuleResultType, 0, "result :: Expr".into()),
-            (ProvenanceRole::RuleLeftPath, 0, "model :: Foo".into()),
-            (ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into()),
-            (ProvenanceRole::RuleRightPath, 0, "result :: Wrap".into()),
-            (ProvenanceRole::RuleRightPath, 2, "model :: Bar".into()),
+            (ProvenanceRole::RuleType, 0, "model::Expr".into()),
+            (ProvenanceRole::RuleResultType, 0, "result::Expr".into()),
+            (ProvenanceRole::RuleLeftPath, 0, "model::Foo".into()),
+            (ProvenanceRole::RuleLeftPath, 2, "model::Unit".into()),
+            (ProvenanceRole::RuleRightPath, 0, "result::Wrap".into()),
+            (ProvenanceRole::RuleRightPath, 2, "model::Bar".into()),
             (ProvenanceRole::RuleRightPath, 3, "Done".into()),
         ]
     );
@@ -298,10 +301,10 @@ fn native_rule_bindings_are_not_guessed_as_short_name_constructors() {
             )
         })
         .collect::<Vec<_>>();
-    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 0, "model :: Foo".into())));
-    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into())));
-    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 0, "model :: Bar".into())));
-    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 2, "model :: Done".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 0, "model::Foo".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleLeftPath, 2, "model::Unit".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 0, "model::Bar".into())));
+    assert!(paths.contains(&(ProvenanceRole::RuleRightPath, 2, "model::Done".into())));
     assert!(!paths.iter().any(|(_, _, path)| path == "value"));
 }
 
@@ -467,11 +470,11 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
         compact,
         [
             (ProvenanceRole::RuleLeftPath, 0, "Outer".into()),
-            (ProvenanceRole::RuleLeftPath, 2, "model :: Unit".into()),
-            (ProvenanceRole::RuleLeftPath, 4, "model :: Done".into()),
+            (ProvenanceRole::RuleLeftPath, 2, "model::Unit".into()),
+            (ProvenanceRole::RuleLeftPath, 4, "model::Done".into()),
             (ProvenanceRole::RuleRightPath, 0, "Result".into()),
-            (ProvenanceRole::RuleRightPath, 2, "model :: Keep".into()),
-            (ProvenanceRole::RuleRightPath, 4, "model :: End".into()),
+            (ProvenanceRole::RuleRightPath, 2, "model::Keep".into()),
+            (ProvenanceRole::RuleRightPath, 4, "model::End".into()),
         ]
     );
 
@@ -491,15 +494,11 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
         typed,
         [
             (ProvenanceRole::RuleLeftApplicationHead, 0, "Outer".into()),
-            (ProvenanceRole::RuleLeftReference, 1, "model :: Unit".into()),
-            (ProvenanceRole::RuleLeftReference, 3, "model :: Done".into()),
+            (ProvenanceRole::RuleLeftReference, 1, "model::Unit".into()),
+            (ProvenanceRole::RuleLeftReference, 3, "model::Done".into()),
             (ProvenanceRole::RuleRightApplicationHead, 0, "Result".into()),
-            (
-                ProvenanceRole::RuleRightReference,
-                1,
-                "model :: Keep".into()
-            ),
-            (ProvenanceRole::RuleRightReference, 3, "model :: End".into()),
+            (ProvenanceRole::RuleRightReference, 1, "model::Keep".into()),
+            (ProvenanceRole::RuleRightReference, 3, "model::End".into()),
         ]
     );
 }

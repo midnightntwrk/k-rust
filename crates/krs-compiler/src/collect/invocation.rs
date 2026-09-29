@@ -4,7 +4,7 @@ use krs_syntax::KrsSyntax;
 use std::collections::BTreeMap;
 
 use krs_ir::{HostDescriptorPayload, ProvenanceKey, RustVisibility, StableItemId};
-use krs_syntax::surface::{AttributeMacro, FunctionMacro};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro, path_text};
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
@@ -14,7 +14,6 @@ use krs_syntax::{
 use proc_macro2::TokenStream;
 use syn::{Attribute, ImplItem, Item, Meta};
 
-use super::path_spelling;
 use super::provenance::{Coordinates, token_coordinates};
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
@@ -1039,7 +1038,7 @@ fn attribute_tokens(attribute: &Attribute) -> Result<TokenStream, CollectionErro
             CollectionErrorKind::SourceSyntax,
             format!(
                 "KRS attribute `{}` must use path or list syntax",
-                path_spelling(attribute.path())
+                path_text(attribute.path())
             ),
         )),
     }
@@ -1055,7 +1054,7 @@ pub(super) fn declaration_metadata(
         syn::Visibility::Inherited => RustVisibility::Inherited,
         syn::Visibility::Public(_) => RustVisibility::Public,
         syn::Visibility::Restricted(restricted) => {
-            let path = path_spelling(&restricted.path).replace(' ', "");
+            let path = path_text(&restricted.path);
             RustVisibility::restricted(path, restricted.in_token.is_some()).map_err(|error| {
                 CollectionError::new(
                     CollectionErrorKind::SourceSyntax,
@@ -1072,7 +1071,7 @@ pub(super) fn declaration_metadata(
     let target_name = target.name();
     let symbol_spelling = symbols.first().map_or_else(
         || "#[k::symbol]".to_owned(),
-        |(_, attribute)| format!("#[{}]", path_spelling(attribute.path())),
+        |(_, attribute)| format!("#[{}]", path_text(attribute.path())),
     );
     let target_spelling = symbols
         .first()

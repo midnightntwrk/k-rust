@@ -271,8 +271,8 @@ fn expand_ordinary_rule(
         key: wire_key(ProvenanceRole::RuleLabel, 0),
         name: label.value().clone(),
     });
-    let parameter_sort_spelling = rule.parameter().term_sort.sort_spelling();
-    let result_sort_spelling = rule.result_sort().sort_spelling();
+    let parameter_sort_spelling = rule.parameter().term_sort.sort_token_text();
+    let result_sort_spelling = rule.result_sort().sort_token_text();
     let bindings = rule
         .parameter()
         .pattern

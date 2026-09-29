@@ -66,7 +66,7 @@ pub use state_macro::{
     parse_cells_expression_source_with_trivia, parse_cells_pattern,
     parse_cells_pattern_source_with_trivia, parse_k_sequence_expression, parse_k_sequence_pattern,
     parse_map_expression, parse_map_expression_source_with_trivia, parse_map_pattern,
-    parse_map_pattern_source_with_trivia, state_path_spelling,
+    parse_map_pattern_source_with_trivia,
 };
 pub use state_rule::{
     ClaimEnsures, ClaimSortCandidate, StateClaimItem, StateContextAliasItem, StateRuleBinding,

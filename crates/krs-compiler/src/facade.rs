@@ -281,7 +281,7 @@ impl<'a> AttributeResolver<'a> {
                 CollectionErrorKind::UnresolvedAttribute,
                 format!(
                     "attribute `{}` at `{}`:{}:{} is named like the KRS entry point `{}` but does not invoke it; KRS attributes are written only under a name that binds the `krs` facade, so {}",
-                    attribute_spelling(attribute.path()),
+                    surface::path_text(attribute.path()),
                     self.display_file,
                     start.line(),
                     start.scalar_column(),
@@ -322,7 +322,7 @@ impl<'a> AttributeResolver<'a> {
             CollectionErrorKind::UnresolvedAttribute,
             format!(
                 "macro `{}` at `{}`:{}:{} is named like the KRS entry point `{}` but does not invoke it; KRS macros are written only under a name that binds the `krs` facade, so {}",
-                attribute_spelling(&invocation.path),
+                surface::path_text(&invocation.path),
                 self.display_file,
                 start.line(),
                 start.scalar_column(),
@@ -388,12 +388,6 @@ fn nested_bindings(tree: &UseTree, shadowed: &mut BTreeSet<String>) {
         }
         UseTree::Path(path) => nested_bindings(&path.tree, shadowed),
     }
-}
-
-fn attribute_spelling(path: &syn::Path) -> String {
-    quote::ToTokens::to_token_stream(path)
-        .to_string()
-        .replace(' ', "")
 }
 
 fn read_manifest(manifest: &Path) -> Result<Document<String>, CollectionError> {

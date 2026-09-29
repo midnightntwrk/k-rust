@@ -557,11 +557,3 @@ fn is_rust_identifier(value: &str) -> bool {
         .is_some_and(|first| first == '_' || first.is_alphabetic())
         && characters.all(|character| character == '_' || character.is_alphanumeric())
 }
-
-fn path_spelling(path: &syn::Path) -> String {
-    path.segments
-        .iter()
-        .map(|segment| segment.ident.to_string())
-        .collect::<Vec<_>>()
-        .join("::")
-}

@@ -109,7 +109,7 @@ fn configuration_claim(
                 let key_fn =
                     format_ident!("__krs_claim_universal_sort_{nonce:016x}_{term_ordinal}");
                 key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() } });
-                let authored = sort.sort_spelling();
+                let authored = sort.sort_token_text();
                 let ordinal = term_ordinal;
                 term_ordinal += 1;
                 let sort_ref = host_sort_reference(

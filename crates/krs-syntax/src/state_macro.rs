@@ -6,8 +6,9 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
+use crate::surface::path_text;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TokenRange,
 };
@@ -830,7 +831,7 @@ fn parse_cells(
                 };
                 let identity = owner.as_ref().map_or_else(
                     || name.to_string(),
-                    |owner| format!("{}::{name}", path_spelling(owner)),
+                    |owner| format!("{}::{name}", path_text(owner)),
                 );
                 if !names.insert(identity) {
                     return Err(state_error(
@@ -1095,10 +1096,4 @@ fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> Sy
         SyntaxErrorKind::InvalidStateMacro { macro_name, reason },
         span,
     )
-}
-
-/// Deterministic spelling helper for state-macro reference paths.
-#[must_use]
-pub fn state_path_spelling(path: &Path) -> String {
-    path_spelling(path)
 }

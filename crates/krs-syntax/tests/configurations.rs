@@ -58,12 +58,12 @@ fn one_fixed_computation_cell_preserves_type_paths_and_order() {
 
     let candidates = declaration.reference_candidates();
     assert_eq!(candidates.len(), 2);
-    assert_eq!(candidates[0].path_spelling(), "k :: configuration :: KCell");
+    assert_eq!(candidates[0].path_spelling(), "k::configuration::KCell");
     assert_eq!(
         candidates[0].key().role(),
         ProvenanceRole::ConfigurationCellWrapper
     );
-    assert_eq!(candidates[1].path_spelling(), "k :: builtin :: KSequence");
+    assert_eq!(candidates[1].path_spelling(), "k::builtin::KSequence");
 
     let roles = declaration
         .provenance()
@@ -116,9 +116,9 @@ fn readable_plain_fields_infer_leaf_wrappers_and_keep_exact_provenance() {
     assert_eq!(
         candidates,
         [
-            "renamed :: builtin :: KSequence",
-            "renamed :: builtin :: Map",
-            "renamed :: builtin :: Id",
+            "renamed::builtin::KSequence",
+            "renamed::builtin::Map",
+            "renamed::builtin::Id",
             "Value",
         ]
     );

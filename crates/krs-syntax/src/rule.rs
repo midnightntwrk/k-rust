@@ -14,7 +14,7 @@ use syn::{
 use krs_ir::ProvenanceKey;
 
 use crate::ReferenceCandidate;
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::attribute::is_plain_path;
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
     unsupported_rule_signature as unsupported_signature,
@@ -52,10 +52,11 @@ impl TermSort {
         self.dynamic
     }
 
-    /// Returns the deterministic source-like sort path spelling.
+    /// Returns the token-stream text of the sort path, such as `model :: Expr`,
+    /// which descriptors carry as the sort's `authored_path`.
     #[must_use]
-    pub fn sort_spelling(&self) -> String {
-        path_spelling(&self.sort)
+    pub fn sort_token_text(&self) -> String {
+        self.sort.to_token_stream().to_string()
     }
 }
 

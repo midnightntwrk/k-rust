@@ -1,5 +1,4 @@
 use proc_macro2::TokenStream;
-use quote::ToTokens;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, ExprPath, Ident, Lit, LitBool, LitInt, LitStr, Path, Token};
@@ -2334,8 +2333,4 @@ pub(crate) fn is_plain_path(path: &Path) -> bool {
             .segments
             .iter()
             .all(|segment| matches!(segment.arguments, syn::PathArguments::None))
-}
-
-pub(crate) fn path_spelling(path: &Path) -> String {
-    path.to_token_stream().to_string()
 }

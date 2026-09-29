@@ -288,7 +288,7 @@ fn constructor_like(
         );
         let generated = call_site_path(field.term_sort().sort())?;
         let generated = sort_type_tokens(&generated, field.term_sort().is_dynamic());
-        let spelling = field.term_sort().sort_spelling();
+        let spelling = field.term_sort().sort_token_text();
         let field_name = field.name().to_string();
         field_key_functions.push(quote! {
             #(#cfg)*
@@ -845,7 +845,7 @@ fn constructor_production_wire_items(
                         .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
                     let sort_key =
                         format_ident!("__krs_constructor_field_{nonce:016x}_{declaration_index}");
-                    let sort_spelling = fields[declaration_index].term_sort().sort_spelling();
+                    let sort_spelling = fields[declaration_index].term_sort().sort_token_text();
                     let sort = wire_sort_reference(
                         slots,
                         facade,
@@ -885,7 +885,7 @@ fn constructor_production_wire_items(
                 .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
             let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
-            let sort_spelling = field.term_sort().sort_spelling();
+            let sort_spelling = field.term_sort().sort_token_text();
             items.push(WireProductionItem::NonTerminal {
                 key: key.clone(),
                 field_key: key.clone(),

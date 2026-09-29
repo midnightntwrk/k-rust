@@ -534,7 +534,7 @@ fn explicit_builtin_to_authored_subsort_retains_both_paths() {
         declaration.sub_sort().to_token_stream().to_string(),
         "k :: Int"
     );
-    assert_eq!(declaration.spelling(), "value :: Value for k :: Int");
+    assert_eq!(declaration.spelling(), "value::Value for k::Int");
     let anchors = declaration.provenance().unwrap();
     assert_eq!(anchors[0].role(), ProvenanceRole::SubsortDeclaration);
     assert_eq!(anchors[1].role(), ProvenanceRole::SubsortSuperSort);
@@ -582,12 +582,12 @@ fn rules_preserve_builtin_heads_binders_and_literals() {
     assert!(actual.contains(&(
         ProvenanceRole::RuleRightApplicationHead,
         TermSymbolKind::ApplicationHead,
-        "int :: add".into()
+        "int::add".into()
     )));
     assert!(actual.contains(&(
         ProvenanceRole::RuleRightApplicationHead,
         TermSymbolKind::ApplicationHead,
-        "int :: sub".into()
+        "int::sub".into()
     )));
     assert!(
         !actual

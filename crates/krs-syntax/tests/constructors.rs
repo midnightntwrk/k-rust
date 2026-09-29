@@ -23,12 +23,12 @@ fn unit_and_named_record_constructors_preserve_original_items() {
     assert_eq!(record.fields()[0].name(), "lhs");
     assert_eq!(record.fields()[1].name(), "rhs");
     assert_eq!(
-        record.fields()[0].term_sort().sort_spelling(),
+        record.fields()[0].term_sort().sort_token_text(),
         "model :: Expr"
     );
     assert!(record.fields()[0].term_sort().is_dynamic());
     assert_eq!(
-        record.fields()[1].term_sort().sort_spelling(),
+        record.fields()[1].term_sort().sort_token_text(),
         "crate :: value :: Value"
     );
     assert!(!record.fields()[1].term_sort().is_dynamic());
