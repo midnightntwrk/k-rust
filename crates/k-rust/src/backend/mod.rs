@@ -1000,22 +1000,22 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
-        let (result, result_sort) =
+        let (verdict, result_sort) =
             self.implies_kore(request.module_name.as_deref(), &antecedent, &consequent)?;
         Ok(ImplicationResult {
             schema_version: IMPLICATION_SCHEMA_VERSION,
-            status: match result.status {
+            status: match verdict.status() {
                 ImplicationStatus::Valid => "valid",
                 ImplicationStatus::Invalid => "invalid",
                 ImplicationStatus::Indeterminate => "unknown",
             }
             .into(),
-            condition: result
-                .condition
+            failure: verdict.failure().map(|failure| format!("{failure:?}")),
+            condition: verdict
+                .into_condition()
                 .as_ref()
                 .map(|condition| condition_pattern(condition, &result_sort))
                 .transpose()?,
-            failure: result.failure.map(|failure| format!("{failure:?}")),
         })
     }
 

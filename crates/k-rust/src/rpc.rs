@@ -57,8 +57,9 @@ use k_rust_backend::{
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
     implication::{
-        ImplicationError, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_negated_consequent, grade_special_case, special_case, validate_request,
+        Bindings, ImplicationError, ImplicationRequestError, ImplicationStatus, ImplicationVerdict,
+        Side, SpecialConsequent, bottom_antecedent, check_negated_consequent,
+        grade_bottom_consequent, special_consequent, validate_request,
     },
     matching::SortGraph,
     rewrite::{
@@ -1021,10 +1022,7 @@ impl RpcService {
             .into_iter()
             .map(BackendName::from)
             .collect::<Vec<_>>();
-        let mut special_result = special_case(&antecedent, &consequent);
-        if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. })
-            && let Some(result) = special_result.take()
-        {
+        if let Some(verdict) = bottom_antecedent(&antecedent) {
             let (_, result_sort) = definition
                 .internalize_predicate(&antecedent, &sort_variables)
                 .map_err(|error| pattern_fault(error, &antecedent))?;
@@ -1044,48 +1042,53 @@ impl RpcService {
                     solver,
                 )?
             };
-            return implication_result(&antecedent, &consequent, &result_sort, result);
+            return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
             .internalize_implication_pattern(&antecedent, &sort_variables)
             .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
-        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) {
-            special_result
-                .take()
-                .expect("not consequents are a shared implication special case");
-            let result = check_negated_consequent(
+        let special = match special_consequent(&consequent) {
+            Some(SpecialConsequent::Not) => {
+                let verdict = check_negated_consequent(
+                    definition,
+                    &antecedent_pattern,
+                    &antecedent_existentials,
+                    &consequent,
+                    &sort_variables,
+                    solver,
+                )
+                .map_err(|error| pattern_fault(error, &consequent))?;
+                let antecedent = simplified_implication_response_syntax(
+                    definition,
+                    &antecedent,
+                    &antecedent_pattern,
+                    solver,
+                )?;
+                let consequent = simplified_not_consequent_response_syntax(
+                    definition,
+                    &consequent,
+                    &sort_variables,
+                    solver,
+                )?;
+                return implication_result(&antecedent, &consequent, &result_sort, verdict);
+            }
+            Some(SpecialConsequent::Top) => Some(ImplicationVerdict::Valid(Bindings::default())),
+            Some(SpecialConsequent::Bottom) => Some(grade_bottom_consequent(
                 definition,
                 &antecedent_pattern,
-                &antecedent_existentials,
-                &consequent,
-                &sort_variables,
                 solver,
-            )
-            .map_err(|error| pattern_fault(error, &consequent))?;
+            )),
+            None => None,
+        };
+        if let Some(verdict) = special {
             let antecedent = simplified_implication_response_syntax(
                 definition,
                 &antecedent,
                 &antecedent_pattern,
                 solver,
             )?;
-            let consequent = simplified_not_consequent_response_syntax(
-                definition,
-                &consequent,
-                &sort_variables,
-                solver,
-            )?;
-            return implication_result(&antecedent, &consequent, &result_sort, result);
-        }
-        if let Some(result) = special_result {
-            let result = grade_special_case(definition, &antecedent_pattern, result, solver);
-            let antecedent = simplified_implication_response_syntax(
-                definition,
-                &antecedent,
-                &antecedent_pattern,
-                solver,
-            )?;
-            return implication_result(&antecedent, &consequent, &result_sort, result);
+            return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (consequent_pattern, consequent_existentials) = definition
             .internalize_implication_pattern(&consequent, &sort_variables)
@@ -1095,7 +1098,7 @@ impl RpcService {
                 "antecedent and consequent sorts differ",
             )]));
         }
-        let result = backend_implication::check(
+        let verdict = backend_implication::check(
             definition,
             &antecedent_pattern,
             &antecedent_existentials,
@@ -1104,11 +1107,7 @@ impl RpcService {
             solver,
         )
         .map_err(implication_backend_fault)?;
-        let vacuous_antecedent = result.status == ImplicationStatus::Valid
-            && result.condition.as_ref().is_some_and(|condition| {
-                condition.predicates.as_slice() == [Predicate::False]
-                    && condition.substitution.is_empty()
-            });
+        let vacuous_antecedent = matches!(verdict, ImplicationVerdict::VacuouslyValid);
         let (antecedent, consequent) = if vacuous_antecedent {
             (antecedent, consequent)
         } else {
@@ -1127,7 +1126,7 @@ impl RpcService {
                 )?,
             )
         };
-        implication_result(&antecedent, &consequent, &result_sort, result)
+        implication_result(&antecedent, &consequent, &result_sort, verdict)
             })
     }
 }
@@ -1903,9 +1902,9 @@ fn implication_result(
     antecedent: &KorePattern,
     consequent: &KorePattern,
     result_sort: &BackendSort,
-    result: ImplicationResult,
+    verdict: ImplicationVerdict,
 ) -> Result<Value, RpcFault> {
-    let status = match result.status {
+    let status = match verdict.status() {
         ImplicationStatus::Valid => "valid",
         ImplicationStatus::Invalid => "invalid",
         ImplicationStatus::Indeterminate => "indeterminate",
@@ -1919,7 +1918,7 @@ fn implication_result(
         "implication": encode_kore(&implication)?,
         "status": status,
     });
-    if let Some(condition) = result.condition {
+    if let Some(condition) = verdict.into_condition() {
         let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,
@@ -3178,12 +3177,7 @@ endmodule
             &pattern,
             &pattern,
             &BackendSort::simple("SortK"),
-            ImplicationResult {
-                status: ImplicationStatus::Indeterminate,
-                condition: None,
-                failure: None,
-                vacuous: false,
-            },
+            ImplicationVerdict::Indeterminate { outside: None },
         )
         .unwrap();
 

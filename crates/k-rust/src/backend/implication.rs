@@ -6,9 +6,10 @@ use k_rust_backend::{
     definition::DefinitionError,
     externalize,
     implication::{
-        ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, check_negated_consequent, grade_special_case,
-        special_case, validate_request,
+        Bindings, ImplicationCondition, ImplicationRequestError, ImplicationStatus,
+        ImplicationVerdict, Side, SpecialConsequent, bottom_antecedent,
+        check_implication_with_existentials_complete, check_negated_consequent,
+        grade_bottom_consequent, special_consequent, validate_request,
     },
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind},
@@ -27,7 +28,7 @@ pub fn check(
     consequent: &k_rust_backend::rewrite::Pattern,
     consequent_existentials: &BTreeSet<k_rust_backend::term::Variable>,
     solver: &dyn k_rust_backend::smt::SmtSolver,
-) -> Result<ImplicationResult, k_rust_backend::implication::ImplicationError> {
+) -> Result<ImplicationVerdict, k_rust_backend::implication::ImplicationError> {
     check_implication_with_existentials_complete(
         definition,
         antecedent,
@@ -45,7 +46,7 @@ impl Backend {
         module: Option<&str>,
         antecedent: &Pattern,
         consequent: &Pattern,
-    ) -> Result<(ImplicationResult, Sort), BackendError> {
+    ) -> Result<(ImplicationVerdict, Sort), BackendError> {
         self.with_solver(module, |definition, solver| {
             validate_request(definition, antecedent, consequent).map_err(|request_error| {
                 BackendError(match request_error {
@@ -83,68 +84,53 @@ impl Backend {
                 .into_iter()
                 .map(Name::from)
                 .collect::<Vec<_>>();
-            let special_result = special_case(antecedent, consequent);
-            let antecedent_pattern =
-                if matches!(antecedent.strip_exists(), KorePattern::Bottom { .. }) {
-                    None
-                } else {
-                    Some(
-                        definition
-                            .internalize_implication_pattern(antecedent, &sort_variables)
-                            .map_err(error("could not internalize implication antecedent"))?,
-                    )
-                };
-            let result_sort = match &antecedent_pattern {
-                Some((pattern, _)) => pattern.term.sort(),
-                None => {
-                    definition
-                        .internalize_predicate(antecedent, &sort_variables)
-                        .map_err(error("could not internalize implication antecedent"))?
-                        .1
+            if let Some(verdict) = bottom_antecedent(antecedent) {
+                let (_, result_sort) = definition
+                    .internalize_predicate(antecedent, &sort_variables)
+                    .map_err(error("could not internalize implication antecedent"))?;
+                return Ok((verdict, result_sort));
+            }
+            let (antecedent_pattern, antecedent_existentials) = definition
+                .internalize_implication_pattern(antecedent, &sort_variables)
+                .map_err(error("could not internalize implication antecedent"))?;
+            let result_sort = antecedent_pattern.term.sort();
+            let verdict = match special_consequent(consequent) {
+                Some(SpecialConsequent::Top) => ImplicationVerdict::Valid(Bindings::default()),
+                Some(SpecialConsequent::Bottom) => {
+                    grade_bottom_consequent(definition, &antecedent_pattern, solver)
                 }
-            };
-            let result = if let Some(result) = special_result {
-                match &antecedent_pattern {
-                    Some((pattern, existentials))
-                        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) =>
-                    {
-                        check_negated_consequent(
-                            definition,
-                            pattern,
-                            existentials,
-                            consequent,
-                            &sort_variables,
-                            solver,
-                        )
-                        .map_err(error("could not internalize implication consequent"))?
-                    }
-                    Some((pattern, _)) => grade_special_case(definition, pattern, result, solver),
-                    None => result,
-                }
-            } else {
-                let (antecedent_pattern, antecedent_existentials) =
-                    antecedent_pattern.expect("only bottom bypasses implication internalization");
-                let (consequent_pattern, consequent_existentials) = definition
-                    .internalize_implication_pattern(consequent, &sort_variables)
-                    .map_err(error("could not internalize implication consequent"))?;
-                if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
-                    return Err(BackendError(format!(
-                        "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
-                        antecedent_pattern.term.sort(),
-                        consequent_pattern.term.sort()
-                    )));
-                }
-                check_implication_with_existentials_complete(
+                Some(SpecialConsequent::Not) => check_negated_consequent(
                     definition,
                     &antecedent_pattern,
                     &antecedent_existentials,
-                    &consequent_pattern,
-                    &consequent_existentials,
+                    consequent,
+                    &sort_variables,
                     solver,
                 )
-                .map_err(error("could not check implication"))?
+                .map_err(error("could not internalize implication consequent"))?,
+                None => {
+                    let (consequent_pattern, consequent_existentials) = definition
+                        .internalize_implication_pattern(consequent, &sort_variables)
+                        .map_err(error("could not internalize implication consequent"))?;
+                    if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
+                        return Err(BackendError(format!(
+                            "antecedent and consequent sorts differ after internalization: {:?} and {:?}",
+                            antecedent_pattern.term.sort(),
+                            consequent_pattern.term.sort()
+                        )));
+                    }
+                    check_implication_with_existentials_complete(
+                        definition,
+                        &antecedent_pattern,
+                        &antecedent_existentials,
+                        &consequent_pattern,
+                        &consequent_existentials,
+                        solver,
+                    )
+                    .map_err(error("could not check implication"))?
+                }
             };
-            Ok((result, result_sort))
+            Ok((verdict, result_sort))
         })
     }
 }
@@ -154,9 +140,9 @@ pub fn cli_output(
     antecedent: &KorePattern,
     consequent: &KorePattern,
     result_sort: &Sort,
-    result: ImplicationResult,
+    verdict: ImplicationVerdict,
 ) -> Result<String, Box<dyn Error>> {
-    let status = match result.status {
+    let status = match verdict.status() {
         ImplicationStatus::Valid => "valid",
         ImplicationStatus::Invalid => "invalid",
         ImplicationStatus::Indeterminate => "unknown",
@@ -170,7 +156,7 @@ pub fn cli_output(
         "status": status,
         "implication": kore_json::to_value(&implication)?,
     });
-    if let Some(condition) = result.condition {
+    if let Some(condition) = verdict.into_condition() {
         let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,

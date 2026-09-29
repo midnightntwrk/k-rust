@@ -137,8 +137,7 @@ impl Counterexample {
     ///
     /// `Everywhere`: every instance of `antecedent` is outside, so one is shown by an instance
     /// of `antecedent` itself. `Where(o)`: the instances of `antecedent` that falsify `o` are
-    /// outside, so one is shown by an instance of `antecedent ∧ ¬o`. `Undecided`: nothing is
-    /// known to be outside, so no counterexample.
+    /// outside, so one is shown by an instance of `antecedent ∧ ¬o`.
     #[must_use]
     pub(super) fn outside(
         definition: &BackendDefinition,
@@ -162,7 +161,6 @@ impl Counterexample {
                 ))))],
                 solver,
             ),
-            OutsideEvidence::Undecided => None,
         }
         .map(Self)
     }
@@ -239,7 +237,8 @@ impl ObligationRefuted {
 }
 
 /// What the check established about the antecedent's instances outside the consequent, for a
-/// result it reports as invalid.
+/// failing part the complete policy grades. A check that established nothing about them grades
+/// to an indeterminate verdict without asking for a counterexample.
 pub(super) enum OutsideEvidence {
     /// No instance of the antecedent is an instance of the consequent.
     Everywhere(Everywhere),
@@ -247,8 +246,6 @@ pub(super) enum OutsideEvidence {
     /// consequent, and the solver reported that some may exist. Its `Sat` may come from an
     /// approximate translation, so it is a candidate, not a witness.
     Where(Vec<Predicate>),
-    /// Nothing about instances outside the consequent was established.
-    Undecided,
 }
 
 /// Why every instance of the antecedent is outside the consequent.

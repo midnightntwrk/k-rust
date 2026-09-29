@@ -48,7 +48,7 @@ use crate::{
     definition::BackendDefinition,
     fresh::fresh_name,
     implication::{
-        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus, Instance,
+        Coverage, CoverageCondition, ImplicationCondition, ImplicationError, Instance,
         check_disjunctive_implication_with_existentials,
     },
     matching::{
@@ -403,66 +403,29 @@ pub fn prove_claim(
                 }
                 implication => implication.map_err(ProofError::Implication)?,
             };
-            match implication.status {
-                ImplicationStatus::Valid => {
-                    let outcome = if implication.vacuous {
-                        vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous)
-                    } else {
-                        let condition = implication
-                            .condition
-                            .expect("a valid implication always has a condition");
-                        ProofLeafOutcome::Proven(condition)
-                    };
+            match implication {
+                Coverage::Covered(bindings) => {
+                    record_leaf!(state.leaf(ProofLeafOutcome::Proven(bindings.into())));
+                    continue;
+                }
+                Coverage::Vacuous => {
+                    let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
                     record_leaf!(state.leaf(outcome));
                     continue;
                 }
-                // Only a coverage condition says which part of the state already lies
-                // in the destination, so only its complement is the uncovered part. Both a
-                // partial coverage and a contingent obligation carry one. A refuted
-                // obligation (`ConsequentCondition`) covers none of the state; its
-                // condition is the matcher's report (bindings and predicates), whose
-                // complement can be bottom. The whole state is then the part outside the
-                // destination and takes the arms below.
-                ImplicationStatus::Invalid
-                    if matches!(
-                        implication.failure,
-                        Some(
-                            ImplicationFailure::PartialCoverage
-                                | ImplicationFailure::ContingentCondition
-                        )
-                    ) =>
-                {
-                    let condition = implication
-                        .condition
-                        .expect("a partial implication carries its coverage condition");
-                    let mut constraints = state.pattern.constraints.clone();
-                    extend_unique(
-                        &mut constraints,
-                        vec![complement_implication_condition(
-                            &state.pattern,
-                            &claim_universals,
-                            condition,
-                        )],
-                    );
-                    let remainder = crate::rewrite::RemainderBranch {
-                        pattern: Pattern {
-                            term: state.pattern.term.clone(),
-                            constraints,
-                        },
-                        rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
-                        effects: Vec::new(),
-                        simplifications: Vec::new(),
-                        indeterminate: None,
-                        diagnostics: Vec::new(),
-                        observations: Vec::new(),
-                    };
-                    // A contingent destination covers part of the state; the part it does not
-                    // cover may still rewrite into the destination, so it continues whatever
-                    // the stuck check says. The stuck check stops only a part whose destination
-                    // condition was refuted.
-                    if options.stuck_check
-                        && implication.failure != Some(ImplicationFailure::ContingentCondition)
-                    {
+                // Only a coverage condition says which part of the state already lies in the
+                // destination, so only its complement is the uncovered part. A refuted
+                // destination condition covers none of the state: its report (bindings and
+                // predicates) has no complement, and the whole state takes the arms below.
+                Coverage::PartialCoverage {
+                    coverage,
+                    refuted: _,
+                } => {
+                    let remainder =
+                        uncovered_remainder(&state.pattern, claim, &claim_universals, &coverage);
+                    // The uncovered part's destination obligation is refuted, so the stuck
+                    // check stops it.
+                    if options.stuck_check {
                         record_leaf!(stuck_leaf(
                             definition,
                             state.remaining(remainder),
@@ -476,10 +439,18 @@ pub fn prove_claim(
                     }
                     implication_remainder = Some(remainder);
                 }
-                ImplicationStatus::Invalid
-                    if options.stuck_check
-                        && implication.failure == Some(ImplicationFailure::ConsequentCondition) =>
-                {
+                // A contingent destination covers part of the state; the part it does not cover
+                // may still rewrite into the destination, so it continues whatever the stuck
+                // check says.
+                Coverage::Contingent(coverage) => {
+                    implication_remainder = Some(uncovered_remainder(
+                        &state.pattern,
+                        claim,
+                        &claim_universals,
+                        &coverage,
+                    ));
+                }
+                Coverage::ConditionRefuted { .. } if options.stuck_check => {
                     record_leaf!(stuck_leaf(
                         definition,
                         state,
@@ -491,8 +462,8 @@ pub fn prove_claim(
                     ));
                     continue;
                 }
-                ImplicationStatus::Invalid => {}
-                ImplicationStatus::Indeterminate => implication_indeterminate = true,
+                Coverage::ConditionRefuted { .. } | Coverage::TermMismatch => {}
+                Coverage::Undecided => implication_indeterminate = true,
             }
         }
 
@@ -1815,17 +1786,48 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
     }
 }
 
-/// The part of `pattern` that `condition` does not cover: `¬∃E. condition`, where `E` are the
-/// condition's variables that are neither in the state nor among the claim's `universals`.
+/// The part of `pattern` a destination does not cover: `pattern` under the complement of the
+/// coverage condition (`complement_implication_condition`), recorded as a remainder of the
+/// destination's check.
+fn uncovered_remainder(
+    pattern: &Pattern,
+    claim: &ReachabilityClaim,
+    universals: &BTreeSet<crate::term::Variable>,
+    coverage: &CoverageCondition,
+) -> RemainderBranch {
+    let mut constraints = pattern.constraints.clone();
+    extend_unique(
+        &mut constraints,
+        vec![complement_implication_condition(
+            pattern, universals, coverage,
+        )],
+    );
+    RemainderBranch {
+        pattern: Pattern {
+            term: pattern.term.clone(),
+            constraints,
+        },
+        rule_ids: vec![format!("destination:{}", claim.attributes.unique_id)],
+        effects: Vec::new(),
+        simplifications: Vec::new(),
+        indeterminate: None,
+        diagnostics: Vec::new(),
+        observations: Vec::new(),
+    }
+}
+
+/// The part of `pattern` that `coverage` does not cover: `¬∃E. covered`, where `covered` is the
+/// predicate that holds exactly on the covered part ([`CoverageCondition::covered`]) and `E` are
+/// its variables that are neither in the state nor among the claim's `universals`.
 /// A universal stays free even when the current state no longer mentions it: it names the
 /// same value in every state of the proof, so quantifying it would turn "the initial value
 /// differs" into `⊥` and drop the uncovered part.
 fn complement_implication_condition(
     pattern: &Pattern,
     universals: &BTreeSet<crate::term::Variable>,
-    condition: ImplicationCondition,
+    coverage: &CoverageCondition,
 ) -> crate::rule::Predicate {
-    let mut covered = conjoin_predicates(condition.predicates);
+    let mut covered = coverage.covered();
     let in_scope = pattern
         .term
         .attributes()
@@ -1849,14 +1851,6 @@ fn complement_implication_condition(
         covered = crate::rule::Predicate::Exists(variable, Box::new(covered));
     }
     crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(covered)))
-}
-
-fn conjoin_predicates(mut predicates: Vec<crate::rule::Predicate>) -> crate::rule::Predicate {
-    match predicates.len() {
-        0 => crate::rule::Predicate::True,
-        1 => predicates.pop().expect("one predicate is present"),
-        _ => crate::rule::Predicate::And(predicates),
-    }
 }
 
 #[cfg(test)]
@@ -2217,14 +2211,10 @@ mod tests {
             complement_implication_condition(
                 &pattern,
                 &BTreeSet::new(),
-                ImplicationCondition {
-                    predicates: vec![crate::rule::Predicate::Or(vec![
-                        first.clone(),
-                        second.clone(),
-                    ])],
-                    substitution: Substitution::new(),
-                    witnesses: Substitution::new(),
-                },
+                &CoverageCondition::of_obligations(vec![crate::rule::Predicate::Or(vec![
+                    first.clone(),
+                    second.clone(),
+                ])]),
             ),
             crate::rule::Predicate::And(vec![
                 crate::rule::Predicate::Not(Box::new(first)),
@@ -2248,23 +2238,19 @@ mod tests {
             term: term(&definition, "b{}()"),
             constraints: Vec::new(),
         };
-        let condition = ImplicationCondition {
-            predicates: vec![covered.clone()],
-            substitution: Substitution::new(),
-            witnesses: Substitution::new(),
-        };
+        let condition = CoverageCondition::of_obligations(vec![covered.clone()]);
 
         assert_eq!(
             complement_implication_condition(
                 &pattern,
                 &BTreeSet::from([universal.clone()]),
-                condition.clone(),
+                &condition,
             ),
             crate::rule::Predicate::Not(Box::new(covered.clone())),
         );
         // A destination existential is still quantified.
         assert_eq!(
-            complement_implication_condition(&pattern, &BTreeSet::new(), condition),
+            complement_implication_condition(&pattern, &BTreeSet::new(), &condition),
             crate::rule::Predicate::Not(Box::new(crate::rule::Predicate::Exists(
                 universal.clone(),
                 Box::new(covered),
@@ -2911,20 +2897,10 @@ mod tests {
             &NoSolver,
         )
         .expect("the destination check should run");
-        assert_eq!(
-            refutation.status,
-            ImplicationStatus::Invalid,
-            "{refutation:#?}"
-        );
-        assert_eq!(
-            refutation.failure,
-            Some(ImplicationFailure::ConsequentCondition),
-            "{refutation:#?}"
-        );
-        let condition = refutation
-            .condition
-            .as_ref()
-            .expect("a refutation reports the match it refuted");
+        let Coverage::ConditionRefuted { report, .. } = &refutation else {
+            panic!("a refutation reports the match it refuted: {refutation:#?}");
+        };
+        let condition = report.condition();
         assert!(condition.predicates.is_empty(), "{refutation:#?}");
         assert!(
             !condition.substitution.is_empty() || !condition.witnesses.is_empty(),

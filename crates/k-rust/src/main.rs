@@ -2826,13 +2826,13 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
-    let (result, result_sort) =
+    let (verdict, result_sort) =
         backend.implies_kore(None, &antecedent_syntax, &consequent_syntax)?;
     let output = k_rust::backend::implication::cli_output(
         &antecedent_syntax,
         &consequent_syntax,
         &result_sort,
-        result,
+        verdict,
     )?;
     if let Some(path) = options.output {
         fs::write(path, output)?;

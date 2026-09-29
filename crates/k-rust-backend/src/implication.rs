@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.implication.check"
 //! name = "subsumption by matching, witness elimination, and validity checking"
-//! sites = ["check_implication_with_existentials_and_options_and_policy", "check_implication", "check_implication_with_existentials", "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
+//! sites = ["check_established", "check_implication", "check_implication_with_existentials", "check_implication_with_existentials_and_options", "check_implication_with_existentials_complete", "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
 //! variable = "r = antecedent simplification rounds; c = consequents"
 //! counters = ["SmtQueries"]
 //! span = "per problem"
@@ -11,8 +11,8 @@
 //! ]
 //!
 //! [[cost]]
-//! mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"
-//! bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only for an invalid answer of the complete policy)"
+//! mode = "one consequent (check_established)"
+//! bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only when the complete policy grades a failing part, grade_outside)"
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -25,6 +25,14 @@
 //! one `Counter::SmtQueries` per solver call (an antecedent satisfiability check, up to three
 //! validity subqueries for the residual, and a refutation check), `Counter::ProofImplicationChecks`
 //! at the caller.
+//!
+//! The check is policy-neutral: it records what it established about the antecedent's
+//! instances (`Established`), and each policy grades that value once. The proof policy asks
+//! which instances of a proof state lie in the destination and answers a [`Coverage`]
+//! (`grade_coverage`); the complete policy asks whether every instance of the antecedent lies in
+//! the consequent and answers an [`ImplicationVerdict`] (`grade_verdict`), whose `Invalid` holds
+//! a [`Counterexample`]. The wire vocabulary ([`ImplicationStatus`], [`ImplicationFailure`],
+//! [`ImplicationCondition`]) is derived from a verdict, never stored.
 
 use std::{collections::BTreeSet, error::Error, fmt};
 
@@ -59,6 +67,7 @@ use crate::{
     unification::{Unification, UnificationResult, unify_term_pairs},
 };
 
+/// The wire status of an [`ImplicationVerdict`] ([`ImplicationVerdict::status`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImplicationStatus {
     Valid,
@@ -66,17 +75,13 @@ pub enum ImplicationStatus {
     Indeterminate,
 }
 
+/// Which part of the consequent the antecedent's outside instances fail, as the wire reports it
+/// ([`ImplicationVerdict::failure`], from [`Outside`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImplicationFailure {
     TermMismatch,
     PartialCoverage,
     ConsequentCondition,
-    /// The obligation holds on part of the antecedent and fails on a non-empty part: the
-    /// solver found both the obligation and its negation satisfiable under the antecedent.
-    /// The condition is the exact coverage condition, so the antecedent splits into a part
-    /// inside the consequent and a part outside it. Only the proof policy reports this; the
-    /// complete policy answers the same case as a refutation.
-    ContingentCondition,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -164,80 +169,66 @@ pub fn validate_request(
     Ok(())
 }
 
-/// Return an implication result decided entirely by the KORE syntax.
-pub fn special_case(
-    antecedent: &kore::Pattern,
-    consequent: &kore::Pattern,
-) -> Option<ImplicationResult> {
-    let antecedent = antecedent.strip_exists();
-    let consequent = consequent.strip_exists();
-    let condition = |predicates| {
-        Some(ImplicationCondition {
-            predicates,
-            substitution: Substitution::new(),
-            witnesses: Substitution::new(),
-        })
-    };
-    if matches!(antecedent, kore::Pattern::Bottom { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Valid,
-            condition: condition(vec![Predicate::False]),
-            failure: None,
-            vacuous: false,
-        })
-    } else if matches!(consequent, kore::Pattern::Top { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Valid,
-            condition: condition(Vec::new()),
-            failure: None,
-            vacuous: false,
-        })
-    } else if matches!(consequent, kore::Pattern::Bottom { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: condition(vec![Predicate::False]),
-            failure: Some(ImplicationFailure::ConsequentCondition),
-            vacuous: false,
-        })
-    } else if matches!(consequent, kore::Pattern::Not { .. }) {
-        // The syntax alone does not decide `A -> \not C`; `check_negated_consequent` does
-        // where it can.
-        Some(indeterminate())
-    } else {
-        None
+/// The verdict for a `\bottom` antecedent (after its leading existentials), which has no
+/// instance and so implies anything: [`ImplicationVerdict::VacuouslyValid`]. `None` for every
+/// other antecedent.
+///
+/// Callers test this before internalizing the antecedent, and route the consequent with
+/// [`special_consequent`] only for an antecedent this returns `None` for.
+pub fn bottom_antecedent(antecedent: &kore::Pattern) -> Option<ImplicationVerdict> {
+    matches!(antecedent.strip_exists(), kore::Pattern::Bottom { .. })
+        .then_some(ImplicationVerdict::VacuouslyValid)
+}
+
+/// A consequent whose syntax routes the check, for an antecedent that is not `\bottom`
+/// ([`bottom_antecedent`]). None of them is a verdict: each names the one way it is decided.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpecialConsequent {
+    /// `\top` contains every value: the caller answers [`ImplicationVerdict::Valid`] with no
+    /// binding.
+    Top,
+    /// `\bottom` contains no value: graded by [`grade_bottom_consequent`].
+    Bottom,
+    /// `\not C`: decided by [`check_negated_consequent`].
+    Not,
+}
+
+/// Route a consequent by its syntax (after its leading existentials): `None` for a consequent
+/// that the matching check decides.
+///
+/// It takes no definition and no solver, so it cannot mint a [`Counterexample`]; the invalid
+/// answers of the routed cases come from [`grade_bottom_consequent`] and
+/// [`check_negated_consequent`].
+pub fn special_consequent(consequent: &kore::Pattern) -> Option<SpecialConsequent> {
+    match consequent.strip_exists() {
+        kore::Pattern::Top { .. } => Some(SpecialConsequent::Top),
+        kore::Pattern::Bottom { .. } => Some(SpecialConsequent::Bottom),
+        kore::Pattern::Not { .. } => Some(SpecialConsequent::Not),
+        _ => None,
     }
 }
 
-/// Grade a [`special_case`] result on the internalized antecedent.
+/// Grade `A -> \bottom` on the internalized antecedent `A`.
 ///
-/// A `\bottom` consequent has no instance, so every instance of the antecedent lies outside it:
-/// the implication is invalid exactly when the antecedent has an instance, and holds vacuously
-/// otherwise. That result is kept `invalid` only when a [`Counterexample`] shows the instance;
-/// otherwise it becomes `indeterminate` with its condition. Every other special case is returned
-/// unchanged.
-pub fn grade_special_case(
+/// `\bottom` has no instance, so every instance of the antecedent lies outside it: the
+/// implication is invalid exactly when the antecedent has an instance, and holds vacuously
+/// otherwise. The answer is `Invalid` only when a [`Counterexample`] shows that instance, and
+/// `Indeterminate` otherwise; either reports the consequent's condition as refuted.
+pub fn grade_bottom_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
-    result: ImplicationResult,
     solver: &dyn SmtSolver,
-) -> ImplicationResult {
-    if result.failure != Some(ImplicationFailure::ConsequentCondition) {
-        return result;
-    }
-    refutation_result(
+) -> ImplicationVerdict {
+    grade_outside(
         definition,
         antecedent,
-        result,
+        Outside::ConsequentCondition(MatchReport::refuted(Bindings::default())),
         OutsideEvidence::Everywhere(Everywhere::BottomConsequent),
-        ImplicationCheckOptions {
-            simplification: SimplificationOptions::default(),
-            counterexamples: CounterexamplePolicy::RefuteImplication,
-        },
         solver,
     )
 }
 
-/// Check `A -> \not C`, the special case [`special_case`] leaves indeterminate.
+/// Check `A -> \not C`, the consequent [`special_consequent`] routes here.
 ///
 /// Under the universal closure of the free variables of both sides, `A -> \not C` holds exactly
 /// when no valuation gives `A` and `C` a common value, that is when the pattern `A /\ C` is
@@ -246,12 +237,13 @@ pub fn grade_special_case(
 /// first, because `(\exists E. A) /\ C` is `\exists E. (A /\ C)` for `E` not free in `C`.
 /// - A unification clash (different constructors, values or sorts, or an occurs cycle below
 ///   constructors) or constraints the solver refutes (`Unsat` is sound under every
-///   approximation) show `A /\ C` empty: `valid`.
+///   approximation) show `A /\ C` empty: `Valid` with no binding.
 /// - A unifier whose instance of `A` with both sides' constraints is shown to have an instance
-///   (a [`Counterexample`]) is a common value: `invalid`.
+///   (a [`Counterexample`]) is a common value: `Invalid`, with no [`Outside`] report, since the
+///   counterexample lies inside `C` rather than failing a part of it.
 /// - Anything else, including a collection unification left unsupported and a consequent
 ///   `\exists E. \not C` (which asks for `C` to fail for some `E` rather than for all), is
-///   `indeterminate`.
+///   `Indeterminate` with no report.
 pub fn check_negated_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -259,9 +251,9 @@ pub fn check_negated_consequent(
     consequent: &kore::Pattern,
     sort_variables: &[crate::term::Name],
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, crate::definition::DefinitionError> {
+) -> Result<ImplicationVerdict, crate::definition::DefinitionError> {
     let kore::Pattern::Not { argument, .. } = consequent else {
-        return Ok(indeterminate());
+        return Ok(ImplicationVerdict::Indeterminate { outside: None });
     };
     let (negated, negated_existentials) =
         definition.internalize_implication_pattern(argument, sort_variables)?;
@@ -278,13 +270,10 @@ pub fn check_negated_consequent(
         substitution,
         constraints,
     } = match unification {
-        UnificationResult::Bottom(_) => {
-            return Ok(valid_with_witnesses(
-                Substitution::new(),
-                Substitution::new(),
-            ));
+        UnificationResult::Bottom(_) => return Ok(ImplicationVerdict::Valid(Bindings::default())),
+        UnificationResult::Unsupported { .. } => {
+            return Ok(ImplicationVerdict::Indeterminate { outside: None });
         }
-        UnificationResult::Unsupported { .. } => return Ok(indeterminate()),
         UnificationResult::Unified(unification) => unification,
     };
     // Each side's constraints and the unifier's are conditions on the common instances, stated
@@ -320,12 +309,10 @@ pub fn check_negated_consequent(
             conjunction.constraints.push(predicate);
         }
     }
-    if Counterexample::common(definition, &conjunction, solver).is_some() {
-        return Ok(ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: None,
-            failure: None,
-            vacuous: false,
+    if let Some(counterexample) = Counterexample::common(definition, &conjunction, solver) {
+        return Ok(ImplicationVerdict::Invalid {
+            counterexample,
+            outside: None,
         });
     }
     let mut query = conjunction.constraints.clone();
@@ -340,18 +327,15 @@ pub fn check_negated_consequent(
             Ok(Satisfiability::Unsat)
         )
     {
-        return Ok(valid_with_witnesses(
-            Substitution::new(),
-            Substitution::new(),
-        ));
+        return Ok(ImplicationVerdict::Valid(Bindings::default()));
     }
-    Ok(indeterminate())
+    Ok(ImplicationVerdict::Indeterminate { outside: None })
 }
 
-/// The condition under which an implication was established.
+/// The wire record of a verdict's condition ([`ImplicationVerdict::into_condition`]).
 ///
-/// An empty predicate list denotes `top`. A vacuous implication carries
-/// `false`, mirroring the bottom predicate returned by the reference backend.
+/// An empty predicate list denotes `top`. A vacuous verdict carries `false`: the antecedent has
+/// no instance.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImplicationCondition {
     pub predicates: Vec<Predicate>,
@@ -363,18 +347,392 @@ pub struct ImplicationCondition {
     pub witnesses: Substitution,
 }
 
+/// The bindings a match of the consequent produced.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Bindings {
+    /// The term match's substitution for the consequent's variables.
+    pub substitution: Substitution,
+    /// Existential witnesses recovered from residual obligations.
+    pub witnesses: Substitution,
+}
+
+impl From<Bindings> for ImplicationCondition {
+    /// The condition of a match that holds everywhere: its bindings and no predicate.
+    fn from(bindings: Bindings) -> Self {
+        Self {
+            predicates: Vec::new(),
+            substitution: bindings.substitution,
+            witnesses: bindings.witnesses,
+        }
+    }
+}
+
+/// The part of the antecedent that lies in the consequent: its instances that satisfy the
+/// obligations of a match of the consequent against it.
+///
+/// Every instance that satisfies the obligations is inside the consequent by construction,
+/// whatever a solver says about them, so the complement of [`CoverageCondition::covered`] is the
+/// rest of the antecedent. When the antecedent is a variable `X` and one obligation is an
+/// equation `X = t`, the wire reports that binding in the substitution
+/// ([`CoverageCondition::to_condition`]); it stays one of the obligations the covered instances
+/// satisfy, so `covered` keeps it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ImplicationResult {
-    /// Under the complete policy ([`check_implication_with_existentials_complete`]), `Invalid`
-    /// means that an instance of the antecedent outside the consequent was shown to exist; a
-    /// refutation whose antecedent may be empty is `Indeterminate`.
-    pub status: ImplicationStatus,
-    pub condition: Option<ImplicationCondition>,
-    /// Which part of the consequent the antecedent fails. On an `Indeterminate` result of the
-    /// complete policy it names the part the antecedent's instances fail, if it has any.
-    pub failure: Option<ImplicationFailure>,
-    /// Whether validity follows only because the antecedent simplifies to bottom.
-    pub vacuous: bool,
+pub struct CoverageCondition {
+    /// Every obligation the covered instances satisfy, in the order the check stated them.
+    obligations: Vec<Predicate>,
+    /// The obligation that binds the antecedent's variable, reported as a binding on the wire.
+    antecedent_binding: Option<AntecedentBinding>,
+    bindings: Bindings,
+}
+
+/// An obligation `X = t` (or `t = X`) that binds the antecedent's variable `X` to a value `t`
+/// that does not mention it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AntecedentBinding {
+    /// Its position among the obligations.
+    position: usize,
+    variable: Variable,
+    value: crate::term::Term,
+}
+
+impl CoverageCondition {
+    /// The coverage condition of a match whose remainder obligations are `obligations`.
+    ///
+    /// The first obligation that binds `antecedent_variable` is recorded as the antecedent's
+    /// binding, unless the match already binds that variable.
+    fn partial(
+        antecedent_variable: Option<&Variable>,
+        bindings: Bindings,
+        obligations: Vec<Predicate>,
+    ) -> Self {
+        let antecedent_binding = antecedent_variable
+            .filter(|variable| !bindings.substitution.contains_key(*variable))
+            .and_then(|_| {
+                obligations
+                    .iter()
+                    .enumerate()
+                    .find_map(|(position, obligation)| {
+                        let Predicate::Equals(left, right) = obligation else {
+                            return None;
+                        };
+                        implication_binding(left, right, antecedent_variable)
+                            .or_else(|| implication_binding(right, left, antecedent_variable))
+                            .map(|(variable, value)| AntecedentBinding {
+                                position,
+                                variable: variable.clone(),
+                                value: value.clone(),
+                            })
+                    })
+            });
+        Self {
+            obligations,
+            antecedent_binding,
+            bindings,
+        }
+    }
+
+    /// The coverage condition of obligations that hold on part of the antecedent: no binding is
+    /// recorded, and the wire reports every obligation as a predicate.
+    fn contingent(bindings: Bindings, obligations: Vec<Predicate>) -> Self {
+        Self {
+            obligations,
+            antecedent_binding: None,
+            bindings,
+        }
+    }
+
+    /// The predicate that holds exactly on the covered part: the conjunction of every
+    /// obligation, the antecedent's binding included. Its complement is the part of the
+    /// antecedent outside the consequent.
+    pub fn covered(&self) -> Predicate {
+        conjoin(self.obligations.clone())
+    }
+
+    /// The wire record: the antecedent's binding is reported in the substitution and the other
+    /// obligations as predicates.
+    pub fn to_condition(&self) -> ImplicationCondition {
+        self.clone().into_condition()
+    }
+
+    fn into_condition(self) -> ImplicationCondition {
+        let Self {
+            mut obligations,
+            antecedent_binding,
+            bindings:
+                Bindings {
+                    mut substitution,
+                    witnesses,
+                },
+        } = self;
+        if let Some(binding) = antecedent_binding {
+            obligations.remove(binding.position);
+            substitution.insert(binding.variable, binding.value);
+        }
+        ImplicationCondition {
+            predicates: obligations,
+            substitution,
+            witnesses,
+        }
+    }
+}
+
+#[cfg(test)]
+impl CoverageCondition {
+    /// The coverage condition of `obligations` with no binding, for the tests of its consumers.
+    pub(crate) fn of_obligations(obligations: Vec<Predicate>) -> Self {
+        Self::contingent(Bindings::default(), obligations)
+    }
+}
+
+/// The matcher's report beside a failing consequent condition (refuted, or failing on part of
+/// the antecedent): the match's bindings and the predicates reported with them.
+///
+/// It describes no part of the antecedent and has no complement: beside bindings its predicates
+/// are empty, which does not mean that every instance lies in the consequent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchReport(ImplicationCondition);
+
+impl MatchReport {
+    /// The report of a refuted condition: the match's bindings, or, when the match bound
+    /// nothing, the refuted condition itself as `false`.
+    fn refuted(bindings: Bindings) -> Self {
+        let predicates = if bindings.substitution.is_empty() && bindings.witnesses.is_empty() {
+            vec![Predicate::False]
+        } else {
+            Vec::new()
+        };
+        Self(ImplicationCondition {
+            predicates,
+            substitution: bindings.substitution,
+            witnesses: bindings.witnesses,
+        })
+    }
+
+    /// The report of a condition that fails on part of the antecedent: the match's bindings.
+    fn contingent(bindings: Bindings) -> Self {
+        Self(bindings.into())
+    }
+
+    /// The wire record of the report.
+    pub fn condition(&self) -> &ImplicationCondition {
+        &self.0
+    }
+}
+
+/// The proof policy's answer: which instances of a proof state lie in the destination.
+///
+/// Each variant carries exactly the evidence it asserts: a refuted part holds an
+/// [`ObligationRefuted`], and only a [`CoverageCondition`] describes a covered part whose
+/// complement is the rest of the state. A matcher's report beside a refuted condition is a
+/// [`MatchReport`], so it cannot be complemented as if it were a coverage condition:
+///
+/// ```compile_fail
+/// use k_rust_backend::implication::{Coverage, CoverageCondition};
+///
+/// fn complement(_covered: &CoverageCondition) {}
+///
+/// fn uncovered(coverage: &Coverage) {
+///     match coverage {
+///         Coverage::ConditionRefuted { report, .. }
+///         | Coverage::PartialCoverage {
+///             coverage: report, ..
+///         } => complement(report),
+///         _ => {}
+///     }
+/// }
+/// ```
+///
+/// Complementing the coverage condition of a partial coverage compiles:
+///
+/// ```
+/// use k_rust_backend::implication::{Coverage, CoverageCondition};
+///
+/// fn complement(_covered: &CoverageCondition) {}
+///
+/// fn uncovered(coverage: &Coverage) {
+///     match coverage {
+///         Coverage::PartialCoverage {
+///             coverage: report, ..
+///         } => complement(report),
+///         _ => {}
+///     }
+/// }
+/// ```
+///
+/// A refuted part needs its refutation, which no code outside the check can mint, so an
+/// undecided solver answer cannot be graded as one:
+///
+/// ```compile_fail
+/// use k_rust_backend::{
+///     implication::{Coverage, CoverageCondition, ObligationRefuted},
+///     smt::Validity,
+/// };
+///
+/// fn grade(coverage: CoverageCondition, validity: Validity) -> Coverage {
+///     match validity {
+///         Validity::Unknown(_) => Coverage::PartialCoverage {
+///             coverage,
+///             refuted: ObligationRefuted(()),
+///         },
+///         _ => Coverage::Undecided,
+///     }
+/// }
+/// ```
+///
+/// Grading it with a refutation the caller holds compiles:
+///
+/// ```
+/// use k_rust_backend::{
+///     implication::{Coverage, CoverageCondition, ObligationRefuted},
+///     smt::Validity,
+/// };
+///
+/// fn grade(coverage: CoverageCondition, validity: Validity, refuted: ObligationRefuted) -> Coverage {
+///     match validity {
+///         Validity::Unknown(_) => Coverage::PartialCoverage { coverage, refuted },
+///         _ => Coverage::Undecided,
+///     }
+/// }
+/// ```
+#[must_use]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Coverage {
+    /// Every instance of the state lies in the destination.
+    Covered(Bindings),
+    /// The state has no instance.
+    Vacuous,
+    /// The destination's term does not match the state's: no instance lies in the destination.
+    TermMismatch,
+    /// The destination's condition is refuted on every instance of the state.
+    ConditionRefuted {
+        report: MatchReport,
+        refuted: ObligationRefuted,
+    },
+    /// A match remainder's obligation is refuted on every instance of the state; `coverage` is
+    /// the covered part, and its complement is outside the destination.
+    PartialCoverage {
+        coverage: CoverageCondition,
+        refuted: ObligationRefuted,
+    },
+    /// Neither the obligation nor its negation is refuted: `coverage` is inside the destination,
+    /// and its complement is not known to be outside.
+    Contingent(CoverageCondition),
+    /// Nothing was established.
+    Undecided,
+}
+
+/// Which part of the consequent the antecedent's outside instances fail, as the wire reports it
+/// ([`ImplicationFailure`]). It asserts nothing about whether they exist; the verdict does.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Outside {
+    /// The consequent's term does not match the antecedent's.
+    TermMismatch,
+    /// The consequent's condition is refuted, or (for a contingent answer) fails on part of the
+    /// antecedent.
+    ConsequentCondition(MatchReport),
+    /// A match remainder's obligation fails; the condition is the part of the antecedent that
+    /// would lie in the consequent.
+    PartialCoverage(CoverageCondition),
+}
+
+impl Outside {
+    fn failure(&self) -> ImplicationFailure {
+        match self {
+            Self::TermMismatch => ImplicationFailure::TermMismatch,
+            Self::ConsequentCondition(_) => ImplicationFailure::ConsequentCondition,
+            Self::PartialCoverage(_) => ImplicationFailure::PartialCoverage,
+        }
+    }
+
+    fn into_condition(self) -> Option<ImplicationCondition> {
+        match self {
+            Self::TermMismatch => None,
+            Self::ConsequentCondition(report) => Some(report.0),
+            Self::PartialCoverage(coverage) => Some(coverage.into_condition()),
+        }
+    }
+}
+
+/// The complete policy's answer to "does every instance of the antecedent lie in the
+/// consequent?"
+///
+/// `Invalid` asserts an instance of the antecedent outside the consequent, so it holds a
+/// [`Counterexample`], which only the check can mint; a verdict built outside it cannot claim
+/// one:
+///
+/// ```compile_fail
+/// use k_rust_backend::implication::{Counterexample, ImplicationVerdict};
+///
+/// fn verdict() -> ImplicationVerdict {
+///     ImplicationVerdict::Invalid {
+///         counterexample: Counterexample(todo!()),
+///         outside: None,
+///     }
+/// }
+/// ```
+///
+/// Reading an `Invalid` verdict compiles:
+///
+/// ```
+/// use k_rust_backend::implication::ImplicationVerdict;
+///
+/// fn is_invalid(verdict: &ImplicationVerdict) -> bool {
+///     matches!(verdict, ImplicationVerdict::Invalid { counterexample: _, .. })
+/// }
+/// ```
+#[must_use]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImplicationVerdict {
+    /// Every instance of the antecedent lies in the consequent under these bindings.
+    Valid(Bindings),
+    /// The antecedent has no instance.
+    VacuouslyValid,
+    /// An instance of the antecedent outside the consequent was shown. `outside` names the part
+    /// of the consequent it fails; it is `None` for a `\not` consequent.
+    Invalid {
+        counterexample: Counterexample,
+        outside: Option<Outside>,
+    },
+    /// Neither answer was established. `outside` names the part of the consequent the
+    /// antecedent's instances fail, if they have any.
+    Indeterminate { outside: Option<Outside> },
+}
+
+impl ImplicationVerdict {
+    /// The wire status.
+    pub fn status(&self) -> ImplicationStatus {
+        match self {
+            Self::Valid(_) | Self::VacuouslyValid => ImplicationStatus::Valid,
+            Self::Invalid { .. } => ImplicationStatus::Invalid,
+            Self::Indeterminate { .. } => ImplicationStatus::Indeterminate,
+        }
+    }
+
+    /// The wire failure: the part of the consequent the outside instances fail.
+    pub fn failure(&self) -> Option<ImplicationFailure> {
+        match self {
+            Self::Valid(_) | Self::VacuouslyValid => None,
+            Self::Invalid { outside, .. } | Self::Indeterminate { outside } => {
+                outside.as_ref().map(Outside::failure)
+            }
+        }
+    }
+
+    /// The wire condition: the bindings of a valid match, `false` for a vacuous one, and the
+    /// report or coverage condition of a failing part.
+    pub fn into_condition(self) -> Option<ImplicationCondition> {
+        match self {
+            Self::Valid(bindings) => Some(bindings.into()),
+            Self::VacuouslyValid => Some(ImplicationCondition {
+                predicates: vec![Predicate::False],
+                substitution: Substitution::new(),
+                witnesses: Substitution::new(),
+            }),
+            Self::Invalid { outside, .. } | Self::Indeterminate { outside } => {
+                outside.and_then(Outside::into_condition)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -383,28 +741,68 @@ struct Destination<'a> {
     existentials: &'a BTreeSet<Variable>,
 }
 
-#[derive(Clone, Copy)]
-struct Source<'a> {
-    pattern: &'a Pattern,
-    original_variable: Option<&'a Variable>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Obligations {
     predicates: Vec<Predicate>,
     witnesses: Substitution,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CounterexamplePolicy {
-    PreserveIndeterminate,
-    RefuteImplication,
+/// What the check established about the antecedent's instances, before a policy grades it.
+/// Each variant carries exactly the evidence its name asserts.
+enum Established {
+    /// Every instance satisfies the obligations under these bindings.
+    Holds(Bindings),
+    /// The antecedent has no instance.
+    AntecedentEmpty,
+    /// The consequent's term does not match the antecedent's.
+    TermMismatch,
+    /// The obligations fail on every instance.
+    Refuted {
+        refuted: ObligationRefuted,
+        by: Refuter,
+        origin: Origin,
+        bindings: Bindings,
+        obligations: Vec<Predicate>,
+    },
+    /// Neither the obligations nor their negation is refuted.
+    Contingent {
+        origin: Origin,
+        bindings: Bindings,
+        obligations: Vec<Predicate>,
+    },
+    /// Nothing about the obligations was established.
+    Undecided {
+        origin: Origin,
+        bindings: Bindings,
+        obligations: Vec<Predicate>,
+    },
+    /// Nothing was established and no obligation is at hand: preparing the obligations
+    /// (witness elimination or simplification) failed.
+    Unprepared,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ImplicationCheckOptions {
-    simplification: SimplificationOptions,
-    counterexamples: CounterexamplePolicy,
+/// Which procedure refuted the obligations.
+#[derive(Clone, Copy)]
+enum Refuter {
+    Simplifier,
+    Solver,
+}
+
+/// Whether the obligations include equations of a match remainder, that is whether the
+/// consequent's term matched only under them.
+#[derive(Clone, Copy)]
+enum Origin {
+    ConsequentCondition,
+    MatchRemainder,
+}
+
+/// What the policy-neutral check returns: the established value and the antecedent it was
+/// established on (the last round's simplified antecedent).
+struct Checked {
+    established: Established,
+    antecedent: Pattern,
+    /// The antecedent's variable, when its term is one.
+    antecedent_variable: Option<Variable>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -421,12 +819,14 @@ impl fmt::Display for ImplicationError {
 
 impl Error for ImplicationError {}
 
+/// Check an implication under the proof policy: which instances of `antecedent` lie in
+/// `consequent` ([`Coverage`]).
 pub fn check_implication(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: &Pattern,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
+) -> Result<Coverage, ImplicationError> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -438,13 +838,14 @@ pub fn check_implication(
     )
 }
 
+/// [`check_implication`] with explicit simplification options.
 pub fn check_implication_with_options(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: &Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
+) -> Result<Coverage, ImplicationError> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -456,6 +857,7 @@ pub fn check_implication_with_options(
     )
 }
 
+/// [`check_implication`] with the existentials of both sides.
 pub fn check_implication_with_existentials(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -463,7 +865,7 @@ pub fn check_implication_with_existentials(
     consequent: &Pattern,
     consequent_existentials: &BTreeSet<Variable>,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
+) -> Result<Coverage, ImplicationError> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -475,18 +877,16 @@ pub fn check_implication_with_existentials(
     )
 }
 
-/// Check an implication and use a concrete SMT counterexample as a decisive refutation.
+/// Check an implication under the complete policy: does every instance of `antecedent` lie in
+/// `consequent` ([`ImplicationVerdict`])?
 ///
-/// Booster reports `indeterminate` when both the consequent obligation and its negation are
-/// satisfiable under the antecedent. The public KORE service falls back to kore for that case,
-/// which reports the counterexample as `invalid`. This entry point performs that final
-/// classification in process while preserving genuine solver and matching uncertainty.
-///
-/// `invalid` asserts an instance of the antecedent outside the consequent, so every invalid
-/// answer also requires that instance to be shown (`refutation_result`): a refutation of the
-/// obligations needs an instance of the antecedent, and a counterexample needs an instance of
-/// the antecedent with the negated obligations, each shown syntactically or by an exact solver
-/// `Sat`. Otherwise the answer is `indeterminate` with the same condition.
+/// A refutation of the obligations, and an answer where both the obligations and their negation
+/// are satisfiable under the antecedent, each place instances of the antecedent outside the
+/// consequent, if it has any. `Invalid` asserts such an instance, so it holds a
+/// [`Counterexample`] (`grade_verdict`): a refutation needs an instance of the antecedent, and a
+/// contingent answer an instance of the antecedent with the negated obligations, each shown
+/// syntactically or by an exact solver `Sat`. Otherwise the answer is `Indeterminate` with the
+/// same report, since the implication may hold vacuously.
 pub fn check_implication_with_existentials_complete(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -494,22 +894,23 @@ pub fn check_implication_with_existentials_complete(
     consequent: &Pattern,
     consequent_existentials: &BTreeSet<Variable>,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
-    check_implication_with_existentials_and_options_and_policy(
+) -> Result<ImplicationVerdict, ImplicationError> {
+    // One span per problem: the check and the grading's counterexample query.
+    let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+    let checked = check_established(
         definition,
         antecedent,
         antecedent_existentials,
         consequent,
         consequent_existentials,
-        ImplicationCheckOptions {
-            simplification: SimplificationOptions::default(),
-            counterexamples: CounterexamplePolicy::RefuteImplication,
-        },
+        SimplificationOptions::default(),
         solver,
-    )
+    )?;
+    Ok(grade_verdict(checked, definition, solver))
 }
 
-/// Check whether an antecedent is covered by the union of several consequents.
+/// Check whether an antecedent is covered by the union of several consequents, under the proof
+/// policy.
 ///
 /// A reachability destination is a disjunction, so proving each branch in
 /// isolation is sufficient but not complete. This operation matches every
@@ -522,7 +923,7 @@ pub fn check_disjunctive_implication_with_existentials(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
+) -> Result<Coverage, ImplicationError> {
     if let [consequent] = consequents {
         return check_implication_with_existentials_and_options(
             definition,
@@ -534,30 +935,62 @@ pub fn check_disjunctive_implication_with_existentials(
             solver,
         );
     }
-
+    // One span per problem: the check and its grading.
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+    let antecedent_variable = match antecedent.term.kind() {
+        crate::term::TermKind::Variable(variable) => Some(variable.clone()),
+        _ => None,
+    };
+    let (established, antecedent) = establish_disjunction(
+        definition,
+        antecedent,
+        consequents,
+        consequent_existentials,
+        options,
+        solver,
+    )?;
+    Ok(grade_coverage(Checked {
+        established,
+        antecedent,
+        antecedent_variable,
+    }))
+}
+
+/// The disjunctive check's policy-neutral part: what it established, and the antecedent it
+/// established it on.
+fn establish_disjunction(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    consequents: &[Pattern],
+    consequent_existentials: &BTreeSet<Variable>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<(Established, Pattern), ImplicationError> {
     let consequents = consequents
         .iter()
         .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))
         .collect::<Vec<_>>();
+    let mut antecedent = antecedent.clone();
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
             solver.is_sat(&antecedent.constraints, &Substitution::new()),
             Ok(Satisfiability::Unsat)
         )
     {
-        return Ok(vacuously_valid());
+        return Ok((Established::AntecedentEmpty, antecedent));
     }
 
-    let mut antecedent = antecedent.clone();
     // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         let mut branches = Vec::new();
-        // One refutation per matched branch whose obligation simplified to `false`.
+        // One refutation per matched branch whose obligation simplified to `false`, and the
+        // obligations they refute.
         let mut refuted_branches = Vec::new();
+        let mut refuted_obligations = Vec::new();
         let mut matched = false;
-        let mut incomplete = false;
-        let mut contingent_coverage = None;
+        // What this round left open: a matched branch whose obligations could not be prepared,
+        // or a combined obligation that was neither refuted nor shown to hold.
+        let mut open = None;
         // The antecedent's instances satisfy these facts (I7); every branch is decided on them.
         let knowledge = pattern_knowledge(definition, &antecedent);
         for (consequent, existentials) in &consequents {
@@ -597,7 +1030,7 @@ pub fn check_disjunctive_implication_with_existentials(
                 Ok(obligations) => obligations,
                 Err(error) => {
                     stack_exhaustion(error)?;
-                    incomplete = true;
+                    open = Some(Established::Unprepared);
                     continue;
                 }
             };
@@ -611,7 +1044,7 @@ pub fn check_disjunctive_implication_with_existentials(
                 Ok(predicates) => predicates,
                 Err(error) => {
                     stack_exhaustion(error)?;
-                    incomplete = true;
+                    open = Some(Established::Unprepared);
                     continue;
                 }
             };
@@ -622,12 +1055,18 @@ pub fn check_disjunctive_implication_with_existentials(
             let truth = predicates_truth(&obligations.predicates);
             match truth {
                 Truth::True => {
-                    return Ok(valid_with_witnesses(
-                        Substitution::new(),
-                        obligations.witnesses,
-                    ));
+                    let bindings = Bindings {
+                        substitution: Substitution::new(),
+                        witnesses: obligations.witnesses,
+                    };
+                    return Ok((Established::Holds(bindings), antecedent));
                 }
-                Truth::False => refuted_branches.extend(ObligationRefuted::by_simplifier(truth)),
+                Truth::False => {
+                    if let Some(refuted) = ObligationRefuted::by_simplifier(truth) {
+                        refuted_branches.push(refuted);
+                        refuted_obligations.push(conjoin(obligations.predicates));
+                    }
+                }
                 Truth::Unknown => branches.push(obligations),
             }
         }
@@ -635,13 +1074,23 @@ pub fn check_disjunctive_implication_with_existentials(
         // The destination's obligation is the disjunction of the matched branches'. It is
         // refuted when every disjunct is: each branch refuted above, and the disjunction of the
         // branches left undecided, which is decided as one disjunct below.
-        let refuted = if branches.is_empty() {
-            ObligationRefuted::every_branch(refuted_branches)
-        } else {
+        let mut by = Refuter::Simplifier;
+        if !branches.is_empty() {
             let witnesses = if let [branch] = branches.as_slice() {
                 branch.witnesses.clone()
             } else {
                 Substitution::new()
+            };
+            let holds = |witnesses| {
+                Established::Holds(Bindings {
+                    substitution: Substitution::new(),
+                    witnesses,
+                })
+            };
+            let undecided = |obligations| Established::Undecided {
+                origin: Origin::ConsequentCondition,
+                bindings: Bindings::default(),
+                obligations,
             };
             let combined = vec![Predicate::Or(
                 branches
@@ -658,48 +1107,68 @@ pub fn check_disjunctive_implication_with_existentials(
                     combined
                 }
             };
+            // The combined obligation is refuted, or it leaves the round open with what the check
+            // established about it.
             let truth = predicates_truth(&combined);
-            let combined_refuted = match truth {
-                Truth::True => {
-                    return Ok(valid_with_witnesses(Substitution::new(), witnesses));
-                }
-                Truth::False => ObligationRefuted::by_simplifier(truth),
+            let combined_open = match truth {
+                Truth::True => return Ok((holds(witnesses), antecedent)),
+                Truth::False => match ObligationRefuted::by_simplifier(truth) {
+                    Some(refuted) => {
+                        refuted_branches.push(refuted);
+                        refuted_obligations.push(conjoin(combined));
+                        None
+                    }
+                    None => Some(undecided(combined)),
+                },
                 Truth::Unknown => {
                     let verdict =
                         solver.check_predicates(&knowledge, &Substitution::new(), &combined);
-                    match &verdict {
-                        Ok(Validity::Valid) => {
-                            return Ok(valid_with_witnesses(Substitution::new(), witnesses));
-                        }
-                        Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
-                        _ => {}
-                    }
-                    if refuted_by_simplification(definition, &knowledge, &combined, options, solver)
-                        .or_else(|error| stack_exhaustion(error).map(|()| false))?
+                    if !matches!(
+                        &verdict,
+                        Ok(Validity::Valid | Validity::InconsistentGroundTruth)
+                    ) && refuted_by_simplification(
+                        definition, &knowledge, &combined, options, solver,
+                    )
+                    .or_else(|error| stack_exhaustion(error).map(|()| false))?
                     {
-                        return Ok(valid_with_witnesses(Substitution::new(), witnesses));
+                        return Ok((holds(witnesses), antecedent));
                     }
-                    // Every consequent was decided this round, so the combined obligation is
-                    // the exact coverage condition of the destination.
-                    if matches!(verdict, Ok(Validity::Contingent)) && !incomplete {
-                        contingent_coverage = Some(combined.clone());
+                    match verdict {
+                        Ok(validity) => match validity {
+                            Validity::Valid => return Ok((holds(witnesses), antecedent)),
+                            Validity::InconsistentGroundTruth => {
+                                return Ok((Established::AntecedentEmpty, antecedent));
+                            }
+                            Validity::Refuted => match ObligationRefuted::by_solver(&validity) {
+                                Some(refuted) => {
+                                    refuted_branches.push(refuted);
+                                    refuted_obligations.push(conjoin(combined));
+                                    by = Refuter::Solver;
+                                    None
+                                }
+                                None => Some(undecided(combined)),
+                            },
+                            // The combined obligation holds on part of the antecedent and fails
+                            // on a non-empty part; unless a branch is already open, every
+                            // consequent was decided this round, so it is the exact coverage
+                            // condition of the destination.
+                            Validity::Contingent => Some(Established::Contingent {
+                                origin: Origin::ConsequentCondition,
+                                bindings: Bindings::default(),
+                                obligations: combined,
+                            }),
+                            Validity::Unknown(_) => Some(undecided(combined)),
+                        },
+                        Err(_) => Some(undecided(combined)),
                     }
-                    if matches!(
-                        verdict,
-                        Ok(Validity::Contingent | Validity::Unknown(_)) | Err(_)
-                    ) {
-                        incomplete = true;
-                    }
-                    verdict.as_ref().ok().and_then(ObligationRefuted::by_solver)
                 }
             };
-            combined_refuted.and_then(|combined_refuted| {
-                refuted_branches.push(combined_refuted);
-                ObligationRefuted::every_branch(refuted_branches)
-            })
-        };
+            if let Some(combined_open) = combined_open {
+                open.get_or_insert(combined_open);
+            }
+        }
 
-        if incomplete {
+        if let Some(open) = open {
             let simplified = simplify_with_solver(
                 definition,
                 &antecedent.term,
@@ -721,23 +1190,29 @@ pub fn check_disjunctive_implication_with_existentials(
             }
             // At the antecedent fixed point, a combined obligation that holds on part of the
             // antecedent and fails on a non-empty part splits it.
-            if let Some(combined) = contingent_coverage {
-                return Ok(contingent(combined));
-            }
-            return Ok(indeterminate());
+            return Ok((open, antecedent));
         }
         // Every round that reaches this point decided each matched branch: a matched branch
         // whose obligation is refuted neither alone nor in the disjunction leaves the round
-        // `incomplete` above. A refuted condition is reported only with its refutation, and a
-        // matched destination without one only as undecided.
-        return Ok(match refuted {
-            Some(_) => condition_invalid(),
-            None if matched => indeterminate(),
-            None => invalid(),
-        });
+        // open above. A refuted condition is reported only with its refutation, and a matched
+        // destination without one only as undecided.
+        let established = match ObligationRefuted::every_branch(refuted_branches) {
+            Some(refuted) => Established::Refuted {
+                refuted,
+                by,
+                origin: Origin::ConsequentCondition,
+                bindings: Bindings::default(),
+                obligations: vec![disjoin(refuted_obligations)],
+            },
+            // Not reached (see above); nothing is established about the matched destination.
+            None if matched => Established::Unprepared,
+            None => Established::TermMismatch,
+        };
+        return Ok((established, antecedent));
     }
 }
 
+/// Check an implication under the proof policy, with explicit simplification options.
 pub fn check_implication_with_existentials_and_options(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -746,129 +1221,298 @@ pub fn check_implication_with_existentials_and_options(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
-    check_implication_with_existentials_and_options_and_policy(
+) -> Result<Coverage, ImplicationError> {
+    // One span per problem: the check and its grading.
+    let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+    check_established(
         definition,
         antecedent,
         antecedent_existentials,
         consequent,
         consequent_existentials,
-        ImplicationCheckOptions {
-            simplification: options,
-            counterexamples: CounterexamplePolicy::PreserveIndeterminate,
-        },
+        options,
         solver,
     )
+    .map(grade_coverage)
 }
 
-fn check_implication_with_existentials_and_options_and_policy(
+/// The policy-neutral check: match the consequent against the antecedent, simplifying the
+/// antecedent between rounds while the match stays indeterminate, and discharge the match's
+/// obligations on the last round's antecedent.
+fn check_established(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     antecedent_existentials: &BTreeSet<Variable>,
     consequent: &Pattern,
     consequent_existentials: &BTreeSet<Variable>,
-    options: ImplicationCheckOptions,
+    options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
-    let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+) -> Result<Checked, ImplicationError> {
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
     let consequent = simplify_consequent(definition, antecedent, consequent, options, solver)?;
     // A free variable of the consequent that is not existential is universal over the whole
     // implication, so an antecedent existential of the same name is a different variable.
-    let renamed = rename_existentials_apart(antecedent, antecedent_existentials, &consequent);
-    let antecedent = renamed.as_ref().unwrap_or(antecedent);
-    if predicates_truth(&antecedent.constraints) == Truth::False
-        || matches!(
-            solver.is_sat(&antecedent.constraints, &Substitution::new()),
-            Ok(Satisfiability::Unsat)
-        )
-    {
-        return Ok(vacuously_valid());
-    }
-
-    let original_antecedent_variable = match antecedent.term.kind() {
+    let mut antecedent =
+        rename_existentials_apart(antecedent, antecedent_existentials, &consequent)
+            .unwrap_or_else(|| antecedent.clone());
+    let antecedent_variable = match antecedent.term.kind() {
         crate::term::TermKind::Variable(variable) => Some(variable.clone()),
         _ => None,
     };
-    let mut antecedent = antecedent.clone();
-    // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
-    loop {
-        match match_terms_in_definition(
-            MatchMode::Implies,
-            definition,
-            &consequent.term,
-            &antecedent.term,
+    let destination = Destination {
+        pattern: &consequent,
+        existentials: &consequent_existentials,
+    };
+    let established = if predicates_truth(&antecedent.constraints) == Truth::False
+        || matches!(
+            solver.is_sat(&antecedent.constraints, &Substitution::new()),
+            Ok(Satisfiability::Unsat)
         ) {
-            MatchResult::Failed(FailReason::Subsorting(error)) => {
-                return Err(ImplicationError::Subsorting(error));
-            }
-            MatchResult::Failed(_) => {
-                return Ok(refutation_result(
-                    definition,
-                    &antecedent,
-                    invalid(),
-                    OutsideEvidence::Everywhere(Everywhere::TermMismatch),
-                    options,
-                    solver,
-                ));
-            }
-            MatchResult::Indeterminate {
-                substitution,
-                remainder,
-            } => {
-                let simplified = simplify_with_solver(
-                    definition,
-                    &antecedent.term,
-                    &antecedent.constraints,
-                    options.simplification,
-                    solver,
-                )
-                .map_err(ImplicationError::Simplification)?;
-                let simplified = Pattern {
-                    term: simplified.term,
-                    constraints: merge_predicates(
-                        antecedent.constraints.clone(),
-                        simplified.constraints,
-                    ),
-                };
-                if simplified == antecedent {
-                    return discharge_consequent(
+        Established::AntecedentEmpty
+    } else {
+        // Invariant: `antecedent` is the last round's result; the loop repeats only while it
+        // changes.
+        loop {
+            match match_terms_in_definition(
+                MatchMode::Implies,
+                definition,
+                &consequent.term,
+                &antecedent.term,
+            ) {
+                MatchResult::Failed(FailReason::Subsorting(error)) => {
+                    return Err(ImplicationError::Subsorting(error));
+                }
+                MatchResult::Failed(_) => break Established::TermMismatch,
+                MatchResult::Indeterminate {
+                    substitution,
+                    remainder,
+                } => {
+                    let simplified = simplify_with_solver(
                         definition,
-                        Source {
-                            pattern: &antecedent,
-                            original_variable: original_antecedent_variable.as_ref(),
-                        },
-                        Destination {
-                            pattern: &consequent,
-                            existentials: &consequent_existentials,
-                        },
-                        substitution,
-                        remainder,
+                        &antecedent.term,
+                        &antecedent.constraints,
                         options,
                         solver,
-                    );
+                    )
+                    .map_err(ImplicationError::Simplification)?;
+                    let simplified = Pattern {
+                        term: simplified.term,
+                        constraints: merge_predicates(
+                            antecedent.constraints.clone(),
+                            simplified.constraints,
+                        ),
+                    };
+                    if simplified == antecedent {
+                        break discharge_consequent(
+                            definition,
+                            &antecedent,
+                            destination,
+                            substitution,
+                            remainder,
+                            options,
+                            solver,
+                        )?;
+                    }
+                    antecedent = simplified;
                 }
-                antecedent = simplified;
-            }
-            MatchResult::Success(substitution) => {
-                return discharge_consequent(
-                    definition,
-                    Source {
-                        pattern: &antecedent,
-                        original_variable: original_antecedent_variable.as_ref(),
-                    },
-                    Destination {
-                        pattern: &consequent,
-                        existentials: &consequent_existentials,
-                    },
-                    substitution,
-                    Vec::new(),
-                    options,
-                    solver,
-                );
+                MatchResult::Success(substitution) => {
+                    break discharge_consequent(
+                        definition,
+                        &antecedent,
+                        destination,
+                        substitution,
+                        Vec::new(),
+                        options,
+                        solver,
+                    )?;
+                }
             }
         }
+    };
+    Ok(Checked {
+        established,
+        antecedent,
+        antecedent_variable,
+    })
+}
+
+/// The proof policy's grading: which instances of the state lie in the destination. It needs no
+/// solver: a refuted part carries the refutation the check established.
+fn grade_coverage(checked: Checked) -> Coverage {
+    let Checked {
+        established,
+        antecedent: _,
+        antecedent_variable,
+    } = checked;
+    match established {
+        Established::Holds(bindings) => Coverage::Covered(bindings),
+        Established::AntecedentEmpty => Coverage::Vacuous,
+        Established::TermMismatch => Coverage::TermMismatch,
+        // The covered part is the instances that satisfy every obligation: `covered` keeps an
+        // equation `X = t` that binds the antecedent's variable among them, so for a state whose
+        // term is `X` the uncovered part is the state under `¬(X = t)`, not the state under
+        // `¬⊤ = ⊥`.
+        Established::Refuted {
+            refuted,
+            by: _,
+            origin: Origin::MatchRemainder,
+            bindings,
+            obligations,
+        } => Coverage::PartialCoverage {
+            coverage: CoverageCondition::partial(
+                antecedent_variable.as_ref(),
+                bindings,
+                obligations,
+            ),
+            refuted,
+        },
+        Established::Refuted {
+            refuted,
+            by: _,
+            origin: Origin::ConsequentCondition,
+            bindings,
+            obligations: _,
+        } => Coverage::ConditionRefuted {
+            report: MatchReport::refuted(bindings),
+            refuted,
+        },
+        // The obligations hold on part of the state and fail on a non-empty part, so they are
+        // the exact coverage condition, whatever their origin.
+        Established::Contingent {
+            origin: _,
+            bindings,
+            obligations,
+        } => Coverage::Contingent(CoverageCondition::contingent(bindings, obligations)),
+        Established::Undecided { .. } | Established::Unprepared => Coverage::Undecided,
+    }
+}
+
+/// The complete policy's grading: does every instance of the antecedent lie in the consequent?
+///
+/// Every failing part is graded by [`grade_outside`], the one path to an `Invalid` verdict.
+fn grade_verdict(
+    checked: Checked,
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+) -> ImplicationVerdict {
+    let Checked {
+        established,
+        antecedent,
+        antecedent_variable,
+    } = checked;
+    let grade =
+        |outside, evidence| grade_outside(definition, &antecedent, outside, evidence, solver);
+    let refuted_everywhere = |refuted| OutsideEvidence::Everywhere(Everywhere::Refuted(refuted));
+    match established {
+        Established::Holds(bindings) => ImplicationVerdict::Valid(bindings),
+        Established::AntecedentEmpty => ImplicationVerdict::VacuouslyValid,
+        Established::TermMismatch => grade(
+            Outside::TermMismatch,
+            OutsideEvidence::Everywhere(Everywhere::TermMismatch),
+        ),
+        // A remainder obligation refuted by the simplifier is reported as a term mismatch, and
+        // one refuted by the solver as partial coverage; either puts every instance outside.
+        Established::Refuted {
+            refuted,
+            by: Refuter::Simplifier,
+            origin: Origin::MatchRemainder,
+            bindings: _,
+            obligations: _,
+        } => grade(Outside::TermMismatch, refuted_everywhere(refuted)),
+        Established::Refuted {
+            refuted,
+            by: Refuter::Solver,
+            origin: Origin::MatchRemainder,
+            bindings,
+            obligations,
+        } => grade(
+            Outside::PartialCoverage(CoverageCondition::partial(
+                antecedent_variable.as_ref(),
+                bindings,
+                obligations,
+            )),
+            refuted_everywhere(refuted),
+        ),
+        Established::Refuted {
+            refuted,
+            by: _,
+            origin: Origin::ConsequentCondition,
+            bindings,
+            obligations: _,
+        } => grade(
+            Outside::ConsequentCondition(MatchReport::refuted(bindings)),
+            refuted_everywhere(refuted),
+        ),
+        // The instances that falsify the obligations are outside; the report is the part of
+        // the antecedent that would lie in the consequent, or the match's bindings.
+        Established::Contingent {
+            origin: Origin::MatchRemainder,
+            bindings,
+            obligations,
+        } => {
+            let coverage = CoverageCondition::partial(
+                antecedent_variable.as_ref(),
+                bindings,
+                obligations.clone(),
+            );
+            grade(
+                Outside::PartialCoverage(coverage),
+                OutsideEvidence::Where(obligations),
+            )
+        }
+        Established::Contingent {
+            origin: Origin::ConsequentCondition,
+            bindings,
+            obligations,
+        } => grade(
+            Outside::ConsequentCondition(MatchReport::contingent(bindings)),
+            OutsideEvidence::Where(obligations),
+        ),
+        // An undecided remainder obligation is reported as the condition under which the
+        // implication would hold; nothing is shown outside.
+        Established::Undecided {
+            origin: Origin::MatchRemainder,
+            bindings,
+            obligations,
+        } => ImplicationVerdict::Indeterminate {
+            outside: Some(Outside::PartialCoverage(CoverageCondition::partial(
+                antecedent_variable.as_ref(),
+                bindings,
+                obligations,
+            ))),
+        },
+        Established::Undecided {
+            origin: Origin::ConsequentCondition,
+            ..
+        }
+        | Established::Unprepared => ImplicationVerdict::Indeterminate { outside: None },
+    }
+}
+
+/// Grade a failing part of the consequent under the complete policy.
+///
+/// `Invalid` asserts an instance of the antecedent outside the consequent, so it is answered
+/// only when `Counterexample::outside` shows one from `evidence`: an instance of the antecedent
+/// when every instance is outside, or an instance of the antecedent conjoined with the negated
+/// obligations when those instances are. Without that instance the implication may hold
+/// vacuously, so the answer is `Indeterminate`; the report is kept either way, because it
+/// describes the antecedent's instances whether or not there are any.
+fn grade_outside(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    outside: Outside,
+    evidence: OutsideEvidence,
+    solver: &dyn SmtSolver,
+) -> ImplicationVerdict {
+    match Counterexample::outside(definition, antecedent, &evidence, solver) {
+        Some(counterexample) => ImplicationVerdict::Invalid {
+            counterexample,
+            outside: Some(outside),
+        },
+        None => ImplicationVerdict::Indeterminate {
+            outside: Some(outside),
+        },
     }
 }
 
@@ -883,7 +1527,7 @@ fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: Pattern,
-    options: ImplicationCheckOptions,
+    options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<Pattern, ImplicationError> {
     if consequent.term.attributes().evaluated {
@@ -893,7 +1537,7 @@ fn simplify_consequent(
         definition,
         &consequent.term,
         &antecedent.constraints,
-        options.simplification,
+        options,
         solver,
     ) {
         Ok(simplified) => Ok(Pattern {
@@ -1003,17 +1647,18 @@ fn rename_existentials_apart(
     })
 }
 
+/// Discharge the obligations of a match of the consequent against the antecedent: the match's
+/// remainder equations, the bindings of universal consequent variables, and the consequent's
+/// constraints, with the consequent's existential witnesses eliminated.
 fn discharge_consequent(
     definition: &BackendDefinition,
-    antecedent: Source<'_>,
+    antecedent: &Pattern,
     consequent: Destination<'_>,
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
-    options: ImplicationCheckOptions,
+    options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationResult, ImplicationError> {
-    let source = antecedent;
-    let antecedent = source.pattern;
+) -> Result<Established, ImplicationError> {
     // Every obligation is decided on the antecedent's instances, where its term is defined and its
     // constraints hold with their definedness stated (I7).
     let knowledge = pattern_knowledge(definition, antecedent);
@@ -1023,7 +1668,11 @@ fn discharge_consequent(
         remainder,
         consequent.existentials,
     );
-    let had_match_remainder = !remainder.is_empty();
+    let origin = if remainder.is_empty() {
+        Origin::ConsequentCondition
+    } else {
+        Origin::MatchRemainder
+    };
     let mut obligations = implication_obligation_branches(
         definition,
         consequent.pattern,
@@ -1044,219 +1693,98 @@ fn discharge_consequent(
         obligations,
         consequent.existentials,
         &knowledge,
-        options.simplification,
+        options,
         solver,
     ) {
         Ok(obligations) => obligations,
         Err(error) => {
             stack_exhaustion(error)?;
-            return Ok(indeterminate());
+            return Ok(Established::Unprepared);
         }
     };
+    let bindings = Bindings {
+        substitution,
+        witnesses: obligations.witnesses,
+    };
     if obligations.predicates.is_empty() {
-        return Ok(valid_with_witnesses(substitution, obligations.witnesses));
+        return Ok(Established::Holds(bindings));
     }
 
-    let predicates = match simplify_predicates_with_solver(
+    let obligations = match simplify_predicates_with_solver(
         definition,
         &obligations.predicates,
         &knowledge,
-        options.simplification,
+        options,
         solver,
     ) {
         Ok(predicates) => predicates,
         Err(error) => {
             stack_exhaustion(error)?;
-            return Ok(indeterminate());
+            return Ok(Established::Unprepared);
         }
     };
-    let obligations = Obligations {
-        predicates,
-        witnesses: obligations.witnesses,
-    };
-    let truth = predicates_truth(&obligations.predicates);
+    let truth = predicates_truth(&obligations);
     match truth {
-        Truth::True => {
-            return Ok(valid_with_witnesses(substitution, obligations.witnesses));
-        }
-        // The complete policy reports a refuted remainder obligation as a term mismatch. The proof
-        // policy grades a remainder obligation the simplifier refutes exactly as one the solver
-        // refutes below: as uncovered coverage whose complement is the whole antecedent.
-        Truth::False if had_match_remainder => {
-            return Ok(
-                if options.counterexamples == CounterexamplePolicy::RefuteImplication {
-                    refutation_result(
-                        definition,
-                        antecedent,
-                        invalid(),
-                        refuted_everywhere(ObligationRefuted::by_simplifier(truth)),
-                        options,
-                        solver,
-                    )
-                } else {
-                    partial(
-                        source.original_variable,
-                        substitution,
-                        obligations.witnesses,
-                        obligations.predicates,
-                    )
-                },
-            );
-        }
+        Truth::True => return Ok(Established::Holds(bindings)),
+        // Obligations simplified to `false` fail on every instance of the antecedent.
         Truth::False => {
-            return Ok(refutation_result(
-                definition,
-                antecedent,
-                condition_invalid_with_bindings(substitution, obligations.witnesses),
-                refuted_everywhere(ObligationRefuted::by_simplifier(truth)),
-                options,
-                solver,
-            ));
+            if let Some(refuted) = ObligationRefuted::by_simplifier(truth) {
+                return Ok(Established::Refuted {
+                    refuted,
+                    by: Refuter::Simplifier,
+                    origin,
+                    bindings,
+                    obligations,
+                });
+            }
         }
         Truth::Unknown => {}
     }
 
-    let Obligations {
-        predicates: obligations,
-        witnesses,
-    } = obligations;
     let verdict = solver.check_predicates(&knowledge, &Substitution::new(), &obligations);
     if !matches!(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
-    ) && refuted_by_simplification(
-        definition,
-        &knowledge,
-        &obligations,
-        options.simplification,
-        solver,
-    )
-    .or_else(|error| stack_exhaustion(error).map(|()| false))?
+    ) && refuted_by_simplification(definition, &knowledge, &obligations, options, solver)
+        .or_else(|error| stack_exhaustion(error).map(|()| false))?
     {
-        return Ok(valid_with_witnesses(substitution, witnesses));
+        return Ok(Established::Holds(bindings));
     }
-    let refuted = verdict.as_ref().ok().and_then(ObligationRefuted::by_solver);
-    let (result, evidence) = match verdict {
-        Ok(Validity::Valid) => (
-            valid_with_witnesses(substitution, witnesses),
-            OutsideEvidence::Undecided,
-        ),
-        // Under the proof policy the part of the state outside the destination is the
-        // complement of this condition's predicates, so every obligation stays among them: an
-        // equation `X = t` that binds the antecedent variable is one of the obligations the
-        // covered instances satisfy, and moving it into the substitution would leave `¬⊤ = ⊥`
-        // as the uncovered part of a state whose term is `X`. The complete policy reports that
-        // equation as a binding of the antecedent variable.
-        Ok(Validity::Refuted) if had_match_remainder => (
-            partial(
-                match options.counterexamples {
-                    CounterexamplePolicy::PreserveIndeterminate => None,
-                    CounterexamplePolicy::RefuteImplication => source.original_variable,
+    Ok(match verdict {
+        Ok(validity) => match validity {
+            Validity::Valid => Established::Holds(bindings),
+            Validity::InconsistentGroundTruth => Established::AntecedentEmpty,
+            Validity::Refuted => match ObligationRefuted::by_solver(&validity) {
+                Some(refuted) => Established::Refuted {
+                    refuted,
+                    by: Refuter::Solver,
+                    origin,
+                    bindings,
+                    obligations,
                 },
-                substitution,
-                witnesses,
+                None => Established::Undecided {
+                    origin,
+                    bindings,
+                    obligations,
+                },
+            },
+            Validity::Contingent => Established::Contingent {
+                origin,
+                bindings,
                 obligations,
-            ),
-            refuted_everywhere(refuted),
-        ),
-        Ok(Validity::Refuted) => (
-            condition_invalid_with_bindings(substitution, witnesses),
-            refuted_everywhere(refuted),
-        ),
-        Ok(Validity::InconsistentGroundTruth) => (vacuously_valid(), OutsideEvidence::Undecided),
-        // The complete policy reports an undecided remainder obligation as the condition under
-        // which the implication would hold. The proof policy classifies the obligation by what
-        // the solver established, whatever its origin: a contingent one splits the state below,
-        // and an undecided one shows no non-empty part outside the destination.
-        Ok(Validity::Contingent)
-            if had_match_remainder
-                && options.counterexamples == CounterexamplePolicy::RefuteImplication =>
-        {
-            let counterexample = OutsideEvidence::Where(obligations.clone());
-            (
-                partial(
-                    source.original_variable,
-                    substitution,
-                    witnesses,
-                    obligations,
-                ),
-                counterexample,
-            )
-        }
-        Ok(Validity::Unknown(_)) | Err(_)
-            if had_match_remainder
-                && options.counterexamples == CounterexamplePolicy::RefuteImplication =>
-        {
-            (
-                partial(
-                    source.original_variable,
-                    substitution,
-                    witnesses,
-                    obligations,
-                ),
-                OutsideEvidence::Undecided,
-            )
-        }
-        Ok(Validity::Contingent)
-            if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
-        {
-            (
-                counterexample_invalid_with_bindings(substitution, witnesses),
-                OutsideEvidence::Where(obligations),
-            )
-        }
-        // The obligation holds on part of the antecedent and fails on a non-empty part, so the
-        // obligations themselves are the exact coverage condition.
-        Ok(Validity::Contingent) => (
-            contingent_with_bindings(substitution, witnesses, obligations),
-            OutsideEvidence::Undecided,
-        ),
-        Ok(Validity::Unknown(_)) | Err(_) => (indeterminate(), OutsideEvidence::Undecided),
-    };
-    Ok(refutation_result(
-        definition, antecedent, result, evidence, options, solver,
-    ))
-}
-
-/// Every instance of the antecedent is outside the consequent when the obligations are refuted,
-/// and nothing is established when they are not.
-fn refuted_everywhere(refuted: Option<ObligationRefuted>) -> OutsideEvidence {
-    refuted.map_or(OutsideEvidence::Undecided, |refuted| {
-        OutsideEvidence::Everywhere(Everywhere::Refuted(refuted))
+            },
+            Validity::Unknown(_) => Established::Undecided {
+                origin,
+                bindings,
+                obligations,
+            },
+        },
+        Err(_) => Established::Undecided {
+            origin,
+            bindings,
+            obligations,
+        },
     })
-}
-
-/// Grade an invalid result of the complete policy by the instance it rests on.
-///
-/// `invalid` asserts that some instance of the antecedent is not an instance of the
-/// consequent, so it is kept only when `Counterexample::outside` shows one from the `evidence`:
-/// an instance of the antecedent when every instance is outside, or an instance of the
-/// antecedent conjoined with the negated obligations when those instances are. Without that
-/// instance the implication may hold vacuously, so the status becomes `Indeterminate`; the
-/// condition is kept, because "the antecedent and the condition" is the part of the antecedent
-/// inside the consequent whether or not the antecedent is empty. The proof policy reads an
-/// invalid result only as "this state is not yet covered" and is returned unchanged.
-fn refutation_result(
-    definition: &BackendDefinition,
-    antecedent: &Pattern,
-    result: ImplicationResult,
-    evidence: OutsideEvidence,
-    options: ImplicationCheckOptions,
-    solver: &dyn SmtSolver,
-) -> ImplicationResult {
-    if options.counterexamples != CounterexamplePolicy::RefuteImplication
-        || result.status != ImplicationStatus::Invalid
-    {
-        return result;
-    }
-    if Counterexample::outside(definition, antecedent, &evidence, solver).is_some() {
-        result
-    } else {
-        ImplicationResult {
-            status: ImplicationStatus::Indeterminate,
-            ..result
-        }
-    }
 }
 
 /// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
@@ -1634,175 +2162,12 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
     }
 }
 
-#[cfg(test)]
-fn valid(substitution: Substitution) -> ImplicationResult {
-    valid_with_witnesses(substitution, Substitution::new())
-}
-
-fn valid_with_witnesses(substitution: Substitution, witnesses: Substitution) -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Valid,
-        condition: Some(ImplicationCondition {
-            predicates: Vec::new(),
-            substitution,
-            witnesses,
-        }),
-        failure: None,
-        vacuous: false,
+fn disjoin(mut predicates: Vec<Predicate>) -> Predicate {
+    match predicates.len() {
+        0 => Predicate::False,
+        1 => predicates.pop().expect("one predicate is present"),
+        _ => Predicate::Or(predicates),
     }
-}
-
-fn vacuously_valid() -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Valid,
-        condition: Some(ImplicationCondition {
-            predicates: vec![Predicate::False],
-            substitution: Substitution::new(),
-            witnesses: Substitution::new(),
-        }),
-        failure: None,
-        vacuous: true,
-    }
-}
-
-fn invalid() -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: None,
-        failure: Some(ImplicationFailure::TermMismatch),
-        vacuous: false,
-    }
-}
-
-fn condition_invalid() -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: vec![Predicate::False],
-            substitution: Substitution::new(),
-            witnesses: Substitution::new(),
-        }),
-        failure: Some(ImplicationFailure::ConsequentCondition),
-        vacuous: false,
-    }
-}
-
-fn condition_invalid_with_substitution(substitution: Substitution) -> ImplicationResult {
-    if substitution.is_empty() {
-        return condition_invalid();
-    }
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: Vec::new(),
-            substitution,
-            witnesses: Substitution::new(),
-        }),
-        failure: Some(ImplicationFailure::ConsequentCondition),
-        vacuous: false,
-    }
-}
-
-fn condition_invalid_with_bindings(
-    substitution: Substitution,
-    witnesses: Substitution,
-) -> ImplicationResult {
-    if witnesses.is_empty() {
-        return condition_invalid_with_substitution(substitution);
-    }
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: Vec::new(),
-            substitution,
-            witnesses,
-        }),
-        failure: Some(ImplicationFailure::ConsequentCondition),
-        vacuous: false,
-    }
-}
-
-fn counterexample_invalid(substitution: Substitution) -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: Vec::new(),
-            substitution,
-            witnesses: Substitution::new(),
-        }),
-        failure: Some(ImplicationFailure::ConsequentCondition),
-        vacuous: false,
-    }
-}
-
-fn counterexample_invalid_with_bindings(
-    substitution: Substitution,
-    witnesses: Substitution,
-) -> ImplicationResult {
-    if witnesses.is_empty() {
-        return counterexample_invalid(substitution);
-    }
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates: Vec::new(),
-            substitution,
-            witnesses,
-        }),
-        failure: Some(ImplicationFailure::ConsequentCondition),
-        vacuous: false,
-    }
-}
-
-fn partial(
-    antecedent_variable: Option<&Variable>,
-    mut substitution: Substitution,
-    witnesses: Substitution,
-    predicates: Vec<Predicate>,
-) -> ImplicationResult {
-    let mut predicates = predicates;
-    predicates.retain(|predicate| {
-        let Predicate::Equals(left, right) = predicate else {
-            return true;
-        };
-        let binding = implication_binding(left, right, antecedent_variable)
-            .or_else(|| implication_binding(right, left, antecedent_variable));
-        let Some((variable, value)) = binding else {
-            return true;
-        };
-        if substitution.contains_key(variable) {
-            return true;
-        }
-        substitution.insert(variable.clone(), value.clone());
-        false
-    });
-    ImplicationResult {
-        status: ImplicationStatus::Invalid,
-        condition: Some(ImplicationCondition {
-            predicates,
-            substitution,
-            witnesses,
-        }),
-        failure: Some(ImplicationFailure::PartialCoverage),
-        vacuous: false,
-    }
-}
-
-/// The destination covers the antecedent exactly where `predicates` hold. No binding is
-/// extracted from them: every predicate stays part of the coverage condition.
-fn contingent_with_bindings(
-    substitution: Substitution,
-    witnesses: Substitution,
-    predicates: Vec<Predicate>,
-) -> ImplicationResult {
-    ImplicationResult {
-        failure: Some(ImplicationFailure::ContingentCondition),
-        ..partial(None, substitution, witnesses, predicates)
-    }
-}
-
-fn contingent(predicates: Vec<Predicate>) -> ImplicationResult {
-    contingent_with_bindings(Substitution::new(), Substitution::new(), predicates)
 }
 
 fn implication_binding<'a>(
@@ -1815,15 +2180,6 @@ fn implication_binding<'a>(
     };
     (antecedent_variable == Some(variable) && !value.attributes().variables.contains(variable))
         .then_some((variable, value))
-}
-
-fn indeterminate() -> ImplicationResult {
-    ImplicationResult {
-        status: ImplicationStatus::Indeterminate,
-        condition: None,
-        failure: None,
-        vacuous: false,
-    }
 }
 
 #[cfg(test)]
@@ -1939,13 +2295,12 @@ mod tests {
         term(definition, &format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
     }
 
-    fn assert_single_witness(result: &ImplicationResult, original_name: &str, expected: &Term) {
-        let condition = result
-            .condition
-            .as_ref()
-            .expect("a valid implication carries its condition");
-        assert_eq!(condition.witnesses.len(), 1, "{condition:#?}");
-        let (variable, value) = condition
+    fn assert_single_witness(result: &Coverage, original_name: &str, expected: &Term) {
+        let Coverage::Covered(bindings) = result else {
+            panic!("a valid implication carries its bindings: {result:#?}");
+        };
+        assert_eq!(bindings.witnesses.len(), 1, "{bindings:#?}");
+        let (variable, value) = bindings
             .witnesses
             .iter()
             .next()
@@ -1987,7 +2342,7 @@ mod tests {
         antecedent: &Pattern,
         consequent: &Pattern,
         solver: &dyn SmtSolver,
-    ) -> Result<ImplicationResult, ImplicationError> {
+    ) -> Result<ImplicationVerdict, ImplicationError> {
         check_implication_with_existentials_complete(
             definition,
             antecedent,
@@ -1996,6 +2351,12 @@ mod tests {
             &BTreeSet::new(),
             solver,
         )
+    }
+
+    /// Whether the proof policy places every instance of the state in the destination: all of
+    /// them are covered, or there is none.
+    fn covers_every_instance(coverage: &Coverage) -> bool {
+        matches!(coverage, Coverage::Covered(_) | Coverage::Vacuous)
     }
 
     /// The proof policy classifies a remainder obligation by the solver's answer alone, as it
@@ -2021,27 +2382,28 @@ mod tests {
         };
 
         let refuted = solver(Ok(Validity::Refuted));
-        for result in [
-            check_implication(&definition, &antecedent, &consequent, &refuted),
-            check_complete(&definition, &antecedent, &consequent, &refuted),
-        ] {
-            let result = result.expect("implication should be checked");
-            assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
-            assert_eq!(
-                result.failure,
-                Some(ImplicationFailure::PartialCoverage),
-                "{result:#?}"
-            );
-        }
+        let result = check_implication(&definition, &antecedent, &consequent, &refuted)
+            .expect("implication should be checked");
+        assert!(
+            matches!(result, Coverage::PartialCoverage { .. }),
+            "{result:#?}"
+        );
+        let result = check_complete(&definition, &antecedent, &consequent, &refuted)
+            .expect("implication should be checked");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(
+            result.failure(),
+            Some(ImplicationFailure::PartialCoverage),
+            "{result:#?}"
+        );
 
         let contingent = solver(Ok(Validity::Contingent));
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &contingent),
-            Ok(contingent_with_bindings(
-                Substitution::new(),
-                Substitution::new(),
+            Ok(Coverage::Contingent(CoverageCondition::contingent(
+                Bindings::default(),
                 vec![obligation],
-            ))
+            )))
         );
 
         for undecided in [
@@ -2050,7 +2412,7 @@ mod tests {
         ] {
             assert_eq!(
                 check_implication(&definition, &antecedent, &consequent, &undecided),
-                Ok(indeterminate())
+                Ok(Coverage::Undecided)
             );
         }
 
@@ -2070,9 +2432,9 @@ mod tests {
         ] {
             let result = check_complete(&definition, &antecedent, &consequent, &undecided)
                 .expect("implication should be checked");
-            assert_eq!(result.status, status, "{result:#?}");
+            assert_eq!(result.status(), status, "{result:#?}");
             assert_eq!(
-                result.failure,
+                result.failure(),
                 Some(ImplicationFailure::PartialCoverage),
                 "{result:#?}"
             );
@@ -2086,7 +2448,7 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &pattern, &pattern, &NoSolver),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
     }
 
@@ -2105,7 +2467,10 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(valid(Substitution::from([(x, int(&definition, "1"))])))
+            Ok(Coverage::Covered(Bindings {
+                substitution: Substitution::from([(x, int(&definition, "1"))]),
+                witnesses: Substitution::new(),
+            }))
         );
     }
 
@@ -2127,12 +2492,10 @@ mod tests {
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
-        assert_eq!(
-            result.failure,
-            Some(ImplicationFailure::ConsequentCondition)
-        );
-        let condition = result.condition.expect("the binding is retained");
+        let Coverage::ConditionRefuted { report, .. } = result else {
+            panic!("the consequent condition is refuted: {result:#?}");
+        };
+        let condition = report.condition();
         assert_eq!(
             condition.substitution.get(&x),
             Some(&int(&definition, "1")),
@@ -2168,15 +2531,10 @@ mod tests {
         // obligation itself; the complete check refutes with it.
         let result = check_implication(&definition, &unrelated, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
-        assert_eq!(
-            result.failure,
-            Some(ImplicationFailure::ContingentCondition),
-            "{result:#?}"
-        );
-        let condition = result
-            .condition
-            .expect("a contingent result has a condition");
+        let Coverage::Contingent(coverage) = result else {
+            panic!("the obligation holds on part of the antecedent: {result:#?}");
+        };
+        let condition = coverage.to_condition();
         assert_eq!(
             condition.predicates,
             vec![Predicate::Equals(
@@ -2194,11 +2552,11 @@ mod tests {
             &solver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
 
         let result = check_implication(&definition, &equal, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(covers_every_instance(&result), "{result:#?}");
     }
 
     #[test]
@@ -2212,14 +2570,15 @@ mod tests {
         // undecided because nothing shows an instance outside the consequent.
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(indeterminate())
+            Ok(Coverage::Undecided)
         );
         let result = check_complete(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Indeterminate);
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
+        assert_eq!(result.failure(), Some(ImplicationFailure::PartialCoverage));
         let condition = result
-            .condition
+            .into_condition()
             .expect("the recursively matched subset should be retained");
         assert!(matches!(
             condition.predicates.as_slice(),
@@ -2227,7 +2586,6 @@ mod tests {
                 if left == &term(&definition, "X:SortInt{}")
                     && right == &term(&definition, "opaque{}(X:SortInt{})")
         ));
-        assert_eq!(result.failure, Some(ImplicationFailure::PartialCoverage));
     }
 
     #[test]
@@ -2243,16 +2601,16 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(indeterminate())
+            Ok(Coverage::Undecided)
         );
         let result = check_complete(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
-        let condition = result
-            .condition
-            .expect("the partial configuration binding should be retained");
 
         // Without a solver, no instance of `X` outside `0` is shown.
-        assert_eq!(result.status, ImplicationStatus::Indeterminate);
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
+        let condition = result
+            .into_condition()
+            .expect("the partial configuration binding should be retained");
         assert_eq!(condition.substitution, Substitution::from([(x, value)]));
         assert!(condition.predicates.is_empty());
     }
@@ -2286,24 +2644,32 @@ mod tests {
 
         // Every instance of the antecedent is refuted, but without a solver `X =/= 0` is not
         // shown to have one, so the refutation stays undecided.
-        assert_eq!(result.status, ImplicationStatus::Indeterminate);
-        assert_eq!(result.condition, None);
-        assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
+        assert_eq!(
+            result,
+            ImplicationVerdict::Indeterminate {
+                outside: Some(Outside::TermMismatch)
+            }
+        );
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
+        assert_eq!(result.failure(), Some(ImplicationFailure::TermMismatch));
+        assert_eq!(result.into_condition(), None);
 
         // The proof policy grades the simplifier-refuted remainder `0 = X` as uncovered coverage,
         // like a solver-refuted one, so the stuck check applies to it.
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Invalid);
-        assert_eq!(result.failure, Some(ImplicationFailure::PartialCoverage));
-        let condition = result
-            .condition
-            .expect("refuted coverage carries a condition");
+        let Coverage::PartialCoverage { coverage, .. } = result else {
+            panic!("the remainder obligation is refuted: {result:#?}");
+        };
         assert!(
-            condition.predicates.contains(&Predicate::False),
-            "{condition:?}"
+            coverage
+                .to_condition()
+                .predicates
+                .contains(&Predicate::False),
+            "{coverage:?}"
         );
+        assert_eq!(coverage.covered(), Predicate::False, "{coverage:?}");
     }
 
     #[test]
@@ -2379,12 +2745,10 @@ mod tests {
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        // A covered state's condition is its bindings alone: the refuted counterexample leaves
+        // no residual condition.
         assert!(
-            result
-                .condition
-                .as_ref()
-                .is_some_and(|condition| condition.predicates.is_empty()),
+            matches!(result, Coverage::Covered(_)),
             "the refuted counterexample must leave no residual condition: {result:#?}"
         );
     }
@@ -2398,9 +2762,7 @@ mod tests {
         let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Invalid);
-        assert_eq!(result.condition, None);
-        assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
+        assert_eq!(result, Coverage::TermMismatch);
     }
 
     /// A free variable that only the consequent mentions is universal over the implication: its
@@ -2428,7 +2790,7 @@ mod tests {
         // Constrained by the match: `Y := 1` does not hold for every `Y`.
         let constrained = pattern(&definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#);
         let result = check(&antecedent, &constrained);
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
 
         // A vacuous antecedent implies anything.
         let mut vacuous = antecedent.clone();
@@ -2437,7 +2799,7 @@ mod tests {
             Predicate::Equals(Term::variable(x.clone()), int(&definition, "1")),
         ];
         let result = check(&vacuous, &constrained);
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
 
         // Not constrained: `Y = 1 \/ Y =/= 1` holds for every `Y`.
         let mut unconstrained = antecedent.clone();
@@ -2449,7 +2811,7 @@ mod tests {
             Predicate::Not(Box::new(y_is_one)),
         ])];
         let result = check(&unconstrained, &consequent);
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
     }
 
     /// An antecedent existential and a consequent universal of the same name are different
@@ -2471,7 +2833,7 @@ mod tests {
             &solver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
     }
 
     #[test]
@@ -2490,12 +2852,12 @@ mod tests {
             &NoSolver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid);
-        let condition = result.condition.expect("a valid result has a condition");
-        assert!(condition.predicates.is_empty());
-        assert!(condition.witnesses.is_empty());
+        let Coverage::Covered(bindings) = result else {
+            panic!("a valid result has bindings: {result:#?}");
+        };
+        assert!(bindings.witnesses.is_empty());
         assert_eq!(
-            condition.substitution.values().collect::<Vec<_>>(),
+            bindings.substitution.values().collect::<Vec<_>>(),
             vec![&Term::variable(crate::term::Variable::new(
                 "X",
                 Sort::simple("SortInt"),
@@ -2557,11 +2919,9 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
-        let condition = result
-            .condition
-            .expect("a valid implication carries its condition");
-        assert!(condition.predicates.is_empty(), "{condition:#?}");
+        let Coverage::Covered(condition) = result else {
+            panic!("a valid implication carries its bindings: {result:#?}");
+        };
         let expected = term(
             &definition,
             "setConcat{}(setItem{}(I:SortInt{}), G2:SortSet{})",
@@ -2622,7 +2982,7 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(covers_every_instance(&result), "{result:#?}");
     }
 
     #[test]
@@ -2657,15 +3017,12 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
         assert_single_witness(&result, "Y", &int(&definition, "5"));
+        let Coverage::Covered(bindings) = result else {
+            panic!("a valid implication carries its bindings: {result:#?}");
+        };
         assert!(
-            result
-                .condition
-                .as_ref()
-                .expect("a valid implication carries its condition")
-                .substitution
-                .is_empty(),
+            bindings.substitution.is_empty(),
             "obligation witnesses must not leak into the term-match substitution"
         );
     }
@@ -2698,12 +3055,10 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
-        let witnesses = &result
-            .condition
-            .as_ref()
-            .expect("a valid implication carries its condition")
-            .witnesses;
+        let Coverage::Covered(bindings) = &result else {
+            panic!("a valid implication carries its bindings: {result:#?}");
+        };
+        let witnesses = &bindings.witnesses;
         assert_eq!(witnesses.len(), 2);
         assert!(
             witnesses
@@ -2738,7 +3093,6 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
         assert_single_witness(&result, "Y", &term(&definition, "X:SortTree{}"));
     }
 
@@ -2764,15 +3118,12 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
         assert_single_witness(&result, "Y", &term(&definition, "X:SortInt{}"));
+        let Coverage::Covered(bindings) = result else {
+            panic!("a valid implication carries its bindings: {result:#?}");
+        };
         assert!(
-            result
-                .condition
-                .as_ref()
-                .expect("a valid implication carries its condition")
-                .substitution
-                .is_empty(),
+            bindings.substitution.is_empty(),
             "the universal must not be captured by either substitution"
         );
     }
@@ -2800,7 +3151,6 @@ mod tests {
         )
         .expect("disjunctive implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
         assert_single_witness(&result, "Y", &term(&definition, "X:SortInt{}"));
     }
 
@@ -2828,10 +3178,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.status, ImplicationStatus::Invalid);
-        let condition = result
-            .condition
-            .expect("the successful term match is retained");
+        let Coverage::ConditionRefuted { report, .. } = result else {
+            panic!("the successful term match is retained: {result:#?}");
+        };
+        let condition = report.condition();
         assert!(condition.predicates.is_empty());
         assert_eq!(
             condition.substitution.values().collect::<Vec<_>>(),
@@ -2863,7 +3213,7 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid);
+        assert!(covers_every_instance(&result), "{result:#?}");
     }
 
     #[cfg(feature = "z3")]
@@ -2888,7 +3238,7 @@ mod tests {
         )
         .expect("implication should be checked");
 
-        assert_eq!(result.status, ImplicationStatus::Valid);
+        assert!(covers_every_instance(&result), "{result:#?}");
     }
 
     #[test]
@@ -2907,7 +3257,7 @@ mod tests {
                 &BTreeSet::from([x.clone()]),
                 &NoSolver,
             ),
-            Ok(indeterminate())
+            Ok(Coverage::Undecided)
         );
         let result = check_implication_with_existentials_complete(
             &definition,
@@ -2918,9 +3268,9 @@ mod tests {
             &NoSolver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Indeterminate);
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
         let condition = result
-            .condition
+            .into_condition()
             .expect("the matching subset should be retained");
         assert_eq!(condition.predicates.len(), 1);
         assert!(
@@ -2945,7 +3295,7 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(invalid())
+            Ok(Coverage::TermMismatch)
         );
     }
 
@@ -2957,12 +3307,12 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
     }
 
     #[test]
-    fn vacuously_valid_results_carry_the_vacuous_flag() {
+    fn a_vacuous_antecedent_is_answered_by_its_own_variant() {
         let definition = definition();
         let antecedent = pattern(&definition, r#"\dv{SortInt{}}("1")"#);
         let consequent = antecedent.clone();
@@ -2972,11 +3322,18 @@ mod tests {
         };
 
         let result = check_implication(&definition, &antecedent, &consequent, &solver).unwrap();
-        assert_eq!(result, vacuously_valid());
-        assert!(result.vacuous);
+        assert_eq!(result, Coverage::Vacuous);
+        let verdict = check_complete(&definition, &antecedent, &consequent, &solver).unwrap();
+        assert_eq!(verdict, ImplicationVerdict::VacuouslyValid);
+        assert_eq!(
+            verdict
+                .into_condition()
+                .map(|condition| condition.predicates),
+            Some(vec![Predicate::False])
+        );
 
         let ordinary = check_implication(&definition, &antecedent, &consequent, &NoSolver).unwrap();
-        assert!(!ordinary.vacuous);
+        assert_eq!(ordinary, Coverage::Covered(Bindings::default()));
     }
 
     #[test]
@@ -2995,24 +3352,20 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &solver),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
 
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
             validity: Ok(Validity::Refuted),
         };
-        assert_eq!(
-            check_implication(&definition, &antecedent, &consequent, &solver),
-            Ok(condition_invalid())
-        );
-        assert_eq!(
-            condition_invalid()
-                .condition
-                .expect("a refuted condition should be retained")
-                .predicates,
-            vec![Predicate::False]
-        );
+        let result = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        let Coverage::ConditionRefuted { report, .. } = result else {
+            panic!("a refuted condition should be retained: {result:#?}");
+        };
+        assert_eq!(report, MatchReport::refuted(Bindings::default()));
+        assert_eq!(report.condition().predicates, vec![Predicate::False]);
     }
 
     #[cfg(feature = "z3")]
@@ -3037,12 +3390,11 @@ mod tests {
         let renamed = constrained("Y", "0");
         for (antecedent, consequent) in [(&left, &renamed), (&renamed, &left)] {
             let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
-            assert_eq!(result.status, ImplicationStatus::Valid, "{result:?}");
-            assert!(!result.vacuous);
+            assert!(matches!(result, Coverage::Covered(_)), "{result:?}");
         }
         let different = constrained("Y", "1");
         let result = check_implication(&definition, &left, &different, &solver).unwrap();
-        assert_ne!(result.status, ImplicationStatus::Valid, "{result:?}");
+        assert!(!covers_every_instance(&result), "{result:?}");
     }
 
     #[cfg(feature = "z3")]
@@ -3068,12 +3420,11 @@ mod tests {
         let distinct = constrained("Y", "G");
         for (antecedent, consequent) in [(&original, &renamed), (&renamed, &original)] {
             let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
-            assert_eq!(result.status, ImplicationStatus::Valid, "{result:?}");
-            assert!(!result.vacuous);
+            assert!(matches!(result, Coverage::Covered(_)), "{result:?}");
         }
         for (antecedent, consequent) in [(&original, &distinct), (&distinct, &original)] {
             let result = check_implication(&definition, antecedent, consequent, &solver).unwrap();
-            assert_ne!(result.status, ImplicationStatus::Valid, "{result:?}");
+            assert!(!covers_every_instance(&result), "{result:?}");
         }
     }
 
@@ -3095,19 +3446,29 @@ mod tests {
         // antecedent by the obligation, the complete check refutes the implication.
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &counterexample),
-            Ok(contingent(consequent.constraints.clone()))
+            Ok(Coverage::Contingent(CoverageCondition::contingent(
+                Bindings::default(),
+                consequent.constraints.clone(),
+            )))
         );
-        assert_eq!(
-            check_implication_with_existentials_complete(
-                &definition,
-                &antecedent,
-                &BTreeSet::new(),
-                &consequent,
-                &BTreeSet::new(),
-                &counterexample,
-            ),
-            Ok(counterexample_invalid(Substitution::new()))
-        );
+        let result = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::new(),
+            &counterexample,
+        )
+        .expect("implication should be checked");
+        let ImplicationVerdict::Invalid {
+            counterexample: _,
+            outside: Some(Outside::ConsequentCondition(report)),
+        } = result
+        else {
+            panic!("the counterexample is shown: {result:#?}");
+        };
+        assert_eq!(report, MatchReport::contingent(Bindings::default()));
+        assert_eq!(report.condition().predicates, Vec::new());
 
         // An unknown answer establishes neither part, so both checks stay undecided.
         let unknown = FixedSolver {
@@ -3116,7 +3477,7 @@ mod tests {
         };
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &unknown),
-            Ok(indeterminate())
+            Ok(Coverage::Undecided)
         );
 
         let unavailable = FixedSolver {
@@ -3132,7 +3493,7 @@ mod tests {
                 &BTreeSet::new(),
                 &unavailable,
             ),
-            Ok(indeterminate())
+            Ok(ImplicationVerdict::Indeterminate { outside: None })
         );
     }
 
@@ -3151,7 +3512,7 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &solver),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
     }
 
@@ -3193,14 +3554,15 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            check_implication(&definition, &antecedent, &first, &DisjunctionSolver),
-            Ok(condition_invalid())
-        );
-        assert_eq!(
-            check_implication(&definition, &antecedent, &second, &DisjunctionSolver),
-            Ok(condition_invalid())
-        );
+        for consequent in [&first, &second] {
+            let result =
+                check_implication(&definition, &antecedent, consequent, &DisjunctionSolver)
+                    .expect("implication should be checked");
+            let Coverage::ConditionRefuted { report, .. } = result else {
+                panic!("each condition alone is refuted: {result:#?}");
+            };
+            assert_eq!(report, MatchReport::refuted(Bindings::default()));
+        }
         assert_eq!(
             check_disjunctive_implication_with_existentials(
                 &definition,
@@ -3210,7 +3572,7 @@ mod tests {
                 SimplificationOptions::default(),
                 &DisjunctionSolver,
             ),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
     }
 
@@ -3223,20 +3585,20 @@ mod tests {
 
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Ok(valid(Substitution::new()))
+            Ok(Coverage::Covered(Bindings::default()))
         );
         // `f(X) = 1` is not decided without a solver: the proof policy leaves it undecided, and
         // the complete policy reports it as the condition of its undecided answer.
         assert_eq!(
             check_implication(&definition, &antecedent, &other, &NoSolver),
-            Ok(indeterminate())
+            Ok(Coverage::Undecided)
         );
         let result = check_complete(&definition, &antecedent, &other, &NoSolver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Indeterminate);
+        assert_eq!(result.status(), ImplicationStatus::Indeterminate);
         assert_eq!(
             result
-                .condition
+                .into_condition()
                 .expect("the matching subset should be retained")
                 .predicates
                 .len(),
@@ -3324,17 +3686,19 @@ mod tests {
         )
         .expect("implication should be checked");
         assert_eq!(
-            result.status,
+            result.status(),
             ImplicationStatus::Indeterminate,
             "{result:#?}"
         );
         assert_eq!(
-            result.failure,
+            result.failure(),
             Some(ImplicationFailure::ConsequentCondition),
             "{result:#?}"
         );
         assert_eq!(
-            result.condition.map(|condition| condition.predicates),
+            result
+                .into_condition()
+                .map(|condition| condition.predicates),
             Some(vec![Predicate::False])
         );
         // The proof policy reads the same refutation only as "not covered".
@@ -3345,7 +3709,10 @@ mod tests {
             &solver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert!(
+            matches!(result, Coverage::ConditionRefuted { .. }),
+            "{result:#?}"
+        );
 
         let result = check_complete(
             &definition,
@@ -3354,9 +3721,9 @@ mod tests {
             &solver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
         assert_eq!(
-            result.failure,
+            result.failure(),
             Some(ImplicationFailure::ConsequentCondition),
             "{result:#?}"
         );
@@ -3382,13 +3749,13 @@ mod tests {
                 &solver,
             )
             .expect("implication should be checked");
-            assert_eq!(result.status, status, "{op}: {result:#?}");
-            assert_eq!(result.condition, None, "{op}: {result:#?}");
+            assert_eq!(result.status(), status, "{op}: {result:#?}");
             assert_eq!(
-                result.failure,
+                result.failure(),
                 Some(ImplicationFailure::TermMismatch),
                 "{op}: {result:#?}"
             );
+            assert_eq!(result.into_condition(), None, "{op}");
         }
     }
 
@@ -3409,7 +3776,7 @@ mod tests {
             &solver,
         )
         .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Invalid, "{result:#?}");
 
         let result = check_complete(
             &definition,
@@ -3419,11 +3786,11 @@ mod tests {
         )
         .expect("implication should be checked");
         assert_eq!(
-            result.status,
+            result.status(),
             ImplicationStatus::Indeterminate,
             "{result:#?}"
         );
-        assert!(result.condition.is_some(), "{result:#?}");
+        assert!(result.into_condition().is_some());
     }
 
     /// `A -> \bottom` holds exactly when `A` is empty.
@@ -3432,25 +3799,39 @@ mod tests {
     fn a_bottom_consequent_is_invalid_only_for_an_antecedent_shown_nonempty() {
         let definition = bitwise_definition();
         let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
-        let special = special_case(
-            &parse_pattern("stay{}(X:SortInt{})").expect("antecedent should parse"),
-            &parse_pattern(r#"\bottom{SortKItem{}}()"#).expect("consequent should parse"),
-        )
-        .expect("a bottom consequent is a special case");
-        assert_eq!(special.status, ImplicationStatus::Invalid);
+        let antecedent = parse_pattern("stay{}(X:SortInt{})").expect("antecedent should parse");
+        let consequent =
+            parse_pattern(r#"\bottom{SortKItem{}}()"#).expect("consequent should parse");
+        assert_eq!(bottom_antecedent(&antecedent), None);
+        assert_eq!(
+            special_consequent(&consequent),
+            Some(SpecialConsequent::Bottom)
+        );
 
         for (op, status) in [
             ("plus", ImplicationStatus::Invalid),
             ("andInt", ImplicationStatus::Indeterminate),
         ] {
-            let result = grade_special_case(
+            let result = grade_bottom_consequent(
                 &definition,
                 &constrained(&definition, "stay", op, "2"),
-                special.clone(),
                 &solver,
             );
-            assert_eq!(result.status, status, "{op}: {result:#?}");
-            assert_eq!(result.condition, special.condition, "{op}: {result:#?}");
+            assert_eq!(result.status(), status, "{op}: {result:#?}");
+            assert_eq!(
+                result.failure(),
+                Some(ImplicationFailure::ConsequentCondition),
+                "{op}: {result:#?}"
+            );
+            assert_eq!(
+                result.into_condition(),
+                Some(ImplicationCondition {
+                    predicates: vec![Predicate::False],
+                    substitution: Substitution::new(),
+                    witnesses: Substitution::new(),
+                }),
+                "{op}"
+            );
         }
     }
 
@@ -3495,9 +3876,9 @@ mod tests {
                 &solver,
             )
             .expect("implication should be checked");
-            assert_eq!(result.status, status, "{antecedent}: {result:#?}");
+            assert_eq!(result.status(), status, "{antecedent}: {result:#?}");
             assert_eq!(
-                result.failure,
+                result.failure(),
                 Some(ImplicationFailure::TermMismatch),
                 "{antecedent}: {result:#?}"
             );
@@ -3520,7 +3901,7 @@ mod tests {
             &solver,
         )
         .expect("the negated consequent should internalize")
-        .status
+        .status()
     }
 
     /// `A -> \not C` is invalid exactly when `A /\ C` is nonempty and valid exactly when it is
@@ -3677,11 +4058,11 @@ mod tests {
                 .expect("implication should be checked");
             let complete = check_complete(&definition, &antecedent, &consequent, &solver)
                 .expect("implication should be checked");
-            answers.push((value, proof.status, complete.status));
+            answers.push((value, proof, complete));
         }
         assert!(
-            answers.iter().all(|&(_, proof, complete)| {
-                proof != ImplicationStatus::Valid && complete != ImplicationStatus::Valid
+            answers.iter().all(|(_, proof, complete)| {
+                !covers_every_instance(proof) && complete.status() != ImplicationStatus::Valid
             }),
             "(value, proof, complete): {answers:#?}"
         );
@@ -3718,10 +4099,10 @@ mod tests {
         ));
         let result = check_implication(&definition, &antecedent, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(covers_every_instance(&result), "{result:#?}");
         let result = check_complete(&definition, &antecedent, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
     }
 
     /// Ported from `cbc07_probe_existential_witness_over_a_partial_term` (P2).
@@ -3761,11 +4142,11 @@ mod tests {
                 &solver,
             )
             .expect("implication should be checked");
-            answers.push((value, proof.status, complete.status));
+            answers.push((value, proof, complete));
         }
         assert!(
-            answers.iter().all(|&(_, proof, complete)| {
-                proof != ImplicationStatus::Valid && complete != ImplicationStatus::Valid
+            answers.iter().all(|(_, proof, complete)| {
+                !covers_every_instance(proof) && complete.status() != ImplicationStatus::Valid
             }),
             "(value, proof, complete): {answers:#?}"
         );
@@ -3825,11 +4206,7 @@ mod tests {
                 &solver,
             )
             .expect("implication should be checked");
-            assert_eq!(
-                result.status,
-                ImplicationStatus::Valid,
-                "{value}: {result:#?}"
-            );
+            assert!(covers_every_instance(&result), "{value}: {result:#?}");
             let result = check_implication_with_existentials_complete(
                 &definition,
                 &antecedent,
@@ -3840,7 +4217,7 @@ mod tests {
             )
             .expect("implication should be checked");
             assert_eq!(
-                result.status,
+                result.status(),
                 ImplicationStatus::Valid,
                 "{value}: {result:#?}"
             );
@@ -3867,9 +4244,9 @@ mod tests {
             .push(holds(&definition, &at_most_its_successor(value)));
         let result = check_implication(&definition, &antecedent, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert!(covers_every_instance(&result), "{result:#?}");
         let result = check_complete(&definition, &antecedent, &consequent, &solver)
             .expect("implication should be checked");
-        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
     }
 }

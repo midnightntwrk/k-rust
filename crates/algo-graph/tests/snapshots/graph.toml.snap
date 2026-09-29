@@ -1558,12 +1558,12 @@ registry_name = "BackendImplicationCheck"
 [node.anchor]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/implication.rs"
-symbol = "check_implication_with_existentials_and_options_and_policy"
+symbol = "check_established"
 
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/implication.rs"
-symbol = "check_implication_with_existentials_and_options_and_policy"
+symbol = "check_established"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1578,6 +1578,16 @@ symbol = "check_implication_with_existentials"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication_with_existentials_and_options"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
+symbol = "check_implication_with_existentials_complete"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/implication.rs"
 symbol = "check_disjunctive_implication_with_existentials"
 
 [[node.sites]]
@@ -1586,8 +1596,8 @@ file = "crates/k-rust-backend/src/implication.rs"
 symbol = "eliminate_existential_witnesses"
 
 [[node.cost]]
-mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"
-bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only for an invalid answer of the complete policy)"
+mode = "one consequent (check_established)"
+bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only when the complete policy grades a failing part, grade_outside)"
 
 [[node.cost]]
 mode = "several consequents (check_disjunctive_implication_with_existentials)"

@@ -131,7 +131,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.execution.captured_stdout — O(d + l + b * h) term visits and buffer copies… — at k-rust/backend/execution.rs `captured_stdout_buffer`
 - backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`
 - backend.fresh.variables — O(c) per name, amortized O(1) +3 modes — at backend/fresh.rs `fresh_name`
-- backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution] — at backend/implication.rs `check_implication_with_existentials_and_options_and_policy`
+- backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution] — at backend/implication.rs `check_established`
 - backend.matching.relation_query — O(g x log |S|) +2 modes — at backend/matching/mod.rs `SortGraph::check_subsort`
 - backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution] — at backend/rewrite/apply.rs `apply_rule_with_match`
 - backend.rewrite.recover — each strategy either declines or returns matches… +1 mode — in: [match result], [collection solution], [unification result] — at backend/rewrite/recover.rs `recover_indeterminate_match`
