@@ -1,4 +1,4 @@
-//! Shared support for integration tests that invoke Cargo, the KRS CLI, or K.
+//! Shared assertions and fixture support for KRS tests.
 //!
 //! Fixture builds must set `CARGO_TARGET_DIR` through [`fixture_target`].
 //! Generated fixtures use a target inside their guarded scratch directory.
@@ -11,6 +11,54 @@ use std::sync::OnceLock;
 
 mod compile_fixtures;
 pub use compile_fixtures::{Expectation, check_compile_fixtures};
+
+/// Assert that a result is rejected with the specified error pattern and optional guard.
+/// The expression is evaluated once, and the assertion returns `()`.
+/// The error type must implement `Debug`; the accepted type need not implement it.
+///
+/// # Panics
+///
+/// Panics if the input is accepted or the error does not match the expected pattern.
+#[macro_export]
+macro_rules! assert_rejects {
+    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {{
+        match $expression {
+            Ok(_) => panic!(
+                "input was accepted; expected error matching {}",
+                stringify!($pattern $(if $guard)?)
+            ),
+            Err(error) => match error {
+                $pattern $(if $guard)? => (),
+                actual => panic!(
+                    "expected error matching {}; actual error: {:?}",
+                    stringify!($pattern $(if $guard)?),
+                    actual
+                ),
+            },
+        }
+    }};
+}
+
+/// Assert that a rejection's display text contains the expected display text.
+/// The accepted type need not implement `Debug`.
+///
+/// # Panics
+///
+/// Panics if the input is accepted or the error does not contain the expected text.
+#[track_caller]
+pub fn assert_rejects_with_message<T, E: std::fmt::Display + std::fmt::Debug>(
+    result: Result<T, E>,
+    expected: impl std::fmt::Display,
+) {
+    let expected = expected.to_string();
+    match result {
+        Ok(_) => panic!("input was accepted; expected error containing {expected:?}"),
+        Err(error) => assert!(
+            error.to_string().contains(&expected),
+            "expected error containing {expected:?}; actual error: {error:?}"
+        ),
+    }
+}
 
 /// A temporary directory removed when its guard is dropped.
 pub use tempfile::TempDir;

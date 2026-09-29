@@ -1,6 +1,6 @@
 [package]
 name = "krs-test-support"
-description = "Shared process and temporary-directory support for KRS tests"
+description = "Shared assertions and fixture support for KRS tests"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
