@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+test-support = ["krs-ir/test-support"]
+
 [dependencies]
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 krs-syntax = { path = "../krs-syntax" }
@@ -23,5 +26,6 @@ workspace = true
 
 [dev-dependencies]
 expect-test = { workspace = true }
+krs-compiler = { path = ".", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }

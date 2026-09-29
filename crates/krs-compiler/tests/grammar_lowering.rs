@@ -1,6 +1,6 @@
 //! Structured grammar reaches Definition IR and canonical K source.
 
-use krs_compiler::{emit_k, lower_semantic_theory};
+use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, ConfigurationRoot, FixedCell,
@@ -443,8 +443,8 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         vec![rule],
     );
     let theory = SemanticTheory::new(vec![module]).unwrap();
-    let lowered = lower_semantic_theory(&theory).unwrap();
-    let source = emit_k(&lowered).unwrap().source().to_owned();
+    let (_lowered, emitted) = assert_lowering_contract(&theory);
+    let source = emitted.source().to_owned();
     assert!(source.contains("  imports INT\n"));
     assert!(source.contains("r\"[a-z]+\" [token, prec(2)]"));
     assert!(

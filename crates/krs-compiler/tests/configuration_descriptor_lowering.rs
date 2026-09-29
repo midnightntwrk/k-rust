@@ -2,8 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
+use krs_compiler::lower_descriptor_bundle;
+use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing;
+use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     BuiltinSort, CellWrapper, Descriptor, DescriptorBundle, DescriptorCellField,
     DescriptorCellIdentity, DescriptorCellReference, DescriptorConfigurationDeclaration,
@@ -487,6 +489,7 @@ fn refresh_rule_provenance(bundle: &mut DescriptorBundle) {
 #[test]
 fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically() {
     let bundle = bundle();
+    assert_canonical_contract(&bundle);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let module = semantic
         .modules()
@@ -503,23 +506,13 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
         rule.clauses()[1].after(),
         krs_ir::CellPost::Preserve
     ));
-    let lowered = lower_semantic_theory(&semantic).unwrap();
-    let source = emit_k(&lowered).unwrap().source().to_owned();
+    let (_lowered, emitted) = assert_lowering_contract(&semantic);
+    let source = emitted.source();
     assert!(source.contains("configuration"));
     assert!(source.contains("<k>"));
     assert!(source.contains("<env>"));
     assert!(source.contains("rule ["));
     assert!(source.contains(":Map"));
-
-    let mut reordered = bundle.descriptors.to_vec();
-    reordered.reverse();
-    let repeated =
-        lower_semantic_theory(&lower_descriptor_bundle(&DescriptorBundle::new(reordered)).unwrap())
-            .unwrap();
-    assert_eq!(
-        lowered.definition().to_canonical_json().unwrap(),
-        repeated.definition().to_canonical_json().unwrap()
-    );
 }
 
 #[test]
@@ -565,6 +558,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
     bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     refresh_rule_provenance(&mut bundle);
+    assert_canonical_contract(&bundle);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let module = semantic
         .modules()
@@ -597,7 +591,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
             )
     ));
 
-    let emitted = emit_k(&lower_semantic_theory(&semantic).unwrap()).unwrap();
+    let (_, emitted) = assert_lowering_contract(&semantic);
     assert!(emitted.source().contains(".Map =>"));
     assert!(emitted.source().contains("|->"));
 }
@@ -682,7 +676,9 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
 
     bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    assert_canonical_contract(&bundle);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&semantic);
     let variables = semantic
         .modules()
         .iter()

@@ -4,10 +4,41 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
+use krs_compiler::testing::assert_lowering_contract;
+use krs_ir::testing::assert_canonical_contract;
+use krs_ir::{DefinitionIr, DescriptorBundle, SemanticTheory};
 use krs_test_support::{fixture_target, krs_command, temp_dir};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
+
+#[test]
+fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
+    let temporary = temp_dir();
+    for (name, source) in [
+        ("foo-bar", FOO_BAR),
+        ("nested-function-pattern", NESTED_FUNCTION_PATTERN),
+    ] {
+        let manifest = materialize_fixture(temporary.path(), source);
+        let target = fixture_target(&manifest, Some(temporary.path()));
+        let emitted = temporary.path().join(format!("emitted-{name}"));
+        let result = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
+        assert_success(&result);
+
+        let bundle: DescriptorBundle =
+            serde_json::from_slice(&fs::read(emitted.join("descriptor-bundle.json")).unwrap())
+                .unwrap();
+        let theory: SemanticTheory =
+            serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+        let definition: DefinitionIr =
+            serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap()).unwrap();
+        assert_canonical_contract(&bundle);
+        assert_canonical_contract(&theory);
+        assert_canonical_contract(&definition);
+        let (lowered, _) = assert_lowering_contract(&theory);
+        assert_eq!(lowered.definition(), &definition, "{name}");
+    }
+}
 
 #[test]
 fn build_accepts_rule_terms_nested_64_constructors_deep() {

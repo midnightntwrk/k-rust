@@ -14,6 +14,8 @@ mod overlap;
 mod reference;
 mod semantic;
 mod sidecar;
+#[cfg(feature = "test-support")]
+pub mod testing;
 
 pub use collect::{
     PackageContext, collect_host_descriptors, collect_host_descriptors_with_builtins,

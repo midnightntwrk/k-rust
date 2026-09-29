@@ -2,8 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_compiler::testing::assert_lowering_contract;
 use krs_compiler::{
-    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k, lower_semantic_theory,
+    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, lower_semantic_theory,
 };
 use krs_ir::testing;
 use krs_ir::{
@@ -11,14 +12,14 @@ use krs_ir::{
     DefinitionRuleBody, DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
-    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
-    SemanticClaim, SemanticClaimBinder, SemanticContextAlias, SemanticId, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticRuleCondition,
-    SemanticRuleLabel, SemanticSimplification, SemanticSimplificationPriority, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SemanticVariable, SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
+    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, PackageId,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
+    ProductionGroupId, ProductionResultSort, SemanticClaim, SemanticClaimBinder,
+    SemanticContextAlias, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
+    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
+    SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind, StableItemId,
+    StrictnessKind,
 };
 use krs_test_support::kompile_reference;
 
@@ -1085,7 +1086,7 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
     ));
 }
 
-fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &EmittedK) {
+fn assert_sidecars(emitted: &EmittedK) {
     let label_names = emitted
         .symbol_map()
         .entries()
@@ -1106,20 +1107,6 @@ fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &Emitte
         if entry.generated().is_none() {
             *missing.entry(entry.node_kind()).or_insert(0_usize) += 1;
         }
-        assert!(matches!(
-            entry.origin().frames().first(),
-            Some(OriginFrame::Ranged {
-                kind: RangedOriginKind::Authored,
-                ..
-            })
-        ));
-        assert!(matches!(
-            entry.origin().frames().last(),
-            Some(OriginFrame::Transformation {
-                kind: TransformationOriginKind::DefinitionIr,
-                ..
-            })
-        ));
     }
     assert_eq!(counts[&SourceMapNodeKind::Production], 7);
     assert_eq!(counts[&SourceMapNodeKind::Rule], 6);
@@ -1128,31 +1115,15 @@ fn assert_sidecars_and_determinism(lowered: &LoweredDefinition, emitted: &Emitte
     assert_eq!(counts[&SourceMapNodeKind::CellFrame], 6);
     assert_eq!(missing[&SourceMapNodeKind::ProductionGroup], 2);
     assert_eq!(missing[&SourceMapNodeKind::ConfigurationRewrite], 6);
-
-    let repeated =
-        lower_semantic_theory(&control_flow_theory(ControlOptions::default()).unwrap()).unwrap();
-    assert_eq!(
-        lowered.definition().to_canonical_json().unwrap(),
-        repeated.definition().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        lowered.source_map().to_canonical_json().unwrap(),
-        repeated.source_map().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        lowered.symbol_map().to_canonical_json().unwrap(),
-        repeated.symbol_map().to_canonical_json().unwrap()
-    );
 }
 
 #[test]
 fn exact_control_flow_lowers_and_emits_canonical_k() {
     let semantic = control_flow_theory(ControlOptions::default()).unwrap();
-    let lowered = lower_semantic_theory(&semantic).unwrap();
-    let emitted = emit_k(&lowered).unwrap();
+    let (lowered, emitted) = assert_lowering_contract(&semantic);
     assert_definition_structure(&lowered);
     assert_exact_source(emitted.source());
-    assert_sidecars_and_determinism(&lowered, &emitted);
+    assert_sidecars(&emitted);
 }
 
 #[test]
@@ -1162,8 +1133,7 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
         ..ControlOptions::default()
     })
     .unwrap();
-    let lowered = lower_semantic_theory(&semantic).unwrap();
-    let emitted = emit_k(&lowered).unwrap();
+    let (lowered, emitted) = assert_lowering_contract(&semantic);
     let source = emitted.source();
 
     assert!(
@@ -1248,9 +1218,8 @@ fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
 #[test]
 #[ignore = "requires pin-matched K 7.1.337 tools"]
 fn emitted_control_flow_source_compiles_with_pinned_reference_frontend() {
-    let lowered =
-        lower_semantic_theory(&control_flow_theory(ControlOptions::default()).unwrap()).unwrap();
-    let emitted = emit_k(&lowered).unwrap();
+    let (_, emitted) =
+        assert_lowering_contract(&control_flow_theory(ControlOptions::default()).unwrap());
     let _temporary = kompile_reference(emitted.source(), IMP, IMP_SYNTAX)
         .enable_search()
         .run();

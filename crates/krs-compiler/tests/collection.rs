@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use krs_compiler::{CollectionErrorKind, PackageContext, collect_host_descriptors};
+use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance,
@@ -74,11 +75,13 @@ pub struct Foo { pub value: Term<dyn Expr> }
 
     let first =
         collect_host_descriptors([package.context("ORG-SEMANTICS")], descriptors.clone()).unwrap();
+    assert_canonical_contract(&first);
     let second = collect_host_descriptors(
         [package.context("ORG-SEMANTICS")],
         descriptors.into_iter().rev(),
     )
     .unwrap();
+    assert_canonical_contract(&second);
 
     assert_eq!(first, second);
     assert_eq!(first.descriptors.len(), 3);
@@ -109,6 +112,7 @@ pub struct PublicValue;
         ],
     )
     .unwrap();
+    assert_canonical_contract(&bundle);
     let expr = bundle
         .declarations
         .iter()
@@ -144,6 +148,7 @@ fn unicode_scalar_anchors_materialize_exact_utf8_byte_ranges() {
         [package.sort("Expr", expr_type, vec![])],
     )
     .unwrap();
+    assert_canonical_contract(&bundle);
     let authored = &bundle.descriptors[0].origin().frames()[0];
     let krs_ir::OriginFrame::Ranged { range, .. } = authored else {
         panic!("first frame must be authored")
@@ -200,11 +205,13 @@ pub mod right {
         descriptors.clone(),
     )
     .unwrap();
+    assert_canonical_contract(&bundle);
     let reordered = collect_host_descriptors(
         [second.context("ORG-SECOND"), first.context("ORG-FIRST")],
         descriptors.into_iter().rev(),
     )
     .unwrap();
+    assert_canonical_contract(&reordered);
     assert_eq!(bundle, reordered);
     assert_eq!(bundle.descriptors.len(), 3);
     assert_ne!(bundle.descriptors[0].id, bundle.descriptors[1].id);
@@ -263,6 +270,7 @@ fn attributes_resolve_under_the_renamed_facade_only() {
         [package.sort("Expr", expr_type, vec![])],
     )
     .unwrap();
+    assert_canonical_contract(&bundle);
     assert_eq!(bundle.descriptors.len(), 1);
 
     let package = TestPackage::with_facade(
@@ -386,6 +394,7 @@ fn item_macros_resolve_raw_and_renamed_facade_paths() {
             [package.sort("Expr", expr_type, vec![])],
         )
         .unwrap();
+        assert_canonical_contract(&bundle);
         assert_eq!(bundle.descriptors.len(), 1);
     }
 }
@@ -561,6 +570,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
         [package_descriptor.clone()],
     )
     .unwrap();
+    assert_canonical_contract(&package_bundle);
     let workspace_hint = package
         .root()
         .strip_prefix(package.directory.path())
@@ -576,6 +586,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
         [workspace_descriptor],
     )
     .unwrap();
+    assert_canonical_contract(&workspace_bundle);
 
     assert_eq!(package_bundle, workspace_bundle);
     let krs_ir::OriginFrame::Ranged { range, .. } =
@@ -600,6 +611,7 @@ fn canonical_source_candidates_are_deduplicated_across_symlinks() {
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, &display_hint);
     let bundle = collect_host_descriptors([package.context("ORG-ALIAS")], [descriptor]).unwrap();
+    assert_canonical_contract(&bundle);
     let krs_ir::OriginFrame::Ranged { range, .. } = &bundle.descriptors[0].origin().frames()[0]
     else {
         panic!("first frame must be authored")
@@ -722,11 +734,13 @@ fn fixture() {
         [baseline.sort("Expr", expr_type, vec![])],
     )
     .unwrap();
+    assert_canonical_contract(&baseline_bundle);
     let commented_bundle = collect_host_descriptors(
         [commented.context("KRS-F7-COLLECTOR")],
         [commented.sort("Expr", expr_type, vec![])],
     )
     .unwrap();
+    assert_canonical_contract(&commented_bundle);
     let baseline_descriptor = &baseline_bundle.descriptors[0];
     let commented_descriptor = &commented_bundle.descriptors[0];
     assert_eq!(baseline_descriptor.id, commented_descriptor.id);

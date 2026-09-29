@@ -554,6 +554,7 @@ name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-compiler",
  "krs-ir",
  "krs-syntax",
  "krs-test-support",

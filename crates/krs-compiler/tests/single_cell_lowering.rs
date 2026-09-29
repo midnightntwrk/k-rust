@@ -1,13 +1,14 @@
 //! One-cell fixed configuration lowering on the current classified IR.
 
-use krs_compiler::{LoweringError, emit_k, lower_semantic_theory};
+use krs_compiler::testing::assert_lowering_contract;
+use krs_compiler::{LoweringError, lower_semantic_theory};
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionSentence, FixedCell, FixedConfiguration,
-    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, RangedOriginKind,
-    SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
-    StableItemId, TransformationOriginKind,
+    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, SemanticId,
+    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, StableItemId,
+    TransformationOriginKind,
 };
 
 fn package() -> PackageId {
@@ -33,14 +34,14 @@ fn origin_with_label(key: &str, label: Option<&str>) -> NodeOrigin {
 }
 
 #[allow(clippy::too_many_lines)]
-fn theory(reverse: bool) -> SemanticTheory {
+fn theory() -> SemanticTheory {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);
     let object = item("syntax", "Obj", ItemKind::Sort);
     let foo_production = item("syntax", "Foo", ItemKind::Constructor);
     let bar = item("syntax", "Bar", ItemKind::Constructor);
     let rule = item("rules", "foo_to_bar", ItemKind::Rule);
-    let mut sorts = vec![
+    let sorts = vec![
         SemanticSort::new(origin("sem.sort.kitem"), k_item.clone()),
         SemanticSort::new(origin("sem.sort.kresult"), k_result.clone()),
         SemanticSort::new(origin("sem.sort.object"), object.clone()),
@@ -57,7 +58,7 @@ fn theory(reverse: bool) -> SemanticTheory {
             SemanticSortRef::Declared(k_result),
         ),
     ];
-    let mut productions = vec![
+    let productions = vec![
         SemanticProduction::new(
             origin("sem.production.foo"),
             foo_production.clone(),
@@ -79,10 +80,6 @@ fn theory(reverse: bool) -> SemanticTheory {
         )
         .unwrap(),
     ];
-    if reverse {
-        sorts.reverse();
-        productions.reverse();
-    }
     let k_cell = SemanticId::new("machine.k").unwrap();
     let configuration = FixedConfiguration::new(
         origin("sem.configuration"),
@@ -159,23 +156,7 @@ fn theory(reverse: bool) -> SemanticTheory {
 
 #[test]
 fn exact_source_snapshot_and_reordering_are_byte_identical() {
-    let normal = lower_semantic_theory(&theory(false)).unwrap();
-    let reordered = lower_semantic_theory(&theory(true)).unwrap();
-    assert_eq!(
-        normal.definition().to_canonical_json().unwrap(),
-        reordered.definition().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        normal.symbol_map().to_canonical_json().unwrap(),
-        reordered.symbol_map().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        normal.source_map().to_canonical_json().unwrap(),
-        reordered.source_map().to_canonical_json().unwrap()
-    );
-    let emitted = emit_k(&normal).unwrap();
-    let reemitted = emit_k(&reordered).unwrap();
-    assert_eq!(emitted, reemitted);
+    let (_, emitted) = assert_lowering_contract(&theory());
     expect_test::expect![[r#"module KRS-FOO-BAR
   syntax KItem
   syntax KResult
@@ -199,25 +180,10 @@ endmodule
 
 #[test]
 fn lowering_appends_definition_origins_and_source_ranges_are_honest() {
-    let lowered = lower_semantic_theory(&theory(false)).unwrap();
+    let (lowered, emitted) = assert_lowering_contract(&theory());
     for entry in lowered.source_map().entries() {
-        assert!(matches!(
-            entry.origin().frames().last(),
-            Some(OriginFrame::Transformation {
-                kind: TransformationOriginKind::DefinitionIr,
-                ..
-            })
-        ));
-        assert!(matches!(
-            entry.origin().frames().first(),
-            Some(OriginFrame::Ranged {
-                kind: RangedOriginKind::Authored,
-                ..
-            })
-        ));
         assert!(entry.generated().is_none());
     }
-    let emitted = emit_k(&lowered).unwrap();
     assert!(emitted.source_map().entries().iter().all(|entry| {
         entry.generated().is_some() || entry.node_kind() == krs_compiler::SourceMapNodeKind::Term
     }));
@@ -232,7 +198,7 @@ fn lowering_appends_definition_origins_and_source_ranges_are_honest() {
 
 #[test]
 fn one_cell_configuration_and_initializer_remain_structural() {
-    let lowered = lower_semantic_theory(&theory(false)).unwrap();
+    let (lowered, _) = assert_lowering_contract(&theory());
     let configuration = lowered
         .definition()
         .modules()
@@ -259,7 +225,7 @@ fn one_cell_configuration_and_initializer_remain_structural() {
 
 #[test]
 fn name_collisions_are_rejected_before_definition_construction() {
-    let mut json = serde_json::to_value(theory(false)).unwrap();
+    let mut json = serde_json::to_value(theory()).unwrap();
     let module = &mut json["modules"][0];
     let duplicate = module["productions"]
         .as_array()
@@ -298,7 +264,7 @@ fn name_collisions_are_rejected_before_definition_construction() {
 
 #[test]
 fn stale_template_shaped_production_is_rejected_by_schema_nine() {
-    let mut json = serde_json::to_value(theory(false)).unwrap();
+    let mut json = serde_json::to_value(theory()).unwrap();
     let module = &mut json["modules"][0];
     let production = module["productions"]
         .as_array_mut()
@@ -313,7 +279,7 @@ fn stale_template_shaped_production_is_rejected_by_schema_nine() {
 
 #[test]
 fn invalid_equation_root_is_rejected_before_lowering() {
-    let mut json = serde_json::to_value(theory(false)).unwrap();
+    let mut json = serde_json::to_value(theory()).unwrap();
     let rule = &mut json["modules"][0]["rules"][0];
     rule["kind"] = serde_json::json!("equation");
     rule["id"]["item_kind"] = serde_json::json!("equation");
@@ -322,7 +288,7 @@ fn invalid_equation_root_is_rejected_before_lowering() {
 
 #[test]
 fn dangling_semantic_references_are_rejected_before_lowering() {
-    let mut json = serde_json::to_value(theory(false)).unwrap();
+    let mut json = serde_json::to_value(theory()).unwrap();
     json["modules"][0]["rules"][0]["body"]["to"]["production"]["item_name"] =
         serde_json::json!("Missing");
     assert!(serde_json::from_value::<SemanticTheory>(json).is_err());
@@ -335,7 +301,7 @@ fn absolute_origin_labels_cannot_leak_into_sidecars() {
         r"\private",
         r"\\server\private",
     ] {
-        let mut json = serde_json::to_value(theory(false)).unwrap();
+        let mut json = serde_json::to_value(theory()).unwrap();
         json["modules"][0]["origin"]["origin"][1]["label"] = serde_json::json!(label);
         let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
         assert!(
@@ -350,7 +316,7 @@ fn absolute_origin_labels_cannot_leak_into_sidecars() {
 
 #[test]
 fn sidecars_contain_no_adapter_or_absolute_path_ids() {
-    let lowered = lower_semantic_theory(&theory(false)).unwrap();
+    let (lowered, _) = assert_lowering_contract(&theory());
     let combined = format!(
         "{}{}",
         lowered.symbol_map().to_canonical_json().unwrap(),

@@ -2,20 +2,18 @@
 
 use std::collections::BTreeMap;
 
-use krs_compiler::{
-    EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k, lower_semantic_theory,
-};
+use krs_compiler::testing::assert_lowering_contract;
+use krs_compiler::{EmittedK, LoweringError, SourceMapNodeKind, lower_semantic_theory};
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
     DefinitionRuleBody, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
-    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
-    SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
-    SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
+    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, PackageId,
+    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
+    ProductionGroupId, ProductionResultSort, SemanticId, SemanticModule, SemanticProduction,
+    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
+    SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, StableItemId, StrictnessKind,
 };
 use krs_test_support::kompile_reference;
 
@@ -630,43 +628,11 @@ fn assert_complete_sidecars(emitted: &EmittedK) {
             (SourceMapNodeKind::ConfigurationRewrite, 3),
         ])
     );
-    assert!(emitted.source_map().entries().iter().all(|entry| {
-        matches!(
-            entry.origin().frames().first(),
-            Some(OriginFrame::Ranged {
-                kind: RangedOriginKind::Authored,
-                ..
-            })
-        ) && matches!(
-            entry.origin().frames().last(),
-            Some(OriginFrame::Transformation {
-                kind: TransformationOriginKind::DefinitionIr,
-                ..
-            })
-        )
-    }));
-}
-
-fn assert_deterministic(lowered: &LoweredDefinition) {
-    let repeated = lower_semantic_theory(&calc_theory(CalcOptions::default())).unwrap();
-    assert_eq!(
-        lowered.definition().to_canonical_json().unwrap(),
-        repeated.definition().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        lowered.symbol_map().to_canonical_json().unwrap(),
-        repeated.symbol_map().to_canonical_json().unwrap()
-    );
-    assert_eq!(
-        lowered.source_map().to_canonical_json().unwrap(),
-        repeated.source_map().to_canonical_json().unwrap()
-    );
 }
 
 #[test]
 fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
-    let lowered = lower_semantic_theory(&calc_theory(CalcOptions::default())).unwrap();
-    let emitted = emit_k(&lowered).unwrap();
+    let (lowered, emitted) = assert_lowering_contract(&calc_theory(CalcOptions::default()));
 
     let configuration = lowered.definition().modules()[0]
         .sentences()
@@ -760,21 +726,15 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
 
     assert_exact_source(emitted.source());
     assert_complete_sidecars(&emitted);
-
-    assert_deterministic(&lowered);
 }
 
 #[test]
 fn nested_cells_and_named_sequence_and_map_frames_lower_structurally() {
-    let emitted = emit_k(
-        &lower_semantic_theory(&calc_theory(CalcOptions {
-            nested_configuration: true,
-            named_frames: true,
-            colliding_rule_label: false,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+    let (_, emitted) = assert_lowering_contract(&calc_theory(CalcOptions {
+        nested_configuration: true,
+        named_frames: true,
+        colliding_rule_label: false,
+    }));
     assert!(emitted.source().contains("    <machine>\n"));
     assert!(emitted.source().contains("V4B52455354:K"));
     assert!(emitted.source().contains("V4D52455354:Map"));
@@ -824,7 +784,6 @@ fn configuration_rule_labels_are_authored_but_remain_collision_checked() {
 #[test]
 #[ignore = "requires pin-matched K 7.1.337 tools"]
 fn emitted_calc_source_compiles_with_pinned_reference_frontend() {
-    let lowered = lower_semantic_theory(&calc_theory(CalcOptions::default())).unwrap();
-    let emitted = emit_k(&lowered).unwrap();
+    let (_lowered, emitted) = assert_lowering_contract(&calc_theory(CalcOptions::default()));
     let _temporary = kompile_reference(emitted.source(), "KRS-CALC", "KRS-CALC").run();
 }

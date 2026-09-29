@@ -31,6 +31,8 @@ tempfile = "3.27.0"
 toml_edit = { workspace = true, features = ["display", "parse"] }
 
 [dev-dependencies]
+krs-compiler = { path = "../krs-compiler", features = ["test-support"] }
+krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }
 syn = { workspace = true, features = ["full", "parsing"] }
 

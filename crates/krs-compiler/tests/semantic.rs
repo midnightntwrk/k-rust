@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::{AnalysisErrorKind, analyze_open_sorts};
 use krs_ir::testing;
+use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     ConstructorDescriptor, Descriptor, DescriptorBundle, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, ItemKind, OriginStack, PackageId, ProvenanceKey, ProvenanceRole,
@@ -25,6 +26,7 @@ fn diamond_closure_and_constructor_membership_are_path_independent() {
         constructor(integer.clone(), value.clone()),
     ]);
 
+    assert_canonical_contract(&bundle);
     let analysis = analyze_open_sorts(&bundle).unwrap();
     assert_eq!(
         analysis.transitive_parents()[&value],
@@ -52,6 +54,7 @@ fn modeled_blanket_impl_counterexample_still_has_one_compiler_owned_join() {
         constructor(item.clone(), bottom),
     ]);
 
+    assert_canonical_contract(&bundle);
     let analysis = analyze_open_sorts(&bundle).unwrap();
     let top_count = analysis.member_sorts()[&item]
         .iter()
