@@ -35,7 +35,7 @@ use crate::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
         extend_with_new_sentences, retain_new_sentences,
     },
-    kast::{FrontendSort, Label, Sort, Term},
+    kast::{Label, Sort, Term},
     provenance::GeneratingPass,
 };
 
@@ -228,10 +228,7 @@ pub(crate) fn generate_sort_projections_pass(
         let mut generated = Vec::new();
         // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` that is not a parser sort (`K` and `KItem` excepted) and whose projection label is not in `defined_labels`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
-            if is_parser_sort(sort)
-                && sort.name != BuiltinSort::K.k_name()
-                && sort.name != BuiltinSort::KItem.k_name()
-            {
+            if !sort.role().is_k_term_sort() {
                 continue;
             }
             let label = Label::projection(sort);
@@ -447,20 +444,4 @@ fn sort_json(sort: &Sort) -> Value {
         "name": sort.name,
         "params": sort.parameters.iter().map(sort_json).collect::<Vec<_>>(),
     })
-}
-
-fn is_parser_sort(sort: &Sort) -> bool {
-    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
-        .iter()
-        .any(|builtin| sort.name == builtin.k_name())
-        || [
-            FrontendSort::KBott,
-            FrontendSort::KLabel,
-            FrontendSort::KList,
-            FrontendSort::KString,
-        ]
-        .iter()
-        .any(|frontend| sort.name == frontend.as_str())
-        || sort.name.starts_with('#')
-        || sort.name.parse::<u64>().is_ok()
 }

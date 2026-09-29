@@ -110,13 +110,6 @@ impl Sort {
 
     /// Whether this sort is a rigid sort variable of a sentence (`#SortParam{Q}`), which stands
     /// for every sort at once and is never solved.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the #SortParam name tests (CBC-05-T2)"
-        )
-    )]
     pub(crate) fn is_rigid_variable(&self) -> bool {
         self.role() == SortRole::RigidVariable
     }
@@ -126,10 +119,6 @@ impl Sort {
     /// A parametric sort reaches the inner parser only as a declared instance or as a registered
     /// placeholder, and inference treats both as values, so every parametric sort is admitted;
     /// a nullary sort is admitted by its role.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "first read by both inference engines (CBC-05-T2)")
-    )]
     pub(crate) fn in_inference_domain(&self) -> bool {
         !self.parameters.is_empty() || self.role().in_inference_domain()
     }
@@ -137,13 +126,6 @@ impl Sort {
 
 impl SortRole {
     /// Every term of the sort is a `KItem`: compilation declares `S < KItem` for it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the KItem subsort pass and the inner parser (CBC-05-T2)"
-        )
-    )]
     pub(crate) const fn has_implicit_kitem_subsort(self) -> bool {
         use KernelSort as S;
         match self {
@@ -158,13 +140,6 @@ impl SortRole {
     }
 
     /// A sort of the K term algebra: `K`, `KItem`, or a sort below `KItem`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by parametric concretization and projections (CBC-05-T2)"
-        )
-    )]
     pub(crate) const fn is_k_term_sort(self) -> bool {
         use KernelSort as S;
         match self {

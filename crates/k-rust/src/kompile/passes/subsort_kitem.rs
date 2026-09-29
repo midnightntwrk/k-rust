@@ -16,7 +16,7 @@ use crate::{
     definition::{
         Attributes, Definition, PartialOrder, ProductionItem, Sentence, retain_new_sentences,
     },
-    kast::{FrontendSort, Sort},
+    kast::Sort,
     provenance::GeneratingPass,
 };
 
@@ -58,7 +58,7 @@ pub(crate) fn subsort_kitem_pass(
         let mut generated = Vec::new();
         // Invariant: `generated` holds a `KItem ::= Sort` subsort production for every non-parser sort of `sorts.all_sorts()` before `sort`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
-            if is_parser_sort(sort) {
+            if !sort.role().has_implicit_kitem_subsort() {
                 continue;
             }
             let production = Sentence::Production {
@@ -98,7 +98,7 @@ pub(crate) fn with_kitem_subsorts<'a>(
         subsorts.direct_relations().iter().cloned().chain(
             sorts
                 .into_iter()
-                .filter(|sort| !is_parser_sort(sort))
+                .filter(|sort| sort.role().has_implicit_kitem_subsort())
                 .map(|sort| (sort.clone(), kitem.clone())),
         ),
     )
@@ -149,11 +149,11 @@ fn reaches_k_item(actual: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
     let k_item = Sort::builtin(BuiltinSort::KItem);
     actual == &k_item
         || subsorts.less_than_eq(actual, &k_item)
-        || !is_parser_sort(actual)
+        || actual.role().has_implicit_kitem_subsort()
         || subsorts.relations_from(actual).is_some_and(|supersorts| {
-            supersorts
-                .iter()
-                .any(|sort| !is_parser_sort(sort) && !subsorts.less_than_eq(&k, sort))
+            supersorts.iter().any(|sort| {
+                sort.role().has_implicit_kitem_subsort() && !subsorts.less_than_eq(&k, sort)
+            })
         })
 }
 
@@ -169,7 +169,10 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
         if &sort == expected {
             return true;
         }
-        let implicit = (!is_parser_sort(&sort)).then(|| k_item.clone());
+        let implicit = sort
+            .role()
+            .has_implicit_kitem_subsort()
+            .then(|| k_item.clone());
         let declared = subsorts
             .direct_relations()
             .iter()
@@ -182,22 +185,4 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
         }
     }
     false
-}
-
-/// A sort of K's own term syntax (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`,
-/// a `#`-prefixed sort, or a numeric sort argument), which this stage does not place below `KItem`.
-pub(super) fn is_parser_sort(sort: &Sort) -> bool {
-    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
-        .iter()
-        .any(|builtin| sort.name == builtin.k_name())
-        || [
-            FrontendSort::KBott,
-            FrontendSort::KLabel,
-            FrontendSort::KList,
-            FrontendSort::KString,
-        ]
-        .iter()
-        .any(|frontend| sort.name == frontend.as_str())
-        || sort.name.starts_with('#')
-        || sort.name.parse::<u64>().is_ok()
 }

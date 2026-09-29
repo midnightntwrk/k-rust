@@ -23,7 +23,7 @@ use std::fmt;
 
 use crate::definition::{AttributeKey, PartialOrder, ProductionItem, ResolvedDefinition, Sentence};
 use crate::kast::parser::parse_sort_text;
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
+use crate::kast::{GeneratedLabel, InternalLabel, Sort, Term};
 use crate::kompile::passes::{
     ResolveSemanticCastsError, resolve_semantic_casts_in_sentence, semantic_cast_variable_sorts,
     with_kitem_subsorts,
@@ -902,7 +902,7 @@ fn is_dots_marker(term: &Term) -> bool {
 /// placeholder for a parameter nothing instantiates.
 fn reported(sort: &Sort) -> Option<Sort> {
     fn mentions(sort: &Sort) -> bool {
-        sort.name == FrontendSort::SortParam.as_str() || sort.parameters.iter().any(mentions)
+        sort.is_rigid_variable() || sort.parameters.iter().any(mentions)
     }
     (!mentions(sort)).then(|| sort.clone())
 }

@@ -23,7 +23,7 @@ use sha3::{Digest, Sha3_256};
 use crate::definition::AttributeKey;
 use crate::{
     definition::{Attributes, Definition, Sentence},
-    kast::{FrontendSort, Term},
+    kast::Term,
 };
 
 const PRESERVED_ATTRIBUTES: [AttributeKey; 7] = [
@@ -183,11 +183,7 @@ fn normalize_term(
 fn normalize_label(label: &crate::kast::Label) -> crate::kast::Label {
     // Java's hash text omits instantiated production parameters, but retains the explicit
     // polymorphic placeholder carried by generated subsort and ML sentences.
-    if label
-        .parameters
-        .iter()
-        .any(|sort| sort.name == FrontendSort::SortParam.as_str())
-    {
+    if label.parameters.iter().any(|sort| sort.is_rigid_variable()) {
         crate::kast::Label::with_parameters(
             label.name.clone(),
             label

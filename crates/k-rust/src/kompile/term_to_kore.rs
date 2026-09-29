@@ -35,7 +35,7 @@ use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
     ProductionCatalog, ResolveError, ResolvedDefinition, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{self, FrontendSort, InternalLabel, Label, Sort, Term, identifier};
+use crate::kast::{self, InternalLabel, Label, Sort, Term, identifier};
 use crate::kore::ast::{KoreString, Pattern, Symbol, Variable, VariableKind};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
@@ -615,7 +615,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     fn kore_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
-        if sort.name == FrontendSort::SortParam.as_str()
+        if sort.is_rigid_variable()
             && let [parameter] = sort.parameters.as_slice()
             && parameter.parameters.is_empty()
             && self.sort_variables.contains(&parameter.name)

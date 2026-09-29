@@ -68,7 +68,9 @@ use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
 use crate::definition::{PartialOrder, SortHead};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
+use crate::kast::{
+    FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, SortRole, Term, TermSpan,
+};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -701,7 +703,7 @@ impl Grammar {
         let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
         encoding.top_rewrite_paths = top_rewrite_paths(self, &term);
         let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
-        let root_context = if !is_real_ground_sort(top_sort) {
+        let root_context = if !top_sort.in_inference_domain() {
             CastContext::Parser
         } else {
             CastContext::None
@@ -901,12 +903,12 @@ impl EncodingBase {
         let order = &self.semantic;
         let mut relation = Vec::new();
         for left in &self.ground_sorts {
-            if !is_real_ground_sort(left) {
+            if !left.in_inference_domain() {
                 continue;
             }
             let left_value = self.sort_value(left, &BTreeMap::new())?;
             for right in &self.ground_sorts {
-                if !is_real_ground_sort(right) {
+                if !right.in_inference_domain() {
                     continue;
                 }
                 if left == right || order.less_than_eq(left, right) {
@@ -1073,7 +1075,7 @@ impl<'a> Encoding<'a> {
         solver: &Solver,
     ) -> Result<(Datatype, CastContext), ParseError> {
         let expected = self.sort_value(top_sort, &BTreeMap::new())?;
-        let root_context = if !is_real_ground_sort(top_sort) {
+        let root_context = if !top_sort.in_inference_domain() {
             CastContext::Parser
         } else {
             CastContext::None
@@ -1254,7 +1256,7 @@ impl<'a> Encoding<'a> {
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
                         CastContext::None if function_child_sort.is_some() => CastContext::None,
-                        CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
+                        CastContext::None if !formal_child && !child_sort.in_inference_domain() => {
                             CastContext::Parser
                         }
                         context => context,
@@ -1442,7 +1444,7 @@ impl<'a> Encoding<'a> {
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
                         CastContext::None if function_lhs.is_some() => CastContext::None,
-                        CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
+                        CastContext::None if !formal_child && !child_sort.in_inference_domain() => {
                             CastContext::Parser
                         }
                         context => context,
@@ -1616,7 +1618,7 @@ impl<'a> Encoding<'a> {
     /// `TypeInferencer.isBadNatSort`: a numeric sort name the grammar never declared as a
     /// parameter of an instantiated sort, at any depth.
     fn is_bad_nat_sort(&self, sort: &Sort) -> bool {
-        (sort.name.parse::<u64>().is_ok() && !self.declared_nat_sorts.contains(&sort.name))
+        (sort.role() == SortRole::Nat && !self.declared_nat_sorts.contains(&sort.name))
             || sort
                 .parameters
                 .iter()
@@ -1981,7 +1983,7 @@ impl<'a> Encoding<'a> {
             .iter()
             .enumerate()
             .filter(|(_, head)| {
-                head.parameters() == 0 && !is_real_ground_sort(&Sort::new(head.as_str()))
+                head.parameters() == 0 && !Sort::new(head.as_str()).in_inference_domain()
             })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
@@ -2581,7 +2583,7 @@ impl<'a> Encoding<'a> {
                     .transpose()?
                     .unwrap_or_default();
                 let actual = substitute_sort(production_result(descriptor), &parameter_values);
-                if is_real_ground_sort(&actual) {
+                if actual.in_inference_domain() {
                     self.check_sort(&actual, expected, cast_context)?;
                 }
                 let expected_children = production_nonterminals(descriptor);
@@ -2629,7 +2631,7 @@ impl<'a> Encoding<'a> {
                                 CastContext::None
                             }
                             CastContext::None
-                                if !formal_child && !is_real_ground_sort(child_sort) =>
+                                if !formal_child && !child_sort.in_inference_domain() =>
                             {
                                 CastContext::Parser
                             }
@@ -2868,7 +2870,7 @@ impl<'a> Encoding<'a> {
                     .transpose()?
                     .unwrap_or_default();
                 let actual = substitute_sort(production_result(descriptor), &parameter_values);
-                if is_real_ground_sort(&actual) {
+                if actual.in_inference_domain() {
                     self.check_sort(&actual, expected, cast_context)?;
                 }
                 let expected_children = production_nonterminals(descriptor);
@@ -2925,7 +2927,7 @@ impl<'a> Encoding<'a> {
                                 CastContext::None
                             }
                             CastContext::None
-                                if !formal_child && !is_real_ground_sort(child_sort) =>
+                                if !formal_child && !child_sort.in_inference_domain() =>
                             {
                                 CastContext::Parser
                             }
@@ -3190,7 +3192,7 @@ fn collect_declared_nats(sort: &Sort, formals: &[Sort], declared: &mut BTreeSet<
     if formals.contains(sort) {
         return;
     }
-    if sort.name.parse::<u64>().is_ok() {
+    if sort.role() == SortRole::Nat {
         declared.insert(sort.name.clone());
     }
     for parameter in &sort.parameters {
@@ -3408,10 +3410,7 @@ fn strip_packed_brackets<'a>(
 }
 
 fn is_real_sort<'a>(sort: &Sort, formals: impl Iterator<Item = &'a Sort>) -> bool {
-    if formals.into_iter().any(|formal| formal == sort) {
-        return true;
-    }
-    is_real_ground_sort(sort)
+    formals.into_iter().any(|formal| formal == sort) || sort.in_inference_domain()
 }
 
 /// Whether a production's first child is bounded by a function left-hand side: the reference
@@ -3427,31 +3426,6 @@ fn is_top_sort_production(production: &Production) -> bool {
     [FrontendSort::RuleContent, FrontendSort::RuleBody]
         .iter()
         .any(|sort| production.result.name == sort.as_str())
-}
-
-fn is_real_ground_sort(sort: &Sort) -> bool {
-    !sort.parameters.is_empty()
-        || !is_parser_sort(sort)
-        || sort.name == BuiltinSort::K.k_name()
-        || sort.name == BuiltinSort::KItem.k_name()
-        || sort.is_frontend(FrontendSort::KLabel)
-        || sort.name.parse::<u64>().is_ok()
-}
-
-fn is_parser_sort(sort: &Sort) -> bool {
-    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
-        .iter()
-        .any(|builtin| sort.name == builtin.k_name())
-        || [
-            FrontendSort::KBott,
-            FrontendSort::KLabel,
-            FrontendSort::KList,
-            FrontendSort::KString,
-        ]
-        .iter()
-        .any(|frontend| sort.name == frontend.as_str())
-        || sort.name.starts_with('#')
-        || sort.name.parse::<u64>().is_ok()
 }
 
 fn is_anonymous(name: &str) -> bool {
@@ -4383,7 +4357,7 @@ mod tests {
         let domain = encoding
             .ground_sorts
             .iter()
-            .filter(|sort| sort.parameters.is_empty() && is_real_ground_sort(sort))
+            .filter(|sort| sort.parameters.is_empty() && sort.in_inference_domain())
             .cloned()
             .collect::<Vec<_>>();
         let parameters = encoding.parameters.iter().cloned().collect::<Vec<_>>();
@@ -4497,7 +4471,7 @@ mod tests {
         let domain = encoding
             .ground_sorts
             .iter()
-            .filter(|sort| sort.parameters.is_empty() && is_real_ground_sort(sort))
+            .filter(|sort| sort.parameters.is_empty() && sort.in_inference_domain())
             .cloned()
             .collect::<Vec<_>>();
         let real_variables = encoding

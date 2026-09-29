@@ -132,7 +132,6 @@ use crate::provenance::SourceId;
 use self::lists::UserList;
 #[cfg(feature = "cli")]
 pub(crate) use self::parametric::concretize_parametric_productions;
-pub(crate) use self::parametric::is_parser_sort;
 use self::prediction::PredictionAnalysis;
 #[cfg(feature = "cli")]
 pub(crate) use self::scanner::DEFAULT_LAYOUT;

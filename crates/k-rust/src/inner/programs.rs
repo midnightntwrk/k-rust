@@ -49,7 +49,7 @@ use crate::kast::printer::Printer;
 use crate::kast::{ProductionIdentity, Sort, Term};
 use crate::provenance::SourceId;
 
-use super::parser::{Grammar, ParseError, is_parser_sort, named_projection_productions};
+use super::parser::{Grammar, ParseError, named_projection_productions};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProgramError {
@@ -437,7 +437,9 @@ fn with_kitem_subsorts(mut sentences: Vec<Sentence>) -> Vec<Sentence> {
         catalog
             .all_sorts()
             .iter()
-            .filter(|sort| !is_parser_sort(sort) && !catalog.list_sorts().contains(sort))
+            .filter(|sort| {
+                sort.role().has_implicit_kitem_subsort() && !catalog.list_sorts().contains(sort)
+            })
             .cloned()
             .collect::<Vec<_>>()
     };

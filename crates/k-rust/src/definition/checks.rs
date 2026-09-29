@@ -27,7 +27,7 @@ use super::sort_catalog::SortCatalog;
 use super::views::DefinitionViews;
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, SortRole, Term};
 
 mod attributes;
 mod deprecated;
@@ -458,7 +458,7 @@ pub fn check_tokens(
         else {
             continue;
         };
-        if sort.name.starts_with('#')
+        if matches!(sort.role(), SortRole::Scaffolding | SortRole::RigidVariable)
             || attributes.has_any(&ALLOWED_TOKEN_ATTRIBUTES)
             || IGNORED_TOKEN_SORTS.contains(&sort.name.as_str())
             || !token_sorts.contains(sort)

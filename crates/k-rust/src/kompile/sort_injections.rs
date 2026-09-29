@@ -970,7 +970,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         actual: &Sort,
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
-        if actual.name == FrontendSort::SortParam.as_str()
+        if actual.is_rigid_variable()
             && let Some(parameter) = actual.parameters.first()
         {
             self.used_sort_parameters
@@ -1636,7 +1636,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ) -> Result<Sort, SortInjectionError> {
         let mut entries = sorts
             .iter()
-            .filter(|sort| sort.name != FrontendSort::SortParam.as_str())
+            .filter(|sort| !sort.is_rigid_variable())
             .cloned()
             .collect::<Vec<_>>();
         if entries.is_empty() {
@@ -1667,7 +1667,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     fn minimal_upper_bounds(&self, sorts: &[Sort], expected: Option<&Sort>) -> BTreeSet<Sort> {
         let mut entries = sorts
             .iter()
-            .filter(|sort| sort.name != FrontendSort::SortParam.as_str())
+            .filter(|sort| !sort.is_rigid_variable())
             .cloned()
             .collect::<Vec<_>>();
         entries.sort();
@@ -1695,7 +1695,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             !self.subsorts.less_than_eq(bound, &k_bottom) && !self.subsorts.greater_than(bound, &k)
         });
         if let Some(expected) = expected
-            && expected.name != FrontendSort::SortParam.as_str()
+            && !expected.is_rigid_variable()
             && expected.parameters.is_empty()
         {
             bounds.retain(|bound| self.subsorts.less_than_eq(bound, expected));
@@ -1803,8 +1803,7 @@ pub fn add_sort_injections_from_resolved(
 
 /// Whether `sort` is or contains a sort variable of a sentence or production.
 fn mentions_sort_parameter(sort: &Sort) -> bool {
-    sort.name == FrontendSort::SortParam.as_str()
-        || sort.parameters.iter().any(mentions_sort_parameter)
+    sort.is_rigid_variable() || sort.parameters.iter().any(mentions_sort_parameter)
 }
 
 /// Extend `binding` so that `declared`, with the sort parameters in `parameters` substituted, is

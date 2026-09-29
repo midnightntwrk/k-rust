@@ -22,7 +22,7 @@ use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
     AttributeKey, Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{FrontendSort, Label, Sort};
+use crate::kast::{Label, Sort};
 use crate::names::BuiltinSort;
 
 use super::grammar::{Placeholder, placeholder_of};
@@ -65,11 +65,7 @@ pub(crate) fn concretize_parametric_productions<'a>(
     let mut all_sorts = catalog
         .all_sorts()
         .iter()
-        .filter(|sort| {
-            !is_parser_sort(sort)
-                || sort.name == BuiltinSort::K.k_name()
-                || sort.name == BuiltinSort::KItem.k_name()
-        })
+        .filter(|sort| sort.role().is_k_term_sort())
         .cloned()
         .collect::<Vec<_>>();
     for builtin in [Sort::new("K"), Sort::new("KItem")] {
@@ -383,22 +379,6 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
 
 fn is_syntactic_subsort(label: &Option<Label>, items: &[ProductionItem]) -> bool {
     label.is_none() && matches!(items, [ProductionItem::NonTerminal { .. }])
-}
-
-pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
-    [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
-        .iter()
-        .any(|builtin| sort.name == builtin.k_name())
-        || [
-            FrontendSort::KBott,
-            FrontendSort::KLabel,
-            FrontendSort::KList,
-            FrontendSort::KString,
-        ]
-        .iter()
-        .any(|frontend| sort.name == frontend.as_str())
-        || sort.name.starts_with('#')
-        || sort.name.parse::<u64>().is_ok()
 }
 
 #[cfg(test)]

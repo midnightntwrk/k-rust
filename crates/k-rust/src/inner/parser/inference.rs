@@ -40,7 +40,6 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::{PartialOrder, ProductionItem};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
-use crate::names::BuiltinSort;
 
 use super::{
     Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
@@ -502,7 +501,7 @@ impl Grammar {
         let inferred = solver.infer(self, &term, anywhere_top, "root")?;
         // Synthetic rule-grammar result sorts describe parser context, not bounds on a
         // rewrite's formal result parameter. Concrete caller sorts remain real constraints.
-        if is_real_ground_sort(top_sort) || !solver.is_parameter_ref(&inferred) {
+        if top_sort.in_inference_domain() || !solver.is_parameter_ref(&inferred) {
             solver.constrain(inferred, SortRef::Concrete(top_sort.clone()))?;
         }
         let variable_sorts = solver.realize_variables()?;
@@ -934,7 +933,7 @@ impl<'a> Solver<'a> {
                     } else if !(self.is_parameter_ref(&child)
                         && matches!(
                             &expected,
-                            SortRef::Concrete(sort) if !is_real_ground_sort(sort)
+                            SortRef::Concrete(sort) if !sort.in_inference_domain()
                         ))
                     {
                         // Rule-grammar scaffolding sorts carry parser context, not semantic sort
@@ -944,7 +943,7 @@ impl<'a> Solver<'a> {
                     }
                 }
                 if let Some(lhs_sort) = anywhere_lhs_sort
-                    && !matches!(&actual, SortRef::Concrete(sort) if !is_real_ground_sort(sort))
+                    && !matches!(&actual, SortRef::Concrete(sort) if !sort.in_inference_domain())
                 {
                     // A monomorphic #KRewrite may return #RuleK, which is parser scaffolding.
                     // Only semantic results (including formal parameters) inherit the LHS bound.
@@ -969,7 +968,7 @@ impl<'a> Solver<'a> {
                     // A synthetic parser sort such as the bottom sort of `#token(_,_)` or
                     // `#klabel(_)` says nothing about the term's sort: there the cast is the only
                     // statement of that sort, so it cannot be required to equal the cast sort.
-                    if !matches!(inner, SortRef::Concrete(sort) if !is_real_ground_sort(sort)) {
+                    if !matches!(inner, SortRef::Concrete(sort) if !sort.in_inference_domain()) {
                         self.constrain(child.clone(), inner.clone())?;
                     }
                 }
@@ -1210,15 +1209,6 @@ fn substitute_sort_ref(sort: &Sort, substitution: &BTreeMap<Sort, SortRef>) -> S
         .get(sort)
         .cloned()
         .unwrap_or_else(|| SortRef::Concrete(sort.clone()))
-}
-
-fn is_real_ground_sort(sort: &Sort) -> bool {
-    !sort.parameters.is_empty()
-        || !super::is_parser_sort(sort)
-        || sort.name == BuiltinSort::K.k_name()
-        || sort.name == BuiltinSort::KItem.k_name()
-        || sort.is_frontend(FrontendSort::KLabel)
-        || sort.name.parse::<u64>().is_ok()
 }
 
 #[cfg(feature = "z3-inference")]
