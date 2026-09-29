@@ -354,17 +354,11 @@ def dry_run_spec(
 def build_support() -> Path:
     """Use the root gate built by IMP, or build it for a standalone proof run."""
 
-    configured = os.environ.get("KRS_GATE_BIN")
-    if configured is not None:
-        support = Path(configured)
-        if not support.is_file():
-            raise GateError(f"native proof support binary is absent: {support}")
-        return support
     raw_target = os.environ.get("CARGO_TARGET_DIR")
     target = Path(raw_target) if raw_target else checkout_scratch() / "imp-gate-root-target"
     if not target.is_absolute():
         target = ROOT / target
-    return krs_gate.build(target)
+    return krs_gate.configured_or_build(target)
 
 
 def build_native(

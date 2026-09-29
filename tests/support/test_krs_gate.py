@@ -22,6 +22,8 @@ assert sys.argv[1:] == ["session"]
 mode = os.environ.get("KRS_TEST_GATE_MODE", "normal")
 for line in sys.stdin:
     request = json.loads(line)
+    if mode == "silent":
+        time.sleep(60)
     if mode == "exit":
         print("deliberate failure", file=sys.stderr, flush=True)
         sys.exit(7)
@@ -140,6 +142,11 @@ class ClientTests(unittest.TestCase):
             session.load(Path("definition-ir.json"), "MAIN", definition_kore_sha256="abc123")
             with self.assertRaisesRegex(GateError, "sha256 abc123 differs from the compiled definition's def456"):
                 session.load(Path("definition-ir.json"), "MAIN", definition_kore_sha256="def456")
+
+    def test_unanswered_request_times_out_and_kills_session(self) -> None:
+        with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "silent"}) as session:
+            with self.assertRaisesRegex(GateError, r"request 1 \(execute\) exceeded 0.2 seconds"):
+                session.request("execute", timeout=0.2, pattern="opaque")
 
 
 if __name__ == "__main__":

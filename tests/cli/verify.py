@@ -22,7 +22,7 @@ from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.report import Results  # noqa: E402
-from support.tools import checkout_scratch, executable, find_k_tool, k_tool, z3_environment  # noqa: E402
+from support.tools import executable, find_k_tool, k_tool, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -371,7 +371,7 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
     definition_ir = workspace / "definition-ir.json"
     definition_ir.write_bytes(artifacts["definition-ir.json"])
     try:
-        gate = krs_gate.build(checkout_scratch() / "cli-gate-root-target")
+        gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
     except (GateError, OSError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return

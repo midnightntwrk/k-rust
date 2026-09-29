@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import tempfile
+import threading
 from typing import Any, Mapping
 
 from support import GateError, ROOT
@@ -19,6 +21,7 @@ from support.tools import z3_environment
 
 
 SESSION_EXIT_TIMEOUT_SECONDS = 30
+REQUEST_TIMEOUT_SECONDS = 900
 
 
 def build(target: Path, *, environment: Mapping[str, str] | None = None) -> Path:
@@ -37,6 +40,22 @@ def build(target: Path, *, environment: Mapping[str, str] | None = None) -> Path
     )
     if not binary.is_file():
         raise GateError(f"Cargo did not produce the gate binary at {binary}")
+    return binary
+
+
+def configured_or_build(default_target: Path) -> Path:
+    """Use the gate binary named by ``KRS_GATE_BIN``, or build it in ``default_target``.
+
+    A caller that already built the gate passes it on through ``KRS_GATE_BIN``,
+    so a standalone run and a nested run share one release build.
+    """
+
+    configured = os.environ.get("KRS_GATE_BIN")
+    if configured is None:
+        return build(default_target)
+    binary = Path(configured)
+    if not binary.is_file():
+        raise GateError(f"KRS_GATE_BIN names no gate binary: {binary}")
     return binary
 
 
@@ -131,8 +150,11 @@ class Session:
         self._stderr.seek(0)
         return self._stderr.read().strip()
 
-    def request(self, operation: str, **fields: Any) -> Any:
-        """Send one operation and return its result, or raise ``GateError``."""
+    def request(self, operation: str, *, timeout: float = REQUEST_TIMEOUT_SECONDS, **fields: Any) -> Any:
+        """Send one operation and return its result, or raise ``GateError``.
+
+        A request that has no response within ``timeout`` seconds kills the session's process group.
+        """
 
         child = self._process
         if child is None or child.stdin is None or child.stdout is None:
@@ -149,7 +171,25 @@ class Session:
             raise GateError(
                 f"gate session exited before response to request {request_id}: {self._stderr_text()}"
             ) from error
-        line = child.stdout.readline()
+        expired = threading.Event()
+
+        def expire() -> None:
+            expired.set()
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        timer = threading.Timer(timeout, expire)
+        timer.start()
+        try:
+            line = child.stdout.readline()
+        finally:
+            timer.cancel()
+        if expired.is_set():
+            child.wait()
+            self._reported_exit = True
+            raise GateError(f"gate request {request_id} ({operation}) exceeded {timeout} seconds; the session was killed")
         if not line:
             child.wait()
             self._reported_exit = True
