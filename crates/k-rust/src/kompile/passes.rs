@@ -58,12 +58,12 @@ pub use finalize::{add_cool_like_attributes, add_semantics_module, generate_sort
 pub(crate) use finalize::{
     add_cool_like_attributes_pass, add_semantics_module_pass, generate_sort_predicate_rules_pass,
 };
+pub(crate) use generate_sort_helpers::{
+    SoleGenerator, generate_sort_predicate_syntax_pass, generate_sort_projections_pass,
+    regenerate_sort_predicate_syntax_pass,
+};
 pub use generate_sort_helpers::{
     generate_sort_predicate_syntax, generate_sort_projections, regenerate_sort_predicate_syntax,
-};
-pub(crate) use generate_sort_helpers::{
-    generate_sort_predicate_syntax_pass, generate_sort_projections_pass,
-    regenerate_sort_predicate_syntax_pass,
 };
 pub(crate) use guard_or_patterns::guard_or_patterns_pass;
 pub use guard_or_patterns::{GuardOrPatternsError, guard_or_patterns};
@@ -86,7 +86,7 @@ pub use resolve_fresh_config_constants::{
 };
 pub(crate) use resolve_fresh_constants::resolve_fresh_constants_pass;
 pub use resolve_fresh_constants::{ResolveFreshConstantsError, resolve_fresh_constants};
-pub(crate) use resolve_fun::resolve_fun_pass;
+pub(crate) use resolve_fun::{DefinedBody, resolve_fun_pass};
 pub use resolve_fun::{ResolveFunError, resolve_fun};
 pub use resolve_function_with_config::{
     ResolveFunctionWithConfigError, resolve_config_var, resolve_function_with_config,

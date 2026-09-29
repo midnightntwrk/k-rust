@@ -28,6 +28,7 @@ use crate::definition::ResolveError;
 use serde_json::{Value, json};
 
 use crate::definition::AttributeKey;
+use crate::definition::totality::TotalityWitness;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -345,16 +346,7 @@ fn named_projections(
     {
         return Vec::new();
     }
-    let total = main_productions
-        .productions_for_sort(&SortHead::from(sort))
-        .iter()
-        .filter(|id| {
-            let attributes = main_productions.production(**id).attributes();
-            attributes.value(AttributeKey::Function).is_none()
-                && !attributes.has(AttributeKey::Bracket)
-        })
-        .count()
-        == 1;
+    let sole_generator = sole_generator(main_productions, sort);
     let variables = nonterminals
         .iter()
         .enumerate()
@@ -372,8 +364,8 @@ fn named_projections(
         let label = Label::field_projection(&source_label.name, field_name);
         let mut attributes = Attributes::default();
         attributes.mark(AttributeKey::Function);
-        if total {
-            attributes.mark(AttributeKey::Total);
+        if let Some(sole_generator) = sole_generator {
+            attributes.declare_total(TotalityWitness::sole_generator(sole_generator));
         }
         generated.push(Sentence::Production {
             label: Some(label.clone()),
@@ -407,6 +399,39 @@ fn named_projections(
         });
     }
     generated
+}
+
+/// Evidence that a field projection's source is the only alternative of its sort's no-junk
+/// axiom, so every value of the sort is an application of the source and each projection of it
+/// denotes exactly one value.
+///
+/// Its field is private, which makes `sole_generator` its only constructor: the one judgement
+/// that counts the generators of the source's sort mints it. It is `Copy` because one judgement
+/// on the source covers every projection generated from it.
+#[derive(Clone, Copy)]
+pub(crate) struct SoleGenerator(());
+
+/// Judge whether the projection source of sort `sort` is its sort's sole generator, minting the
+/// evidence when it is.
+///
+/// The judgement counts the productions of `sort` that are neither functions nor brackets and
+/// requires exactly one. It does not yet read the sort's no-junk alternatives themselves (a
+/// `token` sort attribute, macro and unlabelled productions); CBC-01-T7 derives it from them.
+fn sole_generator(
+    main_productions: &crate::definition::ProductionCatalog<'_>,
+    sort: &Sort,
+) -> Option<SoleGenerator> {
+    (main_productions
+        .productions_for_sort(&SortHead::from(sort))
+        .iter()
+        .filter(|id| {
+            let attributes = main_productions.production(**id).attributes();
+            attributes.value(AttributeKey::Function).is_none()
+                && !attributes.has(AttributeKey::Bracket)
+        })
+        .count()
+        == 1)
+        .then_some(SoleGenerator(()))
 }
 
 fn truth() -> Term {

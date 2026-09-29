@@ -21,6 +21,7 @@ pub mod resolve;
 pub mod rule_catalog;
 pub mod sort_catalog;
 pub mod synonyms;
+pub(crate) mod totality;
 pub mod views;
 
 pub use ast::{

@@ -24,6 +24,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition};
 use crate::names::BuiltinSort;
 use crate::{
@@ -33,6 +34,13 @@ use crate::{
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
+
+/// Evidence that the right-hand side of a generated lambda's only equation is defined wherever
+/// the equation applies, so every application of the lambda denotes exactly one value.
+///
+/// Its field is private, which makes `Resolver::equation_right_is_defined` its only constructor:
+/// the one judgement that inspects the equation's right-hand side mints it.
+pub(crate) struct DefinedBody(());
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveFunError {
@@ -363,10 +371,10 @@ impl Resolver<'_, '_, '_> {
                 attributes,
                 LambdaResult::PatternRight,
             );
-            if covering && self.equation_right_is_defined(&rule) {
+            if covering && let Some(defined) = self.equation_right_is_defined(&rule) {
                 self.productions[production]
                     .attributes_mut()
-                    .mark(AttributeKey::Total);
+                    .declare_total(TotalityWitness::defined_body(defined));
                 self.total_lambdas.insert(lambda.name.clone());
             }
             self.rules.push(rule);
@@ -427,14 +435,18 @@ impl Resolver<'_, '_, '_> {
     /// the application both is and is not defined there. This is a sufficient syntactic test: the
     /// body is built from variables, tokens, K sequences and applications of symbols that denote
     /// one value on defined arguments.
-    fn equation_right_is_defined(&self, rule: &Sentence) -> bool {
+    ///
+    /// This judgement is the only constructor of [`DefinedBody`], the evidence
+    /// [`TotalityWitness::defined_body`] requires.
+    fn equation_right_is_defined(&self, rule: &Sentence) -> Option<DefinedBody> {
         let Sentence::Rule { body, .. } = rule else {
-            return false;
+            return None;
         };
         let Term::Rewrite { right, .. } = body.unannotated() else {
-            return false;
+            return None;
         };
         self.is_defined(right, Knowledge::Equations)
+            .then_some(DefinedBody(()))
     }
 
     fn is_defined(&self, term: &Term, knowledge: Knowledge) -> bool {

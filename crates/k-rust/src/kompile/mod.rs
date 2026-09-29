@@ -50,6 +50,7 @@ pub use passes::{
     resolve_semantic_casts_in_sentence, resolve_semantic_casts_with_predicates_in_sentence,
     resolve_strict, subsort_kitem,
 };
+pub(crate) use passes::{DefinedBody, SoleGenerator};
 pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
