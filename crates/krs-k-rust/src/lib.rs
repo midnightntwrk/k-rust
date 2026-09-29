@@ -1,13 +1,8 @@
 //! Versioned adapter to the native `k-rust` frontend.
 //!
-//! [`adapt_definition`] is the permanent structural boundary. The resulting
-//! native source definition is prepared by [`prepare_definition`] through the
-//! pinned frontend's public structured loader.
-//!
-//! [`compile_definition_provisional_oracle`] exists only as an explicitly
-//! provisional single-cell oracle. It parses no K source (and in particular never
-//! parses emitted candidate `.k`); it prepares the adapted definition through
-//! [`prepare_definition`] and reparses both compiled KORE definitions.
+//! [`compile_definition`] is the route from Definition IR to compiled artifacts.
+//! It adapts the IR to a native source definition, prepares it through the pinned frontend's structured loader, compiles it, reparses both KORE definitions, and joins sentence provenance.
+//! The route does not parse emitted candidate `.k` source.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -149,23 +144,24 @@ pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     structured_definition_preparation: CapabilityAvailability::Available,
 };
 
-/// Import policy of the provisional-oracle preparation route.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PortablePreludePolicy {
-    /// Resolve structured IR against the pinned native builtin closure.
-    PinnedBuiltinClosure,
+/// Place occupied by one adapted native node.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum NativeNodePlace {
+    /// The flat native module itself.
+    Module,
+    /// A node within a module-local native sentence.
+    Sentence {
+        /// Module-local native sentence index.
+        index: usize,
+        /// Structural role within the sentence.
+        role: SentenceNodeRole,
+    },
 }
 
-/// Prelude policy used by [`compile_definition_provisional_oracle`].
-pub const PORTABLE_PRELUDE_POLICY: PortablePreludePolicy =
-    PortablePreludePolicy::PinnedBuiltinClosure;
-
-/// Stable role occupied by one adapted native node.
+/// Stable role occupied by a node within an adapted native sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum NativeNodeRole {
-    /// Flat native module.
-    Module,
-    /// Flat native sentence at the recorded index.
+pub enum SentenceNodeRole {
+    /// The native sentence itself.
     Sentence,
     /// Cell identity represented inside a configuration sentence.
     ConfigurationCell,
@@ -215,8 +211,8 @@ pub enum NativeNodeRole {
 
 /// Sidecar seam from an IR origin to its structural native destination.
 ///
-/// Sub-sentence roles serve diagnostics and editor mapping only. Emitted rule
-/// and claim identities join through the `Sentence` role.
+/// Roles within a sentence serve diagnostics and editor mapping.
+/// Emitted rule and claim identities join through [`SentenceNodeRole::Sentence`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OriginMapping {
     /// Stable key shared with KRS source-map sidecars.
@@ -225,10 +221,8 @@ pub struct OriginMapping {
     pub origin: NodeOrigin,
     /// Emitted module name containing the native destination.
     pub module: String,
-    /// Module-local native sentence index, absent for the module itself.
-    pub sentence_index: Option<usize>,
-    /// Structural role within the module or sentence.
-    pub role: NativeNodeRole,
+    /// Structural destination within the native module.
+    pub place: NativeNodePlace,
 }
 
 /// A native source definition structurally adapted from Definition IR.
@@ -647,65 +641,6 @@ impl Error for DefinitionCompileError {
     }
 }
 
-/// Failure from the explicitly provisional oracle route.
-#[derive(Clone, Debug)]
-pub enum ProvisionalCompileError {
-    /// Definition IR could not be adapted.
-    Adapter(AdapterError),
-    /// Public configuration expansion rejected the structured sentence.
-    Configuration(String),
-    /// The expanded flat module graph was invalid.
-    Resolution(String),
-    /// The ordered native compilation pipeline rejected the definition.
-    Compile(CompileError),
-    /// Native input provenance did not join to the adapted Definition IR.
-    Provenance(ProvenanceError),
-    /// One emitted KORE artifact was not accepted by the pinned KORE parser.
-    KoreReparse {
-        /// Artifact which failed (`definition.kore` or
-        /// `syntaxDefinition.kore`).
-        artifact: &'static str,
-        /// Pinned parser message.
-        message: String,
-    },
-}
-
-impl fmt::Display for ProvisionalCompileError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Adapter(error) => error.fmt(formatter),
-            Self::Configuration(message) => {
-                write!(
-                    formatter,
-                    "structured configuration expansion failed: {message}"
-                )
-            }
-            Self::Resolution(message) => {
-                write!(
-                    formatter,
-                    "expanded native definition resolution failed: {message}"
-                )
-            }
-            Self::Compile(error) => error.fmt(formatter),
-            Self::Provenance(error) => error.fmt(formatter),
-            Self::KoreReparse { artifact, message } => {
-                write!(formatter, "pinned parser rejected {artifact}: {message}")
-            }
-        }
-    }
-}
-
-impl Error for ProvisionalCompileError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Adapter(error) => Some(error),
-            Self::Compile(error) => Some(error),
-            Self::Provenance(error) => Some(error),
-            Self::Configuration(_) | Self::Resolution(_) | Self::KoreReparse { .. } => None,
-        }
-    }
-}
-
 /// Structurally maps schema-9 Definition IR to the pinned native source
 /// Definition model.
 ///
@@ -853,59 +788,16 @@ pub fn diagnostic_source_map_key(
         (address.input == InputSpace::Structured)
             .then(|| {
                 origins.iter().find(|mapping| {
-                    mapping.role == NativeNodeRole::Sentence
-                        && mapping.module == address.module
-                        && mapping.sentence_index == Some(address.index as usize)
+                    mapping.module == address.module
+                        && mapping.place
+                            == NativeNodePlace::Sentence {
+                                index: address.index as usize,
+                                role: SentenceNodeRole::Sentence,
+                            }
                 })
             })
             .flatten()
             .map(|mapping| mapping.key.clone())
-    })
-}
-
-/// Provisional test-oracle compilation through public frontend passes.
-///
-/// This function parses **no source fragment**. Emitted candidate `.k` is
-/// never an input. It structurally adapts Definition IR, prepares it through
-/// [`prepare_definition`] with the pinned builtin closure and backend module
-/// filter, then compiles the loaded definition. Both returned KORE definitions
-/// are reparsed before success is reported.
-///
-/// # Errors
-///
-/// Returns [`ProvisionalCompileError`] for adaptation, preparation,
-/// compilation, or KORE-reparse failures.
-pub fn compile_definition_provisional_oracle(
-    ir: &DefinitionIr,
-    options: CompileOptions,
-) -> Result<CompiledArtifacts, ProvisionalCompileError> {
-    let adapted =
-        adapt_definition_for(ir, options.backend).map_err(ProvisionalCompileError::Adapter)?;
-    let loaded = prepare_provisional_oracle(&adapted, options.backend)?;
-    let artifacts =
-        compile_loaded_definition(&loaded, options).map_err(ProvisionalCompileError::Compile)?;
-    parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
-        ProvisionalCompileError::KoreReparse {
-            artifact: "definition.kore",
-            message: error.to_string(),
-        }
-    })?;
-    parse_kore_definition(&artifacts.syntax_definition_kore).map_err(|error| {
-        ProvisionalCompileError::KoreReparse {
-            artifact: "syntaxDefinition.kore",
-            message: error.to_string(),
-        }
-    })?;
-    let sentence_provenance =
-        join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
-            .map_err(ProvisionalCompileError::Provenance)?;
-    Ok(CompiledArtifacts {
-        definition_kore: artifacts.definition_kore,
-        syntax_definition_kore: artifacts.syntax_definition_kore,
-        macros_kore: artifacts.macros_kore,
-        diagnostics: artifacts.diagnostics,
-        sentence_provenance,
-        omitted_claims: adapted.omitted_claims,
     })
 }
 
@@ -937,21 +829,21 @@ fn join_sentence_provenance(
         .map(|module| (module.id().as_str(), module))
         .collect::<BTreeMap<_, _>>();
     let mut mappings = BTreeMap::new();
-    for mapping in adapted
-        .origins()
-        .iter()
-        .filter(|mapping| mapping.role == NativeNodeRole::Sentence)
-    {
-        let index = mapping
-            .sentence_index
-            .expect("Sentence-role mappings always carry a sentence index");
+    for mapping in adapted.origins() {
+        let NativeNodePlace::Sentence {
+            index,
+            role: SentenceNodeRole::Sentence,
+        } = &mapping.place
+        else {
+            continue;
+        };
         if mappings
-            .insert((mapping.module.as_str(), index), mapping)
+            .insert((mapping.module.as_str(), *index), mapping)
             .is_some()
         {
             return Err(ProvenanceError::DuplicateSentenceMapping {
                 module: mapping.module.clone(),
-                index: u32::try_from(index).unwrap_or(u32::MAX),
+                index: u32::try_from(*index).unwrap_or(u32::MAX),
             });
         }
     }
@@ -1265,7 +1157,7 @@ impl Adapter {
 
     fn module(&mut self, module: &krs_ir::DefinitionModule) -> Result<FlatModule, AdapterError> {
         let module_name = module.id().as_str().to_owned();
-        self.map_origin(module.origin(), &module_name, None, NativeNodeRole::Module);
+        self.map_origin(module.origin(), &module_name, NativeNodePlace::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
             if !self.keep_claims
@@ -1302,11 +1194,11 @@ impl Adapter {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
-        self.map_origin(
+        self.map_sentence_origin(
             sentence.origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::Sentence,
+            sentence_index,
+            SentenceNodeRole::Sentence,
         );
         match sentence {
             DefinitionSentence::SyntaxSort(sentence) => Ok(NativeSentence::SyntaxSort {
@@ -1378,11 +1270,11 @@ impl Adapter {
         let mut attributes = attributes_for_origin(sentence.origin());
         for (index, attribute) in sentence.attributes().iter().enumerate() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
-            self.map_origin(
+            self.map_sentence_origin(
                 attribute.origin(),
                 module,
-                Some(sentence_index),
-                NativeNodeRole::ProductionAttribute(index),
+                sentence_index,
+                SentenceNodeRole::ProductionAttribute(index),
             );
             self.production_attribute(
                 attribute,
@@ -1398,11 +1290,11 @@ impl Adapter {
             .iter()
             .enumerate()
             .map(|(index, item)| {
-                self.map_origin(
+                self.map_sentence_origin(
                     item.origin(),
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::ProductionItem(u32::try_from(index).unwrap_or(u32::MAX)),
+                    sentence_index,
+                    SentenceNodeRole::ProductionItem(u32::try_from(index).unwrap_or(u32::MAX)),
                 );
                 match item.kind() {
                     GrammarProductionItemKind::Terminal { text } => {
@@ -1535,18 +1427,18 @@ impl Adapter {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 for (index, selected) in fields.iter().enumerate() {
-                    self.map_origin(
+                    self.map_sentence_origin(
                         selected.origin(),
                         module,
-                        Some(sentence_index),
-                        NativeNodeRole::StrictnessField(u32::try_from(index).unwrap_or(u32::MAX)),
+                        sentence_index,
+                        SentenceNodeRole::StrictnessField(u32::try_from(index).unwrap_or(u32::MAX)),
                     );
                 }
-                self.map_origin(
+                self.map_sentence_origin(
                     result_sort.origin(),
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::StrictnessResult,
+                    sentence_index,
+                    SentenceNodeRole::StrictnessResult,
                 );
                 let selected_all = positions.len() == nonterminals.len()
                     && positions.iter().copied().eq(1..=nonterminals.len());
@@ -1558,11 +1450,11 @@ impl Adapter {
                         .join(",")
                 });
                 let value = if let Some(using) = using {
-                    self.map_origin(
+                    self.map_sentence_origin(
                         using.origin(),
                         module,
-                        Some(sentence_index),
-                        NativeNodeRole::StrictnessContextAlias,
+                        sentence_index,
+                        SentenceNodeRole::StrictnessContextAlias,
                     );
                     let alias = self.context_alias_name(using.alias(), using.origin())?;
                     match positions {
@@ -1601,18 +1493,18 @@ impl Adapter {
         for variable in configuration.variables() {
             self.initializer_variables
                 .insert(variable.id().clone(), variable.external_name().to_owned());
-            self.map_origin(
+            self.map_sentence_origin(
                 variable.origin(),
                 module,
-                Some(sentence_index),
-                NativeNodeRole::ConfigurationInitializer,
+                sentence_index,
+                SentenceNodeRole::ConfigurationInitializer,
             );
         }
-        self.map_origin(
+        self.map_sentence_origin(
             configuration.initializer_origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::ConfigurationInitializer,
+            sentence_index,
+            SentenceNodeRole::ConfigurationInitializer,
         );
         let body = self.fixed_configuration(configuration, module, sentence_index)?;
         self.initializer_variables.clear();
@@ -1639,11 +1531,11 @@ impl Adapter {
         Ok(match configuration.root() {
             ConfigurationRoot::GeneratedTop => native_cells(forest),
             ConfigurationRoot::Named { origin, name } => {
-                self.map_origin(
+                self.map_sentence_origin(
                     origin,
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::ConfigurationCell,
+                    sentence_index,
+                    SentenceNodeRole::ConfigurationCell,
                 );
                 native_config_cell(
                     name,
@@ -1692,17 +1584,17 @@ impl Adapter {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeTerm, AdapterError> {
-        self.map_origin(
+        self.map_sentence_origin(
             cell.origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::ConfigurationCell,
+            sentence_index,
+            SentenceNodeRole::ConfigurationCell,
         );
-        self.map_origin(
+        self.map_sentence_origin(
             initializer.origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::ConfigurationInitializer,
+            sentence_index,
+            SentenceNodeRole::ConfigurationInitializer,
         );
         let contents = match (cell.content(), initializer.content()) {
             (FixedCellContent::Term { .. }, FixedInitializerContent::Term { term }) => self.term(
@@ -1746,17 +1638,17 @@ impl Adapter {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
-        self.map_origin(
+        self.map_sentence_origin(
             sentence.name_origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::ContextAliasName,
+            sentence_index,
+            SentenceNodeRole::ContextAliasName,
         );
-        self.map_origin(
+        self.map_sentence_origin(
             sentence.here_origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::ContextAliasHere,
+            sentence_index,
+            SentenceNodeRole::ContextAliasHere,
         );
         self.context_here = Some(sentence.here().clone());
         let body = self.configuration_pattern(
@@ -1801,11 +1693,11 @@ impl Adapter {
         let requires = sentence.requires().map_or_else(
             || Ok(truth()),
             |condition| {
-                self.map_origin(
+                self.map_sentence_origin(
                     condition.origin(),
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::Requires,
+                    sentence_index,
+                    SentenceNodeRole::Requires,
                 );
                 self.term(
                     condition.term(),
@@ -1823,11 +1715,11 @@ impl Adapter {
             .map_or_else(
                 || Ok(truth()),
                 |condition| {
-                    self.map_origin(
+                    self.map_sentence_origin(
                         condition.origin(),
                         module,
-                        Some(sentence_index),
-                        NativeNodeRole::Ensures,
+                        sentence_index,
+                        SentenceNodeRole::Ensures,
                     );
                     self.term(
                         condition.term(),
@@ -1858,19 +1750,19 @@ impl Adapter {
             );
         }
         if let Some(claim) = sentence.claim() {
-            self.map_origin(
+            self.map_sentence_origin(
                 claim.modality_origin(),
                 module,
-                Some(sentence_index),
-                NativeNodeRole::ClaimModality,
+                sentence_index,
+                SentenceNodeRole::ClaimModality,
             );
             attributes.insert(claim_modality_attribute(claim.modality()), json!(""));
             if let Some(origin) = claim.circularity_origin() {
-                self.map_origin(
+                self.map_sentence_origin(
                     origin,
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::ClaimCircularity,
+                    sentence_index,
+                    SentenceNodeRole::ClaimCircularity,
                 );
                 attributes.insert("circularity", json!(""));
             }
@@ -1909,11 +1801,17 @@ impl Adapter {
     ) {
         let index = u32::try_from(index).unwrap_or(u32::MAX);
         for (origin, role) in [
-            (binder.origin(), NativeNodeRole::ClaimBinder(index)),
-            (binder.name_origin(), NativeNodeRole::ClaimBinderName(index)),
-            (binder.sort_origin(), NativeNodeRole::ClaimBinderSort(index)),
+            (binder.origin(), SentenceNodeRole::ClaimBinder(index)),
+            (
+                binder.name_origin(),
+                SentenceNodeRole::ClaimBinderName(index),
+            ),
+            (
+                binder.sort_origin(),
+                SentenceNodeRole::ClaimBinderSort(index),
+            ),
         ] {
-            self.map_origin(origin, module, Some(sentence_index), role);
+            self.map_sentence_origin(origin, module, sentence_index, role);
         }
     }
 
@@ -1930,20 +1828,20 @@ impl Adapter {
             .enumerate()
             .map(|(index, clause)| {
                 let index = u32::try_from(index).unwrap_or(u32::MAX);
-                self.map_origin(
+                self.map_sentence_origin(
                     clause.origin(),
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::ConfigurationRuleCell(index),
+                    sentence_index,
+                    SentenceNodeRole::ConfigurationRuleCell(index),
                 );
                 if let CellContentFrame::KSequenceTail { origin, .. }
                 | CellContentFrame::MapRemainder { origin, .. } = clause.frame()
                 {
-                    self.map_origin(
+                    self.map_sentence_origin(
                         origin,
                         module,
-                        Some(sentence_index),
-                        NativeNodeRole::ConfigurationRuleFrame(index),
+                        sentence_index,
+                        SentenceNodeRole::ConfigurationRuleFrame(index),
                     );
                 }
                 let before = self.term(
@@ -1990,20 +1888,20 @@ impl Adapter {
             .enumerate()
             .map(|(index, cell)| {
                 let index = u32::try_from(index).unwrap_or(u32::MAX);
-                self.map_origin(
+                self.map_sentence_origin(
                     cell.origin(),
                     module,
-                    Some(sentence_index),
-                    NativeNodeRole::ContextAliasCell(index),
+                    sentence_index,
+                    SentenceNodeRole::ContextAliasCell(index),
                 );
                 if let CellContentFrame::KSequenceTail { origin, .. }
                 | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
                 {
-                    self.map_origin(
+                    self.map_sentence_origin(
                         origin,
                         module,
-                        Some(sentence_index),
-                        NativeNodeRole::ContextAliasFrame(index),
+                        sentence_index,
+                        SentenceNodeRole::ContextAliasFrame(index),
                     );
                 }
                 let cell_content = self.term(
@@ -2069,11 +1967,11 @@ impl Adapter {
         context: TermContext,
         rule: Option<&RuleSentence>,
     ) -> Result<NativeTerm, AdapterError> {
-        self.map_origin(
+        self.map_sentence_origin(
             term.origin(),
             module,
-            Some(sentence_index),
-            NativeNodeRole::Term(path.clone()),
+            sentence_index,
+            SentenceNodeRole::Term(path.clone()),
         );
         match term.kind() {
             DefinitionTermKind::Variable { variable } => {
@@ -2412,20 +2310,23 @@ impl Adapter {
             })
     }
 
-    fn map_origin(
-        &mut self,
-        origin: &NodeOrigin,
-        module: &str,
-        sentence_index: Option<usize>,
-        role: NativeNodeRole,
-    ) {
+    fn map_origin(&mut self, origin: &NodeOrigin, module: &str, place: NativeNodePlace) {
         self.origins.push(OriginMapping {
             key: origin.key().clone(),
             origin: origin.clone(),
             module: module.to_owned(),
-            sentence_index,
-            role,
+            place,
         });
+    }
+
+    fn map_sentence_origin(
+        &mut self,
+        origin: &NodeOrigin,
+        module: &str,
+        index: usize,
+        role: SentenceNodeRole,
+    ) {
+        self.map_origin(origin, module, NativeNodePlace::Sentence { index, role });
     }
 }
 
@@ -2859,14 +2760,6 @@ fn truth() -> NativeTerm {
         token: "true".into(),
         sort: NativeSort::new("Bool"),
     }
-}
-
-fn prepare_provisional_oracle(
-    adapted: &AdaptedDefinition,
-    backend: Backend,
-) -> Result<LoadedDefinition, ProvisionalCompileError> {
-    prepare_definition(adapted.definition.clone(), backend)
-        .map_err(ProvisionalCompileError::Configuration)
 }
 
 #[cfg(test)]

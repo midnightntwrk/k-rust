@@ -35,9 +35,8 @@ use krs_ir::{
 use super::{
     Adapter, Author, Backend, CapabilityAvailability, CompileOptions, FRONTEND_CAPABILITIES,
     FRONTEND_PIN, GeneratingPass, InputAddress, InputSentenceKind, InputSpace, LoadedDefinition,
-    NativeNodeRole, PORTABLE_PRELUDE_POLICY, PortablePreludePolicy, ProvenanceError, TermContext,
-    adapt_definition, adapt_definition_for, compile_definition,
-    compile_definition_provisional_oracle, compile_loaded_definition, module_builtin_imports,
+    NativeNodePlace, ProvenanceError, SentenceNodeRole, TermContext, adapt_definition,
+    adapt_definition_for, compile_definition, compile_loaded_definition, module_builtin_imports,
     prepare_definition,
 };
 
@@ -445,10 +444,6 @@ fn pin_and_portable_capabilities_are_explicit() {
         capabilities.structured_definition_preparation,
         CapabilityAvailability::Available
     ));
-    assert_eq!(
-        PORTABLE_PRELUDE_POLICY,
-        PortablePreludePolicy::PinnedBuiltinClosure
-    );
 }
 
 #[test]
@@ -1237,7 +1232,13 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
     assert!(property_names.iter().any(|name| name == "maincell"));
     assert!(adapter.origins.iter().any(|mapping| {
         mapping.key.as_str() == "schema9.configuration.cell.k"
-            && mapping.role == NativeNodeRole::ConfigurationCell
+            && matches!(
+                mapping.place,
+                NativeNodePlace::Sentence {
+                    role: SentenceNodeRole::ConfigurationCell,
+                    ..
+                }
+            )
     }));
 }
 
@@ -1382,15 +1383,17 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     assert!(attributes.get("one-path").is_some());
     assert!(attributes.get("circularity").is_some());
     for role in [
-        NativeNodeRole::ClaimBinder(0),
-        NativeNodeRole::ClaimBinderName(0),
-        NativeNodeRole::ClaimBinderSort(0),
-        NativeNodeRole::ClaimBinder(1),
-        NativeNodeRole::ClaimModality,
-        NativeNodeRole::ClaimCircularity,
-        NativeNodeRole::Ensures,
+        SentenceNodeRole::ClaimBinder(0),
+        SentenceNodeRole::ClaimBinderName(0),
+        SentenceNodeRole::ClaimBinderSort(0),
+        SentenceNodeRole::ClaimBinder(1),
+        SentenceNodeRole::ClaimModality,
+        SentenceNodeRole::ClaimCircularity,
+        SentenceNodeRole::Ensures,
     ] {
-        assert!(adapter.origins.iter().any(|mapping| mapping.role == role));
+        assert!(adapter.origins.iter().any(|mapping| {
+            matches!(&mapping.place, NativeNodePlace::Sentence { role: mapped_role, .. } if mapped_role == &role)
+        }));
     }
 
     let here = semantic_id("here");
@@ -1446,12 +1449,14 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     assert_eq!(attributes.get_str("label"), Some("schema9_eval"));
     assert!(attributes.get("cool-like").is_some());
     for role in [
-        NativeNodeRole::ContextAliasName,
-        NativeNodeRole::ContextAliasHere,
-        NativeNodeRole::ContextAliasCell(0),
-        NativeNodeRole::ContextAliasFrame(0),
+        SentenceNodeRole::ContextAliasName,
+        SentenceNodeRole::ContextAliasHere,
+        SentenceNodeRole::ContextAliasCell(0),
+        SentenceNodeRole::ContextAliasFrame(0),
     ] {
-        assert!(adapter.origins.iter().any(|mapping| mapping.role == role));
+        assert!(adapter.origins.iter().any(|mapping| {
+            matches!(&mapping.place, NativeNodePlace::Sentence { role: mapped_role, .. } if mapped_role == &role)
+        }));
     }
 }
 
@@ -1610,7 +1615,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
     }
     assert!(adapted.origins().iter().any(|mapping| {
         mapping.key.as_str() == "def.term.rule.bar"
-            && matches!(mapping.role, NativeNodeRole::Term(ref path) if path == &[1])
+            && matches!(&mapping.place, NativeNodePlace::Sentence { role: SentenceNodeRole::Term(path), .. } if path == &[1])
     }));
 }
 
@@ -2099,8 +2104,11 @@ fn provenance_join_rejects_broken_input_addresses() {
     let mut missing = adapted.clone();
     missing.origins.retain(|mapping| {
         !(mapping.module == "SMOKE"
-            && mapping.sentence_index == Some(1)
-            && mapping.role == NativeNodeRole::Sentence)
+            && mapping.place
+                == NativeNodePlace::Sentence {
+                    index: 1,
+                    role: SentenceNodeRole::Sentence,
+                })
     });
     assert_eq!(
         super::join_sentence_provenance(&ir, &missing, &loaded, &valid),
@@ -2113,8 +2121,11 @@ fn provenance_join_rejects_broken_input_addresses() {
         .iter()
         .find(|mapping| {
             mapping.module == "SMOKE"
-                && mapping.sentence_index == Some(1)
-                && mapping.role == NativeNodeRole::Sentence
+                && mapping.place
+                    == NativeNodePlace::Sentence {
+                        index: 1,
+                        role: SentenceNodeRole::Sentence,
+                    }
         })
         .unwrap()
         .clone();
@@ -2257,10 +2268,9 @@ fn transition_sentence_is_preserved_as_a_native_rule() {
 }
 
 #[test]
-fn provisional_ir_oracle_compiles_and_reparses_both_kore_artifacts() {
-    let artifacts =
-        compile_definition_provisional_oracle(&smoke_definition(), CompileOptions::default())
-            .expect("the smoke IR must compile through the explicit provisional oracle");
+fn compile_definition_reparses_both_kore_artifacts() {
+    let artifacts = compile_definition(&smoke_definition(), CompileOptions::default())
+        .expect("the smoke IR must compile through the native route");
     parse_definition(&artifacts.definition_kore).unwrap();
     parse_definition(&artifacts.syntax_definition_kore).unwrap();
     assert!(artifacts.definition_kore.contains("Lblfoo"));
