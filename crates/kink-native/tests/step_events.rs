@@ -1430,3 +1430,333 @@ fn ill_sorted_injection_constructor_heads_are_undecided() {
         })
         .expect("decider");
 }
+
+// The facade erasure contract is exercised on the original twelve symbolic programs.
+mod position_rows {
+    use super::*;
+    use k_rust::kore::codec;
+    use kink_native::execution::HaltClass;
+    use kink_native::feasibility::LeafFeasibility;
+
+    #[derive(Clone, Copy)]
+    enum Fixture {
+        Sym,
+        Guard,
+    }
+
+    impl Fixture {
+        fn name(self) -> &'static str {
+            match self {
+                Self::Sym => "symmem.k",
+                Self::Guard => "guardedmem.k",
+            }
+        }
+
+        fn module(self) -> &'static str {
+            match self {
+                Self::Sym => "SYMMEM",
+                Self::Guard => "GUARDEDMEM",
+            }
+        }
+    }
+
+    fn app(name: &str, args: Vec<Pattern>) -> Pattern {
+        support::app(name, args)
+    }
+    fn nat(name: &str) -> Pattern {
+        support::var(name, "SortNat")
+    }
+    fn integer(name: &str) -> Pattern {
+        support::var(name, "SortInt")
+    }
+    fn z() -> Pattern {
+        app("Lblz", vec![])
+    }
+    fn s(value: Pattern) -> Pattern {
+        app("Lbls", vec![value])
+    }
+    fn addr(value: Pattern) -> Pattern {
+        app("Lbladdr", vec![value])
+    }
+    fn write(address: Pattern, value: Pattern) -> Pattern {
+        app("Lblwrite", vec![address, value])
+    }
+    fn load(address: Pattern, value: Pattern) -> Pattern {
+        app("Lblload", vec![address, value])
+    }
+    fn load_neg(address: Pattern, value: Pattern) -> Pattern {
+        app("LblloadNeg", vec![address, value])
+    }
+    fn free(address: Pattern) -> Pattern {
+        app("Lblfree", vec![address])
+    }
+    fn halt() -> Pattern {
+        app("Lblhalt", vec![])
+    }
+    fn seq(operation: Pattern, rest: Pattern) -> Pattern {
+        app("Lblseq", vec![operation, rest])
+    }
+    fn fork(left: Pattern, right: Pattern) -> Pattern {
+        app("Lblfork", vec![left, right])
+    }
+
+    fn p1() -> Pattern {
+        seq(
+            write(addr(nat("X")), nat("V")),
+            seq(load(addr(nat("X")), nat("W")), halt()),
+        )
+    }
+    fn p2() -> Pattern {
+        seq(
+            write(addr(nat("X")), nat("V")),
+            seq(free(addr(z())), seq(load(addr(nat("X")), nat("W")), halt())),
+        )
+    }
+    fn p3() -> Pattern {
+        seq(
+            load(addr(nat("X")), nat("W")),
+            seq(write(addr(nat("X")), nat("V")), halt()),
+        )
+    }
+    fn p4() -> Pattern {
+        fork(
+            seq(write(addr(nat("X")), nat("V")), halt()),
+            seq(load(addr(nat("X")), nat("W")), halt()),
+        )
+    }
+    fn p5() -> Pattern {
+        fork(p1(), seq(load(addr(nat("X")), nat("W")), halt()))
+    }
+    fn p6() -> Pattern {
+        seq(
+            write(addr(nat("X")), nat("V")),
+            seq(load(addr(nat("Y")), nat("W")), halt()),
+        )
+    }
+    fn p7() -> Pattern {
+        seq(
+            write(addr(z()), nat("V")),
+            seq(load(addr(s(nat("Y"))), nat("W")), halt()),
+        )
+    }
+    fn p8() -> Pattern {
+        p1()
+    }
+    fn p9() -> Pattern {
+        fork(
+            p1(),
+            seq(
+                write(addr(nat("Y")), nat("V")),
+                seq(load(addr(nat("Y")), nat("W")), halt()),
+            ),
+        )
+    }
+    fn g1() -> Pattern {
+        seq(
+            write(addr(integer("X")), integer("V")),
+            seq(load(addr(integer("Y")), integer("W")), halt()),
+        )
+    }
+    fn g2() -> Pattern {
+        seq(
+            write(addr(integer("X")), integer("V")),
+            seq(load_neg(addr(integer("Y")), integer("W")), halt()),
+        )
+    }
+    fn g3() -> Pattern {
+        seq(
+            write(addr(support::int(1)), integer("V")),
+            seq(load(addr(support::int(1)), integer("W")), halt()),
+        )
+    }
+
+    type ProgramRow = (&'static str, Pattern);
+    type FixtureRow = (Fixture, Vec<ProgramRow>);
+
+    fn fixture_rows() -> Vec<FixtureRow> {
+        vec![
+            (
+                Fixture::Sym,
+                vec![
+                    ("p1", p1()),
+                    ("p2", p2()),
+                    ("p3", p3()),
+                    ("p4", p4()),
+                    ("p5", p5()),
+                    ("p6", p6()),
+                    ("p7", p7()),
+                    ("p8", p8()),
+                    ("p9", p9()),
+                ],
+            ),
+            (
+                Fixture::Guard,
+                vec![("g1", g1()), ("g2", g2()), ("g3", g3())],
+            ),
+        ]
+    }
+
+    fn expected_positions(fixture: Fixture, row: &str) -> Vec<(HaltClass, LeafFeasibility, usize)> {
+        let (halt, feasibility, lengths) = match (fixture, row) {
+            (Fixture::Guard, "g1") if cfg!(feature = "z3") => {
+                (HaltClass::Stuck, LeafFeasibility::Solver, vec![3, 3, 2])
+            }
+            (Fixture::Guard, "g2") if cfg!(feature = "z3") => {
+                (HaltClass::Stuck, LeafFeasibility::Solver, vec![3, 2, 2])
+            }
+            (Fixture::Guard, "g1" | "g2") => (
+                HaltClass::Indeterminate,
+                LeafFeasibility::Syntactic,
+                vec![1],
+            ),
+            (Fixture::Sym, "p2") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4]),
+            (Fixture::Sym, "p4") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![3, 3]),
+            (Fixture::Sym, "p5") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4, 3]),
+            (Fixture::Sym, "p9") => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![4, 4]),
+            _ => (HaltClass::Stuck, LeafFeasibility::Syntactic, vec![3]),
+        };
+        lengths
+            .into_iter()
+            .map(|length| (halt, feasibility, length))
+            .collect()
+    }
+
+    #[test]
+    fn stepped_positions_keep_unobserved_leaves_and_order() {
+        let mut reached_three = false;
+        let mut reached_remainder = false;
+        for (fixture, programs) in fixture_rows() {
+            let validator =
+                NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
+            let side = validator.compile_baseline().expect("fixture compiles");
+            let mut backend = Backend::new(
+                &side.artifacts().definition_kore,
+                fixture.module(),
+                BackendOptions {
+                    smt_timeout_ms: 4000,
+                    smt_retry_limit: 2,
+                },
+            )
+            .expect("backend");
+            let adapter = ExecutionAdapter::without_manifest(SolverProfile::BUILD);
+            for (row, program) in programs {
+                let state = support::initial_state(program, "SortProg");
+                let execution = adapter
+                    .execute_steps(&mut backend, &state, BUDGET)
+                    .expect("execution")
+                    .expect("stepped run");
+                assert_eq!(
+                    execution
+                        .adapted
+                        .leaves()
+                        .iter()
+                        .zip(&execution.states)
+                        .map(|(leaf, states)| (leaf.halt, leaf.feasibility, states.len()))
+                        .collect::<Vec<_>>(),
+                    expected_positions(fixture, row),
+                    "{} {row}: pre-migration measurements",
+                    fixture.name()
+                );
+                let unobserved = adapter
+                    .execute_unobserved(&mut backend, &state, BUDGET)
+                    .expect("unobserved run");
+                let mut erased = execution.adapted.erased();
+                for leaf in &mut erased {
+                    leaf.branch.clear();
+                }
+                assert_eq!(
+                    erased,
+                    unobserved,
+                    "{} {row}: leaves and order",
+                    fixture.name()
+                );
+                assert_eq!(
+                    execution.states.len(),
+                    execution.adapted.leaves().len(),
+                    "{} {row}: sequences",
+                    fixture.name()
+                );
+                for (index, (states, leaf)) in execution
+                    .states
+                    .iter()
+                    .zip(execution.adapted.leaves())
+                    .enumerate()
+                {
+                    let rewrites = leaf
+                        .branch
+                        .identity
+                        .iter()
+                        .filter(|id| !id.rule.starts_with("remainder:"))
+                        .count();
+                    let remainders = leaf.branch.identity.len() - rewrites;
+                    assert_eq!(
+                        states.len(),
+                        rewrites + 1,
+                        "{} {row} leaf {index}: Rewrite positions; Remainder adds none",
+                        fixture.name()
+                    );
+                    assert_eq!(
+                        states.last(),
+                        Some(&codec::from_value(&leaf.branch.state).expect("decoded last state"))
+                    );
+                    reached_three |= states.len() >= 3;
+                    reached_remainder |= remainders > 0;
+                    if matches!(fixture, Fixture::Guard) && row != "g3" && !cfg!(feature = "z3") {
+                        assert_eq!(
+                            (leaf.halt, leaf.feasibility, states.len()),
+                            (HaltClass::Indeterminate, LeafFeasibility::Syntactic, 1)
+                        );
+                    }
+                }
+            }
+        }
+        assert!(reached_three, "no program reached three states");
+        assert_eq!(
+            reached_remainder,
+            cfg!(feature = "z3"),
+            "Remainder entries arise only from solver-decided guarded rows"
+        );
+    }
+
+    #[test]
+    fn undefined_step_keeps_its_pre_step_state_as_last_position() {
+        let validator =
+            NativeValidator::bind(support::load("symbottom.k"), CompileOptions::default());
+        let side = validator.compile_baseline().expect("fixture compiles");
+        let stop = app("Lblstop", vec![support::int(1)]);
+        let state = support::initial_state(
+            seq(
+                write(addr(support::int(1)), support::int(5)),
+                seq(load(addr(support::int(1)), support::int(5)), stop.clone()),
+            ),
+            "SortProg",
+        );
+        let execution = run_steps(&side, "SYMBOTTOM", &state);
+        let [leaf] = execution.adapted.leaves() else {
+            panic!("one leaf")
+        };
+        assert_eq!(
+            (leaf.halt, leaf.branch.depth, leaf.feasibility),
+            (HaltClass::Trivial, 2, LeafFeasibility::Syntactic)
+        );
+        assert_eq!(execution.states[0].len(), 3);
+        assert_eq!(
+            execution.states[0].last(),
+            Some(&support::initial_state(stop, "SortProg")),
+            "undefined step adds no successor position"
+        );
+        assert_eq!(
+            paths_for(
+                &side,
+                &side,
+                "SYMBOTTOM",
+                &state,
+                step_support::int_memory(true)
+            )[0]
+            .events
+            .len(),
+            2,
+            "undefined step emits no event"
+        );
+    }
+}

@@ -3,7 +3,10 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
+#[path = "../../../testdata/k/step_support.rs"]
+mod step_support;
+
+use std::{num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
@@ -14,23 +17,19 @@ use k_rust_backend::smt::{
     NoSolver, Satisfiability, SmtError, SmtSolver, Validity, translates_exactly,
 };
 use k_rust_backend::substitution::Substitution;
-use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
+use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_steps};
 use kink_native::execution::{
-    AdaptedExecution, AdaptedLeaf, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass,
-    SolverProfile,
+    AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::feasibility::{BackendRelations, LeafFeasibility, with_backend_relations};
-use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
+use kink_native::execution_difference::definition_facts;
+use kink_native::feasibility::{BackendRelations, LeafFeasibility};
 use kink_native::report::{ReportInput, ReportResult, step3_report};
-use kink_native::{
-    NativeValidator, ObservedRule, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
-    ValidatedDefinition, select_rules,
-};
+use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
+use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_pattern::{
-    Atom, CollectionStop, Constructor, Evaluation, EvaluationContext, EvaluationOptions,
-    EventVocabulary, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
-    PatternOutcome, PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation,
-    evaluate, evaluate_with,
+    Atom, CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
+    ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm, PatternOutcome, PatternPlan,
+    PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation, evaluate, evaluate_with,
 };
 
 /// The profile of this build (README section 9): the `z3` feature of kink-native.
@@ -53,8 +52,8 @@ fn backend(kore: &str, module: &str) -> Backend {
     Backend::new(kore, module, BACKEND_OPTIONS).expect("backend")
 }
 
-fn adapter(manifest: kink_native::observation::InstalledObservationManifest) -> ExecutionAdapter {
-    ExecutionAdapter::with_profile(manifest, PROFILE)
+fn adapter() -> ExecutionAdapter {
+    ExecutionAdapter::without_manifest(PROFILE)
 }
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -63,20 +62,6 @@ const BUDGET: ExecutionBudget = ExecutionBudget {
     max_depth: None,
     max_breadth: None,
 };
-
-// These positions were resolved by executing all six rules with BindingVariable payloads
-// (asserted below), including the generated-cell bindings. They are not rule-text positions.
-const SYM_WRITE_A: usize = 0;
-const SYM_WRITE_V: usize = 3;
-const SYM_LOAD_A: usize = 0;
-const SYM_LOAD_V: usize = 3;
-const SYM_FREE_A: usize = 0;
-const GUARD_WRITE_A: usize = 1;
-const GUARD_WRITE_V: usize = 2;
-const GUARD_LOAD_A: usize = 1;
-const GUARD_LOAD_V: usize = 2;
-const GUARD_LOAD_NEG_A: usize = 1;
-const GUARD_LOAD_NEG_V: usize = 2;
 
 fn nat(name: &str) -> Pattern {
     support::var(name, "SortNat")
@@ -236,208 +221,94 @@ impl Fixture {
             Self::Division => "GUARDEDDIV",
         }
     }
-    fn address_sort(self) -> &'static str {
-        match self {
-            Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortAddress",
-            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial | Self::Division => "SortInt",
-        }
-    }
-    fn value_sort(self) -> &'static str {
-        match self {
-            Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortNat",
-            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial | Self::Division => "SortInt",
-        }
-    }
-    fn labels(self) -> &'static [&'static str; 3] {
-        match self {
-            Self::Sym => &["SYMMEM.write", "SYMMEM.load", "SYMMEM.free"],
-            Self::Guard => &["GUARDEDMEM.write", "GUARDEDMEM.load", "GUARDEDMEM.loadNeg"],
-            Self::Wrap => &["SYMWRAP.write", "SYMWRAP.load", "SYMWRAP.collapse"],
-            Self::Owise => &["SYMOWISE.write", "SYMOWISE.load", "SYMOWISE.other"],
-            Self::Ensures => &["SYMENSURES.write", "SYMENSURES.load", "SYMENSURES.pin"],
-            Self::Bottom => &["SYMBOTTOM.write", "SYMBOTTOM.load", "SYMBOTTOM.stop"],
-            Self::Narrow => &["SYMNARROW.write", "SYMNARROW.load", "SYMNARROW.gate"],
-            Self::Partial => &["SYMPARTIAL.write", "SYMPARTIAL.load", "SYMPARTIAL.half"],
-            Self::Division => &["GUARDEDDIV.write", "GUARDEDDIV.load", "GUARDEDDIV.divide"],
-        }
-    }
 }
 
 struct Run {
     execution: AdaptedExecution,
     bridged: BridgedPaths,
+    report_bridged: BridgedPaths,
     context: EvaluationContext,
     backend: Backend,
     state: Pattern,
+    existentials: bool,
 }
 
-fn vocabulary(fixture: Fixture) -> EventVocabulary {
-    let address = kore_sort(fixture.address_sort());
-    let value = kore_sort(fixture.value_sort());
-    let mut constructors = vec![
-        Constructor {
-            name: "memoryWrite".into(),
-            payload_sorts: vec![address.clone(), value.clone()],
-        },
-        Constructor {
-            name: "memoryLoad".into(),
-            payload_sorts: vec![address.clone(), value],
-        },
-    ];
-    if matches!(fixture, Fixture::Sym) {
-        constructors.push(Constructor {
-            name: "memoryFree".into(),
-            payload_sorts: vec![address],
-        });
-    }
-    EventVocabulary::new(constructors).expect("vocabulary")
-}
-
-fn observed(
-    validator: &NativeValidator,
-    label: &str,
-    constructor: &str,
-    indices: &[usize],
-) -> ObservedRule {
-    ObservedRule {
-        rule: support::rule(validator.baseline(), label),
-        emit_rule_applied: false,
-        domain_events: vec![DomainEventSpec {
-            constructor: constructor.into(),
-            payload: indices
-                .iter()
-                .copied()
-                .map(PayloadSource::BindingValue)
-                .collect(),
-        }],
-    }
-}
-
-fn observations(fixture: Fixture, validator: &NativeValidator) -> Vec<ObservedRule> {
+fn observations(fixture: Fixture) -> Vec<StepEventSpec> {
     match fixture {
-        Fixture::Sym => vec![
-            observed(
-                validator,
-                "SYMMEM.write",
-                "memoryWrite",
-                &[SYM_WRITE_A, SYM_WRITE_V],
-            ),
-            observed(
-                validator,
-                "SYMMEM.load",
-                "memoryLoad",
-                &[SYM_LOAD_A, SYM_LOAD_V],
-            ),
-            observed(validator, "SYMMEM.free", "memoryFree", &[SYM_FREE_A]),
-        ],
-        Fixture::Wrap | Fixture::Owise | Fixture::Ensures => vec![
-            observed(
-                validator,
-                fixture.labels()[0],
-                "memoryWrite",
-                &[SYM_WRITE_A, SYM_WRITE_V],
-            ),
-            observed(
-                validator,
-                fixture.labels()[1],
-                "memoryLoad",
-                &[SYM_LOAD_A, SYM_LOAD_V],
-            ),
-        ],
-        // symbottom's write/load rules bind the same variables as guardedmem's.
-        Fixture::Bottom => vec![
-            observed(
-                validator,
-                "SYMBOTTOM.write",
-                "memoryWrite",
-                &[GUARD_WRITE_A, GUARD_WRITE_V],
-            ),
-            observed(
-                validator,
-                "SYMBOTTOM.load",
-                "memoryLoad",
-                &[GUARD_LOAD_A, GUARD_LOAD_V],
-            ),
-        ],
-        // symnarrow's and sympartial's write/load rules bind the same variables as guardedmem's.
-        Fixture::Narrow | Fixture::Partial | Fixture::Division => vec![
-            observed(
-                validator,
-                fixture.labels()[0],
-                "memoryWrite",
-                &[GUARD_WRITE_A, GUARD_WRITE_V],
-            ),
-            observed(
-                validator,
-                fixture.labels()[1],
-                "memoryLoad",
-                &[GUARD_LOAD_A, GUARD_LOAD_V],
-            ),
-        ],
-        Fixture::Guard => vec![
-            observed(
-                validator,
-                "GUARDEDMEM.write",
-                "memoryWrite",
-                &[GUARD_WRITE_A, GUARD_WRITE_V],
-            ),
-            observed(
-                validator,
-                "GUARDEDMEM.load",
-                "memoryLoad",
-                &[GUARD_LOAD_A, GUARD_LOAD_V],
-            ),
-            observed(
-                validator,
-                "GUARDEDMEM.loadNeg",
-                "memoryLoad",
-                &[GUARD_LOAD_NEG_A, GUARD_LOAD_NEG_V],
-            ),
-        ],
+        Fixture::Sym => step_support::symmem(true),
+        Fixture::Wrap | Fixture::Owise | Fixture::Ensures => {
+            step_support::symmem(true).into_iter().take(2).collect()
+        }
+        Fixture::Guard => step_support::guardedmem(true),
+        Fixture::Bottom | Fixture::Narrow | Fixture::Partial | Fixture::Division => {
+            step_support::int_memory(true)
+        }
     }
 }
 
 fn run_side(
-    validator: &NativeValidator,
     side: &ValidatedDefinition,
     fixture: Fixture,
-    rules: &[ObservedRule],
-    vocabulary: &EventVocabulary,
     state: Pattern,
     budget: ExecutionBudget,
-) -> Run {
-    let manifest = validator
-        .observation_manifest(side, rules)
-        .expect("manifest installs");
+) -> (Run, EventVocabulary) {
     let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
-    let execution = adapter(manifest)
-        .execute(&mut backend, &state, budget)
-        .expect("execution adapts");
+    let observation =
+        StepObservation::new(&mut backend, observations(fixture)).expect("declarations validate");
+    let vocabulary = observation.vocabulary().clone();
+    let existentials = definition_facts(&mut backend)
+        .expect("definition facts")
+        .existentials;
+    let stepped = adapter()
+        .execute_steps(&mut backend, &state, budget)
+        .expect("execution adapts")
+        .expect("steps decode");
     let sorts = SymbolSorts::from_definition(
         &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
     );
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
-    let bridged = paths_from_execution(
-        &execution,
+    let bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, existentials);
+            Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
+                &BridgeContext {
+                    test_id: "symbolic",
+                    classify: &normal,
+                    sorts: &sorts,
+                },
+                &stepped,
+                &observation,
+                &decider,
+            ))
+        })
+        .expect("backend definition")
+        .expect("execution bridges");
+    let report_bridged = paths_from_execution(
+        &stepped.adapted,
         &BridgeContext {
             test_id: "symbolic",
             classify: &normal,
             sorts: &sorts,
         },
     )
-    .expect("execution bridges");
-    Run {
-        execution,
-        bridged,
-        context: EvaluationContext {
-            test_id: "symbolic".into(),
-            bounds: budget.bounds(),
-            vocabulary: vocabulary.clone(),
-            symbol_sorts: sorts,
+    .expect("state-slot bridge");
+    (
+        Run {
+            execution: stepped.adapted,
+            bridged,
+            report_bridged,
+            context: EvaluationContext {
+                test_id: "symbolic".into(),
+                bounds: budget.bounds(),
+                vocabulary: vocabulary.clone(),
+                symbol_sorts: sorts,
+            },
+            backend,
+            state,
+            existentials,
         },
-        backend,
-        state,
-    }
+        vocabulary,
+    )
 }
 
 fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, EventVocabulary) {
@@ -448,26 +319,11 @@ fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, Eve
 fn run_state(fixture: Fixture, state: Pattern, budget: ExecutionBudget) -> (Run, EventVocabulary) {
     let validator = NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
     let side = validator.compile_baseline().expect("fixture compiles");
-    let vocabulary = vocabulary(fixture);
-    let rules = observations(fixture, &validator);
-    (
-        run_side(
-            &validator,
-            &side,
-            fixture,
-            &rules,
-            &vocabulary,
-            state,
-            budget,
-        ),
-        vocabulary,
-    )
+    run_side(&side, fixture, state, budget)
 }
 
-/// Section 9 erasure: observed and unobserved execution of one request give the same leaves in
-/// the same order, equal in every field that observation does not produce (halt, state, depth,
-/// trace, cause, diagnostics), and an observed run that selects no rule gives the same branch
-/// identities, so the branch outcomes agree by identity and not only as a multiset.
+/// Stepped and unobserved execution keep identical leaves in backend order, including halt,
+/// state, depth, trace, cause and diagnostics.
 #[test]
 fn observation_erasure_preserves_live_leaves() {
     let depth = ExecutionBudget {
@@ -519,69 +375,28 @@ fn observation_erasure_preserves_live_leaves() {
     for (fixture, module, sort, programs) in rows {
         let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
         let side = validator.compile_baseline().expect("fixture compiles");
-        let rules = if fixture == "nd.k" {
-            ["ND.left", "ND.right", "ND.l2", "ND.r2"]
-                .into_iter()
-                .map(|label| ObservedRule {
-                    rule: support::rule(validator.baseline(), label),
-                    emit_rule_applied: true,
-                    domain_events: Vec::new(),
-                })
-                .collect()
-        } else {
-            observations(
-                if fixture == "symmem.k" {
-                    Fixture::Sym
-                } else {
-                    Fixture::Guard
-                },
-                &validator,
-            )
-        };
-        let manifest = validator
-            .observation_manifest(&side, &rules)
-            .expect("manifest");
-        let adapter = adapter(manifest);
+        let adapter = adapter();
         let mut backend = backend(&side.artifacts().definition_kore, module);
         for (row, program, budget) in programs {
             let state = support::initial_state(program, sort);
-            let observed = adapter
-                .execute(&mut backend, &state, budget)
-                .expect("observed execution");
+            let stepped = adapter
+                .execute_steps(&mut backend, &state, budget)
+                .expect("observed execution")
+                .expect("steps decode");
+            let observed = &stepped.adapted;
             assert!(!observed.timed_out(), "{fixture} {row}: observed timeout");
             let unobserved = adapter
                 .execute_unobserved(&mut backend, &state, budget)
                 .expect("unobserved execution");
-            let erased = observed.erased();
+            let mut erased = observed.erased();
+            for leaf in &mut erased {
+                leaf.branch.clear();
+            }
             assert!(!erased.is_empty(), "{fixture} {row}: no leaves");
-            // Position by position, every field but the branch identity, which unobserved
-            // execution does not compute.
-            let without_identity = erased
-                .iter()
-                .map(|leaf| BaselineLeaf {
-                    branch: Vec::new(),
-                    ..leaf.clone()
-                })
-                .collect::<Vec<_>>();
-            assert_eq!(
-                without_identity, unobserved,
-                "{fixture} {row}: observation erasure"
-            );
-            // The branch outcomes by identity: an observed run that selects no rule gives the
-            // same identities in the same order, whatever the manifest observes.
-            let identities = adapter
-                .branch_identities(&mut backend, &state, budget)
-                .expect("identity execution");
-            assert_eq!(
-                erased
-                    .iter()
-                    .map(|leaf| leaf.branch.clone())
-                    .collect::<Vec<_>>(),
-                identities,
-                "{fixture} {row}: branch identities"
-            );
+            assert_eq!(erased, unobserved, "{fixture} {row}: observation erasure");
             assert!(
-                erased
+                observed
+                    .erased()
                     .iter()
                     .all(|leaf| (leaf.depth == 0) == leaf.branch.is_empty()),
                 "{fixture} {row}: exactly the leaves below the root have an identity"
@@ -665,279 +480,32 @@ fn outcome(run: &Run, plan: &PatternPlan) -> Evaluation {
     .expect("evaluation")
 }
 
-/// `outcome` with the backend's relation decider instead of the structural one.
+/// `outcome` with the observation decider built from the fixture's baseline.
 fn decided(run: &mut Run, plan: &PatternPlan) -> Evaluation {
-    with_backend_relations(&mut run.backend, &run.state, |relations| {
-        evaluate_with(
-            &run.context,
-            plan,
-            &run.bridged.paths,
-            &run.bridged.collection,
-            None,
-            EvaluationOptions {
-                stable_path_keys: true,
-                search_policy: SearchPolicy::Exhaustive,
-                input_error: false,
-            },
-            relations,
-        )
-    })
-    .expect("backend definition")
-    .expect("evaluation")
-}
-
-fn binding_names(fixture: Fixture, program: Pattern) -> Vec<(&'static str, Vec<String>)> {
-    let validator = NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
-    let side = validator.compile_baseline().expect("fixture compiles");
-    let mut rules = observations(fixture, &validator);
-    for rule in &mut rules {
-        let count = if matches!(fixture, Fixture::Sym)
-            && rule.domain_events[0].constructor == "memoryFree"
-        {
-            4
-        } else {
-            5
-        };
-        rule.domain_events[0].payload = (0..count).map(PayloadSource::BindingVariable).collect();
-    }
-    let manifest = validator
-        .observation_manifest(&side, &rules)
-        .expect("probe manifest");
-    let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
-    let state = support::initial_state(program, "SortProg");
-    let execution = adapter(manifest)
-        .execute(&mut backend, &state, BUDGET)
-        .expect("probe execution");
-    execution
-        .leaves()
-        .iter()
-        .flat_map(|leaf| leaf.branch.events.iter())
-        .filter_map(|event| {
-            let NativeEvent::Domain(domain) = event else {
-                return None;
-            };
-            let ordinal = rules
-                .iter()
-                .position(|rule| rule.rule == domain.rule)
-                .expect("observed rule");
-            let names = domain
-                .payload
-                .iter()
-                .map(|payload| {
-                    let DomainPayload::Term(value) = payload else {
-                        panic!("variable term payload")
-                    };
-                    let pattern = codec::from_value(value).expect("variable KORE");
-                    let Pattern::Variable(variable) = &pattern else {
-                        panic!("binding key is not a variable: {pattern:?}")
-                    };
-                    variable.name.clone()
-                })
-                .collect();
-            Some((fixture.labels()[ordinal], names))
+    run.backend
+        .with_solver(None, |definition, solver| {
+            let decider =
+                BackendRelations::shared(definition, solver, &run.state, run.existentials);
+            Ok::<_, k_rust::backend::BackendError>(evaluate_with(
+                &run.context,
+                plan,
+                &run.bridged.paths,
+                &run.bridged.collection,
+                None,
+                EvaluationOptions {
+                    stable_path_keys: true,
+                    search_policy: SearchPolicy::Exhaustive,
+                    input_error: false,
+                },
+                &decider,
+            ))
         })
-        .collect()
+        .expect("backend definition")
+        .expect("evaluation")
 }
 
 #[test]
-fn before_terms_agree_with_named_bindings() {
-    for (fixture, programs) in [
-        (
-            Fixture::Sym,
-            vec![
-                ("p1", p1()),
-                ("p2", p2()),
-                ("p3", p3()),
-                ("p4", p4()),
-                ("p5", p5()),
-                ("p6", p6()),
-                ("p7", p7()),
-                ("p8", p8()),
-                ("p9", p9()),
-            ],
-        ),
-        (
-            Fixture::Guard,
-            vec![("g1", g1()), ("g2", g2()), ("g3", g3())],
-        ),
-    ] {
-        let validator =
-            NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
-        let side = validator.compile_baseline().expect("fixture compiles");
-        let mut rules = observations(fixture, &validator);
-        for rule in &mut rules {
-            let named = rule.domain_events[0].constructor.clone();
-            let is_free = matches!(fixture, Fixture::Sym) && named == "memoryFree";
-            let (a, v) = if matches!(fixture, Fixture::Sym) {
-                (support::k_head(&[0, 0]), support::k_head(&[0, 1]))
-            } else {
-                (support::k_head(&[0, 0, 0]), support::k_head(&[0, 1]))
-            };
-            let mut named_payload = vec![PayloadSource::BindingValueNamed("RuleVarA".into())];
-            let mut state_payload = vec![PayloadSource::BeforeTerm(a)];
-            if !is_free {
-                named_payload.push(PayloadSource::BindingValueNamed("RuleVarV".into()));
-                state_payload.push(PayloadSource::BeforeTerm(v));
-            }
-            rule.domain_events = vec![
-                DomainEventSpec {
-                    constructor: named.clone(),
-                    payload: named_payload,
-                },
-                DomainEventSpec {
-                    constructor: format!("{named}State"),
-                    payload: state_payload,
-                },
-            ];
-        }
-        let manifest = validator
-            .observation_manifest(&side, &rules)
-            .expect("probe manifest");
-        let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
-        let adapter = adapter(manifest);
-        for (program_name, program) in programs {
-            let state = support::initial_state(program, "SortProg");
-            let execution = adapter
-                .execute(&mut backend, &state, BUDGET)
-                .expect("probe execution");
-            let mut compared = 0;
-            for leaf in execution.leaves() {
-                let mut by_transition = BTreeMap::<usize, Vec<_>>::new();
-                for event in &leaf.branch.events {
-                    let NativeEvent::Domain(domain) = event else {
-                        continue;
-                    };
-                    by_transition
-                        .entry(domain.transition_ordinal)
-                        .or_default()
-                        .push(domain);
-                }
-                for (ordinal, pair) in by_transition {
-                    assert_eq!(
-                        pair.len(),
-                        2,
-                        "{program_name} transition {ordinal}: event pair"
-                    );
-                    assert_eq!(pair[0].rule, pair[1].rule);
-                    assert_eq!(pair[1].constructor, format!("{}State", pair[0].constructor));
-                    let decode = |payload: &[DomainPayload]| -> Vec<Pattern> {
-                        payload
-                            .iter()
-                            .map(|value| {
-                                let DomainPayload::Term(value) = value else {
-                                    panic!("expected a term payload")
-                                };
-                                codec::from_value(value).expect("payload KORE")
-                            })
-                            .collect()
-                    };
-                    let named = decode(&pair[0].payload);
-                    let state = decode(&pair[1].payload);
-                    assert_eq!(
-                        named, state,
-                        "{program_name} transition {ordinal}: named and pre-state payloads"
-                    );
-                    compared += 1;
-                }
-            }
-            let solver_blocked = by_profile(
-                matches!(fixture, Fixture::Guard) && matches!(program_name, "g1" | "g2"),
-                false,
-            );
-            if solver_blocked {
-                assert_eq!(
-                    compared, 0,
-                    "{program_name}: unexpected observed transition"
-                );
-                let leaves = execution.leaves();
-                assert_eq!(leaves.len(), 1, "{program_name}: expected one blocked leaf");
-                assert_eq!(leaves[0].halt, HaltClass::Indeterminate);
-                assert!(leaves[0].cause.as_ref().is_some_and(|cause| {
-                    matches!(cause, k_rust::backend::SearchFailureOutput::Requires { .. })
-                        && cause.solver_unavailable()
-                }));
-            } else {
-                assert!(compared > 0, "{program_name}: no compared transitions");
-            }
-        }
-    }
-}
-
-#[test]
-fn observed_binding_indices_follow_variable_names() {
-    let sym = binding_names(Fixture::Sym, p2());
-    assert_eq!(sym.len(), 3);
-    let name_rows: Vec<_> = sym
-        .iter()
-        .map(|(label, names)| (*label, names.iter().map(String::as_str).collect::<Vec<_>>()))
-        .collect();
-    assert_eq!(
-        name_rows,
-        vec![
-            (
-                "SYMMEM.write",
-                vec![
-                    "RuleVarA",
-                    "RuleVar'Unds'DotVar0",
-                    "RuleVar'Unds'DotVar1",
-                    "RuleVarV",
-                    "RuleVarP"
-                ]
-            ),
-            (
-                "SYMMEM.free",
-                vec![
-                    "RuleVarA",
-                    "RuleVar'Unds'DotVar0",
-                    "RuleVar'Unds'DotVar1",
-                    "RuleVarP"
-                ]
-            ),
-            (
-                "SYMMEM.load",
-                vec![
-                    "RuleVarA",
-                    "RuleVar'Unds'DotVar0",
-                    "RuleVar'Unds'DotVar1",
-                    "RuleVarV",
-                    "RuleVarP"
-                ]
-            ),
-        ]
-    );
-    let guard = binding_names(Fixture::Guard, g3());
-    let neg = binding_names(
-        Fixture::Guard,
-        seq(load_neg(addr(support::int(-1)), integer("W")), halt()),
-    );
-    assert_eq!(guard.len(), 2);
-    assert_eq!(neg.len(), 1);
-    let labels: Vec<_> = guard.iter().chain(&neg).map(|(label, _)| *label).collect();
-    assert_eq!(
-        labels,
-        ["GUARDEDMEM.write", "GUARDEDMEM.load", "GUARDEDMEM.loadNeg"]
-    );
-    let bottom = binding_names(Fixture::Bottom, trivial_program());
-    assert_eq!(
-        bottom.iter().map(|(label, _)| *label).collect::<Vec<_>>(),
-        ["SYMBOTTOM.write", "SYMBOTTOM.load"]
-    );
-    for (_, names) in guard.iter().chain(&neg).chain(&bottom) {
-        assert_eq!(
-            names.iter().map(String::as_str).collect::<Vec<_>>(),
-            vec![
-                "RuleVar'Unds'DotVar0",
-                "RuleVarA",
-                "RuleVarV",
-                "RuleVar'Unds'DotVar1",
-                "RuleVarP"
-            ]
-        );
-    }
-}
-
-#[test]
-fn symmem_binding_payloads_are_subject_terms() {
+fn symmem_step_payloads_are_subject_terms() {
     let (run, _) = run(Fixture::Sym, p1(), BUDGET);
     assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
     let [path] = run.bridged.paths.as_slice() else {
@@ -1077,7 +645,8 @@ fn z3_shared_int_address_witness_carries_feasible_constraint() {
         let [witness] = evaluation.witnesses.as_slice() else {
             panic!("one G1 witness: {evaluation:?}")
         };
-        assert_eq!(witness.path_ordinal, 0);
+        // README 6.4 puts the empty and write-only traces before this two-event trace.
+        assert_eq!(witness.path_ordinal, 2);
         assert_eq!(witness.event_indices, [0, 1]);
         assert_eq!(witness.stop_reason, PathStop::Terminal);
         assert_eq!(witness.bindings.len(), 1);
@@ -1111,7 +680,7 @@ fn z3_shared_int_address_witness_carries_feasible_constraint() {
             backend_options: BACKEND_OPTIONS,
             result: ReportResult::Ok {
                 execution: &run.execution,
-                bridged: &run.bridged,
+                bridged: &run.report_bridged,
                 evaluation: &evaluation,
             },
         });
@@ -1458,6 +1027,8 @@ fn depth_cut_prefix_still_witnesses() {
     assert!(!path.complete);
 }
 
+/// README 6.4 merges the two identical bounded prefixes into one step-bridged path;
+/// both raw leaves remain BreadthBound with Syntactic feasibility.
 #[test]
 fn breadth_bound_absence_is_unknown_branch_limit() {
     let (mut run, vocabulary) = run(
@@ -1474,8 +1045,7 @@ fn breadth_bound_absence_is_unknown_branch_limit() {
             .leaves()
             .iter()
             .all(|leaf| (leaf.halt, leaf.feasibility)
-                == (HaltClass::BreadthBound, LeafFeasibility::Syntactic)
-                && leaf.branch.events.is_empty())
+                == (HaltClass::BreadthBound, LeafFeasibility::Syntactic))
     );
     let evaluation = assert_both(
         &mut run,
@@ -1484,7 +1054,7 @@ fn breadth_bound_absence_is_unknown_branch_limit() {
         Some(PathStop::BranchLimit),
     );
     assert!(evaluation.witnesses.is_empty());
-    assert_eq!(run.bridged.paths.len(), 2);
+    assert_eq!(run.bridged.paths.len(), 1);
     assert!(
         run.bridged
             .paths
@@ -1546,37 +1116,41 @@ fn report_rows() -> [ReportRow; 15] {
     ]
 }
 
-fn report_on_backend(
-    row: ReportRow,
-    validator: &NativeValidator,
-    side: &ValidatedDefinition,
-    backend: &mut Backend,
-) -> String {
-    // Rebuild the manifest even when the Backend is reused.
-    let rules = observations(row.fixture, validator);
-    let manifest = validator
-        .observation_manifest(side, &rules)
-        .expect("fresh manifest");
-    let vocabulary = vocabulary(row.fixture);
+fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut Backend) -> String {
+    let observation =
+        StepObservation::new(backend, observations(row.fixture)).expect("declarations validate");
+    let vocabulary = observation.vocabulary().clone();
+    let existentials = definition_facts(backend)
+        .expect("definition facts")
+        .existentials;
     let plan = (row.plan)(&vocabulary);
     let state = support::initial_state((row.program)(), "SortProg");
-    let execution = adapter(manifest)
-        .execute(backend, &state, row.budget)
-        .expect("execution adapts");
+    let stepped = adapter()
+        .execute_steps(backend, &state, row.budget)
+        .expect("execution adapts")
+        .expect("steps decode");
+    let execution = &stepped.adapted;
     assert!(!execution.timed_out(), "{}: watchdog timed out", row.id);
     let sorts = SymbolSorts::from_definition(
         &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
     );
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
-    let bridged = paths_from_execution(
-        &execution,
-        &BridgeContext {
-            test_id: row.id,
-            classify: &normal,
-            sorts: &sorts,
-        },
-    )
-    .expect("execution bridges");
+    let bridged = backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, existentials);
+            Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
+                &BridgeContext {
+                    test_id: row.id,
+                    classify: &normal,
+                    sorts: &sorts,
+                },
+                &stepped,
+                &observation,
+                &decider,
+            ))
+        })
+        .expect("backend definition")
+        .expect("execution bridges");
     assert_ne!(
         bridged.collection.stop,
         CollectionStop::TimeLimit,
@@ -1589,40 +1163,51 @@ fn report_on_backend(
         vocabulary,
         symbol_sorts: sorts,
     };
-    let evaluation = with_backend_relations(backend, &state, |relations| {
-        evaluate_with(
-            &context,
-            &plan,
-            &bridged.paths,
-            &bridged.collection,
-            None,
-            EvaluationOptions {
-                stable_path_keys: true,
-                search_policy: SearchPolicy::Exhaustive,
-                input_error: false,
-            },
-            relations,
-        )
-    })
-    .expect("backend definition")
-    .expect("evaluation");
+    let evaluation = backend
+        .with_solver(None, |definition, solver| {
+            let relations = BackendRelations::shared(definition, solver, &state, existentials);
+            Ok::<_, k_rust::backend::BackendError>(evaluate_with(
+                &context,
+                &plan,
+                &bridged.paths,
+                &bridged.collection,
+                None,
+                EvaluationOptions {
+                    stable_path_keys: true,
+                    search_policy: SearchPolicy::Exhaustive,
+                    input_error: false,
+                },
+                &relations,
+            ))
+        })
+        .expect("backend definition")
+        .expect("evaluation");
+    let report_bridged = paths_from_execution(
+        execution,
+        &BridgeContext {
+            test_id: row.id,
+            classify: &normal,
+            sorts: &context.symbol_sorts,
+        },
+    )
+    .expect("state-slot report bridge");
     let report = step3_report(ReportInput {
         profile: PROFILE,
         test_id: row.id,
         budget: &row.budget,
         backend_options: BACKEND_OPTIONS,
         result: ReportResult::Ok {
-            execution: &execution,
-            bridged: &bridged,
+            execution,
+            bridged: &report_bridged,
             evaluation: &evaluation,
         },
     });
     serde_json::to_string(&report).expect("report JSON")
 }
 
-fn fresh_report(row: ReportRow, validator: &NativeValidator, side: &ValidatedDefinition) -> String {
+fn fresh_report(row: ReportRow, side: &ValidatedDefinition) -> String {
     let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
-    report_on_backend(row, validator, side, &mut backend)
+    report_on_backend(row, side, &mut backend)
 }
 
 fn assert_identical_reports(row: ReportRow, baseline: &str, candidate: &str) {
@@ -1678,9 +1263,9 @@ fn repeated_symbolic_runs_emit_identical_reports() {
             .into_iter()
             .filter(|row| row.fixture == fixture)
         {
-            let baseline = fresh_report(row, &validator, &side);
+            let baseline = fresh_report(row, &side);
             for _ in 1..3 {
-                let candidate = fresh_report(row, &validator, &side);
+                let candidate = fresh_report(row, &side);
                 assert_identical_reports(row, &baseline, &candidate);
             }
         }
@@ -1696,10 +1281,10 @@ fn report_is_stable_across_backend_reuse() {
     let validator =
         NativeValidator::bind(support::load(row.fixture.name()), CompileOptions::default());
     let side = validator.compile_baseline().expect("fixture compiles");
-    let fresh = fresh_report(row, &validator, &side);
+    let fresh = fresh_report(row, &side);
     let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
-    let first = report_on_backend(row, &validator, &side, &mut backend);
-    let second = report_on_backend(row, &validator, &side, &mut backend);
+    let first = report_on_backend(row, &side, &mut backend);
+    let second = report_on_backend(row, &side, &mut backend);
     assert_identical_reports(row, &fresh, &first);
     assert_identical_reports(row, &first, &second);
 }
@@ -1818,71 +1403,6 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
     }
 }
 
-/// Section 9 "an observer whose selector cardinality changes fails before execution", on the
-/// symmem observer: the label selections install a manifest; a selection whose expected
-/// cardinality no longer matches the definition publishes no rule, so no execution can start.
-#[test]
-fn symmem_manifest_rejects_wrong_cardinality() {
-    let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
-    let side = validator.compile_baseline().expect("fixture compiles");
-    let module = support::rule(validator.baseline(), "SYMMEM.write").module;
-    let classification =
-        RewriteRules::classify(&validator, &side, &module).expect("rewrite classification");
-    let selection = |selector: RuleSelector, expected_cardinality: usize| RuleSelection {
-        selector,
-        expected_cardinality,
-        emit_rule_applied: true,
-        domain_events: Vec::new(),
-    };
-    let label = |name: &str| RuleSelector::Label(name.to_owned());
-    let select = |selections: &[RuleSelection]| {
-        select_rules(validator.baseline(), Some(&classification), selections)
-    };
-    let observer = [
-        selection(label("SYMMEM.write"), 1),
-        selection(label("SYMMEM.load"), 1),
-        selection(label("SYMMEM.free"), 1),
-    ];
-    let rules = select(&observer).expect("the symmem observer selects its rules");
-    assert_eq!(rules.len(), 3);
-    validator
-        .observation_manifest(&side, &rules)
-        .expect("manifest installs");
-    // write, load, free, left and right are the five transitions.
-    assert_eq!(
-        select(&[selection(RuleSelector::AllTransitions, 5)]).map(|rules| rules.len()),
-        Ok(5)
-    );
-    let mismatch = |selection, expected, actual| SelectionFailure::CardinalityMismatch {
-        selection,
-        expected,
-        actual,
-    };
-    let rows = [
-        (
-            "all-transitions-expected-four",
-            vec![selection(RuleSelector::AllTransitions, 4)],
-            mismatch(0, 4, 5),
-        ),
-        (
-            "missing-label",
-            vec![
-                selection(label("SYMMEM.write"), 1),
-                selection(label("SYMMEM.store"), 1),
-            ],
-            mismatch(1, 1, 0),
-        ),
-        (
-            "label-expected-twice",
-            vec![selection(label("SYMMEM.load"), 2)],
-            mismatch(0, 2, 1),
-        ),
-    ];
-    for (id, selections, failure) in rows {
-        assert_eq!(select(&selections), Err(failure), "{id}");
-    }
-}
-
 /// Audit (SYM-3A-09): the solver-free `Sat` for witness assumptions needs the path predicate
 /// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
 /// `X = Y` is infeasible with the leaf predicate; k-rust keeps both equations in the leaf
@@ -1953,12 +1473,12 @@ fn vacuous_state() -> Pattern {
     }
 }
 
-/// The halt, feasibility and bridged stop of each leaf, in order.
+/// The halt, feasibility and state-slot bridged stop of each leaf, in backend order.
 fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, PathStop)> {
     run.execution
         .leaves()
         .iter()
-        .zip(&run.bridged.paths)
+        .zip(&run.report_bridged.paths)
         .map(|(leaf, path)| (leaf.halt, leaf.feasibility, path.stop))
         .collect()
 }
@@ -2024,7 +1544,7 @@ fn vacuous_initial_state_is_a_discarded_path() {
         backend_options: BACKEND_OPTIONS,
         result: ReportResult::Ok {
             execution: &run.execution,
-            bridged: &run.bridged,
+            bridged: &run.report_bridged,
             evaluation: &evaluation,
         },
     });
@@ -2073,14 +1593,28 @@ fn apart_undefined_step_is_complete_evidence() {
             ],
             "{id}"
         );
-        let undefined = &run.bridged.paths[0];
-        assert!(
-            undefined
-                .path_key
-                .as_deref()
-                .is_some_and(|key| key.ends_with("/undefined@0")),
+        let undefined = run
+            .bridged
+            .paths
+            .iter()
+            .find(|path| path.path_predicate == run.report_bridged.paths[0].path_predicate)
+            .expect("undefined leaf's canonical step path");
+        assert_eq!(undefined.path_key.as_deref(), Some("leaf:1"), "{id}");
+        assert_eq!(
+            undefined.stop,
+            by_profile(PathStop::SolverUnknown, PathStop::UndefinedStep),
             "{id}"
         );
+        if cfg!(feature = "z3") {
+            assert_eq!(
+                undefined
+                    .execution_terminal
+                    .as_ref()
+                    .expect("terminal")
+                    .kind,
+                ExecutionTerminalKind::UndefinedStep
+            );
+        }
         assert_eq!(undefined.events.len(), 2, "{id}");
         assert!(
             !matches!(undefined.path_predicate, Pattern::Top { .. }),
@@ -2111,7 +1645,7 @@ fn apart_undefined_step_is_complete_evidence() {
             backend_options: BACKEND_OPTIONS,
             result: ReportResult::Ok {
                 execution: &run.execution,
-                bridged: &run.bridged,
+                bridged: &run.report_bridged,
                 evaluation: &evaluation,
             },
         });
@@ -2173,7 +1707,7 @@ fn undefined_step_names_its_rule_in_the_report() {
             backend_options: BACKEND_OPTIONS,
             result: ReportResult::Ok {
                 execution: &run.execution,
-                bridged: &run.bridged,
+                bridged: &run.report_bridged,
                 evaluation: &evaluation,
             },
         });
@@ -2194,8 +1728,7 @@ fn undefined_step_names_its_rule_in_the_report() {
 }
 
 /// `window(I)` at the root: undefined for `I >Int 5` and `I >=Int 10`, `halt` for `5 < I < 10`,
-/// stuck for `I <=Int 5`. The undefined sub-case has no committed transition, so its key is
-/// `undefined@0`. With Z3 all three leaves are feasible and complete, so an absent pattern is
+/// stuck for `I <=Int 5`. The undefined sub-case has no committed transition, so its path receives a canonical leaf key. With Z3 all three leaves are feasible and complete, so an absent pattern is
 /// `no-match`; without Z3 the `requires` is undecided and the result is `unknown`.
 #[test]
 fn root_undefined_step_completes_an_absence() {
@@ -2230,10 +1763,22 @@ fn root_undefined_step_completes_an_absence() {
         )
     );
     if cfg!(feature = "z3") {
+        let undefined = run
+            .bridged
+            .paths
+            .iter()
+            .find(|path| path.path_predicate == run.report_bridged.paths[0].path_predicate)
+            .expect("undefined leaf's canonical step path");
+        assert_eq!(undefined.stop, PathStop::UndefinedStep);
         assert_eq!(
-            run.bridged.paths[0].path_key.as_deref(),
-            Some("undefined@0")
+            undefined
+                .execution_terminal
+                .as_ref()
+                .expect("terminal")
+                .kind,
+            ExecutionTerminalKind::UndefinedStep
         );
+        assert_eq!(undefined.path_key.as_deref(), Some("leaf:2"));
     }
     let evaluation = decided(&mut run, &gwl_after(&vocabulary));
     assert_eq!(
@@ -2383,7 +1928,7 @@ fn ensures_program() -> Pattern {
 type Status = (PatternOutcome, Option<PathStop>);
 
 /// One profile-table row: README 6.1, 6.2 and 6.3 programs with `(no_z3, z3)` columns for the
-/// bridged path stops (in path order), plain `evaluate`, and `evaluate_with(BackendRelations)`.
+/// bridged path stops (in path order), plain `evaluate`, and `evaluate_with` using shared baseline relations.
 struct ProfileRow {
     id: &'static str,
     fixture: Fixture,
@@ -2530,7 +2075,8 @@ fn profile_table_rows() {
             program: p9,
             plan: wl_after,
             budget: breadth,
-            stops: (&[BranchLimit, BranchLimit], &[BranchLimit, BranchLimit]),
+            // README 6.4 merges these exact duplicate bounded prefixes.
+            stops: (&[BranchLimit], &[BranchLimit]),
             structural: same((Unknown, Some(BranchLimit))),
             decided: same((Unknown, Some(BranchLimit))),
         },
@@ -2636,7 +2182,8 @@ fn profile_table_rows() {
             program: apart_program,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[SolverUnknown, SolverUnknown], &[UndefinedStep, Terminal]),
+            // README 6.4 breaks the equal-event trace tie by stop, Terminal first.
+            stops: (&[SolverUnknown, SolverUnknown], &[Terminal, UndefinedStep]),
             structural: same((Unknown, Some(SolverUnknown))),
             decided: ((Unknown, Some(SolverUnknown)), (Match, None)),
         },
@@ -2671,7 +2218,7 @@ fn profile_table_rows() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// `evaluate_with` over `run`'s paths, once with [`BackendRelations`] over the build's solver
+/// `evaluate_with` over `run`'s paths, once with shared [`BackendRelations`] over the build's solver
 /// (Z3 in the Z3 build) and once over `NoSolver` on the same definition: the unifier alone.
 fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [Evaluation; 2] {
     let evaluate = |relations: &BackendRelations<'_>| {
@@ -2694,8 +2241,18 @@ fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [E
     run.backend
         .with_solver(None, |definition, solver| {
             Ok::<_, k_rust::backend::BackendError>([
-                evaluate(&BackendRelations::new(definition, solver, &state)),
-                evaluate(&BackendRelations::new(definition, &NoSolver, &state)),
+                evaluate(&BackendRelations::shared(
+                    definition,
+                    solver,
+                    &state,
+                    run.existentials,
+                )),
+                evaluate(&BackendRelations::shared(
+                    definition,
+                    &NoSolver,
+                    &state,
+                    run.existentials,
+                )),
             ])
         })
         .expect("backend definition")
@@ -2939,7 +2496,8 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     let (always_sat, z3_answer) = run
         .backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::new(definition, &AlwaysSat, &state);
+            let relations =
+                BackendRelations::shared(definition, &AlwaysSat, &state, run.existentials);
             let evaluation = evaluate_with(
                 &run.context,
                 &plan,
@@ -3250,7 +2808,8 @@ fn let_bound_partial_condition_keeps_its_definedness() {
         .iter()
         .map(|path| path.events.len())
         .collect::<Vec<_>>();
-    assert_eq!(events, by_profile(vec![1], vec![2, 1]));
+    // README 6.4 orders the write-only remainder before the write/load trace.
+    assert_eq!(events, by_profile(vec![1], vec![1, 2]));
     if cfg!(feature = "z3") {
         let nonzero = Pattern::Not {
             sort: kore_sort("SortGeneratedTopCell"),
@@ -3261,7 +2820,7 @@ fn let_bound_partial_condition_keeps_its_definedness() {
                 right: Box::new(support::int(0)),
             }),
         };
-        assert_eq!(symbolic.bridged.paths[0].path_predicate, nonzero);
+        assert_eq!(symbolic.bridged.paths[1].path_predicate, nonzero);
     }
     let plan = gwl_after(&vocabulary);
     assert_both(

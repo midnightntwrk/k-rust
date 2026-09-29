@@ -6,7 +6,10 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{num::NonZeroUsize, time::Duration};
+#[path = "../../../testdata/k/step_support.rs"]
+mod step_support;
+
+use std::{cell::RefCell, num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::definition::AttributeKey;
@@ -14,11 +17,13 @@ use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
-use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
+use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_steps};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::observation::{DomainEventSpec, PayloadSource};
+use kink_native::feasibility::BackendRelations;
+use kink_native::observation::DomainEventSpec;
+use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
 use kink_native::{
     ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition, equivalent_compilation,
 };
@@ -26,7 +31,7 @@ use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventPresence,
     EventVocabulary, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
+    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate, evaluate_with,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -69,7 +74,7 @@ fn observed_rule_merged_with_unobserved_author_is_unknown() {
     let vocabulary = vocabulary(&[("rule:UNLABELLED:0", &[])]);
     let plan = single_atom(&vocabulary, "rule:UNLABELLED:0", None);
     let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
-    let baseline_run = run(
+    let baseline_run = legacy_run(
         &validator,
         &baseline,
         "UNLABELLED",
@@ -82,7 +87,7 @@ fn observed_rule_merged_with_unobserved_author_is_unknown() {
         outcome(&baseline_run, &plan).outcome,
         PatternOutcome::NoMatch
     );
-    let mutant_run = run(
+    let mutant_run = legacy_run(
         &validator,
         &mutant,
         "UNLABELLED",
@@ -131,7 +136,7 @@ fn two_equal_observed_rules_with_same_spec_attribute_normally() {
     });
     let vocabulary = vocabulary(&[("fired", &[])]);
     let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
-    let execution = run(
+    let execution = legacy_run(
         &validator,
         &side,
         "UNLABELLED",
@@ -351,9 +356,11 @@ struct Run {
     execution: AdaptedExecution,
     bridged: BridgedPaths,
     context: EvaluationContext,
+    baseline_backend: Option<RefCell<Backend>>,
+    initial_state: Pattern,
 }
 
-fn run(
+fn legacy_run(
     validator: &NativeValidator,
     side: &ValidatedDefinition,
     module: &str,
@@ -386,6 +393,8 @@ fn run(
     )
     .expect("execution bridges");
     Run {
+        baseline_backend: None,
+        initial_state: state.clone(),
         execution,
         bridged,
         context: EvaluationContext {
@@ -394,6 +403,84 @@ fn run(
             vocabulary: vocabulary.clone(),
             symbol_sorts: sorts,
         },
+    }
+}
+
+fn run(
+    validator: &NativeValidator,
+    side: &ValidatedDefinition,
+    module: &str,
+    specs: &[StepEventSpec],
+    vocabulary: &EventVocabulary,
+    state: &Pattern,
+    budget: ExecutionBudget,
+) -> Run {
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        module,
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let execution = ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+        .execute_steps(&mut backend, state, budget)
+        .expect("execution adapts")
+        .expect("step run");
+    let baseline = validator.compile_baseline().expect("baseline compiles");
+    let mut baseline_backend = Backend::new(
+        &baseline.artifacts().definition_kore,
+        module,
+        BackendOptions::default(),
+    )
+    .expect("baseline backend");
+    let observation = StepObservation::new(&mut baseline_backend, specs.to_vec())
+        .expect("step declarations validate");
+    assert_eq!(observation.vocabulary(), vocabulary);
+    let sorts = symbol_sorts(&baseline);
+    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    let bridged = baseline_backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, state, false);
+            Ok::<_, k_rust::backend::BackendError>(
+                paths_from_steps(
+                    &BridgeContext {
+                        test_id: "t",
+                        classify: &normal,
+                        sorts: &sorts,
+                    },
+                    &execution,
+                    &observation,
+                    &decider,
+                )
+                .expect("steps bridge"),
+            )
+        })
+        .expect("baseline decider");
+    Run {
+        execution: execution.adapted,
+        bridged,
+        context: EvaluationContext {
+            test_id: "t".to_owned(),
+            bounds: budget.bounds(),
+            vocabulary: vocabulary.clone(),
+            symbol_sorts: sorts,
+        },
+        baseline_backend: Some(RefCell::new(baseline_backend)),
+        initial_state: state.clone(),
+    }
+}
+
+/// Declares a whole transition over the ND fixture's configurations.
+fn nd_event(constructor: &str, pre: &str, post: &str) -> StepEventSpec {
+    StepEventSpec {
+        constructor: constructor.into(),
+        pre: support::k_config(support::app(pre, vec![]), "SortS", "R", "C"),
+        post: Some(support::k_config(
+            support::app(post, vec![]),
+            "SortS",
+            "R",
+            "C2",
+        )),
+        payload: Vec::new(),
     }
 }
 
@@ -442,6 +529,31 @@ fn single_atom(
 }
 
 fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
+    if let Some(backend) = &run.baseline_backend {
+        return backend
+            .borrow_mut()
+            .with_solver(None, |definition, solver| {
+                let relations =
+                    BackendRelations::shared(definition, solver, &run.initial_state, false);
+                Ok::<_, k_rust::backend::BackendError>(
+                    evaluate_with(
+                        &run.context,
+                        plan,
+                        &run.bridged.paths,
+                        &run.bridged.collection,
+                        None,
+                        EvaluationOptions {
+                            stable_path_keys: true,
+                            search_policy: SearchPolicy::Exhaustive,
+                            input_error: false,
+                        },
+                        &relations,
+                    )
+                    .expect("evaluation"),
+                )
+            })
+            .expect("baseline relations");
+    }
     evaluate(
         &run.context,
         plan,
@@ -461,13 +573,13 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
 fn deterministic_runs_are_complete_under_path_set() {
     let validator = counter_validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
-    let rules = [rule_applied("COUNTER.increment")];
-    let vocabulary = vocabulary(&[("rule:COUNTER.increment", &[])]);
+    let specs = vec![step_support::counter(true).remove(0)];
+    let vocabulary = vocabulary(&[("increment", &[])]);
     let run = run(
         &validator,
         &baseline,
         "COUNTER",
-        &rules,
+        &specs,
         &vocabulary,
         &t1(),
         BUDGET,
@@ -492,20 +604,17 @@ fn deterministic_runs_are_complete_under_path_set() {
             "SortCounter",
         )
     );
-    let result = outcome(
-        &run,
-        &single_atom(&vocabulary, "rule:COUNTER.increment", None),
-    );
+    let result = outcome(&run, &single_atom(&vocabulary, "increment", None));
     assert_eq!(result.outcome, PatternOutcome::Match);
     assert!(result.complete_coverage);
     assert_eq!(result.witnesses.len(), 3);
 }
 
 /// Finding 7 of the migration design: the mutant whose `branch` never applies still ends in
-/// `selected(true)`, through `fallback`, so only the observed trace tells it apart. Each side
-/// resolves `COUNTER.branch` to its own `UNIQUE_ID`.
+/// `selected(true)`, through `fallback`. Both executions have the same trace. Each side
+/// emits the same whole-transition event because fallback performs the same step.
 #[test]
-fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() {
+fn observed_counter_and_fallback_mutant_match_the_same_transition() {
     let validator = counter_validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
     let at = TermRef::new(support::rule(validator.baseline(), "COUNTER.branch"), [1]);
@@ -529,19 +638,12 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
             position(&validator, "COUNTER.branch").1
         )
     );
-    let rules = [ObservedRule {
-        rule: support::rule(validator.baseline(), "COUNTER.branch"),
-        emit_rule_applied: false,
-        domain_events: vec![DomainEventSpec {
-            constructor: "branchTaken".to_owned(),
-            payload: Vec::new(),
-        }],
-    }];
+    let specs = vec![step_support::counter(true).remove(1)];
     let vocabulary = vocabulary(&[("branchTaken", &[])]);
     let plan = single_atom(&vocabulary, "branchTaken", None);
     let sides = [
         (&baseline, PatternOutcome::Match),
-        (&mutant, PatternOutcome::NoMatch),
+        (&mutant, PatternOutcome::Match),
     ];
     let mut finals = Vec::new();
     for (side, expected) in sides {
@@ -549,7 +651,7 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
             &validator,
             side,
             "COUNTER",
-            &rules,
+            &specs,
             &vocabulary,
             &t2(),
             BUDGET,
@@ -570,20 +672,17 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
 fn domain_payloads_decode_through_kore_json() {
     let validator = counter_validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
-    let rules = [ObservedRule {
-        rule: support::rule(validator.baseline(), "COUNTER.increment"),
-        emit_rule_applied: false,
-        domain_events: vec![DomainEventSpec {
-            constructor: "incremented".to_owned(),
-            payload: vec![PayloadSource::AfterState],
-        }],
-    }];
+    let mut increment = step_support::counter(true).remove(0);
+    increment.constructor = "incremented".into();
+    increment.post = Some(support::var("After", "SortGeneratedTopCell"));
+    increment.payload = vec!["After".into()];
+    let specs = vec![increment];
     let vocabulary = vocabulary(&[("incremented", &["SortGeneratedTopCell"])]);
     let run = run(
         &validator,
         &baseline,
         "COUNTER",
-        &rules,
+        &specs,
         &vocabulary,
         &t1(),
         BUDGET,
@@ -615,19 +714,15 @@ fn converging_branches_reach_pattern_no_match_with_both_events() {
         kore_application("Lblstart", Vec::new(), Vec::new()),
         "SortS",
     );
-    let vocabulary = vocabulary(&[
-        ("rule:ND.left", &[]),
-        ("rule:ND.right", &[]),
-        ("rule:ND.spin", &[]),
-    ]);
+    let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("spin", &[])]);
     let run = run(
         &validator,
         &baseline,
         "ND",
         &[
-            rule_applied("ND.left"),
-            rule_applied("ND.right"),
-            rule_applied("ND.spin"),
+            nd_event("left", "Lblstart", "Lblmid1"),
+            nd_event("right", "Lblstart", "Lblmid2"),
+            nd_event("spin", "Lblspin", "Lblspin"),
         ],
         &vocabulary,
         &start,
@@ -645,8 +740,8 @@ fn converging_branches_reach_pattern_no_match_with_both_events() {
             path.events[0].constructor.as_str()
         })
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(observed, ["rule:ND.left", "rule:ND.right"].into());
-    let result = outcome(&run, &single_atom(&vocabulary, "rule:ND.spin", None));
+    assert_eq!(observed, ["left", "right"].into());
+    let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
     assert_eq!(result.outcome, PatternOutcome::NoMatch);
     assert!(result.complete_coverage);
 }
@@ -659,19 +754,15 @@ fn depth_bound_ground_absence_is_unknown() {
         kore_application("Lblstart", Vec::new(), Vec::new()),
         "SortS",
     );
-    let vocabulary = vocabulary(&[
-        ("rule:ND.left", &[]),
-        ("rule:ND.right", &[]),
-        ("rule:ND.l2", &[]),
-    ]);
+    let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("l2", &[])]);
     let run = run(
         &validator,
         &baseline,
         "ND",
         &[
-            rule_applied("ND.left"),
-            rule_applied("ND.right"),
-            rule_applied("ND.l2"),
+            nd_event("left", "Lblstart", "Lblmid1"),
+            nd_event("right", "Lblstart", "Lblmid2"),
+            nd_event("l2", "Lblmid1", "Lbldone"),
         ],
         &vocabulary,
         &start,
@@ -694,14 +785,14 @@ fn depth_bound_ground_absence_is_unknown() {
             .all(|path| path.stop == PathStop::DepthLimit)
     );
     assert_eq!(run.bridged.collection.stop, CollectionStop::DepthLimit);
-    let left = outcome(&run, &single_atom(&vocabulary, "rule:ND.left", None));
+    let left = outcome(&run, &single_atom(&vocabulary, "left", None));
     assert_eq!(left.outcome, PatternOutcome::Match);
     assert!(
         left.witnesses
             .iter()
             .any(|witness| witness.stop_reason == PathStop::DepthLimit)
     );
-    let l2 = outcome(&run, &single_atom(&vocabulary, "rule:ND.l2", None));
+    let l2 = outcome(&run, &single_atom(&vocabulary, "l2", None));
     assert_eq!(l2.outcome, PatternOutcome::Unknown);
     assert_eq!(l2.failure, Some(PathStop::DepthLimit));
 }
@@ -714,19 +805,15 @@ fn breadth_bound_ground_absence_is_unknown() {
         kore_application("Lblstart", Vec::new(), Vec::new()),
         "SortS",
     );
-    let vocabulary = vocabulary(&[
-        ("rule:ND.left", &[]),
-        ("rule:ND.right", &[]),
-        ("rule:ND.l2", &[]),
-    ]);
+    let vocabulary = vocabulary(&[("left", &[]), ("right", &[]), ("l2", &[])]);
     let run = run(
         &validator,
         &baseline,
         "ND",
         &[
-            rule_applied("ND.left"),
-            rule_applied("ND.right"),
-            rule_applied("ND.l2"),
+            nd_event("left", "Lblstart", "Lblmid1"),
+            nd_event("right", "Lblstart", "Lblmid2"),
+            nd_event("l2", "Lblmid1", "Lbldone"),
         ],
         &vocabulary,
         &start,
@@ -743,7 +830,7 @@ fn breadth_bound_ground_absence_is_unknown() {
             .all(|leaf| leaf.halt == HaltClass::BreadthBound)
     );
     assert_eq!(run.bridged.collection.stop, CollectionStop::BranchLimit);
-    let l2 = outcome(&run, &single_atom(&vocabulary, "rule:ND.l2", None));
+    let l2 = outcome(&run, &single_atom(&vocabulary, "l2", None));
     assert_eq!(l2.outcome, PatternOutcome::Unknown);
     assert_eq!(l2.failure, Some(PathStop::BranchLimit));
 }
@@ -755,12 +842,12 @@ fn nonterminating_execution_is_timeout() {
     let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
     let baseline = validator.compile_baseline().expect("nd.k compiles");
     let spin = support::initial_state(kore_application("Lblspin", Vec::new(), Vec::new()), "SortS");
-    let vocabulary = vocabulary(&[("rule:ND.spin", &[])]);
+    let vocabulary = vocabulary(&[("spin", &[])]);
     let run = run(
         &validator,
         &baseline,
         "ND",
-        &[],
+        &[nd_event("spin", "Lblspin", "Lblspin")],
         &vocabulary,
         &spin,
         ExecutionBudget {
@@ -777,7 +864,7 @@ fn nonterminating_execution_is_timeout() {
     );
     assert!(run.bridged.paths.is_empty());
     assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
-    let result = outcome(&run, &single_atom(&vocabulary, "rule:ND.spin", None));
+    let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
     assert_eq!(result.outcome, PatternOutcome::Unknown);
 }
 
@@ -870,13 +957,25 @@ fn undecided_live_occurrences_are_no_witness() {
         ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, HaltClass::Stuck, PathStop::BackendLimit),
     ];
     for (id, side, label, state, budget, halt, stop) in rows {
-        let constructor = format!("rule:{label}");
+        let constructor = label.rsplit('.').next().expect("label").to_owned();
+        let symbol = match id {
+            "carried-ensures" => "LblcarryAlways",
+            "vacuous-successor" => "Lblvacuous",
+            "diagnosed-run" => "Lbldraining",
+            _ => unreachable!(),
+        };
+        let specs = [StepEventSpec {
+            constructor: constructor.clone(),
+            pre: support::k_config(program(symbol), "SortS", "R", "C"),
+            post: None,
+            payload: Vec::new(),
+        }];
         let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
         let run = run(
             &validator,
             side,
             "UNDECIDED",
-            &[rule_applied(label)],
+            &specs,
             &vocabulary,
             &state,
             budget,
@@ -930,7 +1029,7 @@ fn undecided_live_occurrences_are_no_witness() {
                 .map(|event| event.constructor.as_str())
                 .collect::<Vec<_>>(),
             [constructor.as_str()],
-            "{id}: the rule applied"
+            "{id}: a step left the declared pre-state"
         );
         assert!(!path.complete, "{id}");
         assert_eq!(path.stop, stop, "{id}");
