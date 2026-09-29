@@ -47,7 +47,7 @@ use crate::{
     smt::SmtSolver,
     substitution::{Substitution, compose, substitute},
     term::{
-        Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker},
     },
     unification::{UnificationFailure, UnificationResult, unify_term_pairs},
@@ -1246,7 +1246,7 @@ pub(super) fn recover_overload_symbolic_match(
         .filter_map(|name| definition.symbols.get(&name).cloned())
         .filter(|symbol| {
             symbol.sort_variables.is_empty()
-                && symbol.attributes.symbol_type == SymbolType::Constructor
+                && symbol.attributes.head_role() == HeadRole::FreeConstructor
                 && definition
                     .sort_graph
                     .check_subsort(&symbol.result_sort, &configuration_variable.sort)

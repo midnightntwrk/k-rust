@@ -14,8 +14,8 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use proptest::prelude::*;
 
 use crate::term::{
-    CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolType,
-    Term, Variable,
+    CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name, Sort, Symbol,
+    SymbolAttributes, SymbolType, Term, Variable,
 };
 
 fn sort() -> impl Strategy<Value = Sort> {
@@ -55,11 +55,12 @@ fn symbol() -> impl Strategy<Value = Arc<Symbol>> {
                 (anywhere, declared_function, injective, other),
             )| {
                 let mut symbol = Symbol::constructor(name, Vec::new(), Sort::simple("SortKItem"));
+                symbol.attributes = SymbolAttributes::constructor()
+                    .with_anywhere(anywhere)
+                    .with_declared_function(declared_function)
+                    .with_injective(injective);
                 symbol.attributes.symbol_type = symbol_type;
                 symbol.attributes.macro_or_alias = macro_or_alias;
-                symbol.attributes.anywhere = anywhere;
-                symbol.attributes.declared_function = declared_function;
-                symbol.attributes.injective = injective;
                 if other {
                     symbol.sort_variables = vec!["S".into()];
                     symbol.attributes.hook = Some("INT.add".into());

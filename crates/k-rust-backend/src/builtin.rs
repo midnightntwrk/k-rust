@@ -25,7 +25,7 @@ use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     term::{
-        Sort, SymbolType, Term, TermKind,
+        HeadRole, Sort, Term, TermKind,
         names::{HookName, HookNamespace},
     },
     timeout::interruption_requested,
@@ -1040,8 +1040,10 @@ pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<()
     }
 }
 
+/// Whether `symbol` is a free constructor, whose applications with different roots or
+/// different arguments denote different values.
 fn is_constructor(symbol: &crate::term::Symbol) -> bool {
-    symbol.attributes.symbol_type == SymbolType::Constructor
+    symbol.attributes.head_role() == HeadRole::FreeConstructor
 }
 
 fn is_rigid_non_application(kind: &TermKind) -> bool {
@@ -1063,7 +1065,7 @@ mod tests {
     use crate::{
         term::{
             CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Symbol,
-            SymbolAttributes, Variable,
+            SymbolAttributes, SymbolType, Variable,
         },
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
@@ -1076,19 +1078,12 @@ mod tests {
                 sort_variables: Vec::new(),
                 argument_sorts,
                 result_sort,
-                attributes: SymbolAttributes {
-                    symbol_type: SymbolType::Function(FunctionType::Total),
-                    anywhere: false,
-                    declared_function: true,
-                    binder: false,
-                    injective: false,
-                    associative: false,
-                    idempotent: false,
-                    macro_or_alias: false,
-                    has_evaluators: true,
-                    smt: None,
-                    hook: Some(hook.into()),
-                    collection: None,
+                attributes: {
+                    let mut attributes =
+                        SymbolAttributes::constructor().with_declared_function(true);
+                    attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+                    attributes.hook = Some(hook.into());
+                    attributes
                 },
             }),
             Vec::new(),

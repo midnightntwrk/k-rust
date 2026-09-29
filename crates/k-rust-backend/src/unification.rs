@@ -42,7 +42,7 @@ use crate::{
     matching::{InjectionEquality, match_injection_equality, occurs_below_only_constructors},
     rule::Predicate,
     substitution::{Substitution, compose, substitute},
-    term::{Symbol, SymbolType, Term, TermKind, Variable},
+    term::{HeadRole, Symbol, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,8 +234,8 @@ impl Unifier<'_> {
                     symbol: right_symbol,
                     ..
                 },
-            ) if left_symbol.attributes.symbol_type == SymbolType::Constructor
-                && right_symbol.attributes.symbol_type == SymbolType::Constructor =>
+            ) if left_symbol.attributes.head_role() == HeadRole::FreeConstructor
+                && right_symbol.attributes.head_role() == HeadRole::FreeConstructor =>
             {
                 Err(UnificationFailure::DifferentSymbols(left, right))
             }
@@ -271,23 +271,26 @@ impl Unifier<'_> {
 
     /// Whether an equal-name application pair may be replaced by its argument pairs.
     ///
-    /// A constructor is free, so equal applications have equal arguments. A non-constructor
-    /// symbol declared injective has the same property unless it carries `anywhere`: an
-    /// `anywhere` symbol's equations may identify applications with different arguments, so its
+    /// A free constructor's equal applications have equal arguments. A function declared
+    /// injective has the same property (its role keeps `injective` only without `anywhere`). An
+    /// equation head's equations may identify applications with different arguments, so its
     /// applications are compared by argument only when both are normal forms on every instance
     /// (`BackendDefinition::instance_normal`), where distinct arguments give distinct normal
-    /// forms and hence distinct values. Any other equal-name pair stays an equation.
+    /// forms and hence distinct values. Any other equal-name pair stays an equation, among them
+    /// the applications of a macro or alias, whose values the definition does not describe.
     fn decomposable(&self, symbol: &Symbol, left: &Term, right: &Term) -> bool {
-        if symbol.attributes.symbol_type == SymbolType::Constructor {
-            return true;
+        match symbol.attributes.head_role() {
+            HeadRole::FreeConstructor => true,
+            // Not `instance_normal_of_normal_form`: `run` substitutes the growing substitution
+            // into every popped pair (see `Unifier::run`), so even a caller's normalized input
+            // becomes a term no normalization has seen (`wrap(X)` with `X := s(z)` is the redex
+            // `wrap(s(z))`).
+            HeadRole::EquationHead => {
+                self.definition.instance_normal(left) && self.definition.instance_normal(right)
+            }
+            HeadRole::Function { injective, .. } => injective,
+            HeadRole::Residual => false,
         }
-        // Not `instance_normal_of_normal_form`: `run` substitutes the growing substitution into
-        // every popped pair (see `Unifier::run`), so even a caller's normalized input becomes a
-        // term no normalization has seen (`wrap(X)` with `X := s(z)` is the redex `wrap(s(z))`).
-        if symbol.attributes.anywhere {
-            return self.definition.instance_normal(left) && self.definition.instance_normal(right);
-        }
-        symbol.attributes.injective
     }
 
     fn bind(&mut self, variable: Variable, term: Term) -> Result<(), UnificationFailure> {
@@ -320,7 +323,7 @@ fn rigid(kind: &TermKind) -> bool {
     match kind {
         TermKind::DomainValue { .. } | TermKind::Injection { .. } => true,
         TermKind::Application { symbol, .. } => {
-            symbol.attributes.symbol_type == SymbolType::Constructor
+            symbol.attributes.head_role() == HeadRole::FreeConstructor
         }
         TermKind::And(..)
         | TermKind::Variable(_)
@@ -346,7 +349,7 @@ mod tests {
 
     use k_rust_kore::kore::parser::parse_definition;
 
-    use crate::term::{FunctionType, Sort, Symbol};
+    use crate::term::{FunctionType, Sort, Symbol, SymbolType};
 
     use super::*;
 
@@ -513,8 +516,13 @@ mod tests {
             symbol.attributes.symbol_type,
             SymbolType::Function(_)
         ));
-        assert!(symbol.attributes.injective);
-        assert!(!symbol.attributes.anywhere);
+        assert_eq!(
+            symbol.attributes.head_role(),
+            HeadRole::Function {
+                declared: true,
+                injective: true
+            }
+        );
 
         let UnificationResult::Unified(result) =
             unify_term_pairs(&definition, Substitution::new(), [(left, right)])
@@ -819,5 +827,69 @@ mod tests {
             unify_term_pairs(&definition(), Substitution::new(), [(left, right)]),
             UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
         ));
+    }
+
+    /// `tag` is declared `constructor` and `anywhere`, `label` `constructor` and `macro`. An
+    /// equation makes `tag(s(z))` equal `tag(z)` (a simplification, since an equation headed by
+    /// a symbol declared constructor is otherwise rejected), and a macro application denotes a
+    /// value the definition does not describe; neither symbol is free.
+    fn unfree_constructor_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                sort SortAddress{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol tag{}(SortNat{}) : SortAddress{}
+                    [constructor{}(), anywhere{}(), functional{}(), injective{}()]
+                symbol label{}(SortNat{}) : SortAddress{}
+                    [constructor{}(), functional{}(), injective{}(), macro{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+                    ),
+                    \equals{SortAddress{}, R}(
+                        tag{}(X0:SortNat{}),
+                        \and{SortAddress{}}(tag{}(z{}()), \top{SortAddress{}}())
+                    )
+                ) [label{}("collapse"), anywhere{}(), simplification{}()]
+            endmodule []"#,
+        )
+        .expect("unfree constructor definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    fn unify_unfree(left: &str, right: &str) -> UnificationResult {
+        let definition = unfree_constructor_definition();
+        let left = anywhere_term(&definition, left);
+        let right = anywhere_term(&definition, right);
+        unify_term_pairs(&definition, Substitution::new(), [(left, right)])
+    }
+
+    /// B1: a `constructor` symbol that also carries `anywhere` is an equation head, so
+    /// `tag(s(z)) = tag(z)`, which its equation makes true, stays an equation instead of being
+    /// decomposed into the clash `s(z) = z`.
+    #[test]
+    fn keeps_an_anywhere_constructor_pair_an_equation() {
+        let result = unify_unfree("tag{}(s{}(z{}()))", "tag{}(z{}())");
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("tag(s(z)) equals tag(z) by the anywhere equation: {result:?}");
+        };
+        assert!(unified.substitution.is_empty(), "{result:?}");
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
+    }
+
+    /// B2: a constructor-typed macro is residual, so `label(s(z)) = label(z)` stays an equation
+    /// instead of being decomposed into the clash `s(z) = z`.
+    #[test]
+    fn keeps_a_constructor_macro_pair_an_equation() {
+        let result = unify_unfree("label{}(s{}(z{}()))", "label{}(z{}())");
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("label is not free, so its applications are not refuted: {result:?}");
+        };
+        assert!(unified.substitution.is_empty(), "{result:?}");
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
     }
 }

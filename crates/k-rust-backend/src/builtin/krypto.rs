@@ -18,7 +18,7 @@ use super::{
     expect_arity, read_int,
 };
 use crate::definition::BackendDefinition;
-use crate::term::{Name, Sort, Symbol, SymbolType, Term, TermKind};
+use crate::term::{HeadRole, Name, Sort, Symbol, Term, TermKind};
 
 pub(super) fn evaluate(
     hook: &str,
@@ -80,7 +80,7 @@ const G2_POINT: PointSignature = PointSignature {
 
 impl PointSignature {
     fn matches(self, symbol: &Symbol) -> bool {
-        symbol.attributes.symbol_type == SymbolType::Constructor
+        symbol.attributes.head_role() == HeadRole::FreeConstructor
             && symbol.sort_variables.is_empty()
             && matches!(&symbol.result_sort, Sort::Application { name, arguments }
                 if arguments.is_empty() && name.as_ref() == self.sort)
@@ -178,8 +178,13 @@ fn point_coordinates<'a, const N: usize>(
         TermKind::Variable(_) | TermKind::And(..) => return Reading::Opaque,
         _ => return Reading::NotAPoint,
     };
-    if let SymbolType::Function(_) = symbol.attributes.symbol_type {
-        return Reading::Opaque;
+    // Only a free constructor's application is read as written; any other root may denote a
+    // point, or not, by equations or evaluation the reader does not run.
+    match symbol.attributes.head_role() {
+        HeadRole::FreeConstructor => {}
+        HeadRole::EquationHead | HeadRole::Function { .. } | HeadRole::Residual => {
+            return Reading::Opaque;
+        }
     }
     match constructor {
         PointConstructor::Identified(name) if symbol.name == *name => {}
@@ -584,7 +589,7 @@ mod tests {
     use super::*;
     use crate::{
         cancellation::CancellationToken,
-        term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, Variable},
+        term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, SymbolType, Variable},
     };
 
     /// Evaluates in a definition whose point constructors are `Lblg1Point`/`Lblg2Point`, the

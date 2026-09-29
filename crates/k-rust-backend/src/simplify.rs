@@ -72,7 +72,7 @@ use crate::{
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     stop::stack_exhausted,
     substitution::{Substitution, compose, substitute, substitution_binding},
-    term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
+    term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
     timeout::interruption_requested,
     transition::ExecutionEvaluationContext,
 };
@@ -3321,7 +3321,8 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
         && arguments
             .iter()
             .all(|argument| argument.attributes().evaluated)
-        && (symbol.attributes.anywhere || definition.overloads.is_overloaded(&symbol.name))
+        && (symbol.attributes.head_role() == HeadRole::EquationHead
+            || definition.overloads.is_overloaded(&symbol.name))
         && definition.equation_selection_complete().is_some()
 }
 
@@ -4347,5 +4348,45 @@ mod tests {
             ),
             only_x
         );
+    }
+
+    /// B5: the fixed-point cache keeps equation heads and overloaded heads. An `anywhere`
+    /// symbol that is a declared function is a function, evaluated on each simplification, so a
+    /// closed application whose equation does not apply is returned unchanged and unmarked.
+    #[test]
+    fn anywhere_declared_function_is_not_cached_as_a_normal_form() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol cached{}(SortBool{}) : SortS{}
+                    [anywhere{}(), function{}(), total{}(), no-evaluators{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortBool{}, R}(B:SortBool{}, \dv{SortBool{}}("true")),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortS{}, R}(
+                        cached{}(B:SortBool{}),
+                        \and{SortS{}}(\dv{SortS{}}("result"), \top{SortS{}}())
+                    )
+                ) [label{}("cached-true"), anywhere{}()]
+            endmodule []"#,
+        )
+        .expect("anywhere function definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("anywhere function definition should internalize");
+        let input = term(&definition, r#"cached{}(\dv{SortBool{}}("false"))"#);
+
+        let result = simplify(&definition, &input, SimplificationOptions::default())
+            .expect("the incompatible equation should reach a fixed point");
+
+        assert_eq!(result.term, input);
+        assert!(result.applied_rules.is_empty());
+        assert!(!result.term.attributes().evaluated);
     }
 }

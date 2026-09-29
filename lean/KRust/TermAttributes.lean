@@ -98,6 +98,29 @@ def Sym.isKCell (s : Sym) : Bool := s.name == kCellName
 
 def Sym.isPartial (s : Sym) : Bool := s.symbolType == .function .Partial
 
+/-- `HeadRole` (term.rs): what a symbol's declaration makes of the value of its applications. -/
+inductive HeadRole where
+  | freeConstructor
+  | equationHead
+  | function (declared injective : Bool)
+  | residual
+deriving DecidableEq, Repr
+
+/-- `SymbolAttributes::head_role` (term.rs): a macro or alias is residual; otherwise an `anywhere`
+symbol that is not a declared function is an equation head, whatever its `constructor` attribute;
+otherwise a constructor is free; otherwise it is a function, whose `injective` counts only without
+`anywhere`. -/
+def Sym.headRole (s : Sym) : HeadRole :=
+  if s.macroOrAlias then .residual
+  else if s.anywhere && !s.declaredFunction then .equationHead
+  else match s.symbolType with
+    | .constructor => .freeConstructor
+    | .function _  => .function s.declaredFunction (s.injective && !s.anywhere)
+
+/-- `head_role() == HeadRole::FreeConstructor`: applications with different roots or different
+arguments denote different values. -/
+def Sym.isFree (s : Sym) : Bool := s.headRole == .freeConstructor
+
 /-- `VariableKind` (term.rs:77-80). -/
 inductive VarKind where
   | element
@@ -237,9 +260,10 @@ end
 /- `structurally_distinct_with` (term.rs), complete; `structurally_distinct_after_normalization`
 is the instance whose `injd` is constantly false. `ev` is the stored `evaluated` attribute, which
 the model does not compute from the kind: `with_evaluated_cache` sets it on an anywhere
-application only when the simplifier found every equation inapplicable, so an anywhere
-application decides only when `ev` certifies it as a normal form (term.rs
-`certified_normal_application`); a constructor application always decides. `injd` is the answer
+application only when the simplifier found every equation inapplicable, so an application that
+`concrete` admits and whose symbol is not free (an equation head, a macro or alias, or a
+constructor that also carries `anywhere`) decides only when `ev` certifies it as a normal form
+(term.rs `certified_normal_application`); a free-constructor application always decides. `injd` is the answer
 for two injections with different sources or targets, opened in Rust by the `injections`
 callback (definedness.rs `ground_terms_structurally_distinct`: the sort graph's
 `InjectionEquality`, with the recursive comparison of a split pair); the model keeps it opaque. -/
@@ -249,14 +273,13 @@ def structDistinct (ev : Term → Bool) (injd : Term → Term → Bool) (a b : T
   match a, b with
   | .dv s v, .dv s' v' => s != s' || v != v'
   | .app f fs as, .app g gs bs =>
-      if !((f.symbolType == .constructor || ev (.app f fs as))
-          && (g.symbolType == .constructor || ev (.app g gs bs))) then false
+      if !((f.isFree || ev (.app f fs as)) && (g.isFree || ev (.app g gs bs))) then false
       else if f.name != g.name || fs != gs then true
       else structDistinctZip ev injd as bs
   | .inj s t x, .inj s' t' y =>
       if s == s' && t == t' then structDistinct ev injd x y else injd (.inj s t x) (.inj s' t' y)
-  | .app f fs as, .inj _ _ _ => f.symbolType == .constructor || ev (.app f fs as)
-  | .inj _ _ _, .app g gs bs => g.symbolType == .constructor || ev (.app g gs bs)
+  | .app f fs as, .inj _ _ _ => f.isFree || ev (.app f fs as)
+  | .inj _ _ _, .app g gs bs => g.isFree || ev (.app g gs bs)
   | _, _ => false
 /-- `left_arguments.iter().zip(right_arguments).any(…)`. -/
 def structDistinctZip (ev : Term → Bool) (injd : Term → Term → Bool) :

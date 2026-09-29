@@ -92,7 +92,7 @@ fn symbol(index: u8) -> Arc<Symbol> {
     match index % SYMBOLS {
         2 => symbol.attributes.macro_or_alias = true,
         3 => symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Partial),
-        4 => symbol.attributes.injective = true,
+        4 => symbol.attributes = symbol.attributes.clone().with_injective(true),
         _ => {}
     }
     Arc::new(symbol)

@@ -12,6 +12,16 @@ def ctor (n : String) : Sym :=
 def kcell : Sym := ctor kCellName
 def mac : Sym := { ctor "macro" with macroOrAlias := true }
 def wrap : Sym := { ctor "wrap" with symbolType := .function .Total, anywhere := true, injective := true }
+def anywhereCtor : Sym := { ctor "tag" with anywhere := true }
+
+-- One role per declaration: `anywhere` outranks `constructor`, a macro outranks both, and
+-- `injective` counts only for a function without `anywhere`.
+#guard (ctor "c").headRole == .freeConstructor
+#guard wrap.headRole == .equationHead
+#guard anywhereCtor.headRole == .equationHead
+#guard mac.headRole == .residual
+#guard { wrap with declaredFunction := true }.headRole == .function true false
+#guard { wrap with declaredFunction := true, anywhere := false }.headRole == .function true true
 
 -- Distinct domain values are structurally distinct; equal ones are not (the `self == other` guard).
 #guard structDistinct (fun _ => false) (fun _ _ => false) (int "1") (int "2")
@@ -30,6 +40,13 @@ def wrap : Sym := { ctor "wrap" with symbolType := .function .Total, anywhere :=
   (.app (ctor "d") [] [.app wrap [] [.app (ctor "z") [] []]])
 #guard !structDistinct (fun _ => false) (fun _ _ => false) (.app (ctor "c") [] [.app (ctor "z") [] []])
   (.app wrap [] [.app (ctor "z") [] []])
+-- A constructor that also carries `anywhere`, or a macro, is not free: it decides only when
+-- certified, like any other equation head.
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (.app anywhereCtor [] [.app (ctor "s") [] [.app (ctor "z") [] []]])
+  (.app anywhereCtor [] [.app (ctor "z") [] []])
+#guard structDistinct (fun _ => true) (fun _ _ => false) (.app anywhereCtor [] [.app (ctor "s") [] [.app (ctor "z") [] []]])
+  (.app anywhereCtor [] [.app (ctor "z") [] []])
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (.app mac [] []) (.app (ctor "c") [] [])
 -- A constructor application is not the value of an injection; an uncertified anywhere one may be.
 #guard structDistinct (fun _ => false) (fun _ _ => false) (.app (ctor "c") [] [])
   (injK "SortInt" (int "1"))

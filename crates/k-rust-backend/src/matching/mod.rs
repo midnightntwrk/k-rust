@@ -72,7 +72,9 @@ use crate::{
     definition::BackendDefinition,
     instance_normal::{certified_normal_form, is_anywhere_application},
     substitution::{Substitution, substitute},
-    term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
+    term::{
+        HeadRole, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -275,7 +277,7 @@ fn has_constructor_like_top(term: &Term) -> bool {
         || matches!(
             term.kind(),
             TermKind::Application { symbol, .. }
-                if symbol.attributes.symbol_type == SymbolType::Constructor
+                if symbol.attributes.head_role() == HeadRole::FreeConstructor
         )
         || matches!(
             term.kind(),
@@ -495,7 +497,7 @@ impl<'a> Matcher<'a> {
     }
 
     /// Whether the head of the subject term `subject` is the head of every value it denotes.
-    /// That holds for every term but an `anywhere` application that is not a declared function;
+    /// That holds for every term but an equation-head application ([`HeadRole::EquationHead`]);
     /// such an application qualifies when its head is given ([`Self::given_heads`]), when the
     /// simplifier certified it as a normal form ([`certified_normal_form`]), or when it is
     /// instance-normal, so that no equation can rewrite any of its instances.
@@ -528,8 +530,10 @@ impl<'a> Matcher<'a> {
         match subject.kind() {
             TermKind::Application {
                 symbol, arguments, ..
-            } if symbol.attributes.symbol_type == SymbolType::Constructor
-                || is_anywhere_application(subject) =>
+            } if matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::EquationHead
+            ) =>
             {
                 for argument in arguments {
                     self.instance_normal.insert(argument.clone(), true);
@@ -658,10 +662,18 @@ impl<'a> Matcher<'a> {
                 || (self.mode == MatchMode::Rewrite
                     && is_rewrite_rigid(pattern.kind())
                     && is_rewrite_rigid(subject.kind()))
-                // An equal `anywhere` head is compared by arguments in every mode without asking
+                // An equal equation head is compared by arguments in every mode without asking
                 // for `injective`: the subject's head is fixed (checked above), so its arguments
                 // are those of the normal form it denotes, and the pattern is read as written.
-                || ((pattern_symbol.attributes.injective || is_anywhere_application(&pattern))
+                // A declared `injective` counts only for a function without `anywhere`, whose
+                // equations could otherwise identify applications with different arguments.
+                || ((matches!(
+                    pattern_symbol.attributes.head_role(),
+                    HeadRole::Function {
+                        injective: true,
+                        ..
+                    }
+                ) || is_anywhere_application(&pattern))
                     && pattern_symbol.name == subject_symbol.name)
                 || (self.mode == MatchMode::Evaluate
                     && is_function(&pattern)
@@ -774,6 +786,23 @@ impl<'a> Matcher<'a> {
             }
             (left, TermKind::Injection { .. })
                 if self.mode == MatchMode::Evaluate && is_collection(left) =>
+            {
+                self.defer(pattern, subject)
+            }
+            // Two applications of one macro or alias symbol that the arm above did not compare by
+            // arguments: the symbol is not free, so its applications may denote one value with
+            // different arguments, and one symbol is no clash of roots.
+            (
+                TermKind::Application {
+                    symbol: pattern_symbol,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: subject_symbol,
+                    ..
+                },
+            ) if pattern_symbol.name == subject_symbol.name
+                && pattern_symbol.attributes.head_role() == HeadRole::Residual =>
             {
                 self.defer(pattern, subject)
             }
@@ -1607,7 +1636,7 @@ pub(crate) fn occurs_below_only_constructors(variable: &Variable, term: &Term) -
         TermKind::Injection { term, .. } => occurs_below_only_constructors(variable, term),
         TermKind::Application {
             symbol, arguments, ..
-        } if symbol.attributes.symbol_type == SymbolType::Constructor => arguments
+        } if symbol.attributes.head_role() == HeadRole::FreeConstructor => arguments
             .iter()
             .any(|argument| occurs_below_only_constructors(variable, argument)),
         TermKind::And(..)
@@ -1807,11 +1836,12 @@ fn check_duplicate_elements(
     Ok(())
 }
 
+/// Whether `term` is a free-constructor application ([`HeadRole::FreeConstructor`]).
 fn is_constructor(term: &Term) -> bool {
     matches!(
         term.kind(),
         TermKind::Application { symbol, .. }
-            if symbol.attributes.symbol_type == SymbolType::Constructor
+            if symbol.attributes.head_role() == HeadRole::FreeConstructor
     )
 }
 
@@ -1841,20 +1871,22 @@ fn is_rigid(kind: &TermKind) -> bool {
     ) || matches!(
         kind,
         TermKind::Application { symbol, .. }
-            if symbol.attributes.symbol_type == SymbolType::Constructor
-                || symbol.attributes.macro_or_alias
+            if matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::Residual
+            )
     )
 }
 
-/// Whether rewrite matching compares a term by its head: a rigid term or an `anywhere`
-/// application that is not a declared function. On the subject side the `anywhere` case also
+/// Whether rewrite matching compares a term by its head: a rigid term or an equation-head
+/// application ([`HeadRole::EquationHead`]). On the subject side the equation-head case also
 /// needs a fixed head ([`rewrite_rigid_subject`]).
 fn is_rewrite_rigid(kind: &TermKind) -> bool {
     is_rigid(kind)
         || matches!(
             kind,
             TermKind::Application { symbol, .. }
-                if symbol.attributes.anywhere && !symbol.attributes.declared_function
+                if symbol.attributes.head_role() == HeadRole::EquationHead
         )
 }
 

@@ -56,16 +56,17 @@ use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
     rule::{TermIndex, Theory, term_index},
-    term::{Sort, SymbolType, Term, TermKind, Variable},
+    term::{HeadRole, Sort, Term, TermKind, Variable},
 };
 
-/// Whether `term` is an application of an `anywhere` production that is not a declared
-/// function: a head that denotes a value of its own only in an instance-normal application.
+/// Whether `term` is an application of an equation head ([`HeadRole::EquationHead`]: an
+/// `anywhere` production that is not a declared function, nor a macro or alias): a head that
+/// denotes a value of its own only in an instance-normal application.
 pub(crate) fn is_anywhere_application(term: &Term) -> bool {
     matches!(
         term.kind(),
         TermKind::Application { symbol, .. }
-            if symbol.attributes.anywhere && !symbol.attributes.declared_function
+            if symbol.attributes.head_role() == HeadRole::EquationHead
     )
 }
 
@@ -157,15 +158,15 @@ impl BackendDefinition {
             TermKind::Injection { term, .. } => self.instance_normal_under(term, normalized),
             TermKind::Application {
                 symbol, arguments, ..
-            } => {
-                if symbol.attributes.symbol_type == SymbolType::Constructor {
-                    arguments_normal(arguments)
-                } else if symbol.attributes.anywhere && !symbol.attributes.declared_function {
+            } => match symbol.attributes.head_role() {
+                HeadRole::FreeConstructor => arguments_normal(arguments),
+                HeadRole::EquationHead => {
                     arguments_normal(arguments) && !self.some_equation_may_apply(term)
-                } else {
-                    false
                 }
-            }
+                // A function application is rewritten by evaluation, and a macro or alias
+                // application denotes a value the definition does not describe.
+                HeadRole::Function { .. } | HeadRole::Residual => false,
+            },
             TermKind::Map { entries, rest, .. } => {
                 entries.iter().all(|(key, value)| {
                     self.instance_normal_under(key, normalized)
@@ -461,18 +462,17 @@ impl<'a> SyntacticUnifier<'a> {
 }
 
 /// Whether the head of `term` fixes the head of every value it denotes, so two such terms with
-/// different heads have no common instance. On the subject side an `anywhere` application that
-/// is not a declared function qualifies by the precondition of [`may_unify`]; on the pattern
-/// side only a constructor or a domain value does.
+/// different heads have no common instance. On the subject side an equation-head application
+/// qualifies by the precondition of [`may_unify`]; on the pattern side only a free constructor
+/// or a domain value does. A function, macro or alias root fixes nothing.
 fn rigid((side, term): Sided<'_>) -> bool {
     match term.kind() {
         TermKind::DomainValue { .. } => true,
-        TermKind::Application { symbol, .. } => {
-            symbol.attributes.symbol_type == SymbolType::Constructor
-                || (side == Side::Subject
-                    && symbol.attributes.anywhere
-                    && !symbol.attributes.declared_function)
-        }
+        TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
+            HeadRole::FreeConstructor => true,
+            HeadRole::EquationHead => side == Side::Subject,
+            HeadRole::Function { .. } | HeadRole::Residual => false,
+        },
         TermKind::Injection { .. }
         | TermKind::Variable(_)
         | TermKind::And(..)

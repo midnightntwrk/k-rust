@@ -62,7 +62,7 @@ use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     matching::rewrite_rigid_subject,
     substitution::{Substitution, substitute},
-    term::{Name, SymbolType, Term, TermKind, Variable, names::VariableProvenance},
+    term::{HeadRole, Name, Term, TermKind, Variable, names::VariableProvenance},
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1597,10 +1597,10 @@ fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> Cel
             if definition.overloads.is_overloaded(&symbol.name) =>
         {
             let rigid = match side {
-                KeySide::Rule => {
-                    symbol.attributes.symbol_type == SymbolType::Constructor
-                        || (symbol.attributes.anywhere && !symbol.attributes.declared_function)
-                }
+                KeySide::Rule => match symbol.attributes.head_role() {
+                    HeadRole::FreeConstructor | HeadRole::EquationHead => true,
+                    HeadRole::Function { .. } | HeadRole::Residual => false,
+                },
                 KeySide::Subject => rewrite_rigid_subject(definition, term),
             };
             if rigid {
@@ -1609,21 +1609,18 @@ fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> Cel
                 CellIndex::Anything
             }
         }
-        TermKind::Application { symbol, .. } => match symbol.attributes.symbol_type {
-            SymbolType::Constructor => CellIndex::Constructor(symbol.name.clone()),
-            // A subject's non-overloaded `anywhere` head keys nothing, whether or not it is
+        TermKind::Application { symbol, .. } => match symbol.attributes.head_role() {
+            HeadRole::FreeConstructor => CellIndex::Constructor(symbol.name.clone()),
+            // A subject's non-overloaded equation head keys nothing, whether or not it is
             // instance-normal: only a rule's key uses `Anywhere`.
-            SymbolType::Function(_)
-                if symbol.attributes.anywhere && !symbol.attributes.declared_function =>
-            {
-                match side {
-                    KeySide::Rule => CellIndex::Anywhere(symbol.name.clone()),
-                    KeySide::Subject => CellIndex::Anything,
-                }
-            }
+            HeadRole::EquationHead => match side {
+                KeySide::Rule => CellIndex::Anywhere(symbol.name.clone()),
+                KeySide::Subject => CellIndex::Anything,
+            },
             // The rewrite matcher evaluates or defers a function application; it refutes it
-            // against no head.
-            SymbolType::Function(_) => CellIndex::Anything,
+            // against no head. A macro or alias application denotes a value the definition does
+            // not describe, so it selects no rules by its head.
+            HeadRole::Function { .. } | HeadRole::Residual => CellIndex::Anything,
         },
         TermKind::DomainValue { value, .. } => CellIndex::Value(value.clone()),
         TermKind::Map { .. } => CellIndex::Map,

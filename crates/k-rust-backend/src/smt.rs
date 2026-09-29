@@ -1062,19 +1062,11 @@ mod tests {
             sort_variables: Vec::new(),
             argument_sorts: arguments,
             result_sort: result,
-            attributes: SymbolAttributes {
-                symbol_type: SymbolType::Function(FunctionType::Total),
-                anywhere: false,
-                declared_function: true,
-                binder: false,
-                injective: false,
-                associative: false,
-                idempotent: false,
-                macro_or_alias: false,
-                has_evaluators: true,
-                smt,
-                hook: None,
-                collection: None,
+            attributes: {
+                let mut attributes = SymbolAttributes::constructor().with_declared_function(true);
+                attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+                attributes.smt = smt;
+                attributes
             },
         })
     }

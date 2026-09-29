@@ -81,8 +81,9 @@ use crate::{
     },
     smt::{SExpr, SmtType},
     term::{
-        CollectionMetadata, CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name,
-        Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable, names::HookName,
+        CollectionMetadata, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
+        MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
+        names::HookName,
     },
 };
 
@@ -490,11 +491,18 @@ impl From<MalformedAttribute> for DefinitionError {
 }
 
 impl BackendDefinition {
-    /// Names of symbols classified as backend functions in the visible catalog.
+    /// Names of the symbols declared with the KORE `function` attribute whose role is a function
+    /// ([`HeadRole::Function`]); a declared function that is also a macro or alias, or also a
+    /// constructor or sort injection, has another role.
     pub fn function_symbol_names(&self) -> BTreeSet<String> {
         self.symbols
             .iter()
-            .filter(|(_, symbol)| symbol.attributes.declared_function)
+            .filter(|(_, symbol)| {
+                matches!(
+                    symbol.attributes.head_role(),
+                    HeadRole::Function { declared: true, .. }
+                )
+            })
             .map(|(name, _)| name.to_string())
             .collect()
     }
@@ -1658,7 +1666,7 @@ pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
             symbol,
             sort_arguments,
             ..
-        } if symbol.attributes.symbol_type == SymbolType::Constructor => {
+        } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
             Some(ConstructorHead::Symbol {
                 name: symbol.name.clone(),
                 sort_arguments: sort_arguments.clone(),
@@ -1879,21 +1887,20 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     } else {
         smtlib.map(SmtType::Lib)
     };
-    Ok(SymbolAttributes {
-        symbol_type,
-        anywhere: attributes.has(KoreAttribute::Anywhere),
-        declared_function: function,
-        binder: attributes.has(KoreAttribute::Binder),
-        injective: attributes.has(KoreAttribute::Injective),
-        associative: attributes.has(KoreAttribute::Assoc),
-        idempotent: attributes.has(KoreAttribute::Idem),
-        macro_or_alias: attributes.has(KoreAttribute::Macro)
-            || attributes.has(KoreAttribute::Alias),
-        has_evaluators: !attributes.has(KoreAttribute::NoEvaluators),
-        smt,
-        hook: attributes.string(KoreAttribute::Hook)?.map(Into::into),
-        collection: None,
-    })
+    let mut result = SymbolAttributes::constructor()
+        .with_anywhere(attributes.has(KoreAttribute::Anywhere))
+        .with_declared_function(function)
+        .with_injective(attributes.has(KoreAttribute::Injective));
+    result.symbol_type = symbol_type;
+    result.binder = attributes.has(KoreAttribute::Binder);
+    result.associative = attributes.has(KoreAttribute::Assoc);
+    result.idempotent = attributes.has(KoreAttribute::Idem);
+    result.macro_or_alias =
+        attributes.has(KoreAttribute::Macro) || attributes.has(KoreAttribute::Alias);
+    result.has_evaluators = !attributes.has(KoreAttribute::NoEvaluators);
+    result.smt = smt;
+    result.hook = attributes.string(KoreAttribute::Hook)?.map(Into::into);
+    Ok(result)
 }
 
 fn validate_binder_attribute(
@@ -3122,8 +3129,19 @@ mod tests {
     fn preserves_injective_symbol_metadata() {
         let definition = definition();
 
-        assert!(definition.symbols["injectiveFunction"].attributes.injective);
-        assert!(!definition.symbols["wrap"].attributes.injective);
+        assert_eq!(
+            definition.symbols["injectiveFunction"]
+                .attributes
+                .head_role(),
+            HeadRole::Function {
+                declared: true,
+                injective: true
+            }
+        );
+        assert_eq!(
+            definition.symbols["wrap"].attributes.head_role(),
+            HeadRole::FreeConstructor
+        );
     }
 
     #[test]

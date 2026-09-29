@@ -193,16 +193,44 @@ pub enum SymbolType {
     Function(FunctionType),
 }
 
+/// What a symbol's declaration makes of the value of its applications, decided once from the
+/// declaration by [`SymbolAttributes::head_role`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum HeadRole {
+    /// `constructor` or `sortInjection`, neither `anywhere` without a declared `function` nor a
+    /// macro or alias: applications with different roots or different arguments denote different
+    /// values.
+    FreeConstructor,
+    /// `anywhere` and not a declared `function`: an application denotes the value of its normal
+    /// form under the definition's equations, and its root is that value's root only when the
+    /// application is a normal form. The equations identify applications with different
+    /// arguments, so the role carries no injectivity.
+    EquationHead,
+    /// Any other symbol. `declared` is the KORE `function` attribute, as distinct from a symbol
+    /// that is total only because it is `functional`; `injective` is the declared attribute,
+    /// dropped when the symbol also carries `anywhere`, whose equations may identify applications
+    /// with different arguments.
+    Function { declared: bool, injective: bool },
+    /// `macro` or `alias`: preprocessing replaces every application, so an application that is
+    /// still present denotes a value the backend does not know.
+    Residual,
+}
+
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SymbolAttributes {
+    /// Whether applications are constructed or computed, and whether a computed one is total.
+    /// Algorithms read freeness from [`Self::head_role`]; the readers of this field that remain
+    /// are listed there.
     pub symbol_type: SymbolType,
-    /// The source symbol carries the KORE `anywhere` attribute.
-    pub anywhere: bool,
+    /// The source symbol carries the KORE `anywhere` attribute. Read through [`Self::head_role`].
+    anywhere: bool,
     /// The source symbol carries the KORE `function` attribute, as distinct from a symbol that is
-    /// total only because it is `functional`.
-    pub declared_function: bool,
+    /// total only because it is `functional`. Read through [`Self::head_role`].
+    declared_function: bool,
     pub binder: bool,
-    pub injective: bool,
+    /// The source symbol carries the KORE `injective` attribute. Read through
+    /// [`Self::head_role`], which keeps it only for a function without `anywhere`.
+    injective: bool,
     pub associative: bool,
     pub idempotent: bool,
     pub macro_or_alias: bool,
@@ -210,6 +238,17 @@ pub struct SymbolAttributes {
     pub smt: Option<SmtType>,
     pub hook: Option<Name>,
     pub collection: Option<CollectionMetadata>,
+}
+
+/// The three declared flags that [`SymbolAttributes::head_role`] folds into a role, as declared.
+/// The Lean term model reads them raw (`Sym` of `lean/KRust/TermAttributes.lean`), so the bridge
+/// serializes them from here; no algorithm reads them.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DeclaredFlags {
+    pub(crate) anywhere: bool,
+    pub(crate) declared_function: bool,
+    pub(crate) injective: bool,
 }
 
 impl SymbolAttributes {
@@ -227,6 +266,111 @@ impl SymbolAttributes {
             smt: None,
             hook: None,
             collection: None,
+        }
+    }
+
+    /// These attributes with the KORE `anywhere` attribute set to `anywhere`.
+    ///
+    /// The flag is private, so a struct literal cannot set it; the builder is the way:
+    ///
+    /// ```compile_fail
+    /// use k_rust_backend::term::SymbolAttributes;
+    /// let _ = SymbolAttributes { anywhere: true, ..SymbolAttributes::constructor() };
+    /// ```
+    ///
+    /// ```
+    /// use k_rust_backend::term::SymbolAttributes;
+    /// let _ = SymbolAttributes::constructor().with_anywhere(true);
+    /// ```
+    #[must_use]
+    pub fn with_anywhere(mut self, anywhere: bool) -> Self {
+        self.anywhere = anywhere;
+        self
+    }
+
+    /// These attributes with the KORE `function` attribute set to `declared`.
+    #[must_use]
+    pub fn with_declared_function(mut self, declared: bool) -> Self {
+        self.declared_function = declared;
+        self
+    }
+
+    /// These attributes with the KORE `injective` attribute set to `injective`.
+    #[must_use]
+    pub fn with_injective(mut self, injective: bool) -> Self {
+        self.injective = injective;
+        self
+    }
+
+    /// The role of the symbol, decided from its declaration alone:
+    /// a `macro` or `alias` symbol is [`HeadRole::Residual`];
+    /// otherwise an `anywhere` symbol that is not a declared function is an
+    /// [`HeadRole::EquationHead`], whatever its `constructor` attribute, because the definition's
+    /// own equations identify its applications, which contradicts freeness;
+    /// otherwise a `constructor` or `sortInjection` symbol is a [`HeadRole::FreeConstructor`];
+    /// otherwise it is a [`HeadRole::Function`], whose `injective` counts only without
+    /// `anywhere`.
+    ///
+    /// No algorithm reads the `anywhere`, `declared_function` or `injective` flags; outside this
+    /// module they are private:
+    ///
+    /// ```compile_fail
+    /// use k_rust_backend::term::Symbol;
+    /// fn read(symbol: &Symbol) {
+    ///     let _ = symbol.attributes.injective;
+    /// }
+    /// ```
+    ///
+    /// ```
+    /// use k_rust_backend::term::Symbol;
+    /// fn read(symbol: &Symbol) {
+    ///     let _ = symbol.attributes.head_role();
+    /// }
+    /// ```
+    ///
+    /// Freeness is read here and nowhere else. The public `symbol_type` field stays, for the
+    /// readers that ask whether an application is computed or total rather than free, and a
+    /// read of it spelled `symbol_type == SymbolType::Constructor` would bypass this role. The
+    /// readers of `symbol_type` that remain:
+    /// - `Term::application_raw` (the `concrete_after_normalization` shape, which keeps the
+    ///   declared formula of the Lean model's `concrete`) and `ceil_free` (partiality), here;
+    /// - partiality or totality: `definedness::ceil_term_node`, `smt::symbol_exactness`,
+    ///   `simplify` (`is_total_application`, `occurs_under_total_context`),
+    ///   `rule::computed_attributes` (undefined symbols), `definition::inhabited_sorts` (value
+    ///   builders);
+    /// - computed rather than constructed: `rewrite::recover` (`recover_indeterminate_match`,
+    ///   `is_functional_pattern`, `contains_function_pattern`),
+    ///   `matching::collections::list_update_cannot_match`, the matcher's `is_function`;
+    /// - the declaration as written: `verify::verify_function_head` (an equation's left-hand
+    ///   side headed by a symbol declared constructor) and `builtin::substitution::KVarSorts::of` (every symbol declared
+    ///   constructor builds values whose sort may hold a `KVar`, whatever its role, so the
+    ///   `KVar`-free sorts stay an under-approximation).
+    #[inline]
+    #[must_use]
+    #[deny(clippy::wildcard_enum_match_arm)]
+    pub fn head_role(&self) -> HeadRole {
+        if self.macro_or_alias {
+            return HeadRole::Residual;
+        }
+        if self.anywhere && !self.declared_function {
+            return HeadRole::EquationHead;
+        }
+        match self.symbol_type {
+            SymbolType::Constructor => HeadRole::FreeConstructor,
+            SymbolType::Function(_) => HeadRole::Function {
+                declared: self.declared_function,
+                injective: self.injective && !self.anywhere,
+            },
+        }
+    }
+
+    /// The declared `anywhere`, `function` and `injective` flags, for the Lean bridge only.
+    #[cfg(test)]
+    pub(crate) fn declared_flags(&self) -> DeclaredFlags {
+        DeclaredFlags {
+            anywhere: self.anywhere,
+            declared_function: self.declared_function,
+            injective: self.injective,
         }
     }
 }
@@ -437,10 +581,15 @@ impl Term {
         arguments: Vec<Self>,
     ) -> Self {
         let mut attributes = combine_attributes(arguments.iter());
-        let constructor = symbol.attributes.symbol_type == SymbolType::Constructor;
-        attributes.evaluated = constructor && attributes.evaluated;
-        attributes.constructor_like = constructor && attributes.constructor_like;
-        attributes.concrete_after_normalization = (constructor
+        // A free constructor application is a normal form, and a value built only from free
+        // constructors, when its arguments are; no other root states that by structure.
+        let free = symbol.attributes.head_role() == HeadRole::FreeConstructor;
+        attributes.evaluated = free && attributes.evaluated;
+        attributes.constructor_like = free && attributes.constructor_like;
+        // A shape, not freeness: the root is one a normal form can have (the Lean model's
+        // `concrete` reads the same declared flags).
+        attributes.concrete_after_normalization = (symbol.attributes.symbol_type
+            == SymbolType::Constructor
             || (symbol.attributes.anywhere && !symbol.attributes.declared_function))
             && attributes.concrete_after_normalization;
         attributes.can_be_evaluated =
@@ -1040,7 +1189,8 @@ impl Term {
     /// different values, for any ground terms, however they were built.
     ///
     /// Only heads whose application is known to be a normal form decide: a domain value, a
-    /// constructor application (no equation is headed by a constructor), a sort injection, and
+    /// free-constructor application ([`HeadRole::FreeConstructor`]: its declaration admits no
+    /// equation that identifies its applications), a sort injection, and
     /// an application of an `anywhere` production that the simplifier certified as a normal form
     /// by setting its `evaluated` bit ([`Self::with_evaluated_cache`]: every equation that may
     /// apply to it was scanned and found inapplicable independently of the path condition, and
@@ -1147,13 +1297,14 @@ impl Term {
     }
 
     /// Whether this application of a head that [`Self::concrete_after_normalization`] admits
-    /// (a constructor, or an `anywhere` production that is not a declared function) is known to
-    /// be a normal form: a constructor application is one when its arguments are, and an
-    /// `anywhere` application is one only when the simplifier has set its `evaluated` bit.
+    /// (a symbol declared constructor, or an `anywhere` production that is not a declared
+    /// function) is known to be a normal form: a free-constructor application is one when its
+    /// arguments are, and any other application (an equation head, or a macro or alias) only
+    /// when the simplifier has set its `evaluated` bit.
     fn certified_normal_application(&self) -> bool {
         match self.kind() {
             TermKind::Application { symbol, .. } => {
-                symbol.attributes.symbol_type == SymbolType::Constructor
+                symbol.attributes.head_role() == HeadRole::FreeConstructor
                     || self.attributes().evaluated
             }
             _ => false,
@@ -1820,5 +1971,70 @@ mod tests {
         let symbol = Symbol::constructor("inj", Vec::new(), Sort::builtin(BuiltinSort::K));
         assert!(symbol.is(WellKnownSymbol::Inj));
         assert!(!symbol.is(WellKnownSymbol::KSeq));
+    }
+
+    /// The role of each declared flag combination (`SymbolAttributes::head_role`): the
+    /// `instance_normal.rs` fixture's `wrap` (`anywhere`, `functional`, `injective`) is an
+    /// equation head, and the combinations on which the flags disagreed get one answer each.
+    #[test]
+    fn head_role_decides_each_declared_combination() {
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol wrap{}(SortNat{}) : SortNat{}
+                    [anywhere{}(), functional{}(), injective{}()]
+                symbol anywhereConstructor{}(SortNat{}) : SortNat{}
+                    [constructor{}(), anywhere{}(), functional{}(), injective{}()]
+                symbol constructorMacro{}(SortNat{}) : SortNat{}
+                    [constructor{}(), functional{}(), injective{}(), macro{}()]
+                symbol functionalMacro{}(SortNat{}) : SortNat{}
+                    [functional{}(), injective{}(), macro{}()]
+                symbol anywhereAlias{}(SortNat{}) : SortNat{}
+                    [anywhere{}(), functional{}(), alias'Kywd'{}()]
+                symbol anywhereFunction{}(SortNat{}) : SortNat{}
+                    [anywhere{}(), function{}(), total{}(), injective{}()]
+                symbol injectiveFunction{}(SortNat{}) : SortNat{}
+                    [function{}(), total{}(), injective{}()]
+                symbol injectiveFunctional{}(SortNat{}) : SortNat{}
+                    [functional{}(), injective{}()]
+            endmodule []"#,
+        )
+        .expect("role definition should parse");
+        let definition = crate::definition::BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("role definition should internalize");
+        let role = |name: &str| definition.symbols[name].attributes.head_role();
+
+        assert_eq!(role("z"), HeadRole::FreeConstructor);
+        assert_eq!(role("wrap"), HeadRole::EquationHead);
+        // B1: `anywhere` equations identify applications, whatever the `constructor` attribute.
+        assert_eq!(role("anywhereConstructor"), HeadRole::EquationHead);
+        // B2: a macro or alias is residual, whatever its type and its `anywhere` attribute.
+        assert_eq!(role("constructorMacro"), HeadRole::Residual);
+        assert_eq!(role("functionalMacro"), HeadRole::Residual);
+        assert_eq!(role("anywhereAlias"), HeadRole::Residual);
+        // B3: `injective` counts only for a function without `anywhere`.
+        assert_eq!(
+            role("anywhereFunction"),
+            HeadRole::Function {
+                declared: true,
+                injective: false
+            }
+        );
+        assert_eq!(
+            role("injectiveFunction"),
+            HeadRole::Function {
+                declared: true,
+                injective: true
+            }
+        );
+        assert_eq!(
+            role("injectiveFunctional"),
+            HeadRole::Function {
+                declared: false,
+                injective: true
+            }
+        );
     }
 }

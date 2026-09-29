@@ -7,8 +7,8 @@ use k_rust_backend::{
     matching::*,
     substitution::Substitution,
     term::{
-        CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Name, Sort, Symbol,
-        SymbolAttributes, SymbolType, Term, Variable,
+        CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Name, Sort,
+        Symbol, SymbolAttributes, SymbolType, Term, Variable,
     },
 };
 use k_rust_kore::kore::parser::parse_definition;
@@ -60,19 +60,10 @@ fn function() -> Arc<Symbol> {
         sort_variables: Vec::new(),
         argument_sorts: vec![sort()],
         result_sort: sort(),
-        attributes: SymbolAttributes {
-            symbol_type: SymbolType::Function(FunctionType::Total),
-            anywhere: false,
-            declared_function: true,
-            binder: false,
-            injective: false,
-            associative: false,
-            idempotent: false,
-            macro_or_alias: false,
-            has_evaluators: true,
-            smt: None,
-            hook: None,
-            collection: None,
+        attributes: {
+            let mut attributes = SymbolAttributes::constructor().with_declared_function(true);
+            attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+            attributes
         },
     })
 }
@@ -80,7 +71,7 @@ fn function() -> Arc<Symbol> {
 fn injective_function() -> Arc<Symbol> {
     let mut symbol = (*function()).clone();
     symbol.name = "injective".into();
-    symbol.attributes.injective = true;
+    symbol.attributes = symbol.attributes.with_injective(true);
     Arc::new(symbol)
 }
 
@@ -598,11 +589,9 @@ fn anywhere_heads_are_rigid_only_for_rewrite_matching() {
     };
     let pattern = application("anywhereHead", Term::variable(variable.clone()));
 
-    assert!(definition.symbols["anywhereHead"].attributes.anywhere);
-    assert!(
-        !definition.symbols["anywhereHead"]
-            .attributes
-            .declared_function
+    assert_eq!(
+        definition.symbols["anywhereHead"].attributes.head_role(),
+        HeadRole::EquationHead
     );
     assert_eq!(
         match_terms_in_definition(
@@ -655,6 +644,67 @@ fn anywhere_heads_are_rigid_only_for_rewrite_matching() {
         ),
         MatchResult::Indeterminate { .. }
     ));
+}
+
+/// B3: `injective` on a declared function that also carries `anywhere` does not make the
+/// matcher compare its applications by arguments. The `anywhere` equation makes `f(s(z))` equal
+/// `f(z)`, so the pattern `f(z)` is not refuted against the subject `f(s(z))` by the clash of
+/// `z` with `s(z)`; without `anywhere` the declared `injective` still decides.
+#[test]
+fn injective_anywhere_function_is_not_decomposed_by_the_matcher() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortNat{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol f{}(SortNat{}) : SortNat{}
+                    [anywhere{}(), function{}(), total{}(), injective{}()]
+                symbol g{}(SortNat{}) : SortNat{} [function{}(), total{}(), injective{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+                    ),
+                    \equals{SortNat{}, R}(
+                        f{}(X0:SortNat{}),
+                        \and{SortNat{}}(f{}(z{}()), \top{SortNat{}}())
+                    )
+                ) [label{}("collapse"), anywhere{}()]
+            endmodule []"#,
+    )
+    .expect("injective anywhere function definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("injective anywhere function definition should internalize");
+    let constant =
+        |name: &str| Term::application(definition.symbols[name].clone(), Vec::new(), Vec::new());
+    let application = |name: &str, argument: Term| {
+        Term::application(definition.symbols[name].clone(), Vec::new(), vec![argument])
+    };
+    let z = constant("z");
+    let s_z = application("s", z.clone());
+
+    for mode in [MatchMode::Rewrite, MatchMode::Implies] {
+        let result = match_terms_in_definition(
+            mode,
+            &definition,
+            &application("f", z.clone()),
+            &application("f", s_z.clone()),
+        );
+        assert!(
+            matches!(result, MatchResult::Indeterminate { .. }),
+            "{mode:?}: f(s(z)) equals f(z) by the anywhere equation: {result:?}"
+        );
+        assert!(matches!(
+            match_terms_in_definition(
+                mode,
+                &definition,
+                &application("g", z.clone()),
+                &application("g", s_z.clone()),
+            ),
+            MatchResult::Failed(FailReason::DifferentSymbols(..))
+        ));
+    }
 }
 
 #[test]

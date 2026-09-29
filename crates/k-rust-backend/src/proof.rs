@@ -69,7 +69,7 @@ use crate::{
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::names::FreshMarker,
-    term::{SymbolType, Term, TermKind},
+    term::{HeadRole, Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutMode, StepTimeoutOptions},
     unification::{UnificationResult, unify_term_pairs},
 };
@@ -1015,11 +1015,13 @@ fn leaf_is_nonempty(
     pattern: &Pattern,
     solver: &dyn SmtSolver,
 ) -> bool {
-    // An unevaluated function application may denote a value that the destination match would
-    // have accepted, so the leaf's configurations are known only for a constructor term.
+    // An unevaluated function application, an equation-head application that its equations may
+    // still rewrite, or a macro or alias application may denote a value that the destination
+    // match would have accepted, so the leaf's configurations are known only for a term built
+    // from free constructors.
     let mut constructors_only = true;
     pattern.term.visit_symbols(&mut |symbol| {
-        constructors_only &= symbol.attributes.symbol_type == SymbolType::Constructor;
+        constructors_only &= symbol.attributes.head_role() == HeadRole::FreeConstructor;
     });
     constructors_only && shown_nonempty(definition, pattern, &[], solver)
 }

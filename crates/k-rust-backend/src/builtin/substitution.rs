@@ -49,7 +49,7 @@ use super::{BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupte
 use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
-    term::{Name, Sort, SymbolType, Term, TermKind},
+    term::{HeadRole, Name, Sort, SymbolType, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -111,6 +111,9 @@ impl KVarSorts {
         let mut dependents = BTreeMap::<Name, BTreeSet<Name>>::new();
         let mut seeds = tokens.iter().cloned().collect::<Vec<_>>();
         for symbol in definition.symbols.values() {
+            // Every symbol declared constructor, whatever its role: an equation head or a macro
+            // declared constructor may keep its application, arguments included, in a value, so
+            // counting it keeps `kvar_free` an under-approximation.
             let builds_values = symbol.attributes.symbol_type == SymbolType::Constructor
                 || symbol.attributes.collection.is_some();
             if !builds_values || symbol.is(WellKnownSymbol::Inj) || symbol.argument_sorts.is_empty()
@@ -182,13 +185,13 @@ impl KVarSorts {
     }
 }
 
-/// A variable or an application of a non-constructor symbol: a subterm whose value is some
-/// constructor term that the call cannot see.
+/// A variable or an application of a symbol that is not a free constructor: a subterm whose
+/// value is some constructor term that the call cannot see.
 fn is_opaque(term: &Term) -> bool {
     match term.kind() {
         TermKind::Variable(_) => true,
         TermKind::Application { symbol, .. } => {
-            symbol.attributes.symbol_type != SymbolType::Constructor
+            symbol.attributes.head_role() != HeadRole::FreeConstructor
         }
         _ => false,
     }

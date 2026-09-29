@@ -55,7 +55,7 @@ impl TranslatedQuery {
 mod tests {
     use std::sync::Arc;
 
-    use super::super::{SmtPrelude, SmtType};
+    use super::super::SmtPrelude;
     use super::*;
     use crate::{
         rule::Predicate,
@@ -88,19 +88,11 @@ mod tests {
                 sort_variables: Vec::new(),
                 argument_sorts: vec![int()],
                 result_sort: int(),
-                attributes: SymbolAttributes {
-                    symbol_type: SymbolType::Function(FunctionType::Total),
-                    anywhere: false,
-                    declared_function: true,
-                    binder: false,
-                    injective: false,
-                    associative: false,
-                    idempotent: false,
-                    macro_or_alias: false,
-                    has_evaluators: true,
-                    smt: None::<SmtType>,
-                    hook: None,
-                    collection: None,
+                attributes: {
+                    let mut attributes =
+                        SymbolAttributes::constructor().with_declared_function(true);
+                    attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+                    attributes
                 },
             }),
             Vec::new(),
