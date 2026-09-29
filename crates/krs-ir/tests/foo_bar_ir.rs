@@ -3,16 +3,18 @@
 use krs_ir::testing::{assert_canonical_contract, item, origin as node};
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, FixedCell, FixedConfiguration, FixedInitializerCell,
-    ItemKind, LabelId, LabelIdentity, ModuleId, ProductionItem, ProductionSentence, RuleSentence,
-    SchemaVersion, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
-    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
-    SentenceKind, SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence,
+    DefinitionSortRef, DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration,
+    FixedInitializerCell, ItemKind, LabelId, LabelIdentity, ModuleId, ProductionItem,
+    ProductionSentence, RuleSentence, SchemaVersion, SemanticId, SemanticModule,
+    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError, SentenceKind,
+    SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 #[allow(clippy::too_many_lines, clippy::disallowed_names)] // Stable golden fixture vocabulary.
-fn semantic_theory(bar_reference: Option<StableItemId>) -> SemanticTheory {
+fn semantic_theory(
+    bar_reference: Option<StableItemId>,
+) -> Result<SemanticTheory, SemanticValidationError> {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);
     let value = item("syntax", "Value", ItemKind::Sort);
@@ -144,7 +146,7 @@ fn semantic_theory(bar_reference: Option<StableItemId>) -> SemanticTheory {
         Some(configuration),
         vec![rule],
     );
-    SemanticTheory::new(vec![syntax, main]).unwrap()
+    SemanticTheory::new(vec![syntax, main])
 }
 
 fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
@@ -152,7 +154,9 @@ fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
 }
 
 #[allow(clippy::too_many_lines, clippy::disallowed_names)] // Mirrors the semantic golden fixture.
-fn definition_ir(bar_reference: Option<SymbolId>) -> DefinitionIr {
+fn definition_ir(
+    bar_reference: Option<SymbolId>,
+) -> Result<DefinitionIr, DefinitionValidationError> {
     let value = SymbolId::new("sort.value").unwrap();
     let foo = SymbolId::new("production.foo").unwrap();
     let bar = SymbolId::new("production.bar").unwrap();
@@ -283,12 +287,12 @@ fn definition_ir(bar_reference: Option<SymbolId>) -> DefinitionIr {
         vec![],
         main_sentences,
     );
-    DefinitionIr::new(main_id, vec![syntax, main]).unwrap()
+    DefinitionIr::new(main_id, vec![syntax, main])
 }
 
 #[test]
 fn semantic_foo_bar_matches_golden_and_set_reordering() {
-    let theory = semantic_theory(None);
+    let theory = semantic_theory(None).unwrap();
     assert_canonical_contract(&theory);
     let normal = theory.to_canonical_json().unwrap();
     expect_test::expect_file!["golden/semantic_foo_bar.json"].assert_eq(&normal);
@@ -296,7 +300,7 @@ fn semantic_foo_bar_matches_golden_and_set_reordering() {
 
 #[test]
 fn definition_foo_bar_matches_golden_and_set_reordering() {
-    let definition = definition_ir(None);
+    let definition = definition_ir(None).unwrap();
     assert_canonical_contract(&definition);
     let normal = definition.to_canonical_json().unwrap();
     expect_test::expect_file!["golden/definition_foo_bar.json"].assert_eq(&normal);
@@ -304,8 +308,8 @@ fn definition_foo_bar_matches_golden_and_set_reordering() {
 
 #[test]
 fn semantic_and_definition_ir_carry_the_one_schema_version() {
-    let theory = semantic_theory(None);
-    let definition = definition_ir(None);
+    let theory = semantic_theory(None).unwrap();
+    let definition = definition_ir(None).unwrap();
     assert_canonical_contract(&theory);
     assert_canonical_contract(&definition);
     assert_eq!(theory.schema_version(), SchemaVersion::CURRENT);
@@ -323,27 +327,32 @@ fn empty_and_path_shaped_ids_are_rejected() {
 #[test]
 fn dangling_semantic_production_is_rejected() {
     let missing = item("syntax", "Missing", ItemKind::Constructor);
-    let result = std::panic::catch_unwind(|| semantic_theory(Some(missing)));
-    assert!(result.is_err());
+    let result = semantic_theory(Some(missing));
+    assert!(
+        matches!(result, Err(SemanticValidationError::DanglingProduction(_))),
+        "{result:?}"
+    );
 }
 
 #[test]
 fn dangling_definition_symbol_is_rejected() {
     let missing = SymbolId::new("production.missing").unwrap();
-    let result = std::panic::catch_unwind(|| definition_ir(Some(missing)));
-    assert!(result.is_err());
+    assert!(matches!(
+        definition_ir(Some(missing)),
+        Err(DefinitionValidationError::DanglingSymbol(_))
+    ));
 }
 
 #[test]
 fn missing_origin_is_rejected_during_deserialization() {
-    let mut json = serde_json::to_value(definition_ir(None)).unwrap();
+    let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
     json["modules"][0]["origin"]["origin"] = serde_json::json!([]);
     assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
 }
 
 #[test]
 fn duplicate_node_key_is_rejected() {
-    let mut json = serde_json::to_value(definition_ir(None)).unwrap();
+    let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
     let duplicate = json["modules"][0]["origin"]["key"].clone();
     json["modules"][1]["origin"]["key"] = duplicate;
     assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
@@ -351,7 +360,7 @@ fn duplicate_node_key_is_rejected() {
 
 #[test]
 fn adapter_specific_fields_are_rejected() {
-    let mut json = serde_json::to_value(definition_ir(None)).unwrap();
+    let mut json = serde_json::to_value(definition_ir(None).unwrap()).unwrap();
     let modules = json["modules"].as_array_mut().unwrap();
     let sentence = modules
         .iter_mut()
@@ -360,14 +369,4 @@ fn adapter_specific_fields_are_rejected() {
         .unwrap();
     sentence["sentence"]["k_rust_resolved_production_id"] = serde_json::json!(7);
     assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
-}
-
-#[test]
-fn print_goldens_for_review() {
-    let theory = semantic_theory(None);
-    let definition = definition_ir(None);
-    assert_canonical_contract(&theory);
-    assert_canonical_contract(&definition);
-    println!("SEMANTIC\n{}", theory.to_canonical_json().unwrap());
-    println!("DEFINITION\n{}", definition.to_canonical_json().unwrap());
 }
