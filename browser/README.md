@@ -24,7 +24,7 @@ Two servers stay outside the harness on purpose.
 The cache test (`worker/test/cache/run.ts`) keeps a `node:http` asset host, because its truncated-transfer fault must send a `Content-Length` header and close the connection mid-body, which Bun.serve does not allow.
 Tests that exercise the release host run `release/release.py serve`, which applies `release/hosting.toml`; `serve-local.py` runs that same host.
 
-The worker's JSON-over-linear-memory calls (`worker/src/modules.ts`) stay separate from the Node runners' `crates/krs-wasm-abi/abi.mjs`: the worker must bundle for the browser without `node:fs`, and any edit under `crates/` changes the crates tree that every pack and oracle is pinned to.
+The worker's JSON-over-linear-memory calls (`worker/src/modules.ts`) stay separate from the Node parity runner's `crates/krs-wasm-abi/abi.mjs`: the worker must bundle for the browser without `node:fs`, and any edit under `crates/` changes the crates tree that every pack and oracle is pinned to.
 
 ## Runner convention
 

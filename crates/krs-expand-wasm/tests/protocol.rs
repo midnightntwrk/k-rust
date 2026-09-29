@@ -1,12 +1,9 @@
 //! The expander protocol over tour-minimal and the authored-anchor and
 //! diagnostic probes.
 //!
-//! With `KRS_EXPAND_WASM_EVIDENCE` set to a directory, the tour-minimal test writes
-//! `request.json`, `response.json` (native), and `expanded.rs` there, and the
-//! invalid-probe test writes `invalid-request.json` and
-//! `invalid-response.json`, and the lookup test writes `lookup-request.json`
-//! and `lookup-response.json`; `tests/run-wasm.mjs` replays the requests
-//! through the Wasm module.
+//! When `KRS_WASM_PARITY_CASES` names a directory, the tests write native
+//! request and response bytes for the tour-minimal and invalid-sorts `run`
+//! cases and the source-map `lookup` case.
 
 use std::path::PathBuf;
 
@@ -63,8 +60,21 @@ fn run(request: &Value) -> (Vec<u8>, Vec<u8>, Value) {
     (bytes, response, value)
 }
 
-fn evidence_dir() -> Option<PathBuf> {
-    std::env::var_os("KRS_EXPAND_WASM_EVIDENCE").map(PathBuf::from)
+fn write_parity_case(case: &str, entry: &str, request: &[u8], response: &[u8]) {
+    let Some(directory) = std::env::var_os("KRS_WASM_PARITY_CASES").map(PathBuf::from) else {
+        return;
+    };
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(
+        directory.join(format!("{case}.{entry}.request.json")),
+        request,
+    )
+    .unwrap();
+    std::fs::write(
+        directory.join(format!("{case}.{entry}.response.json")),
+        response,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -104,12 +114,7 @@ fn tour_minimal_expands_through_the_protocol() {
     // Deterministic: a second run is byte-identical.
     let (_, again, _) = run(&request(TOUR_MINIMAL, &json!("whole-file")));
     assert_eq!(response, again);
-    if let Some(directory) = evidence_dir() {
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("request.json"), &bytes).unwrap();
-        std::fs::write(directory.join("response.json"), &response).unwrap();
-        std::fs::write(directory.join("expanded.rs"), text).unwrap();
-    }
+    write_parity_case("tour-minimal", "run", &bytes, &response);
 }
 
 #[test]
@@ -130,21 +135,11 @@ fn lookup_maps_authored_generated_and_table_ranges() {
         "source_map": map,
         "ranges": [object_term["generated"], [287, 290], table],
     });
-    let response: Value = serde_json::from_slice(&protocol::lookup_json(
-        &serde_json::to_vec(&lookup).unwrap(),
-    ))
-    .unwrap();
+    let bytes = serde_json::to_vec(&lookup).unwrap();
+    let response_bytes = protocol::lookup_json(&bytes);
+    let response: Value = serde_json::from_slice(&response_bytes).unwrap();
     assert_eq!(response["ok"], true, "{response}");
-    if let Some(directory) = evidence_dir() {
-        std::fs::create_dir_all(&directory).unwrap();
-        let bytes = serde_json::to_vec(&lookup).unwrap();
-        std::fs::write(directory.join("lookup-request.json"), &bytes).unwrap();
-        std::fs::write(
-            directory.join("lookup-response.json"),
-            protocol::lookup_json(&bytes),
-        )
-        .unwrap();
-    }
+    write_parity_case("lookup", "lookup", &bytes, &response_bytes);
     assert_eq!(
         response["mappings"],
         json!([
@@ -187,12 +182,8 @@ fn invalid_sorts_block_reports_expected_identifier() {
         assert_eq!(value["expanded"], Value::Null);
         assert_eq!(value["source_map"], Value::Null);
         assert_eq!(value["diagnostics"], expected);
-        if mode == json!("whole-file")
-            && let Some(directory) = evidence_dir()
-        {
-            std::fs::create_dir_all(&directory).unwrap();
-            std::fs::write(directory.join("invalid-request.json"), &bytes).unwrap();
-            std::fs::write(directory.join("invalid-response.json"), &response).unwrap();
+        if mode == json!("whole-file") {
+            write_parity_case("invalid-sorts", "run", &bytes, &response);
         }
     }
 }

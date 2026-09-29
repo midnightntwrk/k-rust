@@ -25,6 +25,7 @@ Steps (local mode, in order; --steps selects a subset, dependencies are the call
                       every backend-suite case (tests/browser-backend/cases/*/expected.json; --record-backend records them)
   modules             krs-lesson-policy and krs-expand-wasm, each in its own cargo invocation (a joint build
                       unifies the policy crate's default `abi` feature into the expander)
+  wasm-parity         compare each module's Wasm responses with native protocol responses over recorded requests
   stage               browser/worker/scripts/stage-assets.ts over --pack and the two modules
   oracle              browser/worker/test/parity/regenerate-oracle.sh (tour-minimal native oracle for this crates/ tree)
   licenses            browser/release/release.py licenses (fails closed; needs --fork-source and --fork-build)
@@ -75,7 +76,7 @@ WORKER = ROOT / "browser/worker"
 RELEASE = ROOT / "browser/release/release.py"
 LOAD_MAX = float(os.environ.get("LOAD_MAX", "40"))
 JOBS = os.environ.get("JOBS", "4")
-LOCAL_STEPS = ["expectations", "modules", "stage", "oracle", "licenses", "release", "fetch", "check", "pipeline", "tour-minimal", "native-diagnostics", "diagnostics", "backend", "cache"]
+LOCAL_STEPS = ["expectations", "modules", "wasm-parity", "stage", "oracle", "licenses", "release", "fetch", "check", "pipeline", "tour-minimal", "native-diagnostics", "diagnostics", "backend", "cache"]
 HOSTED_STEPS = ["fetch", "expectations", "oracle", "check", "pipeline", "tour-minimal", "backend", "cache"]
 
 
@@ -136,6 +137,22 @@ class Runner:
 
     def module_path(self, pkg: str) -> Path:
         return self.target_root / pkg / "wasm32-unknown-unknown/release" / f"{pkg.replace('-', '_')}.wasm"
+
+    def wasm_parity(self) -> bool:
+        for pkg, target, prefix in (("krs-lesson-policy", "policy", "krs_lesson_policy"),
+                                    ("krs-expand-wasm", "protocol", "krs_expand")):
+            cases = self.out / "wasm-parity" / pkg
+            shutil.rmtree(cases, ignore_errors=True)
+            cases.mkdir(parents=True)
+            if not self.step(f"wasm-parity-native-{pkg}",
+                             ["nice", "-n", "19", "cargo", "+stable", "test", "--locked", "--offline", "-j", JOBS,
+                              "-p", pkg, "--test", target],
+                             env={"CARGO_TARGET_DIR": str(self.target_root / "native"), "KRS_WASM_PARITY_CASES": str(cases)}):
+                return False
+            if not self.step(f"wasm-parity-wasm-{pkg}",
+                             ["node", HERE / "wasm-parity.mjs", self.module_path(pkg), prefix, cases]):
+                return False
+        return True
 
     def stage(self) -> bool:
         return self.step("stage", ["bun", "scripts/stage-assets.ts", "--out", self.staged, "--pack", self.args.pack.resolve(), "--krs-rev", git_revision(ROOT)],

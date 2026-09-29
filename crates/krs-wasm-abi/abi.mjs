@@ -1,24 +1,20 @@
 // Node host side of the krs-wasm-abi JSON-over-linear-memory ABI:
 // `<prefix>_alloc(len) -> ptr`, `<prefix>_<entry>(ptr, len) -> u64`
 // (response_len << 32 | response_ptr), `<prefix>_dealloc(ptr, len)`, and no
-// imports. Used by the modules' `tests/run-wasm.mjs` runners; the browser
-// worker's copy is `browser/worker/src/modules.ts`.
+// imports. Used by `tests/browser-pack/wasm-parity.mjs`; the browser worker's
+// copy is `browser/worker/src/modules.ts`.
 import { readFile } from "node:fs/promises";
 
 // Compiles and instantiates the module at `path`, which must have no imports.
 export async function loadModule(path) {
   const bytes = await readFile(path);
-  const compileStarted = performance.now();
   const module = await WebAssembly.compile(bytes);
-  const compileMs = performance.now() - compileStarted;
   const imports = WebAssembly.Module.imports(module);
   if (imports.length !== 0) {
     throw new Error(`module has imports: ${JSON.stringify(imports)}`);
   }
-  const instantiateStarted = performance.now();
   const instance = await WebAssembly.instantiate(module, {});
-  const instantiateMs = performance.now() - instantiateStarted;
-  return { bytes, module, exports: instance.exports, compileMs, instantiateMs };
+  return instance.exports;
 }
 
 // Sends the request bytes to `<prefix>_<entry>` and returns a copy of the
