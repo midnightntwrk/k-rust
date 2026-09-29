@@ -273,13 +273,14 @@ def native_definition(
     gate: Path,
     pins: Ledger,
     environment: Mapping[str, str],
-) -> Path:
-    """Lower the emitted Definition IR through k-rust and record its KORE digest."""
+) -> str:
+    """Lower the emitted Definition IR through k-rust and return its pinned KORE digest."""
 
     definition = workspace / "native-definition.kore"
     krs_gate.compile(gate, artifacts / "definition-ir.json", definition, environment=environment)
-    pins.expect("native_definition_kore_sha256", sha256_file(definition))
-    return definition
+    digest = sha256_file(definition)
+    pins.expect("native_definition_kore_sha256", digest)
+    return digest
 
 
 _NATIVE_SUMMARY = re.compile(r"^PASS native (\S+) behavior: (\d+) executions; sha256=([0-9a-f]{64})$")
@@ -289,6 +290,7 @@ def native_behavior(
     port: Port,
     gate: Path,
     definition_ir: Path,
+    definition_kore_sha256: str,
     pins: Ledger,
     corpus: Mapping[str, Any],
     environment: Mapping[str, str],
@@ -302,7 +304,8 @@ def native_behavior(
         outcomes_path = Path(temporary) / "outcomes.json"
         result = run(
             [sys.executable, port.here / "native.py", gate, definition_ir, port.module,
-             port.corpus_path, "--outcomes", outcomes_path],
+             port.corpus_path, "--definition-kore-sha256", definition_kore_sha256,
+             "--outcomes", outcomes_path],
             environment=environment,
             timeout=900,
         )
@@ -425,6 +428,7 @@ def java_reference_gate(
     native_outcomes: list[dict[str, Any]],
     gate: Path,
     environment: Mapping[str, str],
+    definition_kore_sha256: str,
 ) -> int:
     """Compare the pinned Java route with native outcomes and prove emitted claims."""
 
@@ -437,7 +441,10 @@ def java_reference_gate(
     skipped = hooks.java_skips or {}
     outcomes: list[dict[str, Any]] = []
     with krs_gate.Session(gate, environment=environment) as session:
-        session.load(artifacts / "definition-ir.json", port.module)
+        session.load(
+            artifacts / "definition-ir.json", port.module,
+            definition_kore_sha256=definition_kore_sha256,
+        )
         for case in behavior:
             if str(case["id"]) in skipped:
                 continue
@@ -502,19 +509,19 @@ def run_port(port: Port, hooks: Hooks) -> int:
         artifacts = artifact_gate(port, workspace, krs, pins, environment)
         if hooks.definition_checks is not None:
             hooks.definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
-        native_definition(workspace, artifacts, gate, pins, environment)
+        definition_kore_sha256 = native_definition(workspace, artifacts, gate, pins, environment)
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")
             return 0
         executions, native_outcomes = native_behavior(
-            port, gate, artifacts / "definition-ir.json", pins, corpus, environment
+            port, gate, artifacts / "definition-ir.json", definition_kore_sha256, pins, corpus, environment
         )
         proofs = 0
         if arguments.java_reference:
             k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
             proofs = java_reference_gate(
                 port, hooks, workspace, artifacts, k, pins, corpus, native_outcomes,
-                gate, environment,
+                gate, environment, definition_kore_sha256,
             )
     pins.finish(hooks.label)
     summary = hooks.summary or reference_summary

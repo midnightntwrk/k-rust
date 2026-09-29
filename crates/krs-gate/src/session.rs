@@ -17,6 +17,7 @@ use k_rust::{
 use krs_ir::measure::Timings;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -204,7 +205,10 @@ impl Session {
         self.backend = Some(backend);
         self.configuration = Some(configuration);
         self.patterns = Some(patterns);
-        Ok(json!({"module": module}))
+        Ok(json!({
+            "module": module,
+            "definition_kore_sha256": format!("{:x}", Sha256::digest(artifacts.definition_kore.as_bytes())),
+        }))
     }
 
     fn configure(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {

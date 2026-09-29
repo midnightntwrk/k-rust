@@ -13,10 +13,28 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import semantics  # noqa: E402
+from support import behavior, semantics  # noqa: E402
 
 
 class RouteWiringTests(unittest.TestCase):
+    def test_native_workers_load_with_the_compiled_definition_digest(self) -> None:
+        cases = [{"id": "one"}, {"id": "two"}]
+        with ExitStack() as patches:
+            factory = patches.enter_context(mock.patch.object(behavior.krs_gate, "Session"))
+            session = factory.return_value.__enter__.return_value
+            patches.enter_context(mock.patch.object(
+                behavior, "native_case", side_effect=lambda _, case, __: dict(case),
+            ))
+            outcomes = behavior.native_corpus(
+                Path("gate"), Path("definition-ir.json"), "MAIN", cases, mock.Mock(),
+                definition_kore_sha256="digest", jobs=2,
+            )
+        self.assertEqual(outcomes, cases)
+        self.assertEqual(
+            session.load.call_args_list,
+            [mock.call(Path("definition-ir.json"), "MAIN", definition_kore_sha256="digest")] * 2,
+        )
+
     def test_java_reference_uses_shared_expectations(self) -> None:
         verifier = importlib.import_module("kwasm.verify")
         case = {"id": "case", "program": "program"}
@@ -38,12 +56,14 @@ class RouteWiringTests(unittest.TestCase):
                 semantics.java_reference_gate(
                     verifier.PORT, verifier.HOOKS, Path("workspace"), Path("artifacts"),
                     {"kompile": "kompile", "krun": "krun", "kprove": "kprove"},
-                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {},
+                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {}, "digest",
                 ),
                 1,
             )
         session = gate_session.return_value.__enter__.return_value
-        session.load.assert_called_once_with(Path("artifacts/definition-ir.json"), verifier.PORT.module)
+        session.load.assert_called_once_with(
+                Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
+            )
         checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
         self.assertEqual(
             run.call_args.args[0],
@@ -80,12 +100,14 @@ class RouteWiringTests(unittest.TestCase):
                 semantics.java_reference_gate(
                     verifier.PORT, hooks, Path("workspace"), Path("artifacts"),
                     {"kompile": "kompile", "krun": "krun", "kprove": "kprove"},
-                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {"KEY": "VALUE"},
+                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {"KEY": "VALUE"}, "digest",
                 ),
                 verifier.CLAIM_COUNT,
             )
         gate_session.assert_called_once_with(Path("gate"), environment={"KEY": "VALUE"})
-        session.load.assert_called_once_with(Path("artifacts/definition-ir.json"), verifier.PORT.module)
+        session.load.assert_called_once_with(
+                Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
+            )
         session.configure.assert_called_once_with(verifier.native.configuration_variables(case))
         checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
         arguments = run.call_args.args[0]
@@ -119,7 +141,7 @@ class RouteWiringTests(unittest.TestCase):
                             semantics, "artifact_gate", side_effect=lambda *_: phases.append("artifact") or artifacts,
                         ))
                         patches.enter_context(mock.patch.object(
-                            semantics, "native_definition", side_effect=lambda *_: phases.append("definition") or root / "definition.kore",
+                            semantics, "native_definition", side_effect=lambda *_: phases.append("definition") or "digest",
                         ))
                         native_gate = patches.enter_context(mock.patch.object(
                             semantics, "native_behavior",
@@ -147,10 +169,12 @@ class RouteWiringTests(unittest.TestCase):
                             native_gate.call_args.args[2],
                             artifacts / "definition-ir.json",
                         )
+                        self.assertEqual(native_gate.call_args.args[3], "digest")
                         if java_reference:
                             reference_gate.assert_called_once()
                             self.assertIs(reference_gate.call_args.args[7], native_outcomes)
                             self.assertEqual(reference_gate.call_args.args[8], root / "krs-gate")
+                            self.assertEqual(reference_gate.call_args.args[10], "digest")
                         else:
                             reference_gate.assert_not_called()
                         self.assertEqual(has_checks, port != "kwasm")
@@ -182,7 +206,7 @@ class RouteWiringTests(unittest.TestCase):
                 semantics, "artifact_gate", return_value=root / "artifacts",
             ))
             patches.enter_context(mock.patch.object(
-                semantics, "native_definition", side_effect=lambda *_: phases.append("definition") or root / "definition",
+                semantics, "native_definition", side_effect=lambda *_: phases.append("definition") or "digest",
             ))
             native_gate = patches.enter_context(mock.patch.object(semantics, "native_behavior"))
             reference_gate = patches.enter_context(mock.patch.object(semantics, "java_reference_gate"))

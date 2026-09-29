@@ -143,6 +143,7 @@ def main() -> int:
     parser.add_argument("krs_gate", type=Path)
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
+    parser.add_argument("--definition-kore-sha256", required=True)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--outcomes", type=Path, help="write ordered behavior outcomes as JSON")
     arguments = parser.parse_args()
@@ -163,6 +164,7 @@ def main() -> int:
         arguments.module,
         cases,
         SPEC,
+        definition_kore_sha256=arguments.definition_kore_sha256,
         jobs=arguments.jobs,
     )
     digest = json_sha256(outcomes)

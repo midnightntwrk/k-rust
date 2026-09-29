@@ -170,10 +170,21 @@ class Session:
             raise GateError(f"gate response has no result for request {request_id}")
         return response["result"]
 
-    def load(self, definition_ir: Path, module: str) -> dict[str, Any]:
-        """Load emitted Definition IR and its main module."""
+    def load(
+        self, definition_ir: Path, module: str, *, definition_kore_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        """Load emitted Definition IR and its main module.
 
-        return self.request("definition.load", definition_ir=os.fspath(definition_ir), module=module)
+        When ``definition_kore_sha256`` is given, the KORE the session compiled must have that digest.
+        """
+
+        loaded = self.request("definition.load", definition_ir=os.fspath(definition_ir), module=module)
+        if definition_kore_sha256 is not None and loaded.get("definition_kore_sha256") != definition_kore_sha256:
+            raise GateError(
+                f"session definition KORE sha256 {loaded.get('definition_kore_sha256')} "
+                f"differs from the compiled definition's {definition_kore_sha256}"
+            )
+        return loaded
 
     def configure(self, variables: Mapping[str, str]) -> dict[str, Any]:
         """Parse surface configuration variables and return their KORE pattern."""

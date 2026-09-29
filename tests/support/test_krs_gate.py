@@ -29,6 +29,8 @@ for line in sys.stdin:
         response = {"id": request["id"], "result": {
             "met": False, "expected": "wanted", "actual": "found",
         }}
+    elif mode == "load_digest" and request["operation"] == "definition.load":
+        response = {"id": request["id"], "result": {"module": "MAIN", "definition_kore_sha256": "abc123"}}
     elif request["operation"] == "kore.digest" and mode == "normal":
         response = {"id": request["id"], "result": {"sha256": "abc123"}}
     elif mode == "error":
@@ -132,6 +134,12 @@ class ClientTests(unittest.TestCase):
             with self.assertRaisesRegex(GateError, "process group was terminated"):
                 with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "hang"}):
                     pass
+
+    def test_load_requires_the_expected_definition_digest(self) -> None:
+        with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "load_digest"}) as session:
+            session.load(Path("definition-ir.json"), "MAIN", definition_kore_sha256="abc123")
+            with self.assertRaisesRegex(GateError, "sha256 abc123 differs from the compiled definition's def456"):
+                session.load(Path("definition-ir.json"), "MAIN", definition_kore_sha256="def456")
 
 
 if __name__ == "__main__":

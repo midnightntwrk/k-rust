@@ -55,7 +55,7 @@ def native_case(session: krs_gate.Session, case: Mapping[str, Any], spec: Specif
 
 def native_corpus(
     gate: Path, definition_ir: Path, module: str,
-    cases: list[Mapping[str, Any]], spec: Specification, jobs: int = 1,
+    cases: list[Mapping[str, Any]], spec: Specification, *, definition_kore_sha256: str, jobs: int = 1,
 ) -> list[dict[str, Any]]:
     """Run selected native cases with one loaded session per worker."""
 
@@ -64,7 +64,7 @@ def native_corpus(
 
     def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, dict[str, Any]]]:
         with krs_gate.Session(gate) as session:
-            session.load(definition_ir, module)
+            session.load(definition_ir, module, definition_kore_sha256=definition_kore_sha256)
             return [(index, native_case(session, case, spec)) for index, case in batch]
 
     indexed = list(enumerate(cases))

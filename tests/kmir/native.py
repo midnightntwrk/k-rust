@@ -83,6 +83,7 @@ def main() -> int:
     parser.add_argument("krs_gate", type=Path)
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
+    parser.add_argument("--definition-kore-sha256", required=True)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--outcomes", type=Path)
     parser.add_argument("--id", action="append", dest="case_ids")
@@ -98,6 +99,7 @@ def main() -> int:
             raise GateError(f"unknown behavior case ids: {sorted(missing)}")
     outcomes = behavior.native_corpus(
         arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC,
+        definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)
     if arguments.outcomes is not None:
