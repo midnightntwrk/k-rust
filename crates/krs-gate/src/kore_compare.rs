@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
+use std::fs;
 
 use k_rust::kore::ast::{
     Attributes, Module, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
@@ -15,21 +16,92 @@ use k_rust::kore::parser::parse_definition;
 const PROJECTOR_PREFIX: &str = "Lblproject'Coln'";
 const PROJECTOR_SEPARATOR: &str = "'Coln'";
 
-/// An explicitly reviewed label rewrite. Empty by default: label spelling is
-/// semantic and current KRS/reference output is expected to agree literally.
+/// Compare the requested module using the command-line arguments after `kore-compare`.
+///
+/// # Errors
+///
+/// Returns an error for invalid arguments, malformed KORE, or a comparison difference.
+pub fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
+    let reference_path = arguments.next().ok_or("missing reference KORE path")?;
+    let actual_path = arguments.next().ok_or("missing native KORE path")?;
+    let module_name = arguments.next().ok_or("missing module name")?;
+    let mut label_map = BTreeMap::new();
+    let mut reference_claims = None;
+    while let Some(argument) = arguments.next() {
+        if argument == "--reference-claims" {
+            let path = arguments
+                .next()
+                .ok_or("--reference-claims needs PATH MODULE")?;
+            let module = arguments
+                .next()
+                .ok_or("--reference-claims needs PATH MODULE")?;
+            if reference_claims.replace((path, module)).is_some() {
+                return Err("--reference-claims occurs more than once".into());
+            }
+            continue;
+        }
+        if argument != "--label" {
+            return Err(format!("unknown argument {argument:?}").into());
+        }
+        let mapping = arguments.next().ok_or("--label needs FROM=CANONICAL")?;
+        let (actual, reference) = mapping
+            .split_once('=')
+            .ok_or("--label needs FROM=CANONICAL")?;
+        if actual.is_empty()
+            || reference.is_empty()
+            || label_map.insert(actual.into(), reference.into()).is_some()
+        {
+            return Err(format!("invalid or duplicate label mapping {mapping:?}").into());
+        }
+    }
+    let reference = fs::read_to_string(&reference_path)?;
+    let actual = fs::read_to_string(&actual_path)?;
+    let policy = ComparePolicy { label_map };
+    let report = if let Some((path, claims_module)) = reference_claims {
+        let claims = fs::read_to_string(path)?;
+        compare_kore_with_reference_claims(
+            &reference,
+            &claims,
+            &claims_module,
+            &actual,
+            &module_name,
+            &policy,
+        )?
+    } else {
+        compare_kore(&reference, &actual, &module_name, &policy)?
+    };
+    println!(
+        "PASS native KORE: reference={} native={} reference_projector_pairs={} native_projector_pairs={}",
+        report.reference_sentences,
+        report.actual_sentences,
+        report.reference_projector_pairs,
+        report.actual_projector_pairs,
+    );
+    Ok(())
+}
+
+/// An explicitly reviewed label rewrite.
+/// Label spelling is semantic, so the default map is empty.
 #[derive(Clone, Debug, Default)]
 pub struct ComparePolicy {
+    /// Map native labels to their reviewed reference labels.
     pub label_map: BTreeMap<String, String>,
 }
 
+/// Sentence and projector counts after normalization and comparison.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparisonReport {
+    /// Number of retained reference sentences.
     pub reference_sentences: usize,
+    /// Number of retained native sentences.
     pub actual_sentences: usize,
+    /// Number of removed, closed reference projector pairs.
     pub reference_projector_pairs: usize,
+    /// Number of removed, closed native projector pairs.
     pub actual_projector_pairs: usize,
 }
 
+/// A malformed input or a visible KORE comparison difference.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompareError(String);
 
@@ -693,29 +765,16 @@ fn string_attribute<'a>(
     attributes: &'a Attributes,
     name: &str,
 ) -> Result<Option<&'a str>, CompareError> {
-    let matches = attributes
-        .0
-        .iter()
-        .filter_map(|attribute| match attribute {
-            Pattern::Application { symbol, arguments } if symbol.name == name => Some(arguments),
-            _ => None,
+    use crate::kore_attributes::StringAttributeError;
+    crate::kore_attributes::string_attribute(attributes, name).map_err(|error| {
+        CompareError::new(match error {
+            StringAttributeError::NonUtf8 => format!("{name} attribute is not UTF-8"),
+            StringAttributeError::NotOneString => {
+                format!("{name} attribute is not exactly one string")
+            }
+            StringAttributeError::Duplicate => format!("{name} attribute occurs more than once"),
         })
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [arguments] => match arguments.as_slice() {
-            [Pattern::String(value)] => value
-                .as_utf8()
-                .map(Some)
-                .map_err(|_| CompareError::new(format!("{name} attribute is not UTF-8"))),
-            _ => Err(CompareError::new(format!(
-                "{name} attribute is not exactly one string"
-            ))),
-        },
-        _ => Err(CompareError::new(format!(
-            "{name} attribute occurs more than once"
-        ))),
-    }
+    })
 }
 
 fn has_attribute(attributes: &Attributes, name: &str) -> bool {

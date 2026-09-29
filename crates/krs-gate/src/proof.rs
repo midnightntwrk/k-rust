@@ -1,32 +1,26 @@
-//! Parsed-KORE support for the IMP native proof lane.
+//! Parsed KORE support for the IMP native proof lane.
 //!
-//! This binary deliberately has a very small interface.  It extracts every
-//! requested claim from a native definition into an independently parseable
-//! one-claim specification, emits a claim-free executable definition, and
-//! classifies a backend result only after parsing it as KORE.
+//! The split operation extracts requested claims from a native definition into independently parseable one-claim specifications.
+//! It emits a claim-free executable definition and classifies backend results only after parsing them as KORE.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::kore_compare::normalize_standalone_pattern;
 use k_rust::kore::ast::{Attributes, Definition, Module, Pattern, Sentence};
 use k_rust::kore::parser::{parse_definition, parse_pattern};
 use k_rust::kore::printer::Printer;
-use krs_imp_native_comparator::normalize_standalone_pattern;
 
-fn main() {
-    if let Err(error) = run() {
-        eprintln!("krs-imp-proof-support: {error}");
-        std::process::exit(1);
-    }
-}
-
-fn run() -> Result<(), Box<dyn Error>> {
-    let mut arguments = env::args_os().skip(1);
+/// Run one proof-support command with arguments after `proof`.
+///
+/// # Errors
+///
+/// Returns an error for invalid arguments, malformed KORE, or failed proof checks.
+pub fn run(mut arguments: impl Iterator<Item = OsString>) -> Result<(), Box<dyn Error>> {
     match utf8(arguments.next(), "missing command")?.as_str() {
         "split" => {
             let input = path(arguments.next(), "missing native definition.kore")?;
@@ -368,27 +362,16 @@ fn string_attribute<'a>(
     attributes: &'a Attributes,
     name: &str,
 ) -> Result<Option<&'a str>, Box<dyn Error>> {
-    let matches = attributes
-        .0
-        .iter()
-        .filter_map(|attribute| match attribute {
-            Pattern::Application { symbol, arguments } if symbol.name == name => Some(arguments),
-            _ => None,
+    use crate::kore_attributes::StringAttributeError;
+    crate::kore_attributes::string_attribute(attributes, name).map_err(|error| {
+        failure(match error {
+            StringAttributeError::NonUtf8 => format!("attribute {name:?} is not UTF-8"),
+            StringAttributeError::NotOneString => {
+                format!("attribute {name:?} is not exactly one string")
+            }
+            StringAttributeError::Duplicate => format!("duplicate attribute {name:?}"),
         })
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [] => Ok(None),
-        [arguments] => match arguments.as_slice() {
-            [Pattern::String(value)] => value
-                .as_utf8()
-                .map(Some)
-                .map_err(|_| failure(format!("attribute {name:?} is not UTF-8"))),
-            _ => Err(failure(format!(
-                "attribute {name:?} is not exactly one string"
-            ))),
-        },
-        _ => Err(failure(format!("duplicate attribute {name:?}"))),
-    }
+    })
 }
 
 fn write_kore(path: &Path, mut text: String) -> Result<(), Box<dyn Error>> {

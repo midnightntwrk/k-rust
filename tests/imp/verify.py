@@ -22,7 +22,7 @@ from typing import Any, Callable, Mapping, TypeVar, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
-from support import lock  # noqa: E402
+from support import krs_gate, lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import (  # noqa: E402
     canonical_json,
@@ -48,7 +48,6 @@ EXPANSION_GOLDEN = HERE / "goldens/imp.expanded.rs"
 EXPANDED_MANIFEST = HERE / "expanded-definition/Cargo.toml"
 EXPANDED_SOURCE = HERE / "expanded-definition/src/imp.rs"
 PROBE_MANIFEST = HERE / "oracle/artifact-probe/Cargo.toml"
-NATIVE_MANIFEST = HERE / "native/Cargo.toml"
 PACKAGE = "krs-imp-definition"
 DEFINITION = "main"
 MODULE = "KRS-IMP"
@@ -487,7 +486,6 @@ def phase_rust(context: Context) -> RustBuild:
         ["cargo", "test", "--workspace", "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(RUST_MANIFEST), "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--locked"],
-        ["cargo", "test", "--manifest-path", os.fspath(NATIVE_MANIFEST), "--locked"],
     ]
     for command in commands:
         run(command, timeout=900, environment=env)
@@ -534,14 +532,6 @@ def phase_rust(context: Context) -> RustBuild:
         timeout=900,
         environment=doc_env,
     )
-    run(
-        [
-            "cargo", "doc", "--manifest-path", NATIVE_MANIFEST,
-            "--no-deps", "--locked",
-        ],
-        timeout=900,
-        environment=doc_env,
-    )
     for suite in (
         HERE / "test_gate.py",
         HERE / "oracle/test_oracle.py",
@@ -550,6 +540,7 @@ def phase_rust(context: Context) -> RustBuild:
         run([context.tools["python"], suite], timeout=300, environment=env)
 
     krs = build(env, target=context.target, timeout=600)
+    krs_gate.build(context.target, environment=env)
     check_packages("imp", env=env, target_dir=context.target)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
@@ -844,11 +835,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     native_kore = artifacts.native_build / "definition.kore"
     reference_kore = definitions.actual / "definition.kore"
-    comparator = [
-        "cargo", "run", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST,
-        "--bin", "krs-imp-native-comparator", "--",
-        reference_kore, native_kore, MODULE,
-    ]
+    comparator = [context.target / "release/krs-gate", "kore-compare", reference_kore, native_kore, MODULE]
     native_policy = table(context.pins.get("native_comparison"), "pins.native_comparison")
     expected_native_policy_fields = {"status", "label_map", "reference_claims_module"}
     if set(native_policy) != expected_native_policy_fields or native_policy.get("status") != "ready":
@@ -966,6 +953,7 @@ def phase_proofs(context: Context, rust_build: RustBuild) -> str:
         environment={
             **context.environment,
             "CARGO_TARGET_DIR": os.fspath(context.target),
+            "KRS_GATE_BIN": os.fspath(context.target / "release/krs-gate"),
         },
     )
     expected_summary = (

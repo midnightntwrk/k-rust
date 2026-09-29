@@ -66,7 +66,7 @@ difference fails the gate.
   produced by `krs expand`; the gate byte-compares two live projections to it.
 - `oracle/` contains fail-closed source, behavior, search, and proof
   comparison libraries.
-- `native/` contains the production native/reference KORE comparator.
+- `native/` retains the comparator policy and parity evidence; the implementation lives in `crates/krs-gate/src/kore_compare.rs` and `crates/krs-gate/src/proof.rs`.
 - `compatibility/` contains stable-name and four-boundary diagnostic cases.
 - `corpus.json`, `pins.json`, and `verify.py` are the root integration
   contract and contain no alternate semantics.

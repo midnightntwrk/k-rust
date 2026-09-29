@@ -39,7 +39,12 @@
 pub mod compile;
 /// Assemble surface configuration variables through the native frontend.
 pub mod configuration;
+mod kore_attributes;
+/// Compare parsed reference and native KORE definitions.
+pub mod kore_compare;
 /// Normalize and inspect retained KORE states.
 pub mod pattern;
+/// Split and classify parsed proof artifacts.
+pub mod proof;
 /// Serve requests against one loaded native definition.
 pub mod session;

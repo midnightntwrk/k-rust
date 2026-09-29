@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from imp_static_semantics import normalize as normalizer  # noqa: E402
 import proofs  # noqa: E402
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
@@ -24,7 +24,7 @@ from support.krs import Invocation  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import k_executable, k_tool  # noqa: E402
+from support.tools import checkout_scratch, k_executable, k_tool  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -36,7 +36,6 @@ REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
 ADJUNCT_SPEC = ROOT / "tests/imp_static_semantics/claims/static-spec.k"
 ARTIFACT_MANIFEST = ROOT / "tests/imp/oracle/artifact-probe/Cargo.toml"
 RUST_MANIFEST = ROOT / "tests/imp/rust-definition/Cargo.toml"
-NATIVE_MANIFEST = ROOT / "tests/imp/native/Cargo.toml"
 
 ACTUAL_MODULE = "KRS-IMP"
 ACTUAL_SPEC_MODULE = f"{ACTUAL_MODULE}-SPEC"
@@ -345,23 +344,27 @@ def dry_run_spec(
         raise GateError(f"{case['name']}: dry-run emitted {len(matches)} spec.kore files")
     run(
         [
-            support, "assert-spec", matches[0], case["source_module"],
+            support, "proof", "assert-spec", matches[0], case["source_module"],
             REFERENCE_MODULE, case["source_claim"],
         ],
         timeout=120,
     )
 
 
-def build_support(workspace: Path) -> Path:
-    run(["cargo", "build", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST, "--bin", "proof_support"], timeout=WATCHDOG_SECONDS)
+def build_support() -> Path:
+    """Use the root gate built by IMP, or build it for a standalone proof run."""
+
+    configured = os.environ.get("KRS_GATE_BIN")
+    if configured is not None:
+        support = Path(configured)
+        if not support.is_file():
+            raise GateError(f"native proof support binary is absent: {support}")
+        return support
     raw_target = os.environ.get("CARGO_TARGET_DIR")
-    target = Path(raw_target) if raw_target else NATIVE_MANIFEST.parent / "target"
+    target = Path(raw_target) if raw_target else checkout_scratch() / "imp-gate-root-target"
     if not target.is_absolute():
         target = ROOT / target
-    support = target / "debug/proof_support"
-    if not support.is_file():
-        raise GateError(f"native proof support binary is absent: {support}")
-    return support
+    return krs_gate.build(target)
 
 
 def build_native(
@@ -376,7 +379,7 @@ def build_native(
     if not native_kore.is_file():
         raise GateError("native Haskell build omitted definition.kore")
     split = workspace / "native-split"
-    run([support, "split", native_kore, split, ACTUAL_MODULE, ACTUAL_SPEC_MODULE, *labels], timeout=300)
+    run([support, "proof", "split", native_kore, split, ACTUAL_MODULE, ACTUAL_SPEC_MODULE, *labels], timeout=300)
     return split / "definition.kore", split / "specs"
 
 
@@ -402,7 +405,7 @@ def native_proof(
             f"{case['name']}: native proof produced rc={process.returncode}, "
             f"result_exists={result.is_file()}\n{process.stderr[:3000]}"
         )
-    classified = run([support, "classify", result], timeout=120).stdout.strip()
+    classified = run([support, "proof", "classify", result], timeout=120).stdout.strip()
     if (process.returncode, classified) not in {
         (0, "proved"), (1, "failed"), (1, "incomplete")
     }:
@@ -472,7 +475,7 @@ def main() -> int:
     reference_policy = proof_policy(pins, "reference", cases, proofs)
     actual_policy = proof_policy(pins, "actual", cases, proofs)
 
-    support = build_support(workspace)
+    support = build_support()
     krs = arguments.krs.resolve(strict=True)
     native_definition, native_specs = build_native(workspace, krs, support, labels)
     for directory in ("reference-json", "actual-json"):
@@ -581,7 +584,7 @@ def main() -> int:
         native_statuses[case["name"]] = status
         if status == "incomplete":
             source_result = results[indices["source_kore"]].get()
-            run([support, "compare-patterns", source_result, native_result], timeout=120)
+            run([support, "proof", "compare-patterns", source_result, native_result], timeout=120)
     if set(native_statuses) != {case["name"] for case in cases}:
         raise GateError("native proof coverage is incomplete")
 

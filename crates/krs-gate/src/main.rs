@@ -2,8 +2,14 @@
 
 use std::{env, error::Error, path::PathBuf};
 
-const USAGE: &str =
-    "usage: krs-gate compile [--timings FILE] DEFINITION-IR OUTPUT-KORE | krs-gate session";
+const USAGE: &str = "usage:
+  krs-gate compile [--timings FILE] DEFINITION-IR OUTPUT-KORE
+  krs-gate session
+  krs-gate kore-compare REFERENCE NATIVE MODULE [--label FROM=CANONICAL]... [--reference-claims PATH MODULE]
+  krs-gate proof split DEFINITION OUTPUT-DIR MODULE SPEC-MODULE LABEL...
+  krs-gate proof classify RESULT
+  krs-gate proof assert-spec SPEC SPEC-MODULE MODULE LABEL
+  krs-gate proof compare-patterns LEFT RIGHT";
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut arguments = env::args_os().skip(1);
@@ -24,10 +30,22 @@ fn run() -> Result<(), Box<dyn Error>> {
         Some(command) if command == "session" && arguments.next().is_none() => {
             krs_gate::session::run()
         }
+        Some(command) if command == "kore-compare" => {
+            krs_gate::kore_compare::run(env::args().skip(2))
+        }
+        Some(command) if command == "proof" => krs_gate::proof::run(arguments),
         _ => Err(USAGE.into()),
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    run()
+fn main() {
+    if let Err(error) = run() {
+        let prefix = match env::args_os().nth(1).as_deref() {
+            Some(command) if command == "kore-compare" => "krs-imp-native-comparator",
+            Some(command) if command == "proof" => "krs-imp-proof-support",
+            _ => "Error",
+        };
+        eprintln!("{prefix}: {error}");
+        std::process::exit(1);
+    }
 }

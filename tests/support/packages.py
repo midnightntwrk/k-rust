@@ -39,7 +39,6 @@ PACKAGES = (
     # The source is the reviewed expansion golden, which the IMP gate compares
     # byte for byte; rustfmt would rewrite its parameter-attribute layout.
     Package("tests/imp/expanded-definition/Cargo.toml", "imp", "authored", rustfmt=False),
-    Package("tests/imp/native/Cargo.toml", "imp", "authored"),
     Package("tests/imp/oracle/artifact-probe/Cargo.toml", "imp", "authored"),
     Package("tests/imp-state/rust-definition/Cargo.toml", "imp-state", "authored"),
     Package("tests/precedence-associativity/rust-definition/Cargo.toml", "precedence-associativity", "authored"),
