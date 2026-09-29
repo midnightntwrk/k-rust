@@ -79,10 +79,31 @@ impl Remaining {
     }
 }
 
+/// A search's queue of unexplored work, as `remaining` observes it: a loop's `VecDeque`, or the
+/// initial states a search has not yet queued.
+pub(super) trait Frontier {
+    fn is_empty(&self) -> bool;
+}
+
+impl<T> Frontier for VecDeque<T> {
+    fn is_empty(&self) -> bool {
+        VecDeque::is_empty(self)
+    }
+}
+
+impl<T> Frontier for [T] {
+    fn is_empty(&self) -> bool {
+        <[T]>::is_empty(self)
+    }
+}
+
 /// Whether work remains when a search stops at a bound: `Unexplored` when `frontier` is not
 /// empty or `may_expand` holds for the state the search stopped at, `Exhausted` otherwise.
 /// `may_expand` runs only when the frontier is empty.
-pub(super) fn remaining<T>(frontier: &VecDeque<T>, may_expand: impl FnOnce() -> bool) -> Remaining {
+pub(super) fn remaining<F: Frontier + ?Sized>(
+    frontier: &F,
+    may_expand: impl FnOnce() -> bool,
+) -> Remaining {
     if !frontier.is_empty() || may_expand() {
         Remaining::Unexplored(UnexploredWork(()))
     } else {

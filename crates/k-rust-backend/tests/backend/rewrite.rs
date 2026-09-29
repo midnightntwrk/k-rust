@@ -298,6 +298,11 @@ fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
             ..
         }] if symbol.as_ref() == "m"
     ));
+    // Validation empties the frontier, so a zero breadth bound has nothing to exceed.
+    assert!(matches!(
+        state_search.end,
+        k_rust_backend::search::SearchEnd::Exhausted(_)
+    ));
     let path_search = k_rust_backend::search::search_paths(
         &definition,
         constrained,
@@ -312,6 +317,11 @@ fn direct_rewrite_rejects_a_nested_surviving_macro_without_recovery() {
             reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
             ..
         }] if symbol.as_ref() == "m"
+    ));
+    // Validation empties the frontier, so a zero result bound leaves no work behind.
+    assert!(matches!(
+        path_search.end,
+        k_rust_backend::search::SearchEnd::Exhausted(_)
     ));
     let delta = snapshot().delta(&before);
     assert_eq!(delta.get(Counter::SimplifyRounds), 0);

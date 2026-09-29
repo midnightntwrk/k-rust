@@ -1800,14 +1800,13 @@ fn search_pattern_using(
 ) -> PatternSearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
-    let initial = VecDeque::from(initial);
     // A zero result bound stops before the first initial state, leaving every one unexplored.
     if requested_bound == Some(0) {
         return PatternSearchResult {
             matches: Vec::new(),
             effects: Vec::new(),
             incomplete: Vec::new(),
-            end: remaining(&initial, || false).result_bound(|unexplored| unexplored),
+            end: remaining(initial.as_slice(), || false).result_bound(|unexplored| unexplored),
         };
     }
     let graph_options = SearchOptions {
@@ -1848,7 +1847,7 @@ fn search_pattern_using(
     };
     let graph = search_graph_collecting(
         definition,
-        initial.into(),
+        initial,
         graph_options,
         solver,
         observation,
@@ -1933,13 +1932,14 @@ fn search_pattern_paths_using(
 ) -> PatternPathSearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
-    // A zero result bound stops before the initial state, leaving it unexplored.
+    // A zero result bound stops before the initial state, leaving it unexplored: the frontier
+    // is the one initial state, so work always remains.
     if requested_bound == Some(0) {
         return PatternPathSearchResult {
             matches: Vec::new(),
             effects: Vec::new(),
             incomplete: Vec::new(),
-            end: remaining(&VecDeque::from([&initial]), || false)
+            end: remaining(std::slice::from_ref(&initial), || false)
                 .result_bound(Truncation::UnexploredWork),
         };
     }
