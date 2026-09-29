@@ -297,6 +297,10 @@ fn configuration_grammar(
         )?;
     }
 
+    #[expect(
+        deprecated,
+        reason = "the configuration grammar keeps this set until it reads sort roles (CBC-05-T4)"
+    )]
     concrete_sorts.retain(|sort| !sort.is_reserved());
     for sort in concrete_sorts {
         if sort.name != BuiltinSort::Bool.k_name() {

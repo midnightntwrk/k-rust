@@ -810,6 +810,10 @@ fn sort_projection_production(sort: &Sort) -> Sentence {
     }
 }
 
+#[expect(
+    deprecated,
+    reason = "the rule grammar keeps this set until it reads sort roles (CBC-05-T3)"
+)]
 fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
     // `Module.allSorts` (outer.scala:413) holds every declared instantiation of a parametric
     // sort, such as `MInt{8}` from `syntax MInt{8}`, next to the nullary sorts, and

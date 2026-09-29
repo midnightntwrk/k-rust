@@ -8,7 +8,7 @@
 
 use crate::names::{BuiltinSort, WellKnownSymbol};
 
-use super::{Label, Sort};
+use super::{Label, Sort, SortRole};
 
 /// A fixed spelling `Label::is` compares against: a well-known KORE symbol or an internal
 /// frontend label.
@@ -459,17 +459,15 @@ impl Sort {
         Self::new(sort.as_str())
     }
 
-    /// The configuration grammar's "not a user sort" test, stated once: the `K`, `KItem`, and
-    /// `KConfigVar` builtins, the `KBott`, `Cell`, and `Bag` frontend sorts, or any `#`-prefixed
-    /// name. Parameters are ignored, as the original name test ignored them.
+    /// The configuration grammar's "not a user sort" test: the `K`, `KItem`, and `KConfigVar`
+    /// builtins, the `KBott`, `Cell`, and `Bag` frontend sorts, or any `#`-prefixed name.
+    /// Parameters are ignored.
+    #[deprecated(
+        note = "this set mixes kernel, scaffolding and rigid-variable sort heads; it stays only \
+                for the grammar generators that still read it and will be removed"
+    )]
     pub fn is_reserved(&self) -> bool {
-        [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
-            .iter()
-            .any(|sort| self.name == sort.k_name())
-            || [FrontendSort::KBott, FrontendSort::Cell, FrontendSort::Bag]
-                .iter()
-                .any(|sort| self.name == sort.as_str())
-            || self.name.starts_with('#')
+        SortRole::is_reserved(self.role())
     }
 }
 
@@ -744,6 +742,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "pins the deprecated wrapper until its last caller is removed"
+    )]
     fn is_reserved_agrees_with_the_configuration_grammar_predicate() {
         // `inner/config.rs` at c5bf88f: the sorts that get no cast, subsort, or bracket.
         let reference = |sort: &Sort| {
