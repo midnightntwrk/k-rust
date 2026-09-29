@@ -7,6 +7,7 @@ use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::provenance::FrameKind;
 use crate::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, OriginFrame, OriginStack, ProvenanceKey, RangedOriginKind, SchemaVersion,
@@ -16,7 +17,8 @@ use crate::{
 /// The collector wire version.
 /// Its wire bytes are pinned by `crates/krs-ir/tests/golden/collector_*.json`.
 /// The schema sample is pinned by `crates/krs-ir/tests/schema/collector-<version>.json`.
-/// A shape change must advance this version independently of the canonical descriptor schema.
+/// A change to the wire shape or to a frame code must advance this version
+/// independently of the canonical descriptor schema.
 pub const VERSION: u32 = 40;
 
 #[derive(Serialize)]
@@ -126,12 +128,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
                         item,
                         label,
                     } => FrameRef::Ranged((
-                        match kind {
-                            RangedOriginKind::Authored => 0,
-                            RangedOriginKind::MacroInvocation => 1,
-                            RangedOriginKind::GeneratedArtifact => 2,
-                            RangedOriginKind::FrontendDiagnostic => 3,
-                        },
+                        kind.code(),
                         intern(&range.file, &mut files, &mut file_indexes),
                         range.start_byte,
                         range.end_byte,
@@ -141,11 +138,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
                     )),
                     OriginFrame::Transformation { kind, item, label } => {
                         FrameRef::Transformation((
-                            match kind {
-                                TransformationOriginKind::GeneratedDescriptor => 4,
-                                TransformationOriginKind::SemanticIr => 5,
-                                TransformationOriginKind::DefinitionIr => 6,
-                            },
+                            kind.code(),
                             item.as_ref()
                                 .map(|item| intern(item, &mut items, &mut item_indexes)),
                             label.as_deref(),
@@ -219,8 +212,17 @@ struct OriginOwned {
 }
 
 enum FrameOwned {
-    Ranged((u8, usize, u32, u32, Option<usize>, Option<String>)),
-    Transformation((u8, Option<usize>, Option<String>)),
+    Ranged(
+        (
+            RangedOriginKind,
+            usize,
+            u32,
+            u32,
+            Option<usize>,
+            Option<String>,
+        ),
+    ),
+    Transformation((TransformationOriginKind, Option<usize>, Option<String>)),
 }
 
 impl<'de> Deserialize<'de> for FrameOwned {
@@ -241,8 +243,8 @@ impl<'de> Deserialize<'de> for FrameOwned {
                 let code: u8 = sequence
                     .next_element()?
                     .ok_or_else(|| A::Error::invalid_length(0, &self))?;
-                let frame = match code {
-                    0..=3 => {
+                let frame = match FrameKind::from_code(code) {
+                    Some(FrameKind::Ranged(kind)) => {
                         let file = sequence
                             .next_element()?
                             .ok_or_else(|| A::Error::invalid_length(1, &self))?;
@@ -258,18 +260,18 @@ impl<'de> Deserialize<'de> for FrameOwned {
                         let label = sequence
                             .next_element()?
                             .ok_or_else(|| A::Error::invalid_length(5, &self))?;
-                        Self::Value::Ranged((code, file, start, end, item, label))
+                        Self::Value::Ranged((kind, file, start, end, item, label))
                     }
-                    4..=6 => {
+                    Some(FrameKind::Transformation(kind)) => {
                         let item = sequence
                             .next_element()?
                             .ok_or_else(|| A::Error::invalid_length(1, &self))?;
                         let label = sequence
                             .next_element()?
                             .ok_or_else(|| A::Error::invalid_length(2, &self))?;
-                        Self::Value::Transformation((code, item, label))
+                        Self::Value::Transformation((kind, item, label))
                     }
-                    _ => {
+                    None => {
                         return Err(A::Error::custom(format!(
                             "unknown collector frame code {code}"
                         )));
@@ -309,6 +311,12 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
             SchemaVersion::CURRENT.0
         )));
     }
+    let item_at = |index: usize| {
+        wire.items
+            .get(index)
+            .cloned()
+            .ok_or_else(|| invalid(format!("invalid item index {index}")))
+    };
     let mut descriptors = Vec::with_capacity(wire.descriptors.len());
     for descriptor in wire.descriptors {
         let mut origins = Vec::with_capacity(descriptor.provenance.origins.len());
@@ -317,13 +325,6 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
             for frame in node.origin {
                 let expanded = match frame {
                     FrameOwned::Ranged((kind, file, start, end, item, label)) => {
-                        let kind = match kind {
-                            0 => RangedOriginKind::Authored,
-                            1 => RangedOriginKind::MacroInvocation,
-                            2 => RangedOriginKind::GeneratedArtifact,
-                            3 => RangedOriginKind::FrontendDiagnostic,
-                            _ => return Err(invalid(format!("unknown ranged frame code {kind}"))),
-                        };
                         let file = wire
                             .files
                             .get(file)
@@ -331,41 +332,19 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
                             .clone();
                         let range = SourceRange::new(file, start, end)
                             .map_err(|error| invalid(error.to_string()))?;
-                        let item = item
-                            .map(|index| {
-                                wire.items
-                                    .get(index)
-                                    .cloned()
-                                    .ok_or_else(|| invalid(format!("invalid item index {index}")))
-                            })
-                            .transpose()?;
                         OriginFrame::Ranged {
                             kind,
                             range,
-                            item,
+                            item: item.map(item_at).transpose()?,
                             label,
                         }
                     }
                     FrameOwned::Transformation((kind, item, label)) => {
-                        let kind = match kind {
-                            4 => TransformationOriginKind::GeneratedDescriptor,
-                            5 => TransformationOriginKind::SemanticIr,
-                            6 => TransformationOriginKind::DefinitionIr,
-                            _ => {
-                                return Err(invalid(format!(
-                                    "unknown transformation frame code {kind}"
-                                )));
-                            }
-                        };
-                        let item = item
-                            .map(|index| {
-                                wire.items
-                                    .get(index)
-                                    .cloned()
-                                    .ok_or_else(|| invalid(format!("invalid item index {index}")))
-                            })
-                            .transpose()?;
-                        OriginFrame::Transformation { kind, item, label }
+                        OriginFrame::Transformation {
+                            kind,
+                            item: item.map(item_at).transpose()?,
+                            label,
+                        }
                     }
                 };
                 frames.push(expanded);

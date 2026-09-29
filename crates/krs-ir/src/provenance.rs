@@ -117,6 +117,27 @@ pub enum RangedOriginKind {
     FrontendDiagnostic,
 }
 
+impl RangedOriginKind {
+    pub(crate) const fn code(self) -> u8 {
+        match self {
+            Self::Authored => 0,
+            Self::MacroInvocation => 1,
+            Self::GeneratedArtifact => 2,
+            Self::FrontendDiagnostic => 3,
+        }
+    }
+
+    pub(crate) fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Authored),
+            1 => Some(Self::MacroInvocation),
+            2 => Some(Self::GeneratedArtifact),
+            3 => Some(Self::FrontendDiagnostic),
+            _ => None,
+        }
+    }
+}
+
 /// Kind of logical transformation that has no honest source range of its own.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +148,40 @@ pub enum TransformationOriginKind {
     SemanticIr,
     /// A sentence or term in backend-independent Definition IR.
     DefinitionIr,
+}
+
+impl TransformationOriginKind {
+    pub(crate) const fn code(self) -> u8 {
+        match self {
+            Self::GeneratedDescriptor => 4,
+            Self::SemanticIr => 5,
+            Self::DefinitionIr => 6,
+        }
+    }
+
+    pub(crate) fn from_code(code: u8) -> Option<Self> {
+        match code {
+            4 => Some(Self::GeneratedDescriptor),
+            5 => Some(Self::SemanticIr),
+            6 => Some(Self::DefinitionIr),
+            _ => None,
+        }
+    }
+}
+
+/// Collector frame shape and its kind, derived from its wire code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameKind {
+    Ranged(RangedOriginKind),
+    Transformation(TransformationOriginKind),
+}
+
+impl FrameKind {
+    pub(crate) fn from_code(code: u8) -> Option<Self> {
+        RangedOriginKind::from_code(code)
+            .map(Self::Ranged)
+            .or_else(|| TransformationOriginKind::from_code(code).map(Self::Transformation))
+    }
 }
 
 /// One link in a source-to-generated provenance chain.
@@ -258,3 +313,58 @@ impl fmt::Display for OriginStackError {
 }
 
 impl Error for OriginStackError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{FrameKind, RangedOriginKind, TransformationOriginKind};
+
+    /// Changing a frame code requires advancing `collector::VERSION`.
+    #[test]
+    fn collector_frame_codes() {
+        let ranged = [
+            RangedOriginKind::Authored,
+            RangedOriginKind::MacroInvocation,
+            RangedOriginKind::GeneratedArtifact,
+            RangedOriginKind::FrontendDiagnostic,
+        ];
+        let transformations = [
+            TransformationOriginKind::GeneratedDescriptor,
+            TransformationOriginKind::SemanticIr,
+            TransformationOriginKind::DefinitionIr,
+        ];
+        for kind in ranged {
+            let expected = match kind {
+                RangedOriginKind::Authored => 0,
+                RangedOriginKind::MacroInvocation => 1,
+                RangedOriginKind::GeneratedArtifact => 2,
+                RangedOriginKind::FrontendDiagnostic => 3,
+            };
+            assert_eq!(kind.code(), expected);
+            assert_eq!(RangedOriginKind::from_code(kind.code()), Some(kind));
+            assert_eq!(
+                FrameKind::from_code(kind.code()),
+                Some(FrameKind::Ranged(kind))
+            );
+            assert_eq!(TransformationOriginKind::from_code(kind.code()), None);
+        }
+        for kind in transformations {
+            let expected = match kind {
+                TransformationOriginKind::GeneratedDescriptor => 4,
+                TransformationOriginKind::SemanticIr => 5,
+                TransformationOriginKind::DefinitionIr => 6,
+            };
+            assert_eq!(kind.code(), expected);
+            assert_eq!(TransformationOriginKind::from_code(kind.code()), Some(kind));
+            assert_eq!(
+                FrameKind::from_code(kind.code()),
+                Some(FrameKind::Transformation(kind))
+            );
+            assert_eq!(RangedOriginKind::from_code(kind.code()), None);
+        }
+        for code in [7, u8::MAX] {
+            assert_eq!(RangedOriginKind::from_code(code), None);
+            assert_eq!(TransformationOriginKind::from_code(code), None);
+            assert_eq!(FrameKind::from_code(code), None);
+        }
+    }
+}
