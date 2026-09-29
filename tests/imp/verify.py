@@ -480,19 +480,10 @@ def phase_preflight(context: Context) -> str:
 
 def phase_rust(context: Context) -> RustBuild:
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
-    # Rust 1.98 added these style lints after the project's 1.88 MSRV gate.
-    # Keep every other warning denied without rewriting recovered test logic.
-    clippy_lints = [
-        "--", "-D", "warnings",
-        "-A", "clippy::too_many_lines",
-        "-A", "clippy::disallowed_names",
-        "-A", "clippy::struct_excessive_bools",
-        "-A", "clippy::items_after_test_module",
-    ]
     commands = [
         ["cargo", "fmt", "--all", "--check"],
         ["cargo", "check", "--workspace", "--all-targets", "--locked"],
-        ["cargo", "clippy", "--workspace", "--all-targets", "--locked", *clippy_lints],
+        ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"],
         ["cargo", "test", "--workspace", "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(RUST_MANIFEST), "--locked"],
         ["cargo", "test", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--locked"],

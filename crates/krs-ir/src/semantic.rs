@@ -3115,8 +3115,50 @@ fn validate_precedence_order(modules: &[SemanticModule]) -> Result<(), SemanticV
     Ok(())
 }
 
+fn validate_semantic_subsort_order(
+    edges: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+) -> Result<(), SemanticValidationError> {
+    for start in edges.keys() {
+        let mut pending = edges
+            .get(start)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut visited = BTreeSet::new();
+        while let Some(sort) = pending.pop() {
+            if &sort == start {
+                return Err(SemanticValidationError::SubsortCycle(Box::new(
+                    start.clone(),
+                )));
+            }
+            if visited.insert(sort.clone()) {
+                pending.extend(edges.get(&sort).into_iter().flatten().cloned());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_subsort(
+    candidate: &SemanticSortRef,
+    expected: &SemanticSortRef,
+    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+) -> bool {
+    let mut pending = vec![candidate];
+    let mut visited = BTreeSet::new();
+    while let Some(sort) = pending.pop() {
+        if sort == expected {
+            return true;
+        }
+        if visited.insert(sort) {
+            pending.extend(parents.get(sort).into_iter().flatten());
+        }
+    }
+    false
+}
+
 #[cfg(test)]
-#[allow(clippy::items_after_test_module)] // Subsort helpers remain adjacent to their validation pass.
 mod tests {
     use super::*;
     use crate::ClaimModality;
@@ -3402,47 +3444,4 @@ mod tests {
             Err(SemanticValidationError::InvalidClaimMetadata(_))
         ));
     }
-}
-
-fn validate_semantic_subsort_order(
-    edges: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-) -> Result<(), SemanticValidationError> {
-    for start in edges.keys() {
-        let mut pending = edges
-            .get(start)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut visited = BTreeSet::new();
-        while let Some(sort) = pending.pop() {
-            if &sort == start {
-                return Err(SemanticValidationError::SubsortCycle(Box::new(
-                    start.clone(),
-                )));
-            }
-            if visited.insert(sort.clone()) {
-                pending.extend(edges.get(&sort).into_iter().flatten().cloned());
-            }
-        }
-    }
-    Ok(())
-}
-
-fn is_subsort(
-    candidate: &SemanticSortRef,
-    expected: &SemanticSortRef,
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-) -> bool {
-    let mut pending = vec![candidate];
-    let mut visited = BTreeSet::new();
-    while let Some(sort) = pending.pop() {
-        if sort == expected {
-            return true;
-        }
-        if visited.insert(sort) {
-            pending.extend(parents.get(sort).into_iter().flatten());
-        }
-    }
-    false
 }
