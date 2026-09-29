@@ -13,13 +13,13 @@ proc-macro = true
 krs-expand = { path = "../krs-expand" }
 krs-syntax = { path = "../krs-syntax" }
 proc-macro-crate = "3.4.0"
-proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
-syn = { version = "2.0.119", features = ["full", "parsing", "printing"] }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+syn = { workspace = true, features = ["full", "parsing", "printing"] }
 
 [dev-dependencies]
-expect-test = "1.5.1"
+expect-test = { workspace = true }
 krs-test-support = { path = "../krs-test-support" }
-quote = "1.0.47"
+quote = { workspace = true }
 
 [lints]
 workspace = true

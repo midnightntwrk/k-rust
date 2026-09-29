@@ -8,12 +8,12 @@ license.workspace = true
 
 [dependencies]
 krs-ir = { path = "../krs-ir" }
-proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
-quote = "1.0.47"
-syn = { version = "2.0.119", features = ["extra-traits", "full", "parsing", "printing"] }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+syn = { workspace = true, features = ["extra-traits", "full", "parsing", "printing"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-expect-test = "1.5.1"
+expect-test = { workspace = true }

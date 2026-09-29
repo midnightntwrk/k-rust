@@ -23,16 +23,16 @@ krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
 krs-syntax = { path = "../krs-syntax" }
 lexopt = "0.3.2"
-proc-macro2 = "1.0.107"
+proc-macro2 = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10.9"
+sha2 = { workspace = true }
 tempfile = "3.27.0"
-toml_edit = { version = "0.25.13", default-features = false, features = ["display", "parse"] }
+toml_edit = { workspace = true, features = ["display", "parse"] }
 
 [dev-dependencies]
 krs-test-support = { path = "../krs-test-support" }
-syn = { version = "2.0.119", features = ["full", "parsing"] }
+syn = { workspace = true, features = ["full", "parsing"] }
 
 [lints]
 workspace = true

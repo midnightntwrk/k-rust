@@ -17,8 +17,8 @@ krs-lesson-policy = { path = "../krs-lesson-policy", default-features = false }
 krs-wasm-abi = { path = "../krs-wasm-abi" }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10.9"
-syn = { version = "2.0.119", features = ["full", "parsing"] }
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing"] }
 
 # The workspace table forbids `unsafe_code`; the Wasm exports that
 # `krs_wasm_abi::export!` declares carry `#[unsafe(no_mangle)]`, which that

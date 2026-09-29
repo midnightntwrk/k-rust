@@ -9,19 +9,19 @@ license.workspace = true
 [dependencies]
 krs-ir = { path = "../krs-ir" }
 krs-syntax = { path = "../krs-syntax" }
-proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
-prettyplease = "0.2.37"
-quote = "1.0.47"
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+prettyplease = { workspace = true }
+quote = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10.9"
-syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
-toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing", "visit"] }
+toml_edit = { workspace = true, features = ["parse"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-expect-test = "1.5.1"
+expect-test = { workspace = true }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }
