@@ -278,6 +278,7 @@ impl Unifier<'_> {
     /// (`BackendDefinition::instance_normal`), where distinct arguments give distinct normal
     /// forms and hence distinct values. Any other equal-name pair stays an equation, among them
     /// the applications of a macro or alias, whose values the definition does not describe.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn decomposable(&self, symbol: &Symbol, left: &Term, right: &Term) -> bool {
         match symbol.attributes.head_role() {
             HeadRole::FreeConstructor => true,

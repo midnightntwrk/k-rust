@@ -164,6 +164,7 @@ fn without_injections(mut term: &Term) -> &Term {
 
 /// Reads the `N` literal coordinates of a point written with `constructor`, whose signature is
 /// `signature`.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn point_coordinates<'a, const N: usize>(
     term: &'a Term,
     signature: PointSignature,
@@ -176,7 +177,11 @@ fn point_coordinates<'a, const N: usize>(
             arguments,
         } => (symbol, sort_arguments, arguments),
         TermKind::Variable(_) | TermKind::And(..) => return Reading::Opaque,
-        _ => return Reading::NotAPoint,
+        TermKind::DomainValue { .. }
+        | TermKind::Injection { .. }
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => return Reading::NotAPoint,
     };
     // Only a free constructor's application is read as written; any other root may denote a
     // point, or not, by equations or evaluation the reader does not run.

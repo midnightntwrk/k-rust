@@ -19,8 +19,8 @@
 use serde_json::{Value, json};
 
 use crate::term::{
-    DeclaredFlags, FunctionType, Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind,
-    Variable, VariableKind,
+    FunctionType, Sort, Symbol, SymbolDeclaration, SymbolType, Term, TermKind, Variable,
+    VariableKind,
 };
 
 fn quoted(name: &str) -> String {
@@ -60,15 +60,15 @@ fn symbol_json(symbol: &Symbol) -> Value {
         result_sort,
         attributes,
     } = symbol;
-    // The role flags are private to `term`; the model reads them as declared.
-    let DeclaredFlags {
+    // The model's `Sym` reads the declaration as written, including the flags that `head_role`
+    // folds. No `..`: a new field does not compile here until it reaches the JSON, as a named
+    // key or inside `other`.
+    let SymbolDeclaration {
+        symbol_type,
         anywhere,
         declared_function,
-        injective,
-    } = attributes.declared_flags();
-    let SymbolAttributes {
-        symbol_type,
         binder,
+        injective,
         associative,
         idempotent,
         macro_or_alias,
@@ -76,8 +76,7 @@ fn symbol_json(symbol: &Symbol) -> Value {
         smt,
         hook,
         collection,
-        ..
-    } = attributes;
+    } = attributes.declaration();
     let other = format!(
         "{:?}",
         (

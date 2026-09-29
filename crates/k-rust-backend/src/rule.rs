@@ -1576,6 +1576,7 @@ fn k_cell_next(cell: &Term) -> Option<&Term> {
     }
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> CellIndex {
     match term.kind() {
         TermKind::Injection { term, .. } => cell_index(definition, term, side),

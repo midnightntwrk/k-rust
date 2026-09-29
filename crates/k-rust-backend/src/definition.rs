@@ -82,8 +82,8 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         CollectionMetadata, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
-        MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolType, Term, TermKind, Variable,
-        names::HookName,
+        MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration, SymbolType, Term,
+        TermKind, Variable, names::HookName,
     },
 };
 
@@ -1887,20 +1887,24 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     } else {
         smtlib.map(SmtType::Lib)
     };
-    let mut result = SymbolAttributes::constructor()
-        .with_anywhere(attributes.has(KoreAttribute::Anywhere))
-        .with_declared_function(function)
-        .with_injective(attributes.has(KoreAttribute::Injective));
-    result.symbol_type = symbol_type;
-    result.binder = attributes.has(KoreAttribute::Binder);
-    result.associative = attributes.has(KoreAttribute::Assoc);
-    result.idempotent = attributes.has(KoreAttribute::Idem);
-    result.macro_or_alias =
-        attributes.has(KoreAttribute::Macro) || attributes.has(KoreAttribute::Alias);
-    result.has_evaluators = !attributes.has(KoreAttribute::NoEvaluators);
-    result.smt = smt;
-    result.hook = attributes.string(KoreAttribute::Hook)?.map(Into::into);
-    Ok(result)
+    // Every field is named, so a new field of `SymbolAttributes` does not compile here until
+    // the internalizer decides it from the declaration.
+    Ok(SymbolDeclaration {
+        symbol_type,
+        anywhere: attributes.has(KoreAttribute::Anywhere),
+        declared_function: function,
+        binder: attributes.has(KoreAttribute::Binder),
+        injective: attributes.has(KoreAttribute::Injective),
+        associative: attributes.has(KoreAttribute::Assoc),
+        idempotent: attributes.has(KoreAttribute::Idem),
+        macro_or_alias: attributes.has(KoreAttribute::Macro)
+            || attributes.has(KoreAttribute::Alias),
+        has_evaluators: !attributes.has(KoreAttribute::NoEvaluators),
+        smt,
+        hook: attributes.string(KoreAttribute::Hook)?.map(Into::into),
+        collection: None,
+    }
+    .into())
 }
 
 fn validate_binder_attribute(
@@ -3136,6 +3140,14 @@ mod tests {
             HeadRole::Function {
                 declared: true,
                 injective: true
+            }
+        );
+        // Negative control: a declared function without `injective` stays non-injective.
+        assert_eq!(
+            definition.symbols["item"].attributes.head_role(),
+            HeadRole::Function {
+                declared: true,
+                injective: false
             }
         );
         assert_eq!(

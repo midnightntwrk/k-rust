@@ -144,6 +144,7 @@ impl BackendDefinition {
         normal
     }
 
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn instance_normal_uncached(&self, term: &Term, normalized: bool) -> bool {
         let arguments_normal = |arguments: &[Term]| {
             arguments
@@ -465,6 +466,7 @@ impl<'a> SyntacticUnifier<'a> {
 /// different heads have no common instance. On the subject side an equation-head application
 /// qualifies by the precondition of [`may_unify`]; on the pattern side only a free constructor
 /// or a domain value does. A function, macro or alias root fixes nothing.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn rigid((side, term): Sided<'_>) -> bool {
     match term.kind() {
         TermKind::DomainValue { .. } => true,

@@ -240,15 +240,62 @@ pub struct SymbolAttributes {
     pub collection: Option<CollectionMetadata>,
 }
 
-/// The three declared flags that [`SymbolAttributes::head_role`] folds into a role, as declared.
-/// The Lean term model reads them raw (`Sym` of `lean/KRust/TermAttributes.lean`), so the bridge
-/// serializes them from here; no algorithm reads them.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DeclaredFlags {
+/// Every field of [`SymbolAttributes`], all visible inside the crate: the one way to build
+/// attributes from a declaration with each field named (the internalizer,
+/// `definition::symbol_attributes`), and, in tests, the declaration read back as written
+/// (`SymbolAttributes::declaration`, for the Lean bridge, whose `Sym` reads the flags raw).
+///
+/// The conversion into [`SymbolAttributes`] and `SymbolAttributes::declaration` name every field
+/// of both structs without `..`, so a new field of [`SymbolAttributes`] does not compile until it
+/// is added here, and the Lean bridge (`tests::lean_bridge::term_json::symbol_json`) destructures
+/// this struct without `..`, so it does not compile until the field reaches the model's `Sym`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SymbolDeclaration {
+    pub(crate) symbol_type: SymbolType,
     pub(crate) anywhere: bool,
     pub(crate) declared_function: bool,
+    pub(crate) binder: bool,
     pub(crate) injective: bool,
+    pub(crate) associative: bool,
+    pub(crate) idempotent: bool,
+    pub(crate) macro_or_alias: bool,
+    pub(crate) has_evaluators: bool,
+    pub(crate) smt: Option<SmtType>,
+    pub(crate) hook: Option<Name>,
+    pub(crate) collection: Option<CollectionMetadata>,
+}
+
+impl From<SymbolDeclaration> for SymbolAttributes {
+    fn from(declaration: SymbolDeclaration) -> Self {
+        let SymbolDeclaration {
+            symbol_type,
+            anywhere,
+            declared_function,
+            binder,
+            injective,
+            associative,
+            idempotent,
+            macro_or_alias,
+            has_evaluators,
+            smt,
+            hook,
+            collection,
+        } = declaration;
+        Self {
+            symbol_type,
+            anywhere,
+            declared_function,
+            binder,
+            injective,
+            associative,
+            idempotent,
+            macro_or_alias,
+            has_evaluators,
+            smt,
+            hook,
+            collection,
+        }
+    }
 }
 
 impl SymbolAttributes {
@@ -342,9 +389,10 @@ impl SymbolAttributes {
     ///   `is_functional_pattern`, `contains_function_pattern`),
     ///   `matching::collections::list_update_cannot_match`, the matcher's `is_function`;
     /// - the declaration as written: `verify::verify_function_head` (an equation's left-hand
-    ///   side headed by a symbol declared constructor) and `builtin::substitution::KVarSorts::of` (every symbol declared
-    ///   constructor builds values whose sort may hold a `KVar`, whatever its role, so the
-    ///   `KVar`-free sorts stay an under-approximation).
+    ///   side headed by a symbol declared constructor) and
+    ///   `builtin::substitution::KVarSorts::of` (every symbol declared constructor builds values
+    ///   whose sort may hold a `KVar`, whatever its role, so the `KVar`-free sorts stay an
+    ///   under-approximation).
     #[inline]
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
@@ -364,13 +412,37 @@ impl SymbolAttributes {
         }
     }
 
-    /// The declared `anywhere`, `function` and `injective` flags, for the Lean bridge only.
+    /// The declaration as written, every field including the flags [`Self::head_role`] folds,
+    /// for the Lean bridge only. No algorithm reads the flags, so this is test-only.
     #[cfg(test)]
-    pub(crate) fn declared_flags(&self) -> DeclaredFlags {
-        DeclaredFlags {
-            anywhere: self.anywhere,
-            declared_function: self.declared_function,
-            injective: self.injective,
+    pub(crate) fn declaration(&self) -> SymbolDeclaration {
+        let Self {
+            symbol_type,
+            anywhere,
+            declared_function,
+            binder,
+            injective,
+            associative,
+            idempotent,
+            macro_or_alias,
+            has_evaluators,
+            smt,
+            hook,
+            collection,
+        } = self.clone();
+        SymbolDeclaration {
+            symbol_type,
+            anywhere,
+            declared_function,
+            binder,
+            injective,
+            associative,
+            idempotent,
+            macro_or_alias,
+            has_evaluators,
+            smt,
+            hook,
+            collection,
         }
     }
 }
