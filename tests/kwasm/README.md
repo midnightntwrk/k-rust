@@ -5,7 +5,7 @@ The gate compiles Definition IR to KORE through the pinned K-Rust frontend, exec
 This route does not require the Java K toolchain.
 
 Run `python3 tests/kwasm/verify.py --java-reference` to add the upstream K reference route.
-The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and parses the resulting KORE states through the same observer and outcome checks as the native route.
+The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and passes the resulting KORE states to the `kore.read` session operation and checks them with the same structural expectations and outcome builder as the native route.
 It compares each Java outcome with the native outcome of the same case id and reports the first differing key if they disagree.
 The Java-kompiled definition remains pinned, while reference behavior is checked by case agreement.
 

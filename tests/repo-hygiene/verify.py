@@ -31,11 +31,16 @@ unless it is under a `fixtures/` directory,
 so no standalone package escapes its owning gate's format, lint, and MSRV checks.
 Every row must name a tracked manifest that declares `[workspace]`.
 
+Python gates must read K models through the protocol client.
+String literals containing K model vocabulary outside that client must match an explicit exception count.
+Removing an interpretation site requires lowering its exception count.
+
     PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import re
 import sys
@@ -72,10 +77,86 @@ UNSAFE_EXCEPTION = "crates/krs-wasm-abi/src/lib.rs"
 UNSAFE_ALLOW = re.compile(r"\b(?:allow|expect)\s*\([^)]*\bunsafe_code\b", re.DOTALL)
 RUST_VERSION = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 
+# Node names come from the pinned k-rust's src/kast/json.rs and src/definition/json.rs.
+# KInjectedLabel, KModule, and KFlatModuleList cover Java K envelope spellings too.
+KAST_NODE_KINDS = {
+    "KApply", "KToken", "KVariable", "KSequence", "KRewrite", "KAs",
+    "KSort", "KLabel", "KAtt", "InjectedKLabel", "KInjectedLabel",
+    "KProduction", "KRule", "KClaim", "KModule", "KDefinition", "KFlatModule",
+    "KFlatModuleList", "KImport", "KNonTerminal", "KRegexTerminal", "KTerminal",
+    "KSyntaxSort", "KSortSynonym", "KSyntaxLexical", "KSyntaxAssociativity",
+    "KSyntaxPriority", "KContext", "KContextAlias", "KConfiguration", "KBubble",
+    "badsentence",
+}
+KORE_JSON_TAGS = {"App", "DV", "EVar", "SVar", "String"}
+KORE_TEXT = re.compile(r"\bLbl|\\dv\{|inj\{|initGeneratedTopCell")
+PROTOCOL_CLIENT = "tests/support/krs_gate.py"
+
+# Each entry counts matching AST string constants, including f-string constant parts.
+# Counts must decrease when an interpretation site is removed.
+K_VOCABULARY_ALLOWLIST: dict[str, tuple[int, str]] = {
+    "tests/imp-control-flow/verify.py": (32, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp-state/verify.py": (25, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp/oracle/behavior.py": (14, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp/oracle/proofs.py": (20, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp/oracle/run_proofs.py": (1, "IMP proof residual KAST reader, to be replaced by krs-gate"),
+    "tests/imp/oracle/source_definition.py": (50, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp/oracle/source_policy_probe.py": (5, "IMP oracle KAST policy fixtures, to be replaced by krs-gate"),
+    "tests/imp/oracle/test_oracle.py": (31, "IMP oracle KAST fixtures, to be replaced by krs-gate"),
+    "tests/imp_static_semantics/normalize.py": (20, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/imp_static_semantics/verify.py": (2, "IMP oracle KAST reader, to be replaced by krs-gate"),
+    "tests/repo-hygiene/verify.py": (38, "Python K vocabulary policy"),
+    "tests/repo-hygiene/test_vocabulary.py": (3, "Seeded hygiene rule fixtures"),
+    "tests/support/imp_oracle.py": (1, "Kept text check of kparse output"),
+}
+
 
 def tracked_files() -> list[str]:
     output = run(["git", "-C", ROOT, "ls-files", "-z"], text=False).stdout
     return [name for name in output.decode("utf-8").split("\0") if name]
+
+
+def k_vocabulary_sites(source: str) -> list[tuple[int, str]]:
+    """Find K model vocabulary in string literals at every Python AST position."""
+
+    return [
+        (node.lineno, node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and (node.value in KAST_NODE_KINDS or node.value in KORE_JSON_TAGS or KORE_TEXT.search(node.value))
+    ]
+
+
+def k_vocabulary_problems(
+    files: list[str], *, root: Path = ROOT,
+    allowlist: dict[str, tuple[int, str]] = K_VOCABULARY_ALLOWLIST,
+) -> list[str]:
+    """Reject Python K interpretation additions and stale exception counts."""
+
+    problems: list[str] = []
+    for relative in sorted(allowlist):
+        if not (root / relative).is_file():
+            problems.append(f"{relative}: K vocabulary allowlisted path no longer exists; remove its entry")
+    for relative in files:
+        if not relative.startswith("tests/") or not relative.endswith(".py") or relative == PROTOCOL_CLIENT:
+            continue
+        path = root / relative
+        if not path.is_file():
+            continue
+        try:
+            sites = k_vocabulary_sites(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeError, OSError) as error:
+            problems.append(f"{relative}: cannot inspect Python literals: {error}")
+            continue
+        if relative in allowlist:
+            expected, reason = allowlist[relative]
+            if len(sites) != expected:
+                action = "remove the added K interpretation and use krs-gate" if len(sites) > expected else "lower the allowlist count to match the reduction"
+                problems.append(f"{relative}: K vocabulary count {len(sites)} differs from allowed {expected} ({reason}); {action}")
+        else:
+            for line, value in sites:
+                problems.append(f"{relative}:{line}: K vocabulary {value[:80]!r}; remove the K interpretation and use krs-gate")
+    return problems
 
 
 def gate_entry_problems(files: list[str]) -> list[str]:
@@ -167,6 +248,7 @@ def standalone_package_problems(files: list[str]) -> list[str]:
 def main() -> int:
     files = tracked_files()
     problems = gate_entry_problems(files)
+    problems.extend(k_vocabulary_problems(files))
     lock = tomllib.loads((ROOT / "Krs.lock").read_text(encoding="utf-8"))
     msrv = tuple(map(int, lock["cargo"]["msrv"].split(".")[:2]))
     problems.extend(standalone_package_problems(files))
@@ -207,7 +289,7 @@ def main() -> int:
         return 1
     print(
         "PASS repository hygiene: tracked references, gate entry points, standalone package table, "
-        "unsafe_code lint policy, and Cargo MSRV"
+        "unsafe_code lint policy, Cargo MSRV, and Python K vocabulary"
     )
     return 0
 

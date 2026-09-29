@@ -6,6 +6,8 @@ A verifier puts `tests/` on `sys.path` in one line and imports what it needs:
     from support import ROOT, GateError
     from support.process import run
 
+Python orchestrates; K, KORE, KAST, and IR data are read through krs-gate.
+
 The modules are:
 
 - `support.krs_gate`: compile, definition.load, configure, execute, kore.read,
