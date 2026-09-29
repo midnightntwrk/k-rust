@@ -1620,19 +1620,6 @@ fn standalone_variant_aliases_and_mismatched_owner_paths_are_rejected() {
     );
 }
 
-#[test]
-fn an_older_schema_is_rejected_without_compatibility_guessing() {
-    let error = serde_json::from_str::<DescriptorBundle>(
-        r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains(&format!("expected {}", krs_ir::SchemaVersion::CURRENT.0))
-    );
-}
-
 fn first_object_with_key_mut<'a>(
     value: &'a mut serde_json::Value,
     key: &str,

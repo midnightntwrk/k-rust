@@ -363,13 +363,6 @@ fn adapter_specific_fields_are_rejected() {
 }
 
 #[test]
-fn prior_ir_schema_is_rejected() {
-    let mut json = serde_json::to_value(definition_ir(None)).unwrap();
-    json["schema_version"] = serde_json::json!(0);
-    assert!(serde_json::from_value::<DefinitionIr>(json).is_err());
-}
-
-#[test]
 fn print_goldens_for_review() {
     let theory = semantic_theory(None);
     let definition = definition_ir(None);

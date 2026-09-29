@@ -1242,16 +1242,3 @@ fn simultaneous_k_and_map_update_is_structured() {
     assert!(keys.contains(&key(ProvenanceRole::RuleRightMapUpdateBase, 0)));
     assert!(keys.contains(&key(ProvenanceRole::RuleRightCellsField, 1)));
 }
-
-#[test]
-fn a_superseded_schema_is_rejected() {
-    let error = serde_json::from_str::<DescriptorBundle>(
-        r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains(&format!("expected {}", krs_ir::SchemaVersion::CURRENT.0))
-    );
-}

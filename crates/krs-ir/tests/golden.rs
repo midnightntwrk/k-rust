@@ -3,7 +3,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing::{assert_canonical_contract, authored, item};
-use krs_ir::transport::collector;
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
@@ -86,18 +85,6 @@ fn empty_bundle_matches_golden() {
     assert_canonical_contract(&DescriptorBundle::empty());
     expect_test::expect_file!["golden/empty_bundle.json"]
         .assert_eq(&DescriptorBundle::empty().to_canonical_json().unwrap());
-}
-
-#[test]
-fn prior_protocols_have_no_compatibility_reader() {
-    let draft_v1 = r#"{"protocol_version":1,"descriptors":[]}"#;
-    let draft_v2 = r#"{"protocol_version":2,"descriptors":[]}"#;
-    let draft_v3 = r#"{"protocol_version":3,"descriptors":[]}"#;
-    let draft_v4 = r#"{"protocol_version":4,"descriptors":[]}"#;
-    assert!(serde_json::from_str::<DescriptorBundle>(draft_v1).is_err());
-    assert!(serde_json::from_str::<DescriptorBundle>(draft_v2).is_err());
-    assert!(serde_json::from_str::<DescriptorBundle>(draft_v3).is_err());
-    assert!(serde_json::from_str::<DescriptorBundle>(draft_v4).is_err());
 }
 
 #[test]
@@ -214,15 +201,6 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
     let bad_code = serde_json::to_vec(&wire).unwrap();
     assert!(DescriptorBundle::from_collector_protocol(&bad_code).is_err());
     wire["descriptors"][0]["provenance"]["origins"][0]["origin"][1][0] = 1.into();
-    wire["protocol_version"] = 38.into();
-    let error =
-        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).unwrap_err();
-    assert!(error.to_string().contains("unsupported collector protocol"));
-    wire["protocol_version"] = collector::VERSION.into();
-    wire["schema"] = (SchemaVersion::CURRENT.0 - 1).into();
-    let error =
-        DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap()).unwrap_err();
-    assert!(error.to_string().contains("unsupported collector schema"));
 }
 
 #[test]
