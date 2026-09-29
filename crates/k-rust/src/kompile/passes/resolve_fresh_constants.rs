@@ -75,7 +75,7 @@ pub(crate) fn resolve_fresh_constants_pass(
 ) -> Result<Definition, ResolveFreshConstantsError> {
     let initial_fresh = state
         .fresh_config_count
-        .expect("fresh configuration count is set by the preceding pipeline stage");
+        .expect("`Artifacts::FRESH_CONFIG_COUNT` is provided before this pass runs");
     let resolved = input
         .resolved_raw()
         .map_err(|error| error_from(error.to_string()))?;

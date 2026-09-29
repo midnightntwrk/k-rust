@@ -269,12 +269,68 @@ pub(crate) enum Provenance {
     Internal(&'static [GeneratingPass]),
 }
 
+/// Generated artifacts a stage reads or produces.
+///
+/// An artifact is available to a stage once an earlier stage that provides it has run; whether a
+/// later stage adds sorts the artifact does not yet cover is not modelled. Declarations record
+/// dependencies established in the passes' code: a stage that declares nothing is accepted in any
+/// position.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Artifacts(u32);
+
+impl Artifacts {
+    pub(crate) const NONE: Self = Self(0);
+    /// Productions carrying the `predicate` attribute (the `isSort` syntax).
+    pub(crate) const SORT_PREDICATE_SYNTAX: Self = Self(1 << 0);
+    /// [`PipelineState::fresh_config_count`].
+    pub(crate) const FRESH_CONFIG_COUNT: Self = Self(1 << 1);
+    /// Rule variables without semantic-cast wrappers.
+    pub(crate) const SEMANTIC_CASTS_RESOLVED: Self = Self(1 << 2);
+    /// Macro kinds propagated from productions onto their rules.
+    pub(crate) const MACRO_KINDS_PROPAGATED: Self = Self(1 << 3);
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// The artifacts of `self` that `available` lacks.
+    const fn missing_from(self, available: Self) -> Self {
+        Self(self.0 & !available.0)
+    }
+}
+
 pub(crate) struct Stage {
     pub name: &'static str,
     pub call: &'static str,
     pub run: PassFn,
     pub provenance: Provenance,
     pub behavior: &'static str,
+    /// Artifacts this stage reads, which an earlier stage must provide.
+    pub requires: Artifacts,
+    /// Artifacts available to every later stage once this stage has run.
+    pub provides: Artifacts,
+}
+
+/// The first stage, across `tables` in order, that requires an artifact no earlier stage provides.
+///
+/// A stage's own provisions do not satisfy its requirements.
+pub(crate) const fn first_unmet_requirement(tables: &[&[Stage]]) -> Option<&'static str> {
+    let mut available = Artifacts::NONE;
+    let mut table = 0;
+    while table < tables.len() {
+        let stages = tables[table];
+        let mut index = 0;
+        while index < stages.len() {
+            let stage = &stages[index];
+            if stage.requires.missing_from(available).0 != 0 {
+                return Some(stage.name);
+            }
+            available = available.union(stage.provides);
+            index += 1;
+        }
+        table += 1;
+    }
+    None
 }
 
 macro_rules! stage_adapter {
@@ -376,17 +432,38 @@ const PREDICATE_SYNTAX_INTERNAL: &[GeneratingPass] = &[GeneratingPass::GenerateS
 
 macro_rules! stage {
     ($name:literal, $call:literal, $run:ident, $provenance:expr, $behavior:literal) => {
+        stage!(
+            $name,
+            $call,
+            $run,
+            $provenance,
+            $behavior,
+            requires = Artifacts::NONE,
+            provides = Artifacts::NONE
+        )
+    };
+    (
+        $name:literal,
+        $call:literal,
+        $run:ident,
+        $provenance:expr,
+        $behavior:literal,
+        requires = $requires:expr,
+        provides = $provides:expr
+    ) => {
         Stage {
             name: $name,
             call: $call,
             run: $run,
             provenance: $provenance,
             behavior: $behavior,
+            requires: $requires,
+            provides: $provides,
         }
     };
 }
 
-pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
+const TRANSFORM_STAGE_TABLE: &[Stage] = &[
     stage!(
         "resolve commutative rules",
         "resolve_comm",
@@ -413,14 +490,18 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "generate_sort_predicate_syntax",
         generate_sort_predicate_syntax_stage,
         Provenance::Driver(GeneratingPass::GenerateSortPredicateSyntax),
-        "generating"
+        "generating",
+        requires = Artifacts::NONE,
+        provides = Artifacts::SORT_PREDICATE_SYNTAX
     ),
     stage!(
         "resolve function configuration",
         "resolve_function_with_config",
         resolve_function_with_config_stage,
         Provenance::Driver(GeneratingPass::ResolveFunctionWithConfig),
-        "generating"
+        "generating",
+        requires = Artifacts::SORT_PREDICATE_SYNTAX,
+        provides = Artifacts::NONE
     ),
     stage!(
         "resolve strictness",
@@ -462,7 +543,9 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "resolve_semantic_casts",
         resolve_semantic_casts_stage,
         Provenance::Driver(GeneratingPass::SemanticCasts),
-        "generating"
+        "generating",
+        requires = Artifacts::NONE,
+        provides = Artifacts::SEMANTIC_CASTS_RESOLVED
     ),
     stage!(
         "add KItem subsorts",
@@ -483,7 +566,9 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "propagate_macro_attributes",
         propagate_macro_attributes_stage,
         Provenance::None,
-        "metadata-only"
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::MACRO_KINDS_PROPAGATED
     ),
     stage!(
         "guard or-patterns",
@@ -497,14 +582,18 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "resolve_fresh_config_constants",
         resolve_fresh_config_constants_stage,
         Provenance::Driver(GeneratingPass::ResolveFreshConfigConstants),
-        "generating"
+        "generating",
+        requires = Artifacts::NONE,
+        provides = Artifacts::FRESH_CONFIG_COUNT
     ),
     stage!(
         "generate sort predicate syntax",
         "generate_sort_predicate_syntax",
         generate_sort_predicate_syntax_stage,
         Provenance::Driver(GeneratingPass::GenerateSortPredicateSyntax),
-        "generating"
+        "generating",
+        requires = Artifacts::NONE,
+        provides = Artifacts::SORT_PREDICATE_SYNTAX
     ),
     stage!(
         "generate sort projections",
@@ -518,7 +607,9 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "expand_macros",
         expand_macros_stage,
         Provenance::Driver(GeneratingPass::MacroExpansion),
-        "generating"
+        "generating",
+        requires = Artifacts::SEMANTIC_CASTS_RESOLVED.union(Artifacts::MACRO_KINDS_PROPAGATED),
+        provides = Artifacts::NONE
     ),
     stage!(
         "add implicit computation cell",
@@ -532,14 +623,18 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "resolve_fresh_constants",
         resolve_fresh_constants_stage,
         Provenance::Driver(GeneratingPass::ResolveFreshConstants),
-        "generating"
+        "generating",
+        requires = Artifacts::FRESH_CONFIG_COUNT,
+        provides = Artifacts::NONE
     ),
     stage!(
         "regenerate sort predicate syntax",
         "regenerate_sort_predicate_syntax",
         regenerate_sort_predicate_syntax_stage,
         Provenance::Internal(PREDICATE_SYNTAX_INTERNAL),
-        "metadata-only"
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::SORT_PREDICATE_SYNTAX
     ),
     stage!(
         "regenerate sort projections",
@@ -595,7 +690,9 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
         "generate_sort_predicate_rules",
         generate_sort_predicate_rules_stage,
         Provenance::Driver(GeneratingPass::GenerateSortPredicateRules),
-        "generating"
+        "generating",
+        requires = Artifacts::SORT_PREDICATE_SYNTAX,
+        provides = Artifacts::NONE
     ),
     stage!(
         "number sentences (final)",
@@ -606,7 +703,7 @@ pub(crate) static TRANSFORM_STAGES: &[Stage] = &[
     ),
 ];
 
-pub(crate) static EMISSION_STAGES: &[Stage] = &[
+const EMISSION_STAGE_TABLE: &[Stage] = &[
     stage!(
         "add sort injections",
         "add_sort_injections_to_definition",
@@ -629,6 +726,26 @@ pub(crate) static EMISSION_STAGES: &[Stage] = &[
         "generating"
     ),
 ];
+
+/// Evaluating this constant fails the build, naming the stage, when a stage precedes every provider
+/// of an artifact it requires. The emission table runs after the transform table on the same
+/// pipeline state, so its stages see the transform table's provisions.
+///
+/// Both statics evaluate it in their initializers, which also keeps the check reachable for the
+/// dead-code analysis of every supported compiler.
+const STAGE_ORDER: () =
+    if let Some(stage) = first_unmet_requirement(&[TRANSFORM_STAGE_TABLE, EMISSION_STAGE_TABLE]) {
+        panic!("{}", stage)
+    };
+
+pub(crate) static TRANSFORM_STAGES: &[Stage] = {
+    let () = STAGE_ORDER;
+    TRANSFORM_STAGE_TABLE
+};
+pub(crate) static EMISSION_STAGES: &[Stage] = {
+    let () = STAGE_ORDER;
+    EMISSION_STAGE_TABLE
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StageDescription {
@@ -952,6 +1069,8 @@ mod tests {
             run: fail,
             provenance: Provenance::None,
             behavior: "validation",
+            requires: Artifacts::NONE,
+            provides: Artifacts::NONE,
         }];
         let error = run_stages(
             &stages,
@@ -963,6 +1082,68 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.stage, "named stage");
         assert_eq!(error.message, "failure");
+    }
+
+    fn transform_stage_index(name: &str) -> usize {
+        TRANSFORM_STAGE_TABLE
+            .iter()
+            .position(|stage| stage.name == name)
+            .unwrap_or_else(|| panic!("no transform stage named {name}"))
+    }
+
+    #[test]
+    fn declared_stage_order_meets_every_requirement() {
+        assert_eq!(
+            first_unmet_requirement(&[TRANSFORM_STAGE_TABLE, EMISSION_STAGE_TABLE]),
+            None
+        );
+    }
+
+    #[test]
+    fn function_configuration_before_sort_predicate_syntax_is_unmet() {
+        let i = transform_stage_index("resolve function configuration");
+        let j = transform_stage_index("seed sort predicate syntax");
+        assert_eq!(
+            TRANSFORM_STAGE_TABLE[j].provides,
+            Artifacts::SORT_PREDICATE_SYNTAX
+        );
+        // The declared order satisfies the requirement.
+        assert_eq!(
+            first_unmet_requirement(&[
+                &TRANSFORM_STAGE_TABLE[j..j + 1],
+                &TRANSFORM_STAGE_TABLE[i..i + 1]
+            ]),
+            None
+        );
+        // Resolving function configuration before the predicate syntax exists leaves predicate
+        // applications out of the configuration-dependence propagation.
+        assert_eq!(
+            first_unmet_requirement(&[
+                &TRANSFORM_STAGE_TABLE[i..i + 1],
+                &TRANSFORM_STAGE_TABLE[j..j + 1]
+            ]),
+            Some("resolve function configuration")
+        );
+    }
+
+    #[test]
+    fn a_stage_does_not_meet_its_own_requirement() {
+        fn pass(input: &PassInput<'_>, _: &mut PipelineState) -> Result<Definition, PassError> {
+            Ok(input.definition.clone())
+        }
+        const SELF_PROVIDING: &[Stage] = &[stage!(
+            "self-providing stage",
+            "pass",
+            pass,
+            Provenance::None,
+            "validation",
+            requires = Artifacts::FRESH_CONFIG_COUNT,
+            provides = Artifacts::FRESH_CONFIG_COUNT
+        )];
+        assert_eq!(
+            first_unmet_requirement(&[SELF_PROVIDING]),
+            Some("self-providing stage")
+        );
     }
 
     #[test]
