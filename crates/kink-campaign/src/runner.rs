@@ -845,7 +845,6 @@ impl Runtime {
             test_id: String::new(),
             bounds: campaign.budget.bounds(),
             vocabulary: campaign.vocabulary.clone(),
-            selected_rules: manifest.rules().cloned().collect(),
             symbol_sorts,
         };
         // Pin the build's profile so the adapter can detect an unexpected backend profile.

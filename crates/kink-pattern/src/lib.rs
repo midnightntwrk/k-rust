@@ -8,12 +8,11 @@
 mod pattern;
 
 pub use pattern::{
-    Atom, AttributionUnknownReason, Binding, CollectionEvidence, CollectionStop, Constructor,
-    EmptySearchDecision, Evaluation, EvaluationContext, EvaluationOptions, Event, EventAttribution,
-    EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, Feasibility, MatchMode, PathInput, PathStop, PatternArm, PatternFailure,
-    PatternFailureKind, PatternOutcome, PatternPlan, PayloadClause, Relation, RelationDecider,
-    RelationDecision, SearchPolicy, SideCondition, SideConditionResult, SideConditionRow,
-    SideConditionTable, StructuralDecider, SymbolSorts, TermRelation, Witness, evaluate,
-    evaluate_with,
+    Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EmptySearchDecision,
+    Evaluation, EvaluationContext, EvaluationOptions, Event, EventPresence, EventVocabulary,
+    ExecutionBounds, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, Feasibility,
+    MatchMode, PathInput, PathStop, PatternArm, PatternFailure, PatternFailureKind, PatternOutcome,
+    PatternPlan, PayloadClause, Relation, RelationDecider, RelationDecision, SearchPolicy,
+    SideCondition, SideConditionResult, SideConditionRow, SideConditionTable, StructuralDecider,
+    SymbolSorts, TermRelation, Witness, evaluate, evaluate_with,
 };

@@ -409,7 +409,6 @@ fn run_side(
     let manifest = validator
         .observation_manifest(side, rules)
         .expect("manifest installs");
-    let selected_rules = manifest.rules().cloned().collect();
     let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
     let execution = adapter(manifest)
         .execute(&mut backend, &state, budget)
@@ -434,7 +433,6 @@ fn run_side(
             test_id: "symbolic".into(),
             bounds: budget.bounds(),
             vocabulary: vocabulary.clone(),
-            selected_rules,
             symbol_sorts: sorts,
         },
         backend,
@@ -1559,7 +1557,6 @@ fn report_on_backend(
     let manifest = validator
         .observation_manifest(side, &rules)
         .expect("fresh manifest");
-    let selected_rules = manifest.rules().cloned().collect();
     let vocabulary = vocabulary(row.fixture);
     let plan = (row.plan)(&vocabulary);
     let state = support::initial_state((row.program)(), "SortProg");
@@ -1590,7 +1587,6 @@ fn report_on_backend(
         test_id: row.id.into(),
         bounds: row.budget.bounds(),
         vocabulary,
-        selected_rules,
         symbol_sorts: sorts,
     };
     let evaluation = with_backend_relations(backend, &state, |relations| {

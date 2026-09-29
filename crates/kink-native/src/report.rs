@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use k_rust::backend::BackendOptions;
 use k_rust::kore::{ast::Pattern, codec};
-use kink_pattern::{Evaluation, EventAttribution, PathInput, PatternFailure, PatternOutcome};
+use kink_pattern::{Evaluation, EventPresence, PathInput, PatternFailure, PatternOutcome};
 use serde_json::{Value, json};
 
 use crate::{
@@ -72,7 +72,6 @@ impl ReportError {
                 kink_pattern::PatternFailureKind::TestMismatch => "TestMismatch",
                 kink_pattern::PatternFailureKind::BoundsMismatch => "BoundsMismatch",
                 kink_pattern::PatternFailureKind::TerminalMismatch => "TerminalMismatch",
-                kink_pattern::PatternFailureKind::InvalidOrigin => "InvalidOrigin",
                 kink_pattern::PatternFailureKind::InvalidTerm => "InvalidTerm",
                 kink_pattern::PatternFailureKind::InvalidPath => "InvalidPath",
                 kink_pattern::PatternFailureKind::InvalidCollection => "InvalidCollection",
@@ -191,16 +190,18 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
                 "index": event.index,
                 "constructor": event.constructor,
                 "payload": event.payload.iter().map(term).collect::<Vec<_>>(),
-                "attribution": match event.attribution {
-                    EventAttribution::Certain => "certain",
-                    EventAttribution::Unknown(_) => "unknown",
+                "presence": match &event.presence {
+                    EventPresence::Certain => "certain",
+                    EventPresence::Conditional(_) => "conditional",
+                    EventPresence::Undecided => "undecided",
                 },
-                "rule": { "module": event.origin.rule.module, "index": event.origin.rule.index },
-                "transition": {
-                    "rule": event.origin.transition.rule,
-                    "target": event.origin.transition.target,
+                "relations": match &event.presence {
+                    EventPresence::Conditional(relations) => relations.iter().map(|relation| json!({
+                        "left": term(&relation.left), "right": term(&relation.right)
+                    })).collect::<Vec<_>>(),
+                    _ => Vec::new(),
                 },
-                "transition_ordinal": event.transition_ordinal,
+                "step": event.step,
                 "emission_ordinal": event.emission_ordinal,
             })
         })
@@ -351,11 +352,10 @@ mod tests {
         backend::TransitionIdOutput,
         kore::{ast::Pattern, parser::parse_pattern},
     };
-    use kink_patch::SentenceRef;
     use kink_pattern::{
-        Binding, CollectionEvidence, CollectionStop, Constructor, Event, EventAttribution,
-        EventOrigin, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, PathStop,
-        SearchPolicy, TermRelation, Witness,
+        Binding, CollectionEvidence, CollectionStop, Constructor, Event, EventPresence,
+        ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, PathStop, SearchPolicy,
+        TermRelation, Witness,
     };
 
     use super::*;
@@ -413,12 +413,8 @@ mod tests {
             index: 0,
             constructor: "write".to_owned(),
             payload: vec![variable.clone()],
-            origin: EventOrigin {
-                rule: SentenceRef::new("M", 7),
-                transition,
-            },
-            attribution: EventAttribution::Certain,
-            transition_ordinal: 1,
+            presence: EventPresence::Certain,
+            step: 1,
             emission_ordinal: 0,
         };
         let path = PathInput {
@@ -566,17 +562,11 @@ mod tests {
                 "index",
                 "constructor",
                 "payload",
-                "attribution",
-                "rule",
-                "transition",
-                "transition_ordinal",
+                "presence",
+                "relations",
+                "step",
                 "emission_ordinal",
             ])
-        );
-        assert_eq!(keys(&event["rule"]), BTreeSet::from(["module", "index"]));
-        assert_eq!(
-            keys(&event["transition"]),
-            BTreeSet::from(["rule", "target"])
         );
         let witness = &report["witnesses"][0];
         assert_eq!(

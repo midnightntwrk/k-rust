@@ -10,8 +10,6 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::collections::BTreeSet;
-
 use k_rust::kompile::CompileError;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
@@ -264,7 +262,6 @@ fn pattern_failure() -> Result<Evaluation, PatternFailure> {
             results: None,
         },
         vocabulary: vocabulary(),
-        selected_rules: BTreeSet::new(),
         symbol_sorts: SymbolSorts::default(),
     };
     let bridged = single(Normal, constant("done"));

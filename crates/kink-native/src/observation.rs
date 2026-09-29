@@ -13,8 +13,13 @@ use k_rust::backend::{
 };
 use k_rust::kore::{ast::Pattern, codec, walk};
 use kink_patch::SentenceRef;
-use kink_pattern::AttributionUnknownReason;
 use serde_json::Value;
+
+/// Typed reason why a compiled event cannot identify an authored rule.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnknownAttributionReason {
+    DifferentObservationSpecs { authors: Vec<SentenceRef> },
+}
 
 /// One written baseline rule and its manifest-ordered emissions.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,7 +167,7 @@ impl InstalledObservationManifest {
                 } else {
                     InstalledAttribution::Unknown {
                         selected,
-                        reason: AttributionUnknownReason::DifferentObservationSpecs {
+                        reason: UnknownAttributionReason::DifferentObservationSpecs {
                             authors: authors.iter().map(|author| author.rule.clone()).collect(),
                         },
                     }
@@ -246,7 +251,7 @@ enum InstalledAttribution {
     Certain(RuleObservationSpec),
     Unknown {
         selected: Vec<RuleObservationSpec>,
-        reason: AttributionUnknownReason,
+        reason: UnknownAttributionReason,
     },
 }
 
@@ -322,7 +327,7 @@ pub struct UnknownAttributionEvent {
     pub constructor: String,
     pub transition: TransitionIdOutput,
     pub rule: SentenceRef,
-    pub reason: AttributionUnknownReason,
+    pub reason: UnknownAttributionReason,
 }
 
 /// Generic evidence for one committed transition.
@@ -908,7 +913,7 @@ mod tests {
         assert!(branch.events.iter().all(|event| matches!(
             event,
             NativeEvent::UnknownAttribution(UnknownAttributionEvent {
-                reason: AttributionUnknownReason::DifferentObservationSpecs { .. },
+                reason: UnknownAttributionReason::DifferentObservationSpecs { .. },
                 ..
             })
         )));

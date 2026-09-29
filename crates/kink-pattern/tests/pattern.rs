@@ -5,11 +5,11 @@ mod support;
 
 use k_rust::kore::ast::Pattern;
 use kink_pattern::{
-    Atom, AttributionUnknownReason, CollectionEvidence, CollectionStop, EmptySearchDecision,
-    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, Feasibility, PathInput, PathStop, PatternArm, PatternFailureKind,
-    PatternOutcome, PatternPlan, Relation, RelationDecider, RelationDecision, SearchPolicy,
-    SideCondition, StructuralDecider, TermRelation, evaluate, evaluate_with,
+    Atom, CollectionEvidence, CollectionStop, EmptySearchDecision, EvaluationOptions,
+    EventPresence, EventVocabulary, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind,
+    Feasibility, PathInput, PathStop, PatternArm, PatternFailureKind, PatternOutcome, PatternPlan,
+    Relation, RelationDecider, RelationDecision, SearchPolicy, SideCondition, StructuralDecider,
+    TermRelation, evaluate, evaluate_with,
 };
 use support::{
     PathSpec, app, bind, collection, context, done, exhaustive_options, make_match_stop, path,
@@ -922,7 +922,7 @@ fn evaluate_single(
     })
 }
 
-/// Test, bounds, origin and relation roots of a trace are checked against its context; empty
+/// Test, bounds, event presence and relation roots of a trace are checked against its context; empty
 /// exhaustion needs an explicit decision; aggregation needs exhaustion before absence.
 #[test]
 fn trace_context_nested_symbolics_and_empty_exhaustion_fail_closed() {
@@ -1087,8 +1087,8 @@ fn semantic_termination_rows_preserve_terminal_evidence() {
     assert_eq!(result.outcome, Error, "{id}");
 }
 
-/// One path of an inline row with explicit transition ordinals; emission ordinals are
-/// derived. An empty `transitions` keeps one transition per event.
+/// One path of an inline row with explicit step indices; emission ordinals are
+/// derived. An empty `transitions` keeps one step per event.
 struct LiteralPath {
     key: Option<&'static str>,
     events: &'static [&'static str],
@@ -1114,7 +1114,7 @@ fn literal_paths(id: &str, rows: &[LiteralPath]) -> Vec<PathInput> {
                     } else {
                         0
                     };
-                    event.transition_ordinal = *transition;
+                    event.step = *transition;
                     event.emission_ordinal = emission;
                     previous = Some(*transition);
                 }
@@ -1306,14 +1306,13 @@ fn unkeyed_paths_differing_only_in_relations_are_distinct() {
     assert_eq!(result.witnesses[0].path_key, None);
 }
 
-/// O3: an event's payload must have its constructor's sorts under the definition's symbol
-/// sorts, and it must come from a rule that was observed.
+/// O3: an event's payload must have its constructor's sorts under the definition's symbol sorts.
 #[test]
-fn payload_sort_drift_and_unselected_origin_are_rejected() {
-    let id = "payload-sort-drift-and-unselected-origin";
+fn payload_sort_drift_is_rejected() {
+    let id = "payload-sort-drift";
     let base = paths(&[done("p0", &["wa", "la"])], id);
     type Mutation = fn(&mut PathInput, &mut kink_pattern::EvaluationContext);
-    let rows: [(&str, Mutation, PatternFailureKind); 6] = [
+    let rows: [(&str, Mutation, PatternFailureKind); 5] = [
         (
             "int-in-an-address-position",
             |path, _| path.events[0].payload[0] = term("v7"),
@@ -1339,15 +1338,6 @@ fn payload_sort_drift_and_unselected_origin_are_rejected() {
                 )]);
             },
             PatternFailureKind::InvalidPayload,
-        ),
-        (
-            "unselected-origin",
-            |_, context| {
-                context
-                    .selected_rules
-                    .remove(&support::rule_ref("MEMORY.write"));
-            },
-            PatternFailureKind::InvalidOrigin,
         ),
         (
             "unknown-trace-constructor",
@@ -1918,14 +1908,10 @@ fn inline_plan_adversaries_return_their_typed_failure_kind() {
 }
 
 #[test]
-fn unknown_attribution_is_local_to_matching_atoms() {
-    let id = "unknown-attribution";
+fn undecided_event_is_local_to_matching_atoms() {
+    let id = "undecided-event";
     let mut paths = paths(&[done("p0", &["wa", "la"])], id);
-    let author = paths[0].events[0].origin.rule.clone();
-    paths[0].events[0].attribution =
-        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs {
-            authors: vec![author],
-        });
+    paths[0].events[0].presence = EventPresence::Undecided;
     paths[0].events[0].payload.clear();
     let collection = collection(&paths, SearchPolicy::Exhaustive);
     let write = evaluate(
@@ -1965,11 +1951,7 @@ fn unknown_attribution_is_local_to_matching_atoms() {
     assert_eq!(unrelated.outcome, Match);
 
     let mut adjacent = support::paths(&[done("p0", &["wa", "x", "la"])], id);
-    let ambiguous_author = adjacent[0].events[1].origin.rule.clone();
-    adjacent[0].events[1].attribution =
-        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs {
-            authors: vec![ambiguous_author],
-        });
+    adjacent[0].events[1].presence = EventPresence::Undecided;
     adjacent[0].events[1].payload.clear();
     let adjacency = evaluate(
         &context(id),
@@ -1981,4 +1963,150 @@ fn unknown_attribution_is_local_to_matching_atoms() {
     )
     .unwrap();
     assert_eq!(adjacency.outcome, Unknown);
+}
+
+#[test]
+fn conditional_event_is_a_witness_only_when_feasible() {
+    for (feasibility, expected, complete) in [
+        (Feasibility::Sat, Match, true),
+        (Feasibility::Unsat, NoMatch, true),
+        (Feasibility::Unknown, Unknown, false),
+    ] {
+        let id = "conditional-event";
+        let mut paths = paths(&[done("p0", &["wa"])], id);
+        paths[0].events[0].presence = EventPresence::Conditional(relations(X_IS_Y));
+        let scripted = match feasibility {
+            Feasibility::Sat => &[(X_IS_Y, Feasibility::Sat)][..],
+            Feasibility::Unsat => &[(X_IS_Y, Feasibility::Unsat)][..],
+            Feasibility::Unknown => &[(X_IS_Y, Feasibility::Unknown)][..],
+        };
+        let decider = ScriptedDecider {
+            relations: &[],
+            feasibility: scripted,
+        };
+        let result = evaluate_with(
+            &context(id),
+            &plan("single-write"),
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            None,
+            exhaustive_options(),
+            &decider,
+        )
+        .expect("valid conditional event");
+        assert_eq!(result.outcome, expected, "{feasibility:?}");
+        assert_eq!(result.complete_coverage, complete, "{feasibility:?}");
+        assert_eq!(
+            result.witnesses.len(),
+            usize::from(feasibility == Feasibility::Sat)
+        );
+    }
+}
+
+#[test]
+fn next_event_scans_past_only_non_certain_events() {
+    for (presence, expected) in [
+        (EventPresence::Certain, NoMatch),
+        (EventPresence::Conditional(relations(X_IS_Y)), Unknown),
+        (EventPresence::Undecided, Unknown),
+    ] {
+        let id = "next-event-gap";
+        let mut paths = paths(&[done("p0", &["wa", "x", "la"])], id);
+        paths[0].events[1].presence = presence.clone();
+        if presence == EventPresence::Undecided {
+            paths[0].events[1].payload.clear();
+        }
+        let result = evaluate(
+            &context(id),
+            &plan("write-next-load"),
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            None,
+            exhaustive_options(),
+        )
+        .expect("valid gap event");
+        assert_eq!(result.outcome, expected, "{presence:?}");
+        assert!(result.witnesses.is_empty(), "{presence:?}");
+    }
+}
+
+#[test]
+fn invalid_event_presence_and_step_rows_are_rejected() {
+    let id = "invalid-event-presence-and-step";
+    let base = paths(&[done("p0", &["wa", "la", "fa"])], id);
+    let relation = relations(X_IS_Y).remove(0);
+    type Mutation = fn(&mut PathInput, &TermRelation);
+    let rows: [(&str, Mutation, PatternFailureKind); 8] = [
+        (
+            "decreasing-step",
+            |path, _| path.events[2].step = 0,
+            PatternFailureKind::InvalidPath,
+        ),
+        (
+            "emission-gap",
+            |path, _| path.events[1].emission_ordinal = 1,
+            PatternFailureKind::InvalidPath,
+        ),
+        (
+            "undecided-payload",
+            |path, _| path.events[0].presence = EventPresence::Undecided,
+            PatternFailureKind::InvalidPayload,
+        ),
+        (
+            "empty-condition",
+            |path, _| path.events[0].presence = EventPresence::Conditional(vec![]),
+            PatternFailureKind::InvalidPath,
+        ),
+        (
+            "duplicate-condition",
+            |path, pair| {
+                path.events[0].presence =
+                    EventPresence::Conditional(vec![pair.clone(), pair.clone()])
+            },
+            PatternFailureKind::InvalidPath,
+        ),
+        (
+            "unsorted-condition",
+            |path, pair| {
+                path.events[0].presence = EventPresence::Conditional(vec![
+                    TermRelation {
+                        left: term("symbolicX"),
+                        right: term("symbolicZ"),
+                    },
+                    pair.clone(),
+                ])
+            },
+            PatternFailureKind::InvalidPath,
+        ),
+        (
+            "ill-sorted-condition",
+            |path, _| {
+                path.events[0].presence = EventPresence::Conditional(vec![TermRelation {
+                    left: term("symbolicX"),
+                    right: term("v7"),
+                }])
+            },
+            PatternFailureKind::InvalidTerm,
+        ),
+        (
+            "unknown-undecided-constructor",
+            |path, _| {
+                path.events[0].presence = EventPresence::Undecided;
+                path.events[0].payload.clear();
+                path.events[0].constructor = "missing".into();
+            },
+            PatternFailureKind::UnknownConstructor,
+        ),
+    ];
+    for (name, mutate, expected) in rows {
+        let mut paths = base.clone();
+        mutate(&mut paths[0], &relation);
+        assert_eq!(
+            evaluate_single(id, &paths, &context(id))
+                .expect_err(name)
+                .kind(),
+            expected,
+            "{name}"
+        );
+    }
 }

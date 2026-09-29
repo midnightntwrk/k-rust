@@ -1,6 +1,4 @@
-use k_rust::backend::TransitionIdOutput;
 use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence as KoreSentence, Sort};
-use kink_patch::SentenceRef;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
@@ -19,7 +17,6 @@ pub enum PatternFailureKind {
     TestMismatch,
     BoundsMismatch,
     TerminalMismatch,
-    InvalidOrigin,
     /// A relation connects terms whose sorts differ or cannot be decided.
     InvalidTerm,
     InvalidPath,
@@ -189,7 +186,12 @@ pub struct Atom {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Relation {
+    /// The next event after the previous atom's event.
+    /// Event p+1 is a candidate.
+    /// A later event k is only an indeterminate candidate, never a witness, when every event in p+1..k-1 is non-Certain, because skipping them requires their absence.
+    /// The first Certain intermediate event ends the scan.
     NextEvent,
+    /// Any later event.
     EventuallyAfter,
 }
 
@@ -412,31 +414,24 @@ pub struct Event {
     pub index: usize,
     pub constructor: String,
     pub payload: Vec<Pattern>,
-    pub origin: EventOrigin,
-    /// Whether the compiled rule can be attributed to this authored rule.
-    pub attribution: EventAttribution,
-    pub transition_ordinal: u64,
+    pub presence: EventPresence,
+    /// The index of the execution step that emitted this event; step indices are non-decreasing along a path.
+    pub step: u64,
+    /// The event's ordinal within its step, contiguous from zero.
     pub emission_ordinal: u64,
 }
 
-/// A compiled rule may have several authors with incompatible observation specs.
+/// Whether a declared event occurred on the instances represented by a path.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum EventAttribution {
+pub enum EventPresence {
+    /// The event occurred on this path.
     Certain,
-    Unknown(AttributionUnknownReason),
-}
-
-/// Typed reason why a compiled event cannot identify an authored rule.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum AttributionUnknownReason {
-    DifferentObservationSpecs { authors: Vec<SentenceRef> },
-}
-
-/// The rule whose transition emitted an event, and the transition itself.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct EventOrigin {
-    pub rule: SentenceRef,
-    pub transition: TransitionIdOutput,
+    /// The event occurred exactly on the path instances where these non-empty, sorted, deduplicated relations hold.
+    /// A matching atom adds the relations to its assumptions like `EqualIf`: `decider.feasible` must return `Sat` for a witness, `Unsat` makes a mismatch, and `Unknown` makes an indeterminate candidate.
+    Conditional(Vec<TermRelation>),
+    /// Whether the event occurred is undecided; its payload is empty and its constructor belongs to the vocabulary.
+    /// An atom of this constructor is indeterminate, while an atom of another constructor ignores it.
+    Undecided,
 }
 
 /// Closed execution terminal kinds carried by a trace.
@@ -470,14 +465,12 @@ pub struct ExecutionBounds {
 }
 
 /// What one evaluation is checked against: the test, its bounds, the vocabulary of the
-/// observed trace, the rules whose transitions were observed, and the symbol sorts of
-/// the compiled definition.
+/// observed trace and the symbol sorts of the compiled definition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvaluationContext {
     pub test_id: String,
     pub bounds: ExecutionBounds,
     pub vocabulary: EventVocabulary,
-    pub selected_rules: BTreeSet<SentenceRef>,
     pub symbol_sorts: SymbolSorts,
 }
 
@@ -807,6 +800,8 @@ pub fn evaluate(
 /// `Indeterminate` an indeterminate candidate. A complete occurrence with assumptions passes
 /// the side condition and the real-prefix gate first, and then needs `decider.feasible`:
 /// `Sat` makes it a witness, `Unsat` a mismatch and `Unknown` an indeterminate candidate.
+/// A matching Conditional event adds its presence relations to the occurrence's assumptions before feasibility is decided.
+/// For `NextEvent`, skipping non-Certain intermediate events makes a later matching event an indeterminate candidate, never a witness, and a Certain intermediate event ends the scan.
 pub fn evaluate_with(
     context: &EvaluationContext,
     plan: &PatternPlan,
@@ -870,19 +865,6 @@ pub fn evaluate_with(
             None => PathOrder::Shape(TraceShape::of(path)),
         };
         let mut path_indeterminate = false;
-        // An unattributed event may be absent from the authored vocabulary. That
-        // changes adjacency even when its constructor is not an atom of this plan.
-        if path
-            .events
-            .iter()
-            .any(|event| matches!(event.attribution, EventAttribution::Unknown(_)))
-            && plan
-                .arms
-                .iter()
-                .any(|arm| arm.relations.contains(&Relation::NextEvent))
-        {
-            path_indeterminate = true;
-        }
         for (arm_ordinal, arm) in plan.arms.iter().enumerate() {
             let mut context = ExtendContext {
                 plan,
@@ -1106,7 +1088,7 @@ fn validate_events(
     plan: &PatternPlan,
     context: &EvaluationContext,
 ) -> Result<(), PatternFailure> {
-    let mut previous_transition = None;
+    let mut previous_step = None;
     let mut expected_emission = 0;
     for (index, event) in path.events.iter().enumerate() {
         if event.index != index {
@@ -1123,7 +1105,7 @@ fn validate_events(
                     "trace constructor differs from the plan vocabulary",
                 ));
             }
-            if matches!(event.attribution, EventAttribution::Certain)
+            if !matches!(event.presence, EventPresence::Undecided)
                 && (event.payload.len() != constructor.payload_sorts.len()
                     || event
                         .payload
@@ -1138,37 +1120,39 @@ fn validate_events(
                     "trace event payload arity or sort differs from the vocabulary",
                 ));
             }
-        } else if matches!(event.attribution, EventAttribution::Certain) {
+        } else {
             return Err(PatternFailure::new(
                 PatternFailureKind::UnknownConstructor,
                 format!("trace contains unknown constructor {}", event.constructor),
             ));
         }
-        if matches!(event.attribution, EventAttribution::Unknown(_)) && !event.payload.is_empty() {
+        if matches!(event.presence, EventPresence::Undecided) && !event.payload.is_empty() {
             return Err(PatternFailure::new(
                 PatternFailureKind::InvalidPayload,
-                "unattributed event must not expose a payload",
+                "undecided event must not expose a payload",
             ));
         }
-        if !context.selected_rules.contains(&event.origin.rule) {
-            return Err(invalid_origin(format!(
-                "event origin {:?} is not an observed rule",
-                event.origin.rule
-            )));
+        if let EventPresence::Conditional(relations) = &event.presence {
+            if relations.is_empty() || relations.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(invalid_path(
+                    "conditional relations must be nonempty, sorted and unique",
+                ));
+            }
+            validate_relation_sets(relations, &[], &context.symbol_sorts)?;
         }
-        if previous_transition.is_some_and(|previous| event.transition_ordinal < previous) {
-            return Err(invalid_path("transition ordinals must be monotonic"));
+        if previous_step.is_some_and(|previous| event.step < previous) {
+            return Err(invalid_path("steps must be monotonic"));
         }
-        if previous_transition != Some(event.transition_ordinal) {
+        if previous_step != Some(event.step) {
             expected_emission = 0;
         }
         if event.emission_ordinal != expected_emission {
             return Err(invalid_path(
-                "emission ordinals must be contiguous within each transition",
+                "emission ordinals must be contiguous within each step",
             ));
         }
         expected_emission += 1;
-        previous_transition = Some(event.transition_ordinal);
+        previous_step = Some(event.step);
     }
     Ok(())
 }
@@ -1262,13 +1246,25 @@ fn extend_occurrence(
     }
     let candidates: Box<dyn Iterator<Item = usize>> = if let Some(previous) = indices.last() {
         match context.arm.relations[atom_ordinal - 1] {
-            Relation::NextEvent => Box::new(std::iter::once(previous + 1)),
+            Relation::NextEvent => Box::new((previous + 1)..context.path.events.len()),
             Relation::EventuallyAfter => Box::new((previous + 1)..context.path.events.len()),
         }
     } else {
         Box::new(0..context.path.events.len())
     };
     for index in candidates.filter(|index| *index < context.path.events.len()) {
+        let uncertain_gap = indices.last().is_some_and(|previous| {
+            context.arm.relations[atom_ordinal - 1] == Relation::NextEvent && index > previous + 1
+        });
+        if uncertain_gap {
+            let previous = *indices.last().expect("gap follows an event");
+            if context.path.events[(previous + 1)..index]
+                .iter()
+                .any(|event| matches!(event.presence, EventPresence::Certain))
+            {
+                break;
+            }
+        }
         match match_atom(
             &context.arm.atoms[atom_ordinal],
             &context.path.events[index],
@@ -1278,6 +1274,10 @@ fn extend_occurrence(
             context.decider,
         ) {
             AtomMatch::Matched(next, next_assumptions) => {
+                if uncertain_gap {
+                    *context.indeterminate = true;
+                    continue;
+                }
                 let mut next_indices = indices.to_vec();
                 next_indices.push(index);
                 extend_occurrence(
@@ -1312,11 +1312,16 @@ fn match_atom(
     if atom.constructor != event.constructor {
         return AtomMatch::Mismatch;
     }
-    if matches!(event.attribution, EventAttribution::Unknown(_)) {
+    if matches!(event.presence, EventPresence::Undecided) {
         return AtomMatch::Indeterminate;
     }
     let mut resolved = bindings.clone();
     let mut assumed = assumptions.to_vec();
+    if let EventPresence::Conditional(relations) = &event.presence {
+        assumed.extend(relations.iter().cloned());
+        assumed.sort();
+        assumed.dedup();
+    }
     for clause in &atom.payload {
         let Some(term) = event.payload.get(clause.position) else {
             return AtomMatch::Mismatch;
@@ -1398,7 +1403,15 @@ fn connected(left: &Pattern, right: &Pattern, relations: &[TermRelation]) -> boo
 }
 
 fn validate_relations(path: &PathInput, sorts: &SymbolSorts) -> Result<(), PatternFailure> {
-    for relation in path.equivalences.iter().chain(&path.inequalities) {
+    validate_relation_sets(&path.equivalences, &path.inequalities, sorts)
+}
+
+fn validate_relation_sets(
+    equivalences: &[TermRelation],
+    inequalities: &[TermRelation],
+    sorts: &SymbolSorts,
+) -> Result<(), PatternFailure> {
+    for relation in equivalences.iter().chain(inequalities) {
         let left = sorts.sort_of(&relation.left);
         if left.is_none() || left != sorts.sort_of(&relation.right) {
             return Err(PatternFailure::new(
@@ -1407,10 +1420,9 @@ fn validate_relations(path: &PathInput, sorts: &SymbolSorts) -> Result<(), Patte
             ));
         }
     }
-    if path
-        .inequalities
+    if inequalities
         .iter()
-        .any(|pair| connected(&pair.left, &pair.right, &path.equivalences))
+        .any(|pair| connected(&pair.left, &pair.right, equivalences))
     {
         return Err(PatternFailure::new(
             PatternFailureKind::InvalidPath,
@@ -1428,10 +1440,6 @@ fn valid_binding_name(value: &str) -> bool {
 
 fn invalid_path(detail: impl Into<String>) -> PatternFailure {
     PatternFailure::new(PatternFailureKind::InvalidPath, detail)
-}
-
-fn invalid_origin(detail: impl Into<String>) -> PatternFailure {
-    PatternFailure::new(PatternFailureKind::InvalidOrigin, detail)
 }
 
 /// The path stop that an incomplete collection stop stands for, as the cause of `Unknown`.

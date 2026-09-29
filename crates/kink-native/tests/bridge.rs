@@ -24,10 +24,9 @@ use kink_native::{
 };
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
-    Atom, AttributionUnknownReason, CollectionStop, Constructor, EvaluationContext,
-    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionTerminalKind, MatchMode,
-    PathStop, PatternArm, PatternOutcome, PatternPlan, PayloadClause, SearchPolicy, SymbolSorts,
-    evaluate,
+    Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventPresence,
+    EventVocabulary, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
+    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -98,11 +97,7 @@ fn observed_rule_merged_with_unobserved_author_is_unknown() {
     let [path] = mutant_run.bridged.paths.as_slice() else {
         panic!("one path")
     };
-    assert!(matches!(
-        &path.events[0].attribution,
-        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs { authors })
-            if authors.len() == 2
-    ));
+    assert!(matches!(&path.events[0].presence, EventPresence::Undecided));
 }
 
 #[test]
@@ -150,10 +145,7 @@ fn two_equal_observed_rules_with_same_spec_attribute_normally() {
     let [path] = execution.bridged.paths.as_slice() else {
         panic!("one path")
     };
-    assert!(matches!(
-        path.events[0].attribution,
-        EventAttribution::Certain
-    ));
+    assert!(matches!(path.events[0].presence, EventPresence::Certain));
 }
 
 fn z() -> Pattern {
@@ -373,7 +365,6 @@ fn run(
     let manifest = validator
         .observation_manifest(side, rules)
         .expect("manifest installs");
-    let selected_rules = manifest.rules().cloned().collect();
     let mut backend = Backend::new(
         &side.artifacts().definition_kore,
         module,
@@ -401,7 +392,6 @@ fn run(
             test_id: "t".to_owned(),
             bounds: budget.bounds(),
             vocabulary: vocabulary.clone(),
-            selected_rules,
             symbol_sorts: sorts,
         },
     }

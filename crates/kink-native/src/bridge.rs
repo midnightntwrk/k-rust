@@ -49,8 +49,8 @@ use k_rust::kore::{
     codec,
 };
 use kink_pattern::{
-    CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventAttribution, EventOrigin,
-    ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
+    CollectionEvidence, CollectionStop, EmptySearchDecision, Event, EventPresence, ExecutionStop,
+    ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
 };
 
 use crate::execution::{AdaptedExecution, HaltClass};
@@ -336,16 +336,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
         .events
         .iter()
         .map(|event| {
-            let (
-                index,
-                transition_ordinal,
-                emission_ordinal,
-                constructor,
-                transition,
-                rule,
-                payload,
-                attribution,
-            ) = match event {
+            let (index, step, emission_ordinal, constructor, payload, presence) = match event {
                 NativeEvent::RuleApplied(event) => (
                     event.event_ordinal,
                     event.transition_ordinal,
@@ -354,18 +345,14 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                         || format!("rule:{}:{}", event.rule.module, event.rule.index),
                         |label| format!("rule:{label}"),
                     ),
-                    &event.transition,
-                    &event.rule,
                     Vec::new(),
-                    EventAttribution::Certain,
+                    EventPresence::Certain,
                 ),
                 NativeEvent::Domain(event) => (
                     event.event_ordinal,
                     event.transition_ordinal,
                     event.emission_ordinal,
                     event.constructor.clone(),
-                    &event.transition,
-                    &event.rule,
                     event
                         .payload
                         .iter()
@@ -380,29 +367,23 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?,
-                    EventAttribution::Certain,
+                    EventPresence::Certain,
                 ),
                 NativeEvent::UnknownAttribution(event) => (
                     event.event_ordinal,
                     event.transition_ordinal,
                     event.emission_ordinal,
                     event.constructor.clone(),
-                    &event.transition,
-                    &event.rule,
                     Vec::new(),
-                    EventAttribution::Unknown(event.reason.clone()),
+                    EventPresence::Undecided,
                 ),
             };
             Ok(Event {
                 index,
                 constructor,
                 payload,
-                attribution,
-                origin: EventOrigin {
-                    rule: (*rule).clone(),
-                    transition: transition.clone(),
-                },
-                transition_ordinal: widen(transition_ordinal),
+                presence,
+                step: widen(step),
                 emission_ordinal: widen(emission_ordinal),
             })
         })
@@ -730,7 +711,6 @@ mod tests {
                 results: None,
             },
             vocabulary,
-            selected_rules: [kink_patch::SentenceRef::new("M", 0)].into_iter().collect(),
             symbol_sorts: sorts(),
         };
         evaluate(

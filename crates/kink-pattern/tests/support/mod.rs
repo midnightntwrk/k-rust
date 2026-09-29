@@ -1,15 +1,13 @@
 //! Rust builders for the execution-pattern rows, replacing the former
-//! `execution-pattern-vectors.json`: its terms as KORE patterns, its event pool, its origins
-//! as rule labels, its two vocabularies, its nine plans and its side-condition table. The
+//! `execution-pattern-vectors.json`: its terms as KORE patterns, its event pool,
+//! its two vocabularies, its nine plans and its side-condition table. The
 //! relation-decider rows add a third symbolic address, its events and a three-atom plan.
 #![allow(dead_code)]
 
-use k_rust::backend::TransitionIdOutput;
 use k_rust::kore::ast::{Pattern, Sort, Symbol, Variable, VariableKind};
-use kink_patch::SentenceRef;
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EvaluationContext,
-    EvaluationOptions, Event, EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop,
+    EvaluationOptions, Event, EventPresence, EventVocabulary, ExecutionBounds, ExecutionStop,
     ExecutionTerminal, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
     PatternPlan, PayloadClause, Relation, SearchPolicy, SideCondition, SideConditionResult,
     SideConditionRow, SideConditionTable, SymbolSorts, TermRelation,
@@ -114,64 +112,37 @@ pub fn symbol_sorts() -> SymbolSorts {
     ])
 }
 
-/// Event pool: (constructor, payload terms, emitting rule label).
-fn event_spec(name: &str) -> (&'static str, &'static [&'static str], &'static str) {
+/// Event pool: constructor and payload terms.
+fn event_spec(name: &str) -> (&'static str, &'static [&'static str]) {
     match name {
-        "x" => ("Other", &[], "MEMORY.other"),
-        "wa" => ("memoryWrite", &["a", "v7"], "MEMORY.write"),
-        "wb" => ("memoryWrite", &["b", "v8"], "MEMORY.write"),
-        "la" => ("memoryLoad", &["a", "v7"], "MEMORY.load"),
-        "lAlias" => ("memoryLoad", &["aAlias", "v7"], "MEMORY.load"),
-        "lb" => ("memoryLoad", &["b", "v8"], "MEMORY.load"),
-        "fa" => ("memoryFree", &["a"], "MEMORY.free"),
-        "wSymbolic" => ("memoryWrite", &["symbolicA", "v7"], "MEMORY.write"),
-        "lSymbolic" => ("memoryLoad", &["symbolicA", "v8"], "MEMORY.load"),
-        "wSymbolicX" => ("memoryWrite", &["symbolicX", "v7"], "MEMORY.write"),
-        "lSymbolicY" => ("memoryLoad", &["symbolicY", "v8"], "MEMORY.load"),
-        "lSymbolicZ" => ("memoryLoad", &["symbolicZ", "v8"], "MEMORY.load"),
-        "fSymbolicZ" => ("memoryFree", &["symbolicZ"], "MEMORY.free"),
-        "counterIncrement" => ("counterIncrement", &["v7", "v8"], "COUNTER.increment"),
-        "branchTaken" => ("branchTaken", &["v8"], "COUNTER.branch"),
+        "x" => ("Other", &[]),
+        "wa" => ("memoryWrite", &["a", "v7"]),
+        "wb" => ("memoryWrite", &["b", "v8"]),
+        "la" => ("memoryLoad", &["a", "v7"]),
+        "lAlias" => ("memoryLoad", &["aAlias", "v7"]),
+        "lb" => ("memoryLoad", &["b", "v8"]),
+        "fa" => ("memoryFree", &["a"]),
+        "wSymbolic" => ("memoryWrite", &["symbolicA", "v7"]),
+        "lSymbolic" => ("memoryLoad", &["symbolicA", "v8"]),
+        "wSymbolicX" => ("memoryWrite", &["symbolicX", "v7"]),
+        "lSymbolicY" => ("memoryLoad", &["symbolicY", "v8"]),
+        "lSymbolicZ" => ("memoryLoad", &["symbolicZ", "v8"]),
+        "fSymbolicZ" => ("memoryFree", &["symbolicZ"]),
+        "counterIncrement" => ("counterIncrement", &["v7", "v8"]),
+        "branchTaken" => ("branchTaken", &["v8"]),
         other => panic!("no event {other}"),
     }
 }
 
-/// Every rule label the pool's events come from.
-pub const RULE_LABELS: [&str; 6] = [
-    "MEMORY.other",
-    "MEMORY.write",
-    "MEMORY.load",
-    "MEMORY.free",
-    "COUNTER.increment",
-    "COUNTER.branch",
-];
-
-pub fn rule_ref(label: &str) -> SentenceRef {
-    SentenceRef::new(
-        label.split('.').next().expect("module"),
-        RULE_LABELS
-            .iter()
-            .position(|candidate| *candidate == label)
-            .expect("rule") as u32,
-    )
-}
-
 /// Event `name` at `index`, one transition per event.
 pub fn event(name: &str, index: usize) -> Event {
-    let (constructor, payload, rule_label) = event_spec(name);
+    let (constructor, payload) = event_spec(name);
     Event {
         index,
         constructor: constructor.to_owned(),
         payload: payload.iter().map(|name| term(name)).collect(),
-        attribution: kink_pattern::EventAttribution::Certain,
-        origin: EventOrigin {
-            rule: rule_ref(rule_label),
-            transition: TransitionIdOutput {
-                rule: format!("{rule_label}-id"),
-                target: format!("target-{index}"),
-            },
-        },
-        transition_ordinal: u64::try_from(index).expect("small index"),
+        presence: EventPresence::Certain,
+        step: u64::try_from(index).expect("small index"),
         emission_ordinal: 0,
     }
 }
@@ -418,7 +389,6 @@ pub fn context(test_id: &str) -> EvaluationContext {
             results: Some(8),
         },
         vocabulary: trace_vocabulary(),
-        selected_rules: RULE_LABELS.iter().map(|label| rule_ref(label)).collect(),
         symbol_sorts: symbol_sorts(),
     }
 }
