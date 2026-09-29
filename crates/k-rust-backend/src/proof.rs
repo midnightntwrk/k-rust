@@ -48,8 +48,8 @@ use crate::{
     definition::BackendDefinition,
     fresh::fresh_name,
     implication::{
-        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
-        check_disjunctive_implication_with_existentials, shown_nonempty,
+        ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus, Instance,
+        check_disjunctive_implication_with_existentials,
     },
     matching::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
@@ -932,7 +932,7 @@ enum StuckEvidence {
 ///   every destination coverage condition on the trace, together with the definedness of its
 ///   term are satisfiable by a query whose translation is exact (`smt::translation_exactness`), or
 ///   are true syntactically, and every free variable has an inhabited sort
-///   (`implication::shown_nonempty`, shared with the complete implication policy).
+///   (`implication::Instance::shown`, shared with the complete implication policy).
 ///   Those complements say "outside the destination" only if every state on the trace had its
 ///   implication check run and decided (`ProofState::destination_undecided`): a skipped or
 ///   undecided check leaves no complement, and the configurations that continued past it may
@@ -1023,7 +1023,7 @@ fn leaf_is_nonempty(
     pattern.term.visit_symbols(&mut |symbol| {
         constructors_only &= symbol.attributes.head_role() == HeadRole::FreeConstructor;
     });
-    constructors_only && shown_nonempty(definition, pattern, &[], solver)
+    constructors_only && Instance::shown(definition, pattern, &[], solver).is_some()
 }
 
 /// Condition (a) of [`stuck_leaf`] for a state the search stopped without rewriting it. The

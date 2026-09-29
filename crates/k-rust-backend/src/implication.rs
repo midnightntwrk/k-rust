@@ -31,6 +31,12 @@ use std::{collections::BTreeSet, error::Error, fmt};
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::measure::{self, Algorithm};
 
+mod evidence;
+
+pub(crate) use evidence::Instance;
+pub use evidence::{Counterexample, ObligationRefuted};
+use evidence::{Everywhere, OutsideEvidence};
+
 use crate::{
     definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
@@ -46,10 +52,10 @@ use crate::{
         SimplificationError, SimplificationOptions, normalize_predicate,
         simplify_predicates_with_solver, simplify_with_solver,
     },
-    smt::{Exactness, Satisfiability, SmtSolver, Validity, translation_exactness},
+    smt::{Satisfiability, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
+    term::Variable,
     term::names::FreshMarker,
-    term::{Term, TermKind, Variable},
     unification::{Unification, UnificationResult, unify_term_pairs},
 };
 
@@ -206,9 +212,9 @@ pub fn special_case(
 ///
 /// A `\bottom` consequent has no instance, so every instance of the antecedent lies outside it:
 /// the implication is invalid exactly when the antecedent has an instance, and holds vacuously
-/// otherwise. That result is kept `invalid` only when [`shown_nonempty`] establishes the
-/// instance; otherwise it becomes `indeterminate` with its condition. Every other special case
-/// is returned unchanged.
+/// otherwise. That result is kept `invalid` only when a [`Counterexample`] shows the instance;
+/// otherwise it becomes `indeterminate` with its condition. Every other special case is returned
+/// unchanged.
 pub fn grade_special_case(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -222,7 +228,7 @@ pub fn grade_special_case(
         definition,
         antecedent,
         result,
-        Refutation::Everywhere,
+        OutsideEvidence::Everywhere(Everywhere::BottomConsequent),
         ImplicationCheckOptions {
             simplification: SimplificationOptions::default(),
             counterexamples: CounterexamplePolicy::RefuteImplication,
@@ -241,8 +247,8 @@ pub fn grade_special_case(
 /// - A unification clash (different constructors, values or sorts, or an occurs cycle below
 ///   constructors) or constraints the solver refutes (`Unsat` is sound under every
 ///   approximation) show `A /\ C` empty: `valid`.
-/// - A unifier whose instance of `A` with both sides' constraints [`shown_nonempty`] shows
-///   nonempty is a common value: `invalid`.
+/// - A unifier whose instance of `A` with both sides' constraints is shown to have an instance
+///   (a [`Counterexample`]) is a common value: `invalid`.
 /// - Anything else, including a collection unification left unsupported and a consequent
 ///   `\exists E. \not C` (which asks for `C` to fail for some `E` rather than for all), is
 ///   `indeterminate`.
@@ -314,7 +320,7 @@ pub fn check_negated_consequent(
             conjunction.constraints.push(predicate);
         }
     }
-    if shown_nonempty(definition, &conjunction, &[], solver) {
+    if Counterexample::common(definition, &conjunction, solver).is_some() {
         return Ok(ImplicationResult {
             status: ImplicationStatus::Invalid,
             condition: None,
@@ -547,6 +553,8 @@ pub fn check_disjunctive_implication_with_existentials(
     // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
         let mut branches = Vec::new();
+        // One refutation per matched branch whose obligation simplified to `false`.
+        let mut refuted_branches = Vec::new();
         let mut matched = false;
         let mut incomplete = false;
         let mut contingent_coverage = None;
@@ -611,19 +619,25 @@ pub fn check_disjunctive_implication_with_existentials(
                 predicates,
                 witnesses: obligations.witnesses,
             };
-            match predicates_truth(&obligations.predicates) {
+            let truth = predicates_truth(&obligations.predicates);
+            match truth {
                 Truth::True => {
                     return Ok(valid_with_witnesses(
                         Substitution::new(),
                         obligations.witnesses,
                     ));
                 }
-                Truth::False => continue,
+                Truth::False => refuted_branches.extend(ObligationRefuted::by_simplifier(truth)),
                 Truth::Unknown => branches.push(obligations),
             }
         }
 
-        if !branches.is_empty() {
+        // The destination's obligation is the disjunction of the matched branches'. It is
+        // refuted when every disjunct is: each branch refuted above, and the disjunction of the
+        // branches left undecided, which is decided as one disjunct below.
+        let refuted = if branches.is_empty() {
+            ObligationRefuted::every_branch(refuted_branches)
+        } else {
             let witnesses = if let [branch] = branches.as_slice() {
                 branch.witnesses.clone()
             } else {
@@ -644,11 +658,12 @@ pub fn check_disjunctive_implication_with_existentials(
                     combined
                 }
             };
-            match predicates_truth(&combined) {
+            let truth = predicates_truth(&combined);
+            let combined_refuted = match truth {
                 Truth::True => {
                     return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                 }
-                Truth::False => {}
+                Truth::False => ObligationRefuted::by_simplifier(truth),
                 Truth::Unknown => {
                     let verdict =
                         solver.check_predicates(&knowledge, &Substitution::new(), &combined);
@@ -675,9 +690,14 @@ pub fn check_disjunctive_implication_with_existentials(
                     ) {
                         incomplete = true;
                     }
+                    verdict.as_ref().ok().and_then(ObligationRefuted::by_solver)
                 }
-            }
-        }
+            };
+            combined_refuted.and_then(|combined_refuted| {
+                refuted_branches.push(combined_refuted);
+                ObligationRefuted::every_branch(refuted_branches)
+            })
+        };
 
         if incomplete {
             let simplified = simplify_with_solver(
@@ -706,10 +726,14 @@ pub fn check_disjunctive_implication_with_existentials(
             }
             return Ok(indeterminate());
         }
-        return Ok(if matched {
-            condition_invalid()
-        } else {
-            invalid()
+        // Every round that reaches this point decided each matched branch: a matched branch
+        // whose obligation is refuted neither alone nor in the disjunction leaves the round
+        // `incomplete` above. A refuted condition is reported only with its refutation, and a
+        // matched destination without one only as undecided.
+        return Ok(match refuted {
+            Some(_) => condition_invalid(),
+            None if matched => indeterminate(),
+            None => invalid(),
         });
     }
 }
@@ -784,7 +808,7 @@ fn check_implication_with_existentials_and_options_and_policy(
                     definition,
                     &antecedent,
                     invalid(),
-                    Refutation::Everywhere,
+                    OutsideEvidence::Everywhere(Everywhere::TermMismatch),
                     options,
                     solver,
                 ));
@@ -1050,7 +1074,8 @@ fn discharge_consequent(
         predicates,
         witnesses: obligations.witnesses,
     };
-    match predicates_truth(&obligations.predicates) {
+    let truth = predicates_truth(&obligations.predicates);
+    match truth {
         Truth::True => {
             return Ok(valid_with_witnesses(substitution, obligations.witnesses));
         }
@@ -1064,7 +1089,7 @@ fn discharge_consequent(
                         definition,
                         antecedent,
                         invalid(),
-                        Refutation::Everywhere,
+                        refuted_everywhere(ObligationRefuted::by_simplifier(truth)),
                         options,
                         solver,
                     )
@@ -1083,7 +1108,7 @@ fn discharge_consequent(
                 definition,
                 antecedent,
                 condition_invalid_with_bindings(substitution, obligations.witnesses),
-                Refutation::Everywhere,
+                refuted_everywhere(ObligationRefuted::by_simplifier(truth)),
                 options,
                 solver,
             ));
@@ -1110,10 +1135,11 @@ fn discharge_consequent(
     {
         return Ok(valid_with_witnesses(substitution, witnesses));
     }
-    let (result, refutation) = match verdict {
+    let refuted = verdict.as_ref().ok().and_then(ObligationRefuted::by_solver);
+    let (result, evidence) = match verdict {
         Ok(Validity::Valid) => (
             valid_with_witnesses(substitution, witnesses),
-            Refutation::Undecided,
+            OutsideEvidence::Undecided,
         ),
         // Under the proof policy the part of the state outside the destination is the
         // complement of this condition's predicates, so every obligation stays among them: an
@@ -1131,13 +1157,13 @@ fn discharge_consequent(
                 witnesses,
                 obligations,
             ),
-            Refutation::Everywhere,
+            refuted_everywhere(refuted),
         ),
         Ok(Validity::Refuted) => (
             condition_invalid_with_bindings(substitution, witnesses),
-            Refutation::Everywhere,
+            refuted_everywhere(refuted),
         ),
-        Ok(Validity::InconsistentGroundTruth) => (vacuously_valid(), Refutation::Undecided),
+        Ok(Validity::InconsistentGroundTruth) => (vacuously_valid(), OutsideEvidence::Undecided),
         // The complete policy reports an undecided remainder obligation as the condition under
         // which the implication would hold. The proof policy classifies the obligation by what
         // the solver established, whatever its origin: a contingent one splits the state below,
@@ -1146,7 +1172,7 @@ fn discharge_consequent(
             if had_match_remainder
                 && options.counterexamples == CounterexamplePolicy::RefuteImplication =>
         {
-            let counterexample = Refutation::Where(obligations.clone());
+            let counterexample = OutsideEvidence::Where(obligations.clone());
             (
                 partial(
                     source.original_variable,
@@ -1168,7 +1194,7 @@ fn discharge_consequent(
                     witnesses,
                     obligations,
                 ),
-                Refutation::Undecided,
+                OutsideEvidence::Undecided,
             )
         }
         Ok(Validity::Contingent)
@@ -1176,43 +1202,36 @@ fn discharge_consequent(
         {
             (
                 counterexample_invalid_with_bindings(substitution, witnesses),
-                Refutation::Where(obligations),
+                OutsideEvidence::Where(obligations),
             )
         }
         // The obligation holds on part of the antecedent and fails on a non-empty part, so the
         // obligations themselves are the exact coverage condition.
         Ok(Validity::Contingent) => (
             contingent_with_bindings(substitution, witnesses, obligations),
-            Refutation::Undecided,
+            OutsideEvidence::Undecided,
         ),
-        Ok(Validity::Unknown(_)) | Err(_) => (indeterminate(), Refutation::Undecided),
+        Ok(Validity::Unknown(_)) | Err(_) => (indeterminate(), OutsideEvidence::Undecided),
     };
     Ok(refutation_result(
-        definition, antecedent, result, refutation, options, solver,
+        definition, antecedent, result, evidence, options, solver,
     ))
 }
 
-/// What the check established about the antecedent's instances outside the consequent, for a
-/// result it reports as invalid.
-enum Refutation {
-    /// No instance of the antecedent is an instance of the consequent: the term match failed,
-    /// or the antecedent's constraints refute the obligations (a solver `Unsat` or a syntactic
-    /// `false`, sound for every approximation of the translation).
-    Everywhere,
-    /// The instances of the antecedent that falsify these obligations are outside the
-    /// consequent, and the solver reported that some may exist. Its `Sat` may come from an
-    /// approximate translation, so it is a candidate, not a witness.
-    Where(Vec<Predicate>),
-    /// Nothing about instances outside the consequent was established.
-    Undecided,
+/// Every instance of the antecedent is outside the consequent when the obligations are refuted,
+/// and nothing is established when they are not.
+fn refuted_everywhere(refuted: Option<ObligationRefuted>) -> OutsideEvidence {
+    refuted.map_or(OutsideEvidence::Undecided, |refuted| {
+        OutsideEvidence::Everywhere(Everywhere::Refuted(refuted))
+    })
 }
 
 /// Grade an invalid result of the complete policy by the instance it rests on.
 ///
 /// `invalid` asserts that some instance of the antecedent is not an instance of the
-/// consequent. `Refutation::Everywhere` supplies one exactly when the antecedent has an
-/// instance, and `Refutation::Where` when the antecedent conjoined with the negated obligations
-/// has one; `shown_nonempty` decides both without trusting an approximate `Sat`. Without that
+/// consequent, so it is kept only when `Counterexample::outside` shows one from the `evidence`:
+/// an instance of the antecedent when every instance is outside, or an instance of the
+/// antecedent conjoined with the negated obligations when those instances are. Without that
 /// instance the implication may hold vacuously, so the status becomes `Indeterminate`; the
 /// condition is kept, because "the antecedent and the condition" is the part of the antecedent
 /// inside the consequent whether or not the antecedent is empty. The proof policy reads an
@@ -1221,7 +1240,7 @@ fn refutation_result(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     result: ImplicationResult,
-    refutation: Refutation,
+    evidence: OutsideEvidence,
     options: ImplicationCheckOptions,
     solver: &dyn SmtSolver,
 ) -> ImplicationResult {
@@ -1230,108 +1249,13 @@ fn refutation_result(
     {
         return result;
     }
-    let shown = match refutation {
-        Refutation::Everywhere => shown_nonempty(definition, antecedent, &[], solver),
-        Refutation::Where(obligations) => shown_nonempty(
-            definition,
-            antecedent,
-            &[normalize_predicate(Predicate::Not(Box::new(conjoin(
-                obligations,
-            ))))],
-            solver,
-        ),
-        Refutation::Undecided => false,
-    };
-    if shown {
+    if Counterexample::outside(definition, antecedent, &evidence, solver).is_some() {
         result
     } else {
         ImplicationResult {
             status: ImplicationStatus::Indeterminate,
             ..result
         }
-    }
-}
-
-/// Whether `pattern`, with `extra` conjoined to its constraints, is shown to have an instance:
-/// a valuation of its free variables that satisfies the constraints and under which its term
-/// denotes a value.
-///
-/// A term denotes a value exactly where `ceil_term` holds: it collects the definedness of
-/// partial applications, of set variables and of map keys and set elements being distinct;
-/// constructors, total functions, domain values and element variables always denote one. The
-/// exception is a conjunction of terms, which denotes a value only where both sides agree;
-/// such a term is not shown nonempty. The remaining predicates must be true syntactically, or
-/// satisfiable by a solver `Sat` on a query whose translation is exact
-/// (`smt::translation_exactness`): an approximate `Sat` may come from an SMT model that is no K
-/// valuation.
-///
-/// A pattern with a free variable denotes the union, over every value of the variable's sort,
-/// of what it denotes with the variable bound to that value; over an empty sort that union is
-/// empty, whatever the constraints say. Neither a syntactically true query nor a variable the
-/// query does not mention says anything about the variable's sort, so every free variable of
-/// the term and of the query must have a sort the definition shows inhabited
-/// ([`BackendDefinition::sort_is_inhabited`]). The `Int` and `Bool` variables an exact query
-/// may mention always are.
-pub(crate) fn shown_nonempty(
-    definition: &BackendDefinition,
-    pattern: &Pattern,
-    extra: &[Predicate],
-    solver: &dyn SmtSolver,
-) -> bool {
-    if contains_conjunction(&pattern.term) {
-        return false;
-    }
-    let mut query = pattern.constraints.clone();
-    for predicate in extra
-        .iter()
-        .cloned()
-        .chain(ceil_term(definition, &pattern.term))
-    {
-        if !query.contains(&predicate) {
-            query.push(predicate);
-        }
-    }
-    if !pattern
-        .term
-        .attributes()
-        .variables
-        .iter()
-        .cloned()
-        .chain(query.iter().flat_map(Predicate::free_variables))
-        .all(|variable| definition.sort_is_inhabited(&variable.sort))
-    {
-        return false;
-    }
-    predicates_truth(&query) == Truth::True
-        || (translation_exactness(&query) == Exactness::Exact
-            && matches!(
-                solver.is_sat(&query, &Substitution::new()),
-                Ok(Satisfiability::Sat)
-            ))
-}
-
-fn contains_conjunction(term: &Term) -> bool {
-    match term.kind() {
-        TermKind::And(..) => true,
-        TermKind::Application { arguments, .. } => arguments.iter().any(contains_conjunction),
-        TermKind::Injection { term, .. } => contains_conjunction(term),
-        TermKind::Map { entries, rest, .. } => {
-            entries
-                .iter()
-                .any(|(key, value)| contains_conjunction(key) || contains_conjunction(value))
-                || rest.as_ref().is_some_and(contains_conjunction)
-        }
-        TermKind::List { heads, rest, .. } => {
-            heads.iter().any(contains_conjunction)
-                || rest.as_ref().is_some_and(|(middle, tails)| {
-                    contains_conjunction(middle) || tails.iter().any(contains_conjunction)
-                })
-        }
-        TermKind::Set { elements, rest, .. } => {
-            elements.iter().any(contains_conjunction)
-                || rest.as_ref().is_some_and(contains_conjunction)
-        }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
 
