@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persistent K-Rust execution support for the KEVM qualification corpus."""
+"""Surface configuration and expectations for the KEVM qualification corpus."""
 
 from __future__ import annotations
 
