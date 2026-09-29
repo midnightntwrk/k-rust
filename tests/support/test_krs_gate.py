@@ -25,7 +25,11 @@ for line in sys.stdin:
     if mode == "exit":
         print("deliberate failure", file=sys.stderr, flush=True)
         sys.exit(7)
-    if mode == "error":
+    if mode == "expect_false" and request["operation"] == "expect":
+        response = {"id": request["id"], "result": {
+            "met": False, "expected": "wanted", "actual": "found",
+        }}
+    elif mode == "error":
         response = {"id": request["id"], "error": {"message": "bad request"}}
     elif mode == "wrong_id":
         response = {"id": "other", "result": {}}
@@ -84,6 +88,24 @@ class ClientTests(unittest.TestCase):
         with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "error"}) as session:
             with self.assertRaisesRegex(GateError, "request 1 failed: bad request"):
                 session.request("execute", pattern="opaque")
+
+    def test_retained_state_operations_use_lockstep_ids(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            executed = session.execute("pattern", keep="state")
+            read = session.read("opaque kore", "state")
+            observed = session.observe("state", ["k", "locals"])
+        self.assertEqual(
+            [executed["request_id"], read["request_id"], observed["request_id"]],
+            ["1", "2", "3"],
+        )
+        self.assertEqual(executed["fields"], {"pattern": "pattern", "keep": "state"})
+        self.assertEqual(read["fields"], {"text": "opaque kore", "keep": "state"})
+        self.assertEqual(observed["fields"], {"state": "state", "cells": ["k", "locals"]})
+
+    def test_failed_expectation_reports_both_terms(self) -> None:
+        with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "expect_false"}) as session:
+            with self.assertRaisesRegex(GateError, "expected=wanted, actual=found"):
+                session.expect("state", "k", text="wanted")
 
     def test_early_exit_reports_stderr(self) -> None:
         with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "exit"}) as session:

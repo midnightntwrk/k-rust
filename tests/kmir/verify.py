@@ -309,20 +309,13 @@ def definition_checks(readable: str) -> None:
         raise GateError("emitted KMIR definition omits typed builtin-list lookup")
 
 
-def krun_arguments(case: dict) -> list[str]:
-    """Build the KMIR configuration for the Java route."""
-
-    return [f"-c{name}={value}" for name, value in native.configuration_variables(case).items()]
-
-
 HOOKS = semantics.Hooks(
     description=__doc__,
     label="readable KMIR operational slice",
     java_help="also run the pinned K toolchain behavior comparison and proof",
     claim_count=1,
-    krun_arguments=krun_arguments,
-    observed=native.observed,
-    checked=native.checked,
+    configuration_variables=native.configuration_variables,
+    spec=native.SPEC,
     definition_checks=definition_checks,
 )
 

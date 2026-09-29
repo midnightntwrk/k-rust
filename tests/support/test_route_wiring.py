@@ -17,17 +17,10 @@ from support import semantics  # noqa: E402
 
 
 class RouteWiringTests(unittest.TestCase):
-    def test_java_reference_uses_port_hooks(self) -> None:
+    def test_java_reference_uses_shared_expectations(self) -> None:
         verifier = importlib.import_module("kwasm.verify")
         case = {"id": "case", "program": "program"}
         observed = {"id": "case", "value": "result"}
-        calls: list[str] = []
-        hooks = replace(
-            verifier.HOOKS,
-            krun_arguments=lambda _: calls.append("arguments") or ["-cPGM=program"],
-            observed=lambda _, state: calls.append("observed") or observed,
-            checked=lambda _, outcome: calls.append("checked") if outcome is observed else None,
-        )
         with ExitStack() as patches:
             patches.enter_context(mock.patch.object(
                 semantics, "reference_definition", return_value=(Path("definition"), Path("spec")),
@@ -35,21 +28,26 @@ class RouteWiringTests(unittest.TestCase):
             run = patches.enter_context(mock.patch.object(
                 semantics, "run", return_value=mock.Mock(stdout="term"),
             ))
-            patches.enter_context(mock.patch.object(semantics, "parse_kore_pattern", return_value={}))
             patches.enter_context(mock.patch.object(semantics, "compare_routes"))
             proof = patches.enter_context(mock.patch.object(semantics, "reference_proof"))
+            gate_session = patches.enter_context(mock.patch.object(semantics.krs_gate, "Session"))
+            checked = patches.enter_context(mock.patch.object(
+                semantics.behavior_module, "java_case", return_value=observed,
+            ))
             self.assertEqual(
                 semantics.java_reference_gate(
-                    verifier.PORT, hooks, Path("workspace"), Path("artifacts"),
+                    verifier.PORT, verifier.HOOKS, Path("workspace"), Path("artifacts"),
                     {"kompile": "kompile", "krun": "krun", "kprove": "kprove"},
                     mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {},
                 ),
                 1,
             )
-        self.assertEqual(calls, ["arguments", "observed", "checked"])
+        session = gate_session.return_value.__enter__.return_value
+        session.load.assert_called_once_with(Path("artifacts/definition-ir.json"), verifier.PORT.module)
+        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
         self.assertEqual(
             run.call_args.args[0],
-            ["krun", "--definition", Path("definition"), "-cPGM=program", "--output", "kore"],
+            ["krun", "--definition", Path("definition"), "-cPGM=program", "-cSTACK=.ValStack", "--output", "kore"],
         )
         proof.assert_called_once()
 

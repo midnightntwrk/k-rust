@@ -9,7 +9,7 @@ import sys
 from typing import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, semantics, entry, krs_gate  # noqa: E402
+from support import ROOT, GateError, semantics, entry  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from kevm import native  # noqa: E402
 
@@ -117,22 +117,6 @@ def definition_checks(readable: str) -> None:
         raise GateError("emitted KEVM definition retained the structured program adapter")
 
 
-def krun_arguments(case: dict, session: krs_gate.Session) -> list[str]:
-    """Pass configured KORE values to the Java route."""
-
-    # Every variable except $PGM, which the configuration declares at sort K, uses the KORE value assembled by the native gate.
-    # Both routes start from the same configuration.
-    # krun spawns no kparse JVM per variable; kparse also exhausts an 8 GiB heap on the 256-entry block-hash List.
-    surface = native.configuration_variables(case)
-    configured = session.configure(surface)["variables"]
-    names = [name for name in surface if name != "PGM"]
-    return [
-        f"-cPGM={surface['PGM']}",
-        *(f"-c{name}={configured[name]['kore']}" for name in names),
-        *(f"-p{name}=cat" for name in names),
-    ]
-
-
 def summary(port: semantics.Port, executions: int, proofs: int, java_reference: bool) -> str:
     proof_status = (
         f"{proofs} Java reference proofs"
@@ -150,8 +134,9 @@ HOOKS = semantics.Hooks(
     label="readable KEVM operational slice",
     java_help="run the expensive pinned Java behavior and proof authority gate",
     claim_count=CLAIM_COUNT,
-    krun_arguments=None,
-    session_krun_arguments=krun_arguments,
+    configuration_variables=native.configuration_variables,
+    # kparse exhausts its heap on the block-hash List, so krun receives configured KORE values through cat for every variable except PGM.
+    kore_configuration=True,
     observed=native.observed,
     checked=native.checked,
     summary=summary,

@@ -155,6 +155,34 @@ class Session:
 
         return self.request("execute", pattern=pattern, **options)
 
+    def read(self, text: str, keep: str) -> dict[str, Any]:
+        """Retain a Java KORE result under a session state name."""
+
+        return self.request("kore.read", text=text, keep=keep)
+
+    def observe(self, state: str, cells: list[str]) -> dict[str, Any]:
+        """Read canonical cell contents and collection sizes."""
+
+        return self.request("observe", state=state, cells=cells)
+
+    def expect(
+        self, state: str, cell: str, *, text: str | None = None,
+        size: int | None = None, head: str | None = None,
+    ) -> dict[str, Any]:
+        """Require a surface-text, size, or K-sequence-head expectation."""
+
+        fields = {"text": text, "size": size, "head": head}
+        selected = {name: value for name, value in fields.items() if value is not None}
+        if len(selected) != 1:
+            raise GateError("expect requires exactly one of text, size, or head")
+        result = self.request("expect", state=state, cell=cell, **selected)
+        if not result["met"]:
+            raise GateError(
+                f"gate expectation for <{cell}> failed: expected={result['expected']}, "
+                f"actual={result['actual']}"
+            )
+        return result
+
     def prove(self, claim: str) -> dict[str, Any]:
         """Prove an opaque KORE claim and return the serialized result."""
 

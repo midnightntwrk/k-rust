@@ -1,14 +1,23 @@
 //! Newline-delimited JSON native backend session.
 
-use crate::{compile::compile_ir, configuration::Configuration};
+use crate::{
+    compile::compile_ir,
+    configuration::Configuration,
+    pattern::{self, PatternContext},
+};
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest},
-    kore::{json as kore_json, parser::parse_pattern},
+    kore::{
+        ast::Pattern,
+        json as kore_json,
+        parser::{parse_definition, parse_pattern},
+    },
 };
 use krs_ir::measure::Timings;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeMap,
     error::Error,
     io::{self, BufRead, Write},
     path::Path,
@@ -29,7 +38,10 @@ fn pattern_json(source: &str) -> Result<Value, Box<dyn Error>> {
     Ok(Value::deserialize(&mut deserializer)?)
 }
 
-fn execute(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>> {
+fn execute(
+    backend: &mut Backend,
+    request: &Value,
+) -> Result<(Value, Option<Pattern>), Box<dyn Error>> {
     let max_depth = match request.get("max_depth") {
         None | Some(Value::Null) => None,
         Some(value) => Some(
@@ -60,7 +72,35 @@ fn execute(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Erro
             leaf.trace.clear();
         }
     }
-    Ok(serde_json::to_value(result)?)
+    let retained = if request.get("keep").is_some() {
+        if result.leaves.len() != 1 {
+            return Err(format!(
+                "execute with `keep` requires exactly one leaf, got {}",
+                result.leaves.len()
+            )
+            .into());
+        }
+        let source = serde_json::to_string(&result.leaves[0].state)?;
+        Some(kore_json::from_str(&source)?)
+    } else {
+        None
+    };
+    let output = if retained.is_some() {
+        let leaves = result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                json!({
+                    "reason": leaf.reason, "depth": leaf.depth, "detail": leaf.detail,
+                    "trace": leaf.trace,
+                })
+            })
+            .collect::<Vec<_>>();
+        json!({"modality": result.modality, "leaves": leaves})
+    } else {
+        serde_json::to_value(result)?
+    };
+    Ok((output, retained))
 }
 
 fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>> {
@@ -76,6 +116,8 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
 pub struct Session {
     backend: Option<Backend>,
     configuration: Option<Configuration>,
+    patterns: Option<PatternContext>,
+    states: BTreeMap<String, Pattern>,
     load_attempted: bool,
 }
 
@@ -98,7 +140,13 @@ impl Session {
         let operation = required_string(request, "operation")?;
         if !matches!(
             operation,
-            "definition.load" | "configure" | "execute" | "prove"
+            "definition.load"
+                | "configure"
+                | "execute"
+                | "prove"
+                | "kore.read"
+                | "observe"
+                | "expect"
         ) {
             return Err(format!("unsupported operation `{operation}`").into());
         }
@@ -114,8 +162,11 @@ impl Session {
         let result: Result<Value, Box<dyn Error>> = match operation {
             "definition.load" => self.load(request),
             "configure" => self.configure(request),
-            "execute" => execute(self.backend.as_mut().ok_or("backend not loaded")?, request),
+            "execute" => self.execute(request),
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
+            "kore.read" => self.read(request),
+            "observe" => self.observe(request),
+            "expect" => self.expect(request),
             _ => unreachable!("validated operation"),
         };
         Ok(match result {
@@ -138,6 +189,9 @@ impl Session {
             )
             .into());
         }
+        let patterns =
+            PatternContext::from_definition(&parse_definition(&artifacts.definition_kore)?)
+                .with_frontend_cells(&context.frontend_definition)?;
         let configuration = Configuration::new(context)?;
         let backend = Backend::new(
             &artifacts.definition_kore,
@@ -146,6 +200,7 @@ impl Session {
         )?;
         self.backend = Some(backend);
         self.configuration = Some(configuration);
+        self.patterns = Some(patterns);
         Ok(json!({"module": module}))
     }
 
@@ -158,6 +213,121 @@ impl Session {
             .as_mut()
             .ok_or("configuration not loaded")?
             .configure(variables)
+    }
+
+    fn execute(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let keep = request
+            .get("keep")
+            .map(|_| required_string(request, "keep"))
+            .transpose()?;
+        let (result, state) = execute(self.backend.as_mut().ok_or("backend not loaded")?, request)?;
+        if let (Some(name), Some(state)) = (keep, state) {
+            self.states.insert(name.to_owned(), state);
+        }
+        Ok(result)
+    }
+
+    fn read(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let name = required_string(request, "keep")?;
+        let state = parse_pattern(required_string(request, "text")?)?;
+        self.states.insert(name.to_owned(), state);
+        Ok(json!({"state": name}))
+    }
+
+    fn state(&self, request: &Value) -> Result<&Pattern, Box<dyn Error>> {
+        let name = required_string(request, "state")?;
+        self.states
+            .get(name)
+            .ok_or_else(|| format!("unknown retained state `{name}`").into())
+    }
+
+    fn observe(&self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let names = request
+            .get("cells")
+            .and_then(Value::as_array)
+            .ok_or("request field `cells` must be an array")?;
+        let context = self
+            .patterns
+            .as_ref()
+            .ok_or("definition metadata not loaded")?;
+        let state = self.state(request)?;
+        let mut cells = serde_json::Map::new();
+        for name in names {
+            let name = name.as_str().ok_or("cell names must be strings")?;
+            let cell_value = context.normalize(pattern::cell(state, name)?.clone());
+            cells.insert(
+                name.to_owned(),
+                json!({"kore": cell_value.to_string(), "size": context.cell_collection_size(name, &cell_value)}),
+            );
+        }
+        Ok(Value::Object(cells))
+    }
+
+    fn expect(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let cell_name = required_string(request, "cell")?;
+        let fields = ["text", "size", "head"]
+            .into_iter()
+            .filter(|field| request.get(*field).is_some())
+            .collect::<Vec<_>>();
+        if fields.len() != 1 {
+            return Err("expect requires exactly one of `text`, `size`, or `head`".into());
+        }
+        let context = self
+            .patterns
+            .as_ref()
+            .ok_or("definition metadata not loaded")?;
+        let actual = context.normalize(pattern::cell(self.state(request)?, cell_name)?.clone());
+        if let Some(size) = request.get("size") {
+            let expected = size
+                .as_u64()
+                .ok_or("expect size must be an unsigned integer")?;
+            let count = context
+                .cell_collection_size(cell_name, &actual)
+                .ok_or_else(|| {
+                    format!(
+                        "<{cell_name}> is not a collection (declared sort {:?})",
+                        context.cell_sort(cell_name)
+                    )
+                })?;
+            return Ok(
+                json!({"met": u64::try_from(count)? == expected, "expected": expected.to_string(), "actual": count.to_string()}),
+            );
+        }
+        let head = fields[0] == "head";
+        let source = required_string(request, fields[0])?;
+        let sort = context
+            .cell_sort(cell_name)
+            .ok_or_else(|| format!("unknown cell <{cell_name}>"))?
+            .clone();
+        let configuration = self
+            .configuration
+            .as_mut()
+            .ok_or("configuration not loaded")?;
+        let expected = if head {
+            configuration.parse_head(cell_name, source)?
+        } else {
+            configuration.parse_cell(cell_name, &sort, source)?
+        };
+        let expected = self
+            .patterns
+            .as_ref()
+            .ok_or("definition metadata not loaded")?
+            .normalize(expected);
+        let actual = if head {
+            if let Pattern::Application { symbol, arguments } = &actual
+                && symbol.name == "kseq"
+                && let [first, _] = arguments.as_slice()
+            {
+                first.clone()
+            } else {
+                return Err(format!("<{cell_name}> does not contain a K sequence head").into());
+            }
+        } else {
+            actual
+        };
+        Ok(
+            json!({"met": expected == actual, "expected": expected.to_string(), "actual": actual.to_string()}),
+        )
     }
 }
 
@@ -224,6 +394,13 @@ mod tests {
                 .dispatch(&json!({"id": "1", "operation": "configure"}))
                 .is_err()
         );
+        for operation in ["kore.read", "observe", "expect"] {
+            assert!(
+                session
+                    .dispatch(&json!({"id": "1", "operation": operation}))
+                    .is_err()
+            );
+        }
         assert!(
             session
                 .dispatch(&json!({"id": "1", "operation": "other"}))

@@ -4,13 +4,13 @@
 use k_rust::{
     definition::ResolvedDefinition,
     inner::{ProgramParser, definition_with_named_projections},
-    kast::Sort as KastSort,
+    kast::{Sort as KastSort, Term},
     kompile::{
         MacroExpansionDefinition, SortInjector, encode_kore_sort,
         initial_configuration::{parser_modules, stream_defaults, top_cell_initializer},
         term_to_kore_from_resolved_with_token_module,
     },
-    kore::ast::{Pattern, Sort},
+    kore::ast::{Pattern, Sort, Symbol},
     names::BuiltinSort,
 };
 use krs_k_rust::ConfigurationContext;
@@ -67,6 +67,59 @@ fn validate_variables(
     }
 }
 
+fn split_k_sequence(source: &str) -> Result<Option<Vec<&str>>, String> {
+    let mut items = Vec::new();
+    let mut start = 0;
+    let mut depth = 0_u32;
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut chars = source.char_indices().peekable();
+    while let Some((index, character)) = chars.next() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => quoted = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or("unbalanced K sequence delimiters")?;
+            }
+            '~' if depth == 0 && chars.peek().is_some_and(|(_, next)| *next == '>') => {
+                chars.next();
+                let item = source[start..index].trim();
+                if item.is_empty() {
+                    return Err("empty K sequence item".into());
+                }
+                items.push(item);
+                start = index + 2;
+            }
+            _ => {}
+        }
+    }
+    if quoted || depth != 0 {
+        return Err("unbalanced K sequence delimiters".into());
+    }
+    if items.is_empty() {
+        Ok(None)
+    } else {
+        let item = source[start..].trim();
+        if item.is_empty() {
+            return Err("empty K sequence item".into());
+        }
+        items.push(item);
+        Ok(Some(items))
+    }
+}
+
 impl Configuration {
     /// Prepare projections, configuration parser modules, and macros once per session.
     ///
@@ -90,46 +143,48 @@ impl Configuration {
         })
     }
 
-    fn parse_variable(
+    fn parse_surface(
         &mut self,
-        name: &str,
+        parser_module: &str,
+        sort: &KastSort,
         source: &str,
+        k_item: bool,
     ) -> Result<(Pattern, Sort), Box<dyn Error>> {
-        let sort = self
-            .context
-            .configuration_variables
-            .get(name)
-            .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?;
-        let parser_module = if name == "PGM" {
-            &self.syntax_module
-        } else {
-            self.parser_modules.get(name).unwrap_or(&self.main_module)
-        };
         if self.resolved.module_id(parser_module).is_none() {
-            return Err(format!(
-                "parser module `{parser_module}` for configuration variable `${name}` was not found"
-            )
-            .into());
+            return Err(format!("parser module `{parser_module}` was not found").into());
         }
         if !self.parsers.contains_key(parser_module) {
             self.parsers.insert(
-                parser_module.clone(),
+                parser_module.to_owned(),
                 ProgramParser::from_resolved(&self.resolved, parser_module)?,
             );
         }
-        let parse_sort = if sort.name == BuiltinSort::K.k_name() {
+        let parse_sort = if sort.is_builtin(BuiltinSort::K) && k_item {
             KastSort::builtin(BuiltinSort::KItem)
         } else {
             sort.clone()
         };
-        let value = self
+        let parser = self
             .parsers
             .get(parser_module)
-            .expect("parser was inserted above")
-            .parse(&parse_sort, source)
-            .map_err(|error| {
-                format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
-            })?;
+            .expect("parser was inserted above");
+        let value = if sort.is_builtin(BuiltinSort::K) && !k_item {
+            if source.trim() == ".K" {
+                Term::sequence(Vec::new())
+            } else if let Some(items) = split_k_sequence(source)? {
+                Term::sequence(
+                    items
+                        .into_iter()
+                        .filter(|item| *item != ".K")
+                        .map(|item| parser.parse(&KastSort::builtin(BuiltinSort::KItem), item))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            } else {
+                parser.parse(&KastSort::builtin(BuiltinSort::KItem), source)?
+            }
+        } else {
+            parser.parse(&parse_sort, source)?
+        };
         let value = self
             .macro_definition
             .expand_term(&self.main_module, value)?;
@@ -143,6 +198,73 @@ impl Configuration {
             &value,
         )?;
         Ok((value, encode_kore_sort(&value_sort)))
+    }
+
+    fn parse_variable(
+        &mut self,
+        name: &str,
+        source: &str,
+    ) -> Result<(Pattern, Sort), Box<dyn Error>> {
+        let sort = self
+            .context
+            .configuration_variables
+            .get(name)
+            .ok_or_else(|| format!("definition has no configuration variable `${name}`"))?
+            .clone();
+        let parser_module = if name == "PGM" {
+            &self.syntax_module
+        } else {
+            self.parser_modules.get(name).unwrap_or(&self.main_module)
+        }
+        .clone();
+        self.parse_surface(&parser_module, &sort, source, true)
+            .map_err(|error| {
+                format!("could not parse configuration variable `${name}` at sort {sort}: {error}")
+                    .into()
+            })
+    }
+
+    /// Parse surface text at a cell's declared sort through the configuration frontend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cell sort or surface term cannot be resolved.
+    pub fn parse_cell(
+        &mut self,
+        cell: &str,
+        sort: &KastSort,
+        source: &str,
+    ) -> Result<Pattern, Box<dyn Error>> {
+        let parser_module = self.main_module.clone();
+        let k_item = source.trim() != ".K" && !source.contains("~>");
+        self.parse_surface(&parser_module, sort, source, k_item)
+            .map(|(value, _)| value)
+            .map_err(|error| format!("could not parse <{cell}> at sort {sort}: {error}").into())
+    }
+
+    /// Parse a computation head and inject its declared sort into `KItem`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the surface head cannot be parsed.
+    pub fn parse_head(&mut self, cell: &str, source: &str) -> Result<Pattern, Box<dyn Error>> {
+        let parser_module = self.main_module.clone();
+        let item_sort = KastSort::builtin(BuiltinSort::KItem);
+        let (value, value_sort) = self
+            .parse_surface(&parser_module, &item_sort, source, false)
+            .map_err(|error| format!("could not parse <{cell}> head: {error}"))?;
+        let kore_item_sort = encode_kore_sort(&item_sort);
+        if value_sort == kore_item_sort {
+            Ok(value)
+        } else {
+            Ok(Pattern::Application {
+                symbol: Symbol {
+                    name: "inj".to_owned(),
+                    sort_parameters: vec![value_sort, kore_item_sort],
+                },
+                arguments: vec![value],
+            })
+        }
     }
 
     /// Parse every declared variable and assemble `initGeneratedTopCell`.
@@ -207,7 +329,7 @@ impl Configuration {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_variables;
+    use super::{split_k_sequence, validate_variables};
     use k_rust::{kast::Sort, names::BuiltinSort};
     use serde_json::{Map, json};
     use std::collections::BTreeMap;
@@ -240,5 +362,18 @@ mod tests {
                 .unwrap_err()
                 .contains("$STACK")
         );
+    }
+
+    #[test]
+    fn splits_only_top_level_k_sequence_delimiters() {
+        assert_eq!(
+            split_k_sequence("trap ~> .Instrs").unwrap(),
+            Some(vec!["trap", ".Instrs"])
+        );
+        assert_eq!(
+            split_k_sequence("f(\"~>\") ~> g(1)").unwrap(),
+            Some(vec!["f(\"~>\")", "g(1)"])
+        );
+        assert!(split_k_sequence("a ~> ").is_err());
     }
 }

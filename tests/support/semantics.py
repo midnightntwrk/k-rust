@@ -5,7 +5,8 @@ and a pin ledger under `tests/<port>/`. The shared steps are: preflight over
 the external checkout and the corpus, the ordinary Rust checks, repeated
 expansion and emission with their output pins, native k-rust compilation and
 execution, and the kompiled reference definition behind `--java-reference`.
-Each verifier supplies its configuration, native observation and check hooks, and report wording.
+Each verifier supplies surface configuration and report wording.
+KWasm and KMIR supply shared state expectations; KEVM supplies its observer until its corpus migrates.
 
 `--artifacts-only` stops after the native definition: it checks every emitted
 artifact against its pin and skips the behavior and proof comparisons, which
@@ -15,7 +16,6 @@ cannot find anything new while the artifacts are unchanged.
 from __future__ import annotations
 
 import argparse
-from contextlib import ExitStack
 from dataclasses import dataclass
 import json
 import os
@@ -26,7 +26,7 @@ import sys
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
-from support import ROOT, GateError, krs_gate, lsp
+from support import ROOT, GateError, behavior as behavior_module, krs_gate, lsp
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256, parse_kore_pattern
@@ -99,16 +99,17 @@ class Port:
 
 @dataclass(frozen=True)
 class Hooks:
-    """The port-specific checks, Java configuration, and report wording."""
+    """The port-specific configuration, expectations, and report wording."""
 
     description: str
     label: str
     java_help: str
     claim_count: int
-    krun_arguments: Callable[[Mapping[str, Any]], list[str]] | None
-    observed: Callable[[Mapping[str, Any], Any], dict[str, Any]]
-    checked: Callable[[Mapping[str, Any], Mapping[str, Any]], None]
-    session_krun_arguments: Callable[[Mapping[str, Any], krs_gate.Session], list[str]] | None = None
+    configuration_variables: Callable[[Mapping[str, Any]], dict[str, str]]
+    spec: behavior_module.Specification | None = None
+    observed: Callable[[Mapping[str, Any], Any], dict[str, Any]] | None = None
+    checked: Callable[[Mapping[str, Any], Mapping[str, Any]], None] | None = None
+    kore_configuration: bool = False
     summary: Callable[[Port, int, int, bool], str] | None = None
     definition_checks: Callable[[str], None] | None = None
     java_skips: Mapping[str, str] | None = None
@@ -177,21 +178,21 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
     root_env = {**environment, "CARGO_TARGET_DIR": os.fspath(root_target)}
     krs = build(root_env, target=root_target)
     run(
-        ["cargo", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
+        ["cargo", "+stable", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
         environment=root_env,
         timeout=900,
     )
     common = ["--manifest-path", port.manifest, "--locked", "--offline"]
     fixture_env = {**environment, "CARGO_TARGET_DIR": os.fspath(port.target("fixture"))}
-    run(["cargo", "check", *common, "--all-targets"], environment=fixture_env)
-    run(["cargo", "test", *common], environment=fixture_env, timeout=900)
+    run(["cargo", "+stable", "check", *common, "--all-targets"], environment=fixture_env)
+    run(["cargo", "+stable", "test", *common], environment=fixture_env, timeout=900)
     allow = [argument for lint in port.clippy_allow for argument in ("-A", lint)]
     run(
-        ["cargo", "clippy", *common, "--all-targets", "--", "-D", "warnings", *allow],
+        ["cargo", "+stable", "clippy", *common, "--all-targets", "--", "-D", "warnings", *allow],
         environment=fixture_env,
         timeout=900,
     )
-    run(["cargo", "fmt", "--all", "--", "--check"])
+    run(["cargo", "+stable", "fmt", "--all", "--", "--check"])
     run(
         [krs, "fmt", "--check", "--manifest-path", port.manifest, port.source],
         environment=environment,
@@ -243,7 +244,7 @@ def artifact_gate(
     expanded.joinpath("src/lib.rs").write_text(expansions[0], encoding="utf-8")
     expanded_env = {**environment, "CARGO_TARGET_DIR": os.fspath(port.target("expanded"))}
     run(
-        ["cargo", "check", "--manifest-path", expanded / "Cargo.toml", "--locked", "--offline"],
+        ["cargo", "+stable", "check", "--manifest-path", expanded / "Cargo.toml", "--locked", "--offline"],
         environment=expanded_env,
         timeout=900,
     )
@@ -437,22 +438,22 @@ def java_reference_gate(
         raise GateError("behavior corpus is empty")
     skipped = hooks.java_skips or {}
     outcomes: list[dict[str, Any]] = []
-    with ExitStack() as stack:
-        session = None
-        session_arguments = hooks.session_krun_arguments
-        if session_arguments is not None:
-            session = stack.enter_context(krs_gate.Session(gate, environment=environment))
-            session.load(artifacts / "definition-ir.json", port.module)
+    with krs_gate.Session(gate, environment=environment) as session:
+        session.load(artifacts / "definition-ir.json", port.module)
         for case in behavior:
             if str(case["id"]) in skipped:
                 continue
-            if session is None:
-                if hooks.krun_arguments is None:
-                    raise GateError("Java reference route has no configuration hook")
-                arguments = hooks.krun_arguments(case)
+            surface = hooks.configuration_variables(case)
+            if hooks.kore_configuration:
+                configured = session.configure(surface)["variables"]
+                names = [name for name in surface if name != "PGM"]
+                arguments = [
+                    f"-cPGM={surface['PGM']}",
+                    *(f"-c{name}={configured[name]['kore']}" for name in names),
+                    *(f"-p{name}=cat" for name in names),
+                ]
             else:
-                assert session_arguments is not None
-                arguments = session_arguments(case, session)
+                arguments = [f"-c{name}={value}" for name, value in surface.items()]
             result = run(
                 [
                     k["krun"], "--definition", definition,
@@ -460,12 +461,18 @@ def java_reference_gate(
                 ],
                 timeout=120,
             ).stdout
-            outcomes.append(hooks.observed(case, parse_kore_pattern(result)))
+            if hooks.spec is None:
+                if hooks.observed is None:
+                    raise GateError("Java reference route has no observer")
+                outcomes.append(hooks.observed(case, parse_kore_pattern(result)))
+            else:
+                outcomes.append(behavior_module.java_case(session, case, hooks.spec, result))
 
     compare_routes(port.label, native_outcomes, outcomes, skipped)
     cases_by_id = {str(case["id"]): case for case in behavior}
-    for outcome in outcomes:
-        hooks.checked(cases_by_id[str(outcome["id"])], outcome)
+    if hooks.checked is not None:
+        for outcome in outcomes:
+            hooks.checked(cases_by_id[str(outcome["id"])], outcome)
     reference_proof(port, definition, spec, k["kprove"])
     return hooks.claim_count
 

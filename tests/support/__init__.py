@@ -8,8 +8,9 @@ A verifier puts `tests/` on `sys.path` in one line and imports what it needs:
 
 The modules are:
 
-- `support.krs_gate`: compile, definition.load, configure, execute, and prove through the
-  native gate protocol;
+- `support.krs_gate`: compile, definition.load, configure, execute, kore.read,
+  observe, expect, and prove through the native gate protocol;
+- `support.behavior`: shared native and Java case expectations and outcomes;
 - `support.process`: subprocess execution with captured output and process-group
   cleanup;
 - `support.parallel`: bounded, order-preserving concurrency for independent
