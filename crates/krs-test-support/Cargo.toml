@@ -17,3 +17,4 @@ workspace = true
 [dependencies]
 tempfile = "3.27.0"
 serde_json.workspace = true
+toml_edit = { workspace = true, features = ["parse"] }

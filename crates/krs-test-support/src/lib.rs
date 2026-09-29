@@ -218,15 +218,13 @@ impl KompileReference<'_> {
 fn checked_kompile() -> &'static Path {
     static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
     EXECUTABLE.get_or_init(|| {
-        let pin = include_str!("../../../Krs.lock")
-            .split("[k]\n")
-            .nth(1)
-            .expect("Krs.lock contains a K pin")
-            .lines()
-            .find_map(|line| {
-                line.strip_prefix("version = \"")
-                    .and_then(|part| part.strip_suffix('"'))
-            })
+        let lock = include_str!("../../../Krs.lock")
+            .parse::<toml_edit::DocumentMut>()
+            .expect("Krs.lock is valid TOML");
+        let pin = lock
+            .get("k")
+            .and_then(|item| item.get("version"))
+            .and_then(toml_edit::Item::as_str)
             .expect("Krs.lock has a K version");
         let executable = std::env::var_os("KRS_K_BIN").map_or_else(
             || PathBuf::from("kompile"),
@@ -237,8 +235,13 @@ fn checked_kompile() -> &'static Path {
             .output()
             .expect("pin-matched kompile must be on PATH or in KRS_K_BIN");
         assert!(output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stdout).contains(&format!("v{pin}")),
+        let version_output = String::from_utf8_lossy(&output.stdout);
+        let version_token = version_output.split_whitespace().find(|token| {
+            token.starts_with('v') && token.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
+        });
+        assert_eq!(
+            version_token,
+            Some(format!("v{pin}").as_str()),
             "kompile must match K v{pin}"
         );
         executable
