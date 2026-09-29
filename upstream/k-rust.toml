@@ -4,7 +4,7 @@
 # and status-report.html; those files remain in git history.
 
 schema = 1
-updated = "2026-09-28"
+updated = "2026-09-29"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
@@ -322,6 +322,89 @@ reproducer = "symbottom.k stop(1) and apart(X, Y): the leaves name SYMBOTTOM.sto
 local_workaround = "retired: kink-native keeps the rule as AdaptedLeaf::undefined_rule (also in BaselineLeaf, so erasure compares it) and the step-3 report (schema version 6) has the path field undefined_rule. It is not part of the exit-stop class, because a mutant's compiled ids differ from the baseline's."
 requested_action = "Satisfied."
 sources = ["k-rust draft/k-in-k/workers/KK-66-report.md open points, KK-75-report.md"]
+
+[[request]]
+id = "variable-identity"
+title = "Variable names are not identities: lossy printing and name reuse along a path"
+kind = "correctness"
+status = "open"
+status_basis = "static screen of source at c2638626 and main eea634ce on 2026-09-29, plus the design prototypes (draft/tasks/variable-identity/prototype/)"
+blocking = true
+needed_by = ["state-observations SO-08", "variable-identity VI-04"]
+summary = "k-rust externalizes variables with a lossy Booster/Kore spelling: it drops provenance markers and prints fresh counters as bare digits, so distinct internal names can share one KORE name and an output mint can share a request name. Reading KORE back does not invert that spelling. Separately, freshen_existential strips the Ex# marker, keeps a rule variable's name, and avoids only names in the current pattern, so a name can be reused for different values along one path. Both mechanisms break docs/compatibility.md:485-489's output contract that only request variables have names shared with the query."
+reproducer = "In the map-selection execution with an initial frame named ExFrame0, a fresh Ex#Frame!0 prints as ExFrame0: the printed leaf asserts ExFrame0 = mapConcat(mapItem(ExKEY1,ExVALUE2), ExFrame0) and ¬(ExKEY1 ∈ ExFrame0), while the remainder's ∃ ExFrame0 captures the user's free frame. With SUBJECTREST as the initial frame name, the output is correct. Distinct mints Ex#VarI1!0 and Ex#VarI!10 both print ExVarI10."
+local_workaround = "kink's identifies_one_variable and existential switches (EI-02b, SYM R9), incomplete: mint-versus-mint merges cannot be undone downstream"
+requested_action = '''
+### 5.1 k-rust names (VI-K1): one bijection
+
+**Internal-name alphabet** (documented in `term/names.rs`): element names are over `[A-Za-z0-9'#!-]`; set names are `@` followed by that alphabet. Names read from KORE are identifiers `[A-Za-z][A-Za-z0-9'-]*` (`k-rust-kore lexical.rs:42-59`); every mint adds `#` (a marker) or `!` (a counter). Set variables keep `@` first: `with_provenance` on a set variable places the marker after the `@` (`@Rule#M`), and `split_marker` / `Variable::provenance` read it there. (Today a marked set variable prints its `@` escaped mid-name, which is not a valid set-variable identifier; reachability was not verified, VI-K1 checks it.)
+
+**Encoding.** `-` is the only escape character:
+
+| internal | wire |
+| --- | --- |
+| `A-Z a-z 0-9 '` | unchanged |
+| `@` at position 0 | unchanged |
+| `-` | `--` |
+| `#` | `-h` |
+| `!` | `-b` |
+| `@` elsewhere | `-a` |
+| any other character | `-u{lowercase hex}-` (print-only; outside the alphabet, so only a k-rust bug produces it) |
+
+`decode_variable_name` inverts the escapes, rejects `-u`, any other `-` sequence and a trailing `-` with a typed error, and accepts a string only if `encode(decode(s)) == s`. So decoding is an exact partial inverse, and decoded names are always in the alphabet (they never contain `.`, for example).
+
+Properties:
+
+- Every `-`-free KORE identifier is a fixed point: `A`, `X1`, `ExVarI0`, `Var'Unds'X`, `Var'Ques'X`, `X'Bang'apart1`. K-frontend variable names never contain `-` (0 of the variable names in the 166 `.kore` fixtures of the snapshot and in 458 kompiled conformance and krs definitions, measured by two judges), so every user and frontend name keeps its spelling.
+- Examples: `Rule#VarX` → `Rule-hVarX`; `Ex#VarI!0` → `Ex-hVarI-b0`; `Ex#VarI1!0` → `Ex-hVarI1-b0`; `Ex#VarI!10` → `Ex-hVarI-b10`; `Ex#Frame!0` → `Ex-hFrame-b0`; `X!apart1` → `X-bapart1`; `@Rule#M` → `@Rule-hM`.
+- Measured (`prototype/injective-boundary/scheme.py`, re-run by a judge): all 33,333 names of up to 5 characters over {a,E,x,0,1,',-,#,!,.} starting with a letter: 0 invalid KORE identifiers, 0 collisions, 0 round-trip failures; every `-`-free identifier (4,665 of 4,665) is fixed; 3,372 of the 8,403 identifiers with a bare `-` are rejected on input.
+- An input identifier outside the image (a bare `-` such as `a-x`) is rejected, never guessed.
+
+**Why not the alternatives.** K's apostrophe words (`'Hash'`, `'Bang'`) make user apostrophe names such as `X'Bang'apart1` collide unless `'` itself is escaped, which would change every frontend name. A reserved-prefix namespace without decoding cannot round-trip decoded states, which kink internalizes and state observations re-evaluates. Structured identity next to the KORE (a variable table on the wire) leaves the KORE ambiguous for every other consumer (CLI, RPC, napi, wasm, `PatternDigest`), and KORE variables carry no attributes; once names are a bijection the name is the identity.
+
+**The change** (VI-K1 = KK-82, based on k-rust main when the intake starts, sections 5.6-5.7). Line numbers in 5.1-5.3 are at the pin `c2638626`; the change branches from main, where `definition.rs`, `rule.rs`, `fresh.rs`, `rewrite/step.rs` and the backend `search.rs` are unchanged but other files moved (at `eea634ce`: `externalize.rs` tests 1371 and 1434, `rpc.rs` `is_rewrite_existential` 1897 and its test 4048, the RPC projection tests 4902 and 4948, `docs/compatibility.md` 495-499, `proof.rs:272`, `rewrite/execute.rs:193`); each packet re-locates at its base commit:
+
+1. `crates/k-rust-backend/src/term/names.rs`:
+   - `pub const VARIABLE_IDENTITY: u32 = 1;` with a doc stating the contract (1: VI-a; 2: VI-a and VI-b);
+   - `pub fn encode_variable_name(name: &str) -> String` and `pub fn decode_variable_name(wire: &str) -> Result<String, VariableNameError>`, with `pub struct VariableNameError { pub name: String }` (`Display`, `Error`);
+   - the alphabet doc; `with_provenance`, `split_marker` and `provenance` handle a leading `@`;
+   - `VariableProvenance::external_prefix` is **kept** (kink's guard uses it until VI-04; its removal is VI-T04); its doc says the printer no longer uses it.
+2. `crates/k-rust-backend/src/externalize.rs`: `external_variable_name` keeps its name and public signature and becomes `encode_variable_name` (kink's re-spelled test pins call it); the Booster-marker logic and its "not injective" doc are deleted. Unit test `fresh_and_marked_variable_names_externalize_as_kore_identifiers` (1314-1346) and the set-variable test (1382-1394) are replaced by an exhaustive round-trip property (every name up to 5 characters on {a,E,x,0,1,',-,#,!,@}) plus explicit rows (fixed points, rejected `a-x`, `-u`, trailing `-`, set variables `@M`, `@Rule#M`, `@M!0`).
+3. `crates/k-rust-backend/src/definition.rs`: `decode_variable_name` at every place that builds a backend variable from a `kore::Variable`: `internalize_variable` (1144-1153), the `Variable` arm of `internalize_term_with` (1167-1173), the no-junk binder loop (1564-1576). New variant `DefinitionError::VariableName(VariableNameError)`; the packet owns every exhaustive match and `Display` arm on `DefinitionError` in k-rust-backend and in the facade, RPC, napi and wasm error mappings (at the pin only `Display` at `definition.rs:327`; re-check at the base commit).
+4. `crates/k-rust-backend/src/rule.rs`: the `concrete`/`symbolic` attribute names (`parse_concreteness`, 2829-2899, `format!("{}:{sort}", variable.name)` at 2888) are decoded too, so `rename_concreteness` (2652-2680) and `check_concreteness` (`rewrite/predicates.rs:160-170`) compare one spelling (a judge's finding: otherwise an escaped name silently makes the constraint vacuous). A bad name there is `AxiomError::InvalidConcreteness`.
+5. Every other printer or matcher of printed names uses `external_variable_name`: `crates/k-rust/src/backend/search.rs:452` (identity match) and `:502`, the RPC rule-substitution naming (comment at `rpc.rs:1609`), `main.rs` hidden-binding output.
+6. Compatibility: `docs/compatibility.md` gains a "Variable names" section (the bijection, the first-principles reason: the output contract at 485-489 and the measured `ExFrame0` contradiction, the divergence from Booster/Kore spelling); `crates/k-rust/tests/reference_differential.rs` `execution_generated_name` / `GeneratedNames` (2926-3016) and `scripts/conformance/run.py` N4 / C7 classify a name as generated by decoding it and finding a marker or a `!` counter; re-spelled expectations `tests/cli.rs:4079,4135`, `src/rpc.rs` tests near 4585-4600, `src/backend/search.rs:693`; a conformance-ratchet adjudication. `PatternDigest` values change (they hash the printed text, `transition.rs:21-25`); kink pins no digest.
+7. A scan of every kompiled definition and KORE fixture in k-rust's test and conformance corpora for variable names outside the image, reporting the count (expected 0; if not, STOP: it becomes a decision).
+
+### 5.2 k-rust minting (VI-K2): one counter per request
+
+1. `crates/k-rust-backend/src/fresh.rs`:
+   - `pub struct FreshCounter(u64)` with one constructor `FreshCounter::for_request(patterns: &[&Pattern]) -> Self`, which seeds to 1 + the largest `!N` rewrite counter (`split_fresh_counter`) of every variable name, free or bound, of the request's patterns (0 when there is none). It is `pub` because the public `rewrite_step*` functions take it.
+   - `fresh_variable`, the only minter of `FreshMarker::Rewrite` names, takes `&mut FreshCounter`. `fresh_name` keeps a `u64` counter for the local markers (`claim`, `exists`, `apart`, `binder`) and debug-asserts that it is never asked for `Rewrite`.
+   - `freshen_existential` and `increment_name_counter` are deleted; the algorithm-doc block is updated.
+   - Why this suffices: every free mint ends in `!N` with `N` drawn from one counter that only grows, so two mints of a request differ in `N`; and every request name with a `!N` suffix has `N` below the seed. So no mint equals another mint or a request name, even after a variable leaves the state, and even when a request carries marked names decoded from an earlier response.
+2. `rewrite/apply.rs`: `freshen_existentials(rule, pattern, counter)` mints with `fresh_variable`, keeping the `Ex#` marker (`Ex#Var'Ques'X!N`, printed `Ex-hVar'Ques'X-bN`). `instantiate` takes the counter (7 inputs, clippy's limit).
+3. The `&mut u64` counter parameters become `&mut FreshCounter` in `rewrite/step.rs`, `apply.rs`, `recover.rs` and the public `rewrite/mod.rs` `rewrite_step`, `rewrite_step_with_solver`, `rewrite_step_sequential_with_solver` (a breaking API change; kink does not call them). Every initialisation uses `for_request` on that request's input: `rewrite/execute.rs:189`, `search.rs:480` and `1208`, `proof.rs:248` and the call sites it threads. The type makes the compiler find every site, including the test callers that pass `&mut 0` (`definedness.rs`'s test module, `src/tests/rewrite.rs`, `src/tests/cascade.rs`, `tests/backend/overloaded_list_owise.rs`, `tests/backend/rewrite.rs`), which construct `FreshCounter::for_request`. The determinism tracker's probe copy (`step.rs:655-656`) clones the counter. The `fresh.rs` algorithm-doc block is anchored in k-rust's algorithm graph (`crates/algo-graph/tests/snapshots/graph.toml.snap`, node `backend.fresh.variables`: sites `freshen_existential`, `increment_name_counter`, cost mode "Booster existential spelling"), so that snapshot is regenerated and reviewed with the change.
+4. `crates/k-rust/src/rpc.rs` `is_rewrite_existential` (1666; test at 3601-3605) decides by provenance: `split_marker` gives `Existential`, then the K-decoded base starts with `?`. Today it K-decodes the whole internal name, which only works because `freshen_existential` strips `Ex#`; this is why the prototype's two RPC projection tests lost their substitution (`execute_projects_a_resolved_rewrite_existential_as_a_substitution`, `execute_reports_kequal_ensures_as_substitution`). Both keep their assertions, names re-spelled only. Its unit test `rewrite_existential_names_use_the_shared_identifier_decoder` (3596-3605) asserts that the unmarked `?X`, `Var?X` and `Var'Ques'X` are rewrite existentials; under provenance they are not, so its rows are rewritten: marked `Ex#?X!0`, `Ex#Var?X!1`, `Ex#Var'Ques'X!2` are existentials; unmarked `Var'Ques'X`, `Rule#Var'Ques'X` and `Ex#VarX!0` are not.
+5. Tests: `tests/backend/rewrite.rs` `freshens_existentials_against_the_current_pattern` becomes `no_name_is_reused_on_a_path` (an existential that leaves the state and a later existential of the same rule get distinct names); a request whose initial state contains `Ex#X!3` (wire `Ex-hX-b3`) mints no `Ex#X!3`; identical requests mint identical names; the search corpus's result counts are unchanged, or each change is adjudicated (counter-minted existentials can stop the per-configuration recombination at `search.rs:482-488`; ticket VI-T05).
+6. `VARIABLE_IDENTITY = 2`; `docs/compatibility.md`: right-hand-side existentials are printed as minted names, not `Var'Ques'X` / `Var'Ques'X0`.
+
+Not changed, by design: the local counters of `implication.rs:913-915` and `955`, `simplify.rs:1864` and `1960-1972`, `alias.rs:485-500`, and the thread-local `ApartScope` (`rule.rs:2339-2380`). Their names are bound or rule-scoped and never free in a rewrite response (VI-c); VI-K3 test (b) is the arbiter, and VI-K2's handoff lists every exempt site with its reason. Making them request-scoped is hygiene (VI-T04).
+
+### 5.3 k-rust contract tests and integration (VI-K3)
+
+New `crates/k-rust-backend/tests/backend/names.rs`:
+
+- (a) the `ExFrame0` map-selection execution (Z3, `max_depth` 1): for every leaf, re-internalizing the externalized leaf gives the same free variables (kind, sort, name) and the same bound names; no free name other than the request's `ExFrame0` is spelled or named `ExFrame0`;
+- (b) a response-level property over the backend's rewrite test corpus (execute, with observation of before, after and bindings): every emitted pattern round-trips at the level of names; no free non-request name equals a request name; no pattern has a name both bound and free; every free non-request name is a `FreshMarker::Rewrite` mint; along each path, a name that disappears from a state never reappears later (a direct check of VI-b);
+- (c) the conflate3 shape (two narrowings whose rule variables are `I1` and `I`, 9 burns): `Ex#VarI1!N` and `Ex#VarI!M` are printed distinctly.
+
+Also: the integration branch `kink/integration-vi` and its heavy gates (5.7), the ratchet adjudication entry, the final `docs/compatibility.md` text, the overlap report against `cbc/*`, and the answer entry for the k-in-k2 request `variable-identity` in k-rust's `draft/k-in-k/answers.toml`. Main is fast-forwarded only on Sebastien's explicit go-ahead.
+
+Whole-pattern equality `internalize(externalize(p)) == p` held on every `ExFrame0` leaf in the prototype; it is recorded, not required, because collection and predicate normalizations unrelated to names may differ (a judge's finding).
+
+Schedule (VI-D2, 2026-09-29): branched from k-rust main when the intake starts (main eea634ce on 2026-09-29), not stacked on cbc/integration; K-in-K2's variable-identity workflow is the k-rust intake owner for this request (tickets KK-82..KK-84 under draft/k-in-k/README.md Procedure), never touches cbc/* branches or worktrees, and k-rust main is fast-forwarded only on Sebastien's explicit go-ahead.'''
+sources = ["draft/tasks/variable-identity/README.md", "draft/tasks/variable-identity/decisions/human-decisions-2026-09-29.md", "draft/tasks/slot-evidence/README.md 3.1-3.2"]
 
 # ---------------------------------------------------------------- tracked by KRS
 
