@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
-from support.diagnostics import envelopes  # noqa: E402
+from support.diagnostics import cargo_primary_span, envelopes, krs_diagnostics  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
@@ -30,15 +30,6 @@ def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def primary_error(output: str) -> dict[str, object]:
-    for message in envelopes(output):
-        if message.get("reason") == "compiler-message":
-            diagnostic = message["message"]
-            if diagnostic.get("level") == "error":
-                return diagnostic
-    raise GateError("Cargo JSON contained no error diagnostic")
-
-
 def check_rust_negative(binary: str, message: str, token: str) -> None:
     result = run_failing(
         [
@@ -53,15 +44,11 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
             "--message-format=json",
         ],
     )
-    diagnostic = primary_error(result.stdout)
-    if diagnostic.get("message") != message:
-        raise GateError(f"{binary}: diagnostic changed: {diagnostic.get('message')!r}")
-    spans = [span for span in diagnostic.get("spans", []) if span.get("is_primary")]
-    if len(spans) != 1:
-        raise GateError(f"{binary}: expected one primary authored span, got {len(spans)}")
-    span = spans[0]
-    source = MACRO_NEGATIVES / str(span["file_name"])
-    selected = source.read_bytes()[int(span["byte_start"]):int(span["byte_end"])].decode()
+    span = cargo_primary_span(result.stdout)
+    if span.message != message:
+        raise GateError(f"{binary}: diagnostic changed: {span.message!r}")
+    source = MACRO_NEGATIVES / span.file_name
+    selected = source.read_bytes()[span.byte_start:span.byte_end].decode()
     if selected != token:
         raise GateError(f"{binary}: expected authored token {token!r}, got {selected!r}")
 
@@ -73,7 +60,10 @@ def check_overlap(binary: Path) -> None:
     diagnostics = envelopes(result.stderr)
     if len(diagnostics) != 1:
         raise GateError(f"overlap: expected one JSON diagnostic line, got {len(diagnostics)}")
-    diagnostic = diagnostics[0]
+    typed = krs_diagnostics(result.stderr)
+    if len(typed) != 1:
+        raise GateError(f"overlap: expected one KRS diagnostic, got {len(typed)}")
+    diagnostic = typed[0]
     expected = {
         "schema_version": 1,
         "stage": "analysis",
@@ -81,14 +71,12 @@ def check_overlap(binary: Path) -> None:
         "severity": "error",
     }
     for field, value in expected.items():
-        if diagnostic.get(field) != value:
-            raise GateError(f"overlap: {field} changed: {diagnostic.get(field)!r}")
-    authored = diagnostic["authored_range"]
-    source = HERE / str(authored["file"]["package_relative_path"])
-    selected = source.read_bytes()[authored["start_byte"]:authored["end_byte"]].decode()
+        if getattr(diagnostic, field) != value:
+            raise GateError(f"overlap: {field} changed: {getattr(diagnostic, field)!r}")
+    selected = diagnostic.selected_bytes(HERE).decode()
     if selected != "Foo":
         raise GateError(f"overlap: second authored head span changed: {selected!r}")
-    if "second_foo" not in diagnostic["message"]:
+    if "second_foo" not in diagnostic.message:
         raise GateError("overlap diagnostic does not identify the second stable rule")
 
 

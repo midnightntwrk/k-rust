@@ -15,7 +15,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
-from support.diagnostics import envelopes  # noqa: E402
+from support.diagnostics import krs_diagnostics  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
@@ -313,20 +313,20 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
             workspace / "broken-target",
             output=workspace / "broken-output" if command == "build" else None,
         )
-        diagnostics = envelopes(broken.stderr)
+        diagnostics = krs_diagnostics(broken.stderr)
         source_bytes = broken_source.read_bytes()
         error_start = source_bytes.index(b"compile_error!")
         broken_ok = broken.returncode != 0 and any(
-            isinstance(diagnostic, dict)
-            and diagnostic.get("schema_version") == 1
-            and diagnostic.get("stage") == "rust-expansion"
-            and diagnostic.get("code") == "rust-expansion-error"
-            and diagnostic.get("severity") == "error"
-            and "KRS CLI oracle induced Cargo failure" in diagnostic.get("message", "")
-            and diagnostic.get("authored_range", {}).get("file", {}).get("package", {}).get("cargo_name") == PACKAGE
-            and diagnostic.get("authored_range", {}).get("file", {}).get("package_relative_path") == "src/lib.rs"
-            and error_start <= diagnostic.get("authored_range", {}).get("start_byte", -1)
-            < diagnostic.get("authored_range", {}).get("end_byte", -1)
+            diagnostic.schema_version == 1
+            and diagnostic.stage == "rust-expansion"
+            and diagnostic.code == "rust-expansion-error"
+            and diagnostic.severity == "error"
+            and "KRS CLI oracle induced Cargo failure" in diagnostic.message
+            and diagnostic.authored_range is not None
+            and diagnostic.authored_range.cargo_name == PACKAGE
+            and diagnostic.authored_range.package_relative_path == "src/lib.rs"
+            and error_start <= diagnostic.authored_range.start_byte
+            < diagnostic.authored_range.end_byte
             <= len(source_bytes)
             for diagnostic in diagnostics
         )

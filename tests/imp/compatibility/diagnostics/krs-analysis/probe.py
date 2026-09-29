@@ -4,14 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
-from support.diagnostics import envelopes as diagnostic_envelopes  # noqa: E402
+from support.diagnostics import KrsDiagnostic, krs_diagnostics  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.process import run  # noqa: E402
@@ -33,19 +32,16 @@ def expected_anchor() -> tuple[int, int, int, int, int]:
     return offset, offset + len(TOKEN), line, column, len(TOKEN)
 
 
-def has_expected_range(envelope: dict[str, object]) -> bool:
-    authored = envelope.get("authored_range")
-    if not isinstance(authored, dict):
-        return False
-    file = authored.get("file")
-    if not isinstance(file, dict):
+def has_expected_range(diagnostic: KrsDiagnostic) -> bool:
+    authored = diagnostic.authored_range
+    if authored is None:
         return False
     start, end, _, _, _ = expected_anchor()
     return (
-        authored.get("start_byte") == start
-        and authored.get("end_byte") == end
-        and file.get("package_relative_path") == "src/lib.rs"
-        and file.get("content_sha256") == sha256_file(SOURCE)
+        authored.start_byte == start
+        and authored.end_byte == end
+        and authored.package_relative_path == "src/lib.rs"
+        and authored.content_sha256 == sha256_file(SOURCE)
     )
 
 
@@ -71,14 +67,14 @@ def main() -> int:
         raise GateError(f"fixture did not reach the intended collision: {output[:1200]}")
     if "/collectors/" in output or "target/krs/collectors" in output:
         raise GateError("diagnostic leaked a generated collector path")
-    envelopes = [
-        value for value in diagnostic_envelopes(output)
-        if value.get("stage") == "analysis"
+    diagnostics = [
+        value for value in krs_diagnostics(output)
+        if value.stage == "analysis"
     ]
     start, end, line, column, length = expected_anchor()
     matching = [
-        envelope for envelope in envelopes
-        if envelope.get("code") == "symbol-name-collision" and has_expected_range(envelope)
+        diagnostic for diagnostic in diagnostics
+        if diagnostic.code == "symbol-name-collision" and has_expected_range(diagnostic)
     ]
     if len(matching) != 1:
         raise GateError(
@@ -86,7 +82,7 @@ def main() -> int:
             f"expected=src/lib.rs bytes {start}..{end} "
             f"(line {line}, columns {column}..{column + length})"
         )
-    print(json.dumps(matching[0], sort_keys=True))
+    print(matching[0].raw_json)
     return 0
 
 

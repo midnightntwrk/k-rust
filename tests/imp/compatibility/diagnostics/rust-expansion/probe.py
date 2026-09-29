@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
-from support.diagnostics import envelopes  # noqa: E402
+from support.diagnostics import cargo_primary_span  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
 
@@ -46,21 +46,11 @@ def main() -> int:
     if process.returncode == 0:
         raise GateError("malformed Rust-expansion fixture unexpectedly compiled")
     expected_line, expected_column, expected_length = expected_anchor()
-    matches = []
-    for message in envelopes(process.stdout):
-        if message.get("reason") != "compiler-message":
-            continue
-        diagnostic = message.get("message", {})
-        if "missing required argument `sort = ...`" not in diagnostic.get("message", ""):
-            continue
-        for span in diagnostic.get("spans", []):
-            if span.get("is_primary"):
-                matches.append(span)
-    if len(matches) != 1:
-        raise GateError(f"expected one primary malformed-attribute span, got {matches!r}")
-    span = matches[0]
-    actual = (span["line_start"], span["column_start"], span["column_end"] - span["column_start"])
-    reported_path = Path(span["file_name"])
+    span = cargo_primary_span(
+        process.stdout, message_contains="missing required argument `sort = ...`"
+    )
+    actual = (span.line_start, span.column_start, span.column_end - span.column_start)
+    reported_path = Path(span.file_name)
     if not reported_path.is_absolute():
         reported_path = HERE / reported_path
     if reported_path.resolve() != SOURCE or actual != (
