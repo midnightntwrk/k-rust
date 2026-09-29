@@ -1268,119 +1268,109 @@ impl Term {
     /// by setting its `evaluated` bit ([`Self::with_evaluated_cache`]: every equation that may
     /// apply to it was scanned and found inapplicable independently of the path condition, and
     /// its arguments are certified too). Distinct normal forms are distinct values, so two
-    /// such heads that differ refute the equality, and equal heads refute it when some pair of
-    /// arguments is distinct. The argument does not depend on the `injective` attribute.
+    /// such heads that differ refute the equality, and equal heads of a free symbol refute it
+    /// when some pair of arguments is distinct. The argument does not depend on the `injective`
+    /// attribute.
     ///
     /// An `anywhere` application without the certificate decides nothing, even when it is
     /// ground: [`Self::concrete_after_normalization`] is a shape, not evidence that no equation
     /// applies, and an anywhere equation `wrap(s(z)) = wrap(z)` makes the ground `wrap(s(z))`
     /// equal to `wrap(z)` and possibly to a term with another head. Terms containing ordinary
-    /// function applications, variables, or collections are never decided here.
+    /// function applications, variables, or collections are never decided here, nor are
+    /// applications of a macro or alias, whose value is an expansion the definition does not
+    /// describe.
     ///
     /// Two injections from different source sorts decide nothing here; see
     /// [`Self::structurally_distinct_with`] for a caller that can compare the sorts.
     pub fn structurally_distinct_after_normalization(&self, other: &Self) -> bool {
         self.structurally_distinct_with(other, &|_, _| InjectionComparison::Undecided)
+            .is_some()
     }
 
-    /// [`Self::structurally_distinct_after_normalization`] where two injections into the same
-    /// position with different source sorts are compared by `injections`, which is called on the
-    /// two injections (their arguments need not be normal forms). It answers
+    /// [`Self::structurally_distinct_after_normalization`] with its witness, where two injections
+    /// into the same position with different source sorts are compared by `injections`, which is
+    /// called on the two injections (their arguments need not be normal forms). It answers
     /// [`InjectionComparison::Distinct`] only when no value of one injection equals a value of
     /// the other, and [`InjectionComparison::Compare`] with a pair of terms that are equal
     /// exactly when the two injections are.
+    ///
+    /// Each side is classified as the value it denotes with the simplifier's certificate as the
+    /// only evidence for an equation head ([`head::CertifiedOnly`]), and the answer is a
+    /// [`head::Distinct`], which only `term::head` mints: from two fixed roots that differ, from
+    /// two different domain values, from the sort graph's separation of two injections, or from
+    /// a distinct argument pair of two applications of one free symbol.
+    /// [`Self::concrete_after_normalization`] stays a filter that keeps terms with variables,
+    /// functions or conjunctions out; it is not the evidence.
+    #[must_use]
+    #[deny(clippy::wildcard_enum_match_arm)]
     pub(crate) fn structurally_distinct_with(
         &self,
         other: &Self,
         injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
-    ) -> bool {
+    ) -> Option<head::Distinct> {
         if self == other
             || !self.concrete_after_normalization()
             || !other.concrete_after_normalization()
         {
-            return false;
+            return None;
         }
-        match (self.kind(), other.kind()) {
-            (
-                TermKind::DomainValue {
-                    sort: left_sort,
-                    value: left_value,
-                },
-                TermKind::DomainValue {
-                    sort: right_sort,
-                    value: right_value,
-                },
-            ) => left_sort != right_sort || left_value != right_value,
-            (
-                TermKind::Application {
-                    symbol: left_symbol,
-                    sort_arguments: left_sorts,
-                    arguments: left_arguments,
-                },
-                TermKind::Application {
-                    symbol: right_symbol,
-                    sort_arguments: right_sorts,
-                    arguments: right_arguments,
-                },
-            ) => {
-                if !self.certified_normal_application() || !other.certified_normal_application() {
-                    return false;
-                }
-                if left_symbol.name != right_symbol.name || left_sorts != right_sorts {
-                    return true;
-                }
-                left_arguments
-                    .iter()
-                    .zip(right_arguments)
-                    .any(|(left, right)| left.structurally_distinct_with(right, injections))
+        let fixed = |term| match head::classify_value(term, &mut head::CertifiedOnly) {
+            head::Head::Fixed(fixed) => Some(fixed),
+            // A variable, a conjunction, a function, an equation head without the certificate,
+            // or a macro or alias: its value's root is not the term's.
+            head::Head::Open(_) | head::Head::Residual => None,
+        };
+        let left = fixed(self)?;
+        let right = fixed(other)?;
+        match head::compare_roots(left, right) {
+            head::RootComparison::Distinct(witness) => {
+                distinct_roots_decide(left.root(), right.root())
+                    .then(|| head::Distinct::of_roots(witness))
             }
-            (
-                TermKind::Injection {
-                    source: left_source,
-                    target: left_target,
-                    term: left,
-                },
-                TermKind::Injection {
-                    source: right_source,
-                    target: right_target,
-                    term: right,
-                },
-            ) => {
+            head::RootComparison::SameApplication(same) => same
+                .pairs()
+                .find_map(|(left, right)| left.structurally_distinct_with(right, injections))
+                .map(|argument| head::Distinct::through_argument(same, argument)),
+            // The `assoc` or `idem` axioms of the symbol reassociate or collapse the arguments of
+            // one value, so distinct arguments do not make distinct values; and two applications
+            // of one symbol with different arities are ill-formed. Neither decides.
+            head::RootComparison::SameAlgebraicSymbol | head::RootComparison::ArityMismatch => None,
+            head::RootComparison::DomainValues => head::Distinct::of_domain_values(left, right),
+            head::RootComparison::Injections => {
+                let (
+                    TermKind::Injection {
+                        source: left_source,
+                        target: left_target,
+                        term: left,
+                    },
+                    TermKind::Injection {
+                        source: right_source,
+                        target: right_target,
+                        term: right,
+                    },
+                ) = (self.kind(), other.kind())
+                else {
+                    unreachable!("two injection roots are injections");
+                };
                 if left_source == right_source && left_target == right_target {
+                    // One injection is injective: its values are distinct exactly when its
+                    // operands' values are, so the operands' witness is the injections'.
                     return left.structurally_distinct_with(right, injections);
                 }
-                match injections(self, other) {
-                    InjectionComparison::Distinct => true,
-                    InjectionComparison::Compare(left, right) => {
-                        left.structurally_distinct_with(&right, injections)
+                let comparison = injections(self, other);
+                match &comparison {
+                    InjectionComparison::Distinct => {
+                        head::Distinct::of_injection_sorts(&comparison)
                     }
-                    InjectionComparison::Undecided => false,
+                    // The injections are equal exactly when these terms are, so a witness for
+                    // the terms is one for the injections.
+                    InjectionComparison::Compare(left, right) => {
+                        left.structurally_distinct_with(right, injections)
+                    }
+                    InjectionComparison::Undecided => None,
                 }
             }
-            // A normal form headed by a constructor or an anywhere production is not the value of
-            // a sort injection.
-            (TermKind::Application { .. }, TermKind::Injection { .. }) => {
-                self.certified_normal_application()
-            }
-            (TermKind::Injection { .. }, TermKind::Application { .. }) => {
-                other.certified_normal_application()
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether this application of a head that [`Self::concrete_after_normalization`] admits
-    /// (a symbol declared constructor, or an `anywhere` production that is not a declared
-    /// function) is known to be a normal form: a free-constructor application is one when its
-    /// arguments are, and any other application (an equation head, or a macro or alias) only
-    /// when the simplifier has set its `evaluated` bit.
-    fn certified_normal_application(&self) -> bool {
-        match self.kind() {
-            TermKind::Application { symbol, .. } => {
-                symbol.attributes.head_role() == HeadRole::FreeConstructor
-                    || self.attributes().evaluated
-            }
-            _ => false,
+            head::RootComparison::Collections(_) => None,
         }
     }
 
@@ -1551,6 +1541,26 @@ fn k_cells(kind: &TermKind) -> u8 {
     fold_children(kind, 0, |count, child| {
         (count + child.attributes().k_cells).min(2)
     })
+}
+
+/// Whether [`Term::structurally_distinct_with`] decides two fixed roots that differ: two
+/// applications, or an application and an injection, whose values have different roots. A
+/// domain value against another root, and every collection, stay undecided there.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool {
+    /// `Some(true)` for an application, `Some(false)` for an injection, `None` otherwise.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn application(root: head::FixedRoot) -> Option<bool> {
+        match root {
+            head::FixedRoot::FreeConstructor | head::FixedRoot::EquationHead(_) => Some(true),
+            head::FixedRoot::Injection => Some(false),
+            head::FixedRoot::DomainValue | head::FixedRoot::Collection(_) => None,
+        }
+    }
+    match (application(left), application(right)) {
+        (Some(left), Some(right)) => left || right,
+        (None, _) | (_, None) => false,
+    }
 }
 
 /// How two injections with different source sorts into one position compare; see

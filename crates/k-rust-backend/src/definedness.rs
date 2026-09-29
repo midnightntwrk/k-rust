@@ -43,7 +43,10 @@ use crate::{
     simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
     smt::NoSolver,
     substitution::Substitution,
-    term::{FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind},
+    term::{
+        FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind,
+        head::certified_ground_normal_form,
+    },
 };
 
 pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) {
@@ -236,7 +239,8 @@ fn ceil_term_node(
 /// source injects to a value of the other (`InjectionEquality::Distinct`: the sources have no
 /// common subsort, or one argument has a constructor head and so is not an injection from a
 /// common subsort). That argument uses only the sorts of the injected terms, which equation
-/// normalization preserves, so it needs no normal-form certificate.
+/// normalization preserves, so it needs no normal-form certificate. `true` exactly when
+/// `Term::structurally_distinct_with` returns a `Distinct` witness.
 pub(crate) fn ground_terms_structurally_distinct(
     definition: &BackendDefinition,
     left: &Term,
@@ -253,6 +257,7 @@ pub(crate) fn ground_terms_structurally_distinct(
         }
         Some(InjectionEquality::Unknown) | None => InjectionComparison::Undecided,
     })
+    .is_some()
 }
 
 /// Whether two collection keys or elements cannot denote the same value.
@@ -274,10 +279,8 @@ fn normalized_ground_terms_are_distinct(
     if ground_terms_structurally_distinct(definition, left, right) {
         return true;
     }
-    let certified_normal_form =
-        |term: &Term| term.concrete_after_normalization() && term.attributes().evaluated;
-    certified_normal_form(left)
-        && certified_normal_form(right)
+    certified_ground_normal_form(left)
+        && certified_ground_normal_form(right)
         && matches!(
             match_terms_in_definition(MatchMode::Rewrite, definition, left, right),
             MatchResult::Failed(_)

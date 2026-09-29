@@ -175,10 +175,6 @@ pub(crate) trait NormalForms {
 }
 
 /// No evidence: every equation-head root read as a value is open (builtin equality).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first read by builtin equality (CBC-02-T5)")
-)]
 pub(crate) struct NoEvidence;
 
 impl NormalForms for NoEvidence {
@@ -188,13 +184,6 @@ impl NormalForms for NoEvidence {
 }
 
 /// The simplifier's certificate only (structural distinctness).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "first read by structural distinctness (CBC-02-T5)"
-    )
-)]
 pub(crate) struct CertifiedOnly;
 
 impl NormalForms for CertifiedOnly {
@@ -390,28 +379,10 @@ pub(crate) enum RootComparison<'t> {
     /// Different symbols or sort arguments of two applications; an application against a
     /// domain value, an injection or a collection; a domain value against an injection or a
     /// collection; an injection against a collection; two collections of different kinds.
-    Distinct(
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "first read by the matcher, the unifier and structural distinctness (CBC-02-T4, CBC-02-T5)"
-            )
-        )]
-        RootsDiffer<'t>,
-    ),
+    Distinct(RootsDiffer<'t>),
     /// One symbol without `assoc` or `idem`, equal sort arguments, equal arity: the two values
     /// are equal exactly when the arguments are.
-    SameApplication(
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "first read by the matcher, the unifier and structural distinctness (CBC-02-T4, CBC-02-T5)"
-            )
-        )]
-        SameApplication<'t>,
-    ),
+    SameApplication(SameApplication<'t>),
     /// One symbol with `assoc` or `idem`, equal sort arguments, equal arity: the root decides
     /// nothing about the arguments, which the symbol's own axioms reassociate or collapse.
     SameAlgebraicSymbol,
@@ -521,13 +492,6 @@ pub(crate) struct SameApplication<'t> {
 
 impl<'t> SameApplication<'t> {
     /// The argument pairs, left argument first, in argument order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher and the unifier (CBC-02-T4)"
-        )
-    )]
     pub(crate) fn pairs(self) -> impl Iterator<Item = (&'t Term, &'t Term)> {
         self.left.iter().zip(self.right)
     }
@@ -638,17 +602,12 @@ impl HeadClash {
     }
 }
 
-/// Witness that two ground terms denote distinct values. Zero-sized; minted only here.
+/// Witness that two ground terms denote distinct values, the only answer "distinct" of
+/// structural distinctness (`Term::structurally_distinct_with`). Zero-sized; minted only here,
+/// by the four constructors below, each from a fact that separates the values of two terms.
 #[derive(Debug)]
 pub(crate) struct Distinct(());
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "first read by structural distinctness (CBC-02-T5)"
-    )
-)]
 impl Distinct {
     /// Two fixed roots that differ denote distinct values.
     #[must_use]
@@ -794,10 +753,6 @@ fn occurs_rigidly(variable: &Variable, term: &Term) -> bool {
 /// construction sets on free-constructor applications over marked arguments and the simplifier
 /// sets only with its certificate. The one definition of the test.
 #[must_use]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first read by definedness (CBC-02-T5)")
-)]
 pub(crate) fn certified_ground_normal_form(term: &Term) -> bool {
     term.concrete_after_normalization() && term.attributes().evaluated
 }
@@ -1276,5 +1231,290 @@ mod tests {
             &definition,
             "s{}(X:SortNat{})"
         )));
+    }
+
+    /// Acceptance (4045b87b): the ground `wrap(s(z))` without the certificate is open under the
+    /// certificate-only oracle, so no fixed root and no argument pair yields a `Distinct`, and
+    /// structural distinctness leaves `wrap(s(z)) = wrap(z)` undecided, which the equation
+    /// `wrap(s(z)) = wrap(z)` makes true. The pre-fix shape returned `true` from `bool` for two
+    /// ground applications on their names and arguments; the answer is now an
+    /// `Option<Distinct>`, and the only mints need a fixed root.
+    #[test]
+    fn an_uncertified_ground_equation_head_is_not_structurally_distinct() {
+        let definition = definition();
+        let redex = internal(&definition, "wrap{}(s{}(z{}()))");
+        let normal = internal(&definition, "wrap{}(z{}())");
+        let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+        assert!(redex.concrete_after_normalization() && !redex.attributes().evaluated);
+        assert!(matches!(
+            classify_value(&redex, &mut CertifiedOnly),
+            Head::Open(Open::EquationHead)
+        ));
+        assert!(
+            redex
+                .structurally_distinct_with(&normal, &undecided)
+                .is_none()
+        );
+        assert!(
+            normal
+                .structurally_distinct_with(&redex, &undecided)
+                .is_none()
+        );
+        assert!(
+            redex
+                .structurally_distinct_with(&normal.with_evaluated_cache(), &undecided)
+                .is_none(),
+            "one side without the certificate decides nothing"
+        );
+        // Controls: two certified normal forms of `wrap`, and two free-constructor applications,
+        // are distinct through a witness.
+        let deeper = internal(&definition, "wrap{}(s{}(s{}(z{}())))");
+        assert!(
+            deeper
+                .with_evaluated_cache()
+                .structurally_distinct_with(&normal.with_evaluated_cache(), &undecided)
+                .is_some()
+        );
+        let one = internal(&definition, "s{}(z{}())");
+        let zero = internal(&definition, "z{}()");
+        assert!(one.structurally_distinct_with(&zero, &undecided).is_some());
+        assert!(!redex.structurally_distinct_after_normalization(&normal));
+        assert!(one.structurally_distinct_after_normalization(&zero));
+    }
+
+    /// How a structural distinctness test compares two injections with different sorts.
+    type InjectionOracle<'o> = dyn Fn(&Term, &Term) -> InjectionComparison + 'o;
+
+    /// `Term::structurally_distinct_with` before it returned a witness, transcribed as a
+    /// predicate over the declared role and the `evaluated` mark: the oracle of
+    /// `structural_distinctness_decides_the_pairs_it_decided_as_a_predicate`.
+    fn predicate_structurally_distinct(
+        left: &Term,
+        right: &Term,
+        injections: &dyn Fn(&Term, &Term) -> InjectionComparison,
+    ) -> bool {
+        let certified_normal_application = |term: &Term| match term.kind() {
+            TermKind::Application { symbol, .. } => {
+                symbol.attributes.head_role() == HeadRole::FreeConstructor
+                    || term.attributes().evaluated
+            }
+            _ => false,
+        };
+        if left == right
+            || !left.concrete_after_normalization()
+            || !right.concrete_after_normalization()
+        {
+            return false;
+        }
+        match (left.kind(), right.kind()) {
+            (
+                TermKind::DomainValue {
+                    sort: left_sort,
+                    value: left_value,
+                },
+                TermKind::DomainValue {
+                    sort: right_sort,
+                    value: right_value,
+                },
+            ) => left_sort != right_sort || left_value != right_value,
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    arguments: left_arguments,
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    arguments: right_arguments,
+                },
+            ) => {
+                if !certified_normal_application(left) || !certified_normal_application(right) {
+                    return false;
+                }
+                if left_symbol.name != right_symbol.name || left_sorts != right_sorts {
+                    return true;
+                }
+                left_arguments
+                    .iter()
+                    .zip(right_arguments)
+                    .any(|(left, right)| predicate_structurally_distinct(left, right, injections))
+            }
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_operand,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_operand,
+                },
+            ) => {
+                if left_source == right_source && left_target == right_target {
+                    return predicate_structurally_distinct(
+                        left_operand,
+                        right_operand,
+                        injections,
+                    );
+                }
+                match injections(left, right) {
+                    InjectionComparison::Distinct => true,
+                    InjectionComparison::Compare(left, right) => {
+                        predicate_structurally_distinct(&left, &right, injections)
+                    }
+                    InjectionComparison::Undecided => false,
+                }
+            }
+            (TermKind::Application { .. }, TermKind::Injection { .. }) => {
+                certified_normal_application(left)
+            }
+            (TermKind::Injection { .. }, TermKind::Application { .. }) => {
+                certified_normal_application(right)
+            }
+            _ => false,
+        }
+    }
+
+    /// Structural distinctness answers with a witness exactly where the predicate it replaced
+    /// answered `true`, on every ordered pair of a set of ground terms covering each root kind
+    /// (domain values, free constructors, certified and uncertified equation heads, injections
+    /// with equal and different sorts, a collection, a function application, a macro), those
+    /// terms under one free constructor, and three injection oracles. The terms leave out the
+    /// three pairs the witness deliberately does not decide (asserted in
+    /// `structural_distinctness_leaves_algebraic_ill_formed_and_residual_pairs_undecided`).
+    #[test]
+    fn structural_distinctness_decides_the_pairs_it_decided_as_a_predicate() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                hooked-sort SortList{}
+                    [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+                hooked-symbol listItem{}(SortNat{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.element")]
+                hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+                    [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let lists =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let list = internal(&lists, "listItem{}(z{}())");
+        assert_eq!(list.shape(), Shape::Collection(CollectionKind::List));
+
+        let c = symbol("c", 1, |_| {});
+        let d = symbol("d", 1, |_| {});
+        let n = symbol("n", 0, |_| {});
+        let wrap = symbol("wrap", 1, |symbol| {
+            symbol.attributes = symbol.attributes.clone().with_anywhere(true);
+        });
+        let residual = symbol("m", 1, |symbol| symbol.attributes.macro_or_alias = true);
+        let one = Term::domain_value(sort(), "1");
+        let two = Term::domain_value(sort(), "2");
+        let other_sort = Term::domain_value(Sort::simple("SortT"), "1");
+        let nullary = apply(&n, Vec::new());
+        let sub = Sort::simple("SortSub");
+        let base = vec![
+            one.clone(),
+            two.clone(),
+            other_sort.clone(),
+            nullary.clone(),
+            apply(&c, vec![one.clone()]),
+            apply(&c, vec![two.clone()]),
+            apply(&d, vec![one.clone()]),
+            apply(&wrap, vec![one.clone()]),
+            apply(&wrap, vec![one.clone()]).with_evaluated_cache(),
+            apply(&wrap, vec![two.clone()]).with_evaluated_cache(),
+            Term::injection(sub.clone(), sort(), one.clone()),
+            Term::injection(sub.clone(), sort(), two.clone()),
+            Term::injection(Sort::simple("SortOther"), sort(), two.clone()),
+            Term::injection(sub.clone(), sort(), apply(&wrap, vec![one.clone()])),
+            list,
+            apply(&function("f", 1), vec![one.clone()]),
+            apply(&residual, vec![one.clone()]),
+        ];
+        let terms = base
+            .iter()
+            .cloned()
+            .chain(base.iter().map(|term| apply(&c, vec![term.clone()])))
+            .collect::<Vec<_>>();
+        let operand = |term: &Term| match term.kind() {
+            TermKind::Injection { term, .. } => term.clone(),
+            _ => unreachable!("the oracle is called on two injections"),
+        };
+        let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+        let distinct = |_: &Term, _: &Term| InjectionComparison::Distinct;
+        let compare =
+            |left: &Term, right: &Term| InjectionComparison::Compare(operand(left), operand(right));
+        let oracles: [&InjectionOracle<'_>; 3] = [&undecided, &distinct, &compare];
+        let mut decided = 0;
+        for injections in oracles {
+            for left in &terms {
+                for right in &terms {
+                    let expected = predicate_structurally_distinct(left, right, injections);
+                    assert_eq!(
+                        left.structurally_distinct_with(right, injections).is_some(),
+                        expected,
+                        "{left:?} against {right:?}"
+                    );
+                    decided += usize::from(expected);
+                }
+            }
+        }
+        assert!(decided > 0 && decided < 3 * terms.len() * terms.len());
+    }
+
+    /// The pairs the witness does not decide although the predicate it replaced did: two
+    /// applications of one `assoc` or `idem` symbol whose arguments differ (`f(f(a, b), c)` and
+    /// `f(a, f(b, c))` are one value under associativity), two applications of one symbol with
+    /// different arities (an ill-formed pair), and a certified macro application, whose value is
+    /// an expansion the definition does not describe. No `Distinct` is minted for any of them.
+    #[test]
+    fn structural_distinctness_leaves_algebraic_ill_formed_and_residual_pairs_undecided() {
+        let undecided = |_: &Term, _: &Term| InjectionComparison::Undecided;
+        let a = apply(&symbol("a", 0, |_| {}), Vec::new());
+        let b = apply(&symbol("b", 0, |_| {}), Vec::new());
+        let c = apply(&symbol("c", 0, |_| {}), Vec::new());
+        let assoc = symbol("f", 2, |symbol| symbol.attributes.associative = true);
+        let idem = symbol("g", 2, |symbol| symbol.attributes.idempotent = true);
+        for algebraic in [&assoc, &idem] {
+            let left = apply(
+                algebraic,
+                vec![apply(algebraic, vec![a.clone(), b.clone()]), c.clone()],
+            );
+            let right = apply(
+                algebraic,
+                vec![a.clone(), apply(algebraic, vec![b.clone(), c.clone()])],
+            );
+            assert!(predicate_structurally_distinct(&left, &right, &undecided));
+            assert!(
+                left.structurally_distinct_with(&right, &undecided)
+                    .is_none()
+            );
+        }
+        let k = symbol("k", 1, |_| {});
+        let unary = apply(&k, vec![a.clone()]);
+        let binary = apply(&k, vec![b.clone(), c.clone()]);
+        assert!(predicate_structurally_distinct(&unary, &binary, &undecided));
+        assert!(
+            unary
+                .structurally_distinct_with(&binary, &undecided)
+                .is_none()
+        );
+        let residual = apply(
+            &symbol("m", 1, |symbol| symbol.attributes.macro_or_alias = true),
+            vec![a.clone()],
+        )
+        .with_evaluated_cache();
+        assert!(predicate_structurally_distinct(&residual, &b, &undecided));
+        assert!(
+            residual
+                .structurally_distinct_with(&b, &undecided)
+                .is_none()
+        );
     }
 }

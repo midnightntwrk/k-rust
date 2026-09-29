@@ -25,7 +25,8 @@ use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     term::{
-        HeadRole, Sort, Term, TermKind,
+        Sort, Term, TermKind,
+        head::{FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
     },
     timeout::interruption_requested,
@@ -888,45 +889,63 @@ fn kequal(
     Ok(evaluate_equality(left, right, sort_graph).map(|equal| bool_term(equal != negate)))
 }
 
+/// Whether two operands of `KEQUAL` denote equal values, or `None` when that is not decided.
+///
+/// Two constructor-like terms (values built from free constructors, domain values, injections
+/// and collections) are equal exactly when they are the same term. Otherwise each operand is
+/// classified as the value it denotes, with no evidence for an equation head (`NoEvidence`), and
+/// the roots decide only when one of them is a free-constructor application and the other is a
+/// fixed root too: different roots are different values, and two applications of one free
+/// symbol are equal exactly when their arguments are.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
     if left.attributes().constructor_like && right.attributes().constructor_like {
         return Some(left == right);
     }
-    match (left.kind(), right.kind()) {
-        (
-            TermKind::Application {
-                symbol: left_symbol,
-                sort_arguments: left_sorts,
-                arguments: left_arguments,
-            },
-            TermKind::Application {
-                symbol: right_symbol,
-                sort_arguments: right_sorts,
-                arguments: right_arguments,
-            },
-        ) if is_constructor(left_symbol) && is_constructor(right_symbol) => {
-            if left_symbol != right_symbol
-                || left_sorts != right_sorts
-                || left_arguments.len() != right_arguments.len()
-            {
-                return Some(false);
-            }
+    let fixed = |term| match classify_value(term, &mut NoEvidence) {
+        Head::Fixed(fixed) => Some(fixed),
+        Head::Open(_) | Head::Residual => None,
+    };
+    if let (Some(left_root), Some(right_root)) = (fixed(left), fixed(right))
+        && (left_root.root() == FixedRoot::FreeConstructor
+            || right_root.root() == FixedRoot::FreeConstructor)
+    {
+        let arguments_equal = |pairs: &mut dyn Iterator<Item = (&Term, &Term)>| {
             let mut equal = true;
-            for (left, right) in left_arguments.iter().zip(right_arguments) {
+            for (left, right) in pairs {
                 equal &= evaluate_equality(left, right, sort_graph)?;
             }
             Some(equal)
-        }
-        (TermKind::Application { symbol, .. }, right)
-            if is_constructor(symbol) && is_rigid_non_application(right) =>
-        {
-            Some(false)
-        }
-        (left, TermKind::Application { symbol, .. })
-            if is_constructor(symbol) && is_rigid_non_application(left) =>
-        {
-            Some(false)
-        }
+        };
+        return match compare_roots(left_root, right_root) {
+            RootComparison::Distinct(_) | RootComparison::ArityMismatch => Some(false),
+            RootComparison::SameApplication(same) => arguments_equal(&mut same.pairs()),
+            // Open question Q6 of the classifier's design: a free-constructor symbol with `assoc`
+            // or `idem` axioms is compared argument by argument, as for a free symbol.
+            RootComparison::SameAlgebraicSymbol => {
+                let (
+                    TermKind::Application {
+                        arguments: left_arguments,
+                        ..
+                    },
+                    TermKind::Application {
+                        arguments: right_arguments,
+                        ..
+                    },
+                ) = (left.kind(), right.kind())
+                else {
+                    unreachable!("two applications of one symbol are applications");
+                };
+                arguments_equal(&mut left_arguments.iter().zip(right_arguments))
+            }
+            RootComparison::DomainValues
+            | RootComparison::Injections
+            | RootComparison::Collections(_) => {
+                unreachable!("one of the two roots is a free-constructor application")
+            }
+        };
+    }
+    match (left.kind(), right.kind()) {
         (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
             match match_injection_equality(sort_graph, left, right)? {
                 InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right) => {
@@ -1040,23 +1059,6 @@ pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<()
     }
 }
 
-/// Whether `symbol` is a free constructor, whose applications with different roots or
-/// different arguments denote different values.
-fn is_constructor(symbol: &crate::term::Symbol) -> bool {
-    symbol.attributes.head_role() == HeadRole::FreeConstructor
-}
-
-fn is_rigid_non_application(kind: &TermKind) -> bool {
-    matches!(
-        kind,
-        TermKind::DomainValue { .. }
-            | TermKind::Injection { .. }
-            | TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. }
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
@@ -1064,7 +1066,7 @@ mod tests {
     use super::*;
     use crate::{
         term::{
-            CollectionSymbols, FunctionType, ListDefinition, MapDefinition, Symbol,
+            CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Symbol,
             SymbolAttributes, SymbolType, Variable,
         },
         timeout::{StepTimeoutController, StepTimeoutOptions},
@@ -1889,5 +1891,162 @@ mod tests {
                 actual: 3,
             })
         );
+    }
+
+    /// `evaluate_equality` before it read the classifier, transcribed over the declared role:
+    /// the oracle of `equality_decides_the_pairs_it_decided_by_symbol_role`.
+    fn role_equality(left: &Term, right: &Term) -> Option<bool> {
+        let free = |symbol: &Symbol| symbol.attributes.head_role() == HeadRole::FreeConstructor;
+        let rigid_non_application = |kind: &TermKind| {
+            matches!(
+                kind,
+                TermKind::DomainValue { .. }
+                    | TermKind::Injection { .. }
+                    | TermKind::Map { .. }
+                    | TermKind::List { .. }
+                    | TermKind::Set { .. }
+            )
+        };
+        if left.attributes().constructor_like && right.attributes().constructor_like {
+            return Some(left == right);
+        }
+        match (left.kind(), right.kind()) {
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    arguments: left_arguments,
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    arguments: right_arguments,
+                },
+            ) if free(left_symbol) && free(right_symbol) => {
+                if left_symbol != right_symbol
+                    || left_sorts != right_sorts
+                    || left_arguments.len() != right_arguments.len()
+                {
+                    return Some(false);
+                }
+                let mut equal = true;
+                for (left, right) in left_arguments.iter().zip(right_arguments) {
+                    equal &= role_equality(left, right)?;
+                }
+                Some(equal)
+            }
+            (TermKind::Application { symbol, .. }, right)
+                if free(symbol) && rigid_non_application(right) =>
+            {
+                Some(false)
+            }
+            (left, TermKind::Application { symbol, .. })
+                if free(symbol) && rigid_non_application(left) =>
+            {
+                Some(false)
+            }
+            (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
+                match match_injection_equality(None, left, right)? {
+                    InjectionEquality::Direct(left, right)
+                    | InjectionEquality::Split(left, right) => role_equality(&left, &right),
+                    InjectionEquality::Distinct => Some(false),
+                    InjectionEquality::Unknown => None,
+                }
+            }
+            (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => Some(left == right),
+            _ if left == right => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Builtin equality through the classifier answers exactly as it did by symbol role, on
+    /// every ordered pair of a set of terms covering each root kind: domain values, free
+    /// constructors over values and over function applications (which bypass the
+    /// constructor-like shortcut), applications of one symbol with different arities, an
+    /// `assoc` constructor, equation heads with and without the certificate (which builtin
+    /// equality does not read), injections, a list, a function application, a macro, and those
+    /// terms under one free constructor.
+    #[test]
+    fn equality_decides_the_pairs_it_decided_by_symbol_role() {
+        let sort = Sort::simple("SortS");
+        let symbol = |name: &str, arity: usize, build: &dyn Fn(&mut SymbolAttributes)| {
+            let mut symbol = Symbol::constructor(name, vec![sort.clone(); arity], sort.clone());
+            build(&mut symbol.attributes);
+            Arc::new(symbol)
+        };
+        let apply = |symbol: &Arc<Symbol>, arguments: Vec<Term>| {
+            Term::application(symbol.clone(), Vec::new(), arguments)
+        };
+        let c = symbol("c", 1, &|_| {});
+        let d = symbol("d", 1, &|_| {});
+        let k = symbol("k", 1, &|_| {});
+        let assoc = symbol("g", 2, &|attributes| attributes.associative = true);
+        let wrap = symbol("wrap", 1, &|attributes| {
+            *attributes = attributes.clone().with_anywhere(true);
+        });
+        let function = symbol("f", 1, &|attributes| {
+            attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+        });
+        let residual = symbol("m", 1, &|attributes| attributes.macro_or_alias = true);
+        let one = Term::domain_value(sort.clone(), "1");
+        let two = Term::domain_value(sort.clone(), "2");
+        let f_one = apply(&function, vec![one.clone()]);
+        let f_two = apply(&function, vec![two.clone()]);
+        let sub = Sort::simple("SortSub");
+        let list = Term::list(
+            Arc::new(ListDefinition {
+                symbols: CollectionSymbols {
+                    unit: "unit".into(),
+                    element: "element".into(),
+                    concat: "concat".into(),
+                },
+                element_sort: "SortS".into(),
+                list_sort: "SortList".into(),
+            }),
+            vec![f_one.clone()],
+            None,
+        );
+        let base = vec![
+            one.clone(),
+            two.clone(),
+            apply(&c, vec![one.clone()]),
+            apply(&c, vec![f_one.clone()]),
+            apply(&c, vec![f_two.clone()]),
+            apply(&d, vec![f_one.clone()]),
+            apply(&k, vec![f_one.clone()]),
+            apply(&k, vec![f_one.clone(), f_two.clone()]),
+            apply(&assoc, vec![f_one.clone(), one.clone()]),
+            apply(&assoc, vec![f_one.clone(), two.clone()]),
+            apply(&wrap, vec![one.clone()]),
+            apply(&wrap, vec![one.clone()]).with_evaluated_cache(),
+            Term::injection(sub.clone(), sort.clone(), f_one.clone()),
+            Term::injection(sub.clone(), sort.clone(), two.clone()),
+            Term::injection(Sort::simple("SortOther"), sort.clone(), f_two.clone()),
+            list,
+            f_one.clone(),
+            apply(&residual, vec![f_one.clone()]),
+        ];
+        let terms = base
+            .iter()
+            .cloned()
+            .chain(base.iter().map(|term| apply(&c, vec![term.clone()])))
+            .collect::<Vec<_>>();
+        let mut answers = [0_usize; 3];
+        for left in &terms {
+            for right in &terms {
+                let expected = role_equality(left, right);
+                assert_eq!(
+                    evaluate_equality(left, right, None),
+                    expected,
+                    "{left:?} against {right:?}"
+                );
+                answers[match expected {
+                    Some(true) => 0,
+                    Some(false) => 1,
+                    None => 2,
+                }] += 1;
+            }
+        }
+        assert!(answers.iter().all(|&count| count > 0), "{answers:?}");
     }
 }
