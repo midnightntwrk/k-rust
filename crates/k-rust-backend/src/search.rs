@@ -43,14 +43,14 @@
 //!
 //! [[cost]]
 //! mode = "result-set search"
-//! bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy"
+//! bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy; a match whose subject or target has a term that is not ceil_free also computes the subject's pattern_knowledge (condition_definedness of its constraints and ceil_term of its term) and condition_definedness of the instantiated target constraints, and the knowledge members not among the subject's constraints join the simplification and the is_sat query, while a ceil_free subject and target cost one stored-attribute read per term"
 //! ```
 //!
 //! ```toml algorithm
 //! id = "backend.substitution.extract_output"
 //! name = "output-restricted substitution extraction"
 //! sites = ["normalize_match_condition"]
-//! variable = "c = constraints; t = term size"
+//! variable = "c = constraints; t = term size; f = the subject's knowledge facts decided with the condition"
 //! counters = []
 //! no_counter = "output-restricted extraction has no dedicated counter"
 //! span = "per call"
@@ -58,7 +58,7 @@
 //!
 //! [[cost]]
 //! mode = "search result normalization"
-//! bound = "O(c^2 x t)"
+//! bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and O(f x t) to apply the binding to the facts when f > 0"
 //! ```
 //!
 //! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
@@ -66,8 +66,8 @@
 //! configurations per depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first
 //! enumeration of simple paths with a per-path visited list, exponential in branching plus
 //! O(depth) per pop; pattern search over the result set. `normalize_match_condition` is the
-//! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints, no
-//! counter.
+//! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
+//! definedness of each solved value that is not `ceil_free`, no counter.
 
 use std::{
     borrow::Cow,
@@ -2168,17 +2168,17 @@ fn match_pattern_with_variables(
         substitute_predicates(&target.constraints, &substitution),
         &subject_knowledge,
     ));
-    let (substitution, constraints) = normalize_match_condition(
+    // The knowledge the subject's constraints do not already carry is decided with the match
+    // condition, not reported in it: it holds on every instance of the subject, which the
+    // match's state carries. The subject's constraints themselves travel in the condition.
+    let facts = subject_facts(subject_knowledge, &subject.constraints);
+    let (substitution, constraints, facts) = normalize_match_condition(
         definition,
         substitution,
         constraints,
-        &subject_knowledge,
+        facts,
         output_variables,
     );
-    // The knowledge the subject's constraints do not already carry is decided with the match
-    // condition, not reported in it: it holds on every instance of the subject, which the
-    // match's state carries.
-    let facts = subject_facts(subject_knowledge, &subject.constraints);
     let constraints =
         simplify_predicates_with_solver(definition, &constraints, &facts, options, solver)
             .map_err(PatternMatchError::Simplification)?;
@@ -2234,18 +2234,25 @@ fn subject_facts(knowledge: Cow<'_, [Predicate]>, constraints: &[Predicate]) -> 
 
 /// Solve the match condition's equalities `x = t` for a variable `x`, eliminating each binding
 /// from the remaining constraints with its definedness kept (I2): an element variable denotes a
-/// defined element, so `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`. The obligation is omitted where
-/// `known` (the subject's knowledge) or the constraints already hold it.
+/// defined element, so `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`.
+///
+/// `facts` hold on every instance the condition is decided over, so the decision is on
+/// `facts ∧ constraints`, and each binding is eliminated from that whole conjunction: `facts` are
+/// returned under the solved bindings, and an obligation `⌈t⌉` is omitted where those facts, or
+/// the constraints, already hold it. Comparing `⌈t⌉` against the facts before the bindings are
+/// applied would miss a fact over an eliminated variable and restate it.
 fn normalize_match_condition(
     definition: &BackendDefinition,
     output: Substitution,
     mut constraints: Vec<Predicate>,
-    known: &[Predicate],
+    mut facts: Vec<Predicate>,
     output_variables: &BTreeSet<crate::term::Variable>,
-) -> (Substitution, Vec<Predicate>) {
+) -> (Substitution, Vec<Predicate>, Vec<Predicate>) {
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
     let mut solved = Substitution::new();
     // Invariant: each round moves one solvable equality into `solved`; exit when none remains.
+    // No variable of `solved` occurs in `constraints` or `facts` after a round: the bound value
+    // is read from the substituted constraints, and the binding is applied to both.
     loop {
         let mut binding = None;
         for (index, constraint) in constraints.iter().enumerate() {
@@ -2285,13 +2292,21 @@ fn normalize_match_condition(
         };
         let binding = Substitution::from([(variable, value)]);
         solved = compose(&binding, &solved);
-        constraints = eliminate_bindings(definition, &constraints, &binding, known);
+        if !facts.is_empty() {
+            facts = substitute_predicates(&facts, &binding);
+        }
+        constraints = eliminate_bindings(definition, &constraints, &binding, &facts);
     }
 
     let mut output = compose(&solved, &output);
     output.retain(|variable, _| output_variables.contains(variable));
-    let constraints = eliminate_bindings(definition, &constraints, &solved, known);
-    (output, constraints)
+    // Each binding's definedness was stated when it was eliminated above, and the later
+    // bindings were applied to it since: a composed value is `s[t/x]` for bindings `y ↦ s` and
+    // `x ↦ t`, whose definedness `⌈s⌉[t/x] ∧ ⌈t⌉` is already among the constraints or the
+    // facts. So only the substitution is applied here, and it leaves the constraints as they
+    // are (none of them mentions a solved variable).
+    let constraints = substitute_predicates(&constraints, &solved);
+    (output, constraints, facts)
 }
 
 fn simplification_options(options: SearchOptions) -> SimplificationOptions {
@@ -4648,7 +4663,7 @@ mod tests {
             vec![Term::variable(left), Term::variable(right)],
         );
 
-        let (output, constraints) = normalize_match_condition(
+        let (output, constraints, facts) = normalize_match_condition(
             &definition(),
             Substitution::from([(
                 result_variable.clone(),
@@ -4658,12 +4673,13 @@ mod tests {
                 Term::variable(configuration_variable),
                 value.clone(),
             )],
-            &[],
+            Vec::new(),
             &BTreeSet::from([result_variable.clone()]),
         );
 
         assert_eq!(output, Substitution::from([(result_variable, value)]));
         assert!(constraints.is_empty());
+        assert!(facts.is_empty());
     }
 
     /// `start() => wrap(f(partial("v")))` with `f(I) => I`: the loop head of the successor
@@ -4731,7 +4747,6 @@ mod tests {
 
     /// A definition with a partial `divInt` (no `total` attribute, no ceil equation) and a
     /// partial uninterpreted `g` (no `total` attribute, no equation).
-    #[cfg(feature = "z3")]
     fn partial_target_definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
@@ -4852,5 +4867,140 @@ mod tests {
                 .contains(&Predicate::Ceil(quotient.clone())),
             "the state's own definedness is known, not restated: {found:#?}"
         );
+    }
+
+    /// The state `pair(X, 10 /Int X)` against the target `pair(X, Y)` constrained by
+    /// `Y <=Int Y +Int 1`: the target's variables share the state's names, and the match is the
+    /// same as under fresh names, with `Y ↦ 10 /Int X` and no restated `⌈10 /Int X⌉`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_state_whose_term_defines_the_target_constraint_matches_under_shared_names() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let target = target_bounded_by_successor(
+            &definition,
+            r#"pair{}(X:SortInt{}, Y:SortInt{})"#,
+            r#"Y:SortInt{}"#,
+        );
+        let subject = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#,
+        );
+
+        let matches = match_disjunction_with_solver(
+            &definition,
+            &target,
+            &[subject],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("the match should be decided");
+
+        let [found] = matches.as_slice() else {
+            panic!("expected one match, found {matches:#?}");
+        };
+        let quotient = pattern(
+            &definition,
+            r#"divInt{}(\dv{SortInt{}}("10"), X:SortInt{})"#,
+        )
+        .term;
+        assert_eq!(
+            found
+                .substitution
+                .get(&Variable::new("Y", Sort::simple("SortInt"))),
+            Some(&quotient),
+            "{found:#?}"
+        );
+        assert!(
+            !found
+                .constraints
+                .contains(&Predicate::Ceil(quotient.clone())),
+            "the state's own definedness is known, not restated: {found:#?}"
+        );
+    }
+
+    /// The state `pair(X, Y) ∧ Z = X ∧ Y = 10 /Int Z` (its equalities not yet applied to one
+    /// another) and the target `pair(A, B)`, which has no constraints.
+    fn unsaturated_partial_subject(definition: &BackendDefinition) -> (Pattern, Pattern) {
+        let int = Sort::simple("SortInt");
+        let variable = |name: &str| Term::variable(Variable::new(name, int.clone()));
+        let subject = Pattern {
+            term: pattern(definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#).term,
+            constraints: vec![
+                Predicate::Equals(variable("Z"), variable("X")),
+                Predicate::Equals(
+                    variable("Y"),
+                    pattern(definition, r#"divInt{}(\dv{SortInt{}}("10"), Z:SortInt{})"#).term,
+                ),
+            ],
+        };
+        let target = pattern(definition, r#"pair{}(A:SortInt{}, B:SortInt{})"#);
+        (target, subject)
+    }
+
+    /// The single match of `unsaturated_partial_subject` is `A ↦ X`, `B ↦ 10 /Int X` with no
+    /// constraints: `⌈10 /Int Z⌉` holds on every instance of the state (its constraint
+    /// `Y = 10 /Int Z` states it), so eliminating `Z ↦ X` and `Y ↦ 10 /Int X` from the
+    /// condition leaves `⌈10 /Int X⌉` known, not an obligation of the match.
+    fn assert_unsaturated_partial_subject_matches(
+        definition: &BackendDefinition,
+        matches: &[PatternMatch],
+    ) {
+        let [found] = matches else {
+            panic!("expected one match, found {matches:#?}");
+        };
+        let int = Sort::simple("SortInt");
+        let expected = Substitution::from([
+            (
+                Variable::new("A", int.clone()),
+                Term::variable(Variable::new("X", int.clone())),
+            ),
+            (
+                Variable::new("B", int),
+                pattern(definition, r#"divInt{}(\dv{SortInt{}}("10"), X:SortInt{})"#).term,
+            ),
+        ]);
+        assert_eq!(found.substitution, expected, "{found:#?}");
+        assert!(found.constraints.is_empty(), "{found:#?}");
+    }
+
+    /// Without a solver the match is decided, not left undecided: the state's knowledge follows
+    /// the eliminated bindings, so no obligation over them remains for a solver to discharge.
+    #[test]
+    fn a_state_with_unsaturated_equalities_matches_without_a_solver() {
+        let definition = partial_target_definition();
+        let (target, subject) = unsaturated_partial_subject(&definition);
+
+        let decided = match_disjunction_with_solver(
+            &definition,
+            &target,
+            std::slice::from_ref(&subject),
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the match should be decided without a solver");
+        assert_unsaturated_partial_subject_matches(&definition, &decided);
+
+        let retained = match_disjunction(&definition, &target, &[subject])
+            .expect("the match should be computed");
+        assert_unsaturated_partial_subject_matches(&definition, &retained);
+    }
+
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_state_with_unsaturated_equalities_matches_with_a_solver() {
+        let definition = partial_target_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let (target, subject) = unsaturated_partial_subject(&definition);
+
+        let matches = match_disjunction_with_solver(
+            &definition,
+            &target,
+            &[subject],
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .expect("the match should be decided");
+        assert_unsaturated_partial_subject_matches(&definition, &matches);
     }
 }

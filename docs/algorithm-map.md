@@ -145,7 +145,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.smt.cache — O(L x log E) for the key comparison, after an… +2 modes — at backend/smt/z3.rs `Z3Solver::solve`
 - backend.smt.check — O(R) solver work as reported by Z3 — at backend/smt/z3.rs `measured_check`
 - backend.substitution.apply — O(t x v log s), with O(1) skipping of… +1 mode — at backend/substitution.rs `substitute`
-- backend.substitution.extract_output — O(c^2 x t) — at backend/search.rs `normalize_match_condition`
+- backend.substitution.extract_output — O(c^2 x t), plus for each solved binding whose… — at backend/search.rs `normalize_match_condition`
 - backend.term.macro_or_alias — O(1) +1 mode — at backend/term.rs `Term::macro_or_alias_symbol`
 - definition.catalog.rule — O(n^2 x eq + n log n) — at k-rust/definition/rule_catalog.rs `RuleCatalog`
 - definition.equivalence.deduplicate — O(n^2 x eq) +1 mode — at k-rust/definition/equivalence.rs `dedup_by_equivalence`

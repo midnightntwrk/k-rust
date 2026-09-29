@@ -2314,7 +2314,7 @@ symbol = "match_disjunction_using"
 
 [[node.cost]]
 mode = "result-set search"
-bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy"
+bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy; a match whose subject or target has a term that is not ceil_free also computes the subject's pattern_knowledge (condition_definedness of its constraints and ceil_term of its term) and condition_definedness of the instantiated target constraints, and the knowledge members not among the subject's constraints join the simplification and the is_sat query, while a ceil_free subject and target cost one stored-attribute read per term"
 
 [[node]]
 kind = "algorithm"
@@ -2606,7 +2606,7 @@ id = "backend.substitution.extract_output"
 provenance = "declared"
 area = "backend"
 name = "output-restricted substitution extraction"
-variable = "c = constraints; t = term size"
+variable = "c = constraints; t = term size; f = the subject's knowledge facts decided with the condition"
 no_counter = "output-restricted extraction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
@@ -2624,7 +2624,7 @@ symbol = "normalize_match_condition"
 
 [[node.cost]]
 mode = "search result normalization"
-bound = "O(c^2 x t)"
+bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and O(f x t) to apply the binding to the facts when f > 0"
 
 [[node]]
 kind = "algorithm"
