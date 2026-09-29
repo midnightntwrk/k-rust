@@ -196,7 +196,8 @@ fn collect_host_descriptors_impl(
     timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
     let (contexts, pending) = timings.try_span("collector.resolve.intake", |_| {
-        let descriptors = descriptors.into_iter().collect::<Vec<_>>();
+        let mut descriptors = descriptors.into_iter().collect::<Vec<_>>();
+        descriptors.sort_by(|left, right| left.id.cmp(&right.id));
         let mut contexts = contexts.into_iter().collect::<Vec<_>>();
         select_framework_context(&mut contexts, &descriptors)?;
         let (contexts, context_lookup) = prepare_contexts(contexts)?;
@@ -303,6 +304,7 @@ fn resolve_pending_descriptors(
 ) -> Result<DescriptorBundle, CollectionError> {
     let (context_aliases, declarations, cell_fields, head_targets) =
         timings.try_span("collector.resolve.tables", |_| {
+            // Final identities sort by K namespace; host identities sort by Cargo package.
             pending.sort_by(|left, right| left.id.cmp(&right.id));
             let context_aliases = pending
                 .iter()

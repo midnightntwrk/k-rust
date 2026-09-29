@@ -92,6 +92,33 @@ pub struct Foo { pub value: Term<dyn Expr> }
 }
 
 #[test]
+fn intake_reports_the_same_first_error_in_either_registration_order() {
+    let package = TestPackage::new(
+        "intake_order",
+        "#[k::sort]\npub trait Alpha {}\n#[k::sort]\npub trait Beta {}\n",
+    );
+    let mut alpha = package.sort("Alpha", expr_type, vec![]);
+    alpha.protocol_version = SchemaVersion(100);
+    let mut beta = package.sort("Beta", foo_type, vec![]);
+    beta.protocol_version = SchemaVersion(200);
+
+    let forward = collect_host_descriptors(
+        [package.context("ORG-INTAKE")],
+        [alpha.clone(), beta.clone()],
+    )
+    .unwrap_err();
+    let reverse =
+        collect_host_descriptors([package.context("ORG-INTAKE")], [beta, alpha]).unwrap_err();
+
+    assert_eq!(forward, reverse);
+    assert_eq!(
+        forward.kind(),
+        CollectionErrorKind::UnsupportedSchemaVersion
+    );
+    assert!(forward.detail().contains("schema 100"), "{forward}");
+}
+
+#[test]
 fn collection_preserves_exact_visibility_and_explicit_symbol_provenance() {
     let package = TestPackage::new(
         "stable_api",
