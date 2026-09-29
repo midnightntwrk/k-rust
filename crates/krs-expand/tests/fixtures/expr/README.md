@@ -1,10 +1,8 @@
 # IMP expression fixture
 
-This standalone Cargo package is the Rust-authored IMP expression slice that
-`crates/krs-expand/tests/whole_file.rs` expands in
-`corpus_matches_the_native_capture`. It deliberately uses only the explicit KRS
-surface and a renamed dependency on the author-facing `krs` crate, and it is
-not a member of the root workspace.
+This standalone Cargo package defines a Rust-authored IMP expression slice.
+It uses only the explicit KRS surface and a renamed dependency on the author-facing `krs` crate.
+It is not a member of the root workspace.
 
 The object grammar contains exactly 19 productions:
 
@@ -22,12 +20,4 @@ Check the ordinary Rust surface from the repository root with:
 ```bash
 cargo +stable check --locked --offline --manifest-path crates/krs-expand/tests/fixtures/expr/Cargo.toml
 cargo +stable clippy --locked --offline --manifest-path crates/krs-expand/tests/fixtures/expr/Cargo.toml --all-targets --no-deps -- -D warnings
-```
-
-The whole-file comparison itself is ignored by default; it runs with
-`KRS_NATIVE_CAPTURE` naming a native capture that includes crate `krs_expr_fixture`:
-
-```bash
-KRS_NATIVE_CAPTURE=/path/to/capture.jsonl \
-  cargo +stable test -p krs-expand --test whole_file -- --ignored corpus_matches_the_native_capture
 ```

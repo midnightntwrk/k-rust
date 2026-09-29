@@ -1,10 +1,5 @@
 //! Prints the whole-file expansion of tour-minimal with its source map and
 //! checks the map against the authored anchors the expansion embeds.
-//!
-//! With `KRS_SOURCE_MAP_EVIDENCE` set to a directory, the test also writes the
-//! generated file, its map, the per-surface measurement, and the anchor
-//! coverage there; `KRS_WASM_PARSER_PROBE_OUTPUT` names the `observed-wasm-output.json`
-//! of the ordinary-Wasm KRS parser probe, whose anchors are then covered too.
 
 mod support;
 
@@ -13,8 +8,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use krs_expand::sink::{
-    AuthoredFile, ByteRange, GeneratedSource, InvocationId, Mapping, MappingClass, PrintReport,
-    Splice, lookup, print_with_map, splice_tokens,
+    AuthoredFile, ByteRange, GeneratedSource, InvocationId, Mapping, MappingClass, Splice, lookup,
+    print_with_map, splice_tokens,
 };
 use krs_syntax::ProvenanceRole;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
@@ -29,8 +24,7 @@ fn br(range: Range<usize>) -> ByteRange {
     ByteRange::try_from(range).expect("fixture range is ordered")
 }
 
-/// The printed whole file and, per invocation, its expansion and the report
-/// of printing that expansion alone.
+/// The printed whole file and each invocation's expansion.
 struct Printed {
     authored: AuthoredFile,
     source: GeneratedSource,
@@ -41,7 +35,6 @@ struct Surface {
     id: InvocationId,
     kind: &'static str,
     output: TokenStream,
-    alone: PrintReport,
     none_groups: usize,
 }
 
@@ -100,7 +93,7 @@ fn register(
     let id = source.begin_invocation(expansion.kind, call_site, replaced, parent);
     let mut alone = GeneratedSource::new(GENERATED_FILE, authored);
     let alone_id = alone.begin_invocation(expansion.kind, br(0..0), br(0..0), None);
-    let report = print_with_map(&expansion.output, authored, alone_id, &[], &mut alone)
+    print_with_map(&expansion.output, authored, alone_id, &[], &mut alone)
         .expect("the expansion prints");
     assert_eq!(
         alone.text,
@@ -119,7 +112,6 @@ fn register(
         id,
         kind: expansion.kind,
         output: expansion.output.clone(),
-        alone: report,
         none_groups: count_none_groups(&expansion.output),
     });
     id
@@ -351,10 +343,8 @@ fn exact_generated_ranges(printed: &Printed, authored: &Range<usize>) -> Vec<Ran
     found
 }
 
-/// Coverage of one anchor: the generated ranges mapping to it exactly, or the
-/// class and reason a diagnostic at it would get.
+/// The class and reason a diagnostic at an anchor would get.
 struct Coverage {
-    generated: Vec<Range<usize>>,
     class: MappingClass,
     reason: String,
 }
@@ -378,10 +368,8 @@ fn texts(printed: &Printed, select: impl Fn(&krs_expand::sink::Segment) -> bool)
 }
 
 fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
-    let generated = exact_generated_ranges(printed, anchor);
-    if !generated.is_empty() {
+    if !exact_generated_ranges(printed, anchor).is_empty() {
         return Coverage {
-            generated,
             class: MappingClass::ExactAuthored,
             reason: String::new(),
         };
@@ -403,7 +391,6 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
         .collect::<Vec<_>>();
     if !respanned.is_empty() {
         return Coverage {
-            generated: respanned,
             class: MappingClass::ExactAuthored,
             reason: format!(
                 "rustc-visible only as {}, spanned at this authored range with different text (respanned); lookup maps it exact-authored, where native rustc reports it",
@@ -444,7 +431,6 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
         }
     };
     Coverage {
-        generated,
         class: MappingClass::InvocationLevel,
         reason,
     }
@@ -542,9 +528,6 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
             "{anchor:?}"
         );
     }
-    if let Ok(directory) = std::env::var("KRS_SOURCE_MAP_EVIDENCE") {
-        write_evidence(&printed, &anchors, std::path::Path::new(&directory));
-    }
     // Representative authored anchors that rustc sees as authored
     // tokens map exactly.
     for (text, authored) in [
@@ -585,293 +568,6 @@ fn sha256(bytes: &[u8]) -> String {
             write!(hex, "{byte:02x}").unwrap();
             hex
         })
-}
-
-fn map_json(printed: &Printed) -> serde_json::Value {
-    let map = &printed.source.map;
-    let range = |range: &ByteRange| serde_json::json!([range.start(), range.end()]);
-    serde_json::json!({
-        "version": map.version,
-        "generated_file": map.generated_file,
-        "authored_file": map.authored_file,
-        "authored_sha256": sha256(TOUR_MINIMAL.as_bytes()),
-        "invocations": map.invocations.iter().map(|invocation| serde_json::json!({
-            "id": invocation.id.0,
-            "kind": invocation.kind,
-            "call_site": range(&invocation.call_site),
-            "replaced": range(&invocation.replaced),
-            "parent": invocation.parent.map(|parent| parent.0),
-        })).collect::<Vec<_>>(),
-        "segments": map.segments.iter().map(|segment| {
-            let mut value = serde_json::json!({
-                "generated": range(&segment.generated),
-                "class": segment.class.name(),
-                "authored": segment.authored.as_ref().map(range),
-                "owner": segment.owner.map(|owner| owner.0),
-            });
-            if let Some(respanned) = &segment.respanned {
-                value["respanned"] = range(respanned);
-            }
-            value
-        }).collect::<Vec<_>>(),
-    })
-}
-
-/// One anchor of the parser probe's `observed-wasm-output.json`.
-struct WasmParserProbeAnchor {
-    surface: String,
-    role: String,
-    ordinal: u64,
-    authored: Range<usize>,
-}
-
-fn wasm_parser_probe_anchors() -> Option<Vec<WasmParserProbeAnchor>> {
-    let path = std::env::var("KRS_WASM_PARSER_PROBE_OUTPUT").ok()?;
-    let output: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).expect("probe output is readable"))
-            .expect("probe output is JSON");
-    let mut anchors = Vec::new();
-    for invocation in output["invocations"].as_array().expect("invocations") {
-        for anchor in invocation["authored_anchors"].as_array().expect("anchors") {
-            let at =
-                |key: &str| usize::try_from(anchor["authored"][key].as_u64().unwrap()).unwrap();
-            anchors.push(WasmParserProbeAnchor {
-                surface: invocation["id"].as_str().unwrap().to_owned(),
-                role: anchor["role"].as_str().unwrap().to_owned(),
-                ordinal: anchor["ordinal"].as_u64().unwrap(),
-                authored: at("start")..at("end"),
-            });
-        }
-    }
-    Some(anchors)
-}
-
-fn toml_string(text: &str) -> String {
-    serde_json::to_string(text).unwrap()
-}
-
-fn write_evidence(printed: &Printed, anchors: &BTreeSet<Anchor>, directory: &std::path::Path) {
-    std::fs::create_dir_all(directory).unwrap();
-    let text = &printed.source.text;
-    let map = serde_json::to_string_pretty(&map_json(printed)).unwrap() + "\n";
-    std::fs::write(directory.join("tour-minimal.expanded.rs"), text).unwrap();
-    std::fs::write(directory.join("tour-minimal.map.json"), &map).unwrap();
-
-    std::fs::write(
-        directory.join("measurement.generated.toml"),
-        measurement(printed, text, &map),
-    )
-    .unwrap();
-    std::fs::write(
-        directory.join("anchor-coverage.toml"),
-        anchor_coverage(printed, anchors),
-    )
-    .unwrap();
-}
-
-fn measurement(printed: &Printed, text: &str, map: &str) -> String {
-    let mut measurement = String::new();
-    writeln!(
-        measurement,
-        "# Generated by crates/krs-expand/tests/source_map.rs (KRS_SOURCE_MAP_EVIDENCE)."
-    )
-    .unwrap();
-    writeln!(measurement, "expanded_rs_bytes = {}", text.len()).unwrap();
-    writeln!(
-        measurement,
-        "expanded_rs_sha256 = {}",
-        toml_string(&sha256(text.as_bytes()))
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "map_json_sha256 = {}",
-        toml_string(&sha256(map.as_bytes()))
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "segments = {}",
-        printed.source.map.segments.len()
-    )
-    .unwrap();
-    let outside = printed
-        .source
-        .map
-        .segments
-        .iter()
-        .filter(|segment| segment.owner.is_none());
-    writeln!(
-        measurement,
-        "identity_bytes = {}",
-        outside
-            .map(|segment| segment.generated.len())
-            .sum::<usize>()
-    )
-    .unwrap();
-    for surface in &printed.surfaces {
-        surface_measurement(printed, surface, &mut measurement);
-    }
-    measurement
-}
-
-fn surface_measurement(printed: &Printed, surface: &Surface, measurement: &mut String) {
-    let invocation = &printed.source.map.invocations[surface.id.0];
-    let bytes = |class: MappingClass| {
-        printed
-            .source
-            .map
-            .segments
-            .iter()
-            .filter(|segment| segment.owner == Some(surface.id) && segment.class == class)
-            .map(|segment| segment.generated.len())
-            .sum::<usize>()
-    };
-    let report = surface.alone;
-    writeln!(measurement, "\n[[surface]]").unwrap();
-    writeln!(measurement, "invocation = {}", surface.id.0).unwrap();
-    writeln!(measurement, "kind = {}", toml_string(surface.kind)).unwrap();
-    writeln!(
-        measurement,
-        "call_site = [{}, {}]",
-        invocation.call_site.start(),
-        invocation.call_site.end()
-    )
-    .unwrap();
-    if let Some(parent) = invocation.parent {
-        writeln!(measurement, "parent = {}", parent.0).unwrap();
-    }
-    writeln!(
-        measurement,
-        "generated_bytes_exact_authored = {}",
-        bytes(MappingClass::ExactAuthored)
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "generated_bytes_invocation_level = {}",
-        bytes(MappingClass::InvocationLevel)
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "generated_bytes_generated_only = {}",
-        bytes(MappingClass::GeneratedOnly)
-    )
-    .unwrap();
-    writeln!(measurement, "tokens = {}", report.tokens).unwrap();
-    writeln!(
-        measurement,
-        "tokens_exact_authored = {}",
-        report.exact_authored
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "tokens_invocation_level = {}",
-        report.call_site + report.reparsed + report.respanned
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "tokens_invocation_level_call_site = {}",
-        report.call_site
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "tokens_invocation_level_reparsed = {}",
-        report.reparsed
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "tokens_invocation_level_respanned = {}",
-        report.respanned
-    )
-    .unwrap();
-    writeln!(
-        measurement,
-        "delimiter_none_groups = {}",
-        surface.none_groups
-    )
-    .unwrap();
-}
-
-fn anchor_coverage(printed: &Printed, anchors: &BTreeSet<Anchor>) -> String {
-    let mut rows = String::new();
-    writeln!(
-        rows,
-        "# Generated by crates/krs-expand/tests/source_map.rs (KRS_SOURCE_MAP_EVIDENCE)."
-    )
-    .unwrap();
-    let mut write_row = |source: &str,
-                         surface: &str,
-                         role: &str,
-                         ordinal: u64,
-                         authored: &Range<usize>,
-                         extra: &str| {
-        let coverage = coverage(printed, authored);
-        writeln!(rows, "\n[[anchor]]").unwrap();
-        writeln!(rows, "source = {}", toml_string(source)).unwrap();
-        writeln!(rows, "surface = {}", toml_string(surface)).unwrap();
-        writeln!(rows, "role = {}", toml_string(role)).unwrap();
-        writeln!(rows, "ordinal = {ordinal}").unwrap();
-        writeln!(rows, "authored = [{}, {}]", authored.start, authored.end).unwrap();
-        writeln!(
-            rows,
-            "authored_text = {}",
-            toml_string(&TOUR_MINIMAL[authored.clone()])
-        )
-        .unwrap();
-        rows.push_str(extra);
-        writeln!(rows, "class = {}", toml_string(coverage.class.name())).unwrap();
-        match coverage.generated.first() {
-            Some(first) => {
-                writeln!(rows, "generated = [{}, {}]", first.start, first.end).unwrap();
-                writeln!(rows, "generated_occurrences = {}", coverage.generated.len()).unwrap();
-                if !coverage.reason.is_empty() {
-                    writeln!(rows, "reason = {}", toml_string(&coverage.reason)).unwrap();
-                }
-            }
-            None => writeln!(rows, "reason = {}", toml_string(&coverage.reason)).unwrap(),
-        }
-    };
-    if let Some(probe_anchors) = wasm_parser_probe_anchors() {
-        for probe in &probe_anchors {
-            let embedded = anchors.iter().any(|anchor| {
-                anchor.role == probe.role
-                    && u64::from(anchor.ordinal) == probe.ordinal
-                    && anchor.range() == probe.authored
-            });
-            write_row(
-                "WasmParserProbe",
-                &probe.surface,
-                &probe.role,
-                probe.ordinal,
-                &probe.authored,
-                &format!("in_host_provenance = {embedded}\n"),
-            );
-        }
-    }
-    for anchor in anchors {
-        write_row(
-            "HostProvenance",
-            &anchor.surface,
-            &anchor.role,
-            u64::from(anchor.ordinal),
-            &anchor.range(),
-            &format!(
-                "precision = {}\n",
-                toml_string(if anchor.exact {
-                    "Exact"
-                } else {
-                    "InvocationFallback"
-                })
-            ),
-        );
-    }
-    rows
 }
 
 /// Diagnostic case D002 (`browser/worker/test/fixtures/diagnostics/unresolved_constructor.rs`,
@@ -955,32 +651,4 @@ fn unresolved_constructor_sort_path_maps_like_native() {
         );
     }
     assert_eq!(source.map.invocations[1].call_site, br(183..241));
-}
-
-/// Prints every expansion of a native per-invocation capture
-/// (`KRS_NATIVE_CAPTURE`) through the recording printer. The
-/// native text is re-lexed through `proc_macro2`, so this checks the printer's
-/// `Display` emulation over the corpus's token shapes, not the map.
-#[test]
-#[ignore = "needs a native capture; set KRS_NATIVE_CAPTURE"]
-fn native_capture_outputs_print_identically() {
-    let path = std::env::var("KRS_NATIVE_CAPTURE").expect("KRS_NATIVE_CAPTURE names a capture");
-    let capture = std::fs::read_to_string(&path).expect("the native capture is readable");
-    let (authored, _) = AuthoredFile::lex("src/lib.rs", "").unwrap();
-    let mut rows = 0;
-    for line in capture.lines() {
-        let row: serde_json::Value = serde_json::from_str(line).expect("a JSON capture row");
-        let output: TokenStream = row["output"]
-            .as_str()
-            .expect("a captured output")
-            .parse()
-            .expect("native output lexes");
-        let mut source = GeneratedSource::new(GENERATED_FILE, &authored);
-        let id = source.begin_invocation("captured", br(0..0), br(0..0), None);
-        print_with_map(&output, &authored, id, &[], &mut source).expect("the output prints");
-        assert_eq!(source.text, output.to_string(), "{row}");
-        rows += 1;
-    }
-    assert!(rows > 0);
-    eprintln!("printed {rows} captured expansions identically");
 }
