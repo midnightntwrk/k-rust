@@ -22,7 +22,10 @@ pub use collect::{
 pub use emit::{DEFINITION_ARTIFACT, EmitError, EmittedK, EmittedSpec, SPEC_ARTIFACT, emit_k};
 pub use error::{AnalysisError, AnalysisErrorKind, CollectionError, CollectionErrorKind};
 pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
-pub use reference::{ReferenceExpansionError, expand_reference_source};
+pub use reference::{
+    ReferenceExpansionError, ReferenceSourceError, expand_package_reference_source,
+    expand_reference_source,
+};
 pub use semantic::{
     DescriptorLoweringError, OpenSortAnalysis, analyze_open_sorts, lower_descriptor_bundle,
 };

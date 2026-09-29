@@ -5,7 +5,7 @@ use crate::{
 };
 use krs_compiler::{
     DEFINITION_ARTIFACT, DescriptorLoweringError, EmitError, LoweringError,
-    ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_reference_source,
+    ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_package_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_ir::measure::{
@@ -13,8 +13,8 @@ use krs_ir::measure::{
     Counters, Measurement, unix_seconds,
 };
 use krs_ir::{
-    DefinitionSentence, Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId,
-    ProvenanceRole, RangedOriginKind, Sha256Digest, SourceFileId, SourceRange, StableText,
+    DefinitionSentence, DescriptorBundle, PackageId, ProvenanceRole, Sha256Digest, SourceFileId,
+    SourceRange, StableText,
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
@@ -577,7 +577,6 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
     })
 }
 
-#[allow(clippy::too_many_lines)] // Fail-closed source selection and rendering form one boundary.
 fn expand(
     prepared: &PreparedDefinition,
     plan: &CollectorPlan,
@@ -596,118 +595,15 @@ fn expand(
     .map_err(|error| {
         CommandError::InvalidMetadata(format!("root package identity is invalid: {error}"))
     })?;
-    let head_rules = prepared
-        .bundle
-        .descriptors
-        .iter()
-        .filter(|descriptor| {
-            descriptor.id.package() == &package
-                && matches!(descriptor.payload, DescriptorPayload::HeadRule(_))
-        })
-        .collect::<Vec<_>>();
-    let candidates = if head_rules.is_empty() {
-        prepared
-            .bundle
-            .descriptors
-            .iter()
-            .filter(|descriptor| descriptor.id.package() == &package)
-            .collect::<Vec<_>>()
-    } else {
-        head_rules
-    };
-    let mut sources =
-        std::collections::BTreeMap::<SourceFileId, std::collections::BTreeSet<Vec<String>>>::new();
-    for descriptor in candidates {
-        if let Some(file) = authored_source_file(descriptor) {
-            sources
-                .entry(file.clone())
-                .or_default()
-                .insert(descriptor.id.module_path().to_vec());
-        }
-    }
-    if sources.len() != 1 {
-        let paths = sources
-            .keys()
-            .map(SourceFileId::package_relative_path)
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(CommandError::InvalidRequest(format!(
-            "expand requires one readable root source file; found {}{}",
-            sources.len(),
-            if paths.is_empty() {
-                String::new()
-            } else {
-                format!(": {paths}")
-            }
-        )));
-    }
-    let (file, module_paths) = sources
-        .first_key_value()
-        .expect("the source count was checked above");
-    if module_paths.len() != 1 {
-        let paths = module_paths
-            .iter()
-            .map(|path| path.join("::"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(CommandError::InvalidRequest(format!(
-            "expand source `{}` contains descriptors from multiple Rust modules: {paths}",
-            file.package_relative_path()
-        )));
-    }
-    let module_path = module_paths
-        .first()
-        .expect("the selected source has at least one descriptor module");
-    let manifest_directory = root.manifest_path.parent().ok_or_else(|| {
-        CommandError::InvalidMetadata(format!(
-            "manifest has no parent directory: `{}`",
-            root.manifest_path.display()
-        ))
-    })?;
-    let source_path = manifest_directory.join(file.package_relative_path());
-    let source = fs::read(&source_path).map_err(|source| CommandError::Io {
-        path: source_path.clone(),
-        source,
-    })?;
-    let digest = Sha256::digest(&source);
-    if format!("{digest:x}") != file.content_sha256().as_str() {
-        return Err(CommandError::InvalidRequest(format!(
-            "expand source changed after collection: `{}`",
-            source_path.display()
-        )));
-    }
-    let source = std::str::from_utf8(&source).map_err(|error| {
-        CommandError::InvalidRequest(format!(
-            "expand source is not UTF-8: `{}`: {error}",
-            source_path.display()
-        ))
-    })?;
-    let expanded = expand_reference_source(
-        source,
-        &root.manifest_path,
-        &package,
-        module_path,
+    let expanded = expand_package_reference_source(
         &prepared.bundle,
         &prepared.semantic,
+        &package,
+        &root.manifest_path,
     )?;
     Ok(CommandOutcome {
         stdout: expanded.into_bytes(),
     })
-}
-
-fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
-    descriptor
-        .origin()
-        .frames()
-        .iter()
-        .find_map(|frame| match frame {
-            OriginFrame::Ranged {
-                kind: RangedOriginKind::Authored,
-                range,
-                ..
-            } => Some(&range.file),
-            OriginFrame::Ranged { .. } | OriginFrame::Transformation { .. } => None,
-        })
 }
 
 fn emit(

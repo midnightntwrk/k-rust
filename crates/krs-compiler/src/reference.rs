@@ -4,22 +4,135 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
-use std::path::Path;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, DescriptorApplicationRef, DescriptorHeadRule, DescriptorPayload,
-    DescriptorTerm, DescriptorTermArgument, ListOperation, MapOperation, PackageId,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, SemanticRule, SemanticSortRef,
-    SemanticTheory, SetOperation, StableItemId,
+    BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
+    DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument, ListOperation,
+    MapOperation, OriginFrame, PackageId, ProtocolHeadRuleExtra, ProtocolHeadRuleResult,
+    ProvenanceRole, RangedOriginKind, SemanticRule, SemanticSortRef, SemanticTheory, SetOperation,
+    SourceFileId, StableItemId,
 };
 use krs_syntax::surface::FunctionMacro;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
 use crate::CollectionError;
 use crate::facade::{AttributeResolver, FacadeAliases};
+
+/// Expands the one authored Rust module that defines a package's
+/// descriptors.
+///
+/// The source is the authored file of the package's head rules,
+/// or of all its descriptors when it has none.
+/// Every selected descriptor must come from one file and one Rust module,
+/// and the file under the manifest directory must still have its collected
+/// content digest.
+///
+/// # Errors
+///
+/// Returns a typed failure when the selection is empty or ambiguous,
+/// the source cannot be read, has changed since collection, or is not UTF-8,
+/// or when [`expand_reference_source`] rejects it.
+pub fn expand_package_reference_source(
+    bundle: &DescriptorBundle,
+    semantic: &SemanticTheory,
+    package: &PackageId,
+    manifest_path: &Path,
+) -> Result<String, ReferenceExpansionError> {
+    let (source, module_path) = read_package_source(bundle, package, manifest_path)
+        .map_err(ReferenceExpansionError::Source)?;
+    expand_reference_source(
+        &source,
+        manifest_path,
+        package,
+        module_path,
+        bundle,
+        semantic,
+    )
+}
+
+fn read_package_source<'bundle>(
+    bundle: &'bundle DescriptorBundle,
+    package: &PackageId,
+    manifest_path: &Path,
+) -> Result<(String, &'bundle [String]), ReferenceSourceError> {
+    let in_package = || {
+        bundle
+            .descriptors
+            .iter()
+            .filter(|descriptor| descriptor.id.package() == package)
+    };
+    let head_rules = in_package()
+        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::HeadRule(_)))
+        .collect::<Vec<_>>();
+    let candidates = if head_rules.is_empty() {
+        in_package().collect()
+    } else {
+        head_rules
+    };
+    let mut sources = BTreeMap::<&SourceFileId, BTreeSet<&[String]>>::new();
+    for descriptor in candidates {
+        if let Some(file) = authored_source_file(descriptor) {
+            sources
+                .entry(file)
+                .or_default()
+                .insert(descriptor.id.module_path());
+        }
+    }
+    let [(file, module_paths)] = sources.iter().collect::<Vec<_>>()[..] else {
+        return Err(ReferenceSourceError::Selection(
+            sources.into_keys().cloned().collect(),
+        ));
+    };
+    let [module_path] = module_paths.iter().copied().collect::<Vec<_>>()[..] else {
+        return Err(ReferenceSourceError::Modules {
+            file: Box::new((*file).clone()),
+            module_paths: module_paths.iter().map(|path| path.to_vec()).collect(),
+        });
+    };
+    let manifest_directory = manifest_path
+        .parent()
+        .ok_or_else(|| ReferenceSourceError::ManifestDirectory(manifest_path.to_path_buf()))?;
+    let path = manifest_directory.join(file.package_relative_path());
+    let source = match fs::read(&path) {
+        Ok(source) => source,
+        Err(error) => return Err(ReferenceSourceError::Read { path, error }),
+    };
+    if format!("{:x}", Sha256::digest(&source)) != file.content_sha256().as_str() {
+        return Err(ReferenceSourceError::Changed(path));
+    }
+    let source = match String::from_utf8(source) {
+        Ok(source) => source,
+        Err(error) => {
+            return Err(ReferenceSourceError::Encoding {
+                path,
+                error: error.utf8_error(),
+            });
+        }
+    };
+    Ok((source, module_path))
+}
+
+fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
+    descriptor
+        .origin()
+        .frames()
+        .iter()
+        .find_map(|frame| match frame {
+            OriginFrame::Ranged {
+                kind: RangedOriginKind::Authored,
+                range,
+                ..
+            } => Some(&range.file),
+            OriginFrame::Ranged { .. } | OriginFrame::Transformation { .. } => None,
+        })
+}
 
 /// Expands the readable constructs in one Rust module to the deterministic
 /// layer-2 reference surface.
@@ -41,7 +154,7 @@ pub fn expand_reference_source(
     facade_manifest: &Path,
     package: &PackageId,
     module_path: &[String],
-    bundle: &krs_ir::DescriptorBundle,
+    bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
@@ -1370,9 +1483,111 @@ fn rust_ident(value: &str) -> Ident {
     syn::parse_str(value).unwrap_or_else(|_| Ident::new_raw(value, Span::call_site()))
 }
 
+/// Failure to select or reread the one authored source of a package.
+#[derive(Debug)]
+pub enum ReferenceSourceError {
+    /// The package's selected descriptors did not come from exactly one
+    /// authored source file.
+    Selection(Vec<SourceFileId>),
+    /// The selected source file holds descriptors from more than one Rust
+    /// module.
+    Modules {
+        /// Selected authored source file.
+        file: Box<SourceFileId>,
+        /// Module paths of its descriptors, in canonical order.
+        module_paths: Vec<Vec<String>>,
+    },
+    /// The package manifest path has no parent directory.
+    ManifestDirectory(PathBuf),
+    /// The selected source file could not be read.
+    Read {
+        /// Source path under the manifest directory.
+        path: PathBuf,
+        /// Operating-system error.
+        error: io::Error,
+    },
+    /// The selected source file no longer has its collected content digest.
+    Changed(PathBuf),
+    /// The selected source file is not UTF-8.
+    Encoding {
+        /// Source path under the manifest directory.
+        path: PathBuf,
+        /// Decoding error.
+        error: std::str::Utf8Error,
+    },
+}
+
+impl fmt::Display for ReferenceSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Selection(files) => {
+                write!(
+                    formatter,
+                    "expand requires one readable root source file; found {}",
+                    files.len()
+                )?;
+                if !files.is_empty() {
+                    let paths = files
+                        .iter()
+                        .map(SourceFileId::package_relative_path)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(formatter, ": {paths}")?;
+                }
+                Ok(())
+            }
+            Self::Modules { file, module_paths } => {
+                let paths = module_paths
+                    .iter()
+                    .map(|path| path.join("::"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(
+                    formatter,
+                    "expand source `{}` contains descriptors from multiple Rust modules: {paths}",
+                    file.package_relative_path()
+                )
+            }
+            Self::ManifestDirectory(path) => write!(
+                formatter,
+                "manifest has no parent directory: `{}`",
+                path.display()
+            ),
+            Self::Read { path, error } => {
+                write!(formatter, "could not read `{}`: {error}", path.display())
+            }
+            Self::Changed(path) => write!(
+                formatter,
+                "expand source changed after collection: `{}`",
+                path.display()
+            ),
+            Self::Encoding { path, error } => write!(
+                formatter,
+                "expand source is not UTF-8: `{}`: {error}",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl Error for ReferenceSourceError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Read { error, .. } => Some(error),
+            Self::Encoding { error, .. } => Some(error),
+            Self::Selection(_)
+            | Self::Modules { .. }
+            | Self::ManifestDirectory(_)
+            | Self::Changed(_) => None,
+        }
+    }
+}
+
 /// Typed deterministic-reference projection failure.
 #[derive(Debug)]
 pub enum ReferenceExpansionError {
+    /// The package's authored source could not be selected or reread.
+    Source(ReferenceSourceError),
     /// The selected source is not a Rust module.
     RustSyntax(syn::Error),
     /// The selected package's facade aliases could not be read.
@@ -1479,6 +1694,7 @@ pub enum ReferenceExpansionError {
 impl fmt::Display for ReferenceExpansionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Source(error) => error.fmt(formatter),
             Self::RustSyntax(error) => write!(formatter, "invalid Rust source: {error}"),
             Self::Facade(error) => write!(formatter, "cannot resolve KRS facade: {error}"),
             Self::KrsSyntax(error) => write!(formatter, "invalid readable KRS source: {error}"),
@@ -1570,6 +1786,7 @@ impl fmt::Display for ReferenceExpansionError {
 impl Error for ReferenceExpansionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Source(error) => error.source(),
             Self::RustSyntax(error) | Self::GeneratedRust(error) => Some(error),
             Self::Facade(error) => Some(error),
             Self::KrsSyntax(error) => Some(error),
@@ -1598,7 +1815,9 @@ impl Error for ReferenceExpansionError {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_use_tree, render_reference_token_term_type, render_term};
+    use super::{
+        contains_use_tree, read_package_source, render_reference_token_term_type, render_term,
+    };
     use krs_ir::{
         BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
         DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, DescriptorTermArgument,
@@ -1623,6 +1842,21 @@ mod tests {
             .to_token_stream()
             .to_string();
         assert!(!contains_use_tree(&file.items, &other));
+    }
+
+    #[test]
+    fn package_without_authored_descriptors_has_no_source_to_expand() {
+        let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
+        let error = read_package_source(
+            &DescriptorBundle::new(Vec::new()),
+            &package,
+            std::path::Path::new("Cargo.toml"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "expand requires one readable root source file; found 0"
+        );
     }
 
     #[test]
