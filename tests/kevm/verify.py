@@ -14,6 +14,46 @@ from support.lock import k_version, krs_ir_schema  # noqa: E402
 from kevm import native  # noqa: E402
 
 
+PROBES = (
+    (
+        "program lookup",
+        "k: [crate::Lookup { program, pc }, ..]",
+        "Lookup",
+        "pub struct Lookup {",
+    ),
+    (
+        "stack result constructor",
+        "word_stack: Stack::StackCons(crate::Chop(value), stack)",
+        "StackCons",
+        "    StackCons { head: Int, tail: WordStack },",
+    ),
+    (
+        "push preparation function",
+        "k: [crate::PreparePush { op: Operation::Push { width, value }, stack, gas, cost: 3 }, ..]",
+        "PreparePush",
+        "pub struct PreparePush {",
+    ),
+    (
+        "configuration target",
+        "    for Machine;",
+        "Machine",
+        "pub struct Machine {",
+    ),
+    (
+        "width binding",
+        "pc: int::add(pc, int::add(width, 1))",
+        "width",
+        "k: [GasResult::EnoughGas(Operation::Push { width, value }, remaining), ..]",
+    ),
+    (
+        "exception constructor",
+        "status_code: Status::OutOfGas()",
+        "OutOfGas",
+        "    OutOfGas(),",
+    ),
+)
+
+
 PORT = semantics.Port(
     label="KEVM",
     key="kevm",
@@ -21,6 +61,8 @@ PORT = semantics.Port(
     descriptors=1100,
     clippy_allow=("clippy::too_many_arguments",),
     hook_namespaces=("KRYPTO",),
+    lsp_probes=PROBES,
+    lsp_diagnostic_timeout=600,
 )
 CLAIM_COUNT = 8
 

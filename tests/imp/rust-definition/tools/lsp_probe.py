@@ -11,7 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from support import GateError  # noqa: E402
-from support.lsp import Client, locations, meaningful_hover, version  # noqa: E402
+from support.lsp import Session, locations, meaningful_hover, position, version  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,34 +20,6 @@ LIB = ROOT / "src/lib.rs"
 SOURCES = (IMP, LIB)
 TEXT = {path: path.read_text(encoding="utf-8") for path in SOURCES}
 LINES = {path: text.splitlines() for path, text in TEXT.items()}
-
-
-def utf16_length(value: str) -> int:
-    return len(value.encode("utf-16-le")) // 2
-
-
-def position(
-    path: Path,
-    fragment: str,
-    needle: str,
-    *,
-    occurrence: int = 0,
-    needle_occurrence: int = 0,
-    offset: int = 1,
-) -> dict[str, int]:
-    matches = [index for index, line in enumerate(LINES[path]) if fragment in line]
-    assert len(matches) > occurrence, (path, fragment, matches, occurrence)
-    line = matches[occurrence]
-    start = LINES[path][line].index(fragment)
-    column = start
-    for _ in range(needle_occurrence + 1):
-        column = LINES[path][line].index(needle, column)
-        column += len(needle)
-    column -= len(needle)
-    return {
-        "line": line,
-        "character": utf16_length(LINES[path][line][:column]) + offset,
-    }
 
 
 def params(path: Path, at: dict[str, int]) -> dict[str, Any]:
@@ -66,7 +38,7 @@ def edit_locations(edit: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return output
 
 
-def rename(client: Client, path: Path, at: dict[str, int], new_name: str) -> Any:
+def rename(client: Session, path: Path, at: dict[str, int], new_name: str) -> Any:
     for attempt in range(4):
         try:
             return client.request(
@@ -81,52 +53,21 @@ def rename(client: Client, path: Path, at: dict[str, int], new_name: str) -> Any
 
 def main() -> None:
     analyzer = version()
-    client = Client(ROOT)
-    try:
-        client.request(
-            "initialize",
-            {
-                "processId": None,
-                "rootUri": ROOT.as_uri(),
-                "capabilities": {
-                    "workspace": {"configuration": True},
-                    "window": {"workDoneProgress": True},
-                    "textDocument": {
-                        "definition": {"linkSupport": True},
-                        "hover": {"contentFormat": ["markdown", "plaintext"]},
-                        "rename": {"prepareSupport": True},
-                        "completion": {"completionItem": {}},
-                        "diagnostic": {},
-                    },
-                },
-            },
-        )
-        client.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
-        client.wait_for_priming()
-        for path in SOURCES:
-            client.send(
-                {
-                    "jsonrpc": "2.0",
-                    "method": "textDocument/didOpen",
-                    "params": {
-                        "textDocument": {
-                            "uri": path.as_uri(),
-                            "languageId": "rust",
-                            "version": 1,
-                            "text": TEXT[path],
-                        }
-                    },
-                }
-            )
-
+    capabilities = {
+        "workspace": {"configuration": True},
+        "window": {"workDoneProgress": True},
+        "textDocument": {
+            "definition": {"linkSupport": True},
+            "hover": {"contentFormat": ["markdown", "plaintext"]},
+            "rename": {"prepareSupport": True},
+            "completion": {"completionItem": {}},
+            "diagnostic": {},
+        },
+    }
+    with Session(ROOT, TEXT, capabilities=capabilities) as client:
         diagnostics: dict[str, list[Any]] = {}
         for path in SOURCES:
-            report = client.request(
-                "textDocument/diagnostic",
-                {"textDocument": {"uri": path.as_uri()}},
-                timeout=90,
-            )
-            diagnostics[path.name] = report.get("items", []) if report else []
+            diagnostics[path.name] = client.diagnostics(path, timeout=90)
         assert not any(diagnostics.values()), diagnostics
 
         probes = [
@@ -293,7 +234,7 @@ def main() -> None:
         definition_counts: dict[str, int] = {}
         for probe in probes:
             name, path, fragment, needle, target_path, target_fragment, *options = probe
-            at = position(path, fragment, needle, **(options[0] if options else {}))
+            at = position(LINES[path], fragment, needle, **(options[0] if options else {}))
             found = locations(client.request("textDocument/definition", params(path, at)))
             definition_counts[name] = len(found)
             assert found, (name, at, found)
@@ -311,7 +252,7 @@ def main() -> None:
             assert meaningful_hover(hover), (name, at, hover)
 
         completion_at = position(
-            IMP,
+            LINES[IMP],
             "env: map::update(e, name, value)",
             "update",
             offset=0,
@@ -328,7 +269,7 @@ def main() -> None:
             (
                 "Expr sort",
                 IMP,
-                position(IMP, "    Expr;", "Expr"),
+                position(LINES[IMP], "    Expr;", "Expr"),
                 "Expression",
                 [
                     (IMP, "    Expr;"),
@@ -341,7 +282,7 @@ def main() -> None:
             (
                 "Machine",
                 IMP,
-                position(IMP, "pub struct Machine", "Machine"),
+                position(LINES[IMP], "pub struct Machine", "Machine"),
                 "MachineRenamed",
                 [
                     (IMP, "pub struct Machine"),
@@ -353,7 +294,7 @@ def main() -> None:
             (
                 "Op",
                 IMP,
-                position(IMP, "pub enum Op", "Op"),
+                position(LINES[IMP], "pub enum Op", "Op"),
                 "OperatorFamily",
                 [
                     (IMP, "pub enum Op"),
@@ -365,7 +306,7 @@ def main() -> None:
                 "rule binder",
                 IMP,
                 position(
-                    IMP,
+                    LINES[IMP],
                     "eval_neg    : Neg { value }",
                     "value",
                 ),
@@ -377,7 +318,7 @@ def main() -> None:
             (
                 "initializer binder",
                 IMP,
-                position(IMP, "pub fn init(pgm:", "pgm"),
+                position(LINES[IMP], "pub fn init(pgm:", "pgm"),
                 "program",
                 [
                     (IMP, "pub fn init(pgm:"),
@@ -442,8 +383,6 @@ def main() -> None:
                 sort_keys=True,
             )
         )
-    finally:
-        client.close()
 
 
 if __name__ == "__main__":

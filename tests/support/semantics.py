@@ -30,6 +30,7 @@ from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256, parse_kore_pattern
 from support.krs import Invocation, build, fresh_deterministic_emissions
+from support import lsp
 from support.lock import k_version, krs_ir_schema, msrv
 from support.pins import Ledger, load_toml
 from support.process import run
@@ -50,6 +51,8 @@ class Port:
     checkout: Path
     """The pinned Runtime Verification checkout the port is qualified against."""
     descriptors: int
+    lsp_probes: tuple[lsp.Probe, ...]
+    lsp_diagnostic_timeout: float
     clippy_allow: tuple[str, ...] = ()
     hook_namespaces: tuple[str, ...] = ()
     """Hook namespaces the Java frontend must keep; it drops hooks outside its defaults."""
@@ -195,7 +198,13 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, P
     run(["cargo", f"+{msrv()}", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
     analyzer = rust_analyzer()
     lsp_env = {**environment, "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]])}
-    run([sys.executable, port.here / "lsp_probe.py"], environment=lsp_env, timeout=900)
+    lsp.probe(
+        ROOT / "semantics" / port.key,
+        port.lsp_probes,
+        diagnostic_timeout=port.lsp_diagnostic_timeout,
+        environment=lsp_env,
+        timeout=900,
+    )
     return (
         krs,
         root_target / "release/krs-native-compile",

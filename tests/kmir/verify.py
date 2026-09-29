@@ -14,11 +14,53 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import native  # noqa: E402
 
 
+PROBES = (
+    (
+        "block lookup command",
+        "Execution::ExecBlock(list::get(program, index))",
+        "ExecBlock",
+        "    ExecBlock { block: BasicBlock },",
+    ),
+    (
+        "entry block command",
+        "Execution::ExecBlockIdx(0)",
+        "ExecBlockIdx",
+        "    ExecBlockIdx { index: Int },",
+    ),
+    (
+        "continuation constructor",
+        "continuation: EvaluationContinuation::BinaryRight { place, operation, rhs, checked }",
+        "BinaryRight",
+        "    BinaryRight {",
+    ),
+    (
+        "configuration target",
+        "    for Machine;",
+        "Machine",
+        "pub struct Machine {",
+    ),
+    (
+        "local binding",
+        "value: int::add(lhs, rhs)",
+        "lhs",
+        "checked: false, operation: MirBinaryOp::BinOpAdd(), lhs: Value::Integer { value: lhs, width, signed }",
+    ),
+    (
+        "return constructor",
+        "ret_val: ReturnValue::Returned(value)",
+        "Returned",
+        "    Returned { value: MirValue },",
+    ),
+)
+
+
 PORT = semantics.Port(
     label="KMIR",
     key="kmir",
     checkout=ROOT.parent / "inspirations/runtimeverification/mir-semantics",
     descriptors=1222,
+    lsp_probes=PROBES,
+    lsp_diagnostic_timeout=600,
 )
 
 

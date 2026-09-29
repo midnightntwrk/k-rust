@@ -11,11 +11,53 @@ from support import ROOT, semantics, entry  # noqa: E402
 from kwasm import native  # noqa: E402
 
 
+PROBES = (
+    (
+        "ordinary cell constructor",
+        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
+        "Cons",
+        "    Cons { head: Val, tail: ValStack },",
+    ),
+    (
+        "ordinary cell result constructor",
+        "valstack: Stack::Cons(Value::Integer(ty, value), stack)",
+        "Cons",
+        "    Cons { head: Val, tail: ValStack },",
+    ),
+    (
+        "function application",
+        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "IntBinOp",
+        "pub struct IntBinOp {",
+    ),
+    (
+        "configuration target",
+        "    for Machine;",
+        "Machine",
+        "pub struct Machine {",
+    ),
+    (
+        "binding reference",
+        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "rhs",
+        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
+    ),
+    (
+        "trap constructor",
+        "instrs: [Trap(), ..]",
+        "Trap",
+        "    Trap(),",
+    ),
+)
+
+
 PORT = semantics.Port(
     label="KWasm",
     key="kwasm",
     checkout=ROOT.parent / "inspirations/runtimeverification/wasm-semantics",
     descriptors=60,
+    lsp_probes=PROBES,
+    lsp_diagnostic_timeout=90,
 )
 
 

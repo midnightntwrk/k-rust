@@ -1,11 +1,11 @@
-"""The rust-analyzer client the gates' LSP probes share, and the semantics-gate probe.
+"""The rust-analyzer client and LSP probes shared by the gates.
 
-`Client` drives one rust-analyzer process over JSON-RPC. A semantics gate's `lsp_probe.py` names its crate and a table of
-`(name, fragment, needle, target_fragment)` probes and calls `probe`. Each probe
-places the cursor on `needle` inside the first source line containing
-`fragment`, and requires go-to-definition to land on the first line containing
-`target_fragment` and hover to return content. The source must also carry no
-diagnostics.
+`Client` drives one rust-analyzer process over JSON-RPC.
+`Session` owns the handshake and opened source files.
+A semantics port names a table of `(name, fragment, needle, target_fragment)` probes.
+Each probe places the cursor on `needle` inside the first source line containing `fragment`.
+Go-to-definition must land on the first line containing `target_fragment`, and hover must return content.
+The source must also carry no diagnostics.
 """
 
 from __future__ import annotations
@@ -85,8 +85,8 @@ class Client:
             self.handle(message)
         raise GateError(f"timed out waiting for {method}")
 
-    def wait_for_priming(self) -> None:
-        deadline = time.monotonic() + 120
+    def wait_for_priming(self, timeout: float = 120) -> None:
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             message = self.receive(deadline - time.monotonic())
             if message is None:
@@ -114,15 +114,124 @@ class Client:
             raise
 
 
-def position(lines: Sequence[str], fragment: str, needle: str) -> dict[str, int]:
-    """The LSP position one character into `needle` on the first line containing `fragment`."""
+def position(
+    lines: Sequence[str], fragment: str, needle: str, *,
+    occurrence: int = 0, needle_occurrence: int = 0, offset: int = 1,
+) -> dict[str, int]:
+    """Find a needle after a fragment and return its UTF-16 LSP position."""
 
+    if occurrence < 0 or needle_occurrence < 0:
+        raise GateError("LSP probe occurrences must be nonnegative")
     matches = [index for index, line in enumerate(lines) if fragment in line]
-    if not matches:
-        raise GateError(f"probe fragment is absent from the source: {fragment!r}")
-    line = matches[0]
-    column = lines[line].index(needle, lines[line].index(fragment))
-    return {"line": line, "character": len(lines[line][:column].encode("utf-16-le")) // 2 + 1}
+    if len(matches) <= occurrence:
+        raise GateError(f"probe fragment is absent at occurrence {occurrence}: {fragment!r}")
+    line = matches[occurrence]
+    column = lines[line].index(fragment)
+    try:
+        for index in range(needle_occurrence + 1):
+            column = lines[line].index(needle, column)
+            if index < needle_occurrence:
+                column += len(needle)
+    except ValueError as error:
+        raise GateError(f"probe needle occurrence {needle_occurrence} is absent: {needle!r}") from error
+    return {
+        "line": line,
+        "character": len(lines[line][:column].encode("utf-16-le")) // 2 + offset,
+    }
+
+
+def token_range(text: str, token: str, *, after: str) -> dict[str, dict[str, int]]:
+    """Return the UTF-16 LSP range of the first token after a marker."""
+
+    try:
+        start = text.index(token, text.index(after))
+    except ValueError as error:
+        raise GateError(f"token {token!r} after {after!r} is absent") from error
+    line = text.count("\n", 0, start)
+    line_start = text.rfind("\n", 0, start) + 1
+    character = len(text[line_start:start].encode("utf-16-le")) // 2
+    return {
+        "start": {"line": line, "character": character},
+        "end": {"line": line, "character": character + len(token.encode("utf-16-le")) // 2},
+    }
+
+
+DEFAULT_CAPABILITIES: dict[str, Any] = {
+    "workspace": {"configuration": True},
+    "window": {"workDoneProgress": True},
+    "textDocument": {
+        "definition": {"linkSupport": True},
+        "hover": {"contentFormat": ["markdown", "plaintext"]},
+        "diagnostic": {},
+    },
+}
+
+
+class Session:
+    """Own one rust-analyzer handshake, its opened files, and shutdown."""
+
+    def __init__(
+        self, root: Path, files: Mapping[Path, str], *,
+        capabilities: Mapping[str, Any] | None = None,
+        environment: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        self.root = root
+        self.files = files
+        self.capabilities = capabilities if capabilities is not None else DEFAULT_CAPABILITIES
+        self.environment = environment
+        self.deadline = time.monotonic() + timeout if timeout is not None else None
+        self.client: Client | None = None
+
+    def _remaining(self, timeout: float) -> float:
+        if self.deadline is None:
+            return timeout
+        remaining = min(timeout, self.deadline - time.monotonic())
+        if remaining <= 0:
+            raise GateError("rust-analyzer session timed out")
+        return remaining
+
+    def request(self, method: str, params: Any, timeout: float = 60) -> Any:
+        assert self.client is not None
+        return self.client.request(method, params, timeout=self._remaining(timeout))
+
+    def diagnostics(self, path: Path, timeout: float = 60) -> list[Any]:
+        report = self.request(
+            "textDocument/diagnostic", {"textDocument": {"uri": path.as_uri()}}, timeout=timeout
+        )
+        return report.get("items", []) if report else []
+
+    def __enter__(self) -> Session:
+        self.client = Client(self.root, self.environment)
+        try:
+            self.request(
+                "initialize",
+                {"processId": None, "rootUri": self.root.as_uri(), "capabilities": self.capabilities},
+            )
+            self.client.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+            self.client.wait_for_priming(self._remaining(120))
+            for path, content in self.files.items():
+                self.client.send({
+                    "jsonrpc": "2.0", "method": "textDocument/didOpen",
+                    "params": {"textDocument": {
+                        "uri": path.as_uri(), "languageId": "rust", "version": 1, "text": content,
+                    }},
+                })
+        except BaseException:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            raise
+        return self
+
+    def __exit__(self, exc_type: Any, *_: Any) -> None:
+        assert self.client is not None
+        try:
+            self.client.close()
+        except Exception:
+            if exc_type is None:
+                raise
 
 
 def locations(result: Any) -> list[tuple[str, dict[str, Any]]]:
@@ -150,7 +259,7 @@ def meaningful_hover(result: Any) -> bool:
     return False
 
 
-def version() -> str:
+def version(environment: Mapping[str, str] | None = None) -> str:
     """The `rust-analyzer --version` line under the stable toolchain."""
 
     return subprocess.run(
@@ -159,51 +268,27 @@ def version() -> str:
         text=True,
         capture_output=True,
         timeout=10,
-        env=ENVIRONMENT,
+        env={**ENVIRONMENT, **(environment or {})},
     ).stdout.strip()
 
 
-def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> None:
-    """Run the probes over `root/src/lib.rs` and print the JSON summary."""
+def probe(
+    root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float,
+    environment: Mapping[str, str] | None = None, timeout: float = 900,
+) -> None:
+    """Probe `root/src/lib.rs` and print JSON.
+
+    `timeout` bounds handshake, priming, diagnostics, and probe requests.
+    The version check and shutdown have their own 10-second limits.
+    """
 
     source = root / "src/lib.rs"
     text = source.read_text(encoding="utf-8")
     lines = text.splitlines()
     uri = source.as_uri()
-    analyzer = version()
-    client = Client(root)
-    try:
-        client.request(
-            "initialize",
-            {
-                "processId": None,
-                "rootUri": root.as_uri(),
-                "capabilities": {
-                    "workspace": {"configuration": True},
-                    "window": {"workDoneProgress": True},
-                    "textDocument": {
-                        "definition": {"linkSupport": True},
-                        "hover": {"contentFormat": ["markdown", "plaintext"]},
-                        "diagnostic": {},
-                    },
-                },
-            },
-        )
-        client.send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
-        client.wait_for_priming()
-        client.send(
-            {
-                "jsonrpc": "2.0",
-                "method": "textDocument/didOpen",
-                "params": {
-                    "textDocument": {"uri": uri, "languageId": "rust", "version": 1, "text": text}
-                },
-            }
-        )
-        report = client.request(
-            "textDocument/diagnostic", {"textDocument": {"uri": uri}}, timeout=diagnostic_timeout
-        )
-        diagnostics = report.get("items", []) if report else []
+    analyzer = version(environment)
+    with Session(root, {source: text}, environment=environment, timeout=timeout) as client:
+        diagnostics = client.diagnostics(source, timeout=diagnostic_timeout)
         if diagnostics:
             raise GateError(f"rust-analyzer reported diagnostics: {diagnostics}")
 
@@ -234,5 +319,3 @@ def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> 
                 sort_keys=True,
             )
         )
-    finally:
-        client.close()
