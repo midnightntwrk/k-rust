@@ -61,7 +61,6 @@ PORT = semantics.Port(
     descriptors=1222,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=600,
-    native_configuration=True,
 )
 
 

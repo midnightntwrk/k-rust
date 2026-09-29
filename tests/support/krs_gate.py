@@ -140,15 +140,10 @@ class Session:
             raise GateError(f"gate response has no result for request {request_id}")
         return response["result"]
 
-    def load(self, definition: Path, module: str) -> dict[str, Any]:
-        """Load Definition IR or compiled KORE and its main module.
+    def load(self, definition_ir: Path, module: str) -> dict[str, Any]:
+        """Load emitted Definition IR and its main module."""
 
-        JSON input is compiled in-process for configuration support.
-        Compiled KORE remains available for gates that have not migrated.
-        """
-
-        field = "definition_ir" if definition.suffix == ".json" else "kore"
-        return self.request("definition.load", **{field: os.fspath(definition), "module": module})
+        return self.request("definition.load", definition_ir=os.fspath(definition_ir), module=module)
 
     def configure(self, variables: Mapping[str, str]) -> dict[str, Any]:
         """Parse surface configuration variables and return their KORE pattern."""

@@ -19,87 +19,10 @@ from support.hashing import canonical_json, json_sha256  # noqa: E402
 from support.pins import load_toml  # noqa: E402
 
 
-def kore_bytes(source: str) -> str:
-    value = ast.literal_eval(source)
-    if not isinstance(value, bytes):
-        raise GateError(f"program is not a Python Bytes literal: {source}")
-    return '"' + "".join(f"\\x{byte:02x}" for byte in value) + '"'
-
-
-def kore_int(value: str) -> str:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise GateError(f"invalid concrete Int: {value}") from error
-    return f'\\dv{{SortInt{{}}}}("{parsed}")'
-
-
-def kore_bool(value: Any) -> str:
-    if not isinstance(value, bool):
-        raise GateError(f"invalid concrete Bool: {value}")
-    return f'\\dv{{SortBool{{}}}}("{str(value).lower()}")'
-
-
 def concrete_mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise GateError(f"{name} is not a string-keyed table: {value}")
     return value
-
-
-def kore_set(values: Any) -> str:
-    if not isinstance(values, list):
-        raise GateError(f"concrete Set is not an array: {values}")
-    result = "Lbl'Stop'Set{}()"
-    for value in sorted((str(value) for value in values), key=int):
-        item = f"LblSetItem{{}}(inj{{SortInt{{}},SortKItem{{}}}}({kore_int(value)}))"
-        result = f"Lbl'Unds'Set'Unds'{{}}({result},{item})"
-    return result
-
-
-def kore_int_map(values: Any) -> str:
-    mapping = concrete_mapping(values, "concrete Int Map")
-    result = "Lbl'Stop'Map{}()"
-    for key in sorted(mapping, key=int):
-        item = (
-            "Lbl'UndsPipe'-'-GT-Unds'{}("
-            f"inj{{SortInt{{}},SortKItem{{}}}}({kore_int(key)}),"
-            f"inj{{SortInt{{}},SortKItem{{}}}}({kore_int(str(mapping[key]))}))"
-        )
-        result = f"Lbl'Unds'Map'Unds'{{}}({result},{item})"
-    return result
-
-
-def kore_accessed_storage(values: Any) -> str:
-    mapping = concrete_mapping(values, "accessed_storage")
-    result = "Lbl'Stop'Map{}()"
-    for key in sorted(mapping, key=int):
-        item = (
-            "Lbl'UndsPipe'-'-GT-Unds'{}("
-            f"inj{{SortInt{{}},SortKItem{{}}}}({kore_int(key)}),"
-            f"inj{{SortSet{{}},SortKItem{{}}}}({kore_set(mapping[key])}))"
-        )
-        result = f"Lbl'Unds'Map'Unds'{{}}({result},{item})"
-    return result
-
-
-def kore_stack(source: str) -> str:
-    values = source.split(" : ")
-    if not values or values.pop() != ".WordStack":
-        raise GateError(f"unsupported concrete WordStack: {source}")
-    result = "LblstackEmpty{}()"
-    for value in reversed(values):
-        result = f"LblstackCons{{}}({kore_int(value)},{result})"
-    return result
-
-
-def kore_list(values: Any) -> str:
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise GateError(f"block_hashes is not a list of concrete Int strings: {values}")
-    result = "Lbl'Stop'List{}()"
-    for value in reversed(values):
-        item = f"LblListItem{{}}(inj{{SortInt{{}},SortKItem{{}}}}({kore_int(value)}))"
-        result = f"Lbl'Unds'List'Unds'{{}}({item},{result})"
-    return result
 
 
 def concrete_logs(values: Any, name: str) -> list[Mapping[str, Any]]:
@@ -115,112 +38,60 @@ def concrete_logs(values: Any, name: str) -> list[Mapping[str, Any]]:
     return logs
 
 
-def kore_logs(values: Any) -> str:
-    result = "Lbl'Stop'List{}()"
-    for entry in concrete_logs(values, "logs"):
-        address = kore_int(str(entry.get("address", "0")))
-        topics = kore_list([str(topic) for topic in entry.get("topics", [])])
-        data = f'\\dv{{SortBytes{{}}}}({kore_bytes(str(entry.get("data", "b\"\"")))})'
-        log = f"Lblentry{{}}({address},{topics},{data})"
-        item = f"LblListItem{{}}(inj{{SortLogEntry{{}},SortKItem{{}}}}({log}))"
-        result = f"Lbl'Unds'List'Unds'{{}}({result},{item})"
-    return result
-
-
 def rendered_bytes(value: bytes) -> str:
     return 'b"' + "".join(f"\\x{byte:02x}" for byte in value) + '"'
 
 
-def map_entry(name: str, sort: str, value: str) -> str:
-    return (
-        "Lbl'UndsPipe'-'-GT-Unds'{}("
-        f'inj{{SortKConfigVar{{}},SortKItem{{}}}}(\\dv{{SortKConfigVar{{}}}}("${name}")),'
-        f"inj{{Sort{sort}{{}},SortKItem{{}}}}({value}))"
-    )
+def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
+    """Return the surface configuration text shared with the Java route."""
 
-
-def configuration(case: Mapping[str, Any]) -> tuple[tuple[str, str, str], ...]:
-    """Return each configuration variable of `case` as (name, sort, KORE value)."""
-
-    call_data = kore_bytes(str(case.get("call_data", 'b""')))
-    return_data = kore_bytes(str(case.get("return_data", 'b""')))
-    local_mem = kore_bytes(str(case.get("local_mem", 'b""')))
-    return (
-        ("PGM", "Command", "Lblrun{}()"),
-        ("PROGRAM", "Bytes", f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case['program']))})"),
-        (
-            "JUMPDESTS",
-            "Bytes",
-            f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case.get('jump_dests', 'b\"\"')))})",
-        ),
-        ("ADDRESS", "Int", kore_int(str(case.get("address", "0")))),
-        ("ACCOUNTID", "Int", kore_int(str(case.get("account_id", case.get("address", "0"))))),
-        ("BALANCE", "Int", kore_int(str(case.get("balance", "0")))),
-        (
-            "CODE",
-            "Bytes",
-            f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case.get('code', 'b\"\"')))})",
-        ),
-        ("NONCE", "Int", kore_int(str(case.get("nonce", "0")))),
-        ("ORIGIN", "Int", kore_int(str(case.get("origin", "0")))),
-        ("CALLER", "Int", kore_int(str(case.get("caller", "0")))),
-        ("CALLVALUE", "Int", kore_int(str(case.get("call_value", "0")))),
-        (
-            "CALLDATA",
-            "Bytes",
-            f"\\dv{{SortBytes{{}}}}({call_data})",
-        ),
-        ("GASPRICE", "Int", kore_int(str(case.get("gas_price", "0")))),
-        (
-            "RETURNDATA",
-            "Bytes",
-            f"\\dv{{SortBytes{{}}}}({return_data})",
-        ),
-        (
-            "LOCALMEM",
-            "Bytes",
-            f"\\dv{{SortBytes{{}}}}({local_mem})",
-        ),
-        ("MEMORYUSED", "Int", kore_int(str(case.get("memory_used", "0")))),
-        ("CALLGAS", "Int", kore_int(str(case.get("call_gas", "0")))),
-        ("CALLDEPTH", "Int", kore_int(str(case.get("call_depth", "0")))),
-        (
-            "CODEADDRESS",
-            "Int",
-            kore_int(str(case.get("code_address", case.get("address", "0")))),
-        ),
-        ("CALLSTACK", "List", kore_list(case.get("call_stack", []))),
-        ("INTERIMSTATES", "List", kore_list(case.get("interim_states", []))),
-        ("TOUCHEDACCOUNTS", "Set", kore_set(case.get("touched_accounts", []))),
-        ("STORAGE", "Map", kore_int_map(case.get("storage", {}))),
-        ("ORIGSTORAGE", "Map", kore_int_map(case.get("original_storage", case.get("storage", {})))),
-        ("ACCESSEDSTORAGE", "Map", kore_accessed_storage(case.get("accessed_storage", {}))),
-        ("ACCESSEDACCOUNTS", "Set", kore_set(case.get("accessed_accounts", []))),
-        ("LOGS", "List", kore_logs(case.get("logs", []))),
-        ("REFUND", "Int", kore_int(str(case.get("refund", "0")))),
-        ("SELFDESTRUCT", "Set", kore_set(case.get("self_destruct", []))),
-        ("CREATEDACCOUNTS", "Set", kore_set(case.get("created_accounts", []))),
-        ("STATIC", "Bool", kore_bool(case.get("static", False))),
-        ("BLOCKHASHES", "List", kore_list(case.get("block_hashes", []))),
-        ("COINBASE", "Int", kore_int(str(case.get("coinbase", "0")))),
-        ("TIMESTAMP", "Int", kore_int(str(case.get("timestamp", "0")))),
-        ("NUMBER", "Int", kore_int(str(case.get("number", "0")))),
-        ("PREVRANDAO", "Int", kore_int(str(case.get("prev_randao", "0")))),
-        ("GASLIMIT", "Int", kore_int(str(case.get("gas_limit", "0")))),
-        ("CHAINID", "Int", kore_int(str(case.get("chain_id", "0")))),
-        ("BASEFEE", "Int", kore_int(str(case.get("base_fee", "0")))),
-        ("STACK", "WordStack", kore_stack(str(case["stack"]))),
-        ("PC", "Int", kore_int(str(case["pc"]))),
-        ("GAS", "Int", kore_int(str(case["gas"]))),
-        ("STATUS", "StatusCode", "Lblrunning{}()"),
-    )
-
-
-def initial_pattern(case: Mapping[str, Any]) -> str:
-    pattern = "Lbl'Stop'Map{}()"
-    for name, sort, value in configuration(case):
-        pattern = f"Lbl'Unds'Map'Unds'{{}}({pattern},{map_entry(name, sort, value)})"
-    return f"LblinitGeneratedTopCell{{}}({pattern})"
+    address = str(case.get("address", "0"))
+    storage = str(case.get("storage", ".Map"))
+    return {
+        "PGM": "run",
+        "PROGRAM": str(case["program"]),
+        "JUMPDESTS": str(case.get("jump_dests", 'b""')),
+        "ADDRESS": address,
+        "ACCOUNTID": str(case.get("account_id", address)),
+        "BALANCE": str(case.get("balance", "0")),
+        "CODE": str(case.get("code", 'b""')),
+        "NONCE": str(case.get("nonce", "0")),
+        "ORIGIN": str(case.get("origin", "0")),
+        "CALLER": str(case.get("caller", "0")),
+        "CALLVALUE": str(case.get("call_value", "0")),
+        "CALLDATA": str(case.get("call_data", 'b""')),
+        "GASPRICE": str(case.get("gas_price", "0")),
+        "RETURNDATA": str(case.get("return_data", 'b""')),
+        "LOCALMEM": str(case.get("local_mem", 'b""')),
+        "MEMORYUSED": str(case.get("memory_used", "0")),
+        "CALLGAS": str(case.get("call_gas", "0")),
+        "CALLDEPTH": str(case.get("call_depth", "0")),
+        "CODEADDRESS": str(case.get("code_address", address)),
+        "CALLSTACK": str(case.get("call_stack", ".List")),
+        "INTERIMSTATES": str(case.get("interim_states", ".List")),
+        "TOUCHEDACCOUNTS": str(case.get("touched_accounts", ".Set")),
+        "STORAGE": storage,
+        "ORIGSTORAGE": str(case.get("original_storage", storage)),
+        "ACCESSEDSTORAGE": str(case.get("accessed_storage", ".Map")),
+        "ACCESSEDACCOUNTS": str(case.get("accessed_accounts", ".Set")),
+        "LOGS": str(case.get("logs", ".List")),
+        "REFUND": str(case.get("refund", "0")),
+        "SELFDESTRUCT": str(case.get("self_destruct", ".Set")),
+        "CREATEDACCOUNTS": str(case.get("created_accounts", ".Set")),
+        "STATIC": str(case.get("static", "false")),
+        "BLOCKHASHES": str(case.get("block_hashes", ".List")),
+        "COINBASE": str(case.get("coinbase", "0")),
+        "TIMESTAMP": str(case.get("timestamp", "0")),
+        "NUMBER": str(case.get("number", "0")),
+        "PREVRANDAO": str(case.get("prev_randao", "0")),
+        "GASLIMIT": str(case.get("gas_limit", "0")),
+        "CHAINID": str(case.get("chain_id", "0")),
+        "BASEFEE": str(case.get("base_fee", "0")),
+        "STACK": str(case["stack"]),
+        "PC": str(case["pc"]),
+        "GAS": str(case["gas"]),
+        "STATUS": ".StatusCode",
+    }
 
 
 def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
@@ -580,7 +451,8 @@ def execute_batch(
     with krs_gate.Session(gate) as session:
         session.load(definition, module)
         for index, case in cases:
-            result = session.execute(initial_pattern(case))
+            pattern = session.configure(configuration_variables(case))["pattern"]
+            result = session.execute(pattern)
             if not isinstance(result, dict):
                 raise GateError(f"native result shape differs: {result}")
             outcome = checked(case, observed(case, sole_state(result)))

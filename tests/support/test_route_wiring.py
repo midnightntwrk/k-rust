@@ -42,7 +42,7 @@ class RouteWiringTests(unittest.TestCase):
                 semantics.java_reference_gate(
                     verifier.PORT, hooks, Path("workspace"), Path("artifacts"),
                     {"kompile": "kompile", "krun": "krun", "kprove": "kprove"},
-                    mock.Mock(), {"behavior": [case]}, [observed],
+                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {},
                 ),
                 1,
             )
@@ -52,6 +52,50 @@ class RouteWiringTests(unittest.TestCase):
             ["krun", "--definition", Path("definition"), "-cPGM=program", "--output", "kore"],
         )
         proof.assert_called_once()
+
+    def test_kevm_java_reference_configures_each_case_in_one_session(self) -> None:
+        verifier = importlib.import_module("kevm.verify")
+        case = {"id": "case", "program": 'b""', "stack": ".WordStack", "pc": "0", "gas": "0"}
+        observed = {"id": "case"}
+        with ExitStack() as patches:
+            patches.enter_context(mock.patch.object(
+                semantics, "reference_definition", return_value=(Path("definition"), Path("spec")),
+            ))
+            run = patches.enter_context(mock.patch.object(
+                semantics, "run", return_value=mock.Mock(stdout="term"),
+            ))
+            patches.enter_context(mock.patch.object(semantics, "parse_kore_pattern", return_value={}))
+            patches.enter_context(mock.patch.object(semantics, "compare_routes"))
+            patches.enter_context(mock.patch.object(semantics, "reference_proof"))
+            gate_session = patches.enter_context(mock.patch.object(semantics.krs_gate, "Session"))
+            session = gate_session.return_value.__enter__.return_value
+            session.configure.return_value = {
+                "variables": {
+                    name: {"kore": f"kore-{name}"}
+                    for name in verifier.native.configuration_variables(case)
+                }
+            }
+            hooks = replace(
+                verifier.HOOKS,
+                observed=lambda _, _state: observed,
+                checked=lambda _, _outcome: None,
+                java_skips={},
+            )
+            self.assertEqual(
+                semantics.java_reference_gate(
+                    verifier.PORT, hooks, Path("workspace"), Path("artifacts"),
+                    {"kompile": "kompile", "krun": "krun", "kprove": "kprove"},
+                    mock.Mock(), {"behavior": [case]}, [observed], Path("gate"), {"KEY": "VALUE"},
+                ),
+                verifier.CLAIM_COUNT,
+            )
+        gate_session.assert_called_once_with(Path("gate"), environment={"KEY": "VALUE"})
+        session.load.assert_called_once_with(Path("artifacts/definition-ir.json"), verifier.PORT.module)
+        session.configure.assert_called_once_with(verifier.native.configuration_variables(case))
+        arguments = run.call_args.args[0]
+        self.assertIn("-cPGM=run", arguments)
+        self.assertIn("-cPROGRAM=kore-PROGRAM", arguments)
+        self.assertIn("-pPROGRAM=cat", arguments)
 
     def test_native_outcomes_reach_each_java_reference_gate(self) -> None:
         for port in ("kevm", "kmir", "kwasm"):
@@ -105,11 +149,12 @@ class RouteWiringTests(unittest.TestCase):
                         native_gate.assert_called_once()
                         self.assertEqual(
                             native_gate.call_args.args[2],
-                            artifacts / "definition-ir.json" if port != "kevm" else root / "definition.kore",
+                            artifacts / "definition-ir.json",
                         )
                         if java_reference:
                             reference_gate.assert_called_once()
-                            self.assertIs(reference_gate.call_args.args[-1], native_outcomes)
+                            self.assertIs(reference_gate.call_args.args[7], native_outcomes)
+                            self.assertEqual(reference_gate.call_args.args[8], root / "krs-gate")
                         else:
                             reference_gate.assert_not_called()
                         self.assertEqual(has_checks, port != "kwasm")

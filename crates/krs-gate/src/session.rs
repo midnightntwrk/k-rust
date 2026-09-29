@@ -10,7 +10,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     error::Error,
-    fs,
     io::{self, BufRead, Write},
     path::Path,
 };
@@ -127,35 +126,26 @@ impl Session {
 
     fn load(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let module = required_string(request, "module")?;
-        let (definition, configuration) = match (request.get("definition_ir"), request.get("kore"))
-        {
-            (Some(Value::String(path)), None) => {
-                let (artifacts, context) = compile_ir(&mut Timings::disabled(), Path::new(path))?;
-                if context.frontend_definition.main_module != module {
-                    return Err(format!(
-                        "Definition IR main module is `{}`, not requested `{module}`",
-                        context.frontend_definition.main_module
-                    )
-                    .into());
-                }
-                (
-                    artifacts.definition_kore,
-                    Some(Configuration::new(context)?),
-                )
-            }
-            (None, Some(Value::String(path))) => (fs::read_to_string(path)?, None),
-            _ => {
-                return Err(
-                    "definition.load requires exactly one string `definition_ir` or `kore`".into(),
-                );
-            }
-        };
-        self.backend = Some(Backend::new(
-            &definition,
+        if request.get("kore").is_some() {
+            return Err("definition.load does not accept `kore`".into());
+        }
+        let path = required_string(request, "definition_ir")?;
+        let (artifacts, context) = compile_ir(&mut Timings::disabled(), Path::new(path))?;
+        if context.frontend_definition.main_module != module {
+            return Err(format!(
+                "Definition IR main module is `{}`, not requested `{module}`",
+                context.frontend_definition.main_module
+            )
+            .into());
+        }
+        let configuration = Configuration::new(context)?;
+        let backend = Backend::new(
+            &artifacts.definition_kore,
             module.to_owned(),
             BackendOptions::default(),
-        )?);
-        self.configuration = configuration;
+        )?;
+        self.backend = Some(backend);
+        self.configuration = Some(configuration);
         Ok(json!({"module": module}))
     }
 
@@ -166,7 +156,7 @@ impl Session {
             .ok_or("request field `variables` must be an object")?;
         self.configuration
             .as_mut()
-            .ok_or("configure requires definition_ir loading")?
+            .ok_or("configuration not loaded")?
             .configure(variables)
     }
 }
@@ -247,7 +237,7 @@ mod tests {
         let response = session
             .dispatch(&json!({
                 "id": "load", "operation": "definition.load",
-                "kore": "/nonexistent/krs-gate-definition.kore", "module": "MAIN"
+                "definition_ir": "/nonexistent/krs-gate-definition-ir.json", "module": "MAIN"
             }))
             .unwrap();
         assert_eq!(response["id"], "load");
@@ -261,6 +251,21 @@ mod tests {
             session
                 .dispatch(&json!({"id": "3", "operation": "execute"}))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_kore_load_form() {
+        let mut session = Session::new();
+        let response = session
+            .dispatch(&json!({
+                "id": "load", "operation": "definition.load",
+                "kore": "/nonexistent/krs-gate-definition.kore", "module": "MAIN"
+            }))
+            .unwrap();
+        assert_eq!(
+            response["error"]["message"],
+            "definition.load does not accept `kore`"
         );
     }
 }

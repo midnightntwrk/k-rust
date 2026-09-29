@@ -9,12 +9,8 @@
 //! Every response carries the same `id` and either `result` or an `error`
 //! object with a string `message` field.
 //!
-//! The first request must be `definition.load` with string `module` (the main module)
-//! and exactly one of `definition_ir` (a path to emitted Definition IR) or `kore`
-//! (a path to compiled KORE for execution and proof without configuration).
-//! The KORE form remains for the KEVM gate until its surface configuration migrates.
-//! The Definition IR form compiles with the Haskell backend in process using
-//! the same options as `compile` and retains its frontend definition and variable sorts.
+//! The first request must be `definition.load` with string `module` (the main module) and `definition_ir` (a path to emitted Definition IR).
+//! Loading compiles with the Haskell backend in process using the same options as `compile` and retains its frontend definition and variable sorts.
 //! Its result is an object containing the loaded `module`.
 //! `definition.load` may be requested only once per session, including when
 //! loading fails.
@@ -33,7 +29,7 @@
 //! empty stdin. Unknown names are errors.
 //! Bindings are assembled with `$PGM` first and other supplied names in lexical
 //! order, followed by synthesized stream defaults.
-//! `configure` requires a definition loaded through `definition_ir`.
+//! `configure` requires a loaded definition.
 //!
 //! A failure while handling a valid operation, including a pattern parse or
 //! backend error, produces an error response and leaves the session open.

@@ -15,6 +15,7 @@ cannot find anything new while the artifacts are unchanged.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import dataclass
 import json
 import os
@@ -52,8 +53,6 @@ class Port:
     descriptors: int
     lsp_probes: tuple[lsp.Probe, ...]
     lsp_diagnostic_timeout: float
-    native_configuration: bool = False
-    """Load Definition IR when the native route configures surface programs."""
     clippy_allow: tuple[str, ...] = ()
     hook_namespaces: tuple[str, ...] = ()
     """Hook namespaces the Java frontend must keep; it drops hooks outside its defaults."""
@@ -106,9 +105,10 @@ class Hooks:
     label: str
     java_help: str
     claim_count: int
-    krun_arguments: Callable[[Mapping[str, Any]], list[str]]
+    krun_arguments: Callable[[Mapping[str, Any]], list[str]] | None
     observed: Callable[[Mapping[str, Any], Any], dict[str, Any]]
     checked: Callable[[Mapping[str, Any], Mapping[str, Any]], None]
+    session_krun_arguments: Callable[[Mapping[str, Any], krs_gate.Session], list[str]] | None = None
     summary: Callable[[Port, int, int, bool], str] | None = None
     definition_checks: Callable[[str], None] | None = None
     java_skips: Mapping[str, str] | None = None
@@ -294,7 +294,7 @@ _NATIVE_SUMMARY = re.compile(r"^PASS native (\S+) behavior: (\d+) executions; sh
 def native_behavior(
     port: Port,
     gate: Path,
-    definition: Path,
+    definition_ir: Path,
     pins: Ledger,
     corpus: Mapping[str, Any],
     environment: Mapping[str, str],
@@ -307,7 +307,7 @@ def native_behavior(
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-outcomes-", dir=scratch_root()) as temporary:
         outcomes_path = Path(temporary) / "outcomes.json"
         result = run(
-            [sys.executable, port.here / "native.py", gate, definition, port.module,
+            [sys.executable, port.here / "native.py", gate, definition_ir, port.module,
              port.corpus_path, "--outcomes", outcomes_path],
             environment=environment,
             timeout=900,
@@ -424,6 +424,8 @@ def java_reference_gate(
     pins: Ledger,
     corpus: Mapping[str, Any],
     native_outcomes: list[dict[str, Any]],
+    gate: Path,
+    environment: Mapping[str, str],
 ) -> int:
     """Compare the pinned Java route with native outcomes and prove emitted claims."""
 
@@ -435,17 +437,30 @@ def java_reference_gate(
         raise GateError("behavior corpus is empty")
     skipped = hooks.java_skips or {}
     outcomes: list[dict[str, Any]] = []
-    for case in behavior:
-        if str(case["id"]) in skipped:
-            continue
-        result = run(
-            [
-                k["krun"], "--definition", definition,
-                *hooks.krun_arguments(case), "--output", "kore",
-            ],
-            timeout=120,
-        ).stdout
-        outcomes.append(hooks.observed(case, parse_kore_pattern(result)))
+    with ExitStack() as stack:
+        session = None
+        session_arguments = hooks.session_krun_arguments
+        if session_arguments is not None:
+            session = stack.enter_context(krs_gate.Session(gate, environment=environment))
+            session.load(artifacts / "definition-ir.json", port.module)
+        for case in behavior:
+            if str(case["id"]) in skipped:
+                continue
+            if session is None:
+                if hooks.krun_arguments is None:
+                    raise GateError("Java reference route has no configuration hook")
+                arguments = hooks.krun_arguments(case)
+            else:
+                assert session_arguments is not None
+                arguments = session_arguments(case, session)
+            result = run(
+                [
+                    k["krun"], "--definition", definition,
+                    *arguments, "--output", "kore",
+                ],
+                timeout=120,
+            ).stdout
+            outcomes.append(hooks.observed(case, parse_kore_pattern(result)))
 
     compare_routes(port.label, native_outcomes, outcomes, skipped)
     cases_by_id = {str(case["id"]): case for case in behavior}
@@ -491,19 +506,19 @@ def run_port(port: Port, hooks: Hooks) -> int:
         artifacts = artifact_gate(port, workspace, krs, pins, environment)
         if hooks.definition_checks is not None:
             hooks.definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
-        definition = native_definition(workspace, artifacts, gate, pins, environment)
+        native_definition(workspace, artifacts, gate, pins, environment)
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")
             return 0
-        native_input = artifacts / "definition-ir.json" if port.native_configuration else definition
         executions, native_outcomes = native_behavior(
-            port, gate, native_input, pins, corpus, environment
+            port, gate, artifacts / "definition-ir.json", pins, corpus, environment
         )
         proofs = 0
         if arguments.java_reference:
             k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
             proofs = java_reference_gate(
-                port, hooks, workspace, artifacts, k, pins, corpus, native_outcomes
+                port, hooks, workspace, artifacts, k, pins, corpus, native_outcomes,
+                gate, environment,
             )
     pins.finish(hooks.label)
     summary = hooks.summary or reference_summary

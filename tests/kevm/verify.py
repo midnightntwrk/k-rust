@@ -9,7 +9,7 @@ import sys
 from typing import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, semantics, entry  # noqa: E402
+from support import ROOT, GateError, semantics, entry, krs_gate  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from kevm import native  # noqa: E402
 
@@ -117,19 +117,19 @@ def definition_checks(readable: str) -> None:
         raise GateError("emitted KEVM definition retained the structured program adapter")
 
 
-def krun_arguments(case: dict) -> list[str]:
-    """Build the KEVM KORE configuration for the Java route."""
+def krun_arguments(case: dict, session: krs_gate.Session) -> list[str]:
+    """Pass configured KORE values to the Java route."""
 
-    # Every variable except $PGM, which the configuration declares at sort
-    # K, is passed as the KORE value the native route builds. Both routes
-    # then start from the same configuration, and krun spawns no kparse JVM
-    # per variable (kparse also exhausts an 8 GiB heap on the 256-entry
-    # block-hash List).
-    variables = [entry for entry in native.configuration(case) if entry[0] != "PGM"]
+    # Every variable except $PGM, which the configuration declares at sort K, uses the KORE value assembled by the native gate.
+    # Both routes start from the same configuration.
+    # krun spawns no kparse JVM per variable; kparse also exhausts an 8 GiB heap on the 256-entry block-hash List.
+    surface = native.configuration_variables(case)
+    configured = session.configure(surface)["variables"]
+    names = [name for name in surface if name != "PGM"]
     return [
-        "-cPGM=run",
-        *(f"-c{name}={value}" for name, _, value in variables),
-        *(f"-p{name}=cat" for name, _, _ in variables),
+        f"-cPGM={surface['PGM']}",
+        *(f"-c{name}={configured[name]['kore']}" for name in names),
+        *(f"-p{name}=cat" for name in names),
     ]
 
 
@@ -150,7 +150,8 @@ HOOKS = semantics.Hooks(
     label="readable KEVM operational slice",
     java_help="run the expensive pinned Java behavior and proof authority gate",
     claim_count=CLAIM_COUNT,
-    krun_arguments=krun_arguments,
+    krun_arguments=None,
+    session_krun_arguments=krun_arguments,
     observed=native.observed,
     checked=native.checked,
     summary=summary,

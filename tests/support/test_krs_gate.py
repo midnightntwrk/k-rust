@@ -70,14 +70,11 @@ class ClientTests(unittest.TestCase):
             configured = session.configure({"PGM": "run"})
             executed = session.execute("opaque pattern", trace=True, max_depth=3)
             proved = session.prove("opaque claim")
-        with krs_gate.Session(self.binary) as session:
-            loaded = session.load(Path("definition.kore"), "MAIN")
         self.assertEqual(
-            [loaded_ir["request_id"], configured["request_id"], executed["request_id"], proved["request_id"], loaded["request_id"]],
-            ["1", "2", "3", "4", "1"],
+            [loaded_ir["request_id"], configured["request_id"], executed["request_id"], proved["request_id"]],
+            ["1", "2", "3", "4"],
         )
-        self.assertEqual(loaded["operation"], "definition.load")
-        self.assertEqual(loaded["fields"], {"kore": "definition.kore", "module": "MAIN"})
+        self.assertEqual(loaded_ir["operation"], "definition.load")
         self.assertEqual(loaded_ir["fields"], {"definition_ir": "definition-ir.json", "module": "MAIN"})
         self.assertEqual(configured["fields"], {"variables": {"PGM": "run"}})
         self.assertEqual(executed["fields"], {"pattern": "opaque pattern", "trace": True, "max_depth": 3})
