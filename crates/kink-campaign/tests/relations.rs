@@ -14,9 +14,8 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignObservation, CrashPolicy, OracleDeclaration,
-    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, ScheduleMode, SideRun,
-    TestCase, TestRun, run_campaign,
+    Campaign, CampaignFailureKind, CrashPolicy, OracleDeclaration, OracleOutcome, OracleSide,
+    OracleValue, PatternValue, Projection, ScheduleMode, SideRun, TestCase, TestRun, run_campaign,
 };
 use kink_native::NativeValidator;
 use kink_native::execution::{
@@ -174,7 +173,7 @@ fn opaque_payloads_do_not_decide_a_pattern() {
         let campaign = |tests| Campaign {
             validator: &validator,
             module: "OPAQUEMEM",
-            observation: CampaignObservation::Steps(&specs),
+            observation: &specs,
             classify: &normal,
             tests,
             budget: BUDGET,

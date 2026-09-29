@@ -107,8 +107,6 @@ pub enum ExecutionFailureKind {
     TimeLimit,
     /// The worker, backend or other infrastructure failed during the run.
     Infrastructure,
-    /// An observed rule on this side no longer binds a variable named by a payload.
-    UnresolvedObservation,
     /// A symbolic test was not run: the mutant has a trusted claim that its patch writes, or
     /// a lemma whose support it touched ([`Withdrawal::unsupported`]), or its withdrawn
     /// definition did not compile. A symbolic verdict is a claim about every ground instance,
@@ -121,10 +119,9 @@ impl ExecutionFailureKind {
     #[must_use]
     pub const fn status(self) -> MutantStatus {
         match self {
-            Self::Indeterminate
-            | Self::ResourceLimit
-            | Self::UnresolvedObservation
-            | Self::UnsupportedClaims => MutantStatus::Unknown,
+            Self::Indeterminate | Self::ResourceLimit | Self::UnsupportedClaims => {
+                MutantStatus::Unknown
+            }
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }

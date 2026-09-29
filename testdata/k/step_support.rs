@@ -171,3 +171,8 @@ pub fn counter(whole_transition: bool) -> Vec<StepEventSpec> {
     );
     vec![increment, branch]
 }
+
+/// Integer memory fixtures with write and load operations.
+pub fn int_memory(whole_transition: bool) -> Vec<StepEventSpec> {
+    guardedmem(whole_transition).into_iter().take(2).collect()
+}

@@ -19,13 +19,11 @@
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
-//! - A Steps pattern oracle evaluates declared predicates of consecutive configurations.
+//! - A pattern oracle evaluates declared predicates of consecutive configurations.
 //!   Both sides use the baseline signature, evaluation context and solver, with the same
 //!   pair existential flag. A witness and complete contrary coverage prove an observation
 //!   difference for some ground instance; an undecided presence, relation or discard is
 //!   Unknown. Bindings require complete coverage, ground terms and definition independence.
-//! - The transitional Rules path retains rule-attached observations, per-side relations
-//!   and its separate certificate run until SO-05 migrates the remaining callers.
 //!
 //! A test whose initial state has an element or set variable is symbolic: its verdict is a
 //! claim about every ground instance, and k-rust's answer supports that claim only while the
@@ -49,9 +47,8 @@
 //! or (iii) a pattern-slot `Distinguish` on a test for which `certify_difference` returned
 //! `Proved`. `Proved` means some ground instance of the test's initial state has, as the
 //! two definitions run in k-rust, a baseline state sequence that no mutant-side sequence
-//! equals, or the reverse. The certificate is per test, not per slot: it does not show that
-//! the credited Rules slot observed the proved difference (EI-T03). Steps slots observe
-//! their own declared execution difference. A pattern-slot
+//! equals, or the reverse. Each pattern slot observes its own declared execution difference.
+//! A pattern-slot
 //! `Distinguish` meeting none of these cases becomes `Unknown`, and the check is recorded in
 //! `MutantRun::certificate_checks`. Every certificate failure in the sequence run, facts,
 //! internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate bug
@@ -59,7 +56,7 @@
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::{Backend, BackendOptions, TransitionIdOutput};
+use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kore::{
     ast::{Pattern, Sort},
     parser::parse_definition,
@@ -76,19 +73,16 @@ use kink_native::execution_difference::{
     DefinitionFacts, DifferenceCertificate, NotProvedReason, StateSequences, certify_difference,
     definition_facts,
 };
-use kink_native::feasibility::{BackendRelations, with_backend_relations};
-use kink_native::observation::{ObservationFailure, PayloadSource};
+use kink_native::feasibility::BackendRelations;
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
-use kink_native::{
-    ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
-};
+use kink_native::{MutantRejection, NativeValidator, ValidatedDefinition};
 use kink_patch::{
     CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef, Withdrawal,
 };
 use kink_pattern::{
-    CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
-    ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome,
-    PatternPlan, SearchPolicy, SymbolSorts, evaluate_with,
+    CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, ExecutionTerminal,
+    ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome, PatternPlan, SearchPolicy,
+    SymbolSorts, evaluate_with,
 };
 
 use crate::campaign::check_manifest;
@@ -185,21 +179,11 @@ pub struct TestCase {
     pub oracles: Vec<OracleDeclaration>,
 }
 
-/// The transitional observation declaration. Steps observes execution configurations;
-/// Rules retains the legacy rule-attached pipeline until its remaining callers migrate.
-pub enum CampaignObservation<'a> {
-    Rules {
-        observed_rules: &'a [ObservedRule],
-        vocabulary: &'a EventVocabulary,
-    },
-    Steps(&'a [StepEventSpec]),
-}
-
 /// A compiled module, its observations, terminal classifier, tests and execution budget.
 pub struct Campaign<'a> {
     pub validator: &'a NativeValidator,
     pub module: &'a str,
-    pub observation: CampaignObservation<'a>,
+    pub observation: &'a [StepEventSpec],
     pub classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
     pub tests: &'a [TestCase],
     pub budget: ExecutionBudget,
@@ -333,21 +317,18 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
 /// plan lists each remaining test as `SkippedAfterKill`; its report and status are the
 /// ones the same schedule derives from running every test.
 ///
-/// Steps declarations validate once against the compiled baseline. Their pattern slots
+/// Step declarations validate once against the compiled baseline. Their pattern slots
 /// use one baseline observation decider on both sides, so a Distinguish observes an
 /// execution difference for some ground instance. The EI certificate remains an AND
 /// condition until the variable-identity close-out, using the cached stepped runs.
-/// Transitional Rules campaigns retain their payload restrictions, manifests, per-side
-/// relations and separate certificate runs unchanged.
 ///
 /// A mutant is Killed only through a test with (i) a state-slot `Distinguish`, meaning its
 /// ground terminal sets differ; (ii) a pattern-slot `Distinguish` on a test that also has a
 /// state-slot `Distinguish`; or (iii) a pattern-slot `Distinguish` on a test for which
 /// `certify_difference` returned `Proved`. `Proved` means some ground instance of the test's
 /// initial state has, as the two definitions run in k-rust, a baseline state sequence that no
-/// mutant-side sequence equals, or the reverse. The certificate is per test, not per slot:
-/// it does not show that the credited Rules slot observed the proved difference (EI-T03).
-/// Steps slots each observe their declared function of execution configurations.
+/// mutant-side sequence equals, or the reverse. Each pattern slot observes its declared
+/// function of execution configurations.
 /// A pattern-slot `Distinguish` meeting none of these cases becomes `Unknown`, with the check
 /// recorded in `MutantRun::certificate_checks`. Every certificate failure in the sequence run,
 /// facts, internalization or proof is `NotProved` and so `Unknown`, never a kill. A certificate
@@ -366,28 +347,12 @@ pub fn run_campaign(
         })
         .collect::<Vec<_>>();
     check_manifest(&manifest)?;
-    if let CampaignObservation::Rules { observed_rules, .. } = &campaign.observation {
-        for observed in *observed_rules {
-            for event in &observed.domain_events {
-                for source in &event.payload {
-                    if let Some(reason) = campaign_payload_refusal(source) {
-                        return Err(CampaignFailure::new(
-                            CampaignFailureKind::InvalidDeclaration,
-                            format!("{:?}: {reason}", observed.rule),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-    if let CampaignObservation::Steps(specs) = &campaign.observation {
-        StepObservation::vocabulary_of(specs).map_err(|failure| {
-            CampaignFailure::new(
-                CampaignFailureKind::InvalidDeclaration,
-                format!("{failure:?}"),
-            )
-        })?;
-    }
+    StepObservation::vocabulary_of(campaign.observation).map_err(|failure| {
+        CampaignFailure::new(
+            CampaignFailureKind::InvalidDeclaration,
+            format!("{failure:?}"),
+        )
+    })?;
     if !generation.derived_from(campaign.validator.baseline()) {
         return Err(CampaignFailure::new(
             CampaignFailureKind::ForeignGeneration,
@@ -406,29 +371,15 @@ pub fn run_campaign(
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
     };
-    let mut runtime = match Runtime::prepare(campaign, &baseline, None) {
-        Ok(runtime) => runtime,
-        Err(Preparation::UnknownRule(rule)) => {
-            return Err(CampaignFailure::new(
+    let mut runtime = Runtime::prepare(campaign, &baseline)
+        .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+    let observation = StepObservation::new(&mut runtime.backend, campaign.observation.to_vec())
+        .map_err(|failure| {
+            CampaignFailure::new(
                 CampaignFailureKind::InvalidDeclaration,
-                format!("{rule:?} is not a written baseline rule"),
-            ));
-        }
-        Err(Preparation::Infrastructure) => {
-            return Err(admission_failure(BaselineAdmission::Error));
-        }
-    };
-    let observation = match &campaign.observation {
-        CampaignObservation::Rules { .. } => None,
-        CampaignObservation::Steps(specs) => Some(
-            StepObservation::new(&mut runtime.backend, specs.to_vec()).map_err(|failure| {
-                CampaignFailure::new(
-                    CampaignFailureKind::InvalidDeclaration,
-                    format!("{failure:?}"),
-                )
-            })?,
-        ),
-    };
+                format!("{failure:?}"),
+            )
+        })?;
     let baseline_runs = campaign
         .tests
         .iter()
@@ -438,7 +389,7 @@ pub fn run_campaign(
         .iter()
         .map(|(evidence, _)| evidence.clone())
         .collect::<Vec<_>>();
-    if let Some(observation) = &observation {
+    {
         let facts = runtime.facts();
         for ((test, evidence), (_, cache)) in campaign
             .tests
@@ -450,7 +401,7 @@ pub fn run_campaign(
                 runtime.step_sides(
                     campaign,
                     test,
-                    observation,
+                    &observation,
                     facts.existentials,
                     cache.stepped.as_ref(),
                 )
@@ -501,25 +452,6 @@ pub fn run_campaign(
     })
 }
 
-fn campaign_payload_refusal(source: &PayloadSource) -> Option<&'static str> {
-    match source {
-        PayloadSource::BindingValue(_) | PayloadSource::BindingVariable(_) => {
-            Some("positional rule-variable payload")
-        }
-        PayloadSource::IntroducedPredicate(_) => {
-            Some("rule predicates depend on the solver profile and the rule's phrasing (F6)")
-        }
-        PayloadSource::Effect(_) => Some("effect payloads cannot be bridged into patterns"),
-        PayloadSource::BeforeState | PayloadSource::AfterState => Some(
-            "whole constrained states carry path conditions whose syntax depends on the solver profile and on requires phrasing",
-        ),
-        PayloadSource::BindingValueNamed(_) => Some(
-            "rule-variable payloads are resolved against each side's rule (CPL-T01); declare a BeforeTerm path",
-        ),
-        PayloadSource::BeforeTerm(_) => None,
-    }
-}
-
 fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
     validate_baseline(admission).expect_err("a rejected admission")
 }
@@ -554,31 +486,20 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
 struct Certifier<'a> {
     runtime: &'a mut Runtime,
     caches: Vec<RunCache>,
-    observation: Option<StepObservation>,
+    observation: StepObservation,
     sequences: Vec<Option<Result<StateSequences, NotProvedReason>>>,
 }
 
 impl Certifier<'_> {
-    fn sequences(
-        &mut self,
-        campaign: &Campaign<'_>,
-        test: &TestCase,
-        index: usize,
-    ) -> Result<StateSequences, NotProvedReason> {
+    fn sequences(&mut self, index: usize) -> Result<StateSequences, NotProvedReason> {
         if self.sequences[index].is_none() {
-            self.sequences[index] = Some(if self.observation.is_some() {
+            self.sequences[index] = Some(
                 self.caches[index]
                     .stepped
                     .as_ref()
                     .ok_or(NotProvedReason::Backend)
-                    .and_then(SteppedExecution::certificate_sequences)
-            } else {
-                self.caches[index]
-                    .branches
-                    .as_ref()
-                    .ok_or(NotProvedReason::Backend)
-                    .and_then(|expected| self.runtime.sequences(campaign, test, expected))
-            });
+                    .and_then(SteppedExecution::certificate_sequences),
+            );
         }
         self.sequences[index].clone().expect("filled above")
     }
@@ -644,9 +565,9 @@ fn prepare_mutant(
         Ok(false) => {}
         Err(_) => return Err(MutantScopeFailure::Infrastructure),
     }
-    // The baseline resolved every position, so a failure here is the mutant side's.
-    let patched = Runtime::prepare(campaign, &side, Some(compiled_baseline))
-        .map_err(|_| MutantScopeFailure::Infrastructure)?;
+    // A preparation failure here is the mutant side's.
+    let patched =
+        Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)?;
     let Some(support) = support else {
         return Ok((
             MutantSides {
@@ -665,7 +586,7 @@ fn prepare_mutant(
     } else if let Some(withdrawing) = claims.patch() {
         match campaign.validator.validate(withdrawing) {
             Ok(side) => SymbolicSide::Withdrawn(Box::new(
-                Runtime::prepare(campaign, &side, Some(compiled_baseline))
+                Runtime::prepare(campaign, &side)
                     .map_err(|_| MutantScopeFailure::Infrastructure)?,
             )),
             Err(_) => SymbolicSide::Unsupported,
@@ -711,21 +632,6 @@ impl MutantSides {
         }
     }
 
-    fn sequences(
-        &mut self,
-        campaign: &Campaign<'_>,
-        test: &TestCase,
-        symbolic: bool,
-        expected: &[Vec<TransitionIdOutput>],
-    ) -> Result<StateSequences, NotProvedReason> {
-        match (&mut self.symbolic, symbolic) {
-            (SymbolicSide::Withdrawn(runtime), true) => runtime.sequences(campaign, test, expected),
-            // An unsupported symbolic side has already produced Failed(UnsupportedClaims).
-            (SymbolicSide::Unsupported, true) => Err(NotProvedReason::Backend),
-            _ => self.patched.sequences(campaign, test, expected),
-        }
-    }
-
     fn facts(&mut self, symbolic: bool) -> Result<DefinitionFacts, NotProvedReason> {
         match (&mut self.symbolic, symbolic) {
             (SymbolicSide::Withdrawn(runtime), true) => runtime.facts(),
@@ -765,7 +671,8 @@ fn run_tests(
         }
         let (mut mutant, cache) = sides.run(campaign, test, *symbolic);
         let mut paired_baseline = baseline.clone();
-        if let Some(observation) = &certifier.observation {
+        {
+            let observation = &certifier.observation;
             let pair_facts = certifier.runtime.facts().and_then(|baseline_facts| {
                 sides
                     .facts(*symbolic)
@@ -806,8 +713,7 @@ fn run_tests(
                     .iter()
                     .zip(baseline.iter().zip(mutant))
                     .map(|(declaration, (baseline, mutant))| {
-                        if certifier.observation.is_some()
-                            && matches!(declaration.projection(), Projection::Pattern { .. })
+                        if matches!(declaration.projection(), Projection::Pattern { .. })
                             && !matches!(baseline, OracleSide::Normal(_))
                         {
                             OracleOutcome::Unknown
@@ -841,17 +747,12 @@ fn run_tests(
                     });
             if has_pattern_difference && !has_state_difference {
                 let certificate = (|| {
-                    let baseline_sequences = certifier.sequences(campaign, test, index)?;
-                    let mutant_sequences = if certifier.observation.is_some() {
-                        cache
-                            .stepped
-                            .as_ref()
-                            .ok_or(NotProvedReason::Backend)?
-                            .certificate_sequences()?
-                    } else {
-                        let expected = cache.branches.as_ref().ok_or(NotProvedReason::Backend)?;
-                        sides.sequences(campaign, test, *symbolic, expected)?
-                    };
+                    let baseline_sequences = certifier.sequences(index)?;
+                    let mutant_sequences = cache
+                        .stepped
+                        .as_ref()
+                        .ok_or(NotProvedReason::Backend)?
+                        .certificate_sequences()?;
                     let baseline_facts = certifier.runtime.facts()?;
                     let mutant_facts = sides.facts(*symbolic)?;
                     Ok(certify_difference(
@@ -894,10 +795,9 @@ fn run_tests(
     (tests, evidence, checks)
 }
 
-/// Evidence retained from the primary run; Rules alone needs branch alignment.
+/// Stepped evidence retained from the primary run.
 #[derive(Default)]
 struct RunCache {
-    branches: Option<Vec<Vec<TransitionIdOutput>>>,
     stepped: Option<SteppedExecution>,
 }
 
@@ -921,8 +821,6 @@ fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Opti
 
 /// Why a compiled side cannot run.
 enum Preparation {
-    /// An observed position names no authored baseline rule: a declaration error.
-    UnknownRule(SentenceRef),
     Infrastructure,
 }
 
@@ -935,39 +833,9 @@ struct Runtime {
 }
 
 impl Runtime {
-    /// Parses the side's KORE once, for both its symbol sorts and its backend, and
-    /// installs the observed rules under the side's own rule identities. A mutant side
-    /// (`anchor` is the compiled baseline) observes the rules its patch did not change by their
-    /// content ([`kink_native::NativeValidator::observation_manifest_anchored`]).
-    fn prepare(
-        campaign: &Campaign<'_>,
-        side: &ValidatedDefinition,
-        anchor: Option<&ValidatedDefinition>,
-    ) -> Result<Self, Preparation> {
-        let adapter = match &campaign.observation {
-            CampaignObservation::Rules { observed_rules, .. } => {
-                let manifest = match anchor {
-                    None => campaign
-                        .validator
-                        .observation_manifest(side, observed_rules),
-                    Some(baseline) => campaign.validator.observation_manifest_anchored(
-                        baseline,
-                        side,
-                        observed_rules,
-                    ),
-                }
-                .map_err(|failure| match failure {
-                    ManifestFailure::UnknownRule(rule) => Preparation::UnknownRule(rule),
-                    ManifestFailure::Identity { .. } | ManifestFailure::Installation(_) => {
-                        Preparation::Infrastructure
-                    }
-                })?;
-                ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
-            }
-            CampaignObservation::Steps(_) => {
-                ExecutionAdapter::without_manifest(SolverProfile::BUILD)
-            }
-        };
+    /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
+    fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
+        let adapter = ExecutionAdapter::without_manifest(SolverProfile::BUILD);
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
@@ -976,11 +844,8 @@ impl Runtime {
         let context = EvaluationContext {
             test_id: String::new(),
             bounds: campaign.budget.bounds(),
-            vocabulary: match &campaign.observation {
-                CampaignObservation::Rules { vocabulary, .. } => (*vocabulary).clone(),
-                CampaignObservation::Steps(specs) => StepObservation::vocabulary_of(specs)
-                    .map_err(|_| Preparation::Infrastructure)?,
-            },
+            vocabulary: StepObservation::vocabulary_of(campaign.observation)
+                .map_err(|_| Preparation::Infrastructure)?,
             symbol_sorts,
         };
         // Pin the build's profile so the adapter can detect an unexpected backend profile.
@@ -999,79 +864,7 @@ impl Runtime {
         self.facts.clone().expect("filled above")
     }
 
-    fn sequences(
-        &mut self,
-        campaign: &Campaign<'_>,
-        test: &TestCase,
-        expected: &[Vec<TransitionIdOutput>],
-    ) -> Result<StateSequences, NotProvedReason> {
-        self.adapter.state_sequences(
-            &mut self.backend,
-            &test.initial_state,
-            campaign.budget,
-            expected,
-        )
-    }
-
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
-        if matches!(campaign.observation, CampaignObservation::Steps(_)) {
-            return self.run_steps(campaign, test);
-        }
-        let mut branches = None;
-        let run =
-            match self
-                .adapter
-                .execute(&mut self.backend, &test.initial_state, campaign.budget)
-            {
-                Err(failure) => SideRun::Failed((&failure).into()),
-                // The watchdog fired: whatever the leaves say, the run was cut short.
-                Ok(execution) if execution.timed_out() => {
-                    SideRun::Failed(ExecutionFailureKind::TimeLimit)
-                }
-                Ok(execution) => {
-                    self.context.test_id.clone_from(&test.id);
-                    let bridged = paths_from_execution(
-                        &execution,
-                        &BridgeContext {
-                            test_id: &test.id,
-                            classify: campaign.classify,
-                            sorts: &self.context.symbol_sorts,
-                        },
-                    );
-                    match bridged {
-                        Err(failure) => SideRun::Failed((&failure).into()),
-                        Ok(bridged) => {
-                            branches = Some(
-                                execution
-                                    .leaves()
-                                    .iter()
-                                    .map(|leaf| leaf.branch.identity.clone())
-                                    .collect(),
-                            );
-                            SideRun::Sides {
-                                sides: test
-                                    .oracles
-                                    .iter()
-                                    .map(|declaration| self.side(declaration, test, &bridged))
-                                    .collect(),
-                            }
-                        }
-                    }
-                }
-            };
-        (
-            TestEvidence {
-                test_id: test.id.clone(),
-                run,
-            },
-            RunCache {
-                branches,
-                stepped: None,
-            },
-        )
-    }
-
-    fn run_steps(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
         let mut cache = RunCache::default();
         let has_pattern = test
             .oracles
@@ -1230,38 +1023,6 @@ impl Runtime {
                     vec![OracleSide::Unknown; test.oracles.len()],
                 )
             })
-    }
-
-    fn side(
-        &mut self,
-        declaration: &OracleDeclaration,
-        test: &TestCase,
-        bridged: &BridgedPaths,
-    ) -> OracleSide {
-        match declaration.projection() {
-            Projection::State(projection) => state_side(projection, bridged),
-            Projection::Pattern {
-                plan,
-                with_bindings,
-            } => match with_backend_relations(&mut self.backend, &test.initial_state, |relations| {
-                evaluate_with(
-                    &self.context,
-                    plan,
-                    &bridged.paths,
-                    &bridged.collection,
-                    None,
-                    EvaluationOptions {
-                        stable_path_keys: true,
-                        search_policy: SearchPolicy::Exhaustive,
-                        input_error: false,
-                    },
-                    relations,
-                )
-            }) {
-                Ok(evaluation) => pattern_side(&evaluation, *with_bindings),
-                Err(_) => OracleSide::Error,
-            },
-        }
     }
 }
 
@@ -1505,9 +1266,6 @@ pub fn pattern_side(
 impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
     fn from(failure: &ExecutionAdapterFailure) -> Self {
         match failure {
-            ExecutionAdapterFailure::Observation(ObservationFailure::MissingPayloadSource(_)) => {
-                Self::UnresolvedObservation
-            }
             ExecutionAdapterFailure::SolverProfileMismatch
             | ExecutionAdapterFailure::InvalidState(_)
             | ExecutionAdapterFailure::Backend(_)
@@ -1553,7 +1311,7 @@ mod tests {
             Projection::State(StateProjection::WholeTerm),
         )
         .unwrap();
-        let vocabulary = EventVocabulary::new(vec![kink_pattern::Constructor {
+        let vocabulary = kink_pattern::EventVocabulary::new(vec![kink_pattern::Constructor {
             name: "tick".into(),
             payload_sorts: vec![],
         }])

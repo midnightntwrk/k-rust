@@ -15,7 +15,7 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition, walk};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CampaignObservation, CampaignRun, CertificateCheck, CrashPolicy,
+    Campaign, CampaignFailureKind, CampaignRun, CertificateCheck, CrashPolicy,
     ExecutionFailureKind, MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome,
     OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun,
     StateProjection, Tally, TestCase, TestEvidence, TestPlan, TestRun, derive_mutant_report,
@@ -265,7 +265,7 @@ fn counter_campaign_kills_by_final_result_and_not_by_rule_identity() {
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observation: CampaignObservation::Steps(&specs),
+            observation: &specs,
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -463,7 +463,7 @@ fn counter_campaign_kills_by_pattern_with_unchanged_final_result_over_a_proved_d
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observation: CampaignObservation::Steps(&specs),
+            observation: &specs,
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -569,7 +569,7 @@ fn symbolic_choose_baseline_requires_a_decided_branch() {
             &Campaign {
                 validator: &validator,
                 module: "COUNTER",
-                observation: CampaignObservation::Steps(&specs),
+                observation: &specs,
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -615,7 +615,7 @@ fn nonterminating_mutant_is_a_timeout() {
         let campaign = Campaign {
             validator: &validator,
             module: "ND",
-            observation: CampaignObservation::Steps(&[]),
+            observation: &[],
             classify: &normal,
             tests: &tests,
             budget: ExecutionBudget {
@@ -681,7 +681,7 @@ fn baseline_admission_gates_crashes_and_invalid_declarations() {
                 &Campaign {
                     validator: &validator,
                     module: "COUNTER",
-                    observation: CampaignObservation::Steps(specs),
+                    observation: specs,
                     classify: &selected_is_a_crash,
                     tests: &tests,
                     budget: BUDGET,
@@ -761,7 +761,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
-                    observation: CampaignObservation::Steps(&specs),
+                    observation: &specs,
                     classify: &normal,
                     tests: &tests,
                     budget: ExecutionBudget {
@@ -807,7 +807,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
-                    observation: CampaignObservation::Steps(&specs),
+                    observation: &specs,
                     classify: &normal,
                     tests: &tests,
                     budget: BUDGET,
@@ -901,7 +901,7 @@ fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
             &Campaign {
                 validator: &validator,
                 module: "GUARDEDDIV",
-                observation: CampaignObservation::Steps(&specs),
+                observation: &specs,
                 classify: &classify,
                 tests: &tests,
                 budget: BUDGET,
@@ -966,7 +966,7 @@ fn function_symbol_declaration_is_refused() {
             &Campaign {
                 validator: &validator,
                 module: "UNDECIDED",
-                observation: CampaignObservation::Steps(&specs),
+                observation: &specs,
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1019,7 +1019,7 @@ fn anonymous_clone_of_observed_rule_is_equivalent() {
             &Campaign {
                 validator: &validator,
                 module: "COUNTER",
-                observation: CampaignObservation::Steps(&specs),
+                observation: &specs,
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1071,7 +1071,7 @@ fn deleting_either_equal_copy_is_equivalent() {
             &Campaign {
                 validator: &validator,
                 module: "DUPLICATE'Unds'UNLABELLED",
-                observation: CampaignObservation::Steps(&[]),
+                observation: &[],
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1141,7 +1141,7 @@ fn merged_observed_and_unobserved_authors_do_not_kill() {
             &Campaign {
                 validator: &validator,
                 module: "UNLABELLED",
-                observation: CampaignObservation::Steps(&specs),
+                observation: &specs,
                 classify: &normal,
                 tests: &tests,
                 budget: BUDGET,
@@ -1181,7 +1181,7 @@ fn incomplete_and_failed_generations_are_not_scored() {
         let campaign = Campaign {
             validator: &validator,
             module: "COUNTER",
-            observation: CampaignObservation::Steps(&[]),
+            observation: &[],
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
@@ -1268,7 +1268,7 @@ fn a_generation_of_another_baseline_is_refused() {
     let campaign = Campaign {
         validator: &validator,
         module: "COUNTER",
-        observation: CampaignObservation::Steps(&[]),
+        observation: &[],
         classify: &normal,
         tests: &tests,
         budget: BUDGET,
@@ -1416,7 +1416,7 @@ impl ClaimCampaign {
             &Campaign {
                 validator: &self.validator,
                 module: "SYMPARTIAL",
-                observation: CampaignObservation::Steps(&self.specs),
+                observation: &self.specs,
                 classify: &normal,
                 tests,
                 budget: BUDGET,
@@ -1508,7 +1508,7 @@ fn assert_invalid_claim_declaration(fixture: &ClaimCampaign) {
         &Campaign {
             validator: &fixture.validator,
             module: "SYMPARTIAL",
-            observation: CampaignObservation::Steps(&fixture.specs),
+            observation: &fixture.specs,
             classify: &normal,
             tests: &tests,
             budget: BUDGET,
