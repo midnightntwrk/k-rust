@@ -58,6 +58,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::SmtSolver,
+    stop::{self, StopCause},
     timeout::{StepTimeoutController, StepTimeoutOptions, StepTimer},
     transition::{
         EffectJournal, ExecutionIoState, ObservationHead, ObservationLog, ObservationOptions,
@@ -262,7 +263,16 @@ impl<'a> Execution<'a> {
                         break;
                     }
                 }
-                Err(leaf) => self.leaves.push(leaf),
+                Err(leaf) => {
+                    let ends_execution = match &leaf.halt_reason {
+                        HaltReason::Stopped(cause) => stop_ends_execution(cause, &mut step_timer),
+                        _ => false,
+                    };
+                    self.leaves.push(leaf);
+                    if ends_execution {
+                        break;
+                    }
+                }
             }
             if cancellation_requested() {
                 break;
@@ -328,20 +338,24 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// A cancellation or a step timeout turns the state into a leaf and discards the step's
-    /// duration measurement.
+    /// A cancellation or a step timeout turns the state into a `Stopped` leaf; `run` discards
+    /// the step's duration measurement ([`stop_ends_execution`]).
     fn check_interrupted(
         &mut self,
         state: ExecutionState,
         step_timer: &mut StepTimer<'_>,
     ) -> Phase<ExecutionState> {
         if cancellation_requested() {
-            step_timer.discard_measurement();
-            return Err(state.leaf(HaltReason::Cancelled, &self.observation_log));
+            return Err(state.leaf(
+                HaltReason::Stopped(StopCause::Cancelled),
+                &self.observation_log,
+            ));
         }
         if let Some(mode) = step_timer.timed_out() {
-            step_timer.discard_measurement();
-            return Err(state.leaf(HaltReason::Timeout(mode), &self.observation_log));
+            return Err(state.leaf(
+                HaltReason::Stopped(StopCause::Deadline(mode)),
+                &self.observation_log,
+            ));
         }
         Ok(state)
     }
@@ -381,7 +395,7 @@ impl<'a> Execution<'a> {
                 normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
             }
             Err(error) => {
-                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
+                return Err(state.leaf(simplification_halt(error), &self.observation_log));
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False {
@@ -485,7 +499,7 @@ impl<'a> Execution<'a> {
                 (undefined_term, contradicted_total)
             }
             Err(error) => {
-                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
+                return Err(state.leaf(simplification_halt(error), &self.observation_log));
             }
         };
         if state.is_initial_input {
@@ -594,11 +608,9 @@ impl<'a> Execution<'a> {
                 let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
-            RewriteResult::Simplification { pattern, error } => state.leaf_with_pattern(
-                pattern,
-                HaltReason::Simplification(error),
-                &self.observation_log,
-            ),
+            RewriteResult::Simplification { pattern, error } => {
+                state.leaf_with_pattern(pattern, simplification_halt(error), &self.observation_log)
+            }
             RewriteResult::Indeterminate { pattern, reason } => externalise_leaf(
                 self.definition,
                 state,
@@ -669,7 +681,7 @@ impl<'a> Execution<'a> {
                     state.observation = candidate_observation;
                     return Err(state.leaf_with_pattern(
                         applied.pattern,
-                        HaltReason::Simplification(error),
+                        simplification_halt(error),
                         &self.observation_log,
                     ));
                 }
@@ -717,7 +729,7 @@ impl<'a> Execution<'a> {
                 }
                 Err(error) => {
                     let next = self.check_interrupted(next, step_timer)?;
-                    return Err(next.leaf(HaltReason::Simplification(error), &self.observation_log));
+                    return Err(next.leaf(simplification_halt(error), &self.observation_log));
                 }
             };
             let next = self.check_interrupted(next, step_timer)?;
@@ -812,7 +824,7 @@ impl<'a> Execution<'a> {
                     let state = self.check_interrupted(state, step_timer)?;
                     return Err(state.leaf_with_pattern(
                         original,
-                        HaltReason::Simplification(error),
+                        simplification_halt(error),
                         &self.observation_log,
                     ));
                 }
@@ -889,7 +901,7 @@ impl<'a> Execution<'a> {
                 let state = self.check_interrupted(state, step_timer)?;
                 return Err(state.leaf_with_pattern(
                     original,
-                    HaltReason::Simplification(error),
+                    simplification_halt(error),
                     &self.observation_log,
                 ));
             }
@@ -929,7 +941,7 @@ impl<'a> Execution<'a> {
                         let state = self.check_interrupted(state, step_timer)?;
                         return Err(state.leaf_with_pattern(
                             original,
-                            HaltReason::Simplification(error),
+                            simplification_halt(error),
                             &self.observation_log,
                         ));
                     }
@@ -1135,15 +1147,83 @@ impl<'a> Execution<'a> {
 /// although the candidates it was building are not reported. Any other leaf is returned as is,
 /// its diagnostics already attributed.
 fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> ExecutionLeaf {
-    if matches!(
-        leaf.halt_reason,
-        HaltReason::Cancelled | HaltReason::Timeout(_)
-    ) {
+    if let HaltReason::Stopped(cause) = &leaf.halt_reason
+        && stop_cuts_off_the_step(cause)
+    {
         for diagnostics in lists {
             extend_distinct(&mut leaf.diagnostics, diagnostics);
         }
     }
     leaf
+}
+
+/// Publish a stopped state's step: the step produced no answer, so its duration measures no
+/// step and is not recorded. Returns whether the stop ends the whole execution: a cancelled
+/// request or a failed solver prelude ends every remaining state, a passed step deadline or an
+/// exhausted stack only the state being stepped.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> bool {
+    step_timer.discard_measurement();
+    match cause {
+        StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
+        StopCause::Deadline(_) | StopCause::StackExhausted => false,
+    }
+}
+
+/// Whether a `Stopped` leaf was cut off between the phases of its state's expansion, so that it
+/// is the state as it stood and carries the work already done ([`interrupted_with`]). The
+/// request's cancellation, a failed solver prelude and the step deadline are observed by the
+/// polls between phases. An exhausted stack ends the simplification it happened in, and the leaf
+/// reports that simplification's subject with its diagnostics, as a failed simplification does.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stop_cuts_off_the_step(cause: &StopCause) -> bool {
+    match cause {
+        StopCause::Cancelled | StopCause::Deadline(_) | StopCause::SolverPrelude(_) => true,
+        StopCause::StackExhausted => false,
+    }
+}
+
+/// The leaf reason of a simplification that ended a state: `Stopped` when the error spells a
+/// stop, the failure otherwise.
+fn simplification_halt(error: SimplificationError) -> HaltReason {
+    match simplification_stop(error) {
+        Ok(cause) => HaltReason::Stopped(cause),
+        Err(error) => HaltReason::Simplification(error),
+    }
+}
+
+/// The stop a simplification error spells, or the failure it reports, for a loop that arms step
+/// deadlines (execution and proof). Until the simplifier returns its stops apart from its
+/// failures (CBC-04-T7), a stop reaches the loop as one of the simplifier's three legacy
+/// spellings, each raised only once its signal was observed: `Cancelled` when the request was
+/// cancelled (a failed solver prelude raises the same signal), `Interrupted` when the step
+/// deadline had passed, and `StackExhausted` near the end of the thread's stack. A native hook's
+/// interruption stays inside its `Builtin` failure until hooks return their stops apart
+/// (CBC-04-T4).
+///
+/// `Interrupted` names the earliest armed deadline, whose mode the stop registry holds; nothing
+/// raises it without an armed deadline, so the error is then kept as the failure it is spelled
+/// as.
+#[deny(clippy::wildcard_enum_match_arm)]
+pub(crate) fn simplification_stop(
+    error: SimplificationError,
+) -> Result<StopCause, SimplificationError> {
+    match error {
+        SimplificationError::Cancelled => Ok(StopCause::Cancelled),
+        SimplificationError::Interrupted => stop::legacy_deadline_mode()
+            .map(StopCause::Deadline)
+            .ok_or(SimplificationError::Interrupted),
+        SimplificationError::StackExhausted => Ok(StopCause::StackExhausted),
+        error @ (SimplificationError::Builtin(_)
+        | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::TopEquationOutsideConjunction { .. }
+        | SimplificationError::Smt { .. }
+        | SimplificationError::SmtPredicate { .. }
+        | SimplificationError::IterationLimit { .. }
+        | SimplificationError::PredicateIterationLimit { .. }
+        | SimplificationError::InvalidBuiltinResultSymbol { .. }
+        | SimplificationError::UnsupportedHook { .. }) => Err(error),
+    }
 }
 
 fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
@@ -1398,9 +1478,7 @@ fn externalise_leaf(
         Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
-        Err(error) => {
-            state.leaf_with_pattern(pattern, HaltReason::Simplification(error), observation_log)
-        }
+        Err(error) => state.leaf_with_pattern(pattern, simplification_halt(error), observation_log),
     }
 }
 

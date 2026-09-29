@@ -21,6 +21,7 @@ use k_rust_backend::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
+    stop::StopCause,
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
@@ -3191,9 +3192,9 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "cf3c3aeef48c5df5f9e3ede89e0a262115c4df59ea557ac89a3596040858ec6d",
+        "66d4037f4052d917e3cb6b69f9974de3c8830445318374b697d632d1a19500e1",
     );
-    assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
+    assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
 }
 
@@ -5241,7 +5242,7 @@ fn a_cancelled_expansion_keeps_the_diagnostics_of_the_work_done_before_it() {
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one cancelled leaf: {:#?}", result.leaves);
     };
-    assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
+    assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert_eq!(leaf.depth, 0);
     assert_eq!(
         leaf.diagnostics,
@@ -5936,7 +5937,7 @@ fn stack_exhaustion_in_an_equation_condition_ends_execution_with_the_error() {
     };
     assert_eq!(
         leaf.halt_reason,
-        HaltReason::Simplification(SimplificationError::StackExhausted)
+        HaltReason::Stopped(StopCause::StackExhausted)
     );
 }
 
@@ -5961,7 +5962,7 @@ fn divergent_ground_recursion_at_the_default_budget_ends_with_an_exhausted_stack
     };
     assert_eq!(
         leaf.halt_reason,
-        HaltReason::Simplification(SimplificationError::StackExhausted)
+        HaltReason::Stopped(StopCause::StackExhausted)
     );
 }
 
@@ -6577,7 +6578,7 @@ fn execution_interrupts_native_hooks_at_the_step_deadline() {
     assert!(matches!(
         result.leaves.as_slice(),
         [ExecutionLeaf {
-            halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+            halt_reason: HaltReason::Stopped(StopCause::Deadline(StepTimeoutMode::Manual(timeout))),
             ..
         }] if timeout.is_zero()
     ));
@@ -6662,7 +6663,7 @@ fn step_deadline_interrupts_an_equation_loop_inside_a_step() {
     };
     assert_eq!(
         leaf.halt_reason,
-        HaltReason::Timeout(StepTimeoutMode::Manual(step_timeout))
+        HaltReason::Stopped(StopCause::Deadline(StepTimeoutMode::Manual(step_timeout)))
     );
     assert_eq!(leaf.depth, 0);
     assert!(
@@ -6691,7 +6692,7 @@ fn step_deadline_ends_a_ground_equation_loop_at_the_default_budget() {
         matches!(
             result.leaves.as_slice(),
             [ExecutionLeaf {
-                halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+                halt_reason: HaltReason::Stopped(StopCause::Deadline(StepTimeoutMode::Manual(timeout))),
                 ..
             }] if *timeout == step_timeout
         ),
@@ -6713,7 +6714,7 @@ fn step_deadline_ends_an_equation_loop_after_a_terminal_rule() {
         matches!(
             result.leaves.as_slice(),
             [ExecutionLeaf {
-                halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+                halt_reason: HaltReason::Stopped(StopCause::Deadline(StepTimeoutMode::Manual(timeout))),
                 ..
             }] if *timeout == step_timeout
         ),
@@ -6741,7 +6742,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
             observations: Vec::new(),
             effects: Vec::new(),
             io: k_rust_backend::transition::ExecutionIoState::default(),
-            halt_reason: HaltReason::Cancelled,
+            halt_reason: HaltReason::Stopped(StopCause::Cancelled),
             diagnostics: Vec::new(),
         }]
     );
@@ -9900,7 +9901,12 @@ fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
         "the condition query is the only solver call: {transcript:#?}"
     );
     assert!(result.states.is_empty(), "{result:#?}");
-    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = result.incomplete.as_slice()
     else {
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };
@@ -9965,7 +9971,12 @@ fn search_reports_a_cancellation_observed_by_the_requires_check_as_cancelled() {
         "the condition query is the only solver call: {transcript:#?}"
     );
     assert!(result.states.is_empty(), "{result:#?}");
-    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = result.incomplete.as_slice()
     else {
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };
@@ -9998,7 +10009,12 @@ fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() 
         "the condition and remainder queries are the only solver calls: {transcript:#?}"
     );
     assert!(result.states.is_empty(), "{result:#?}");
-    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = result.incomplete.as_slice()
     else {
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };
@@ -10080,7 +10096,12 @@ fn search_does_not_publish_a_final_state_whose_externalisation_observed_a_cancel
 
     assert!(token.is_cancelled());
     assert!(result.states.is_empty(), "{result:#?}");
-    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = result.incomplete.as_slice()
     else {
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };
@@ -10103,7 +10124,12 @@ fn path_search_does_not_publish_a_final_witness_whose_externalisation_observed_a
 
     assert!(token.is_cancelled());
     assert!(result.witnesses.is_empty(), "{result:#?}");
-    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = result.incomplete.as_slice()
     else {
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };

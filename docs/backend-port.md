@@ -133,7 +133,7 @@ The guard covers every native thread, whoever created it: CLI and RPC workers, N
 On wasm32 the engine's call-stack limit is invisible to the module, so the guard is absent and exhaustion is a trap reported to the JavaScript host.
 Ground function recursion reaches about 26,000 levels on a 64 MiB release thread (about 2.5 KiB per level in release builds and 16 KiB in debug builds).
 Exhaustion is reported, never decided: an equation condition, definedness obligation, or `ensures` whose simplification is cancelled, interrupted by the step deadline, or runs out of stack propagates that error instead of being decided unsimplified, and `KeepPartial` budgets do not absorb it.
-Execution ends the state with `Simplification(StackExhausted)`, a proof records an indeterminate leaf with that error, KORE RPC `execute` and `simplify` answer with a runtime error and `implies` with an implication-check error while the connection keeps serving, and the CLI prints the error and exits nonzero.
+Execution ends the state with `Stopped(StackExhausted)`, a proof records a `Stopped(StackExhausted)` leaf and goes on with its other states, a search records a `Stopped` entry with that cause, KORE RPC `execute` and `simplify` answer with a runtime error and `implies` with an implication-check error while the connection keeps serving, and the CLI prints the error and exits nonzero.
 
 ## Final search depth cuts
 

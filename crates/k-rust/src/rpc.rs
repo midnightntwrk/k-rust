@@ -70,6 +70,7 @@ use k_rust_backend::{
     session::SessionError,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
+    stop::StopCause,
     substitution::{Substitution, extract_substitution, substitute},
     term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
@@ -738,20 +739,16 @@ impl RpcService {
                     .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
                 let mut output = BTreeMap::new();
                 let (reason, next_states, rule) = match &leaf.halt_reason {
-                    HaltReason::Cancelled => return Err(RpcFault::cancelled()),
+                    HaltReason::Stopped(cause) => (execute_stop_reason(cause)?, None, None),
                     HaltReason::Stuck => ("stuck", None, None),
                     HaltReason::Trivial { .. } | HaltReason::Vacuous { .. } => {
                         ("vacuous", None, None)
                     }
                     HaltReason::DepthBound => ("depth-bound", None, None),
                     HaltReason::BreadthBound => ("aborted", None, None),
-                    HaltReason::Timeout(_) => ("timeout", None, None),
                     HaltReason::Simplification(
                         error @ SimplificationError::UnsupportedHook { term, .. },
                     ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
-                    HaltReason::Simplification(error @ SimplificationError::StackExhausted) => {
-                        return Err(stack_exhausted_fault(error));
-                    }
                     HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => {
                         ("aborted", None, None)
                     }
@@ -1133,8 +1130,22 @@ impl RpcService {
 
 /// The request ran out of the native stack of the thread serving it. The error ends this request
 /// only: the thread unwound to the request's entry, so the connection keeps serving.
-fn stack_exhausted_fault(error: &SimplificationError) -> RpcFault {
+fn stack_exhausted_fault(error: &impl std::fmt::Display) -> RpcFault {
     RpcFault::runtime(error.to_string(), None)
+}
+
+/// The `execute` reason of a leaf whose state stopped. A passed step deadline is the `timeout`
+/// reason the protocol has for it; every other cause leaves the request without an answer, so it
+/// is the request's fault: a cancelled request, the stack exhaustion fault, and the runtime error
+/// of a failed solver prelude.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
+    match cause {
+        StopCause::Deadline(_) => Ok("timeout"),
+        StopCause::Cancelled => Err(RpcFault::cancelled()),
+        StopCause::StackExhausted => Err(stack_exhausted_fault(cause)),
+        StopCause::SolverPrelude(_) => Err(RpcFault::runtime(cause.to_string(), None)),
+    }
 }
 
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {

@@ -332,6 +332,20 @@ pub(crate) fn legacy_interruption_requested() -> bool {
     REGISTRY.with(|registry| registry.borrow().raised().is_some())
 }
 
+/// Legacy: the mode of the earliest armed step deadline. The simplifier's legacy `Interrupted`
+/// spelling is raised only once that deadline has passed, so this is the deadline it stands for.
+/// Deleted with the legacy spellings by CBC-04-T7.
+pub(crate) fn legacy_deadline_mode() -> Option<StepTimeoutMode> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        REGISTRY.with(|registry| registry.borrow().deadline.map(|(_, mode)| mode))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
+    }
+}
+
 /// Bytes of native stack that must remain when the simplifier enters a round of
 /// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
 /// checks the stack.

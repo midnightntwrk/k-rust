@@ -20,7 +20,7 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{simplification_stop, simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
 pub(crate) use predicates::{
     check_concreteness, conjunctively_contains_alpha_equivalent, predicates_truth,
@@ -53,9 +53,9 @@ use crate::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
+    stop::StopCause,
     substitution::{Substitution, extract_substitution, substitute, substitution_binding},
     term::{Term, Variable},
-    timeout::StepTimeoutMode,
     transition::{
         ExecutionIoState, ObservationEvent, ObservationOptions, TransitionId,
         UncommittedObservation,
@@ -491,7 +491,10 @@ pub enum TraceKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HaltReason {
-    Cancelled,
+    /// The state's step, or the request, stopped before the step produced its answer: the leaf
+    /// is the state as it stood when the stop was observed. `Cancelled` and `SolverPrelude` end
+    /// the execution; `Deadline` and `StackExhausted` end this state only.
+    Stopped(StopCause),
     /// No sort-correct ground substitution satisfying the leaf pattern's constraints gives
     /// its term a rewrite successor. The set of satisfying instances may be empty.
     Stuck,
@@ -539,7 +542,6 @@ pub enum HaltReason {
     BreadthBound,
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
-    Timeout(StepTimeoutMode),
 }
 
 fn false_constraint(pattern: &Pattern) -> Predicate {

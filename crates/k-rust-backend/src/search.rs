@@ -94,6 +94,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
+    stop::StopCause,
     substitution::{Substitution, compose, substitute},
     transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
 };
@@ -187,7 +188,13 @@ pub enum IncompleteSearch {
         state: SearchState,
         reason: IndeterminateReason,
     },
-    Cancelled(SearchState),
+    /// The state's exploration stopped before it produced its answer. A cancelled request (or a
+    /// failed solver prelude) ends the search with [`SearchEnd::Stopped`]; an exhausted stack
+    /// ends this state only.
+    Stopped {
+        state: SearchState,
+        cause: StopCause,
+    },
     Simplification {
         state: SearchState,
         error: SimplificationError,
@@ -259,9 +266,9 @@ pub enum SearchEnd<E> {
     /// The frontier exceeded `max_breadth`; it is the result's
     /// [`IncompleteSearch::BreadthBound`] entry.
     BreadthBound(BreadthExceeded),
-    /// The request was cancelled; the state being explored is listed as
-    /// [`IncompleteSearch::Cancelled`].
-    Cancelled,
+    /// The search stopped before exploring what remained, for the cause given; the state being
+    /// explored is listed as an [`IncompleteSearch::Stopped`] entry with the same cause.
+    Stopped(StopCause),
 }
 
 /// A state-set search's results.
@@ -276,9 +283,9 @@ pub enum SearchEnd<E> {
 /// ```
 ///
 /// ```
-/// use k_rust_backend::search::{SearchEnd, SearchResult};
+/// use k_rust_backend::{search::{SearchEnd, SearchResult}, stop::StopCause};
 ///
-/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end: SearchEnd::Cancelled };
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end: SearchEnd::Stopped(StopCause::Cancelled) };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -657,10 +664,11 @@ fn search_graph_collecting(
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
         if cancellation_requested() {
-            incomplete.push(IncompleteSearch::Cancelled(
-                work.materialize(&observation_log),
-            ));
-            break SearchEnd::Cancelled;
+            incomplete.push(IncompleteSearch::Stopped {
+                state: work.materialize(&observation_log),
+                cause: StopCause::Cancelled,
+            });
+            break SearchEnd::Stopped(StopCause::Cancelled);
         }
         let SearchWorkState {
             mut state,
@@ -853,12 +861,15 @@ fn search_graph_collecting(
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
             diagnostics.extend(&step_diagnostics);
-            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
-                state,
-                observation_head,
-                &diagnostics,
-                &observation_log,
-            )));
+            incomplete.push(IncompleteSearch::Stopped {
+                state: materialize_search_state(
+                    state,
+                    observation_head,
+                    &diagnostics,
+                    &observation_log,
+                ),
+                cause: StopCause::Cancelled,
+            });
             continue;
         }
         if halts(&rewrite) {
@@ -1132,12 +1143,10 @@ fn externalise_result(
         }
         Ok(simplified) if cancellation_requested() => {
             record_effects(effects, simplified.effects, observe);
-            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
-                state,
-                observation,
-                &diagnostics,
-                observation_log,
-            )));
+            incomplete.push(IncompleteSearch::Stopped {
+                state: materialize_search_state(state, observation, &diagnostics, observation_log),
+                cause: StopCause::Cancelled,
+            });
             None
         }
         Ok(simplified) => {
@@ -1348,10 +1357,11 @@ fn search_paths_collecting(
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
         if cancellation_requested() {
-            incomplete.push(IncompleteSearch::Cancelled(
-                path.materialize_state(&observation_log),
-            ));
-            break SearchEnd::Cancelled;
+            incomplete.push(IncompleteSearch::Stopped {
+                state: path.materialize_state(&observation_log),
+                cause: StopCause::Cancelled,
+            });
+            break SearchEnd::Stopped(StopCause::Cancelled);
         }
         let is_rewritable = matches!(path.kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
@@ -1513,9 +1523,10 @@ fn search_paths_collecting(
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
             path.diagnostics.extend(&step_diagnostics);
-            incomplete.push(IncompleteSearch::Cancelled(
-                path.materialize_state(&observation_log),
-            ));
+            incomplete.push(IncompleteSearch::Stopped {
+                state: path.materialize_state(&observation_log),
+                cause: StopCause::Cancelled,
+            });
             continue;
         }
         if halts(&rewrite) {
@@ -2060,20 +2071,85 @@ fn step_observed_cancellation() -> bool {
 
 /// Classify a simplification failure that ends the exploration of `state`.
 ///
-/// Search arms no step deadline, so request cancellation is its only interruption source. Every
-/// interruption signal the simplifier can raise therefore reports the cancellation: the
-/// fixed-point loops' `Cancelled` and `Interrupted`, and a native hook's `Interrupted`, which a
-/// hook returns when it observes the cancellation first. Any other failure recorded once the
-/// request is cancelled is reported as the cancellation too (see [`rewrite_incomplete`]).
+/// Until the simplifier returns its stops apart from its failures (CBC-04-T7), a stop reaches
+/// search as a legacy spelling inside the failure. Search arms no step deadline, so request
+/// cancellation is its only interruption source, and every interruption spelling reports the
+/// cancellation: the fixed-point loops' `Cancelled` and `Interrupted`, and a native hook's
+/// `Interrupted` ([`builtin_interruption`]), which a hook returns when it observes the
+/// cancellation first. An exhausted stack stops this state only. Any other failure, or a stack
+/// exhaustion, recorded once the request is cancelled reports the cancellation too (see
+/// [`rewrite_incomplete`]).
+///
+/// The match names every variant, so a new spelling of a stop cannot fall into the failure arm
+/// unnoticed.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
-        SimplificationError::Cancelled
-        | SimplificationError::Interrupted
-        | SimplificationError::Builtin(BuiltinError::Interrupted) => {
-            IncompleteSearch::Cancelled(state)
+        SimplificationError::Cancelled | SimplificationError::Interrupted => {
+            IncompleteSearch::Stopped {
+                state,
+                cause: StopCause::Cancelled,
+            }
         }
-        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
-        error => IncompleteSearch::Simplification { state, error },
+        SimplificationError::Builtin(error) if builtin_interruption(&error) => {
+            IncompleteSearch::Stopped {
+                state,
+                cause: StopCause::Cancelled,
+            }
+        }
+        SimplificationError::StackExhausted => {
+            recorded_unless_cancelled(state, |state| IncompleteSearch::Stopped {
+                state,
+                cause: StopCause::StackExhausted,
+            })
+        }
+        error @ (SimplificationError::Builtin(_)
+        | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::TopEquationOutsideConjunction { .. }
+        | SimplificationError::Smt { .. }
+        | SimplificationError::SmtPredicate { .. }
+        | SimplificationError::IterationLimit { .. }
+        | SimplificationError::PredicateIterationLimit { .. }
+        | SimplificationError::InvalidBuiltinResultSymbol { .. }
+        | SimplificationError::UnsupportedHook { .. }) => {
+            recorded_unless_cancelled(state, |state| IncompleteSearch::Simplification {
+                state,
+                error,
+            })
+        }
+    }
+}
+
+/// Whether a native hook's error spells an interruption: a hook returns `Interrupted` when it
+/// observes a stop signal, and every other variant is a fact about the hook's arguments.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn builtin_interruption(error: &BuiltinError) -> bool {
+    match error {
+        BuiltinError::Interrupted => true,
+        BuiltinError::WrongArity { .. }
+        | BuiltinError::UnexpectedSort { .. }
+        | BuiltinError::AlternativeSortsDiffer { .. }
+        | BuiltinError::IncompatibleMapSorts { .. }
+        | BuiltinError::InvalidFloatToken { .. }
+        | BuiltinError::UnsupportedFloatFormat { .. }
+        | BuiltinError::UnsupportedFloatFormatParameters { .. }
+        | BuiltinError::MismatchedFloatFormats { .. } => false,
+    }
+}
+
+/// `entry` of `state`, unless the request is cancelled: an entry recorded once the request is
+/// cancelled reports the cancellation (see [`rewrite_incomplete`]).
+fn recorded_unless_cancelled(
+    state: SearchState,
+    entry: impl FnOnce(SearchState) -> IncompleteSearch,
+) -> IncompleteSearch {
+    if cancellation_requested() {
+        IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        }
+    } else {
+        entry(state)
     }
 }
 
@@ -2093,13 +2169,12 @@ fn merge_pattern_incomplete(
 /// indeterminacy that the cancellation caused rather than the configuration. The state's
 /// exploration ended because the request was cancelled, and search has no other interruption
 /// source (it arms no step deadline), so any entry recorded while the cancellation is set is
-/// reported as `Cancelled`.
+/// reported as stopped by the cancellation.
 fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
-    if cancellation_requested() {
-        IncompleteSearch::Cancelled(state)
-    } else {
-        IncompleteSearch::Indeterminate { state, reason }
-    }
+    recorded_unless_cancelled(state, |state| IncompleteSearch::Indeterminate {
+        state,
+        reason,
+    })
 }
 
 /// Classify a target-pattern check that could not decide whether `state` matches.
@@ -2110,7 +2185,10 @@ fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> Incomp
 fn pattern_match_incomplete(state: SearchState, error: PatternMatchError) -> IncompleteSearch {
     match error {
         PatternMatchError::Simplification(error) => simplification_incomplete(state, error),
-        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
+        _ if cancellation_requested() => IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
         PatternMatchError::Indeterminate {
             substitution,
             remainder,
@@ -2568,12 +2646,19 @@ mod tests {
         let result = token
             .scope(|| search_graph(&definition, initial(&definition), SearchOptions::default()));
 
+        // Exactly one entry names the stop, with its cause, and the search ends with it.
         assert!(result.states.is_empty());
-        let [IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice() else {
+        let [
+            IncompleteSearch::Stopped {
+                state,
+                cause: StopCause::Cancelled,
+            },
+        ] = result.incomplete.as_slice()
+        else {
             panic!("expected cancellation, found {:?}", result.incomplete);
         };
         assert_eq!(state.depth, 0);
-        assert_eq!(result.end, SearchEnd::Cancelled);
+        assert_eq!(result.end, SearchEnd::Stopped(StopCause::Cancelled));
     }
 
     fn definition() -> BackendDefinition {
@@ -2926,10 +3011,59 @@ mod tests {
         ] {
             assert_eq!(
                 simplification_incomplete(state.clone(), error.clone()),
-                IncompleteSearch::Cancelled(state.clone()),
+                IncompleteSearch::Stopped {
+                    state: state.clone(),
+                    cause: StopCause::Cancelled,
+                },
                 "{error:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_stack_exhaustion_stops_one_state_and_a_failure_stays_a_failure() {
+        let definition = definition();
+        let state = SearchState {
+            pattern: initial(&definition),
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let failure = SimplificationError::Builtin(BuiltinError::WrongArity {
+            hook: "INT.add".into(),
+            expected: 2,
+            actual: 1,
+        });
+
+        assert_eq!(
+            simplification_incomplete(state.clone(), SimplificationError::StackExhausted),
+            IncompleteSearch::Stopped {
+                state: state.clone(),
+                cause: StopCause::StackExhausted,
+            }
+        );
+        assert_eq!(
+            simplification_incomplete(state.clone(), failure.clone()),
+            IncompleteSearch::Simplification {
+                state: state.clone(),
+                error: failure,
+            }
+        );
+        // Recorded once the request is cancelled, the stack exhaustion reports the cancellation,
+        // the stop of wider scope.
+        let token = crate::cancellation::CancellationToken::new();
+        token.cancel();
+        token.scope(|| {
+            assert_eq!(
+                simplification_incomplete(state.clone(), SimplificationError::StackExhausted),
+                IncompleteSearch::Stopped {
+                    state: state.clone(),
+                    cause: StopCause::Cancelled,
+                }
+            );
+        });
     }
 
     #[test]
@@ -2975,14 +3109,20 @@ mod tests {
             for reason in [smt(), remainder()] {
                 assert_eq!(
                     rewrite_incomplete(state.clone(), reason.clone()),
-                    IncompleteSearch::Cancelled(state.clone()),
+                    IncompleteSearch::Stopped {
+                        state: state.clone(),
+                        cause: StopCause::Cancelled,
+                    },
                     "{reason:?}"
                 );
             }
             for error in [pattern_smt(), pattern_match()] {
                 assert_eq!(
                     pattern_match_incomplete(state.clone(), error.clone()),
-                    IncompleteSearch::Cancelled(state.clone()),
+                    IncompleteSearch::Stopped {
+                        state: state.clone(),
+                        cause: StopCause::Cancelled,
+                    },
                     "{error:?}"
                 );
             }
@@ -2994,7 +3134,10 @@ mod tests {
                         error: unknown(),
                     },
                 ),
-                IncompleteSearch::Cancelled(state.clone())
+                IncompleteSearch::Stopped {
+                    state: state.clone(),
+                    cause: StopCause::Cancelled,
+                }
             );
         });
     }

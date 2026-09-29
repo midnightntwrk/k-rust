@@ -24,6 +24,7 @@ use k_rust_backend::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
     },
     smt::{Satisfiability, SmtError, TranslationError},
+    stop::StopCause,
     substitution::Substitution,
     term::{Sort, Term},
     transition::{
@@ -1434,9 +1435,7 @@ fn incomplete_search_output<K: WireKore>(
                 reason: indeterminate_failure_output(reason, &result_sort)?,
             }
         }
-        IncompleteSearch::Cancelled(state) => IncompleteSearchOutput::Cancelled {
-            state: search_state_output(state)?,
-        },
+        IncompleteSearch::Stopped { state, cause } => stopped_search_output(state, cause)?,
         IncompleteSearch::Simplification { state, error } => {
             let result_sort = state.pattern.term.sort();
             IncompleteSearchOutput::Simplification {
@@ -1463,6 +1462,31 @@ fn incomplete_search_output<K: WireKore>(
     })
 }
 
+/// The entry of a state whose exploration stopped. A cancelled state is `cancelled`; an exhausted
+/// stack keeps the `simplification` entry with the `stack-exhausted` failure kind it is published
+/// as. Search arms no step deadline, so a deadline entry is an outcome its contract cannot
+/// produce, and a failed solver prelude leaves no answer of the operation meaningful: both are
+/// the operation's error.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stopped_search_output<K: WireKore>(
+    state: SearchState,
+    cause: StopCause,
+) -> Result<IncompleteSearchOutput<K>, BackendError> {
+    match cause {
+        StopCause::Cancelled => Ok(IncompleteSearchOutput::Cancelled {
+            state: search_state_output(state)?,
+        }),
+        StopCause::StackExhausted => Ok(IncompleteSearchOutput::Simplification {
+            state: search_state_output(state)?,
+            error: SearchFailureOutput::StackExhausted,
+        }),
+        StopCause::Deadline(_) => Err(BackendError(
+            "search reported a step deadline, but search arms no step deadline".into(),
+        )),
+        cause @ StopCause::SolverPrelude(_) => Err(BackendError(cause.to_string())),
+    }
+}
+
 /// The entries of the states a search left unexplored, then a `result-bound` entry when the
 /// search stopped at its result bound: that entry concerns the whole search rather than a state,
 /// so it follows every per-state entry.
@@ -1476,8 +1500,8 @@ fn incomplete_searches_output<K: WireKore, E>(
         .collect::<Result<Vec<_>, _>>()?;
     match end {
         SearchEnd::ResultBound(_) => output.push(IncompleteSearchOutput::ResultBound),
-        // Nothing remained, or the frontier or the cancelled state is among the entries.
-        SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Cancelled => {}
+        // Nothing remained, or the frontier or the stopped state is among the entries.
+        SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Stopped(_) => {}
     }
     Ok(output)
 }
@@ -1491,7 +1515,7 @@ pub(super) fn execution_response<K: WireKore>(
             .leaves
             .into_iter()
             .map(|leaf| {
-                let (reason, detail) = halt_reason(&leaf.halt_reason);
+                let (reason, detail) = halt_reason(&leaf.halt_reason)?;
                 let (rule_id, rule_label) = match &leaf.halt_reason {
                     HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
                     _ => (None, None),

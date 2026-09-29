@@ -43,6 +43,7 @@ use k_rust_backend::{
         simplify_pattern_with_solver,
     },
     smt::SmtSolver,
+    stop::StopCause,
     term::{Term, TermKind, Variable},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
 };
@@ -593,9 +594,9 @@ fn run_backend_with_solver(
             SearchEnd::ResultBound(_) => {
                 eprintln!("search stopped at the requested result bound; further results may exist")
             }
-            // Nothing remained, or the breadth frontier or the cancelled state is an entry of
+            // Nothing remained, or the breadth frontier or the stopped state is an entry of
             // `incomplete`, classified below.
-            SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Cancelled => {}
+            SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Stopped(_) => {}
         }
         if let Some(incomplete) = result.incomplete.iter().find(|incomplete| {
             search_incomplete_disposition(incomplete) == IncompleteDisposition::Failure
@@ -663,12 +664,15 @@ fn run_backend_with_solver(
             },
         )
     };
-    if let Some(leaf) = execution.leaves.iter().find(|leaf| {
-        matches!(
-            leaf.halt_reason,
-            HaltReason::Cancelled | HaltReason::Indeterminate(_) | HaltReason::Simplification(_)
-        )
-    }) {
+    if let Some(leaf) = execution
+        .leaves
+        .iter()
+        .find(|leaf| match &leaf.halt_reason {
+            HaltReason::Stopped(cause) => stop_fails_the_run(cause),
+            HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => true,
+            _ => false,
+        })
+    {
         let reason = match &leaf.halt_reason {
             HaltReason::Simplification(
                 error @ SimplificationError::UnsupportedHook { term, .. },
@@ -860,6 +864,17 @@ fn run_backend_with_solver(
     })
 }
 
+/// Whether a stopped execution leaf fails the run. A cancelled request, an exhausted stack and a
+/// failed solver prelude leave the state without an answer; a passed step deadline ends only its
+/// state under a bound the run was given, so its leaf is printed like the others.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stop_fails_the_run(cause: &StopCause) -> bool {
+    match cause {
+        StopCause::Cancelled | StopCause::StackExhausted | StopCause::SolverPrelude(_) => true,
+        StopCause::Deadline(_) => false,
+    }
+}
+
 /// Whether a state a search left unexplored is a limit the user asked for or an engine failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IncompleteDisposition {
@@ -877,7 +892,7 @@ fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDis
         // engine failures, so that it can be revisited on its own.
         IncompleteSearch::BreadthBound(_) => IncompleteDisposition::Failure,
         IncompleteSearch::Indeterminate { .. }
-        | IncompleteSearch::Cancelled(_)
+        | IncompleteSearch::Stopped { .. }
         | IncompleteSearch::Simplification { .. }
         | IncompleteSearch::Match { .. }
         | IncompleteSearch::Smt { .. } => IncompleteDisposition::Failure,

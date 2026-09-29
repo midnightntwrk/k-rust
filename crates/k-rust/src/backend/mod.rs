@@ -38,6 +38,7 @@ use k_rust_backend::{
     session::{BackendSession, SessionError},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
+    stop::StopCause,
     term::Sort,
     transition::ObservationOptions,
 };
@@ -1283,9 +1284,9 @@ fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
     }
 }
 
-fn halt_reason(reason: &HaltReason) -> (HaltReasonOutput, Option<String>) {
-    match reason {
-        HaltReason::Cancelled => (HaltReasonOutput::Cancelled, None),
+fn halt_reason(reason: &HaltReason) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
+    Ok(match reason {
+        HaltReason::Stopped(cause) => return stopped_halt_reason(cause, reason),
         HaltReason::Stuck => (HaltReasonOutput::Stuck, None),
         HaltReason::Trivial { .. } => (HaltReasonOutput::Trivial, None),
         HaltReason::Vacuous { .. } => (HaltReasonOutput::Vacuous, None),
@@ -1308,7 +1309,26 @@ fn halt_reason(reason: &HaltReason) -> (HaltReasonOutput, Option<String>) {
             HaltReasonOutput::SimplificationError,
             Some(format!("{reason:?}")),
         ),
-        HaltReason::Timeout(_) => (HaltReasonOutput::Timeout, Some(format!("{reason:?}"))),
+    })
+}
+
+/// The published reason of a leaf whose state stopped. A cancelled state is `cancelled` and a
+/// passed step deadline `timeout`; an exhausted stack keeps the `simplification-error` kind the
+/// failure it used to be spelled as had, with the stop as its detail. A failed solver prelude
+/// leaves no answer of the operation meaningful, so it is the operation's error, not a leaf.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn stopped_halt_reason(
+    cause: &StopCause,
+    reason: &HaltReason,
+) -> Result<(HaltReasonOutput, Option<String>), BackendError> {
+    match cause {
+        StopCause::Cancelled => Ok((HaltReasonOutput::Cancelled, None)),
+        StopCause::Deadline(_) => Ok((HaltReasonOutput::Timeout, Some(format!("{reason:?}")))),
+        StopCause::StackExhausted => Ok((
+            HaltReasonOutput::SimplificationError,
+            Some(format!("{reason:?}")),
+        )),
+        StopCause::SolverPrelude(_) => Err(BackendError(cause.to_string())),
     }
 }
 
