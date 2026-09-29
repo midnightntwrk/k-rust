@@ -37,7 +37,10 @@
 //! variable occurring in a term through free constructors and injections only).
 
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
-use crate::{definition::BackendDefinition, instance_normal::InstanceNormal};
+use crate::{
+    definition::BackendDefinition,
+    instance_normal::{InstanceNormal, NormalArguments},
+};
 
 /// How a left-hand side is read. A subject or operand has no reading: it is always read as the
 /// value it denotes (`classify_value`).
@@ -133,6 +136,9 @@ enum Source {
     Certified,
     /// An instance-normal token: no equation reaches any instance, or a subterm of such a term.
     InstanceNormal,
+    /// The root of the subject the instance-normal scan tries an equation on: the equation's
+    /// left-hand side rewrites that root as it stands.
+    ScannedSubject,
 }
 
 impl NormalEvidence {
@@ -165,7 +171,16 @@ impl NormalEvidence {
     }
 
     /// An instance-normal token: the term, or a term it is a subterm of, is a normal form on
-    /// every instance.
+    /// every instance. The token is zero-sized and names no term, so the caller passes only the
+    /// token `BackendDefinition::instance_normal` returned for the classified application or for
+    /// a term it is a subterm of.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first read by the unifier's and the rule index's oracles (CBC-02-T4, CBC-02-T6)"
+        )
+    )]
     #[must_use]
     pub(crate) fn instance_normal(_token: InstanceNormal) -> Self {
         Self(Source::InstanceNormal)
@@ -241,16 +256,23 @@ impl NormalForms for CertifiedOrScanned<'_> {
     }
 }
 
-/// The subject side of the instance-normal scan's syntactic unification test: holds the token
-/// that every argument of the scanned subject is instance-normal, and answers for every
-/// equation-head application met on that side. A proper subterm of the subject is a subterm of
-/// an instance-normal argument, hence instance-normal; the subject's own root is the root the
-/// scanned equation is tried on, which the equation's left-hand side rewrites as written.
-pub(crate) struct InheritedFromArguments(pub InstanceNormal);
+/// The subject side of the instance-normal scan's syntactic unification test: holds the
+/// precondition that every immediate subterm of the scanned subject is instance-normal, and
+/// answers for every equation-head application met on that side, which is the subject or one of
+/// its subterms. The subject's own root is the root the scanned equation is tried on, which the
+/// equation's left-hand side rewrites as it stands; a proper subterm of the subject lies inside
+/// an instance-normal immediate subterm, hence is instance-normal. Built only from a
+/// [`NormalArguments`], which only the scan mints; it holds no [`InstanceNormal`].
+pub(crate) struct InheritedFromArguments<'t>(pub NormalArguments<'t>);
 
-impl NormalForms for InheritedFromArguments {
-    fn evidence(&mut self, _application: &Term) -> Option<NormalEvidence> {
-        Some(NormalEvidence::instance_normal(self.0.argument()))
+impl NormalForms for InheritedFromArguments<'_> {
+    fn evidence(&mut self, application: &Term) -> Option<NormalEvidence> {
+        // A proper subterm is never the same handle as the term that contains it.
+        Some(NormalEvidence(if application.ptr_eq(self.0.subject()) {
+            Source::ScannedSubject
+        } else {
+            Source::InstanceNormal
+        }))
     }
 }
 
@@ -952,13 +974,20 @@ mod tests {
             certified
         );
         assert_eq!(root(&plain, &mut CertifiedOrScanned(&definition)), scanned);
-        let token = definition
-            .instance_normal(&internal(&definition, "s{}(z{}())"))
-            .expect("a constructor value is instance-normal");
+        // The scan's subject side answers for its equation heads: the subject's root is the one
+        // the equation is tried on, and any other application on that side is a subterm of an
+        // instance-normal argument.
+        let arguments = NormalArguments::of_subterms_for_test(&definition, &redex)
+            .expect("the argument s(z) is instance-normal");
         assert_eq!(
-            root(&redex, &mut InheritedFromArguments(token)),
-            scanned,
-            "the scan's subject side answers for its equation heads"
+            root(&redex, &mut InheritedFromArguments(arguments)),
+            Some(FixedRoot::EquationHead(NormalEvidence(
+                Source::ScannedSubject
+            )))
+        );
+        assert_eq!(
+            root(&plain, &mut InheritedFromArguments(arguments)),
+            scanned
         );
         assert_eq!(NormalEvidence::certified(&plain), None);
         assert_eq!(

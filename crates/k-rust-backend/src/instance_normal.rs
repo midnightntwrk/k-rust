@@ -44,8 +44,10 @@
 //! [`Term::concrete_after_normalization`] holds is a syntactic fact (ground, every head a
 //! constructor or an anywhere non-function production), not evidence that no equation applies:
 //! the ground `wrap(s(z))` has it and is not a normal form. The answer is an [`InstanceNormal`]
-//! token (`token.rs`), whose constructors check the shape of the term they vouch for; the one
-//! for an `anywhere` application or a collection needs the token of a scan that enumerated the
+//! token (`token.rs`). This module obtains one only from `InstanceNormal::decide`, which reads
+//! the shape of the term it answers for itself and asks this module only for the answers about
+//! the term's immediate subterms and for the test that excludes one candidate equation; for an
+//! `anywhere` application or a collection it answers only through a scan that enumerates the
 //! candidate equations itself, so no path can vouch for such a term without the scan.
 //!
 //! The syntactic unifiability test asks whether some instance of the subject could match the
@@ -63,16 +65,16 @@ use std::{cell::RefCell, collections::HashMap};
 
 use rustc_hash::FxHashMap;
 
-pub(crate) use token::InstanceNormal;
-use token::{NoEquationReaches, NormalSubterms};
+pub(crate) use token::{InstanceNormal, NormalArguments};
 
 use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
+    rule::RewriteRule,
     term::{
         HeadRole, Sort, Term, TermKind, Variable,
         head::{
-            Fixed, FixedRoot, Head, InheritedFromArguments, PatternReading, RootComparison, Shape,
+            Fixed, FixedRoot, Head, InheritedFromArguments, PatternReading, RootComparison,
             classify_pattern, classify_value, compare_roots,
         },
     },
@@ -143,53 +145,28 @@ impl BackendDefinition {
         normal
     }
 
-    #[deny(clippy::wildcard_enum_match_arm)]
+    /// `InstanceNormal::decide` reads the shape of `term`; this module supplies the answers
+    /// for its subterms, through the call's memo, and the exclusion test.
     fn instance_normal_uncached(&self, term: &Term) -> Option<InstanceNormal> {
-        let subterms =
-            || NormalSubterms::of(term, |subterm| self.instance_normal_memoized(subterm));
-        match term.shape() {
-            Shape::DomainValue | Shape::Variable => InstanceNormal::of_value(term),
-            Shape::Injection => InstanceNormal::of_injection(term, subterms()),
-            Shape::Application(role) => match role {
-                HeadRole::FreeConstructor => InstanceNormal::of_free_constructor(term, subterms()),
-                HeadRole::EquationHead => {
-                    let arguments = subterms()?;
-                    let reach = self.no_equation_reaches(term, &arguments)?;
-                    InstanceNormal::of_equation_head(term, Some(arguments), reach)
-                }
-                // A function application is rewritten by evaluation, and a macro or alias
-                // application denotes a value the definition does not describe.
-                HeadRole::Function { .. } | HeadRole::Residual => None,
-            },
-            Shape::Collection(_) => {
-                let elements = subterms()?;
-                let reach = self.no_equation_reaches(term, &elements)?;
-                InstanceNormal::of_collection(term, Some(elements), reach)
-            }
-            Shape::And => None,
-        }
+        InstanceNormal::decide(
+            self,
+            term,
+            |subterm| self.instance_normal_memoized(subterm),
+            |rule, arguments| self.excluded(rule, arguments),
+        )
     }
 
-    /// Whether no equation the evaluator may try on an application headed like `subject` may
-    /// apply to an instance of it, in a definition whose equation selection reaches every term
-    /// equation (none otherwise). The candidates are those equation selection offers such a
-    /// subject (`NoEquationReaches::scan` enumerates them). A candidate is excluded when its
-    /// left-hand side does not syntactically unify with `subject`, or when equation matching,
-    /// which decides for the evaluator whether an equation applies to a term, fails on
-    /// `subject`: a failure holds for every instance of `subject`
-    /// (`matching::match_terms_in_definition`). The second test knows what the first does not:
-    /// the sorts of injections and the productions of an overload family.
-    fn no_equation_reaches<'t>(
-        &self,
-        subject: &'t Term,
-        subterms: &NormalSubterms<'_>,
-    ) -> Option<NoEquationReaches<'t>> {
-        let selection = self.equation_selection_complete()?;
-        let subterm = subterms.subterm();
-        NoEquationReaches::scan(selection, self, subject, |rule| {
-            !may_unify(&self.sort_graph, &rule.lhs, subject, subterm)
-                || self.matching_refutes(&rule.lhs, subject)
-        })
+    /// Whether the equation `rule`, which equation selection offers an application headed like
+    /// the scanned subject (`NoEquationReaches::scan` enumerates the candidates), cannot apply
+    /// to any instance of that subject. It is excluded when its left-hand side does not
+    /// syntactically unify with the subject, or when equation matching, which decides for the
+    /// evaluator whether an equation applies to a term, fails on the subject: a failure holds
+    /// for every instance of the subject (`matching::match_terms_in_definition`). The second
+    /// test knows what the first does not: the sorts of injections and the productions of an
+    /// overload family.
+    fn excluded(&self, rule: &RewriteRule, arguments: NormalArguments<'_>) -> bool {
+        !may_unify(&self.sort_graph, &rule.lhs, arguments)
+            || self.matching_refutes(&rule.lhs, arguments.subject())
     }
 
     /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
@@ -260,13 +237,15 @@ enum Side {
 /// when their names coincide, which renames the equation apart without rebuilding it.
 type Sided<'a> = (Side, &'a Term);
 
-/// Whether the equation pattern `pattern` and `subject` have a common syntactic instance, as far
-/// as their shape decides it; `false` is a proof that none exists.
+/// Whether the equation pattern `pattern` and the scanned subject have a common syntactic
+/// instance, as far as their shape decides it; `false` is a proof that none exists.
 ///
-/// Precondition, carried by `subterm`: the arguments of `subject` are instance-normal, so a
-/// subject subterm headed by an `anywhere` production denotes a value with that head, and the
-/// subject's own root is the root the equation is tried on (`InheritedFromArguments`).
-fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term, subterm: InstanceNormal) -> bool {
+/// The subject is the one `arguments` names, and the precondition it carries is that the
+/// subject's immediate subterms are instance-normal: a subject subterm headed by an `anywhere`
+/// production denotes a value with that head, and the subject's own root is the root the
+/// equation is tried on (`InheritedFromArguments`).
+fn may_unify<'a>(sorts: &'a SortGraph, pattern: &'a Term, arguments: NormalArguments<'a>) -> bool {
+    let subject = arguments.subject();
     if let TermKind::Variable(variable) = pattern.kind()
         && sorts_differ(&variable.sort, &subject.sort())
     {
@@ -274,7 +253,7 @@ fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term, subterm: Instanc
     }
     SyntacticUnifier {
         sorts,
-        subject_values: InheritedFromArguments(subterm),
+        subject_values: InheritedFromArguments(arguments),
         bindings: HashMap::new(),
         pending: Vec::new(),
     }
@@ -284,7 +263,7 @@ fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term, subterm: Instanc
 struct SyntacticUnifier<'a> {
     sorts: &'a SortGraph,
     /// The oracle that fixes the subject side's equation-head roots.
-    subject_values: InheritedFromArguments,
+    subject_values: InheritedFromArguments<'a>,
     bindings: HashMap<(Side, &'a Variable), Sided<'a>>,
     pending: Vec<(Sided<'a>, Sided<'a>)>,
 }
@@ -326,6 +305,12 @@ impl<'a> SyntacticUnifier<'a> {
     /// Unify one resolved pair; `false` only when the pair has no common instance. A pair whose
     /// shape does not decide the question is dropped, which keeps the answer an
     /// over-approximation of unifiability.
+    ///
+    /// The lint below covers a match on a single enum written here; it does not see the
+    /// wildcard fallback arm of the `(TermKind, TermKind)` match, whose scrutinee is a tuple,
+    /// and that arm is intentionally outside it. The match dispatches on structure only: every
+    /// root decision in it is taken by `fixed`, `compared_by_root` and `separated`, which match
+    /// one enum each under the same lint.
     #[deny(clippy::wildcard_enum_match_arm)]
     fn unify_one(&mut self, left: Sided<'a>, right: Sided<'a>) -> bool {
         if left.0 == right.0 && left.1 == right.1 {
@@ -596,10 +581,12 @@ mod tests {
         let redex = term("wrap{}(s{}(z{}()))");
         assert!(redex.concrete_after_normalization());
         assert_eq!(definition.instance_normal(&redex), None);
-        assert!(
-            definition
-                .instance_normal(&term("wrap{}(s{}(s{}(z{}())))"))
-                .is_some()
+        let normal = definition.instance_normal(&term("wrap{}(s{}(s{}(z{}())))"));
+        assert!(normal.is_some());
+        // Its subterm `s(s(z))` inherits the token.
+        assert_eq!(
+            normal.map(InstanceNormal::argument),
+            definition.instance_normal(&term("s{}(s{}(z{}()))"))
         );
         assert_eq!(definition.instance_normal(&term("any{}(z{}())")), None);
     }
@@ -788,9 +775,8 @@ mod tests {
             term("f{}(z{}())"),
             term("label{}(z{}())"),
         ];
-        let token = definition
-            .instance_normal(&zero)
-            .expect("a constructor value is instance-normal");
+        let arguments = NormalArguments::of_subterms_for_test(&definition, &zero)
+            .expect("a constant has no subterms");
         let sides = [Side::Pattern, Side::Subject];
         let mut checked = 0;
         for left in &terms {
@@ -821,7 +807,7 @@ mod tests {
                         };
                         let mut unifier = SyntacticUnifier {
                             sorts: &definition.sort_graph,
-                            subject_values: InheritedFromArguments(token),
+                            subject_values: InheritedFromArguments(arguments),
                             bindings: HashMap::new(),
                             pending: Vec::new(),
                         };

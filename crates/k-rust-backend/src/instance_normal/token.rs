@@ -1,10 +1,13 @@
-//! Instance-normal tokens. Their fields are private to this module, so the scan in
-//! `instance_normal.rs` obtains a token only through the constructors here. Each constructor
+//! Instance-normal tokens. Their fields and constructors are private to this module, and
+//! [`InstanceNormal::decide`] is the only way `instance_normal.rs` obtains a token: it reads the
+//! shape of the term it answers for itself, and the parent supplies only the answers for the
+//! term's immediate subterms and the test that excludes a candidate equation. Each constructor
 //! checks the shape of the term it vouches for and returns `None` on a mismatch; the
 //! equation-head and collection constructors also need a [`NoEquationReaches`] for that term,
 //! and [`NoEquationReaches::scan`], its only mint, enumerates the candidate equations itself.
-//! So no path in `instance_normal.rs` can vouch for an equation-head or collection root without
-//! scanning every equation that could reach it.
+//! So `instance_normal.rs` can neither vouch for an equation-head or collection root without
+//! the scan of every equation that could reach it, nor call a constructor on a term other than
+//! the one `decide` answers for.
 
 use crate::{
     definition::{BackendDefinition, SelectionComplete},
@@ -17,24 +20,83 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct InstanceNormal(());
 
+/// Every immediate subterm of `subject`, an equation-head application or a collection under
+/// scan, is instance-normal: the precondition of the scan's syntactic unification test, which
+/// reads the subject's equation-head subterms as the values they denote. A claim about the
+/// subterms, not about `subject`, so it is not an [`InstanceNormal`] and nothing converts it
+/// into one. Minted only by [`InstanceNormal::decide`], from the [`NormalSubterms`] of the
+/// subject it scans, and handed to the exclusion test.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NormalArguments<'t> {
+    subject: &'t Term,
+}
+
 /// Every immediate subterm of `term` is instance-normal: the precondition of every constructor
 /// but [`InstanceNormal::of_value`]. A claim about the subterms, not about `term`, so it is not
 /// an [`InstanceNormal`] and cannot be returned as one.
-pub(super) struct NormalSubterms<'t> {
+struct NormalSubterms<'t> {
     term: &'t Term,
 }
 
 /// No equation the definition could apply to an instance of `subject` reaches it. Minted only by
 /// [`NoEquationReaches::scan`].
-pub(crate) struct NoEquationReaches<'t> {
+struct NoEquationReaches<'t> {
     subject: &'t Term,
 }
 
 impl InstanceNormal {
+    /// Whether every instance of `term` is a normal form (the parent module states the rules).
+    /// `subterm` answers for each immediate subterm of `term`. `excluded` tests one candidate
+    /// equation against the subject its [`NormalArguments`] names, and holds when the equation's
+    /// left-hand side cannot match an instance of that subject. An equation-head application or
+    /// a collection is instance-normal only when [`NoEquationReaches::scan`] finds every
+    /// candidate excluded, in a definition whose equation selection is complete.
+    #[must_use]
+    #[deny(clippy::wildcard_enum_match_arm)]
+    pub(super) fn decide<'t>(
+        definition: &BackendDefinition,
+        term: &'t Term,
+        subterm: impl FnMut(&Term) -> Option<InstanceNormal>,
+        mut excluded: impl FnMut(&RewriteRule, NormalArguments<'t>) -> bool,
+    ) -> Option<Self> {
+        let mut no_equation_reaches = |subterms: &NormalSubterms<'t>| {
+            let arguments = NormalArguments::of(subterms);
+            NoEquationReaches::scan(
+                definition.equation_selection_complete()?,
+                definition,
+                subterms.term,
+                |rule| excluded(rule, arguments),
+            )
+        };
+        match term.shape() {
+            Shape::DomainValue | Shape::Variable => Self::of_value(term),
+            Shape::Injection => Self::of_injection(term, NormalSubterms::of(term, subterm)),
+            Shape::Application(role) => match role {
+                HeadRole::FreeConstructor => {
+                    Self::of_free_constructor(term, NormalSubterms::of(term, subterm))
+                }
+                HeadRole::EquationHead => {
+                    let arguments = NormalSubterms::of(term, subterm)?;
+                    let reach = no_equation_reaches(&arguments)?;
+                    Self::of_equation_head(term, &arguments, reach)
+                }
+                // A function application is rewritten by evaluation, and a macro or alias
+                // application denotes a value the definition does not describe.
+                HeadRole::Function { .. } | HeadRole::Residual => None,
+            },
+            Shape::Collection(_) => {
+                let elements = NormalSubterms::of(term, subterm)?;
+                let reach = no_equation_reaches(&elements)?;
+                Self::of_collection(term, &elements, reach)
+            }
+            Shape::And => None,
+        }
+    }
+
     /// A domain value, or a variable, which ranges over values.
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(super) fn of_value(term: &Term) -> Option<Self> {
+    fn of_value(term: &Term) -> Option<Self> {
         match term.shape() {
             Shape::DomainValue | Shape::Variable => Some(Self(())),
             Shape::And | Shape::Injection | Shape::Collection(_) | Shape::Application(_) => None,
@@ -44,7 +106,7 @@ impl InstanceNormal {
     /// A sort injection whose operand is instance-normal: no equation is headed by an injection.
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(super) fn of_injection(term: &Term, inner: Option<NormalSubterms<'_>>) -> Option<Self> {
+    fn of_injection(term: &Term, inner: Option<NormalSubterms<'_>>) -> Option<Self> {
         match term.shape() {
             Shape::Injection => inner
                 .filter(|inner| inner.holds_for(term))
@@ -61,10 +123,7 @@ impl InstanceNormal {
     /// a free constructor.
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(super) fn of_free_constructor(
-        term: &Term,
-        arguments: Option<NormalSubterms<'_>>,
-    ) -> Option<Self> {
+    fn of_free_constructor(term: &Term, arguments: Option<NormalSubterms<'_>>) -> Option<Self> {
         match term.shape() {
             Shape::Application(role) => match role {
                 HeadRole::FreeConstructor => arguments
@@ -83,16 +142,16 @@ impl InstanceNormal {
     /// An equation-head application over instance-normal arguments that no equation reaches.
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(super) fn of_equation_head(
+    fn of_equation_head(
         term: &Term,
-        arguments: Option<NormalSubterms<'_>>,
+        arguments: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
     ) -> Option<Self> {
         match term.shape() {
             Shape::Application(role) => match role {
-                HeadRole::EquationHead => arguments
-                    .filter(|arguments| arguments.holds_for(term) && reach.subject == term)
-                    .map(|_| Self(())),
+                HeadRole::EquationHead => {
+                    (arguments.holds_for(term) && reach.subject == term).then_some(Self(()))
+                }
                 HeadRole::FreeConstructor | HeadRole::Function { .. } | HeadRole::Residual => None,
             },
             Shape::Variable
@@ -108,15 +167,15 @@ impl InstanceNormal {
     /// value, which matching compares as such.
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(super) fn of_collection(
+    fn of_collection(
         term: &Term,
-        elements: Option<NormalSubterms<'_>>,
+        elements: &NormalSubterms<'_>,
         reach: NoEquationReaches<'_>,
     ) -> Option<Self> {
         match term.shape() {
-            Shape::Collection(_) => elements
-                .filter(|elements| elements.holds_for(term) && reach.subject == term)
-                .map(|_| Self(())),
+            Shape::Collection(_) => {
+                (elements.holds_for(term) && reach.subject == term).then_some(Self(()))
+            }
             Shape::Variable
             | Shape::And
             | Shape::DomainValue
@@ -127,9 +186,43 @@ impl InstanceNormal {
 
     /// A subterm of an instance-normal term is instance-normal: a normal form's subterms are
     /// normal forms, on every instance.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "first read by the matcher's inheritance of instance normality (CBC-02-T4)"
+        )
+    )]
     #[must_use]
     pub(crate) fn argument(self) -> Self {
         self
+    }
+}
+
+impl<'t> NormalArguments<'t> {
+    fn of(subterms: &NormalSubterms<'t>) -> Self {
+        Self {
+            subject: subterms.term,
+        }
+    }
+
+    /// The scanned subject, whose immediate subterms are instance-normal.
+    #[must_use]
+    pub(crate) fn subject(self) -> &'t Term {
+        self.subject
+    }
+
+    /// The precondition for `subject`, minted only when `definition` finds every immediate
+    /// subterm of `subject` instance-normal, as [`InstanceNormal::decide`] mints it. For the
+    /// unit tests of the syntactic unification test and of its oracle, which need it outside a
+    /// scan.
+    #[cfg(test)]
+    pub(crate) fn of_subterms_for_test(
+        definition: &BackendDefinition,
+        subject: &'t Term,
+    ) -> Option<Self> {
+        NormalSubterms::of(subject, |subterm| definition.instance_normal(subterm))
+            .map(|subterms| Self::of(&subterms))
     }
 }
 
@@ -139,7 +232,7 @@ impl<'t> NormalSubterms<'t> {
     /// tails; the elements, then the rest; both conjuncts), stopping at the first that is not
     /// instance-normal.
     #[must_use]
-    pub(super) fn of(
+    fn of(
         term: &'t Term,
         mut subterm: impl FnMut(&Term) -> Option<InstanceNormal>,
     ) -> Option<Self> {
@@ -168,13 +261,6 @@ impl<'t> NormalSubterms<'t> {
         all.then_some(Self { term })
     }
 
-    /// The token of the term's subterms, every one of which is instance-normal. A claim about
-    /// the subterms, never about the term itself.
-    #[must_use]
-    pub(super) fn subterm(&self) -> InstanceNormal {
-        InstanceNormal(())
-    }
-
     fn holds_for(&self, term: &Term) -> bool {
         self.term == term
     }
@@ -188,7 +274,7 @@ impl<'t> NoEquationReaches<'t> {
     /// `subject`). `selection` makes those candidates every term equation of the definition that
     /// could match an application.
     #[must_use]
-    pub(super) fn scan(
+    fn scan(
         _selection: SelectionComplete,
         definition: &BackendDefinition,
         subject: &'t Term,
