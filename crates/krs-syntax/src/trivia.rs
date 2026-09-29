@@ -288,8 +288,7 @@ fn normalize_token_ranges(
         }
         match normalized.last_mut() {
             Some(previous) if range.start() < previous.end() => {
-                *previous = SourceRange::new(previous.start(), max(previous.end(), range.end()))
-                    .expect("merged token range is ordered");
+                *previous = previous.cover(range);
             }
             _ => normalized.push(range),
         }

@@ -110,6 +110,41 @@ impl ByteRange {
         Ok(Self { start, end })
     }
 
+    /// Returns the range from byte zero to `end`.
+    #[must_use]
+    pub const fn prefix(end: usize) -> Self {
+        Self { start: 0, end }
+    }
+
+    /// Returns the smallest range containing both ranges.
+    #[must_use]
+    pub const fn cover(self, other: Self) -> Self {
+        Self {
+            start: if self.start < other.start {
+                self.start
+            } else {
+                other.start
+            },
+            end: if self.end > other.end {
+                self.end
+            } else {
+                other.end
+            },
+        }
+    }
+
+    /// Shifts both offsets by the same number of bytes.
+    #[must_use]
+    pub const fn checked_shift(self, offset: usize) -> Option<Self> {
+        let Some(start) = self.start.checked_add(offset) else {
+            return None;
+        };
+        let Some(end) = self.end.checked_add(offset) else {
+            return None;
+        };
+        Some(Self { start, end })
+    }
+
     /// Returns the inclusive start byte.
     #[must_use]
     pub const fn start(self) -> usize {
@@ -468,6 +503,24 @@ mod tests {
         assert_eq!(
             ByteRange::try_from(reversed),
             Err(CoordinateError::ReversedRange)
+        );
+    }
+
+    #[test]
+    fn byte_range_combinators_preserve_order_and_bounds() {
+        assert_eq!(ByteRange::prefix(3), ByteRange::new(0, 3).unwrap());
+        let first = ByteRange::new(2, 5).unwrap();
+        let adjacent = ByteRange::new(5, 8).unwrap();
+        let overlapping = ByteRange::new(4, 9).unwrap();
+        let reversed_order = ByteRange::new(0, 1).unwrap();
+        assert_eq!(first.cover(adjacent), ByteRange::new(2, 8).unwrap());
+        assert_eq!(first.cover(overlapping), ByteRange::new(2, 9).unwrap());
+        assert_eq!(first.cover(reversed_order), ByteRange::new(0, 5).unwrap());
+        assert_eq!(first.checked_shift(3), Some(ByteRange::new(5, 8).unwrap()));
+        assert_eq!(first.checked_shift(usize::MAX), None);
+        assert_eq!(
+            ByteRange::new(0, usize::MAX).unwrap().checked_shift(1),
+            None
         );
     }
 

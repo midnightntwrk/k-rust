@@ -357,7 +357,7 @@ impl Writer {
     }
 
     fn record(&mut self, key: &SourceMapKey, start: usize, end: usize) -> Result<(), EmitError> {
-        let range = ByteRange::new(start, end).expect("rendered range is ordered");
+        let range = ByteRange::new(start, end).map_err(|_| SidecarError::InvalidGeneratedRange)?;
         if self.ranges.insert(key.clone(), range).is_some() {
             return Err(EmitError::DuplicateGeneratedRange(key.clone()));
         }

@@ -16,8 +16,8 @@
 //! `wasm32-unknown-unknown` module whose JSON protocol is described in
 //! [`protocol`].
 
+use krs_syntax::SourceRange as ByteRange;
 use std::collections::BTreeMap;
-use std::ops::Range;
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -70,7 +70,7 @@ pub struct PolicyDiagnostic {
     /// UTF-8 byte range in the authored file; `None` only for request-level
     /// rejections, which have no source location.
     #[serde(serialize_with = "serialize_range")]
-    pub authored: Option<Range<usize>>,
+    pub authored: Option<ByteRange>,
     /// `exact-authored` whenever `authored` is `Some`, `unmappable` otherwise.
     pub class: &'static str,
 }
@@ -80,7 +80,7 @@ impl PolicyDiagnostic {
         code: &'static str,
         message: String,
         file: &str,
-        range: Range<usize>,
+        range: ByteRange,
     ) -> Self {
         Self {
             code,
@@ -110,12 +110,12 @@ pub const CLASS_UNMAPPABLE: &str = "unmappable";
 // `serialize_with` passes the field by reference.
 #[allow(clippy::ref_option)]
 fn serialize_range<S: Serializer>(
-    range: &Option<Range<usize>>,
+    range: &Option<ByteRange>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     range
         .as_ref()
-        .map(|range| [range.start, range.end])
+        .map(|range| [range.start(), range.end()])
         .serialize(serializer)
 }
 

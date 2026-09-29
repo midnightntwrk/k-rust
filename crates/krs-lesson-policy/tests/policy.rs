@@ -119,7 +119,7 @@ fn policy_for(fixture: &Fixture) -> LessonPolicy {
 
 fn observed_line(diagnostic: &PolicyDiagnostic) -> String {
     match &diagnostic.authored {
-        Some(range) => format!("{} {}..{}", diagnostic.code, range.start, range.end),
+        Some(range) => format!("{} {}..{}", diagnostic.code, range.start(), range.end()),
         None => format!("{} (request level)", diagnostic.code),
     }
 }
@@ -242,7 +242,10 @@ fn d007_is_rejected_at_the_external_derive_path() {
     let diagnostics = check(source, "src/lib.rs", &LessonPolicy::single_file());
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].code, "krs::policy::non-krs-proc-macro");
-    assert_eq!(diagnostics[0].authored, Some(9..25));
+    assert_eq!(
+        diagnostics[0].authored,
+        Some(krs_syntax::SourceRange::new(9, 25).unwrap())
+    );
     assert_eq!(&source[9..25], "serde::Serialize");
 }
 
@@ -266,8 +269,8 @@ fn registration_table_names_are_reserved() {
         let diagnostics = check(&source, "src/lib.rs", &LessonPolicy::single_file());
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].code, rules::RESERVED_NAME);
-        let range = diagnostics[0].authored.clone().expect("authored range");
-        assert_eq!(&source[range], name);
+        let range = diagnostics[0].authored.expect("authored range");
+        assert_eq!(range.text(&source), Some(name));
     }
 }
 

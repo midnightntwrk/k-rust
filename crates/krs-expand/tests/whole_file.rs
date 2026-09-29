@@ -7,9 +7,7 @@
 
 mod support;
 
-use std::ops::Range;
-
-use krs_expand::sink::{InvocationId, MappingClass};
+use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{
     self, ExpandDiagnostic, FileExpansion, FileRequest, MacroUseKind, SelectedInvocation, Selection,
 };
@@ -25,6 +23,10 @@ const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 /// equal it.
 const TOUR_MINIMAL_PRINT_SHA256: &str =
     "7761b6f2cf6736631c5fb5d57cb9977c7832668903c990e1864d9d8c828a66c4";
+
+fn br(start: usize, end: usize) -> ByteRange {
+    ByteRange::new(start, end).expect("fixture range is ordered")
+}
 
 fn module_path() -> Vec<String> {
     vec!["krs_tour_minimal".to_owned()]
@@ -96,8 +98,8 @@ fn tour_minimal_matches_the_support_driver() {
         .map(|invocation| {
             (
                 invocation.kind.as_str(),
-                invocation.call_site.clone(),
-                invocation.replaced.clone(),
+                invocation.call_site,
+                invocation.replaced,
                 invocation.parent,
             )
         })
@@ -105,12 +107,12 @@ fn tour_minimal_matches_the_support_driver() {
     assert_eq!(
         summary,
         [
-            ("sorts", 287..325, 287..325, None),
-            ("constructors", 327..382, 327..501, None),
-            ("configuration", 503..522, 503..582, None),
-            ("init", 603..613, 603..709, None),
-            ("k", 672..692, 672..692, Some(InvocationId(3))),
-            ("rules", 713..869, 713..869, None),
+            ("sorts", br(287, 325), br(287, 325), None),
+            ("constructors", br(327, 382), br(327, 501), None),
+            ("configuration", br(503, 522), br(503, 582), None),
+            ("init", br(603, 613), br(603, 709), None),
+            ("k", br(672, 692), br(672, 692), Some(InvocationId(3))),
+            ("rules", br(713, 869), br(713, 869), None),
         ]
     );
 }
@@ -128,7 +130,7 @@ fn tour_minimal_text_equals_the_reviewed_print_plus_the_table() {
     let segments = &expansion.generated.map.segments;
     let last = segments.last().unwrap();
     assert_eq!(last.class, MappingClass::GeneratedOnly);
-    assert_eq!(last.generated, start..text.len());
+    assert_eq!(last.generated, br(start, text.len()));
     assert!(
         segments[..segments.len() - 1]
             .iter()
@@ -197,13 +199,13 @@ fn tour_minimal_registers_seven_crate_root_factories() {
 fn text_outside_invocations_is_copied_unchanged() {
     let expansion = expand(TOUR_MINIMAL).expect("tour-minimal expands");
     let text = &expansion.generated.text;
-    let mut covered = Vec::<Range<usize>>::new();
+    let mut covered = Vec::<ByteRange>::new();
     for segment in &expansion.generated.map.segments {
         if segment.owner.is_none() && segment.class == MappingClass::ExactAuthored {
-            let authored = segment.authored.clone().unwrap();
+            let authored = segment.authored.unwrap();
             assert_eq!(
-                &text[segment.generated.clone()],
-                &TOUR_MINIMAL[authored.clone()]
+                segment.generated.text(text).unwrap(),
+                authored.text(TOUR_MINIMAL).unwrap()
             );
             covered.push(authored);
         }
@@ -215,13 +217,13 @@ fn text_outside_invocations_is_copied_unchanged() {
             .invocations
             .iter()
             .filter(|invocation| invocation.parent.is_none())
-            .map(|invocation| invocation.replaced.clone()),
+            .map(|invocation| invocation.replaced),
     );
-    covered.sort_by_key(|range| range.start);
+    covered.sort_by_key(|range| range.start());
     let mut cursor = 0;
     for range in covered {
-        assert_eq!(range.start, cursor, "authored bytes are covered once");
-        cursor = range.end;
+        assert_eq!(range.start(), cursor, "authored bytes are covered once");
+        cursor = range.end();
     }
     assert_eq!(cursor, TOUR_MINIMAL.len());
 }
@@ -263,7 +265,7 @@ fn invalid_sorts_block_reports_the_exact_token() {
         source,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "sorts".to_owned(),
-            replaced: 0..27,
+            replaced: br(0, 27),
         }]),
     )
     .expect_err("the selected invalid block fails");
@@ -274,7 +276,7 @@ fn invalid_sorts_block_reports_the_exact_token() {
                 code: None,
                 message: "expected identifier".to_owned(),
                 class: MappingClass::ExactAuthored,
-                authored: Some(24..25),
+                authored: Some(br(24, 25)),
                 invocation: Some(InvocationId(0)),
             }]
         );
@@ -287,7 +289,7 @@ fn selection_expands_only_the_listed_invocation() {
         TOUR_MINIMAL,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "sorts".to_owned(),
-            replaced: 287..325,
+            replaced: br(287, 325),
         }]),
     )
     .expect("the selected block expands");
@@ -299,7 +301,7 @@ fn selection_expands_only_the_listed_invocation() {
         TOUR_MINIMAL,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "rules".to_owned(),
-            replaced: 287..325,
+            replaced: br(287, 325),
         }]),
     )
     .expect_err("a mismatched selection fails");
@@ -314,7 +316,7 @@ fn invocations_inside_standard_macros_are_expanded() {
         panic!("one invocation");
     };
     assert_eq!(invocation.kind, "anonymous");
-    assert_eq!(invocation.call_site, 27..42);
+    assert_eq!(invocation.call_site, br(27, 42));
     assert!(!expansion.generated.text.contains("k::anonymous!"));
     assert!(expansion.generated.text.starts_with(
         "fn f() -> usize {\n    vec![:: core :: panic ! (\"anonymous! has no runtime value\")].len()\n}\n"
@@ -326,7 +328,7 @@ fn attribute_order_and_form_are_checked() {
     let derive_first = "#[derive(Clone)]\n#[k::configuration]\npub struct M {}\n";
     let diagnostics = expand(derive_first).unwrap_err();
     assert_eq!(diagnostics[0].code, Some(whole_file::ATTRIBUTE_ORDER));
-    assert_eq!(diagnostics[0].authored, Some(17..36));
+    assert_eq!(diagnostics[0].authored, Some(br(17, 36)));
 
     let helper_first = "#[k::precedence((A))]\n#[k::constructors(sort = S)]\npub enum E { A() }\n";
     let diagnostics = expand(helper_first).unwrap_err();
@@ -334,7 +336,7 @@ fn attribute_order_and_form_are_checked() {
         diagnostics[0].code,
         Some(whole_file::NOT_AN_ATTRIBUTE_MACRO)
     );
-    assert_eq!(diagnostics[0].authored, Some(2..15));
+    assert_eq!(diagnostics[0].authored, Some(br(2, 15)));
 
     let key_value = "#[k::configuration = 1]\npub struct M {}\n";
     let diagnostics = expand(key_value).unwrap_err();
@@ -343,8 +345,8 @@ fn attribute_order_and_form_are_checked() {
     let doc_first =
         "/// Docs.\n#[k::configuration]\npub struct M {\n    #[k::cell]\n    pub k: u8,\n}\n";
     let expansion = expand(doc_first).expect("inert attributes may precede");
-    assert_eq!(expansion.generated.map.invocations[0].replaced, 0..76);
-    assert_eq!(expansion.generated.map.invocations[0].call_site, 10..29);
+    assert_eq!(expansion.generated.map.invocations[0].replaced, br(0, 76));
+    assert_eq!(expansion.generated.map.invocations[0].call_site, br(10, 29));
 }
 
 #[test]
@@ -473,7 +475,7 @@ fn corpus_matches_the_native_capture() {
             .expansions
             .iter()
             .map(|expansion| {
-                let start = map.invocations[expansion.id.0].call_site.start;
+                let start = map.invocations[expansion.id.0].call_site.start();
                 let line = source[..start].matches('\n').count() + 1;
                 let column = source[..start]
                     .rsplit('\n')

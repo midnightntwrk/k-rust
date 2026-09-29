@@ -93,7 +93,6 @@
 //! with one mapping per range, classified by `krs_expand::sink::lookup`.
 
 use std::collections::BTreeMap;
-use std::ops::Range;
 
 use krs_expand::sink::{
     self, AuthoredFile, GeneratedSource, Invocation, InvocationId, Mapping, MappingClass, Segment,
@@ -318,16 +317,12 @@ pub struct SegmentJson {
     pub respanned: Option<[usize; 2]>,
 }
 
-fn pair(range: &Range<usize>) -> [usize; 2] {
-    let range = krs_expand::sink::ByteRange::try_from(range.clone())
-        .expect("source map ranges are ordered");
+fn pair(range: &krs_expand::sink::ByteRange) -> [usize; 2] {
     [range.start(), range.end()]
 }
 
-fn range([start, end]: [usize; 2]) -> Result<Range<usize>, String> {
-    krs_expand::sink::ByteRange::new(start, end)
-        .map(Into::into)
-        .map_err(|error| error.to_string())
+fn range([start, end]: [usize; 2]) -> Result<krs_expand::sink::ByteRange, String> {
+    krs_expand::sink::ByteRange::new(start, end).map_err(|error| error.to_string())
 }
 
 /// Lowercase hexadecimal SHA-256.

@@ -13,8 +13,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use krs_expand::sink::{
-    AuthoredFile, GeneratedSource, InvocationId, Mapping, MappingClass, PrintReport, Splice,
-    lookup, print_with_map, splice_tokens,
+    AuthoredFile, ByteRange, GeneratedSource, InvocationId, Mapping, MappingClass, PrintReport,
+    Splice, lookup, print_with_map, splice_tokens,
 };
 use krs_syntax::ProvenanceRole;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
@@ -24,6 +24,10 @@ use syn::visit::Visit;
 use syn::{Expr, ExprStruct, Lit, Member};
 
 const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
+
+fn br(range: Range<usize>) -> ByteRange {
+    ByteRange::try_from(range).expect("fixture range is ordered")
+}
 
 /// The printed whole file and, per invocation, its expansion and the report
 /// of printing that expansion alone.
@@ -95,7 +99,7 @@ fn register(
         .expect("the replaced tokens are authored");
     let id = source.begin_invocation(expansion.kind, call_site, replaced, parent);
     let mut alone = GeneratedSource::new(GENERATED_FILE, authored);
-    let alone_id = alone.begin_invocation(expansion.kind, 0..0, 0..0, None);
+    let alone_id = alone.begin_invocation(expansion.kind, br(0..0), br(0..0), None);
     let report = print_with_map(&expansion.output, authored, alone_id, &[], &mut alone)
         .expect("the expansion prints");
     assert_eq!(
@@ -130,7 +134,7 @@ fn print_tour_minimal() -> Printed {
         let replaced = authored
             .byte_range(expansion.replaced)
             .expect("the invocation is authored");
-        source.copy_authored(&authored, cursor..replaced.start);
+        source.copy_authored(&authored, br(cursor..replaced.start()));
         let id = register(&authored, &mut source, &mut surfaces, expansion, None);
         let splices = splices(&authored, &mut source, &mut surfaces, &expansion.nested, id);
         let start = source.text.len();
@@ -142,9 +146,9 @@ fn print_tour_minimal() -> Printed {
             "{} with nested invocations",
             expansion.kind
         );
-        cursor = replaced.end;
+        cursor = replaced.end();
     }
-    source.copy_authored(&authored, cursor..TOUR_MINIMAL.len());
+    source.copy_authored(&authored, br(cursor..TOUR_MINIMAL.len()));
     surfaces.sort_by_key(|surface| surface.id);
     Printed {
         authored,
@@ -323,11 +327,11 @@ fn exact_generated_ranges(printed: &Printed, authored: &Range<usize>) -> Vec<Ran
             .filter_map(|segment| {
                 let range = segment.authored.as_ref()?;
                 let inside = if end {
-                    range.start < position && position <= range.end
+                    range.start() < position && position <= range.end()
                 } else {
-                    range.start <= position && position < range.end
+                    range.start() <= position && position < range.end()
                 };
-                inside.then(|| segment.generated.start + (position - range.start))
+                inside.then(|| segment.generated.start() + (position - range.start()))
             })
             .collect::<Vec<_>>()
     };
@@ -336,8 +340,8 @@ fn exact_generated_ranges(printed: &Printed, authored: &Range<usize>) -> Vec<Ran
         for end in generated_at(authored.end, true) {
             if start < end
                 && matches!(
-                    lookup(&printed.source, &printed.authored, start..end),
-                    Mapping::ExactAuthored { authored: ref mapped, .. } if mapped == authored
+                    lookup(&printed.source, &printed.authored, br(start..end)),
+                    Mapping::ExactAuthored { authored: ref mapped, .. } if *mapped == br(authored.clone())
                 )
             {
                 found.push(start..end);
@@ -363,7 +367,12 @@ fn texts(printed: &Printed, select: impl Fn(&krs_expand::sink::Segment) -> bool)
         .segments
         .iter()
         .filter(|segment| select(segment))
-        .map(|segment| format!("`{}`", &printed.source.text[segment.generated.clone()]))
+        .map(|segment| {
+            format!(
+                "`{}`",
+                &printed.source.text[Range::<usize>::from(segment.generated)]
+            )
+        })
         .collect::<BTreeSet<_>>();
     texts.into_iter().collect::<Vec<_>>().join(", ")
 }
@@ -383,12 +392,12 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
         .map
         .segments
         .iter()
-        .filter(|segment| segment.respanned.as_ref() == Some(anchor))
-        .map(|segment| segment.generated.clone())
+        .filter(|segment| segment.respanned == Some(br(anchor.clone())))
+        .map(|segment| Range::<usize>::from(segment.generated))
         .filter(|generated| {
             matches!(
-                lookup(&printed.source, &printed.authored, generated.clone()),
-                Mapping::ExactAuthored { authored: ref mapped, .. } if mapped == anchor
+                lookup(&printed.source, &printed.authored, br(generated.clone())),
+                Mapping::ExactAuthored { authored: ref mapped, .. } if *mapped == br(anchor.clone())
             )
         })
         .collect::<Vec<_>>();
@@ -398,29 +407,28 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
             class: MappingClass::ExactAuthored,
             reason: format!(
                 "rustc-visible only as {}, spanned at this authored range with different text (respanned); lookup maps it exact-authored, where native rustc reports it",
-                texts(printed, |segment| segment.respanned.as_ref()
-                    == Some(anchor))
+                texts(printed, |segment| segment.respanned
+                    == Some(br(anchor.clone())))
             ),
         };
     }
-    let reason = if let Some(invocation) = printed
-        .source
-        .map
-        .invocations
-        .iter()
-        .find(|invocation| invocation.parent.is_some() && invocation.replaced == *anchor)
-    {
+    let reason = if let Some(invocation) =
+        printed.source.map.invocations.iter().find(|invocation| {
+            invocation.parent.is_some() && invocation.replaced == br(anchor.clone())
+        }) {
         format!(
             "call site of the nested `{}` invocation {}; the generated file holds its expansion, and a diagnostic inside it maps to this call site",
             invocation.kind, invocation.id.0
         )
     } else {
         let respanned = texts(printed, |segment| {
-            segment.respanned.as_ref() == Some(anchor)
+            segment.respanned == Some(br(anchor.clone()))
         });
         let overlapping = texts(printed, |segment| {
             segment.respanned.as_ref().is_some_and(|range| {
-                range.start < anchor.end && anchor.start < range.end && range != anchor
+                range.start() < anchor.end
+                    && anchor.start < range.end()
+                    && *range != br(anchor.clone())
             })
         });
         if !respanned.is_empty() {
@@ -446,9 +454,13 @@ fn check_map(printed: &Printed) {
     let text = &printed.source.text;
     let mut position = 0;
     for segment in &printed.source.map.segments {
-        assert_eq!(segment.generated.start, position, "segments are contiguous");
+        assert_eq!(
+            segment.generated.start(),
+            position,
+            "segments are contiguous"
+        );
         assert!(
-            segment.generated.end > segment.generated.start,
+            segment.generated.end() > segment.generated.start(),
             "segments are nonempty"
         );
         assert_eq!(
@@ -458,12 +470,12 @@ fn check_map(printed: &Printed) {
         );
         if let Some(authored) = &segment.authored {
             assert_eq!(
-                text[segment.generated.clone()],
-                TOUR_MINIMAL[authored.clone()]
+                text[Range::<usize>::from(segment.generated)],
+                TOUR_MINIMAL[Range::<usize>::from(*authored)]
             );
         }
         assert_ne!(segment.class, MappingClass::Unmappable);
-        position = segment.generated.end;
+        position = segment.generated.end();
     }
     assert_eq!(position, text.len(), "segments cover the generated text");
     syn::parse_file(text).expect("the generated file parses");
@@ -478,22 +490,21 @@ fn check_identity(printed: &Printed, authored: Range<usize>) {
         .iter()
         .find(|segment| {
             segment.owner.is_none()
-                && segment
-                    .authored
-                    .as_ref()
-                    .is_some_and(|range| range.start <= authored.start && authored.end <= range.end)
+                && segment.authored.as_ref().is_some_and(|range| {
+                    range.start() <= authored.start && authored.end <= range.end()
+                })
         })
         .unwrap_or_else(|| panic!("{authored:?} is copied unchanged"));
-    let offset = segment.generated.start - segment.authored.as_ref().unwrap().start;
+    let offset = segment.generated.start() - segment.authored.as_ref().unwrap().start();
     let generated = authored.start + offset..authored.end + offset;
     assert_eq!(
         printed.source.text[generated.clone()],
         TOUR_MINIMAL[authored.clone()]
     );
     assert_eq!(
-        lookup(&printed.source, &printed.authored, generated),
+        lookup(&printed.source, &printed.authored, br(generated)),
         Mapping::ExactAuthored {
-            authored,
+            authored: br(authored),
             owner: None
         }
     );
@@ -558,8 +569,8 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(exact_generated_ranges(&printed, &authored).is_empty());
         assert!(printed.source.map.segments.iter().any(|segment| {
-            segment.respanned.as_ref() == Some(&head)
-                && printed.source.text[segment.generated.clone()] == *witness
+            segment.respanned == Some(br(head.clone()))
+                && printed.source.text[Range::<usize>::from(segment.generated)] == *witness
         }));
     }
     // The initializer body contains the nested `k::k!`; rustc spans it as
@@ -578,7 +589,7 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn map_json(printed: &Printed) -> serde_json::Value {
     let map = &printed.source.map;
-    let range = |range: &Range<usize>| serde_json::json!([range.start, range.end]);
+    let range = |range: &ByteRange| serde_json::json!([range.start(), range.end()]);
     serde_json::json!({
         "version": map.version,
         "generated_file": map.generated_file,
@@ -723,7 +734,8 @@ fn surface_measurement(printed: &Printed, surface: &Surface, measurement: &mut S
     writeln!(
         measurement,
         "call_site = [{}, {}]",
-        invocation.call_site.start, invocation.call_site.end
+        invocation.call_site.start(),
+        invocation.call_site.end()
     )
     .unwrap();
     if let Some(parent) = invocation.parent {
@@ -915,34 +927,34 @@ fn unresolved_constructor_sort_path_maps_like_native() {
             quote::ToTokens::to_token_stream(&stripped),
         )
         .unwrap();
-        source.copy_authored(&authored, cursor..replaced.start);
+        source.copy_authored(&authored, br(cursor..replaced.start()));
         let id = source.begin_invocation(
             entry.name(),
             authored.byte_range(call_site).unwrap(),
-            replaced.clone(),
+            replaced,
             None,
         );
         print_with_map(&output, &authored, id, &[], &mut source).unwrap();
-        cursor = replaced.end;
+        cursor = replaced.end();
     }
-    source.copy_authored(&authored, cursor..SOURCE.len());
+    source.copy_authored(&authored, br(cursor..SOURCE.len()));
     let missing = source
         .map
         .segments
         .iter()
-        .filter(|segment| segment.authored == Some(207..214))
+        .filter(|segment| segment.authored == Some(br(207..214)))
         .collect::<Vec<_>>();
     assert!(!missing.is_empty(), "`missing` is copied verbatim");
     for segment in missing {
         assert_eq!(
-            lookup(&source, &authored, segment.generated.clone()),
+            lookup(&source, &authored, segment.generated),
             Mapping::ExactAuthored {
-                authored: 207..214,
+                authored: br(207..214),
                 owner: Some(InvocationId(1))
             }
         );
     }
-    assert_eq!(source.map.invocations[1].call_site, 183..241);
+    assert_eq!(source.map.invocations[1].call_site, br(183..241));
 }
 
 /// Prints every expansion of a native per-invocation capture
@@ -964,7 +976,7 @@ fn native_capture_outputs_print_identically() {
             .parse()
             .expect("native output lexes");
         let mut source = GeneratedSource::new(GENERATED_FILE, &authored);
-        let id = source.begin_invocation("captured", 0..0, 0..0, None);
+        let id = source.begin_invocation("captured", br(0..0), br(0..0), None);
         print_with_map(&output, &authored, id, &[], &mut source).expect("the output prints");
         assert_eq!(source.text, output.to_string(), "{row}");
         rows += 1;

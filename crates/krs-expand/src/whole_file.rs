@@ -38,8 +38,6 @@
 //! `#[cfg]` before it), rustc would expand the other attribute first; this
 //! driver reports [`ATTRIBUTE_ORDER`] instead of emulating that order.
 
-use std::ops::Range;
-
 use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
 use syn::spanned::Spanned;
@@ -48,7 +46,7 @@ use syn::{Attribute, ImplItem, Item, Macro, Meta, Path, PathSegment, TraitItem};
 
 use crate::browser_env::BrowserEnvironment;
 use crate::sink::{
-    AuthoredFile, GeneratedSource, InvocationId, MappingClass, Splice, print_with_map,
+    AuthoredFile, ByteRange, GeneratedSource, InvocationId, MappingClass, Splice, print_with_map,
     splice_tokens,
 };
 
@@ -103,7 +101,7 @@ pub struct SelectedInvocation {
     pub kind: String,
     /// The authored byte range the expansion replaces (see
     /// [`crate::sink::Invocation::replaced`]).
-    pub replaced: Range<usize>,
+    pub replaced: ByteRange,
 }
 
 /// The inputs of one whole-file expansion.
@@ -183,13 +181,13 @@ pub struct ExpandDiagnostic {
     /// invocation's call site, [`MappingClass::Unmappable`] without a range.
     pub class: MappingClass,
     /// Authored UTF-8 byte range.
-    pub authored: Option<Range<usize>>,
+    pub authored: Option<ByteRange>,
     /// The invocation that reported it, numbered as in the source map.
     pub invocation: Option<InvocationId>,
 }
 
 impl ExpandDiagnostic {
-    fn exact(code: &'static str, message: String, authored: Range<usize>) -> Self {
+    fn exact(code: &'static str, message: String, authored: ByteRange) -> Self {
         Self {
             code: Some(code),
             message,
@@ -262,7 +260,7 @@ pub fn expand_file(request: &FileRequest<'_>) -> Result<FileExpansion, Vec<Expan
         mut diagnostics,
         ..
     } = discovery;
-    found.sort_by_key(|found| found.replaced.start);
+    found.sort_by_key(|found| found.replaced.start());
     let found = select(found, request.selection, &mut diagnostics);
 
     let env = BrowserEnvironment::new(&authored, request.facade_path.clone());
@@ -343,7 +341,7 @@ fn collect_registrations(
                     authored: authored
                         .byte_range(span)
                         .filter(|range| !range.is_empty())
-                        .or_else(|| Some(node.call_site.clone())),
+                        .or(Some(node.call_site)),
                     invocation: Some(node.id),
                 });
                 continue;
@@ -372,7 +370,10 @@ fn print(
     let mut generated = GeneratedSource::new(request.generated_file, authored);
     let mut cursor = 0;
     for (node, _) in roots {
-        generated.copy_authored(authored, cursor..node.replaced.start);
+        generated.copy_authored(
+            authored,
+            ByteRange::new(cursor, node.replaced.start()).expect("outermost nodes are ordered"),
+        );
         let splices = node.register(&mut generated, None);
         print_with_map(&node.output, authored, node.id, &splices, &mut generated).map_err(
             |error| {
@@ -380,14 +381,17 @@ fn print(
                     code: Some(PRINT),
                     message: error.to_string(),
                     class: MappingClass::InvocationLevel,
-                    authored: Some(node.call_site.clone()),
+                    authored: Some(node.call_site),
                     invocation: Some(node.id),
                 }]
             },
         )?;
-        cursor = node.replaced.end;
+        cursor = node.replaced.end();
     }
-    generated.copy_authored(authored, cursor..request.source.len());
+    generated.copy_authored(
+        authored,
+        ByteRange::new(cursor, request.source.len()).expect("remaining source range is ordered"),
+    );
     let facade = quote::ToTokens::to_token_stream(&request.facade_path)
         .to_string()
         .replace(' ', "");
@@ -459,7 +463,7 @@ fn unsupported_prefix(source: &str) -> Option<ExpandDiagnostic> {
             UNSUPPORTED_SOURCE,
             "the authored file starts with a byte order mark; save it as UTF-8 without one"
                 .to_owned(),
-            0..3,
+            ByteRange::prefix(3),
         ));
     }
     let rest = source.strip_prefix("#!")?;
@@ -470,7 +474,7 @@ fn unsupported_prefix(source: &str) -> Option<ExpandDiagnostic> {
     Some(ExpandDiagnostic::exact(
         UNSUPPORTED_SOURCE,
         "a lesson file cannot start with a shebang line".to_owned(),
-        0..end,
+        ByteRange::prefix(end),
     ))
 }
 
@@ -487,7 +491,7 @@ enum Scope {
 struct Found {
     entry: Entry,
     call_site: Span,
-    replaced: Range<usize>,
+    replaced: ByteRange,
     attributes: TokenStream,
     input: TokenStream,
     scope: Scope,
@@ -503,7 +507,7 @@ struct Discovery<'a> {
 }
 
 impl Discovery<'_> {
-    fn range(&self, span: Span) -> Range<usize> {
+    fn range(&self, span: Span) -> ByteRange {
         self.authored
             .byte_range(span)
             .expect("discovered nodes come from the authored tokens")
@@ -511,7 +515,7 @@ impl Discovery<'_> {
 
     /// Records a function-like KRS invocation, or scans another macro's
     /// tokens for KRS invocations. Returns whether `mac` is a KRS invocation.
-    fn visit_mac(&mut self, mac: &Macro, replaced: Option<Range<usize>>) -> bool {
+    fn visit_mac(&mut self, mac: &Macro, replaced: Option<ByteRange>) -> bool {
         let Some(Entry::Function(entry)) = surface::resolve(&mac.path, self.alias) else {
             self.scan_tokens(&mac.tokens);
             return false;
@@ -724,8 +728,8 @@ fn item_attributes(item: &Item) -> Option<&[Attribute]> {
 fn slice_trees(
     stream: &TokenStream,
     authored: &AuthoredFile,
-    range: &Range<usize>,
-    exclude: &Range<usize>,
+    range: &ByteRange,
+    exclude: &ByteRange,
 ) -> Option<TokenStream> {
     let mut output = TokenStream::new();
     let mut any = false;
@@ -733,14 +737,14 @@ fn slice_trees(
         let Some(tree_range) = authored.byte_range(tree.span()) else {
             continue;
         };
-        if range.start <= tree_range.start && tree_range.end <= range.end {
+        if range.start() <= tree_range.start() && tree_range.end() <= range.end() {
             any = true;
-            if !(exclude.start <= tree_range.start && tree_range.end <= exclude.end) {
+            if !(exclude.start() <= tree_range.start() && tree_range.end() <= exclude.end()) {
                 output.extend([tree]);
             }
         } else if let TokenTree::Group(group) = &tree
-            && tree_range.start <= range.start
-            && range.end <= tree_range.end
+            && tree_range.start() <= range.start()
+            && range.end() <= tree_range.end()
         {
             return slice_trees(&group.stream(), authored, range, exclude);
         }
@@ -767,7 +771,9 @@ fn select(
                 code: Some(SELECTION),
                 message: format!(
                     "no outermost `{}` invocation replaces bytes {}..{}",
-                    selected.kind, selected.replaced.start, selected.replaced.end
+                    selected.kind,
+                    selected.replaced.start(),
+                    selected.replaced.end()
                 ),
                 class: MappingClass::Unmappable,
                 authored: None,
@@ -893,8 +899,8 @@ struct Pending {
     attributes: TokenStream,
     input: TokenStream,
     call_site: Span,
-    replaced: Range<usize>,
-    parent: Option<(InvocationId, Range<usize>)>,
+    replaced: ByteRange,
+    parent: Option<(InvocationId, ByteRange)>,
     depth: usize,
 }
 
@@ -902,8 +908,8 @@ struct Pending {
 struct Node {
     id: InvocationId,
     kind: &'static str,
-    call_site: Range<usize>,
-    replaced: Range<usize>,
+    call_site: ByteRange,
+    replaced: ByteRange,
     parent: Option<InvocationId>,
     output: TokenStream,
     /// (position of the first replaced tree, number of replaced trees, node).
@@ -945,12 +951,7 @@ impl Node {
         parent: Option<InvocationId>,
     ) -> Vec<Splice> {
         debug_assert_eq!(parent, self.parent);
-        let id = generated.begin_invocation(
-            self.kind,
-            self.call_site.clone(),
-            self.replaced.clone(),
-            parent,
-        );
+        let id = generated.begin_invocation(self.kind, self.call_site, self.replaced, parent);
         assert_eq!(id, self.id, "invocations are recorded in expansion order");
         self.nested
             .iter()
@@ -986,7 +987,7 @@ impl Expander<'_> {
         let call_site = self.authored.byte_range(call.call_site).unwrap_or_else(|| {
             call.parent
                 .as_ref()
-                .map(|(_, range)| range.clone())
+                .map(|(_, range)| *range)
                 .expect("an outermost call site is authored")
         });
         if call.depth > RECURSION_LIMIT {
@@ -1024,7 +1025,7 @@ impl Expander<'_> {
                         } else {
                             MappingClass::InvocationLevel
                         },
-                        authored: authored.or_else(|| Some(call_site.clone())),
+                        authored: authored.or(Some(call_site)),
                         invocation: Some(id),
                     });
                 }
@@ -1040,17 +1041,14 @@ impl Expander<'_> {
                 .join(group.span())
                 .filter(|span| self.authored.contains(*span))
                 .unwrap_or(call.call_site);
-            let range = self
-                .authored
-                .byte_range(span)
-                .unwrap_or_else(|| call_site.clone());
+            let range = self.authored.byte_range(span).unwrap_or(call_site);
             let node = self.expand(Pending {
                 entry: Entry::Function(entry),
                 attributes: TokenStream::new(),
                 input: group.stream(),
                 call_site: span,
                 replaced: range,
-                parent: Some((id, call_site.clone())),
+                parent: Some((id, call_site)),
                 depth: call.depth + 1,
             });
             if let Some(node) = node {
@@ -1079,7 +1077,7 @@ impl Expander<'_> {
         path: &mut Vec<usize>,
         calls: &mut Vec<(Vec<usize>, usize, FunctionMacro, proc_macro2::Group, Span)>,
         owner: InvocationId,
-        call_site: &Range<usize>,
+        call_site: &ByteRange,
     ) {
         let trees = stream.clone().into_iter().collect::<Vec<_>>();
         let mut index = 0;
@@ -1100,7 +1098,7 @@ impl Expander<'_> {
                         entry.name()
                     ),
                     class: MappingClass::InvocationLevel,
-                    authored: Some(call_site.clone()),
+                    authored: Some(*call_site),
                     invocation: Some(owner),
                 });
             }

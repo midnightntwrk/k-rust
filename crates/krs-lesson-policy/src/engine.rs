@@ -4,8 +4,7 @@
 //! entry points, helpers, and inert attributes come from
 //! [`krs_syntax::surface`], and every KRS path is resolved by its resolver.
 
-use std::ops::Range;
-
+use krs_syntax::SourceRange as ByteRange;
 use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use syn::ext::IdentExt;
@@ -72,7 +71,7 @@ pub(crate) fn check(
             diagnostic
                 .authored
                 .as_ref()
-                .map(|range| (range.start, range.end))
+                .map(|range| (range.start(), range.end()))
         };
         key(left).cmp(&key(right)).then(left.code.cmp(right.code))
     });
@@ -179,16 +178,18 @@ impl<'ast> Checker<'_, 'ast> {
         &self.policy.facade_alias
     }
 
-    fn range(&self, span: Span) -> Range<usize> {
-        let range = span.byte_range();
-        range.start + self.offset..range.end + self.offset
+    fn range(&self, span: Span) -> ByteRange {
+        ByteRange::from_proc_macro2(span)
+            .ok()
+            .and_then(|range| range.checked_shift(self.offset))
+            .expect("span byte range and source offset are valid")
     }
 
-    fn span_range(&self, first: Span, last: Span) -> Range<usize> {
-        self.range(first).start..self.range(last).end
+    fn span_range(&self, first: Span, last: Span) -> ByteRange {
+        self.range(first).cover(self.range(last))
     }
 
-    fn report(&mut self, code: &'static str, message: String, range: Range<usize>) {
+    fn report(&mut self, code: &'static str, message: String, range: ByteRange) {
         self.diagnostics
             .push(PolicyDiagnostic::authored(code, message, self.file, range));
     }
@@ -224,7 +225,7 @@ impl<'ast> Checker<'_, 'ast> {
     /// Records a KRS invocation and rejects it outside the crate root's
     /// module level. `item_position` is true for attribute invocations and
     /// for macros in item or statement position.
-    fn krs_invocation(&mut self, name: &str, range: Range<usize>, item_position: bool) {
+    fn krs_invocation(&mut self, name: &str, range: ByteRange, item_position: bool) {
         if self.krs_depth == 0 && (self.module_scope > 0 || (self.block_scope > 0 && item_position))
         {
             let alias = self.alias().to_owned();
@@ -393,7 +394,7 @@ impl<'ast> Checker<'_, 'ast> {
         false
     }
 
-    fn check_derive(&mut self, attribute: &Attribute, path_range: Range<usize>) {
+    fn check_derive(&mut self, attribute: &Attribute, path_range: ByteRange) {
         let parsed =
             attribute.parse_args_with(Punctuated::<Path, syn::Token![,]>::parse_terminated);
         let Ok(paths) = parsed else {
@@ -459,11 +460,11 @@ impl<'ast> Checker<'_, 'ast> {
     fn check_macro(
         &mut self,
         path: &Path,
-        path_range: Range<usize>,
+        path_range: ByteRange,
         close: Span,
         tokens: &TokenStream,
     ) {
-        let whole = path_range.start..self.range(close).end;
+        let whole = path_range.cover(self.range(close));
         let (leading, segments) = path_segments(path);
         let shown = display_path(leading, &segments);
         let item_position = std::mem::take(&mut self.item_position);
@@ -511,7 +512,7 @@ impl<'ast> Checker<'_, 'ast> {
         }
     }
 
-    fn check_out_of_line_module(&mut self, name: &str, range: Range<usize>) {
+    fn check_out_of_line_module(&mut self, name: &str, range: ByteRange) {
         let mut directory = module_directory(self.file);
         for module in &self.module_path {
             directory.push_str(module);
@@ -602,7 +603,7 @@ impl<'ast> Checker<'_, 'ast> {
         ident: &str,
         rename: Option<&str>,
         prefix: &[String],
-        range: Range<usize>,
+        range: ByteRange,
     ) {
         let alias = self.alias().to_owned();
         let under_facade = prefix.first().is_some_and(|first| *first == alias);
@@ -879,7 +880,7 @@ impl Checker<'_, '_> {
 
     /// Rejects `name`, bound at `range`, when it is in the reserved
     /// generated-name namespace.
-    fn check_reserved_binding(&mut self, name: &str, range: Range<usize>) {
+    fn check_reserved_binding(&mut self, name: &str, range: ByteRange) {
         let prefix = RESERVED_NAME_PREFIX;
         if name.to_ascii_lowercase().starts_with(prefix) {
             self.report(
