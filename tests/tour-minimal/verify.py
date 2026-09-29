@@ -18,9 +18,10 @@ from support import ROOT, GateError, entry  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
-from support.lock import krs_ir_schema, msrv  # noqa: E402
+from support.lock import krs_ir_schema  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -215,21 +216,8 @@ def main() -> int:
     verify_source_region()
     print("PASS source: stable Vocs definition region")
 
-    cargo = executable("cargo")
-    run(
-        [
-            cargo,
-            f"+{msrv()}",
-            "check",
-            "--locked",
-            "--offline",
-            "--manifest-path",
-            MANIFEST,
-        ]
-    )
-    print(f"PASS authored: Rust {msrv()} locked/offline check")
-
-    environment = cli_environment()
+    target = checkout_scratch() / "tour-minimal-root-target"
+    environment = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = production_binary(arguments.krs, environment)
 
     before = SOURCE.read_bytes()
@@ -244,6 +232,7 @@ def main() -> int:
     if SOURCE.read_bytes() != before:
         raise GateError("krs fmt --check unexpectedly changed the tour source")
     print("PASS format: krs fmt --check preserved source and region markers")
+    check_packages("tour-minimal", env=environment, target_dir=target)
 
     checked = run(cli_command(binary, "check"), environment=environment)
     if checked.stdout != "KRS check passed: 9 descriptors, 2 semantic modules\n":

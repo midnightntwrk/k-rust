@@ -12,8 +12,9 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError, entry  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -47,25 +48,10 @@ def artifacts(directory: Path) -> dict[str, bytes]:
 
 
 def main() -> None:
-    cargo = executable("cargo")
-    run(
-        [
-            cargo,
-            "check",
-            "--locked",
-            "--offline",
-            "--manifest-path",
-            MANIFEST,
-            "-p",
-            "base-semantics",
-            "-p",
-            "root-semantics",
-        ]
-    )
-    print("PASS authored: both renamed-dependency packages compile locked/offline")
-
-    env = environment()
+    target = checkout_scratch() / "tour-composition-root-target"
+    env = {**environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
+    check_packages("tour-composition", env=env, target_dir=target)
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout

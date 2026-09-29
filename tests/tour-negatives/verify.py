@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.diagnostics import envelopes  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -64,8 +66,7 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
         raise GateError(f"{binary}: expected authored token {token!r}, got {selected!r}")
 
 
-def check_overlap() -> None:
-    binary = build()
+def check_overlap(binary: Path) -> None:
     result = run_failing(
         Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv("check"),
     )
@@ -92,7 +93,11 @@ def check_overlap() -> None:
 
 
 def main() -> None:
-    check_overlap()
+    target = checkout_scratch() / "tour-negatives-root-target"
+    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    binary = build(environment)
+    check_packages("tour-negatives", env=environment, target_dir=target)
+    check_overlap(binary)
     print("PASS overlap: structured analysis code and exact second Foo head")
     cases = (
         (

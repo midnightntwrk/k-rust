@@ -25,6 +25,12 @@ Every tracked `Cargo.toml` that declares `rust-version` must match
 `Krs.lock` `[cargo] msrv` at major.minor or inherit the workspace value, so
 the minimum supported Rust has one source.
 
+Every tracked `Cargo.toml` under `tests/` that declares its own `[workspace]`
+must be a row of the standalone package table in `tests/support/packages.py`
+unless it is under a `fixtures/` directory,
+so no standalone package escapes its owning gate's format, lint, and MSRV checks.
+Every row must name a tracked manifest that declares `[workspace]`.
+
     PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 """
 
@@ -37,6 +43,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
+from support.packages import PACKAGES  # noqa: E402
 from support.process import run  # noqa: E402
 
 
@@ -122,11 +129,47 @@ def manifest_problems(relative: str, text: str, msrv: tuple[int, int]) -> list[s
     return problems
 
 
+def standalone_package_problems(files: list[str]) -> list[str]:
+    tracked = set(files)
+    registered = {package.manifest for package in PACKAGES}
+    problems: list[str] = []
+    for manifest in sorted(registered):
+        if manifest not in tracked:
+            problems.append(f"{manifest}: package table manifest is not tracked")
+            continue
+        try:
+            cargo = tomllib.loads((ROOT / manifest).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+            problems.append(f"{manifest}: cannot read package table manifest: {error}")
+            continue
+        if not isinstance(cargo.get("workspace"), dict):
+            problems.append(f"{manifest}: package table manifest has no [workspace] table")
+    for relative in files:
+        parts = Path(relative).parts
+        if (
+            len(parts) < 3 or parts[0] != "tests" or parts[-1] != "Cargo.toml"
+            or relative in registered or "fixtures" in parts[1:-1]
+        ):
+            continue
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            cargo = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+            problems.append(f"{relative}: cannot read Cargo manifest: {error}")
+            continue
+        if isinstance(cargo.get("workspace"), dict):
+            problems.append(f"{relative}: standalone Rust workspace has no package table row")
+    return problems
+
+
 def main() -> int:
     files = tracked_files()
     problems = gate_entry_problems(files)
     lock = tomllib.loads((ROOT / "Krs.lock").read_text(encoding="utf-8"))
     msrv = tuple(map(int, lock["cargo"]["msrv"].split(".")[:2]))
+    problems.extend(standalone_package_problems(files))
     for relative in files:
         if relative == "draft" or relative.startswith("draft/"):
             problems.append(f"{relative}: tracked file under draft/")
@@ -163,7 +206,8 @@ def main() -> int:
         print(f"FAIL repository hygiene: {len(problems)} finding(s)", file=sys.stderr)
         return 1
     print(
-        "PASS repository hygiene: tracked references, gate entry points, unsafe_code lint policy, and Cargo MSRV"
+        "PASS repository hygiene: tracked references, gate entry points, standalone package table, "
+        "unsafe_code lint policy, and Cargo MSRV"
     )
     return 0
 

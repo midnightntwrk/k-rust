@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError, entry  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import k_tool  # noqa: E402
+from support.tools import k_tool, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -28,8 +29,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="krs-precedence-associativity-") as temporary:
         workspace = Path(temporary)
         target = workspace / "target"
-        environment = {"CARGO_TARGET_DIR": str(target)}
-        binary = build(target=target)
+        environment = {**z3_environment(), "CARGO_TARGET_DIR": str(target)}
+        binary = build(environment, target=target)
+        check_packages(
+            "precedence-associativity", env=environment, target_dir=target
+        )
         emitted = workspace / "emitted"
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
         invocation.run("check", environment=environment)

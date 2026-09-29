@@ -322,20 +322,7 @@ fn split(
         let sentence = claims
             .remove(label)
             .ok_or_else(|| failure(format!("native claim disappeared: {label:?}")))?;
-        let spec = Definition {
-            attributes: Attributes::default(),
-            modules: vec![Module {
-                name: spec_module.to_owned(),
-                sentences: vec![
-                    Sentence::Import {
-                        module: semantic_module.to_owned(),
-                        attributes: Attributes::default(),
-                    },
-                    sentence,
-                ],
-                attributes: Attributes::default(),
-            }],
-        };
+        let spec = claim_spec(semantic_module, spec_module, sentence);
         write_kore(
             &output.join("specs").join(format!("{label}.kore")),
             printer.print_definition(&spec),
@@ -347,6 +334,23 @@ fn split(
         output.display()
     );
     Ok(())
+}
+
+fn claim_spec(semantic_module: &str, spec_module: &str, sentence: Sentence) -> Definition {
+    Definition {
+        attributes: Attributes::default(),
+        modules: vec![Module {
+            name: spec_module.to_owned(),
+            sentences: vec![
+                Sentence::Import {
+                    module: semantic_module.to_owned(),
+                    attributes: Attributes::default(),
+                },
+                sentence,
+            ],
+            attributes: Attributes::default(),
+        }],
+    }
 }
 
 fn classify(path: &Path) -> Result<(), Box<dyn Error>> {

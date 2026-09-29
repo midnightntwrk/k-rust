@@ -19,7 +19,9 @@ followed by one final `k::cells!` parameter. K-sequence, map, and whole-machine
 frames remain structural bindings. The Rust function names `step`, `var`, and
 `assign` are the exact emitted K rule labels.
 
-Check the standalone authored package with:
+`tests/imp-state/verify.py` format-checks, lints, and MSRV-checks this package
+before it runs the oracle.
+Check the package by hand with:
 
 ```bash
 cargo fmt --check --manifest-path tests/imp-state/rust-definition/Cargo.toml

@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
 from support.hashing import canonical_json  # noqa: E402
 from support.imp_oracle import KAST, DivisionCase, RejectionPin, Spec, main as run_oracle  # noqa: E402
+from support.packages import check_packages  # noqa: E402
+from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -335,6 +337,11 @@ KAST_HOOKS = KAST(
 
 
 def main() -> int:
+    check_packages(
+        "imp-state",
+        env=z3_environment(),
+        target_dir=checkout_scratch() / "imp-state-root-target",
+    )
     return run_oracle(SPEC, KAST_HOOKS)
 
 

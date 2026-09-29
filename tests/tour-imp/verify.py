@@ -15,8 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -126,12 +127,10 @@ def main() -> None:
         raise GateError("tour-imp capstone is not byte-identical to the IMP operational authority")
     print("PASS source: capstone and chapter slices match IMP exactly")
 
-    cargo = executable("cargo")
-    run([cargo, "check", "--locked", "--offline", "--manifest-path", MANIFEST])
-    print("PASS authored: locked/offline Cargo check")
-
-    env = cli_environment()
+    target = checkout_scratch() / "tour-imp-root-target"
+    env = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
+    check_packages("tour-imp", env=env, target_dir=target)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE, sync.CHAPTERS], environment=env)

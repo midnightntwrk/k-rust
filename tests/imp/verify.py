@@ -34,6 +34,7 @@ from support.hashing import (  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.krs import Invocation, build, fresh_deterministic_emissions  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
+from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
@@ -493,16 +494,8 @@ def phase_rust(context: Context) -> RustBuild:
         ["cargo", "check", "--workspace", "--all-targets", "--locked"],
         ["cargo", "clippy", "--workspace", "--all-targets", "--locked", *clippy_lints],
         ["cargo", "test", "--workspace", "--locked"],
-        ["cargo", "fmt", "--manifest-path", os.fspath(RUST_MANIFEST), "--all", "--check"],
-        ["cargo", "check", "--manifest-path", os.fspath(RUST_MANIFEST), "--all-targets", "--locked"],
-        ["cargo", "clippy", "--manifest-path", os.fspath(RUST_MANIFEST), "--all-targets", "--locked", *clippy_lints],
         ["cargo", "test", "--manifest-path", os.fspath(RUST_MANIFEST), "--locked"],
-        ["cargo", "check", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--all-targets", "--locked"],
-        ["cargo", "clippy", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--all-targets", "--locked", *clippy_lints],
         ["cargo", "test", "--manifest-path", os.fspath(EXPANDED_MANIFEST), "--locked"],
-        ["cargo", "fmt", "--manifest-path", os.fspath(NATIVE_MANIFEST), "--all", "--check"],
-        ["cargo", "check", "--manifest-path", os.fspath(NATIVE_MANIFEST), "--all-targets", "--locked"],
-        ["cargo", "clippy", "--manifest-path", os.fspath(NATIVE_MANIFEST), "--all-targets", "--locked", *clippy_lints],
         ["cargo", "test", "--manifest-path", os.fspath(NATIVE_MANIFEST), "--locked"],
     ]
     for command in commands:
@@ -518,15 +511,6 @@ def phase_rust(context: Context) -> RustBuild:
         timeout=900,
         environment=env,
     )
-    for manifest in (RUST_MANIFEST, EXPANDED_MANIFEST, NATIVE_MANIFEST):
-        run(
-            [
-                "cargo", f"+{lock.msrv()}", "check", "--manifest-path", manifest,
-                "--all-targets", "--locked",
-            ],
-            timeout=900,
-            environment=env,
-        )
     # Supplemental v0.1 toolchain unit: the closed host builtin registry and
     # IR alias-safety contract are selected by name in addition to the full
     # workspace suite.  Native Haskell and LLVM evidence is exercised below.
@@ -577,6 +561,7 @@ def phase_rust(context: Context) -> RustBuild:
         run([context.tools["python"], suite], timeout=300, environment=env)
 
     krs = build(env, target=context.target, timeout=600)
+    check_packages("imp", env=env, target_dir=context.target)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(
