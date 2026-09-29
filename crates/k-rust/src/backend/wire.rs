@@ -16,7 +16,7 @@ use k_rust_backend::{
     search::{
         IncompleteSearch, PathSearchResult as BackendPathSearchResult, PathWitness,
         PatternPathSearchResult as BackendPatternPathSearchResult,
-        PatternSearchResult as BackendPatternSearchResult, ResultModality,
+        PatternSearchResult as BackendPatternSearchResult, ResultModality, SearchEnd,
         SearchResult as BackendSearchResult, SearchState,
     },
     simplify::{
@@ -1418,7 +1418,6 @@ fn incomplete_search_output<K: WireKore>(
     incomplete: IncompleteSearch,
 ) -> Result<IncompleteSearchOutput<K>, BackendError> {
     Ok(match incomplete {
-        IncompleteSearch::ResultBound => IncompleteSearchOutput::ResultBound,
         IncompleteSearch::DepthBound(state) => IncompleteSearchOutput::DepthBound {
             state: search_state_output(state)?,
         },
@@ -1464,13 +1463,23 @@ fn incomplete_search_output<K: WireKore>(
     })
 }
 
-fn incomplete_searches_output<K: WireKore>(
+/// The entries of the states a search left unexplored, then a `result-bound` entry when the
+/// search stopped at its result bound: that entry concerns the whole search rather than a state,
+/// so it follows every per-state entry.
+fn incomplete_searches_output<K: WireKore, E>(
     incomplete: Vec<IncompleteSearch>,
+    end: &SearchEnd<E>,
 ) -> Result<Vec<IncompleteSearchOutput<K>>, BackendError> {
-    incomplete
+    let mut output = incomplete
         .into_iter()
         .map(incomplete_search_output)
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    match end {
+        SearchEnd::ResultBound(_) => output.push(IncompleteSearchOutput::ResultBound),
+        // Nothing remained, or the frontier or the cancelled state is among the entries.
+        SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Cancelled => {}
+    }
+    Ok(output)
 }
 
 pub(super) fn execution_response<K: WireKore>(
@@ -1549,7 +1558,7 @@ pub(super) fn search_response<K: WireKore>(
             .map(search_state_output)
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
-        incomplete: incomplete_searches_output(result.incomplete)?,
+        incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
     })
 }
 
@@ -1566,7 +1575,7 @@ pub(super) fn path_search_response<K: WireKore>(
             .map(path_witness_output)
             .collect::<Result<_, _>>()?,
         effects: effects_output(result.effects),
-        incomplete: incomplete_searches_output(result.incomplete)?,
+        incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
     })
 }
 
@@ -1591,7 +1600,7 @@ pub(super) fn pattern_search_response<K: WireKore>(
             })
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
-        incomplete: incomplete_searches_output(result.incomplete)?,
+        incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
     })
 }
 
@@ -1616,7 +1625,7 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
             })
             .collect::<Result<_, BackendError>>()?,
         effects: effects_output(result.effects),
-        incomplete: incomplete_searches_output(result.incomplete)?,
+        incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
     })
 }
 

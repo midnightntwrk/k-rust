@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.search.configurations"
 //! name = "breadth-first search over configurations"
-//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state", "retain_state_result"]
+//! sites = ["search_graph_using", "search_graph_collecting", "materialize_search_state"]
 //! variable = "n = distinct (depth, pattern, is_rewritable) keys at one depth; r = results retained"
 //! counters = ["SearchStatesDeduplicated"]
 //! span = "per problem"
@@ -19,7 +19,7 @@
 //! ```toml algorithm
 //! id = "backend.search.paths"
 //! name = "breadth-first enumeration of simple rewrite paths"
-//! sites = ["search_paths_using", "search_paths_collecting", "retain_witness"]
+//! sites = ["search_paths_using", "search_paths_collecting"]
 //! variable = "d = path depth; b = branching factor"
 //! counters = []
 //! no_counter = "path enumeration has no dedicated counter"
@@ -98,6 +98,14 @@ use crate::{
     transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
 };
 
+mod retention;
+
+pub use retention::{BreadthExceeded, Exhausted, FurtherResult, Truncation, UnexploredWork};
+use retention::{
+    Remaining, StateRetention, WitnessRetention, breadth_exceeded, pop_or_exhausted, remaining,
+    retain_pattern_match, retain_state_result, retain_witness,
+};
+
 pub use crate::transition::{PatternDigest, TransitionId};
 
 /// Which nodes in the execution tree are returned by a search.
@@ -167,9 +175,12 @@ pub struct SearchState {
     pub diagnostics: Vec<BackendDiagnostic>,
 }
 
+/// A state, or a frontier, whose exploration the search did not finish.
+///
+/// Every entry concerns the states it lists; why the whole search stopped is the result's
+/// [`SearchEnd`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IncompleteSearch {
-    ResultBound,
     DepthBound(SearchState),
     BreadthBound(Vec<SearchState>),
     Indeterminate {
@@ -192,17 +203,106 @@ pub enum IncompleteSearch {
     },
 }
 
+/// Why a search's exploration ended. `E` is what a result bound states about the results beyond
+/// the retained ones.
+///
+/// The ends that claim something about the work left behind need evidence only the search can
+/// mint: a completeness claim needs an [`Exhausted`] token, a result bound its evidence `E`, a
+/// breadth bound a [`BreadthExceeded`] token. Outside this crate such an end can be read but
+/// not built. A completeness claim does not compile:
+///
+/// ```compile_fail
+/// use k_rust_backend::search::{Exhausted, SearchEnd, UnexploredWork};
+///
+/// fn exhausted(end: &SearchEnd<UnexploredWork>) -> bool {
+///     *end == SearchEnd::<UnexploredWork>::Exhausted(Exhausted(()))
+/// }
+/// ```
+///
+/// while reading one does:
+///
+/// ```
+/// use k_rust_backend::search::{SearchEnd, UnexploredWork};
+///
+/// fn exhausted(end: &SearchEnd<UnexploredWork>) -> bool {
+///     matches!(end, SearchEnd::Exhausted(_))
+/// }
+/// ```
+///
+/// Likewise a result bound's evidence does not compile:
+///
+/// ```compile_fail
+/// use k_rust_backend::search::{SearchEnd, UnexploredWork};
+///
+/// fn result_bound(end: &SearchEnd<UnexploredWork>) -> bool {
+///     *end == SearchEnd::ResultBound(UnexploredWork(()))
+/// }
+/// ```
+///
+/// while reading it does:
+///
+/// ```
+/// use k_rust_backend::search::{SearchEnd, UnexploredWork};
+///
+/// fn result_bound(end: &SearchEnd<UnexploredWork>) -> bool {
+///     matches!(end, SearchEnd::ResultBound(_))
+/// }
+/// ```
+#[must_use]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SearchEnd<E> {
+    /// Nothing remained: every state reached within the bounds was explored or is listed among
+    /// the result's incomplete entries.
+    Exhausted(Exhausted),
+    /// The search stopped with its result bound reached, and `E` states what lies beyond.
+    ResultBound(E),
+    /// The frontier exceeded `max_breadth`; it is the result's
+    /// [`IncompleteSearch::BreadthBound`] entry.
+    BreadthBound(BreadthExceeded),
+    /// The request was cancelled; the state being explored is listed as
+    /// [`IncompleteSearch::Cancelled`].
+    Cancelled,
+}
+
+/// A state-set search's results.
+///
+/// A result states why its search ended; a literal without an [`end`](Self::end) does not
+/// compile:
+///
+/// ```compile_fail
+/// use k_rust_backend::search::SearchResult;
+///
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![] };
+/// ```
+///
+/// ```
+/// use k_rust_backend::search::{SearchEnd, SearchResult};
+///
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end: SearchEnd::Cancelled };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
     pub states: Vec<SearchState>,
     pub effects: Vec<BuiltinEffect>,
+    /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
+    pub end: SearchEnd<UnexploredWork>,
 }
 
 impl SearchResult {
     pub const fn modality(&self) -> ResultModality {
         ResultModality::StateSet
     }
+
+    /// Whether `states` is every result within the bounds: nothing remained and no state's
+    /// exploration was left unfinished.
+    pub fn is_complete(&self) -> bool {
+        is_complete(&self.end, &self.incomplete)
+    }
+}
+
+fn is_complete<E>(end: &SearchEnd<E>, incomplete: &[IncompleteSearch]) -> bool {
+    matches!(end, SearchEnd::Exhausted(_)) && incomplete.is_empty()
 }
 
 /// One acyclic execution path selected by a path-sensitive search.
@@ -225,12 +325,20 @@ pub struct PathWitness {
 pub struct PathSearchResult {
     pub witnesses: Vec<PathWitness>,
     pub effects: Vec<BuiltinEffect>,
+    /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
+    pub end: SearchEnd<Truncation>,
 }
 
 impl PathSearchResult {
     pub const fn modality(&self) -> ResultModality {
         ResultModality::PathSet
+    }
+
+    /// Whether `witnesses` is every result within the bounds: nothing remained and no state's
+    /// exploration was left unfinished.
+    pub fn is_complete(&self) -> bool {
+        is_complete(&self.end, &self.incomplete)
     }
 }
 
@@ -268,12 +376,20 @@ pub enum PatternMatchError {
 pub struct PatternSearchResult {
     pub matches: Vec<SearchMatch>,
     pub effects: Vec<BuiltinEffect>,
+    /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
+    pub end: SearchEnd<UnexploredWork>,
 }
 
 impl PatternSearchResult {
     pub const fn modality(&self) -> ResultModality {
         ResultModality::StateSet
+    }
+
+    /// Whether `matches` is every result within the bounds: nothing remained and no state's
+    /// exploration was left unfinished.
+    pub fn is_complete(&self) -> bool {
+        is_complete(&self.end, &self.incomplete)
     }
 }
 
@@ -291,12 +407,20 @@ pub struct PathSearchMatch {
 pub struct PatternPathSearchResult {
     pub matches: Vec<PathSearchMatch>,
     pub effects: Vec<BuiltinEffect>,
+    /// The states whose exploration was not finished.
     pub incomplete: Vec<IncompleteSearch>,
+    pub end: SearchEnd<Truncation>,
 }
 
 impl PatternPathSearchResult {
     pub const fn modality(&self) -> ResultModality {
         ResultModality::PathSet
+    }
+
+    /// Whether `matches` is every result within the bounds: nothing remained and no state's
+    /// exploration was left unfinished.
+    pub fn is_complete(&self) -> bool {
+        is_complete(&self.end, &self.incomplete)
     }
 }
 
@@ -462,22 +586,6 @@ fn search_graph_collecting(
     let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     let mut observation_log = ObservationLog::default();
     let request_diagnostics = PathDiagnostics::new_request();
-    let mut pending = initial
-        .into_iter()
-        .map(|pattern| SearchWorkState {
-            state: SearchState {
-                pattern,
-                depth: 0,
-                trace: Vec::new(),
-                branch: Vec::new(),
-                observations: Vec::new(),
-                diagnostics: Vec::new(),
-            },
-            observation: None,
-            diagnostics: request_diagnostics.empty_like(),
-            kind: QueuedStateKind::Rewritable,
-        })
-        .collect::<VecDeque<_>>();
     let mut states = Vec::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
@@ -490,59 +598,69 @@ fn search_graph_collecting(
     // configurations rather than by the number of interleavings that reach them.
     let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
-    let mut validated = VecDeque::with_capacity(pending.len());
-    // Invariant: `validated` holds, in queue order, the popped states without a surviving macro or alias symbol, and `incomplete` one entry per other popped state; nothing is pushed onto `pending`, so each initial state is popped once.
-    while let Some(work) = pending.pop_front() {
+    let mut pending = VecDeque::with_capacity(initial.len());
+    // Invariant: `pending` holds, in input order, the initial states without a surviving macro or alias symbol, and `incomplete` one entry per other initial state.
+    for pattern in initial {
+        let work = SearchWorkState {
+            state: SearchState {
+                pattern,
+                depth: 0,
+                trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+            observation: None,
+            diagnostics: request_diagnostics.empty_like(),
+            kind: QueuedStateKind::Rewritable,
+        };
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
                 work.materialize(&observation_log),
                 IndeterminateReason::SurvivingMacroOrAlias { symbol },
             ));
         } else {
-            validated.push_back(work);
+            pending.push_back(work);
         }
     }
-    pending = validated;
-    if pending.is_empty() && !incomplete.is_empty() {
+
+    // A zero breadth bound is exceeded by any initial state; a zero result bound stops before
+    // the first state, leaving the initial states unexplored.
+    if options.max_breadth == Some(0)
+        && let Some(exceeded) =
+            breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                work.materialize(&observation_log)
+            })
+    {
         return SearchResult {
             states,
             effects,
             incomplete,
+            end: SearchEnd::BreadthBound(exceeded),
         };
     }
-
-    if options.max_breadth == Some(0) {
-        incomplete.push(IncompleteSearch::BreadthBound(
-            pending
-                .drain(..)
-                .map(|work| work.materialize(&observation_log))
-                .collect(),
-        ));
-        return SearchResult {
-            states,
-            effects,
-            incomplete,
-        };
-    }
-
     if options.max_results == Some(0) {
-        incomplete.push(IncompleteSearch::ResultBound);
         return SearchResult {
             states,
             effects,
             incomplete,
+            end: remaining(&pending, || false).result_bound(|unexplored| unexplored),
         };
     }
 
     // `pending` is FIFO, so popped depths never decrease; `expanded` holds every
     // `(depth, simplified pattern)` expanded so far, so a configuration is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
-    while let Some(work) = pending.pop_front() {
+    let end = loop {
+        let work = match pop_or_exhausted(&mut pending) {
+            Ok(work) => work,
+            Err(exhausted) => break SearchEnd::Exhausted(exhausted),
+        };
         if cancellation_requested() {
             incomplete.push(IncompleteSearch::Cancelled(
                 work.materialize(&observation_log),
             ));
-            break;
+            break SearchEnd::Cancelled;
         }
         let SearchWorkState {
             mut state,
@@ -682,39 +800,34 @@ fn search_graph_collecting(
         } else {
             StateRetention::Continue
         };
+        // A `Final` search selects this state before its step only at the depth bound, where
+        // the state has no successor within the bounds; any other selected state may still have
+        // successors.
+        let may_expand = |fresh_counter: &mut u64| {
+            options.search_type != SearchType::Final
+                && state_may_expand(
+                    definition,
+                    &state,
+                    is_rewritable,
+                    options,
+                    fresh_counter,
+                    solver,
+                )
+        };
         match retention {
             StateRetention::ResultBound => {
-                let truncated = !pending.is_empty()
-                    || (options.search_type != SearchType::Final
-                        && state_may_expand(
-                            definition,
-                            &state,
-                            is_rewritable,
-                            options,
-                            &mut fresh_counter,
-                            solver,
-                        ));
-                if truncated {
-                    incomplete.push(IncompleteSearch::ResultBound);
+                break remaining(&pending, || may_expand(&mut fresh_counter))
+                    .result_bound(|unexplored| unexplored);
+            }
+            StateRetention::PatternBound => {
+                match remaining(&pending, || may_expand(&mut fresh_counter)) {
+                    Remaining::Unexplored(unexplored) => break SearchEnd::ResultBound(unexplored),
+                    // The state continues through the loop body; the loop head observes the
+                    // empty frontier.
+                    Remaining::Exhausted(_) => {}
                 }
-                break;
             }
-            StateRetention::PatternBound
-                if !pending.is_empty()
-                    || (options.search_type != SearchType::Final
-                        && state_may_expand(
-                            definition,
-                            &state,
-                            is_rewritable,
-                            options,
-                            &mut fresh_counter,
-                            solver,
-                        )) =>
-            {
-                incomplete.push(IncompleteSearch::ResultBound);
-                break;
-            }
-            _ => {}
+            StateRetention::Continue => {}
         }
         if options.search_type == SearchType::One && state.depth == 1 {
             continue;
@@ -779,18 +892,18 @@ fn search_graph_collecting(
                     )
                 })
                 .unwrap_or(StateRetention::Continue);
+                // A stuck state has no successor: only the frontier can remain.
                 match retention {
                     StateRetention::ResultBound => {
-                        if !pending.is_empty() {
-                            incomplete.push(IncompleteSearch::ResultBound);
+                        break remaining(&pending, || false).result_bound(|unexplored| unexplored);
+                    }
+                    StateRetention::PatternBound => match remaining(&pending, || false) {
+                        Remaining::Unexplored(unexplored) => {
+                            break SearchEnd::ResultBound(unexplored);
                         }
-                        break;
-                    }
-                    StateRetention::PatternBound if !pending.is_empty() => {
-                        incomplete.push(IncompleteSearch::ResultBound);
-                        break;
-                    }
-                    _ => {}
+                        Remaining::Exhausted(_) => {}
+                    },
+                    StateRetention::Continue => {}
                 }
             }
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
@@ -830,13 +943,12 @@ fn search_graph_collecting(
                     &mut observation_log,
                     observation,
                 ));
-                if observed_search_breadth_exceeded(
-                    &mut pending,
-                    &mut incomplete,
-                    options.max_breadth,
-                    &observation_log,
-                ) {
-                    break;
+                if let Some(exceeded) =
+                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                        work.materialize(&observation_log)
+                    })
+                {
+                    break SearchEnd::BreadthBound(exceeded);
                 }
             }
             RewriteResult::Branch {
@@ -876,22 +988,22 @@ fn search_graph_collecting(
                     );
                     pending.push_back(remaining);
                 }
-                if observed_search_breadth_exceeded(
-                    &mut pending,
-                    &mut incomplete,
-                    options.max_breadth,
-                    &observation_log,
-                ) {
-                    break;
+                if let Some(exceeded) =
+                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |work| {
+                        work.materialize(&observation_log)
+                    })
+                {
+                    break SearchEnd::BreadthBound(exceeded);
                 }
             }
         }
-    }
+    };
 
     SearchResult {
         states,
         effects,
         incomplete,
+        end,
     }
 }
 
@@ -1110,24 +1222,6 @@ fn remaining_search_work_state(
     }
 }
 
-fn observed_search_breadth_exceeded(
-    pending: &mut VecDeque<SearchWorkState>,
-    incomplete: &mut Vec<IncompleteSearch>,
-    max_breadth: Option<usize>,
-    observation_log: &ObservationLog,
-) -> bool {
-    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
-        return false;
-    }
-    incomplete.push(IncompleteSearch::BreadthBound(
-        pending
-            .drain(..)
-            .map(|work| work.materialize(observation_log))
-            .collect(),
-    ));
-    true
-}
-
 /// Search for one witness per distinct acyclic semantic path.
 ///
 /// Unlike [`search_graph`], this modality does not deduplicate converging result patterns.
@@ -1191,7 +1285,12 @@ fn search_paths_collecting(
 ) -> PathSearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPaths);
     let mut observation_log = ObservationLog::default();
-    let mut pending = VecDeque::from([PathSearchState {
+    let mut witnesses = Vec::new();
+    let mut effects = Vec::new();
+    let mut incomplete = Vec::new();
+    let mut fresh_counter = 0;
+
+    let initial = PathSearchState {
         state: SearchState {
             pattern: initial,
             depth: 0,
@@ -1205,63 +1304,54 @@ fn search_paths_collecting(
         observation: None,
         diagnostics: PathDiagnostics::new_request(),
         kind: QueuedStateKind::Rewritable,
-    }]);
-    let mut witnesses = Vec::new();
-    let mut effects = Vec::new();
-    let mut incomplete = Vec::new();
-    let mut fresh_counter = 0;
-
-    let mut validated = VecDeque::with_capacity(pending.len());
-    // Invariant: `validated` holds, in queue order, the popped paths without a surviving macro or alias symbol, and `incomplete` one entry per other popped path; nothing is pushed onto `pending`, so the initial path is popped once.
-    while let Some(path) = pending.pop_front() {
-        if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
-            incomplete.push(rewrite_incomplete(
-                path.materialize_state(&observation_log),
-                IndeterminateReason::SurvivingMacroOrAlias { symbol },
-            ));
-        } else {
-            validated.push_back(path);
-        }
-    }
-    pending = validated;
-    if pending.is_empty() && !incomplete.is_empty() {
-        return PathSearchResult {
-            witnesses,
-            effects,
-            incomplete,
-        };
-    }
-
-    if options.max_breadth == Some(0) {
-        incomplete.push(IncompleteSearch::BreadthBound(
-            pending
-                .drain(..)
-                .map(|path| path.materialize_state(&observation_log))
-                .collect(),
+    };
+    let mut pending = VecDeque::with_capacity(1);
+    // `pending` holds the initial path unless its state has a surviving macro or alias symbol,
+    // in which case `incomplete` reports it.
+    if let Some(symbol) = initial.state.pattern.macro_or_alias_symbol() {
+        incomplete.push(rewrite_incomplete(
+            initial.materialize_state(&observation_log),
+            IndeterminateReason::SurvivingMacroOrAlias { symbol },
         ));
-        return PathSearchResult {
-            witnesses,
-            effects,
-            incomplete,
-        };
+    } else {
+        pending.push_back(initial);
     }
 
-    if options.max_results == Some(0) {
-        incomplete.push(IncompleteSearch::ResultBound);
+    // A zero breadth bound is exceeded by the initial path; a zero result bound stops before it,
+    // leaving it unexplored.
+    if options.max_breadth == Some(0)
+        && let Some(exceeded) =
+            breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |path| {
+                path.materialize_state(&observation_log)
+            })
+    {
         return PathSearchResult {
             witnesses,
             effects,
             incomplete,
+            end: SearchEnd::BreadthBound(exceeded),
+        };
+    }
+    if options.max_results == Some(0) {
+        return PathSearchResult {
+            witnesses,
+            effects,
+            incomplete,
+            end: remaining(&pending, || false).result_bound(Truncation::UnexploredWork),
         };
     }
 
     // Invariant: a queued path's `visited` is exactly its own patterns, so paths stay simple.
-    while let Some(mut path) = pending.pop_front() {
+    let end = loop {
+        let mut path = match pop_or_exhausted(&mut pending) {
+            Ok(path) => path,
+            Err(exhausted) => break SearchEnd::Exhausted(exhausted),
+        };
         if cancellation_requested() {
             incomplete.push(IncompleteSearch::Cancelled(
                 path.materialize_state(&observation_log),
             ));
-            break;
+            break SearchEnd::Cancelled;
         }
         let is_rewritable = matches!(path.kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
@@ -1374,13 +1464,14 @@ fn search_paths_collecting(
             )
         });
         match retention {
-            Some(WitnessRetention::ResultBound) => {
-                incomplete.push(IncompleteSearch::ResultBound);
-                break;
+            Some(WitnessRetention::Further(further)) => {
+                break SearchEnd::ResultBound(Truncation::FurtherResult(further));
             }
-            Some(WitnessRetention::PatternBound)
-                if !pending.is_empty()
-                    || (options.search_type != SearchType::Final
+            // The unexplored work after the collector's bound may hold no further result; see
+            // `Truncation`.
+            Some(WitnessRetention::PatternBound) => {
+                let may_expand = || {
+                    options.search_type != SearchType::Final
                         && state_may_expand(
                             definition,
                             &path.state,
@@ -1388,12 +1479,18 @@ fn search_paths_collecting(
                             options,
                             &mut fresh_counter,
                             solver,
-                        )) =>
-            {
-                incomplete.push(IncompleteSearch::ResultBound);
-                break;
+                        )
+                };
+                match remaining(&pending, may_expand) {
+                    Remaining::Unexplored(unexplored) => {
+                        break SearchEnd::ResultBound(Truncation::UnexploredWork(unexplored));
+                    }
+                    // The path continues through the loop body; the loop head observes the
+                    // empty frontier.
+                    Remaining::Exhausted(_) => {}
+                }
             }
-            _ => {}
+            Some(WitnessRetention::Continue) | None => {}
         }
         if options.search_type == SearchType::One && path.state.depth == 1 {
             continue;
@@ -1442,15 +1539,17 @@ fn search_paths_collecting(
                     )
                 });
                 match retention {
-                    Some(WitnessRetention::ResultBound) => {
-                        incomplete.push(IncompleteSearch::ResultBound);
-                        break;
+                    Some(WitnessRetention::Further(further)) => {
+                        break SearchEnd::ResultBound(Truncation::FurtherResult(further));
                     }
-                    Some(WitnessRetention::PatternBound) if !pending.is_empty() => {
-                        incomplete.push(IncompleteSearch::ResultBound);
-                        break;
-                    }
-                    _ => {}
+                    // A stuck state has no successor: only the frontier can remain.
+                    Some(WitnessRetention::PatternBound) => match remaining(&pending, || false) {
+                        Remaining::Unexplored(unexplored) => {
+                            break SearchEnd::ResultBound(Truncation::UnexploredWork(unexplored));
+                        }
+                        Remaining::Exhausted(_) => {}
+                    },
+                    Some(WitnessRetention::Continue) | None => {}
                 }
             }
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
@@ -1483,13 +1582,12 @@ fn search_paths_collecting(
                     &mut observation_log,
                     observation,
                 ));
-                if path_search_breadth_exceeded(
-                    &mut pending,
-                    &mut incomplete,
-                    options.max_breadth,
-                    &observation_log,
-                ) {
-                    break;
+                if let Some(exceeded) =
+                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |path| {
+                        path.materialize_state(&observation_log)
+                    })
+                {
+                    break SearchEnd::BreadthBound(exceeded);
                 }
             }
             RewriteResult::Branch {
@@ -1524,22 +1622,22 @@ fn search_paths_collecting(
                     );
                     pending.push_back(remaining);
                 }
-                if path_search_breadth_exceeded(
-                    &mut pending,
-                    &mut incomplete,
-                    options.max_breadth,
-                    &observation_log,
-                ) {
-                    break;
+                if let Some(exceeded) =
+                    breadth_exceeded(&mut pending, &mut incomplete, options.max_breadth, |path| {
+                        path.materialize_state(&observation_log)
+                    })
+                {
+                    break SearchEnd::BreadthBound(exceeded);
                 }
             }
         }
-    }
+    };
 
     PathSearchResult {
         witnesses,
         effects,
         incomplete,
+        end,
     }
 }
 
@@ -1563,66 +1661,6 @@ impl PathSearchState {
             observation_log,
         )
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WitnessRetention {
-    Continue,
-    ResultBound,
-    PatternBound,
-}
-
-/// Retain one externalized path witness and classify any result bound reached there.
-///
-/// The witness is externalised in the simplifier's normal form (`externalise_result`); an
-/// empty witness is not retained and a failed simplification is reported as incomplete.
-#[allow(clippy::too_many_arguments)]
-fn retain_witness(
-    definition: &BackendDefinition,
-    witnesses: &mut Vec<PathWitness>,
-    path: &PathSearchState,
-    options: SearchOptions,
-    solver: &dyn SmtSolver,
-    effects: &mut Vec<BuiltinEffect>,
-    incomplete: &mut Vec<IncompleteSearch>,
-    observation_log: &mut ObservationLog,
-    observation_options: Option<&ObservationOptions>,
-    pattern_bound_reached: &mut impl FnMut(&PathWitness) -> bool,
-) -> WitnessRetention {
-    if options
-        .max_results
-        .is_some_and(|limit| witnesses.len() >= limit)
-    {
-        return WitnessRetention::ResultBound;
-    }
-    if let Some(state) = externalise_result(
-        definition,
-        path.state.clone(),
-        path.observation,
-        path.diagnostics.clone(),
-        options.max_simplification_iterations,
-        solver,
-        effects,
-        &mut |_| {},
-        incomplete,
-        observation_log,
-        observation_options,
-    ) {
-        let witness = PathWitness {
-            id: path.id.clone(),
-            pattern: state.pattern,
-            depth: state.depth,
-            trace: state.trace,
-            observations: state.observations,
-            diagnostics: state.diagnostics,
-        };
-        let pattern_bound_reached = pattern_bound_reached(&witness);
-        witnesses.push(witness);
-        if pattern_bound_reached {
-            return WitnessRetention::PatternBound;
-        }
-    }
-    WitnessRetention::Continue
 }
 
 fn next_path_state(
@@ -1679,24 +1717,6 @@ fn remaining_path_state(
     path.state = remaining_state(path.state.depth, path.state.trace, remainder);
     path.kind = kind;
     path
-}
-
-fn path_search_breadth_exceeded(
-    pending: &mut VecDeque<PathSearchState>,
-    incomplete: &mut Vec<IncompleteSearch>,
-    max_breadth: Option<usize>,
-    observation_log: &ObservationLog,
-) -> bool {
-    if !max_breadth.is_some_and(|bound| pending.len() > bound) {
-        return false;
-    }
-    incomplete.push(IncompleteSearch::BreadthBound(
-        pending
-            .drain(..)
-            .map(|path| path.materialize_state(observation_log))
-            .collect(),
-    ));
-    true
 }
 
 /// Search the selected execution states for instances of `target`.
@@ -1780,11 +1800,14 @@ fn search_pattern_using(
 ) -> PatternSearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
+    let initial = VecDeque::from(initial);
+    // A zero result bound stops before the first initial state, leaving every one unexplored.
     if requested_bound == Some(0) {
         return PatternSearchResult {
             matches: Vec::new(),
             effects: Vec::new(),
-            incomplete: vec![IncompleteSearch::ResultBound],
+            incomplete: Vec::new(),
+            end: remaining(&initial, || false).result_bound(|unexplored| unexplored),
         };
     }
     let graph_options = SearchOptions {
@@ -1825,7 +1848,7 @@ fn search_pattern_using(
     };
     let graph = search_graph_collecting(
         definition,
-        initial,
+        initial.into(),
         graph_options,
         solver,
         observation,
@@ -1838,6 +1861,7 @@ fn search_pattern_using(
         matches,
         effects: graph.effects,
         incomplete,
+        end: graph.end,
     }
 }
 
@@ -1909,11 +1933,14 @@ fn search_pattern_paths_using(
 ) -> PatternPathSearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let requested_bound = options.max_results;
+    // A zero result bound stops before the initial state, leaving it unexplored.
     if requested_bound == Some(0) {
         return PatternPathSearchResult {
             matches: Vec::new(),
             effects: Vec::new(),
-            incomplete: vec![IncompleteSearch::ResultBound],
+            incomplete: Vec::new(),
+            end: remaining(&VecDeque::from([&initial]), || false)
+                .result_bound(Truncation::UnexploredWork),
         };
     }
     let graph_options = SearchOptions {
@@ -1966,6 +1993,7 @@ fn search_pattern_paths_using(
         matches,
         effects: graph.effects,
         incomplete,
+        end: graph.end,
     }
 }
 
@@ -2049,30 +2077,13 @@ fn simplification_incomplete(state: SearchState, error: SimplificationError) -> 
     }
 }
 
+/// The traversal's entries, then the entries of the matches it could not decide.
 fn merge_pattern_incomplete(
     mut traversal: Vec<IncompleteSearch>,
     mut matching: Vec<IncompleteSearch>,
 ) -> Vec<IncompleteSearch> {
-    let result_bound = matches!(traversal.last(), Some(IncompleteSearch::ResultBound))
-        .then(|| traversal.pop())
-        .flatten();
     traversal.append(&mut matching);
-    traversal.extend(result_bound);
     traversal
-}
-
-fn retain_pattern_match(
-    matches: &mut Vec<SearchMatch>,
-    found: SearchMatch,
-    max_results: Option<usize>,
-) -> bool {
-    if matches.iter().any(|existing| {
-        existing.substitution == found.substitution && existing.constraints == found.constraints
-    }) {
-        return false;
-    }
-    matches.push(found);
-    max_results.is_some_and(|bound| matches.len() >= bound)
 }
 
 /// Classify a rewrite step that ends the exploration of `state` without a successor.
@@ -2403,34 +2414,6 @@ fn state_may_expand(
     )
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StateRetention {
-    Continue,
-    ResultBound,
-    PatternBound,
-}
-
-/// Retain one unique state result and classify any result bound reached there.
-fn retain_state_result(
-    states: &mut Vec<SearchState>,
-    state: SearchState,
-    max_results: Option<usize>,
-    pattern_bound_reached: &mut impl FnMut(&SearchState) -> bool,
-) -> StateRetention {
-    if states.iter().any(|found| found.pattern == state.pattern) {
-        return StateRetention::Continue;
-    }
-    let pattern_bound_reached = pattern_bound_reached(&state);
-    states.push(state);
-    if pattern_bound_reached {
-        StateRetention::PatternBound
-    } else if max_results.is_some_and(|limit| states.len() >= limit) {
-        StateRetention::ResultBound
-    } else {
-        StateRetention::Continue
-    }
-}
-
 fn record_effects(
     recorded: &mut Vec<BuiltinEffect>,
     effects: impl IntoIterator<Item = BuiltinEffect>,
@@ -2590,6 +2573,7 @@ mod tests {
             panic!("expected cancellation, found {:?}", result.incomplete);
         };
         assert_eq!(state.depth, 0);
+        assert_eq!(result.end, SearchEnd::Cancelled);
     }
 
     fn definition() -> BackendDefinition {
@@ -3098,7 +3082,7 @@ mod tests {
                 ..SearchOptions::default()
             };
             let bounded = search_graph(&definition, initial(&definition), options);
-            if bounded.incomplete.is_empty() {
+            if bounded.is_complete() {
                 let unbounded = search_graph(
                     &definition,
                     initial(&definition),
@@ -3127,7 +3111,7 @@ mod tests {
                 ..SearchOptions::default()
             };
             let bounded = search_pattern(&definition, initial(&definition), &target, options);
-            if bounded.incomplete.is_empty() {
+            if bounded.is_complete() {
                 let unbounded = search_pattern(
                     &definition,
                     initial(&definition),
@@ -3160,7 +3144,7 @@ mod tests {
                     ..SearchOptions::default()
                 },
             );
-            prop_assume!(!bounded.incomplete.is_empty());
+            prop_assume!(!bounded.is_complete());
 
             let selected = search_graph(
                 &definition,
@@ -3190,7 +3174,6 @@ mod tests {
                             prop_assert!(closure_names.contains(&state_name(state)));
                         }
                     }
-                    IncompleteSearch::ResultBound => {}
                     other => prop_assert!(false, "unexpected marker for finite fixture: {other:?}"),
                 }
             }
@@ -3210,7 +3193,7 @@ mod tests {
                 ..SearchOptions::default()
             };
             let bounded = search_graph(&definition, initial(&definition), options);
-            if bounded.incomplete.is_empty() {
+            if bounded.is_complete() {
                 let unbounded = search_graph(
                     &definition,
                     initial(&definition),
@@ -3235,7 +3218,7 @@ mod tests {
                 ..SearchOptions::default()
             };
             let bounded = search_paths(&definition, initial(&definition), options);
-            if bounded.incomplete.is_empty() {
+            if bounded.is_complete() {
                 let unbounded = search_paths(
                     &definition,
                     initial(&definition),
@@ -3349,11 +3332,21 @@ mod tests {
                 BuiltinEffect::UserLog("c0".into()),
             ]
         );
-        assert_eq!(pattern_result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(pattern_result.incomplete, []);
+        assert!(
+            matches!(pattern_result.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            pattern_result.end
+        );
         assert_eq!(graph_result.states.len(), 2);
         assert_eq!(observed, graph_result.effects);
         assert_eq!(graph_result.effects, pattern_result.effects);
-        assert_eq!(graph_result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(graph_result.incomplete, []);
+        assert!(
+            matches!(graph_result.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            graph_result.end
+        );
     }
 
     #[test]
@@ -3557,7 +3550,12 @@ mod tests {
         );
 
         assert_eq!(states.matches.len(), 1);
-        assert_eq!(states.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(states.incomplete, []);
+        assert!(
+            matches!(states.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            states.end
+        );
         assert_eq!(states.matches[0].state.branch.len(), 2);
         assert!(
             transition_ids(&states.matches[0].state.observations)
@@ -3566,7 +3564,15 @@ mod tests {
         );
 
         assert_eq!(paths.matches.len(), 1);
-        assert_eq!(paths.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(paths.incomplete, []);
+        assert!(
+            matches!(
+                paths.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            paths.end
+        );
         assert_eq!(paths.matches[0].witness.id.len(), 2);
         assert!(
             transition_ids(&paths.matches[0].witness.observations)
@@ -3648,7 +3654,15 @@ mod tests {
         );
 
         assert_eq!(result.matches.len(), 2);
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(
+                result.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -3679,7 +3693,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["initial-right"]
         );
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(
+                result.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -3721,7 +3743,14 @@ mod tests {
         );
 
         assert_eq!(result.witnesses.len(), 1);
-        assert!(result.incomplete.contains(&IncompleteSearch::ResultBound));
+        assert!(
+            matches!(
+                result.end,
+                SearchEnd::ResultBound(Truncation::FurtherResult(_))
+            ),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -3738,7 +3767,7 @@ mod tests {
         );
 
         assert_eq!(result.witnesses.len(), 5);
-        assert!(result.incomplete.is_empty());
+        assert!(result.is_complete(), "{result:?}");
     }
 
     #[test]
@@ -3763,7 +3792,15 @@ mod tests {
         // Raw path search can prove that the bound is exact by continuing until its queued
         // cycle candidates are pruned. Pattern search stops at five matches, so those unchecked
         // candidates conservatively make this result incomplete.
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(
+                result.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -3959,7 +3996,12 @@ mod tests {
         );
 
         assert_eq!(names(&result), BTreeSet::from(["next1".into()]));
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(result.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -3988,7 +4030,7 @@ mod tests {
                 expected.iter().map(|name| (*name).to_owned()).collect(),
                 "{search_type:?}"
             );
-            assert!(result.incomplete.is_empty(), "{search_type:?}");
+            assert!(result.is_complete(), "{search_type:?}: {result:?}");
         }
     }
 
@@ -4014,13 +4056,15 @@ mod tests {
         assert!(
             matches!(
                 result.incomplete.as_slice(),
-                [
-                    IncompleteSearch::DepthBound(_),
-                    IncompleteSearch::ResultBound
-                ]
+                [IncompleteSearch::DepthBound(_)]
             ),
             "{:?}",
             result.incomplete
+        );
+        assert!(
+            matches!(result.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            result.end
         );
     }
 
@@ -4034,7 +4078,12 @@ mod tests {
         };
         let graph = search_graph(&definition, initial(&definition), options);
         assert!(graph.states.is_empty());
-        assert_eq!(graph.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(graph.incomplete, []);
+        assert!(
+            matches!(graph.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            graph.end
+        );
 
         let target = Pattern {
             term: Term::variable(Variable::new("Result", Sort::simple("SortS"))),
@@ -4042,7 +4091,54 @@ mod tests {
         };
         let pattern = search_pattern(&definition, initial(&definition), &target, options);
         assert!(pattern.matches.is_empty());
-        assert_eq!(pattern.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(pattern.incomplete, []);
+        assert!(
+            matches!(pattern.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            pattern.end
+        );
+    }
+
+    #[test]
+    fn zero_bounds_on_an_empty_initial_frontier_are_complete() {
+        // An initial disjunction without a branch denotes no state, so a search from it has
+        // nothing to explore: a zero result bound or a zero breadth bound leaves no work behind,
+        // and its empty result set is complete.
+        let definition = definition();
+        let target = Pattern {
+            term: Term::variable(result_variable()),
+            constraints: Vec::new(),
+        };
+        for options in [
+            SearchOptions {
+                max_results: Some(0),
+                ..SearchOptions::default()
+            },
+            SearchOptions {
+                max_breadth: Some(0),
+                ..SearchOptions::default()
+            },
+        ] {
+            let graph = search_graph_disjunction_with_solver_and_observer(
+                &definition,
+                Vec::new(),
+                options,
+                &NoSolver,
+                |_| {},
+            );
+            assert!(graph.states.is_empty());
+            assert!(graph.is_complete(), "{options:?}: {graph:?}");
+
+            let pattern = search_pattern_disjunction_with_solver(
+                &definition,
+                Vec::new(),
+                &target,
+                options,
+                &NoSolver,
+            );
+            assert!(pattern.matches.is_empty());
+            assert!(pattern.is_complete(), "{options:?}: {pattern:?}");
+        }
     }
 
     #[test]
@@ -4064,7 +4160,12 @@ mod tests {
         );
 
         assert_eq!(result.matches.len(), 1);
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(result.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            result.end
+        );
 
         let result = search_pattern(
             &definition,
@@ -4077,7 +4178,7 @@ mod tests {
             },
         );
         assert_eq!(result.matches.len(), 2);
-        assert!(result.incomplete.is_empty());
+        assert!(result.is_complete(), "{result:?}");
     }
 
     #[test]
@@ -4108,7 +4209,7 @@ mod tests {
             pattern(&definition, "final2{}()").term
         );
         assert!(result.matches[0].constraints.is_empty());
-        assert!(result.incomplete.is_empty());
+        assert!(result.is_complete(), "{result:?}");
     }
 
     #[test]
@@ -4145,7 +4246,7 @@ mod tests {
         assert_eq!(result.matches.len(), 1);
         assert!(result.matches[0].substitution.is_empty());
         assert!(result.matches[0].constraints.is_empty());
-        assert!(result.incomplete.is_empty());
+        assert!(result.is_complete(), "{result:?}");
     }
 
     #[test]
@@ -4182,7 +4283,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert_eq!(states.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(states.incomplete, []);
+        assert!(
+            matches!(states.end, SearchEnd::ResultBound(_)),
+            "{:?}",
+            states.end
+        );
 
         let paths = search_pattern_paths(
             &definition,
@@ -4199,7 +4305,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert_eq!(paths.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(paths.incomplete, []);
+        assert!(
+            matches!(
+                paths.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            paths.end
+        );
     }
 
     #[test]
@@ -4218,7 +4332,15 @@ mod tests {
 
         assert!(result.matches.is_empty());
         assert!(result.effects.is_empty());
-        assert_eq!(result.incomplete, [IncompleteSearch::ResultBound]);
+        assert_eq!(result.incomplete, []);
+        assert!(
+            matches!(
+                result.end,
+                SearchEnd::ResultBound(Truncation::UnexploredWork(_))
+            ),
+            "{:?}",
+            result.end
+        );
     }
 
     #[test]
@@ -4240,6 +4362,11 @@ mod tests {
                 result.incomplete
             );
         };
+        assert!(
+            matches!(result.end, SearchEnd::BreadthBound(_)),
+            "{:?}",
+            result.end
+        );
         assert_eq!(
             frontier
                 .iter()
@@ -4271,6 +4398,11 @@ mod tests {
                 result.incomplete
             );
         };
+        assert!(
+            matches!(result.end, SearchEnd::BreadthBound(_)),
+            "{:?}",
+            result.end
+        );
         assert_eq!(frontier.len(), 1);
         assert_eq!(frontier[0].depth, 0);
         assert!(matches!(

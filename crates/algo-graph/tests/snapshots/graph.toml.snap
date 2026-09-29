@@ -2167,6 +2167,11 @@ symbol = "search_graph_using"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search/retention.rs"
+symbol = "retain_state_result"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "search_graph_using"
 
@@ -2179,11 +2184,6 @@ symbol = "search_graph_collecting"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "materialize_search_state"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/search.rs"
-symbol = "retain_state_result"
 
 [[node.cost]]
 mode = "one depth"
@@ -2258,6 +2258,11 @@ symbol = "search_paths_using"
 
 [[node.sites]]
 crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/search/retention.rs"
+symbol = "retain_witness"
+
+[[node.sites]]
+crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "search_paths_using"
 
@@ -2265,11 +2270,6 @@ symbol = "search_paths_using"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/search.rs"
 symbol = "search_paths_collecting"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/search.rs"
-symbol = "retain_witness"
 
 [[node.cost]]
 mode = "simple paths"

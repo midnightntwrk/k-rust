@@ -35,7 +35,7 @@ use k_rust_backend::{
     rule::Predicate,
     rule::RuleOrigin,
     search::{
-        IncompleteSearch, PatternMatchError, SearchOptions, SearchType,
+        IncompleteSearch, PatternMatchError, SearchEnd, SearchOptions, SearchType,
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     simplify::{
@@ -589,14 +589,16 @@ fn run_backend_with_solver(
         }
         // Depth and result bounds are limits the user asked for, not engine failures: the
         // states found are still valid answers, so report the truncation and succeed.
-        if result.incomplete.contains(&IncompleteSearch::ResultBound) {
-            eprintln!("search stopped at the requested result bound; further results may exist");
+        match &result.end {
+            SearchEnd::ResultBound(_) => {
+                eprintln!("search stopped at the requested result bound; further results may exist")
+            }
+            // Nothing remained, or the breadth frontier or the cancelled state is an entry of
+            // `incomplete`, classified below.
+            SearchEnd::Exhausted(_) | SearchEnd::BreadthBound(_) | SearchEnd::Cancelled => {}
         }
         if let Some(incomplete) = result.incomplete.iter().find(|incomplete| {
-            !matches!(
-                incomplete,
-                IncompleteSearch::DepthBound(_) | IncompleteSearch::ResultBound
-            )
+            search_incomplete_disposition(incomplete) == IncompleteDisposition::Failure
         }) {
             return Err(io::Error::other(format!(
                 "in-process backend search was incomplete: {incomplete:?}"
@@ -856,6 +858,30 @@ fn run_backend_with_solver(
         captured_stdout,
         live_transcript,
     })
+}
+
+/// Whether a state a search left unexplored is a limit the user asked for or an engine failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IncompleteDisposition {
+    UserLimit,
+    Failure,
+}
+
+/// Classify one state a search left unexplored.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn search_incomplete_disposition(incomplete: &IncompleteSearch) -> IncompleteDisposition {
+    match incomplete {
+        IncompleteSearch::DepthBound(_) => IncompleteDisposition::UserLimit,
+        // An exceeded `--breadth` fails the run although it is a limit the user asked for, like
+        // `--depth` and `--bound`; this arm is where that decision is made, apart from the
+        // engine failures, so that it can be revisited on its own.
+        IncompleteSearch::BreadthBound(_) => IncompleteDisposition::Failure,
+        IncompleteSearch::Indeterminate { .. }
+        | IncompleteSearch::Cancelled(_)
+        | IncompleteSearch::Simplification { .. }
+        | IncompleteSearch::Match { .. }
+        | IncompleteSearch::Smt { .. } => IncompleteDisposition::Failure,
+    }
 }
 
 /// Match `Kore.Exec.getExitCode` over the merged, non-bottom final configurations.
