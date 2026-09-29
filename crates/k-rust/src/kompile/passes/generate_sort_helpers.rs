@@ -104,11 +104,14 @@ fn generate_sort_predicate_syntax_from_resolved(
                     },
                     ProductionItem::Terminal(")".into()),
                 ],
-                attributes: Attributes::from_pairs([
-                    (AttributeKey::Function, Value::String(String::new())),
-                    (AttributeKey::Total, Value::String(String::new())),
-                    (AttributeKey::Predicate, sort_json(sort)),
-                ]),
+                attributes: {
+                    let mut attributes = Attributes::from_pairs([
+                        (AttributeKey::Function, Value::String(String::new())),
+                        (AttributeKey::Predicate, sort_json(sort)),
+                    ]);
+                    attributes.declare_total(TotalityWitness::covering_predicate());
+                    attributes
+                },
             };
             generated.push(production);
         }

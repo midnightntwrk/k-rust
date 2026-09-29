@@ -302,11 +302,26 @@ impl Attributes {
     }
 
     /// Write a well-known key.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds for `total`, `functional`, `constructor` and `injective`.
+    /// A user-asserted claim must be written through [`Self::insert`].
     pub fn set(&mut self, key: AttributeKey, value: Value) -> Option<Value> {
+        debug_assert!(
+            !key.is_emission_claim(),
+            "`{}` on a production needs its evidence; use Attributes::declare_total",
+            key.as_str()
+        );
         self.insert(key.as_str(), value)
     }
 
     /// Write a well-known key as a bare marker (the empty string K uses for a parameterless key).
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds for `total`, `functional`, `constructor` and `injective`.
+    /// A user-asserted claim must be written through [`Self::insert`].
     pub fn mark(&mut self, key: AttributeKey) -> Option<Value> {
         self.set(key, Value::String(String::new()))
     }
@@ -317,11 +332,23 @@ impl Attributes {
     }
 
     /// Build a map from well-known keys.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds for `total`, `functional`, `constructor` and `injective`.
+    /// A user-asserted claim must be written through [`Self::insert`].
     pub fn from_pairs<I: IntoIterator<Item = (AttributeKey, Value)>>(pairs: I) -> Self {
         Self::new(
             pairs
                 .into_iter()
-                .map(|(key, value)| (key.as_str().to_owned(), value))
+                .map(|(key, value)| {
+                    debug_assert!(
+                        !key.is_emission_claim(),
+                        "`{}` on a production needs its evidence; use Attributes::declare_total",
+                        key.as_str()
+                    );
+                    (key.as_str().to_owned(), value)
+                })
                 .collect(),
         )
     }
@@ -660,5 +687,17 @@ impl Definition {
         self.modules
             .iter()
             .find(|module| module.name == self.main_module)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "declare_total")]
+    fn raw_total_marker_requires_evidence() {
+        Attributes::default().mark(AttributeKey::Total);
     }
 }

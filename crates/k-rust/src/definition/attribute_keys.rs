@@ -261,6 +261,15 @@ attribute_keys! {
 }
 
 impl AttributeKey {
+    pub(crate) const fn is_emission_claim(self) -> bool {
+        matches!(
+            self,
+            Self::Total | Self::Functional | Self::Constructor | Self::Injective
+        )
+    }
+}
+
+impl AttributeKey {
     /// The keys that make a production or rule macro-like.
     pub const MACRO_LIKE: [Self; 4] = [Self::Macro, Self::MacroRec, Self::Alias, Self::AliasRec];
 

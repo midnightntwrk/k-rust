@@ -31,6 +31,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use web_time::Instant;
 
 use crate::definition::AttributeKey;
+use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
     Sentence, SortCatalog,
@@ -768,7 +769,7 @@ fn sort_predicate_production(sort: &Sort) -> Sentence {
     let label = Label::sort_predicate(sort);
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
-    attributes.mark(AttributeKey::Total);
+    attributes.declare_total(TotalityWitness::covering_predicate());
     attributes.mark(AttributeKey::GeneratedRuleSyntax);
     Sentence::Production {
         label: Some(label.clone()),
@@ -1256,7 +1257,7 @@ fn add_k_rule_sentences(sentences: &mut Vec<Sentence>) {
         }
         let mut attributes = generated_attributes.clone();
         attributes.mark(AttributeKey::Function);
-        attributes.mark(AttributeKey::Total);
+        attributes.declare_total(TotalityWitness::k_equality());
         sentences.push(Sentence::Production {
             label: Some(Label::new(label)),
             parameters: Vec::new(),

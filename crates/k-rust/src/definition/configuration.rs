@@ -33,6 +33,7 @@ use super::{
     dedup_by_equivalence, push_if_inequivalent, sentence_equivalent,
 };
 use crate::definition::AttributeKey;
+use crate::definition::totality::TotalityWitness;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::string::unquote;
 use crate::kast::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term};
@@ -815,11 +816,14 @@ impl Generator<'_, '_> {
                 nonterminal_sort(map_sort.clone()),
                 ProductionItem::Terminal(")".into()),
             ],
-            Attributes::from_pairs([
-                (AttributeKey::Hook, json!("MAP.in_keys")),
-                (AttributeKey::Function, json!("")),
-                (AttributeKey::Total, json!("")),
-            ]),
+            {
+                let mut attributes = Attributes::from_pairs([
+                    (AttributeKey::Hook, json!("MAP.in_keys")),
+                    (AttributeKey::Function, json!("")),
+                ]);
+                attributes.declare_total(TotalityWitness::hooked());
+                attributes
+            },
         ));
         let key_label = format!("{}Key", map_sort.name);
         self.push(production(
@@ -831,10 +835,11 @@ impl Generator<'_, '_> {
                 nonterminal_sort(cell_sort.clone()),
                 ProductionItem::Terminal(")".into()),
             ],
-            Attributes::from_pairs([
-                (AttributeKey::Function, json!("")),
-                (AttributeKey::Total, json!("")),
-            ]),
+            {
+                let mut attributes = Attributes::from_pairs([(AttributeKey::Function, json!(""))]);
+                attributes.declare_total(TotalityWitness::cell_projection());
+                attributes
+            },
         ));
         let key = Term::Variable {
             name: "Key".into(),
@@ -1140,7 +1145,7 @@ fn initializer_production(label: &str, sort: Sort, takes_map: bool) -> Sentence 
         (AttributeKey::Function, json!("")),
     ]);
     if !takes_map {
-        attributes.mark(AttributeKey::Total);
+        attributes.declare_total(TotalityWitness::nullary_initializer());
     }
     production(Some(label.into()), sort, items, attributes)
 }

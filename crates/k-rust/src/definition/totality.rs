@@ -51,61 +51,26 @@ impl TotalityWitness {
 
     /// Reason: a generated predicate whose rules decide every argument (a `true` rule and an
     /// `owise` `false` rule).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the generated predicates move to `declare_total` in CBC-01-T6"
-        )
-    )]
     pub(crate) fn covering_predicate() -> Self {
         Self(TotalityReason::CoveringPredicate)
     }
 
     /// Reason: `:=K` or `:/=K` on two defined K terms is `true` or `false`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`:=K` and `:/=K` move to `declare_total` in CBC-01-T6"
-        )
-    )]
     pub(crate) fn k_equality() -> Self {
         Self(TotalityReason::KEquality)
     }
 
     /// Reason: a hooked function whose hook is defined on every argument.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "hooked initializers move to `declare_total` in CBC-01-T6"
-        )
-    )]
     pub(crate) fn hooked() -> Self {
         Self(TotalityReason::Hooked)
     }
 
     /// Reason: a cell-sort projection: a cell sort has exactly one production, the cell.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "cell projections move to `declare_total` in CBC-01-T6"
-        )
-    )]
     pub(crate) fn cell_projection() -> Self {
         Self(TotalityReason::CellProjection)
     }
 
     /// Reason: a nullary initializer whose single unconditional rule builds its value.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "nullary initializers move to `declare_total` in CBC-01-T6"
-        )
-    )]
     pub(crate) fn nullary_initializer() -> Self {
         Self(TotalityReason::NullaryInitializer)
     }
@@ -141,7 +106,7 @@ mod tests {
     #[test]
     fn every_named_reason_writes_the_bare_total_marker() {
         let mut expected = Attributes::default();
-        expected.mark(AttributeKey::Total);
+        expected.insert(AttributeKey::Total.as_str(), Value::String(String::new()));
         for witness in [
             TotalityWitness::covering_predicate(),
             TotalityWitness::k_equality(),
