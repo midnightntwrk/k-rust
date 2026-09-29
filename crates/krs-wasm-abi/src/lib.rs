@@ -160,12 +160,10 @@ pub fn export_dealloc(ptr: u32) {
 /// }
 /// ```
 ///
-/// `unallocated` is a `fn() -> Vec<u8>` returning the module's protocol
-/// error response for [`UNALLOCATED`]; each entry names a
-/// `fn(&[u8]) -> Vec<u8>` handler from request bytes to response bytes. The
-/// invoking crate must allow `unsafe_code` (the exports carry
-/// `#[unsafe(no_mangle)]`), for example by denying it instead of forbidding
-/// it.
+/// `unallocated` is a `fn() -> Vec<u8>` returning the module's protocol error response for [`UNALLOCATED`].
+/// Each entry names a `fn(&[u8]) -> Vec<u8>` handler from request bytes to response bytes.
+/// The exports carry `#[unsafe(no_mangle)]` and allow `unsafe_code` locally,
+/// so the invoking crate must deny that lint, as the workspace table does, rather than forbid it.
 #[macro_export]
 macro_rules! export {
     (

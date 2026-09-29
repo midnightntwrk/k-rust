@@ -21,7 +21,9 @@ toml_edit = { version = "0.25.13", default-features = false }
 
 [workspace.lints.rust]
 missing_docs = "warn"
-unsafe_code = "forbid"
+# `deny`, not `forbid`: the Wasm ABI exports allow the lint locally.
+# tests/repo-hygiene/verify.py confines that allowance to crates/krs-wasm-abi.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

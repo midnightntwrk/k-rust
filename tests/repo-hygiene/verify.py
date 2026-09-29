@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when the tracked tree depends on local-only notes or has a dead gate.
+"""Fail when the tracked tree depends on local-only notes, has a dead gate, or drifts from policy.
 
 `draft/` holds untracked, machine-local working notes, and the former root
 tracking ledgers now live there. A tracked file must not reference either,
@@ -15,6 +15,16 @@ gate README runs (`python3 tests/...`) must be tracked, so a README cannot
 keep naming a verifier that was removed. `tests/support/` is the shared
 verifier library, not a gate.
 
+The workspace denies `unsafe_code` rather than forbidding it, because the Wasm
+exports that `krs_wasm_abi::export!` declares carry `#[unsafe(no_mangle)]` and
+must allow the lint locally. The forbid guarantee is kept here instead: only
+`crates/krs-wasm-abi/src/lib.rs` may allow or expect `unsafe_code`, and no
+root or crate manifest may lower the lint below `deny`.
+
+Every tracked `Cargo.toml` that declares `rust-version` must match
+`Krs.lock` `[cargo] msrv` at major.minor or inherit the workspace value, so
+the minimum supported Rust has one source.
+
     PYTHONDONTWRITEBYTECODE=1 python3 tests/repo-hygiene/verify.py
 """
 
@@ -23,6 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import sys
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
@@ -50,6 +61,9 @@ RUN_COMMAND = re.compile(r"\b(?:python3|cargo|bun|node)\s+\S")
 PYTHON_SCRIPT = re.compile(r"\bpython3\s+(tests/[^\s`'\"]+\.py)\b")
 # Directories under tests/ that are libraries rather than gates.
 NOT_GATES = {"support"}
+UNSAFE_EXCEPTION = "crates/krs-wasm-abi/src/lib.rs"
+UNSAFE_ALLOW = re.compile(r"\b(?:allow|expect)\s*\([^)]*\bunsafe_code\b", re.DOTALL)
+RUST_VERSION = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 
 
 def tracked_files() -> list[str]:
@@ -81,9 +95,38 @@ def gate_entry_problems(files: list[str]) -> list[str]:
     return problems
 
 
+def manifest_problems(relative: str, text: str, msrv: tuple[int, int]) -> list[str]:
+    manifest = tomllib.loads(text)
+    problems: list[str] = []
+    for section in ("package", "workspace.package"):
+        table = manifest
+        for part in section.split("."):
+            table = table.get(part, {})
+        version = table.get("rust-version")
+        if version is None or version == {"workspace": True}:
+            continue
+        if not isinstance(version, str) or not RUST_VERSION.fullmatch(version):
+            problems.append(f"{relative}: [{section}] rust-version must be a version string or inherit the workspace value")
+        elif tuple(map(int, version.split(".")[:2])) != msrv:
+            problems.append(f"{relative}: [{section}] rust-version {version} differs from Krs.lock cargo.msrv {msrv[0]}.{msrv[1]}")
+
+    if relative == "Cargo.toml" or relative.startswith("crates/"):
+        lint = manifest.get("workspace", {}).get("lints", {}).get("rust", {}).get("unsafe_code")
+        lint = manifest.get("lints", {}).get("rust", {}).get("unsafe_code", lint)
+        if isinstance(lint, dict):
+            lint = lint.get("level")
+        if relative == "Cargo.toml" and lint != "deny":
+            problems.append(f"{relative}: workspace unsafe_code lint must be deny, which the Wasm ABI exports need")
+        elif lint in ("allow", "warn"):
+            problems.append(f"{relative}: unsafe_code lint must be deny or forbid")
+    return problems
+
+
 def main() -> int:
     files = tracked_files()
     problems = gate_entry_problems(files)
+    lock = tomllib.loads((ROOT / "Krs.lock").read_text(encoding="utf-8"))
+    msrv = tuple(map(int, lock["cargo"]["msrv"].split(".")[:2]))
     for relative in files:
         if relative == "draft" or relative.startswith("draft/"):
             problems.append(f"{relative}: tracked file under draft/")
@@ -97,6 +140,13 @@ def main() -> int:
         if b"\0" in data:
             continue
         text = data.decode("utf-8", errors="replace")
+        if relative.endswith(".rs"):
+            for match in UNSAFE_ALLOW.finditer(text):
+                if relative != UNSAFE_EXCEPTION:
+                    number = text.count("\n", 0, match.start()) + 1
+                    problems.append(f"{relative}:{number}: allows or expects unsafe_code outside the Wasm ABI macro")
+        if relative == "Cargo.toml" or relative.endswith("/Cargo.toml"):
+            problems.extend(manifest_problems(relative, text, msrv))
         for number, line in enumerate(text.splitlines(), start=1):
             for pattern, what in (
                 (DRAFT_PATH, "references draft/"),
@@ -113,8 +163,7 @@ def main() -> int:
         print(f"FAIL repository hygiene: {len(problems)} finding(s)", file=sys.stderr)
         return 1
     print(
-        "PASS repository hygiene: no tracked file depends on draft/, a removed root ledger, "
-        "a spike path, or a local ticket id, and every tests/ gate has an entry point"
+        "PASS repository hygiene: tracked references, gate entry points, unsafe_code lint policy, and Cargo MSRV"
     )
     return 0
 
