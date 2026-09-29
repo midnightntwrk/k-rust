@@ -2044,7 +2044,7 @@ mod tests {
             _checked: &[k_rust_backend::rule::Predicate],
         ) -> Result<k_rust_backend::smt::Validity, SmtError> {
             self.0.cancel();
-            Ok(k_rust_backend::smt::Validity::Indeterminate)
+            Ok(k_rust_backend::smt::Validity::Contingent)
         }
     }
 

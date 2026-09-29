@@ -215,7 +215,7 @@ fn indeterminate_anywhere_equation_scan_remains_unevaluated() {
         &input,
         &[],
         SimplificationOptions::default(),
-        &FixedValiditySolver(Validity::Indeterminate),
+        &FixedValiditySolver(Validity::Contingent),
     )
     .expect("an indeterminate equation should leave the subject unchanged");
 
@@ -239,7 +239,7 @@ fn path_refuted_anywhere_equation_is_rechecked_under_opposing_assumptions() {
         &input,
         &refuting_assumptions,
         SimplificationOptions::default(),
-        &FixedValiditySolver(Validity::Invalid),
+        &FixedValiditySolver(Validity::Refuted),
     )
     .expect("the refuted equation should leave the subject unchanged");
     assert_eq!(refuted.term, input);
@@ -651,7 +651,7 @@ fn top_equations_carry_the_definedness_of_the_erased_operand() {
     assert_eq!(open.constraints, vec![Predicate::Ceil(argument.clone())]);
     assert_eq!(open.applied_rules, ["erase-f"]);
 
-    let refuted = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    let refuted = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(refuted.term, retained);
     assert_eq!(refuted.constraints, vec![Predicate::False]);
     assert_eq!(refuted.applied_rules, ["erase-f"]);
@@ -791,7 +791,7 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
 
     // The solver refutes `\ceil(f(X))`: `f(X)` is empty, so `discard(f(X))` is empty by
     // strictness, whichever equation is tried; the subject is retained under `\bottom`.
-    let (refuted, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    let (refuted, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(refuted.term, input);
     assert_eq!(refuted.constraints, vec![Predicate::False]);
     assert_eq!(refuted.applied_rules, ["discard"]);
@@ -799,7 +799,7 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
 
     // Negative controls: an open implication carries the obligation silently; an inconsistent
     // path condition carries it too and is reported, because the solver did not answer.
-    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Indeterminate));
+    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Contingent));
     assert_eq!(open.term, done);
     assert_eq!(open.constraints, vec![obligation.clone()]);
     assert!(diagnostics.is_empty());
@@ -1365,14 +1365,14 @@ fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
     assert_eq!(valid.applied_rules, ["constrained"]);
     assert!(diagnostics.is_empty());
 
-    let (invalid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    let (invalid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(invalid.term, value);
     assert_eq!(invalid.constraints, [Predicate::False]);
     assert_eq!(invalid.applied_rules, ["constrained"]);
     assert!(diagnostics.is_empty());
 
     let carried: [&dyn SmtSolver; 5] = [
-        &FixedValiditySolver(Validity::Indeterminate),
+        &FixedValiditySolver(Validity::Contingent),
         &FixedValiditySolver(Validity::InconsistentGroundTruth),
         &FixedValiditySolver(Validity::Unknown("timeout".into())),
         &UntranslatableSolver::non_boolean_and(&definition),
@@ -2116,15 +2116,15 @@ fn predicate_equations_use_an_open_obligation_only_where_the_subject_is_strict()
 
     // A refuted obligation makes the strict subject `\bottom` and leaves the others alone.
     assert_eq!(
-        simplify_with(&strict, &FixedValiditySolver(Validity::Invalid)).0,
+        simplify_with(&strict, &FixedValiditySolver(Validity::Refuted)).0,
         Predicate::False
     );
     assert_eq!(
-        simplify_with(&both_sides, &FixedValiditySolver(Validity::Invalid)).0,
+        simplify_with(&both_sides, &FixedValiditySolver(Validity::Refuted)).0,
         both_sides
     );
     assert_eq!(
-        simplify_with(&negated, &FixedValiditySolver(Validity::Invalid)).0,
+        simplify_with(&negated, &FixedValiditySolver(Validity::Refuted)).0,
         negated
     );
 
@@ -3413,12 +3413,12 @@ fn pattern_simplification_drops_only_the_residual_constraints_the_solver_validat
     assert!(valid.constraints.is_empty());
     assert!(diagnostics.is_empty());
 
-    let (refuted, _) = simplify_with(&FixedValiditySolver(Validity::Invalid));
+    let (refuted, _) = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(refuted.constraints, vec![Predicate::False]);
 
     // Negative controls: an open implication, an unavailable solver, and a solver that gave up
     // all keep the constraint; only the last one is reported.
-    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Indeterminate));
+    let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Contingent));
     assert_eq!(open, pattern);
     assert!(diagnostics.is_empty());
 

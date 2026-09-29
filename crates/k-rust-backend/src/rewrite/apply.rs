@@ -890,7 +890,7 @@ fn recover_by_unification(
                         &Substitution::new(),
                         &unclear,
                     ),
-                    Ok(Validity::Invalid)
+                    Ok(Validity::Refuted)
                 )
             {
                 return Err(RuleAttempt::NotApplicable);
@@ -1134,7 +1134,7 @@ fn simplify_rule_condition(
     )
 }
 
-/// P12: the unclear `requires` are checked for validity (`Valid` empties them, `Invalid` ends
+/// P12: the unclear `requires` are checked for validity (`Valid` empties them, `Refuted` ends
 /// the attempt, solver trouble makes it `Indeterminate`); the applicability is the
 /// existential closure of the match conditions and the unclear `requires`, and an attempt
 /// whose negated applicability is already on the path (alpha-equivalently) ends.

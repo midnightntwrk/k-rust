@@ -1053,17 +1053,19 @@ pub(crate) fn decide_condition(
         return Ok(RuleCondition::Satisfied);
     }
     match solver.check_predicates(known_predicates, &Substitution::new(), predicates) {
-        Ok(Validity::Valid) => Ok(RuleCondition::Satisfied),
-        Ok(Validity::Invalid) => Ok(RuleCondition::Refuted),
-        Ok(Validity::Indeterminate) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::ImplicationIndeterminate,
-        )),
-        Ok(Validity::InconsistentGroundTruth) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::InconsistentPathCondition,
-        )),
-        Ok(Validity::Unknown(message)) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::SmtUnknown(message),
-        )),
+        Ok(validity) => Ok(match validity {
+            Validity::Valid => RuleCondition::Satisfied,
+            Validity::Refuted => RuleCondition::Refuted,
+            Validity::Contingent => {
+                RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)
+            }
+            Validity::InconsistentGroundTruth => {
+                RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)
+            }
+            Validity::Unknown(message) => {
+                RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(message))
+            }
+        }),
         Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
             ConditionIndeterminacy::NoSolver,
         )),
@@ -4166,7 +4168,7 @@ mod tests {
             _substitution: &Substitution,
             _checked: &[Predicate],
         ) -> Result<Validity, SmtError> {
-            Ok(Validity::Invalid)
+            Ok(Validity::Refuted)
         }
     }
 

@@ -63,7 +63,6 @@ use z3::{
 
 use super::{
     ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
-    translates_exactly,
 };
 use crate::{
     cancellation::cancellation_requested,
@@ -387,7 +386,7 @@ impl Z3Solver {
         query: &TranslatedQuery,
         assertion: Option<&str>,
     ) -> Result<Satisfiability, SmtError> {
-        let mut script = query.base.clone();
+        let mut script = query.base().to_owned();
         if let Some(assertion) = assertion {
             script.push_str("\n(assert ");
             script.push_str(assertion);
@@ -403,7 +402,6 @@ impl Z3Solver {
         &self,
         query: &TranslatedQuery,
         variables: &BTreeSet<Variable>,
-        exact: bool,
     ) -> Result<ModelResult, SmtError> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         if let Some(error) = self.prelude_failure() {
@@ -419,15 +417,15 @@ impl Z3Solver {
             let mut parameters = Params::new();
             parameters.set_u32("timeout", timeout);
             solver.set_params(&parameters);
-            solver.from_string(query.base.as_str());
+            solver.from_string(query.base());
             match measured_check(&solver) {
                 SatResult::Sat => {
                     self.confirm_answer(Satisfiability::Sat)?;
-                    if !exact {
+                    let Some(mappings) = query.model_mappings() else {
                         return Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()));
-                    }
+                    };
                     let model = solver.get_model().ok_or(SmtError::MissingModel)?;
-                    return self.extract_model(&model, &query.mappings, variables);
+                    return self.extract_model(&model, mappings, variables);
                 }
                 SatResult::Unsat => {
                     self.confirm_answer(Satisfiability::Unsat)?;
@@ -514,12 +512,12 @@ fn decide_validity(
     Ok(match solve(ValiditySubquery::Positive)? {
         Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
             Satisfiability::Unsat => Validity::Valid,
-            Satisfiability::Sat => Validity::Indeterminate,
+            Satisfiability::Sat => Validity::Contingent,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
         Satisfiability::Unsat => match solve(ValiditySubquery::Base)? {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
-            Satisfiability::Sat => Validity::Invalid,
+            Satisfiability::Sat => Validity::Refuted,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
         Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base)? {
@@ -561,7 +559,7 @@ impl SmtSolver for Z3Solver {
             return Ok(Validity::Valid);
         }
         let query = self.prelude.query(known, substitution, checked, true)?;
-        let checked = query.checked.to_string();
+        let checked = query.checked().to_string();
         decide_validity(|subquery| match subquery {
             ValiditySubquery::Base => self.solve_query(&query, None),
             ValiditySubquery::Positive => self.solve_query(&query, Some(&checked)),
@@ -587,16 +585,8 @@ impl SmtSolver for Z3Solver {
             .cloned()
             .chain(predicates.iter().flat_map(Predicate::free_variables))
             .collect::<BTreeSet<_>>();
-        let exact_predicates = predicates
-            .iter()
-            .cloned()
-            .chain(substitution.iter().map(|(variable, term)| {
-                Predicate::Equals(Term::variable(variable.clone()), term.clone())
-            }))
-            .collect::<Vec<_>>();
-        let exact = translates_exactly(&exact_predicates);
         let query = self.prelude.query(predicates, substitution, &[], false)?;
-        self.solve_model(&query, &variables, exact)
+        self.solve_model(&query, &variables)
     }
 
     fn prelude_signal(&self) -> Option<&PreludeSignal> {
@@ -712,7 +702,7 @@ mod tests {
         );
         assert_eq!(
             solver.check_predicates(&[left], &Substitution::new(), &[different]),
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         );
     }
 
@@ -859,11 +849,11 @@ mod tests {
                 &Substitution::from([(x(), term(&definition, r#"\dv{SortInt{}}("15")"#))]),
                 &checked,
             ),
-            Ok(Validity::Invalid)
+            Ok(Validity::Refuted)
         );
         assert_eq!(
             solver.check_predicates(&[], &Substitution::new(), &checked),
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         );
     }
 
@@ -1361,14 +1351,14 @@ mod tests {
             r#"lt{}(X:SortInt{}, \dv{SortInt{}}("10"))"#,
         ))];
         for (substitution, expected) in [
-            (Substitution::new(), Validity::Indeterminate),
+            (Substitution::new(), Validity::Contingent),
             (
                 Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "5"))]),
                 Validity::Valid,
             ),
             (
                 Substitution::from([(x(), Term::domain_value(Sort::simple("SortInt"), "15"))]),
-                Validity::Invalid,
+                Validity::Refuted,
             ),
         ] {
             assert_eq!(
@@ -1421,8 +1411,8 @@ mod tests {
             };
             match (positive, negative) {
                 (Satisfiability::Sat, Satisfiability::Unsat) => Validity::Valid,
-                (Satisfiability::Unsat, Satisfiability::Sat) => Validity::Invalid,
-                (Satisfiability::Sat, Satisfiability::Sat) => Validity::Indeterminate,
+                (Satisfiability::Unsat, Satisfiability::Sat) => Validity::Refuted,
+                (Satisfiability::Sat, Satisfiability::Sat) => Validity::Contingent,
                 (Satisfiability::Unsat, Satisfiability::Unsat) => Validity::InconsistentGroundTruth,
                 (Satisfiability::Unknown(reason), _) | (_, Satisfiability::Unknown(reason)) => {
                     Validity::Unknown(reason)
@@ -1459,7 +1449,7 @@ mod tests {
                     } else {
                         let stronger_result = match negative {
                             Outcome::Unsat => Validity::Valid,
-                            Outcome::Sat => Validity::Indeterminate,
+                            Outcome::Sat => Validity::Contingent,
                             Outcome::Unknown => Validity::Unknown("negative unknown".into()),
                         };
                         assert_eq!(
@@ -1499,7 +1489,7 @@ mod tests {
     }
 
     #[test]
-    fn indeterminate_validity_uses_two_uncached_solver_queries() {
+    fn contingent_validity_uses_two_uncached_solver_queries() {
         let definition = definition();
         let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
@@ -1510,14 +1500,14 @@ mod tests {
             .prelude
             .query(&[], &Substitution::new(), &checked, true)
             .unwrap();
-        let checked_smt = query.checked.to_string();
-        let positive_script = format!("{}\n(assert {checked_smt})", query.base);
-        let negative_script = format!("{}\n(assert (not {checked_smt}))", query.base);
+        let checked_smt = query.checked().to_string();
+        let positive_script = format!("{}\n(assert {checked_smt})", query.base());
+        let negative_script = format!("{}\n(assert (not {checked_smt}))", query.base());
         let baseline = solver.uncached_solve_count.load(Ordering::Relaxed);
 
         assert_eq!(
             solver.check_predicates(&[], &Substitution::new(), &checked),
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         );
         assert_eq!(
             solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
@@ -1531,11 +1521,11 @@ mod tests {
         assert_eq!(cache.entries.len(), 2);
         assert!(cache.entries.contains_key(positive_script.as_str()));
         assert!(cache.entries.contains_key(negative_script.as_str()));
-        assert!(!cache.entries.contains_key(query.base.as_str()));
+        assert!(!cache.entries.contains_key(query.base()));
     }
 
     #[test]
-    fn invalid_validity_uses_positive_then_base() {
+    fn refuted_validity_uses_positive_then_base() {
         let definition = definition();
         let solver = Z3Solver::new(&definition).unwrap();
         let checked = [Predicate::Term(term(
@@ -1548,7 +1538,7 @@ mod tests {
 
         assert_eq!(
             solver.check_predicates(&[], &substitution, &checked),
-            Ok(Validity::Invalid)
+            Ok(Validity::Refuted)
         );
         assert_eq!(
             solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
@@ -1579,7 +1569,7 @@ mod tests {
         );
         assert_eq!(
             solver.check_predicates(&[], &Substitution::new(), &checked),
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         );
         assert_eq!(
             solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,

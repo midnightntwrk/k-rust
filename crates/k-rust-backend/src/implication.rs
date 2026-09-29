@@ -46,7 +46,7 @@ use crate::{
         SimplificationError, SimplificationOptions, normalize_predicate,
         simplify_predicates_with_solver, simplify_with_solver,
     },
-    smt::{Satisfiability, SmtSolver, Validity, translates_exactly},
+    smt::{Exactness, Satisfiability, SmtSolver, Validity, translation_exactness},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::names::FreshMarker,
     term::{Term, TermKind, Variable},
@@ -666,12 +666,12 @@ pub fn check_disjunctive_implication_with_existentials(
                     }
                     // Every consequent was decided this round, so the combined obligation is
                     // the exact coverage condition of the destination.
-                    if matches!(verdict, Ok(Validity::Indeterminate)) && !incomplete {
+                    if matches!(verdict, Ok(Validity::Contingent)) && !incomplete {
                         contingent_coverage = Some(combined.clone());
                     }
                     if matches!(
                         verdict,
-                        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_)
+                        Ok(Validity::Contingent | Validity::Unknown(_)) | Err(_)
                     ) {
                         incomplete = true;
                     }
@@ -1121,7 +1121,7 @@ fn discharge_consequent(
         // covered instances satisfy, and moving it into the substitution would leave `¬⊤ = ⊥`
         // as the uncovered part of a state whose term is `X`. The complete policy reports that
         // equation as a binding of the antecedent variable.
-        Ok(Validity::Invalid) if had_match_remainder => (
+        Ok(Validity::Refuted) if had_match_remainder => (
             partial(
                 match options.counterexamples {
                     CounterexamplePolicy::PreserveIndeterminate => None,
@@ -1133,7 +1133,7 @@ fn discharge_consequent(
             ),
             Refutation::Everywhere,
         ),
-        Ok(Validity::Invalid) => (
+        Ok(Validity::Refuted) => (
             condition_invalid_with_bindings(substitution, witnesses),
             Refutation::Everywhere,
         ),
@@ -1142,7 +1142,7 @@ fn discharge_consequent(
         // which the implication would hold. The proof policy classifies the obligation by what
         // the solver established, whatever its origin: a contingent one splits the state below,
         // and an undecided one shows no non-empty part outside the destination.
-        Ok(Validity::Indeterminate)
+        Ok(Validity::Contingent)
             if had_match_remainder
                 && options.counterexamples == CounterexamplePolicy::RefuteImplication =>
         {
@@ -1171,7 +1171,7 @@ fn discharge_consequent(
                 Refutation::Undecided,
             )
         }
-        Ok(Validity::Indeterminate)
+        Ok(Validity::Contingent)
             if options.counterexamples == CounterexamplePolicy::RefuteImplication =>
         {
             (
@@ -1181,7 +1181,7 @@ fn discharge_consequent(
         }
         // The obligation holds on part of the antecedent and fails on a non-empty part, so the
         // obligations themselves are the exact coverage condition.
-        Ok(Validity::Indeterminate) => (
+        Ok(Validity::Contingent) => (
             contingent_with_bindings(substitution, witnesses, obligations),
             Refutation::Undecided,
         ),
@@ -1261,8 +1261,8 @@ fn refutation_result(
 /// constructors, total functions, domain values and element variables always denote one. The
 /// exception is a conjunction of terms, which denotes a value only where both sides agree;
 /// such a term is not shown nonempty. The remaining predicates must be true syntactically, or
-/// satisfiable by a solver `Sat` on a query that approximates nothing
-/// (`smt::translates_exactly`): an approximate `Sat` may come from an SMT model that is no K
+/// satisfiable by a solver `Sat` on a query whose translation is exact
+/// (`smt::translation_exactness`): an approximate `Sat` may come from an SMT model that is no K
 /// valuation.
 ///
 /// A pattern with a free variable denotes the union, over every value of the variable's sort,
@@ -1303,7 +1303,7 @@ pub(crate) fn shown_nonempty(
         return false;
     }
     predicates_truth(&query) == Truth::True
-        || (translates_exactly(&query)
+        || (translation_exactness(&query) == Exactness::Exact
             && matches!(
                 solver.is_sat(&query, &Substitution::new()),
                 Ok(Satisfiability::Sat)
@@ -2096,7 +2096,7 @@ mod tests {
             validity,
         };
 
-        let refuted = solver(Ok(Validity::Invalid));
+        let refuted = solver(Ok(Validity::Refuted));
         for result in [
             check_implication(&definition, &antecedent, &consequent, &refuted),
             check_complete(&definition, &antecedent, &consequent, &refuted),
@@ -2110,7 +2110,7 @@ mod tests {
             );
         }
 
-        let contingent = solver(Ok(Validity::Indeterminate));
+        let contingent = solver(Ok(Validity::Contingent));
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &contingent),
             Ok(contingent_with_bindings(
@@ -2134,10 +2134,7 @@ mod tests {
         // reports it satisfiable, so it is an instance outside the consequent; an undecided
         // answer shows none.
         for (undecided, status) in [
-            (
-                solver(Ok(Validity::Indeterminate)),
-                ImplicationStatus::Invalid,
-            ),
+            (solver(Ok(Validity::Contingent)), ImplicationStatus::Invalid),
             (
                 solver(Ok(Validity::Unknown("timeout".into()))),
                 ImplicationStatus::Indeterminate,
@@ -3047,7 +3044,7 @@ mod tests {
         let consequent = antecedent.clone();
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Unsat),
-            validity: Ok(Validity::Invalid),
+            validity: Ok(Validity::Refuted),
         };
 
         let result = check_implication(&definition, &antecedent, &consequent, &solver).unwrap();
@@ -3079,7 +3076,7 @@ mod tests {
 
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Invalid),
+            validity: Ok(Validity::Refuted),
         };
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &solver),
@@ -3167,7 +3164,7 @@ mod tests {
         ));
         let counterexample = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
 
         // Both the obligation and its negation are satisfiable: the default check splits the
@@ -3267,7 +3264,7 @@ mod tests {
                 if matches!(checked, [Predicate::Or(branches)] if branches.len() == 2) {
                     Ok(Validity::Valid)
                 } else {
-                    Ok(Validity::Invalid)
+                    Ok(Validity::Refuted)
                 }
             }
         }

@@ -930,7 +930,7 @@ enum StuckEvidence {
 /// - (d) The leaf is non-empty outside the destination: its term contains no function
 ///   application or conjunction of terms, and its constraints, which carry the complement of
 ///   every destination coverage condition on the trace, together with the definedness of its
-///   term are satisfiable by a query that approximates nothing (`smt::translates_exactly`), or
+///   term are satisfiable by a query whose translation is exact (`smt::translation_exactness`), or
 ///   are true syntactically, and every free variable has an inhabited sort
 ///   (`implication::shown_nonempty`, shared with the complete implication policy).
 ///   Those complements say "outside the destination" only if every state on the trace had its
@@ -1404,16 +1404,22 @@ fn apply_claim(
     });
     if !conditions.is_empty() {
         match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions) {
-            Ok(Validity::Valid) => conditions.clear(),
-            Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
-                return ClaimApplication::NotApplicable;
-            }
-            Ok(Validity::Indeterminate) | Err(SmtError::Unavailable) => {}
-            Ok(Validity::Unknown(reason)) => {
-                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
-                    SmtError::Unknown(reason),
-                ));
-            }
+            Ok(validity) => match validity {
+                Validity::Valid => conditions.clear(),
+                Validity::Refuted | Validity::InconsistentGroundTruth => {
+                    return ClaimApplication::NotApplicable;
+                }
+                // The claim covers the part where its conditions hold; the complement below is
+                // the remainder. The split is sound for any answer.
+                Validity::Contingent => {}
+                Validity::Unknown(reason) => {
+                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
+                        SmtError::Unknown(reason),
+                    ));
+                }
+            },
+            // Without a solver the conditions stay undecided and the same split applies.
+            Err(SmtError::Unavailable) => {}
             Err(error) => {
                 return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
             }
@@ -1883,7 +1889,7 @@ mod tests {
             _checked: &[crate::rule::Predicate],
         ) -> Result<Validity, SmtError> {
             thread::sleep(Duration::from_millis(5));
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         }
     }
 
@@ -1933,7 +1939,7 @@ mod tests {
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
         ) -> Result<Validity, SmtError> {
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         }
     }
 
@@ -2724,7 +2730,7 @@ mod tests {
         );
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
 
         for solver in [&solver as &dyn SmtSolver, &NoSolver as &dyn SmtSolver] {
@@ -2991,8 +2997,8 @@ mod tests {
             checked: &[crate::rule::Predicate],
         ) -> Result<Validity, SmtError> {
             Ok(match checked {
-                [crate::rule::Predicate::Equals(..)] => Validity::Invalid,
-                _ => Validity::Indeterminate,
+                [crate::rule::Predicate::Equals(..)] => Validity::Refuted,
+                _ => Validity::Contingent,
             })
         }
     }
@@ -3196,7 +3202,7 @@ mod tests {
 
         let contingent = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
         let result = prove_claim(&definition, claim, ProofOptions::default(), &contingent)
             .expect("claim should execute");
@@ -3272,7 +3278,7 @@ mod tests {
 
         let contingent = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
         for stuck_check in [true, false] {
             let result = prove_claim(
@@ -3548,7 +3554,7 @@ mod tests {
         // condition needs a hook that has no console to read.
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
 
         let result = prove_claim(
@@ -3799,7 +3805,7 @@ mod tests {
         let definition = definition(START_CASE_SPLIT, &claims);
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
 
         for claim in &definition.reachability_claims {
@@ -3912,7 +3918,7 @@ mod tests {
         let definition = definition(rules, &claims);
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
 
         let result = prove_claim(
@@ -5321,7 +5327,7 @@ mod tests {
                 checked: &[crate::rule::Predicate],
             ) -> Result<Validity, SmtError> {
                 Ok(match checked {
-                    [crate::rule::Predicate::Equals(..)] => Validity::Invalid,
+                    [crate::rule::Predicate::Equals(..)] => Validity::Refuted,
                     _ => Validity::Unknown("undecided".into()),
                 })
             }

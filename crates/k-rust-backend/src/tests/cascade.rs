@@ -455,7 +455,7 @@ fn portable_subject(definition: &BackendDefinition) -> Pattern {
 fn scripted_solver(satisfiability_queries: usize, validity_queries: usize) -> ScriptedSolver {
     ScriptedSolver::new(
         (0..satisfiability_queries).map(|_| Ok(Satisfiability::Sat)),
-        (0..validity_queries).map(|_| Ok(Validity::Indeterminate)),
+        (0..validity_queries).map(|_| Ok(Validity::Contingent)),
     )
 }
 
@@ -490,7 +490,7 @@ impl SmtSolver for D3SearchSolver {
                 substitution: substitution.clone(),
                 checked: checked.to_vec(),
             });
-        Ok(Validity::Indeterminate)
+        Ok(Validity::Contingent)
     }
 }
 

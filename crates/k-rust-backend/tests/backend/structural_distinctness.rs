@@ -251,7 +251,7 @@ fn predicate_simplification_does_not_refute_an_anywhere_redex_equality() {
         &guarded,
         REDEX,
         NORMAL,
-        &FixedValiditySolver(Validity::Indeterminate),
+        &FixedValiditySolver(Validity::Contingent),
     );
     assert_ne!(result, Predicate::False);
     assert!(!matches!(result, Predicate::True));
@@ -260,7 +260,7 @@ fn predicate_simplification_does_not_refute_an_anywhere_redex_equality() {
 #[test]
 fn predicate_simplification_still_refutes_constructor_and_normal_form_equalities() {
     let definition = definition(true);
-    let solver = FixedValiditySolver(Validity::Indeterminate);
+    let solver = FixedValiditySolver(Validity::Contingent);
     assert_eq!(
         simplify_equality(&definition, "s{}(z{}())", "z{}()", &solver),
         Predicate::False
@@ -332,7 +332,7 @@ fn set_definedness_still_separates_constructor_and_certified_elements() {
 /// no normal form, and otherwise only through certified normal forms.
 #[test]
 fn injections_are_separated_by_sorts_and_certified_normal_forms_only() {
-    let solver = FixedValiditySolver(Validity::Indeterminate);
+    let solver = FixedValiditySolver(Validity::Contingent);
     let guarded = definition(true);
     // `SortNat` and `SortAddress` share no subsort: no value of one is a value of the other,
     // whatever `wrap(s(z))` normalizes to.

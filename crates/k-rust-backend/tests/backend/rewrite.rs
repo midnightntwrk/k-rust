@@ -343,7 +343,7 @@ fn spawning_a_distinct_normalized_ground_cell_has_no_residual_inequality() {
 
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
     let RewriteResult::Finished(applied) = result else {
@@ -379,7 +379,7 @@ fn spawning_a_duplicate_ground_cell_is_an_undefined_step() {
 
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
     assert!(
@@ -753,7 +753,7 @@ fn concrete_instantiation_coverage_is_checked_after_requires() {
         };
         let solver = FixedSolver {
             satisfiability: Ok(Satisfiability::Sat),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         };
         let mut fresh = 0;
         let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
@@ -826,7 +826,7 @@ fn ground_anywhere_fragments_do_not_enable_narrowing() {
     assert!(subject.term.concrete_after_normalization());
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let mut fresh = 0;
     let result = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver);
@@ -853,7 +853,7 @@ fn symbolic_anywhere_fragments_still_enable_narrowing() {
     assert!(!subject.term.concrete_after_normalization());
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let mut fresh = 0;
     let RewriteResult::Branch { branches, .. } =
@@ -878,7 +878,7 @@ fn symbolic_anywhere_matching_retains_fresh_arguments_and_complement() {
     };
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let mut fresh = 0;
     let RewriteResult::Branch {
@@ -1342,7 +1342,7 @@ fn symbolic_trivial_definition(include_fallback: bool) -> BackendDefinition {
 fn indeterminate_sat_solver() -> FixedSolver {
     FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     }
 }
 
@@ -1796,7 +1796,7 @@ fn be08_stopped_options() -> ExecutionOptions {
 fn be08_indeterminate_solver(sat_answers: usize, validity_answers: usize) -> ScriptedSolver {
     ScriptedSolver::new(
         (0..sat_answers).map(|_| Ok(Satisfiability::Sat)),
-        (0..validity_answers).map(|_| Ok(Validity::Indeterminate)),
+        (0..validity_answers).map(|_| Ok(Validity::Contingent)),
     )
 }
 
@@ -2113,7 +2113,7 @@ fn rigid_no_evaluators_equality_is_an_applied_and_complementary_condition() {
     };
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let mut fresh = 0;
 
@@ -2156,7 +2156,7 @@ fn solver_refutes_a_rigid_no_evaluators_function_equality() {
     };
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Unsat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
     let mut fresh = 0;
 
@@ -2512,10 +2512,10 @@ fn rhs_definedness_obligation_verdicts_are_mapped_per_site() {
         &subject,
         &[
             (Ok(Validity::Valid), VerdictLeaf::Finished(Vec::new())),
-            (Ok(Validity::Invalid), VerdictLeaf::Trivial),
+            (Ok(Validity::Refuted), VerdictLeaf::Trivial),
             (Ok(Validity::InconsistentGroundTruth), VerdictLeaf::Trivial),
             (
-                Ok(Validity::Indeterminate),
+                Ok(Validity::Contingent),
                 VerdictLeaf::Finished(vec![obligation.clone()]),
             ),
             (
@@ -2569,10 +2569,10 @@ fn ensures_verdicts_are_mapped_per_site_in_the_rewriter() {
         &subject,
         &[
             (Ok(Validity::Valid), VerdictLeaf::Finished(Vec::new())),
-            (Ok(Validity::Invalid), VerdictLeaf::Trivial),
+            (Ok(Validity::Refuted), VerdictLeaf::Trivial),
             (Ok(Validity::InconsistentGroundTruth), VerdictLeaf::Trivial),
             (
-                Ok(Validity::Indeterminate),
+                Ok(Validity::Contingent),
                 VerdictLeaf::Finished(vec![ensures.clone()]),
             ),
             (
@@ -3166,7 +3166,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     // Query four is the lower group's remainder SAT query in the 40b5d6d transcript.
     let solver = ScriptedSolver::new(
         [Ok(Satisfiability::Sat), Ok(Satisfiability::Unsat)],
-        (0..3).map(|_| Ok(Validity::Indeterminate)),
+        (0..3).map(|_| Ok(Validity::Contingent)),
     )
     .cancelling_at(4, token.clone());
     let result = token.scope(|| {
@@ -3228,11 +3228,11 @@ fn cascade_continues_where_a_reattempt_would_have_been_indeterminate() {
     let solver = ScriptedSolver::new(
         [Ok(Satisfiability::Sat)],
         [
-            Ok(Validity::Indeterminate),
+            Ok(Validity::Contingent),
             Ok(Validity::Unknown("BE08 scripted unknown".into())),
-            Ok(Validity::Indeterminate),
-            Ok(Validity::Indeterminate),
-            Ok(Validity::Indeterminate),
+            Ok(Validity::Contingent),
+            Ok(Validity::Contingent),
+            Ok(Validity::Contingent),
         ],
     );
     let result = execute_with_solver(
@@ -3935,7 +3935,7 @@ fn any_mode_uses_declaration_order_within_a_priority() {
     // remainder of heat's indeterminate application.
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
 
     let lookup_first = definition(&format!("{lookup}{heat}"));
@@ -4936,7 +4936,7 @@ const LOWER_CONDITION_RULES: &str = r#"
 fn satisfiable_solver() -> FixedSolver {
     FixedSolver {
         satisfiability: Ok(Satisfiability::Sat),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     }
 }
 
@@ -5219,7 +5219,7 @@ fn a_cancelled_expansion_keeps_the_diagnostics_of_the_work_done_before_it() {
     let token = CancellationToken::new();
     let solver = ScriptedSolver::new(
         (0..4).map(|_| Ok(Satisfiability::Sat)),
-        (0..4).map(|_| Ok(Validity::Indeterminate)),
+        (0..4).map(|_| Ok(Validity::Contingent)),
     )
     .cancelling_at(0, token.clone());
 
@@ -8038,7 +8038,7 @@ impl SmtSolver for KnowledgeDecidesSolver {
         _checked: &[Predicate],
     ) -> Result<Validity, SmtError> {
         Ok(if known.is_empty() {
-            Validity::Indeterminate
+            Validity::Contingent
         } else {
             Validity::Valid
         })
@@ -8612,7 +8612,7 @@ fn solver_observation_subject(definition: &BackendDefinition) -> Pattern {
 fn solver_observation_script() -> ScriptedSolver {
     ScriptedSolver::new(
         std::iter::repeat_n(Ok(Satisfiability::Sat), 64),
-        std::iter::repeat_n(Ok(Validity::Indeterminate), 64),
+        std::iter::repeat_n(Ok(Validity::Contingent), 64),
     )
 }
 
@@ -9048,7 +9048,7 @@ fn symbolic_remainder_emits_a_distinct_observation_class() {
             _substitution: &Substitution,
             _checked: &[Predicate],
         ) -> Result<Validity, SmtError> {
-            Ok(Validity::Indeterminate)
+            Ok(Validity::Contingent)
         }
     }
 
@@ -9878,7 +9878,7 @@ fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
     let token = CancellationToken::new();
     let solver = ScriptedSolver::new(
         std::iter::repeat_n(Ok(Satisfiability::Sat), 8),
-        std::iter::repeat_n(Ok(Validity::Indeterminate), 8),
+        std::iter::repeat_n(Ok(Validity::Contingent), 8),
     )
     .cancelling_at(0, token.clone());
 
@@ -9980,7 +9980,7 @@ fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() 
     let token = CancellationToken::new();
     let solver = ScriptedSolver::new(
         [Ok(Satisfiability::Unknown("request cancelled".into()))],
-        [Ok(Validity::Indeterminate)],
+        [Ok(Validity::Contingent)],
     )
     .cancelling_at(1, token.clone());
 
@@ -10053,7 +10053,7 @@ fn search_does_not_publish_a_final_state_whose_externalisation_observed_a_cancel
     // complete.
     let refuting = ScriptedSolver::new(
         std::iter::repeat_n(Ok(Satisfiability::Unsat), 16),
-        std::iter::repeat_n(Ok(Validity::Invalid), 16),
+        std::iter::repeat_n(Ok(Validity::Refuted), 16),
     );
     let control = k_rust_backend::search::search_graph_with_solver(
         &definition,
@@ -12223,7 +12223,7 @@ fn an_indeterminate_leaf_is_externalised_in_the_simplifier_normal_form() {
     );
     let solver = FixedSolver {
         satisfiability: Ok(Satisfiability::Unknown("fixed".into())),
-        validity: Ok(Validity::Indeterminate),
+        validity: Ok(Validity::Contingent),
     };
 
     assert_leaves_in_normal_form(
@@ -12254,7 +12254,7 @@ fn a_stuck_leaf_discharges_a_constraint_the_solver_proves_valid() {
         ExecutionOptions::default(),
         &FixedSolver {
             satisfiability: Ok(Satisfiability::Unknown("fixed".into())),
-            validity: Ok(Validity::Indeterminate),
+            validity: Ok(Validity::Contingent),
         },
     );
     let [leaf] = open.leaves.as_slice() else {

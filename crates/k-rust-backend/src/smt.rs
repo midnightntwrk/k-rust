@@ -14,11 +14,16 @@ use crate::{
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     stop::PreludeSignal,
     substitution::Substitution,
-    term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable},
+    term::{FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable},
 };
 
 #[cfg(feature = "z3")]
+mod query;
+#[cfg(feature = "z3")]
 mod z3;
+
+#[cfg(feature = "z3")]
+use query::TranslatedQuery;
 
 #[cfg(feature = "z3")]
 pub use z3::{Z3Options, Z3Solver};
@@ -158,6 +163,38 @@ impl<'a> SExprParser<'a> {
     }
 }
 
+/// Whether an SMT-LIB translation denotes exactly the predicates it was made from.
+///
+/// Every abstraction of the translation over-approximates: a term or predicate without an SMT
+/// translation becomes an unrelated fresh constant (no congruence or constructor injectivity), a
+/// free or quantified variable of a sort other than `Int` or `Bool` ranges over an
+/// uninterpreted sort that need not have the K sort's values, and an `smtlib` symbol becomes an
+/// uninterpreted function that retains only congruence. Every K valuation that satisfies the
+/// predicates therefore induces a model of the translation, so `Unsat` refutes the predicates
+/// whatever the exactness. A model is a K valuation of the predicates only when the translation
+/// is `Exact`.
+///
+/// A partial function translated as a total SMT operation is not an over-approximation: an atom
+/// over an undefined term denotes `\bottom` in K and some value in SMT. It is `Approximate` for
+/// the purpose of reading a model; `Unsat` stays conclusive for it only under the definedness
+/// premise that `SmtSolver::check_predicates` documents.
+/// SMT hook translations, SMT lemma axioms and the user prelude are trusted.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Exactness {
+    Approximate,
+    Exact,
+}
+
+impl Exactness {
+    /// The exactness of a translation made of two parts: exact only when both parts are.
+    pub const fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Exact, Self::Exact) => Self::Exact,
+            (Self::Approximate, _) | (_, Self::Approximate) => Self::Approximate,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranslationState {
     pub mappings: BTreeMap<Term, String>,
@@ -165,6 +202,8 @@ pub struct TranslationState {
     dependent_mappings: BTreeMap<(Predicate, Vec<Sort>), String>,
     bound_variables: Vec<(Variable, String)>,
     counter: usize,
+    /// The exactness of everything translated so far; lowered by each site that approximates.
+    exactness: Exactness,
 }
 
 impl Default for TranslationState {
@@ -181,7 +220,17 @@ impl TranslationState {
             dependent_mappings: BTreeMap::new(),
             bound_variables: Vec::new(),
             counter: 1,
+            exactness: Exactness::Exact,
         }
+    }
+
+    /// The exactness of everything this state has translated and declared so far.
+    pub fn exactness(&self) -> Exactness {
+        self.exactness
+    }
+
+    fn approximate(&mut self, exactness: Exactness) {
+        self.exactness = self.exactness.and(exactness);
     }
 
     pub fn translate_term(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
@@ -199,12 +248,15 @@ impl TranslationState {
             TermKind::Application {
                 symbol, arguments, ..
             } => match &symbol.attributes.smt {
-                None => Ok(self.abstract_term(term)),
-                Some(SmtType::Lib(name)) => self.translate_application(name, arguments),
+                None => Ok(self.abstract_term(term, Exactness::Approximate)),
+                Some(SmtType::Lib(name)) => {
+                    self.translate_application(name, arguments, Exactness::Approximate)
+                }
                 Some(SmtType::Hook(SExpr::Atom(name))) => {
-                    self.translate_application(name, arguments)
+                    self.translate_application(name, arguments, symbol_exactness(symbol))
                 }
                 Some(SmtType::Hook(expression)) => {
+                    self.approximate(symbol_exactness(symbol));
                     let arguments = arguments
                         .iter()
                         .map(|argument| self.translate_term(argument))
@@ -228,14 +280,16 @@ impl TranslationState {
                     .find(|(bound, _)| bound == variable)
                 {
                     Some((_, name)) => Ok(SExpr::atom(name.clone())),
-                    None => Ok(self.abstract_term(term)),
+                    // A free variable stands for itself; the sort of its constant is recorded
+                    // where the constant is declared (`mapping_declarations`).
+                    None => Ok(self.abstract_term(term, Exactness::Exact)),
                 }
             }
             TermKind::DomainValue { .. }
             | TermKind::Injection { .. }
             | TermKind::Map { .. }
             | TermKind::List { .. }
-            | TermKind::Set { .. } => Ok(self.abstract_term(term)),
+            | TermKind::Set { .. } => Ok(self.abstract_term(term, Exactness::Approximate)),
         }
     }
 
@@ -291,7 +345,7 @@ impl TranslationState {
         variable: &Variable,
         body: &Predicate,
     ) -> Result<SExpr, TranslationError> {
-        let sort = smt_sort(&variable.sort)?;
+        let sort = self.smt_sort(&variable.sort)?;
         let variable_name = self.fresh_name();
         self.bound_variables
             .push((variable.clone(), variable_name.clone()));
@@ -321,11 +375,15 @@ impl TranslationState {
         ))
     }
 
+    /// Applies the SMT operation `name` to the translated arguments. `exactness` states whether
+    /// the operation denotes the symbol exactly (`symbol_exactness`).
     fn translate_application(
         &mut self,
         name: &str,
         arguments: &[Term],
+        exactness: Exactness,
     ) -> Result<SExpr, TranslationError> {
+        self.approximate(exactness);
         if arguments.is_empty() {
             return Ok(SExpr::atom(name));
         }
@@ -338,7 +396,12 @@ impl TranslationState {
         ))
     }
 
-    fn abstract_term(&mut self, term: &Term) -> SExpr {
+    /// The constant (or, under a binder it mentions, the function of the bound variables) that
+    /// stands for `term`. `exactness` is `Exact` only for a free variable, which the constant
+    /// denotes exactly up to its sort; every other abstracted term is `Approximate`, because the
+    /// constant forgets its structure.
+    fn abstract_term(&mut self, term: &Term, exactness: Exactness) -> SExpr {
+        self.approximate(exactness);
         if !self.bound_variables.is_empty()
             && let Some(expression) = self.abstract_dependent(&Predicate::Term(term.clone()))
         {
@@ -352,7 +415,10 @@ impl TranslationState {
         SExpr::atom(name)
     }
 
+    /// A Boolean constant that stands for a predicate without an SMT translation; it forgets
+    /// what the predicate says, so the translation is `Approximate`.
     fn abstract_predicate(&mut self, predicate: &Predicate) -> SExpr {
+        self.approximate(Exactness::Approximate);
         if !self.bound_variables.is_empty()
             && let Some(expression) = self.abstract_dependent(predicate)
         {
@@ -395,6 +461,8 @@ impl TranslationState {
         if dependencies.is_empty() {
             return None;
         }
+        // An uninterpreted function of the bound variables retains only congruence.
+        self.approximate(Exactness::Approximate);
         let free = variables.difference(&seen).collect::<Vec<_>>();
         let mut substitution = Substitution::new();
         let mut sorts = Vec::new();
@@ -428,6 +496,112 @@ impl TranslationState {
         };
         Some(SExpr::application(name, arguments))
     }
+
+    /// The SMT-LIB sort that stands for `sort` in a query. `Int` and `Bool` denote the K sort's
+    /// values; every other sort is declared as an uninterpreted sort, whose models need not have
+    /// them, so naming it records `Approximate`. Every sort of a query is named here.
+    fn smt_sort(&mut self, sort: &Sort) -> Result<String, TranslationError> {
+        let (name, exactness) = sort_denotation(sort)?;
+        self.approximate(exactness);
+        Ok(name)
+    }
+
+    /// The declarations of the constants and functions that stand for abstracted terms and
+    /// predicates, each sort named through `smt_sort`.
+    fn mapping_declarations(&mut self) -> Result<Vec<String>, TranslationError> {
+        let constants = self
+            .mappings
+            .iter()
+            .map(|(term, name)| (term.sort(), name.clone(), collection_size_term(term)))
+            .collect::<Vec<_>>();
+        let functions = self
+            .dependent_mappings
+            .iter()
+            .map(|((predicate, arguments), name)| {
+                let result = match predicate {
+                    Predicate::Term(term) => Some(term.sort()),
+                    _ => None,
+                };
+                (result, arguments.clone(), name.clone())
+            })
+            .collect::<Vec<_>>();
+        let mut declarations = Vec::new();
+        for (sort, name, collection_size) in constants {
+            declarations.push(format!("(declare-const {name} {})", self.smt_sort(&sort)?));
+            if collection_size {
+                declarations.push(format!("(assert (>= {name} 0))"));
+            }
+        }
+        for (_, name) in &self.predicate_mappings {
+            declarations.push(format!("(declare-const {name} Bool)"));
+        }
+        for (result, arguments, name) in functions {
+            let result = match result {
+                Some(sort) => self.smt_sort(&sort)?,
+                None => "Bool".into(),
+            };
+            let arguments = arguments
+                .iter()
+                .map(|sort| self.smt_sort(sort))
+                .collect::<Result<Vec<_>, _>>()?;
+            declarations.push(format!(
+                "(declare-fun {name} ({}) {result})",
+                arguments.join(" ")
+            ));
+        }
+        Ok(declarations)
+    }
+}
+
+/// `Approximate` for a symbol whose SMT operation does not denote it exactly: an `smtlib`
+/// symbol is an uninterpreted function, and a partial function is a total SMT operation that
+/// has a value where the function has none.
+fn symbol_exactness(symbol: &Symbol) -> Exactness {
+    let uninterpreted = matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
+    let partial = symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial);
+    if uninterpreted || partial {
+        Exactness::Approximate
+    } else {
+        Exactness::Exact
+    }
+}
+
+/// A query's translation, with its mappings declared, and the parts `SmtPrelude::query`
+/// assembles into a script: the mapping declarations, the substitution's equations, the known
+/// assertions and the checked conjunction.
+type QueryTranslation = (TranslationState, Vec<String>, Vec<SExpr>, Vec<SExpr>, SExpr);
+
+/// Translates a query and declares its mappings: the one translation `SmtPrelude::query` poses
+/// and `translation_exactness` reads.
+fn translate_query(
+    known: &[Predicate],
+    substitution: &Substitution,
+    checked: &[Predicate],
+) -> Result<QueryTranslation, TranslationError> {
+    let mut translation = TranslationState::new();
+    let substitution = substitution
+        .iter()
+        .map(|(variable, term)| {
+            Ok(SExpr::application(
+                "=",
+                vec![
+                    translation.translate_term(&Term::variable(variable.clone()))?,
+                    translation.translate_term(term)?,
+                ],
+            ))
+        })
+        .collect::<Result<Vec<_>, TranslationError>>()?;
+    let known = known
+        .iter()
+        .map(|predicate| translation.translate_predicate(predicate))
+        .collect::<Result<Vec<_>, _>>()?;
+    let checked = checked
+        .iter()
+        .map(|predicate| translation.translate_predicate(predicate))
+        .collect::<Result<Vec<_>, _>>()?;
+    let checked = SExpr::application("and", checked);
+    let declarations = translation.mapping_declarations()?;
+    Ok((translation, declarations, substitution, known, checked))
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -476,12 +650,12 @@ impl SmtPrelude {
             let arguments = symbol
                 .argument_sorts
                 .iter()
-                .map(smt_sort)
+                .map(prelude_smt_sort)
                 .collect::<Result<Vec<_>, _>>()?;
             declarations.push(format!(
                 "(declare-fun {name} ({}) {})",
                 arguments.join(" "),
-                smt_sort(&symbol.result_sort)?
+                prelude_smt_sort(&symbol.result_sort)?
             ));
             if collection_size_hook(symbol.attributes.hook.as_deref())
                 && symbol.argument_sorts.len() == 1
@@ -522,143 +696,45 @@ impl SmtPrelude {
         checked: &[Predicate],
         filter_for_checked: bool,
     ) -> Result<TranslatedQuery, TranslationError> {
-        let mut translation = TranslationState::new();
-        let substitution = substitution
-            .iter()
-            .map(|(variable, term)| {
-                Ok(SExpr::application(
-                    "=",
-                    vec![
-                        translation.translate_term(&Term::variable(variable.clone()))?,
-                        translation.translate_term(term)?,
-                    ],
-                ))
-            })
-            .collect::<Result<Vec<_>, TranslationError>>()?;
-        let known = known
-            .iter()
-            .map(|predicate| translation.translate_predicate(predicate))
-            .collect::<Result<Vec<_>, _>>()?;
-        let checked = checked
-            .iter()
-            .map(|predicate| translation.translate_predicate(predicate))
-            .collect::<Result<Vec<_>, _>>()?;
-        let checked = SExpr::application("and", checked);
+        let (mut translation, declarations, substitution, known, checked) =
+            translate_query(known, substitution, checked)?;
         let (substitution, known) = if filter_for_checked {
             let interesting = smt_variables(&checked);
-            (
-                closure_over(&interesting, substitution),
-                closure_over(&interesting, known),
-            )
+            let (substitution, substitution_exactness) = closure_over(&interesting, substitution);
+            let (known, known_exactness) = closure_over(&interesting, known);
+            translation.approximate(substitution_exactness.and(known_exactness));
+            (substitution, known)
         } else {
             (substitution, known)
         };
         let mut base = self.declarations.clone();
-        for (term, name) in &translation.mappings {
-            base.push(format!(
-                "(declare-const {name} {})",
-                smt_sort(&term.sort())?
-            ));
-            if collection_size_term(term) {
-                base.push(format!("(assert (>= {name} 0))"));
-            }
-        }
-        for (_, name) in &translation.predicate_mappings {
-            base.push(format!("(declare-const {name} Bool)"));
-        }
-        for ((predicate, arguments), name) in &translation.dependent_mappings {
-            let result = match predicate {
-                Predicate::Term(term) => smt_sort(&term.sort())?,
-                _ => "Bool".into(),
-            };
-            let arguments = arguments
-                .iter()
-                .map(smt_sort)
-                .collect::<Result<Vec<_>, _>>()?;
-            base.push(format!(
-                "(declare-fun {name} ({}) {result})",
-                arguments.join(" ")
-            ));
-        }
+        base.extend(declarations);
         base.extend(
             substitution
                 .into_iter()
                 .chain(known)
                 .map(|expression| format!("(assert {expression})")),
         );
-        Ok(TranslatedQuery {
-            base: base.join("\n"),
-            checked,
-            mappings: translation.mappings,
-        })
+        Ok(TranslatedQuery::new(base.join("\n"), checked, translation))
     }
 }
 
-/// Whether `predicates` translate to SMT-LIB without approximating anything, so that a `Sat`
-/// answer for them has a model over the values the predicates speak about.
+/// The exactness of the translation of `predicates`, read from the same translation and
+/// declarations `SmtPrelude::query` poses; `Approximate` when they do not translate.
 ///
-/// The translation has five approximations that can make an unsatisfiable set answer `Sat`:
-/// a term or predicate without an SMT translation becomes an unrelated fresh constant (no
-/// congruence or constructor injectivity); a free variable of a sort other than `Int` or `Bool`
-/// ranges over an uninterpreted sort; a partial function becomes a total SMT operation; an
-/// `smtlib` symbol becomes an uninterpreted function; and a quantified variable of a sort other
-/// than `Int` or `Bool` ranges over an uninterpreted sort. The uninterpreted functions retain
-/// only congruence, and uninterpreted sorts need not have the K sort's values.
-/// SMT hook translations, SMT lemma axioms, and the user prelude are trusted.
-/// This answers true only when none of these approximations occur.
+/// A `Sat` answer for `predicates` shows a K valuation of them only when this is `Exact`
+/// (see [`Exactness`]).
 ///
 /// The partial-function approximation also affects `SmtSolver::check_predicates`: a `Valid`
 /// answer holds for the total operation, including on instances where the partial function has
 /// no value. It is sound for a predicate only when the definedness of its partial terms is
 /// explicit in the predicate. The rewrite and equation condition callers make it explicit before
 /// deciding (`definedness::condition_definedness` on every `requires` and `ensures`).
-pub fn translates_exactly(predicates: &[Predicate]) -> bool {
-    fn quantifiers_exact(predicate: &Predicate) -> bool {
-        match predicate {
-            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
-                (variable.sort.is_builtin(BuiltinSort::Int)
-                    || variable.sort.is_builtin(BuiltinSort::Bool))
-                    && quantifiers_exact(inner)
-            }
-            Predicate::Not(inner) => quantifiers_exact(inner),
-            Predicate::And(inner) | Predicate::Or(inner) => inner.iter().all(quantifiers_exact),
-            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-                quantifiers_exact(left) && quantifiers_exact(right)
-            }
-            Predicate::True
-            | Predicate::False
-            | Predicate::Term(_)
-            | Predicate::Equals(..)
-            | Predicate::Ceil(_)
-            | Predicate::Floor(_)
-            | Predicate::In(..) => true,
-        }
-    }
-
-    let mut translation = TranslationState::new();
-    if predicates
-        .iter()
-        .any(|predicate| translation.translate_predicate(predicate).is_err())
-    {
-        return false;
-    }
-    translation.predicate_mappings.is_empty()
-        && translation.dependent_mappings.is_empty()
-        && translation.mappings.keys().all(|term| {
-            matches!(term.kind(), TermKind::Variable(_))
-                && (term.sort().is_builtin(BuiltinSort::Int)
-                    || term.sort().is_builtin(BuiltinSort::Bool))
-        })
-        && predicates.iter().all(|predicate| {
-            let mut exact = quantifiers_exact(predicate);
-            predicate.visit_terms(&mut |term: &Term| {
-                term.visit_symbols(&mut |symbol| {
-                    exact &= symbol.attributes.symbol_type
-                        != SymbolType::Function(FunctionType::Partial)
-                        && !matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
-                });
-            });
-            exact
+#[must_use]
+pub fn translation_exactness(predicates: &[Predicate]) -> Exactness {
+    translate_query(predicates, &Substitution::new(), &[])
+        .map_or(Exactness::Approximate, |(translation, ..)| {
+            translation.exactness()
         })
 }
 
@@ -666,7 +742,6 @@ fn collection_size_hook(hook: Option<&str>) -> bool {
     matches!(hook, Some("LIST.size" | "MAP.size" | "SET.size"))
 }
 
-#[cfg(feature = "z3")]
 fn collection_size_term(term: &Term) -> bool {
     matches!(
         term.kind(),
@@ -685,8 +760,14 @@ fn smt_variables(expression: &SExpr) -> BTreeSet<String> {
     }
 }
 
+/// The expressions that share an SMT constant with `interesting`, transitively. Dropping a
+/// conjunct weakens the query, so its `Sat` need not hold for the whole conjunction: the
+/// selection is `Exact` only when nothing was dropped.
 #[cfg(feature = "z3")]
-fn closure_over(interesting: &BTreeSet<String>, expressions: Vec<SExpr>) -> Vec<SExpr> {
+fn closure_over(
+    interesting: &BTreeSet<String>,
+    expressions: Vec<SExpr>,
+) -> (Vec<SExpr>, Exactness) {
     let mut variables = interesting.clone();
     let mut remaining = expressions.into_iter().collect::<BTreeSet<_>>();
     let mut selected = BTreeSet::new();
@@ -697,7 +778,12 @@ fn closure_over(interesting: &BTreeSet<String>, expressions: Vec<SExpr>) -> Vec<
             .cloned()
             .collect::<Vec<_>>();
         if added.is_empty() {
-            return selected.into_iter().collect();
+            let exactness = if remaining.is_empty() {
+                Exactness::Exact
+            } else {
+                Exactness::Approximate
+            };
+            return (selected.into_iter().collect(), exactness);
         }
         for expression in added {
             remaining.remove(&expression);
@@ -754,7 +840,7 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
         };
         binders.push(SExpr::List(vec![
             SExpr::atom(name),
-            SExpr::atom(smt_sort(&variable.sort)?),
+            SExpr::atom(prelude_smt_sort(&variable.sort)?),
         ]));
     }
     if !translation.mappings.is_empty() {
@@ -790,48 +876,67 @@ fn translate_smt_lemma(rule: &RewriteRule) -> Result<SExpr, TranslationError> {
     }
 }
 
-fn smt_sort(sort: &Sort) -> Result<String, TranslationError> {
+/// The SMT-LIB sort that stands for `sort`, and whether it denotes the K sort's values: `Int`
+/// and `Bool` do; every other sort is declared as an uninterpreted sort
+/// (`SmtPrelude::from_definition`).
+fn sort_denotation(sort: &Sort) -> Result<(String, Exactness), TranslationError> {
     match sort {
         Sort::Variable(_) => Err(TranslationError::ParametricSort(sort.clone())),
-        _ if sort.is_builtin(BuiltinSort::Int) => Ok("Int".into()),
-        _ if sort.is_builtin(BuiltinSort::Bool) => Ok("Bool".into()),
-        Sort::Application { name, arguments } if arguments.is_empty() => Ok(quote(name)),
-        Sort::Application { name, arguments } => Ok(format!(
-            "({} {})",
-            quote(name),
-            arguments
-                .iter()
-                .map(smt_sort)
-                .collect::<Result<Vec<_>, _>>()?
-                .join(" ")
+        _ if sort.is_builtin(BuiltinSort::Int) => Ok(("Int".into(), Exactness::Exact)),
+        _ if sort.is_builtin(BuiltinSort::Bool) => Ok(("Bool".into(), Exactness::Exact)),
+        Sort::Application { name, arguments } if arguments.is_empty() => {
+            Ok((quote(name), Exactness::Approximate))
+        }
+        Sort::Application { name, arguments } => Ok((
+            format!(
+                "({} {})",
+                quote(name),
+                arguments
+                    .iter()
+                    .map(prelude_smt_sort)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(" ")
+            ),
+            Exactness::Approximate,
         )),
     }
+}
+
+/// The SMT-LIB sort that stands for `sort` in the prelude, which declares the trusted
+/// signatures of `smtlib` symbols and the SMT lemmas, not a query, and so records nothing.
+fn prelude_smt_sort(sort: &Sort) -> Result<String, TranslationError> {
+    sort_denotation(sort).map(|(name, _)| name)
 }
 
 fn quote(name: &str) -> String {
     format!("|{name}|")
 }
 
-#[cfg(feature = "z3")]
-struct TranslatedQuery {
-    base: String,
-    checked: SExpr,
-    mappings: BTreeMap<Term, String>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Satisfiability {
+    /// The translation has a model. It is a K valuation of the predicates only when the
+    /// translation is exact (`translation_exactness`).
     Sat,
+    /// The predicates have no K valuation.
     Unsat,
     Unknown(String),
 }
 
+/// The answer of `SmtSolver::check_predicates(known, substitution, checked)`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Validity {
+    /// `known ∧ ¬checked` is unsatisfiable: every instance of `known` satisfies `checked`.
     Valid,
-    Invalid,
+    /// `known ∧ checked` is unsatisfiable: no instance of `known` satisfies `checked`.
+    /// `known` is not shown empty; it may be empty when its own satisfiability came from an
+    /// approximate translation. This is a refutation, not a counterexample.
+    Refuted,
+    /// `known` is unsatisfiable.
     InconsistentGroundTruth,
-    Indeterminate,
+    /// Neither `checked` nor its negation is refuted under `known`: both have SMT models.
+    /// With an approximate translation neither model need be a K valuation, so this answer
+    /// shows no instance on either side.
+    Contingent,
     Unknown(String),
 }
 
@@ -1062,14 +1167,18 @@ mod tests {
         let uninterpreted = application(Some(SmtType::Lib("andInt".into())));
         let hooked = application(Some(SmtType::Hook(SExpr::atom("+"))));
 
-        assert!(!translates_exactly(&[equality(uninterpreted.clone())]));
-        assert!(!translates_exactly(&[Predicate::Not(Box::new(
-            Predicate::Exists(
+        assert_eq!(
+            translation_exactness(&[equality(uninterpreted.clone())]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[Predicate::Not(Box::new(Predicate::Exists(
                 variable,
                 Box::new(Predicate::Or(vec![equality(uninterpreted)])),
-            ),
-        ))]));
-        assert!(translates_exactly(&[equality(hooked)]));
+            )))]),
+            Exactness::Approximate
+        );
+        assert_eq!(translation_exactness(&[equality(hooked)]), Exactness::Exact);
     }
 
     #[test]
@@ -1083,18 +1192,82 @@ mod tests {
             )
         };
 
-        assert!(!translates_exactly(&[Predicate::Forall(
-            nat.clone(),
-            Box::new(body(&nat)),
-        )]));
-        assert!(!translates_exactly(&[Predicate::Exists(
-            nat,
-            Box::new(Predicate::True),
-        )]));
-        assert!(translates_exactly(&[Predicate::Exists(
+        assert_eq!(
+            translation_exactness(&[Predicate::Forall(nat.clone(), Box::new(body(&nat)))]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[Predicate::Exists(nat, Box::new(Predicate::True))]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[Predicate::Exists(
+                int.clone(),
+                Box::new(Predicate::Equals(Term::variable(int), integer("1"))),
+            )]),
+            Exactness::Exact
+        );
+    }
+
+    #[test]
+    fn exactness_rejects_free_variables_of_uninterpreted_sorts() {
+        let nat = Term::variable(Variable::new("N", Sort::simple("SortNat")));
+        let int = Term::variable(Variable::new("I", Sort::simple("SortInt")));
+        let boolean = Term::variable(Variable::new("B", Sort::simple("SortBool")));
+
+        assert_eq!(
+            translation_exactness(&[Predicate::Equals(nat.clone(), nat)]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[
+                Predicate::Equals(int, integer("1")),
+                Predicate::Term(boolean),
+            ]),
+            Exactness::Exact
+        );
+    }
+
+    #[test]
+    fn exactness_rejects_abstracted_terms_predicates_and_partial_operations() {
+        let int = Sort::simple("SortInt");
+        let variable = Term::variable(Variable::new("X", int.clone()));
+        let equality = |term| Predicate::Equals(term, integer("2"));
+        let opaque = Term::application(
+            symbol("opaque", None, vec![int.clone()], int.clone()),
+            Vec::new(),
+            vec![variable.clone()],
+        );
+        let mut partial_symbol = symbol(
+            "division",
+            Some(SmtType::Hook(SExpr::atom("div"))),
+            vec![int.clone(), int.clone()],
             int.clone(),
-            Box::new(Predicate::Equals(Term::variable(int), integer("1"))),
-        )]));
+        );
+        Arc::make_mut(&mut partial_symbol).attributes.symbol_type =
+            SymbolType::Function(FunctionType::Partial);
+        let partial = Term::application(
+            partial_symbol,
+            Vec::new(),
+            vec![variable.clone(), integer("1")],
+        );
+
+        assert_eq!(
+            translation_exactness(&[equality(opaque)]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[equality(partial)]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[Predicate::Ceil(variable.clone())]),
+            Exactness::Approximate
+        );
+        assert_eq!(
+            translation_exactness(&[equality(variable)]),
+            Exactness::Exact
+        );
     }
 
     #[test]
