@@ -83,12 +83,12 @@ where
     });
     counters.set("collector.host_descriptors", descriptors.len());
     let builtins = timings.span("collector.builtins", |_| builtins());
-    let mut bundle = timings.try_span("collector.resolve", |timings| {
+    let bundle = timings.try_span("collector.resolve", |timings| {
         collect_host_descriptors_with_builtins_timed(contexts, descriptors, &builtins, timings)
     })?;
     if counters.is_enabled() {
         let json = timings.try_span("collector.serialize", |_| {
-            let (bytes, provenance) = bundle.to_collector_protocol_measured_in_place()?;
+            let (bytes, provenance) = bundle.to_collector_protocol_measured()?;
             counters.set("bundle.provenance_bytes", provenance);
             Ok::<_, serde_json::Error>(bytes)
         })?;
@@ -102,7 +102,7 @@ where
         timings.try_span("collector.serialize", |_| -> Result<(), Box<dyn Error>> {
             let stdout = std::io::stdout().lock();
             let mut writer = BufWriter::with_capacity(64 * 1024, stdout);
-            bundle.write_collector_protocol_in_place(&mut writer)?;
+            bundle.write_collector_protocol(&mut writer)?;
             writer.flush()?;
             Ok(())
         })?;

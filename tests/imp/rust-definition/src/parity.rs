@@ -1228,9 +1228,9 @@ fn readable_overlap_is_rejected_after_sort_inference() {
         original.id.disambiguator(),
     )
     .unwrap();
-    let mut descriptors = bundle.descriptors.clone();
+    let mut descriptors = bundle.descriptors.to_vec();
     descriptors.push(duplicate.clone());
-    let mut declarations = bundle.declarations.clone();
+    let mut declarations = bundle.declarations.to_vec();
     declarations.push(DescriptorDeclaration::new(
         duplicate.id,
         RustVisibility::Inherited,

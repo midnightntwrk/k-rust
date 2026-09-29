@@ -29,11 +29,11 @@ export function renderCollectorMain(lesson: LessonManifest): string {
     `        &${alias}::__KRS_REGISTRATIONS,\n` +
     "    ];\n" +
     "    let builtins = __krs_host_runtime::builtin_registry();\n" +
-    "    let mut bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        __krs_host_runtime::host_descriptors_from(tables),\n        &builtins,\n    )?;\n" +
+    "    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        __krs_host_runtime::host_descriptors_from(tables),\n        &builtins,\n    )?;\n" +
     "    use std::io::Write as _;\n" +
     "    let stdout = std::io::stdout().lock();\n" +
     "    let mut writer = std::io::BufWriter::with_capacity(64 * 1024, stdout);\n" +
-    "    bundle.write_collector_protocol_in_place(&mut writer)?;\n" +
+    "    bundle.write_collector_protocol(&mut writer)?;\n" +
     "    writer.flush()?;\n" +
     "    Ok(())\n}\n"
   );

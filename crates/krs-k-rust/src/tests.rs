@@ -2419,20 +2419,30 @@ fn provenance_join_uses_mapping_key_for_ir_sentence_kind() {
     let adapted = adapt_definition(&ir).unwrap();
     let loaded = prepare_definition(adapted.definition().clone(), Backend::Llvm).unwrap();
     let main = &ir.modules()[0];
-    let mut reordered_sentences = main.sentences().to_vec();
-    reordered_sentences.swap(0, 1);
-    let reordered_main = DefinitionModule::new(
+    let mut shifted_sentences = main.sentences().to_vec();
+    shifted_sentences.push(DefinitionSentence::SyntaxSort(
+        SyntaxSortSentence::new(
+            node("def.middle"),
+            symbol("sort.middle", "Middle", SymbolKind::Sort),
+        )
+        .unwrap(),
+    ));
+    let shifted_main = DefinitionModule::new(
         main.origin().clone(),
         main.id().clone(),
         main.imports().iter().cloned().collect(),
         main.production_groups().to_vec(),
-        reordered_sentences,
+        shifted_sentences,
     );
-    let reordered_ir = DefinitionIr::new(
+    let shifted_ir = DefinitionIr::new(
         ir.main_module().clone(),
-        vec![reordered_main, ir.modules()[1].clone()],
+        vec![shifted_main, ir.modules()[1].clone()],
     )
     .unwrap();
+    assert_eq!(
+        shifted_ir.modules()[0].sentences()[2].origin().key(),
+        main.sentences()[1].origin().key()
+    );
     let address = InputAddress {
         input: InputSpace::Structured,
         module: "SMOKE".to_owned(),
@@ -2446,7 +2456,7 @@ fn provenance_join_uses_mapping_key_for_ir_sentence_kind() {
             generated_by: None,
         },
     )]);
-    assert!(super::join_sentence_provenance(&reordered_ir, &adapted, &loaded, &relation).is_ok());
+    assert!(super::join_sentence_provenance(&shifted_ir, &adapted, &loaded, &relation).is_ok());
 }
 
 #[test]

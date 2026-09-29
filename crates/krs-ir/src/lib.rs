@@ -24,6 +24,7 @@ pub mod measure;
 pub mod provenance;
 pub mod provenance_role;
 pub mod semantic;
+pub mod sorted;
 pub mod stable_text;
 pub mod state;
 #[cfg(any(test, feature = "test-support"))]

@@ -11,6 +11,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir::validated_id;
+use crate::sorted::{SortKey, SortedByKey};
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
@@ -23,6 +24,27 @@ use crate::{
     FixedConfigurationPattern, FixedConfigurationRewrite, FixedInitializerCell,
     FixedInitializerContent,
 };
+
+impl SortKey for DefinitionModule {
+    type Key = ModuleId;
+    fn sort_key(&self) -> &Self::Key {
+        &self.id
+    }
+}
+
+impl SortKey for ProductionGroupIdentity {
+    type Key = ProductionGroupId;
+    fn sort_key(&self) -> &Self::Key {
+        &self.id
+    }
+}
+
+impl SortKey for DefinitionSentence {
+    type Key = SourceMapKey;
+    fn sort_key(&self) -> &Self::Key {
+        self.origin().key()
+    }
+}
 
 /// Authored or compiler-provided Definition application reference.
 pub type DefinitionApplicationRef = ApplicationRef<SymbolId>;
@@ -270,7 +292,7 @@ impl LabelIdentity {
 pub struct DefinitionIr {
     schema_version: SchemaVersion,
     main_module: ModuleId,
-    modules: Vec<DefinitionModule>,
+    modules: SortedByKey<DefinitionModule>,
 }
 
 #[derive(Deserialize)]
@@ -312,7 +334,7 @@ impl DefinitionIr {
         let definition = Self {
             schema_version: SchemaVersion::CURRENT,
             main_module,
-            modules,
+            modules: SortedByKey::new(modules),
         };
         definition.validate()?;
         Ok(definition)
@@ -327,7 +349,7 @@ impl DefinitionIr {
     pub const fn main_module(&self) -> &ModuleId {
         &self.main_module
     }
-    /// Returns modules in caller order.
+    /// Returns modules in canonical ID order.
     #[must_use]
     pub fn modules(&self) -> &[DefinitionModule] {
         &self.modules
@@ -338,14 +360,7 @@ impl DefinitionIr {
     ///
     /// Returns a JSON encoding error if the serde data model cannot be encoded.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut canonical = self.clone();
-        for module in &mut canonical.modules {
-            module.canonicalize();
-        }
-        canonical
-            .modules
-            .sort_by(|left, right| left.id.cmp(&right.id));
-        let mut json = serde_json::to_string_pretty(&canonical)?;
+        let mut json = serde_json::to_string_pretty(self)?;
         json.push('\n');
         Ok(json)
     }
@@ -584,12 +599,12 @@ pub struct DefinitionModule {
     origin: NodeOrigin,
     id: ModuleId,
     imports: BTreeSet<ModuleId>,
-    production_groups: Vec<ProductionGroupIdentity>,
-    sentences: Vec<DefinitionSentence>,
+    production_groups: SortedByKey<ProductionGroupIdentity>,
+    sentences: SortedByKey<DefinitionSentence>,
 }
 
 impl DefinitionModule {
-    /// Creates a module. Imports are a set; sentences retain caller order until canonical serialization.
+    /// Creates a module with canonical production-group and sentence order.
     #[must_use]
     pub fn new(
         origin: NodeOrigin,
@@ -602,8 +617,8 @@ impl DefinitionModule {
             origin,
             id,
             imports: imports.into_iter().collect(),
-            production_groups,
-            sentences,
+            production_groups: SortedByKey::new(production_groups),
+            sentences: SortedByKey::new(sentences),
         }
     }
     /// Returns node provenance.
@@ -630,12 +645,6 @@ impl DefinitionModule {
     #[must_use]
     pub fn sentences(&self) -> &[DefinitionSentence] {
         &self.sentences
-    }
-    fn canonicalize(&mut self) {
-        self.production_groups
-            .sort_by(|left, right| left.id.cmp(&right.id));
-        self.sentences
-            .sort_by(|left, right| left.origin().key().cmp(right.origin().key()));
     }
 }
 

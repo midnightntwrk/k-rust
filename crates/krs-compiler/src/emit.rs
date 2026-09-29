@@ -139,9 +139,7 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     let context = EmitContext::new(definition);
     let mut writer = Writer::default();
     let mut claims = Vec::new();
-    let mut modules = definition.modules().iter().collect::<Vec<_>>();
-    modules.sort_by(|left, right| left.id().cmp(right.id()));
-    for (index, module) in modules.into_iter().enumerate() {
+    for (index, module) in definition.modules().iter().enumerate() {
         if index != 0 {
             writer.push("\n");
         }

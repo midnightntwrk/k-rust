@@ -109,23 +109,21 @@ fn populated_bundle_matches_golden() {
 
 #[test]
 fn collector_protocol_matches_goldens_and_counts_provenance_values() {
-    let mut empty = DescriptorBundle::empty();
+    let empty = DescriptorBundle::empty();
     let mut empty_bytes = Vec::new();
-    empty
-        .write_collector_protocol_in_place(&mut empty_bytes)
-        .unwrap();
+    empty.write_collector_protocol(&mut empty_bytes).unwrap();
     expect_test::expect_file!["golden/collector_empty_bundle.json"]
         .assert_eq(std::str::from_utf8(&empty_bytes).unwrap());
 
     let bundle = populated_bundle(false);
-    let mut owned = bundle.clone();
-    let (bytes, provenance) = owned.to_collector_protocol_measured_in_place().unwrap();
+    let owned = bundle.clone();
+    let (bytes, provenance) = owned.to_collector_protocol_measured().unwrap();
     expect_test::expect_file!["golden/collector_sort_constructors.json"]
         .assert_eq(std::str::from_utf8(&bytes).unwrap());
     let mut streamed = Vec::new();
     bundle
         .clone()
-        .write_collector_protocol_in_place(&mut streamed)
+        .write_collector_protocol(&mut streamed)
         .unwrap();
     assert_eq!(streamed, bytes);
     let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
@@ -146,8 +144,8 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
 
 #[test]
 fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
-    let mut bundle = populated_bundle(false);
-    let descriptor = &mut bundle.descriptors[0];
+    let mut descriptors = populated_bundle(false).descriptors.to_vec();
+    let descriptor = &mut descriptors[0];
     let id = descriptor.id.clone();
     let mut stack = origin();
     let range = match &stack.frames()[0] {
@@ -181,7 +179,8 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
     descriptor.provenance =
         DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, stack)])
             .unwrap();
-    let bytes = bundle.to_collector_protocol_measured_in_place().unwrap().0;
+    let bundle = DescriptorBundle::new(descriptors);
+    let bytes = bundle.to_collector_protocol_measured().unwrap().0;
     let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
     assert_eq!(decoded, bundle);
 
@@ -249,7 +248,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
     let mut missing = declarations();
     let missing_id = missing.pop().unwrap().id().clone();
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.clone(), missing),
+        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), missing),
         Err(DescriptorDeclarationError::Missing(Box::new(missing_id)))
     );
 
@@ -261,7 +260,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
         None,
     ));
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.clone(), extra),
+        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), extra),
         Err(DescriptorDeclarationError::Extra(Box::new(extra_id)))
     );
 
@@ -269,7 +268,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
     let duplicate_id = duplicate[0].id().clone();
     duplicate.push(duplicate[0].clone());
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors, duplicate),
+        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), duplicate),
         Err(DescriptorDeclarationError::Duplicate(Box::new(
             duplicate_id
         )))
@@ -280,20 +279,20 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
 fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
     let bundle = populated_bundle(false);
     let pinned_id = bundle.descriptors[0].id.clone();
-    let mut declarations = bundle.declarations.clone();
+    let mut declarations = bundle.declarations.to_vec();
     declarations[0] = DescriptorDeclaration::new(
         pinned_id.clone(),
         RustVisibility::Inherited,
         Some(ExplicitSymbol::new("api::Pinned").unwrap()),
     );
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.clone(), declarations),
+        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), declarations),
         Err(DescriptorDeclarationError::MissingSymbolOrigin(Box::new(
             pinned_id.clone(),
         )))
     );
 
-    let mut descriptors = bundle.descriptors;
+    let mut descriptors = bundle.descriptors.to_vec();
     let primary_key = descriptors[0].provenance.primary_key().clone();
     let mut origins = descriptors[0].provenance.origins().to_vec();
     origins.push(DescriptorNodeOrigin::new(
@@ -302,7 +301,7 @@ fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
     ));
     descriptors[0].provenance = DescriptorProvenance::new(primary_key, origins).unwrap();
     assert_eq!(
-        DescriptorBundle::with_declarations(descriptors, bundle.declarations),
+        DescriptorBundle::with_declarations(descriptors, bundle.declarations.to_vec()),
         Err(DescriptorDeclarationError::UnexpectedSymbolOrigin(
             Box::new(pinned_id,)
         ))
@@ -350,8 +349,10 @@ fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
     }
     forward.descriptors.push(alternate.clone());
 
+    let mut reversed = forward.descriptors.to_vec();
+    reversed.reverse();
     let mut reverse = forward.clone();
-    reverse.descriptors.reverse();
+    reverse.descriptors = reversed.into();
     assert_eq!(
         forward.to_canonical_json().unwrap(),
         reverse.to_canonical_json().unwrap()
@@ -362,9 +363,8 @@ fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
 fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0);
     let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldDeclaration, 0);
-    let mut forward = populated_bundle(false);
-    let descriptor = forward
-        .descriptors
+    let mut descriptors = populated_bundle(false).descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
         .unwrap();
@@ -377,9 +377,9 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     )
     .unwrap();
 
-    let mut ordered = forward.clone();
-    ordered
-        .descriptors
+    let forward = DescriptorBundle::new(descriptors);
+    let mut ordered_descriptors = forward.descriptors.to_vec();
+    ordered_descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
         .unwrap()
@@ -391,6 +391,7 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
         ],
     )
     .unwrap();
+    let ordered = DescriptorBundle::new(ordered_descriptors);
     assert_eq!(
         forward.to_canonical_json().unwrap(),
         ordered.to_canonical_json().unwrap()

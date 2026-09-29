@@ -11,6 +11,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::sorted::{SortKey, SortedByKey};
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
@@ -20,6 +21,50 @@ use crate::{
     ProductionAttribute, ProductionFieldId, ProductionGroupId, SchemaVersion, SemanticId,
     SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
+
+impl SortKey for SemanticModule {
+    type Key = ModuleId;
+    fn sort_key(&self) -> &Self::Key {
+        &self.id
+    }
+}
+
+macro_rules! semantic_id_key {
+    ($($type:ty),+ $(,)?) => {$ (
+        impl SortKey for $type {
+            type Key = StableItemId;
+            fn sort_key(&self) -> &Self::Key { &self.id }
+        }
+    )+};
+}
+
+semantic_id_key!(
+    SemanticSort,
+    SemanticProduction,
+    SemanticContextAlias,
+    SemanticRule
+);
+
+impl SortKey for SemanticSubsort {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for PrecedenceRelation {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for GroupAssociativitySentence {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
 
 /// Authored or compiler-provided semantic application reference.
 pub type SemanticApplicationRef = ApplicationRef<StableItemId>;
@@ -95,7 +140,7 @@ impl SemanticSortRef {
 #[serde(deny_unknown_fields)]
 pub struct SemanticTheory {
     schema_version: SchemaVersion,
-    modules: Vec<SemanticModule>,
+    modules: SortedByKey<SemanticModule>,
 }
 
 #[derive(Deserialize)]
@@ -131,7 +176,7 @@ impl SemanticTheory {
     pub fn new(modules: Vec<SemanticModule>) -> Result<Self, SemanticValidationError> {
         let theory = Self {
             schema_version: SchemaVersion::CURRENT,
-            modules,
+            modules: SortedByKey::new(modules),
         };
         theory.validate()?;
         Ok(theory)
@@ -143,8 +188,7 @@ impl SemanticTheory {
         self.schema_version
     }
 
-    /// Returns modules in caller order. Canonical serialization treats the
-    /// module collection as a set.
+    /// Returns modules in canonical ID order.
     #[must_use]
     pub fn modules(&self) -> &[SemanticModule] {
         &self.modules
@@ -156,18 +200,9 @@ impl SemanticTheory {
     ///
     /// Returns a JSON encoding error if the serde data model cannot be encoded.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut canonical = self.clone();
-        canonical.canonicalize();
-        let mut json = serde_json::to_string_pretty(&canonical)?;
+        let mut json = serde_json::to_string_pretty(self)?;
         json.push('\n');
         Ok(json)
-    }
-
-    fn canonicalize(&mut self) {
-        for module in &mut self.modules {
-            module.canonicalize();
-        }
-        self.modules.sort_by(|left, right| left.id.cmp(&right.id));
     }
 
     #[allow(clippy::too_many_lines)]
@@ -407,15 +442,15 @@ pub struct SemanticModule {
     origin: NodeOrigin,
     id: ModuleId,
     imports: BTreeSet<ModuleId>,
-    sorts: Vec<SemanticSort>,
-    subsorts: Vec<SemanticSubsort>,
-    productions: Vec<SemanticProduction>,
-    precedences: Vec<PrecedenceRelation>,
-    associativities: Vec<GroupAssociativitySentence>,
+    sorts: SortedByKey<SemanticSort>,
+    subsorts: SortedByKey<SemanticSubsort>,
+    productions: SortedByKey<SemanticProduction>,
+    precedences: SortedByKey<PrecedenceRelation>,
+    associativities: SortedByKey<GroupAssociativitySentence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration: Option<SemanticConfiguration>,
-    context_aliases: Vec<SemanticContextAlias>,
-    rules: Vec<SemanticRule>,
+    context_aliases: SortedByKey<SemanticContextAlias>,
+    rules: SortedByKey<SemanticRule>,
 }
 
 impl SemanticModule {
@@ -470,14 +505,14 @@ impl SemanticModule {
             origin,
             id,
             imports: imports.into_iter().collect(),
-            sorts,
-            subsorts,
-            productions,
-            precedences,
-            associativities,
+            sorts: SortedByKey::new(sorts),
+            subsorts: SortedByKey::new(subsorts),
+            productions: SortedByKey::new(productions),
+            precedences: SortedByKey::new(precedences),
+            associativities: SortedByKey::new(associativities),
             configuration,
-            context_aliases,
-            rules,
+            context_aliases: SortedByKey::new(context_aliases),
+            rules: SortedByKey::new(rules),
         }
     }
 
@@ -535,18 +570,6 @@ impl SemanticModule {
     #[must_use]
     pub fn rules(&self) -> &[SemanticRule] {
         &self.rules
-    }
-
-    fn canonicalize(&mut self) {
-        self.sorts.sort_by(|left, right| left.id.cmp(&right.id));
-        self.subsorts.sort();
-        self.productions
-            .sort_by(|left, right| left.id.cmp(&right.id));
-        self.precedences.sort();
-        self.associativities.sort();
-        self.context_aliases
-            .sort_by(|left, right| left.id.cmp(&right.id));
-        self.rules.sort_by(|left, right| left.id.cmp(&right.id));
     }
 }
 

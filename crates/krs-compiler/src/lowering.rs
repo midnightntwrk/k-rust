@@ -180,11 +180,10 @@ impl From<IrIdentityError> for LoweringError {
 pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinition, LoweringError> {
     let names = NamingPass::run(theory)?;
     let mut origins = OriginPass::default();
-    let mut modules = theory.modules().iter().collect::<Vec<_>>();
-    modules.sort_by(|left, right| left.id().cmp(right.id()));
     let mut declared_production_groups = BTreeSet::new();
-    let lowered_modules = modules
-        .into_iter()
+    let lowered_modules = theory
+        .modules()
+        .iter()
         .map(|module| {
             lower_module(
                 module,
@@ -467,17 +466,13 @@ fn lower_module(
             )?)
         })
         .collect::<Result<Vec<_>, LoweringError>>()?;
-    let mut sorts = module.sorts().iter().collect::<Vec<_>>();
-    sorts.sort_by(|left, right| left.id().cmp(right.id()));
-    for sort in sorts {
+    for sort in module.sorts() {
         sentences.push(DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
             origins.lower(sort.origin(), "syntax-sort", Some(sort.id()), None)?,
             names.sort(sort.id())?,
         )?));
     }
-    let mut subsorts = module.subsorts().iter().collect::<Vec<_>>();
-    subsorts.sort();
-    for subsort in subsorts {
+    for subsort in module.subsorts() {
         let item = match subsort.subsort() {
             SemanticSortRef::Declared(item) => Some(item),
             SemanticSortRef::Builtin(_) => None,
@@ -498,9 +493,7 @@ fn lower_module(
         )));
     }
 
-    let mut productions = module.productions().iter().collect::<Vec<_>>();
-    productions.sort_by(|left, right| left.id().cmp(right.id()));
-    for production in productions {
+    for production in module.productions() {
         sentences.push(DefinitionSentence::Production(ProductionSentence::new(
             origins.lower(
                 production.origin(),
@@ -579,9 +572,7 @@ fn lower_module(
         )));
     }
 
-    let mut rules = module.rules().iter().collect::<Vec<_>>();
-    rules.sort_by(|left, right| left.id().cmp(right.id()));
-    for rule in rules {
+    for rule in module.rules() {
         let variables = lower_variables(rule.variables(), names)?;
         let label =
             names

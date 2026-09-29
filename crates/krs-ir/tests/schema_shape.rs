@@ -479,6 +479,7 @@ fn registry() -> Registry {
     }
     trace!(BuiltinOperation: BuiltinOperation);
     trace!(BuiltinSort: BuiltinSort);
+    trace!(SortedByKey: krs_ir::sorted::SortedByKey<ModuleId>);
     trace!(CellCollectionType: CellCollectionType);
     trace!(CellColor: CellColor);
     trace!(CellMultiplicity: CellMultiplicity);
@@ -857,7 +858,7 @@ fn collector_encoding_is_pinned() {
         }),
         false,
     );
-    let mut bundle = DescriptorBundle::with_declarations(
+    let bundle = DescriptorBundle::with_declarations(
         vec![sort, constructor],
         vec![
             DescriptorDeclaration::new(
@@ -869,7 +870,7 @@ fn collector_encoding_is_pinned() {
         ],
     )
     .unwrap();
-    let bytes = bundle.to_collector_protocol_measured_in_place().unwrap().0;
+    let bytes = bundle.to_collector_protocol_measured().unwrap().0;
     let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
     assert_eq!(decoded, bundle);
     let encoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

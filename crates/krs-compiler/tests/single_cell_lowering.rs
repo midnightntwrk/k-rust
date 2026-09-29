@@ -261,7 +261,13 @@ fn one_cell_configuration_and_initializer_remain_structural() {
 fn name_collisions_are_rejected_before_definition_construction() {
     let mut json = serde_json::to_value(theory(false)).unwrap();
     let module = &mut json["modules"][0];
-    let duplicate = module["productions"][0].clone();
+    let duplicate = module["productions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|production| production["id"]["item_name"] == "Foo")
+        .unwrap()
+        .clone();
     let mut second = duplicate;
     second["id"]["module_path"] = serde_json::json!(["extension"]);
     second["origin"]["key"] = serde_json::json!("sem.production.colliding-foo");
@@ -270,19 +276,24 @@ fn name_collisions_are_rejected_before_definition_construction() {
     let theory: SemanticTheory = serde_json::from_value(json).unwrap();
     let expected_origin = theory.modules()[0]
         .productions()
-        .last()
+        .iter()
+        .find(|production| production.origin().key().as_str() == "sem.production.foo")
         .unwrap()
         .origin()
         .origin();
-    assert!(matches!(
-        lower_semantic_theory(&theory),
-        Err(LoweringError::NameCollision {
-            namespace: "emitted symbol",
-            value,
-            second_origin,
-            ..
-        }) if value == "foo" && &second_origin == expected_origin
-    ));
+    let result = lower_semantic_theory(&theory);
+    assert!(
+        matches!(
+            &result,
+            Err(LoweringError::NameCollision {
+                namespace: "emitted symbol",
+                value,
+                second_origin,
+                ..
+            }) if value == "foo" && second_origin == expected_origin
+        ),
+        "{result:?}"
+    );
 }
 
 #[test]

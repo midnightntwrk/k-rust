@@ -569,8 +569,8 @@ fn replace_rule_result_with_builtin(
     operation: BuiltinOperation,
     second_argument: Option<DescriptorLiteral>,
 ) {
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -622,6 +622,7 @@ fn replace_rule_result_with_builtin(
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments,
     };
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
 
 fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> StableItemId {
@@ -704,8 +705,8 @@ fn add_builtin_member(
 }
 
 fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -759,6 +760,7 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
             }],
         },
     });
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
 
 fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
@@ -793,8 +795,8 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
 }
 
 fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -871,11 +873,12 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
             },
         ],
     };
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
 
 fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -954,6 +957,7 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     };
     *reference_key = key(ProvenanceRole::RuleRightReference, 0);
     *path_key = key(ProvenanceRole::RuleRightPath, 2);
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
 
 #[test]
@@ -1091,8 +1095,8 @@ fn ordinary_map_update_rejects_a_non_map_base_locally() {
 #[test]
 fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
     let (mut bundle, _) = bundle();
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -1119,6 +1123,7 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
         name: "if-true".into(),
     });
 
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let lowered = lower_semantic_theory(&semantic).unwrap();
     let emitted = emit_k(&lowered).unwrap();
@@ -1173,8 +1178,8 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
 fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     let (mut bundle, _) = bundle();
     let add = id("Add", ItemKind::Constructor);
-    let constructor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let constructor = descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id == add)
         .unwrap();
@@ -1183,9 +1188,7 @@ fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     };
     constructor.fields[0].sort = Some(DescriptorSortRef::Builtin(BuiltinSort::Id));
 
-    let grammar = bundle
-        .descriptors
-        .iter_mut()
+    let grammar = descriptors.iter_mut()
         .find(|descriptor| {
             matches!(
                 &descriptor.payload,
@@ -1211,6 +1214,7 @@ fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     };
     sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Id);
 
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let production = semantic.modules()[0]
         .productions()
@@ -1346,9 +1350,8 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     });
 
     let add = id("Add", ItemKind::Constructor);
-    let grammar = bundle
-        .descriptors
-        .iter_mut()
+    let mut descriptors = bundle.descriptors.to_vec();
+    let grammar = descriptors.iter_mut()
         .find(|descriptor| {
             descriptor.id.item_kind() == ItemKind::Grammar
                 && matches!(
@@ -1375,6 +1378,7 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     };
     sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Int);
 
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     replace_rule_result_with_builtin(&mut bundle, BuiltinOperation::BoolNot, None);
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(
@@ -1388,8 +1392,8 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
 #[test]
 fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
     let (mut bundle, _) = bundle();
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -1400,6 +1404,7 @@ fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
             key(ProvenanceRole::StableSymbol, 0),
         ],
     );
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(error.to_string().contains("provenance"));
 }
@@ -1409,9 +1414,8 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     let (mut bundle, _) = bundle();
 
     let add = id("Add", ItemKind::Constructor);
-    let grammar = bundle
-        .descriptors
-        .iter_mut()
+    let mut descriptors = bundle.descriptors.to_vec();
+    let grammar = descriptors.iter_mut()
         .find(|descriptor| {
             matches!(
                 &descriptor.payload,
@@ -1437,8 +1441,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     };
     sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Int);
 
-    let descriptor = bundle
-        .descriptors
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
@@ -1502,6 +1505,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
         },
     });
 
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(matches!(
         error,

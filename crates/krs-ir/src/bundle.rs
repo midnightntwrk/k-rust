@@ -7,6 +7,7 @@ use std::io::Write;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::sorted::{SortKey, SortedByKey};
 use crate::{
     DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
@@ -14,15 +15,36 @@ use crate::{
     SchemaVersion, StableItemId, StateTransportError, StructuredRuleDescriptor,
 };
 
+impl SortKey for Descriptor {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for DescriptorDeclaration {
+    type Key = Self;
+    fn sort_key(&self) -> &Self::Key {
+        self
+    }
+}
+
+impl SortKey for DescriptorNodeOrigin {
+    type Key = ProvenanceKey;
+    fn sort_key(&self) -> &Self::Key {
+        &self.key
+    }
+}
+
 /// Deterministic, serializable output of one host collector execution.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct DescriptorBundle {
     /// Schema and canonical-encoding version.
     protocol_version: SchemaVersion,
-    /// Collected descriptors. Canonical serialization orders these by ID.
-    pub descriptors: Vec<Descriptor>,
+    /// Collected descriptors in their full derived order.
+    pub descriptors: SortedByKey<Descriptor>,
     /// Exact Rust API metadata for every collected descriptor.
-    pub declarations: Vec<DescriptorDeclaration>,
+    pub declarations: SortedByKey<DescriptorDeclaration>,
 }
 
 #[derive(Deserialize)]
@@ -58,8 +80,8 @@ impl<'de> Deserialize<'de> for DescriptorBundle {
             .map_err(serde::de::Error::custom)?;
         Ok(Self {
             protocol_version: wire.protocol_version,
-            descriptors: wire.descriptors,
-            declarations: wire.declarations,
+            descriptors: SortedByKey::new(wire.descriptors),
+            declarations: SortedByKey::new(wire.declarations),
         })
     }
 }
@@ -78,8 +100,8 @@ impl DescriptorBundle {
             .collect();
         Self {
             protocol_version: SchemaVersion::CURRENT,
-            descriptors,
-            declarations,
+            descriptors: SortedByKey::new(descriptors),
+            declarations: SortedByKey::new(declarations),
         }
     }
 
@@ -95,8 +117,8 @@ impl DescriptorBundle {
         validate_declarations(&descriptors, &declarations)?;
         Ok(Self {
             protocol_version: SchemaVersion::CURRENT,
-            descriptors,
-            declarations,
+            descriptors: SortedByKey::new(descriptors),
+            declarations: SortedByKey::new(declarations),
         })
     }
 
@@ -122,31 +144,25 @@ impl DescriptorBundle {
 
     /// Returns canonical, inspectable JSON with one trailing newline.
     ///
-    /// Descriptor and declaration order are normalized on a clone.
-    /// Parent-sort order is fixed by its set type.
+    /// Descriptor and declaration orders are canonical in the bundle value.
     ///
     /// # Errors
     ///
     /// Returns an error if this protocol's serde data model cannot be encoded
     /// as JSON. Current descriptor variants contain no fallible JSON values.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut canonical = self.clone();
-        canonical.canonicalize();
-        let mut json = serde_json::to_string_pretty(&canonical)?;
+        let mut json = serde_json::to_string_pretty(self)?;
         json.push('\n');
         Ok(json)
     }
 
-    /// Serializes this owned bundle as compact collector protocol JSON with
+    /// Serializes this bundle as compact collector protocol JSON with
     /// one trailing newline and counts bytes encoding `provenance` values.
     ///
     /// # Errors
     ///
     /// Returns an error if the bundle cannot be encoded as JSON.
-    pub fn to_collector_protocol_measured_in_place(
-        &mut self,
-    ) -> serde_json::Result<(Vec<u8>, u64)> {
-        self.canonicalize();
+    pub fn to_collector_protocol_measured(&self) -> serde_json::Result<(Vec<u8>, u64)> {
         let mut writer = crate::measure::ProvenanceCountingWriter {
             bytes: Vec::with_capacity(self.json_capacity_hint()),
             provenance: 0,
@@ -156,16 +172,12 @@ impl DescriptorBundle {
         Ok((writer.bytes, writer.provenance))
     }
 
-    /// Writes compact canonical collector protocol JSON while reordering this bundle in place.
+    /// Writes compact canonical collector protocol JSON.
     ///
     /// # Errors
     ///
     /// Returns an error if JSON encoding or the destination write fails.
-    pub fn write_collector_protocol_in_place(
-        &mut self,
-        mut writer: impl Write,
-    ) -> serde_json::Result<()> {
-        self.canonicalize();
+    pub fn write_collector_protocol(&self, mut writer: impl Write) -> serde_json::Result<()> {
         crate::transport::collector::write(self, &mut writer)?;
         writer.write_all(b"\n").map_err(serde_json::Error::io)
     }
@@ -188,14 +200,6 @@ impl DescriptorBundle {
             .saturating_mul(160)
             .saturating_add(self.descriptors.len().saturating_mul(4 * 1024))
             .min(64 * 1024 * 1024)
-    }
-
-    fn canonicalize(&mut self) {
-        for descriptor in &mut self.descriptors {
-            descriptor.canonicalize();
-        }
-        self.descriptors.sort();
-        self.declarations.sort();
     }
 }
 
@@ -444,10 +448,6 @@ impl Descriptor {
             | DescriptorPayload::StructuredRule(_) => Ok(()),
         }
     }
-
-    fn canonicalize(&mut self) {
-        self.provenance.canonicalize();
-    }
 }
 
 /// One exact parser-owned node origin in a stable descriptor.
@@ -477,7 +477,7 @@ impl DescriptorNodeOrigin {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DescriptorProvenance {
     primary_key: ProvenanceKey,
-    origins: Vec<DescriptorNodeOrigin>,
+    origins: SortedByKey<DescriptorNodeOrigin>,
 }
 
 /// Borrowed serialization form of [`DescriptorProvenance`], field for field.
@@ -546,7 +546,7 @@ impl DescriptorProvenance {
         }
         Ok(Self {
             primary_key,
-            origins,
+            origins: SortedByKey::new(origins),
         })
     }
 
@@ -581,10 +581,6 @@ impl DescriptorProvenance {
     #[must_use]
     pub fn origins(&self) -> &[DescriptorNodeOrigin] {
         &self.origins
-    }
-
-    fn canonicalize(&mut self) {
-        self.origins.sort_by(|left, right| left.key.cmp(&right.key));
     }
 }
 

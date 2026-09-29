@@ -179,7 +179,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
     }
 }
 
-/// Writes one already-canonicalized bundle in collector format.
+/// Writes one canonical bundle in collector format.
 pub(crate) fn write(bundle: &DescriptorBundle, writer: impl Write) -> serde_json::Result<()> {
     serde_json::to_writer(writer, &encode(bundle))
 }

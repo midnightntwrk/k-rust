@@ -475,12 +475,13 @@ fn refresh_rule_provenance(bundle: &mut DescriptorBundle) {
             _ => None,
         })
         .unwrap();
-    let descriptor = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected);
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
 
 #[test]
@@ -510,7 +511,7 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
     assert!(source.contains("rule ["));
     assert!(source.contains(":Map"));
 
-    let mut reordered = bundle.descriptors.clone();
+    let mut reordered = bundle.descriptors.to_vec();
     reordered.reverse();
     let repeated =
         lower_semantic_theory(&lower_descriptor_bundle(&DescriptorBundle::new(reordered)).unwrap())
@@ -524,8 +525,8 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
 #[test]
 fn exact_empty_map_can_rewrite_to_exact_map_items() {
     let mut bundle = bundle();
-    let rule = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
             DescriptorPayload::ConfigurationRule(rule) => Some(rule),
@@ -562,8 +563,8 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     ));
     rule.bindings
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     refresh_rule_provenance(&mut bundle);
-
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let module = semantic
         .modules()
@@ -604,8 +605,8 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
 #[test]
 fn result_only_cell_is_rejected_before_configuration_lowering() {
     let mut bundle = bundle();
-    let rule = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
             DescriptorPayload::ConfigurationRule(rule) => Some(rule),
@@ -621,12 +622,12 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
     rule.bindings
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
     let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    let descriptor = bundle
-        .descriptors
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(
         error
@@ -639,8 +640,8 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
 #[test]
 fn unknown_owner_qualified_cell_reference_fails_typed() {
     let mut bundle = bundle();
-    let rule = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
             DescriptorPayload::ConfigurationRule(rule) => Some(rule),
@@ -648,6 +649,7 @@ fn unknown_owner_qualified_cell_reference_fails_typed() {
         })
         .unwrap();
     rule.subject.cells[0].field.cell.field = "missing".into();
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let error = lower_descriptor_bundle(&bundle).unwrap_err();
     assert!(error.to_string().contains("no declared cell field"));
 }
@@ -655,8 +657,8 @@ fn unknown_owner_qualified_cell_reference_fails_typed() {
 #[test]
 fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     let mut bundle = bundle();
-    let rule = bundle
-        .descriptors
+    let mut descriptors = bundle.descriptors.to_vec();
+    let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
             DescriptorPayload::ConfigurationRule(rule) => Some(rule),
@@ -673,13 +675,13 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     rule.bindings
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
     let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
-    let descriptor = bundle
-        .descriptors
+    let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
 
+    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let variables = semantic
         .modules()

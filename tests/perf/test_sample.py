@@ -70,7 +70,7 @@ class FoldTests(unittest.TestCase):
 
     def test_detail_tables_group_by_crate(self):
         process = sample.ProcessFold("1", "p")
-        work = (("_start", "bin"), ("krs_ir::bundle::<impl krs_ir::bundle::DescriptorBundle>::to_collector_protocol_measured_in_place", "bin"),
+        work = (("_start", "bin"), ("krs_ir::bundle::<impl krs_ir::bundle::DescriptorBundle>::to_collector_protocol_measured", "bin"),
                 ("<serde_json::ser::Compound<W,F> as serde::ser::SerializeMap>::serialize_entry", "bin"))
         process.stacks[work] = 60
         process.stacks[work[:2] + (("__memmove_avx_unaligned_erms", "libc.so.6"),)] = 40
