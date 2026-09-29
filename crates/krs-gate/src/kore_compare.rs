@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 use std::fs;
+use std::{ffi::OsString, path::PathBuf};
 
 use k_rust::kore::ast::{
     Attributes, Module, Pattern, Sentence, Sort, Symbol, Variable, VariableKind,
@@ -21,20 +22,31 @@ const PROJECTOR_SEPARATOR: &str = "'Coln'";
 /// # Errors
 ///
 /// Returns an error for invalid arguments, malformed KORE, or a comparison difference.
-pub fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
-    let reference_path = arguments.next().ok_or("missing reference KORE path")?;
-    let actual_path = arguments.next().ok_or("missing native KORE path")?;
-    let module_name = arguments.next().ok_or("missing module name")?;
+pub fn run(
+    mut arguments: impl Iterator<Item = OsString>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let reference_path = PathBuf::from(arguments.next().ok_or("missing reference KORE path")?);
+    let actual_path = PathBuf::from(arguments.next().ok_or("missing native KORE path")?);
+    let module_name = utf8_argument(
+        arguments.next().ok_or("missing module name")?,
+        "module name",
+    )?;
     let mut label_map = BTreeMap::new();
     let mut reference_claims = None;
     while let Some(argument) = arguments.next() {
+        let argument = utf8_argument(argument, "option")?;
         if argument == "--reference-claims" {
-            let path = arguments
-                .next()
-                .ok_or("--reference-claims needs PATH MODULE")?;
-            let module = arguments
-                .next()
-                .ok_or("--reference-claims needs PATH MODULE")?;
+            let path = PathBuf::from(
+                arguments
+                    .next()
+                    .ok_or("--reference-claims needs PATH MODULE")?,
+            );
+            let module = utf8_argument(
+                arguments
+                    .next()
+                    .ok_or("--reference-claims needs PATH MODULE")?,
+                "reference claims module",
+            )?;
             if reference_claims.replace((path, module)).is_some() {
                 return Err("--reference-claims occurs more than once".into());
             }
@@ -43,7 +55,10 @@ pub fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn st
         if argument != "--label" {
             return Err(format!("unknown argument {argument:?}").into());
         }
-        let mapping = arguments.next().ok_or("--label needs FROM=CANONICAL")?;
+        let mapping = utf8_argument(
+            arguments.next().ok_or("--label needs FROM=CANONICAL")?,
+            "label mapping",
+        )?;
         let (actual, reference) = mapping
             .split_once('=')
             .ok_or("--label needs FROM=CANONICAL")?;
@@ -78,6 +93,12 @@ pub fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), Box<dyn st
         report.actual_projector_pairs,
     );
     Ok(())
+}
+
+fn utf8_argument(value: OsString, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    value
+        .into_string()
+        .map_err(|_| format!("{name} must be UTF-8").into())
 }
 
 /// An explicitly reviewed label rewrite.
@@ -999,6 +1020,27 @@ fn format_difference(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_text_arguments_return_errors() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let invalid = OsString::from_vec(vec![0xff]);
+        for (trailing, expected) in [
+            (vec![invalid.clone()], "module name must be UTF-8"),
+            (vec!["M".into(), invalid.clone()], "option must be UTF-8"),
+            (
+                vec!["M".into(), "--label".into(), invalid],
+                "label mapping must be UTF-8",
+            ),
+        ] {
+            let arguments = ["reference".into(), "native".into()]
+                .into_iter()
+                .chain(trailing);
+            assert_eq!(run(arguments).unwrap_err().to_string(), expected);
+        }
+    }
 
     fn sort() -> Sort {
         Sort::Application {

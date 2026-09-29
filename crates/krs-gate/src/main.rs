@@ -30,9 +30,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         Some(command) if command == "session" && arguments.next().is_none() => {
             krs_gate::session::run()
         }
-        Some(command) if command == "kore-compare" => {
-            krs_gate::kore_compare::run(env::args().skip(2))
-        }
+        Some(command) if command == "kore-compare" => krs_gate::kore_compare::run(arguments),
         Some(command) if command == "proof" => krs_gate::proof::run(arguments),
         _ => Err(USAGE.into()),
     }
@@ -41,8 +39,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 fn main() {
     if let Err(error) = run() {
         let prefix = match env::args_os().nth(1).as_deref() {
-            Some(command) if command == "kore-compare" => "krs-imp-native-comparator",
-            Some(command) if command == "proof" => "krs-imp-proof-support",
+            Some(command) if command == "kore-compare" => "krs-gate kore-compare",
+            Some(command) if command == "proof" => "krs-gate proof",
             _ => "Error",
         };
         eprintln!("{prefix}: {error}");
