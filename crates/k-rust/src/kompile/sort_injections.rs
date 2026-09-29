@@ -36,7 +36,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
-use super::passes::{injectable, placeable};
+use super::passes::{Injectable, placeable};
 
 mod typing;
 use super::view::View;
@@ -425,8 +425,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     fn inject_rule_body(&self, body: &Term) -> Result<Term, SortInjectionError> {
         let body = if has_rewrite(body) {
             Term::Rewrite {
-                left: Box::new(rewrite_projection(body, false)),
-                right: Box::new(rewrite_projection(body, true)),
+                left: Box::new(rewrite_projection(body, false, &self.subsorts)),
+                right: Box::new(rewrite_projection(body, true, &self.subsorts)),
             }
         } else {
             body.clone()
@@ -571,27 +571,33 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         placeable(actual, expected, &self.subsorts)
     }
 
-    /// Whether a single `inj{actual, expected}` is justified ([`injectable`]).
-    fn injects(&self, actual: &Sort, expected: &Sort) -> bool {
-        injectable(actual, expected, &self.subsorts)
+    /// The witness for a single `inj{actual, expected}` under the module's order
+    /// ([`Injectable::between`]); `None` when the sorts are equal or no injection is justified.
+    fn witness(&self, actual: &Sort, expected: &Sort) -> Option<Injectable> {
+        Injectable::between(actual, expected, &self.subsorts)
     }
 
-    /// Reject a term of sort `actual` at a position of sort `expected` unless one injection places it.
-    fn check_injects(
+    /// `inj{source, target}(term)` along `witness`, counted as one inserted injection.
+    fn inject_along(&self, witness: Injectable, term: Term) -> Term {
+        measure::bump(Counter::KompileInjectionsInserted);
+        witness.apply(term)
+    }
+
+    /// The witness for placing `term` of sort `actual` at a position of sort `expected` by one
+    /// injection, or the rejection of the term there.
+    fn required_witness(
         &self,
         term: &Term,
         actual: &Sort,
         expected: &Sort,
-    ) -> Result<(), SortInjectionError> {
-        if self.injects(actual, expected) {
-            Ok(())
-        } else {
-            Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+    ) -> Result<Injectable, SortInjectionError> {
+        self.witness(actual, expected).ok_or_else(|| {
+            SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
                 term: render_term(term),
                 found: actual.clone(),
                 required: expected.clone(),
-            })))
-        }
+            }))
+        })
     }
 
     // Invariant: each recursive call (through `term_sort_with_arity` and `sort_and_downcast`, which call `natural_sort` once on the same term) descends into a direct subterm of `term` (a rewrite side, an `as` pattern or alias, or one argument of a sort-transparent application), so the depth of `term` bounds the recursion.
@@ -744,12 +750,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             if actual.name == BuiltinSort::KItem.k_name() {
                 return Ok(Term::Sequence(vec![visited]));
             }
-            self.check_injects(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
-            return Ok(Term::Sequence(vec![injection(
-                actual,
-                Sort::builtin(BuiltinSort::KItem),
-                visited,
-            )]));
+            let witness =
+                self.required_witness(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
+            return Ok(Term::Sequence(vec![self.inject_along(witness, visited)]));
         }
         if let Some(wrapped) =
             self.collection_wrapper(term, &actual, expected, visited.clone(), is_lhs)?
@@ -759,20 +762,23 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
             return Ok(wrapped);
         }
-        if self.injects(&actual, expected) {
-            return Ok(injection(actual, expected.clone(), visited));
+        if let Some(witness) = self.witness(&actual, expected) {
+            return Ok(self.inject_along(witness, visited));
         }
         // A position above `K`: the term is a `K` as a one-element sequence, and that `K` is
         // injected into the position.
         let k = Sort::builtin(BuiltinSort::K);
         let k_item = Sort::builtin(BuiltinSort::KItem);
-        if self.injects(&k, expected) && self.injects(&actual, &k_item) {
+        if let Some(into_expected) = self.witness(&k, expected) {
             let item = if actual == k_item {
-                visited
+                Some(visited)
             } else {
-                injection(actual, k_item, visited)
+                self.witness(&actual, &k_item)
+                    .map(|into_item| self.inject_along(into_item, visited))
             };
-            return Ok(injection(k, expected.clone(), Term::Sequence(vec![item])));
+            if let Some(item) = item {
+                return Ok(self.inject_along(into_expected, Term::Sequence(vec![item])));
+            }
         }
         Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
             term: render_term(term),
@@ -1846,14 +1852,6 @@ fn render_term(term: &Term) -> String {
     }
 }
 
-fn injection(from: Sort, to: Sort, term: Term) -> Term {
-    measure::bump(Counter::KompileInjectionsInserted);
-    Term::Apply {
-        label: Label::with_parameters(WellKnownSymbol::Inj.as_str(), vec![from, to]),
-        arguments: vec![term],
-    }
-}
-
 fn copy_metadata(source: &Term, term: Term) -> Term {
     if let Some(metadata) = source.metadata() {
         term.with_metadata(metadata.clone())
@@ -1890,15 +1888,18 @@ fn has_rewrite(term: &Term) -> bool {
     found
 }
 
+/// The side of every rewrite in `term` that `right` selects, with each nested pair of injections
+/// that the projection exposes composed into one when `subsorts`, the module's semantic order,
+/// justifies the composed pair.
 // Invariant: each call projects one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `right` selects the side kept at every rewrite.
-pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
+pub(crate) fn rewrite_projection(term: &Term, right: bool, subsorts: &PartialOrder<Sort>) -> Term {
     match term.unannotated() {
         Term::Rewrite {
             left,
             right: rewrite_right,
         } => {
             if right {
-                rewrite_projection(rewrite_right, true)
+                rewrite_projection(rewrite_right, true, subsorts)
             } else {
                 left.as_ref().clone()
             }
@@ -1908,14 +1909,18 @@ pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
                 label: label.clone(),
                 arguments: arguments
                     .iter()
-                    .map(|argument| rewrite_projection(argument, right))
+                    .map(|argument| rewrite_projection(argument, right, subsorts))
                     .collect(),
             };
-            copy_metadata(term, compact_injections(projected))
+            copy_metadata(term, compact_injections(projected, subsorts))
         }
         Term::Sequence(items) => copy_metadata(
             term,
-            Term::sequence(items.iter().map(|item| rewrite_projection(item, right))),
+            Term::sequence(
+                items
+                    .iter()
+                    .map(|item| rewrite_projection(item, right, subsorts)),
+            ),
         ),
         Term::As { pattern, alias } => {
             if right {
@@ -1924,7 +1929,7 @@ pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
                 copy_metadata(
                     term,
                     Term::As {
-                        pattern: Box::new(rewrite_projection(pattern, false)),
+                        pattern: Box::new(rewrite_projection(pattern, false, subsorts)),
                         alias: alias.clone(),
                     },
                 )
@@ -1934,7 +1939,10 @@ pub(crate) fn rewrite_projection(term: &Term, right: bool) -> Term {
     }
 }
 
-fn compact_injections(term: Term) -> Term {
+/// `inj{B, C}(inj{A, B}(t))` as `inj{A, C}(t)` when `A < C` along the subsort axioms of
+/// `subsorts`; any other term, including a nested pair whose composition is not justified, is
+/// returned unchanged.
+fn compact_injections(term: Term, subsorts: &PartialOrder<Sort>) -> Term {
     let Term::Apply { label, arguments } = term.unannotated() else {
         return term;
     };
@@ -1960,13 +1968,13 @@ fn compact_injections(term: Term) -> Term {
     {
         return term;
     }
-    Term::Apply {
-        label: Label::with_parameters(
-            WellKnownSymbol::Inj.as_str(),
-            vec![inner_from.clone(), outer_to.clone()],
-        ),
-        arguments: inner_arguments.clone(),
-    }
+    let Some(composed) = Injectable::between(inner_from, outer_to, subsorts) else {
+        return term;
+    };
+    let [inner_argument] = inner_arguments.as_slice() else {
+        return term;
+    };
+    composed.apply(inner_argument.clone())
 }
 
 fn with_variable_sort(term: &Term, sort: &Sort) -> Term {
@@ -1996,5 +2004,46 @@ fn semantic_projection(term: &Term, target: &Sort) -> Term {
     Term::Apply {
         label: Label::projection(target),
         arguments: vec![argument],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_projection;
+    use crate::definition::PartialOrder;
+    use crate::kast::{Sort, parser::parse_term};
+
+    fn order(edges: &[(&str, &str)]) -> PartialOrder<Sort> {
+        PartialOrder::new(
+            edges
+                .iter()
+                .map(|(lesser, greater)| (Sort::new(*lesser), Sort::new(*greater))),
+        )
+        .expect("the test order is acyclic")
+    }
+
+    fn projected(term: &str, subsorts: &PartialOrder<Sort>) -> String {
+        let term = parse_term(term).expect("the test term parses");
+        rewrite_projection(&term, false, subsorts).to_string()
+    }
+
+    /// Two nested injections along subsort axioms compose into one, which the composed pair's
+    /// own axiom chain justifies.
+    #[test]
+    fn projection_composes_a_nested_pair_along_subsort_axioms() {
+        let subsorts = order(&[("A", "B"), ("B", "C")]);
+        assert_eq!(projected("inj{B,C}(inj{A,B}(X))", &subsorts), "inj{A,C}(X)");
+    }
+
+    /// Composition must not turn a nested pair into an injection no axiom chain justifies:
+    /// `Int < KItem < K < KList` has no subsort axiom into `K`, so `inj{Int,KList}` would embed
+    /// nothing; the nested pair is left as it is.
+    #[test]
+    fn projection_keeps_a_nested_pair_whose_composition_is_not_an_injection() {
+        let subsorts = order(&[("Int", "KItem"), ("KItem", "K"), ("K", "KList")]);
+        assert_eq!(
+            projected("inj{K,KList}(inj{Int,K}(X))", &subsorts),
+            "inj{K,KList}(inj{Int,K}(X))"
+        );
     }
 }

@@ -450,7 +450,7 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 matches!(term, Term::Rewrite { .. }) || (right && matches!(term, Term::As { .. }));
         });
         if projects {
-            rewrite_projection(resolved, right)
+            rewrite_projection(resolved, right, &self.injector.subsorts)
         } else {
             resolved.clone()
         }

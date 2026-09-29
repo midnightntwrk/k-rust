@@ -19,6 +19,7 @@ use super::*;
 use crate::definition::production_kind::{
     NoJunkAlternative, ProductionKind, SortGenerators, match_sort_parameters,
 };
+use crate::kompile::passes::has_subsort_axiom;
 
 pub(super) struct GeneratedAxioms {
     pub(super) semantics: Vec<KoreSentence>,
@@ -695,7 +696,7 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     let [ProductionItem::NonTerminal { sort: subsort, .. }] = items.as_slice() else {
         return None;
     };
-    if sort.name == BuiltinSort::K.k_name() {
+    if !has_subsort_axiom(sort) {
         return None;
     }
 

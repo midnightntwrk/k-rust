@@ -173,7 +173,7 @@ pub fn compile_search_pattern(
     else {
         unreachable!("parse_rule_content always returns a Rule sentence")
     };
-    let body = rewrite_projection(&body, false);
+    let body = rewrite_projection(&body, false, subsorts);
     let expanded =
         expand_macros_in_terms_from_resolved(execution_definition, module, vec![body, requires])
             .map_err(CompileSearchPatternError::MacroExpansion)?;

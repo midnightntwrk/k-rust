@@ -104,6 +104,72 @@ pub(crate) fn with_kitem_subsorts<'a>(
     )
 }
 
+/// Whether the emitted theory has a subsort axiom for a declared subsort into `greater`: every
+/// declared subsort except those into `K`, since a `KItem` becomes a `K` as a one-element
+/// sequence, not by injection.
+pub(crate) fn has_subsort_axiom(greater: &Sort) -> bool {
+    !greater.is_builtin(BuiltinSort::K)
+}
+
+pub(crate) use witness::Injectable;
+
+/// The witness lives in its own module so that nothing else in this file, which also defines
+/// the relations it is minted from, can build one by struct literal.
+mod witness {
+    use super::injectable;
+    use crate::{
+        definition::PartialOrder,
+        kast::{Label, Sort, Term},
+        names::WellKnownSymbol,
+    };
+
+    /// Evidence that `inj{source, target}` denotes the embedding of `source` in `target`:
+    /// `source != target` and `source < target` along the subsort axioms of the emitted theory
+    /// (`injectable`), under the module order the witness was minted against.
+    ///
+    /// The fields are private to this module, so a value exists only after
+    /// `Injectable::between` has decided the pair, and the only KAST builder of an injection,
+    /// `Injectable::apply`, takes one.
+    #[must_use]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) struct Injectable {
+        source: Sort,
+        target: Sort,
+    }
+
+    impl Injectable {
+        /// The witness for `inj{source, target}`, or `None` when `source == target` (no
+        /// injection is needed) or no chain of subsort axioms leads from `source` to `target`.
+        ///
+        /// `subsorts` must be the module's semantic subsort order (`ResolvedDefinition::subsorts`,
+        /// the injector's order, or either extended by `with_kitem_subsorts`); the syntactic and
+        /// disambiguation orders contain edges that are not subsort axioms.
+        #[must_use]
+        pub(crate) fn between(
+            source: &Sort,
+            target: &Sort,
+            subsorts: &PartialOrder<Sort>,
+        ) -> Option<Self> {
+            (source != target && injectable(source, target, subsorts)).then(|| Self {
+                source: source.clone(),
+                target: target.clone(),
+            })
+        }
+
+        /// `inj{source, target}(term)`: the only KAST construction of an injection application
+        /// in kompile's emitted definition.
+        pub(crate) fn apply(self, term: Term) -> Term {
+            Term::Apply {
+                label: Label::with_parameters(
+                    WellKnownSymbol::Inj.as_str(),
+                    vec![self.source, self.target],
+                ),
+                arguments: vec![term],
+            }
+        }
+    }
+}
+
 /// Whether a single `inj{actual, expected}` is justified: `actual <= expected` along subsort axioms
 /// of the emitted theory.
 ///
@@ -117,10 +183,10 @@ pub(crate) fn injectable(actual: &Sort, expected: &Sort, subsorts: &PartialOrder
     if actual == expected {
         return true;
     }
-    let k = Sort::builtin(BuiltinSort::K);
-    if expected == &k {
+    if !has_subsort_axiom(expected) {
         return false;
     }
+    let k = Sort::builtin(BuiltinSort::K);
     let k_item = Sort::builtin(BuiltinSort::KItem);
     if subsorts.less_than_eq(&k, expected) {
         return injectable_path(actual, expected, subsorts);
@@ -158,10 +224,9 @@ fn reaches_k_item(actual: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
 }
 
 /// [`injectable`] for an `expected` above `K`: a search over the axioms, which excludes the
-/// declared edges into `K`.
+/// declared edges without one ([`has_subsort_axiom`]).
 // Invariant: `seen` holds every sort reached from `actual` so far, each expanded once, so the search visits at most every declared sort plus `KItem`, scanning the direct relations once per sort.
 fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
-    let k = Sort::builtin(BuiltinSort::K);
     let k_item = Sort::builtin(BuiltinSort::KItem);
     let mut seen = std::collections::BTreeSet::from([actual.clone()]);
     let mut pending = vec![actual.clone()];
@@ -176,7 +241,7 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
         let declared = subsorts
             .direct_relations()
             .iter()
-            .filter(|(lesser, greater)| *lesser == sort && *greater != k)
+            .filter(|(lesser, greater)| *lesser == sort && has_subsort_axiom(greater))
             .map(|(_, greater)| greater.clone());
         for next in declared.chain(implicit) {
             if seen.insert(next.clone()) {
@@ -185,4 +250,122 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Injectable;
+    use crate::definition::{
+        AttributeKey, Attributes, PartialOrder, ProductionItem, Sentence,
+        compute_disambiguation_subsorts, compute_subsorts,
+    };
+    use crate::kast::{Label, Sort, Term};
+    use crate::names::{BuiltinSort, WellKnownSymbol};
+    use serde_json::Value;
+
+    fn order(edges: &[(Sort, Sort)]) -> PartialOrder<Sort> {
+        PartialOrder::new(edges.iter().cloned()).expect("the test order is acyclic")
+    }
+
+    fn production(sort: &str, items: Vec<ProductionItem>, user_list: bool) -> Sentence {
+        let mut attributes = Attributes::default();
+        if user_list {
+            attributes.set(AttributeKey::UserList, Value::String("*".into()));
+        }
+        Sentence::Production {
+            label: Some(Label::new(format!("{sort}Cons"))),
+            parameters: Vec::new(),
+            sort: Sort::new(sort),
+            items,
+            attributes,
+        }
+    }
+
+    /// The sort parameters of the `inj` application `witness` builds, after checking that it
+    /// applies `inj` to the term it is given.
+    fn injected_pair(witness: Injectable) -> Vec<Sort> {
+        let term = Term::Variable {
+            name: "X".into(),
+            sort: None,
+        };
+        let Term::Apply { label, arguments } = witness.apply(term.clone()) else {
+            panic!("an injection is an application");
+        };
+        assert!(label.is(WellKnownSymbol::Inj));
+        assert_eq!(arguments, [term]);
+        label.parameters
+    }
+
+    fn nonterminal(sort: &str) -> ProductionItem {
+        ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: None,
+        }
+    }
+
+    /// The order a witness is minted against decides what it certifies: the rule-disambiguation
+    /// order of a user list `Items ::= List{Item, ","}` relates `Item < Items` so that a single
+    /// element parses as a list, but the emitted theory has no subsort axiom for that edge (an
+    /// element becomes a list by the list constructor), so only the semantic order is a valid
+    /// argument of `Injectable::between`.
+    #[test]
+    fn between_certifies_against_the_order_it_is_given() {
+        let cons = production(
+            "Items",
+            vec![
+                nonterminal("Item"),
+                ProductionItem::Terminal(",".into()),
+                nonterminal("Items"),
+            ],
+            true,
+        );
+        let nil = production(
+            "Items",
+            vec![ProductionItem::Terminal(".Items".into())],
+            true,
+        );
+        let sentences = [&cons, &nil];
+        let semantic = compute_subsorts(sentences, false).expect("acyclic");
+        let disambiguation = compute_disambiguation_subsorts(&sentences).expect("acyclic");
+        let item = Sort::new("Item");
+        let items = Sort::new("Items");
+
+        assert_eq!(Injectable::between(&item, &items, &semantic), None);
+        let witness = Injectable::between(&item, &items, &disambiguation)
+            .expect("the disambiguation order relates an element to its list");
+        assert_eq!(injected_pair(witness), [item, items]);
+    }
+
+    /// Above `K`, only `K` itself and sorts reaching it by a subsort axiom inject: `Int < KItem`
+    /// and `K < KList` are axioms, `KItem < K` is not (a `KItem` becomes a `K` as a one-element
+    /// sequence), so no chain of axioms leads from `Int` to `KList`.
+    #[test]
+    fn between_follows_only_subsort_axioms_across_k() {
+        let int = Sort::new("Int");
+        let k_item = Sort::builtin(BuiltinSort::KItem);
+        let k = Sort::builtin(BuiltinSort::K);
+        let k_list = Sort::new("KList");
+        let subsorts = order(&[
+            (int.clone(), k_item.clone()),
+            (k_item.clone(), k.clone()),
+            (k.clone(), k_list.clone()),
+        ]);
+
+        assert_eq!(Injectable::between(&int, &k_list, &subsorts), None);
+        assert_eq!(Injectable::between(&k_item, &k, &subsorts), None);
+        let into_item = Injectable::between(&int, &k_item, &subsorts).expect("Int < KItem");
+        assert_eq!(injected_pair(into_item), [int, k_item]);
+        let into_list = Injectable::between(&k, &k_list, &subsorts).expect("K < KList");
+        assert_eq!(injected_pair(into_list), [k, k_list]);
+    }
+
+    /// A term already of the position's sort needs no injection, so there is no witness for it.
+    #[test]
+    fn between_a_sort_and_itself_is_none() {
+        let int = Sort::new("Int");
+        let subsorts = order(&[(int.clone(), Sort::builtin(BuiltinSort::KItem))]);
+        assert_eq!(Injectable::between(&int, &int, &subsorts), None);
+        let k = Sort::builtin(BuiltinSort::K);
+        assert_eq!(Injectable::between(&k, &k, &subsorts), None);
+    }
 }
