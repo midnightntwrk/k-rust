@@ -9,12 +9,12 @@ use num_traits::ToPrimitive;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
+    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
     int_term, read_int,
 };
 use crate::term::{CollectionSymbols, ListDefinition, Sort, Term, TermKind};
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     let result = match hook {
         "LIST.concat" => concat(arguments),
         "LIST.element" => element(arguments),
@@ -47,7 +47,7 @@ pub(super) fn k_item_definition() -> Arc<ListDefinition> {
     })
 }
 
-fn concat(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn concat(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("LIST.concat", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -120,7 +120,7 @@ fn concat(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn element(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("LIST.element", arguments, 1)?;
     Ok(Some(Term::list(
         k_item_definition(),
@@ -129,7 +129,7 @@ fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("LIST.get", arguments, 2)?;
     let [list, index] = arguments else {
         unreachable!()
@@ -182,7 +182,7 @@ fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         }))
 }
 
-fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn contains(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("LIST.in", arguments, 2)?;
     let [element, list] = arguments else {
         unreachable!()
@@ -202,7 +202,7 @@ fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn make(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn make(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("LIST.make", arguments, 2)?;
     let [length, value] = arguments else {
         unreachable!()
@@ -228,7 +228,7 @@ fn make(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn range(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn range(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("LIST.range", arguments, 3)?;
     let [list, from_front, from_back] = arguments else {
         unreachable!()
@@ -288,7 +288,7 @@ fn range(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     }
 }
 
-fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("LIST.size", arguments, 1)?;
     let TermKind::List {
         heads, rest: None, ..
@@ -299,12 +299,12 @@ fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(int_term(BigInt::from(heads.len()))))
 }
 
-fn unit(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn unit(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("LIST.unit", arguments, 0)?;
     Ok(Some(Term::list(k_item_definition(), Vec::new(), None)))
 }
 
-fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("LIST.update", arguments, 3)?;
     let [list, index, value] = arguments else {
         unreachable!()
@@ -347,7 +347,7 @@ fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn update_all(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn update_all(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("LIST.updateAll", arguments, 3)?;
     let [original, index, updates] = arguments else {
         unreachable!()

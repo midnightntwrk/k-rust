@@ -5,10 +5,7 @@ use num_traits::{ToPrimitive, Zero};
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity, int_term,
-    read_int,
-};
+use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity, int_term, read_int};
 use crate::term::{Sort, Term, TermKind};
 
 #[derive(Clone, Copy)]
@@ -23,7 +20,7 @@ enum Signedness {
     Unsigned,
 }
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     match hook {
         "BYTES.empty" => empty(arguments),
         "BYTES.bytes2string" => bytes_to_string(arguments),
@@ -47,12 +44,12 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
     }
 }
 
-fn empty(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn empty(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.empty", arguments, 0)?;
     Ok(BuiltinResult::Value(bytes_term(&[])))
 }
 
-fn bytes_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.bytes2string", arguments, 1)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -60,7 +57,7 @@ fn bytes_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
-fn string_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -71,7 +68,7 @@ fn string_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn decode_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn decode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.decodeBytes", arguments, 2)?;
     let Some(encoding) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -92,7 +89,7 @@ fn decode_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
-fn encode_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn encode_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.encodeBytes", arguments, 2)?;
     let Some((encoding, contents)) = read_string(&arguments[0]).zip(read_string(&arguments[1]))
     else {
@@ -109,7 +106,7 @@ fn encode_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn update(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.update", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -127,7 +124,7 @@ fn update(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.get", arguments, 2)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -141,7 +138,7 @@ fn get(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(int_term(BigInt::from(*value))))
 }
 
-fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.substr", arguments, 3)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -158,7 +155,7 @@ fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(slice)))
 }
 
-fn replace_at(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn replace_at(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.replaceAt", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -182,7 +179,7 @@ fn replace_at(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn pad(arguments: &[Term], left: bool) -> Result<BuiltinResult, BuiltinError> {
+fn pad(arguments: &[Term], left: bool) -> HookResult<BuiltinResult> {
     let hook = if left {
         "BYTES.padLeft"
     } else {
@@ -211,7 +208,7 @@ fn pad(arguments: &[Term], left: bool) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn reverse(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn reverse(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.reverse", arguments, 1)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -220,7 +217,7 @@ fn reverse(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.length", arguments, 1)?;
     let Some(bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -228,7 +225,7 @@ fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(int_term(BigInt::from(bytes.len()))))
 }
 
-fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.concat", arguments, 2)?;
     let Some((mut left, right)) = read_bytes(&arguments[0]).zip(read_bytes(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -237,7 +234,7 @@ fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&left)))
 }
 
-fn int_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.int2bytes", arguments, 3)?;
     let length = match read_nonnegative_len(&arguments[0]) {
         Ok(Some(length)) => length,
@@ -254,7 +251,7 @@ fn int_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let mut bytes = Vec::with_capacity(length);
     for index in 0..length {
         if index % 1024 == 0 {
-            check_interrupted()?;
+            crate::stop::check()?;
         }
         bytes.push((&current & BigInt::from(0xff_u16)).to_u8().unwrap());
         current >>= 8;
@@ -265,7 +262,7 @@ fn int_to_bytes(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(bytes_term(&bytes)))
 }
 
-fn bytes_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bytes_to_int(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.bytes2int", arguments, 3)?;
     let Some(mut bytes) = read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -282,7 +279,7 @@ fn bytes_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let mut unsigned = BigInt::zero();
     for (index, byte) in bytes.iter().rev().enumerate() {
         if index % 1024 == 0 {
-            check_interrupted()?;
+            crate::stop::check()?;
         }
         unsigned = (unsigned << 8) + BigInt::from(*byte);
     }

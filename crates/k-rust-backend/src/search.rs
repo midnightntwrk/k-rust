@@ -79,7 +79,7 @@ use std::{
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
-    builtin::{BuiltinEffect, BuiltinError},
+    builtin::BuiltinEffect,
     cancellation::cancellation_requested,
     definedness::{condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
@@ -2078,11 +2078,9 @@ fn step_observed_cancellation() -> bool {
 ///
 /// Until the simplifier returns its stops apart from its failures (CBC-04-T7), a stop reaches
 /// search inside the failure as `Stopped(cause)`, with the cause its poll observed
-/// ([`stopped_incomplete`]). A native hook's `Interrupted` ([`builtin_interruption`]) is still a
-/// legacy spelling of a stop until hooks return their stops apart (CBC-04-T4); a hook returns it
-/// when it observes a stop signal, and search arms no step deadline, so it reports the request's
-/// cancellation. Any other failure recorded once the request is cancelled reports the
-/// cancellation too (see [`rewrite_incomplete`]).
+/// ([`stopped_incomplete`]), a stop observed by a native hook included. Any other failure
+/// recorded once the request is cancelled reports the cancellation too (see
+/// [`rewrite_incomplete`]).
 ///
 /// The match names every variant, so a new spelling of a stop cannot fall into the failure arm
 /// unnoticed.
@@ -2090,12 +2088,6 @@ fn step_observed_cancellation() -> bool {
 fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
         SimplificationError::Stopped(cause) => stopped_incomplete(state, cause),
-        SimplificationError::Builtin(error) if builtin_interruption(&error) => {
-            IncompleteSearch::Stopped {
-                state,
-                cause: StopCause::Cancelled,
-            }
-        }
         error @ (SimplificationError::Builtin(_)
         | SimplificationError::DisjunctiveResult { .. }
         | SimplificationError::TopEquationOutsideConjunction { .. }
@@ -2128,23 +2120,6 @@ fn stopped_incomplete(state: SearchState, cause: StopCause) -> IncompleteSearch 
         cause @ (StopCause::Deadline(_) | StopCause::StackExhausted) => {
             recorded_unless_cancelled(state, |state| IncompleteSearch::Stopped { state, cause })
         }
-    }
-}
-
-/// Whether a native hook's error spells an interruption: a hook returns `Interrupted` when it
-/// observes a stop signal, and every other variant is a fact about the hook's arguments.
-#[deny(clippy::wildcard_enum_match_arm)]
-fn builtin_interruption(error: &BuiltinError) -> bool {
-    match error {
-        BuiltinError::Interrupted => true,
-        BuiltinError::WrongArity { .. }
-        | BuiltinError::UnexpectedSort { .. }
-        | BuiltinError::AlternativeSortsDiffer { .. }
-        | BuiltinError::IncompatibleMapSorts { .. }
-        | BuiltinError::InvalidFloatToken { .. }
-        | BuiltinError::UnsupportedFloatFormat { .. }
-        | BuiltinError::UnsupportedFloatFormatParameters { .. }
-        | BuiltinError::MismatchedFloatFormats { .. } => false,
     }
 }
 
@@ -2645,6 +2620,7 @@ mod tests {
     use super::*;
     use crate::transition::{ObservationEvent, ObservationOptions};
     use crate::{
+        builtin::BuiltinError,
         diagnostic::{self, BackendDiagnostic},
         simplify::BudgetSubject,
         term::{Sort, Symbol, Term, TermKind, Variable},
@@ -3030,11 +3006,6 @@ mod tests {
             (
                 SimplificationError::Stopped(StopCause::StackExhausted),
                 StopCause::StackExhausted,
-            ),
-            // A hook's legacy spelling: search arms no deadline, so it is the cancellation.
-            (
-                SimplificationError::Builtin(BuiltinError::Interrupted),
-                StopCause::Cancelled,
             ),
         ] {
             assert_eq!(

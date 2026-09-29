@@ -999,12 +999,11 @@ fn path_witness_output<K: WireKore>(
     })
 }
 
-/// Search publishes builtin failures only inside a simplification failure, and it reports a
-/// hook's interruption as its `cancelled` entry, so an interruption reaching here is an
-/// invariant breach rather than a published kind.
+/// Search publishes builtin failures only inside a simplification failure. A builtin failure is
+/// a fact about the hook's arguments; a hook's stop reaches search as the simplifier's
+/// `Stopped(cause)`, never as a builtin failure.
 fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, BackendError> {
     Ok(match error {
-        BuiltinError::Interrupted => return Err(interruption_published_as_failure()),
         BuiltinError::WrongArity {
             hook,
             expected,
@@ -1073,9 +1072,9 @@ fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, B
     })
 }
 
-/// Search reports every interruption (the simplifier's `Stopped` and a hook's `Interrupted`) as
-/// the state's stopped entry, never as a failure reason. An interruption inside a failure
-/// therefore means search produced an outcome its contract cannot produce.
+/// Search reports every interruption (the simplifier's `Stopped`) as the state's stopped entry,
+/// never as a failure reason. An interruption inside a failure therefore means search produced
+/// an outcome its contract cannot produce.
 fn interruption_published_as_failure() -> BackendError {
     BackendError(
         "search reported an interruption as a failure, but search reports every interruption \
@@ -2273,7 +2272,6 @@ mod tests {
                     1,
                 )),
             )),
-            SimplificationError::Builtin(BuiltinError::Interrupted),
         ] {
             let described = format!("{error:?}");
             let failure =

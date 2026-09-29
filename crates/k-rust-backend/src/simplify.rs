@@ -3039,6 +3039,7 @@ fn simplify_root(
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
     }
+    .map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?
     .map_err(SimplificationError::Builtin)?;
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,

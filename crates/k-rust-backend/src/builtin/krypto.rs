@@ -14,8 +14,7 @@ use substrate_bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_b
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, bytes, check_interrupted,
-    expect_arity, read_int,
+    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, bytes, expect_arity, read_int,
 };
 use crate::definition::BackendDefinition;
 use crate::term::{HeadRole, Name, Sort, Symbol, Term, TermKind};
@@ -24,7 +23,7 @@ pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
     definition: Option<&BackendDefinition>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let points = || match definition {
         Some(definition) => PointConstructors::of(definition.symbols.values().map(AsRef::as_ref)),
         None => PointConstructors::UNIDENTIFIED,
@@ -36,7 +35,7 @@ fn evaluate_with_points(
     hook: &str,
     arguments: &[Term],
     points: impl FnOnce() -> PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     match hook {
         "KRYPTO.keccak256" | "HASH.keccak256" => hash_hex::<Keccak256>(hook, arguments),
         "KRYPTO.keccak256raw" => hash_raw::<Keccak256>(hook, arguments),
@@ -289,7 +288,7 @@ fn bn128_valid(
     hook: &str,
     arguments: &[Term],
     points: &PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 1)?;
     Ok(validity(read_g1(&arguments[0], points)))
 }
@@ -298,7 +297,7 @@ fn bn128_g2_valid(
     hook: &str,
     arguments: &[Term],
     points: &PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 1)?;
     Ok(validity(read_g2(&arguments[0], points)))
 }
@@ -307,7 +306,7 @@ fn bn128_add(
     hook: &str,
     arguments: &[Term],
     points: &PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     // A non-point makes the sum undefined whatever the other argument is, so it is checked
     // before an opaque argument can leave the call unevaluated.
@@ -329,7 +328,7 @@ fn bn128_mul(
     hook: &str,
     arguments: &[Term],
     points: &PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     // Every `Int` is a scalar; anything else in the scalar position may denote any `Int`.
     Ok(
@@ -419,7 +418,7 @@ fn bn128_ate(
     hook: &str,
     arguments: &[Term],
     points: &PointConstructors,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let g1_list = read_list(&arguments[0]);
     let g2_list = read_list(&arguments[1]);
@@ -434,12 +433,12 @@ fn bn128_ate(
 
     // Every known element is read before an opaque one can leave the call unevaluated,
     // because a single non-point makes the pairing undefined for every instance of the rest.
-    check_interrupted()?;
+    crate::stop::check()?;
     let mut opaque = !g1_list.as_ref().is_some_and(|list| list.complete)
         || !g2_list.as_ref().is_some_and(|list| list.complete);
     let mut g1_points = Vec::new();
     for element in g1_list.iter().flat_map(|list| &list.elements) {
-        check_interrupted()?;
+        crate::stop::check()?;
         match read_g1(element, points) {
             Reading::Value((_, point)) => g1_points.push(point),
             Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
@@ -448,7 +447,7 @@ fn bn128_ate(
     }
     let mut g2_points = Vec::new();
     for element in g2_list.iter().flat_map(|list| &list.elements) {
-        check_interrupted()?;
+        crate::stop::check()?;
         match read_g2(element, points) {
             Reading::Value(point) => g2_points.push(point),
             Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
@@ -465,7 +464,7 @@ fn bn128_ate(
     )))
 }
 
-fn hash_hex<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
+fn hash_hex<D>(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult>
 where
     D: Digest,
 {
@@ -485,7 +484,7 @@ fn encode_hex(input: &[u8]) -> String {
     encoded
 }
 
-fn hash_raw<D>(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError>
+fn hash_raw<D>(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult>
 where
     D: Digest,
 {
@@ -495,7 +494,7 @@ where
     Ok(BuiltinResult::Value(bytes::bytes_term(&digest)))
 }
 
-fn digest<D>(hook: &str, arguments: &[Term]) -> Result<Option<Vec<u8>>, BuiltinError>
+fn digest<D>(hook: &str, arguments: &[Term]) -> HookResult<Option<Vec<u8>>>
 where
     D: Digest,
 {
@@ -505,13 +504,13 @@ where
     };
     let mut digest = D::new();
     for chunk in input.chunks(64 * 1024) {
-        check_interrupted()?;
+        crate::stop::check()?;
         digest.update(chunk);
     }
     Ok(Some(digest.finalize().to_vec()))
 }
 
-fn ecdsa_public_key(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn ecdsa_public_key(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("KRYPTO.ecdsaPubKey", arguments, 1)?;
     let Some(secret) = bytes::read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -528,7 +527,7 @@ fn ecdsa_public_key(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(encoded)))
 }
 
-fn ecdsa_recover(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn ecdsa_recover(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 4)?;
     let Some(message_hash) = bytes::read_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -593,14 +592,16 @@ mod tests {
 
     use super::*;
     use crate::{
+        builtin::HookResult,
         cancellation::CancellationToken,
+        stop::{StopCause, Unwind},
         term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, SymbolType, Variable},
     };
 
     /// Evaluates in a definition whose point constructors are `Lblg1Point`/`Lblg2Point`, the
     /// Kore names the `symbol(g1Point)`/`symbol(g2Point)` attributes give at blockchain-k-plugin
     /// `207ae512`. The other `G1Point`/`G2Point` constructor fixtures below have other signatures.
-    fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
         evaluate_in(&[g1_symbol(), g2_symbol()], hook, arguments)
     }
 
@@ -609,7 +610,7 @@ mod tests {
         symbols: &[Arc<Symbol>],
         hook: &str,
         arguments: &[Term],
-    ) -> Result<BuiltinResult, BuiltinError> {
+    ) -> HookResult<BuiltinResult> {
         evaluate_with_points(hook, arguments, || {
             PointConstructors::of(symbols.iter().map(AsRef::as_ref))
         })
@@ -958,10 +959,10 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
 
-        assert_eq!(
-            token.scope(|| evaluate("KRYPTO.keccak256", &[bytes::bytes_term(b"abc")])),
-            Err(BuiltinError::Interrupted)
-        );
+        match token.scope(|| evaluate("KRYPTO.keccak256", &[bytes::bytes_term(b"abc")])) {
+            Err(Unwind::Stop(stop)) => assert!(matches!(stop.into_cause(), StopCause::Cancelled)),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -1620,7 +1621,7 @@ mod tests {
         )
     }
 
-    fn boolean(value: bool) -> Result<BuiltinResult, BuiltinError> {
+    fn boolean(value: bool) -> HookResult<BuiltinResult> {
         Ok(BuiltinResult::Value(super::super::bool_term(value)))
     }
 
@@ -1936,9 +1937,9 @@ mod tests {
             g1_point(&g1, 1.into(), 2.into()),
         ]);
         let g2s = point_list(vec![g2_generator(&g2), g2_generator(&g2)]);
-        assert_eq!(
-            token.scope(|| evaluate("KRYPTO.bn128ate", &[g1s, g2s])),
-            Err(BuiltinError::Interrupted)
-        );
+        match token.scope(|| evaluate("KRYPTO.bn128ate", &[g1s, g2s])) {
+            Err(Unwind::Stop(stop)) => assert!(matches!(stop.into_cause(), StopCause::Cancelled)),
+            other => panic!("{other:?}"),
+        }
     }
 }

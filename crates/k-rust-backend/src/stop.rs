@@ -328,6 +328,13 @@ pub(crate) fn legacy_cancellation_requested() -> bool {
 
 /// Legacy predicate behind `timeout::interruption_requested`: any signal of the registry is
 /// raised. Deleted with its shim by CBC-04-T11.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no production caller once hooks poll `stop::check`; deleted with its shim by CBC-04-T11"
+    )
+)]
 pub(crate) fn legacy_interruption_requested() -> bool {
     REGISTRY.with(|registry| registry.borrow().raised().is_some())
 }
@@ -545,7 +552,7 @@ impl<F> Unwind<F> {
         not(test),
         expect(
             dead_code,
-            reason = "no module propagates `Unwind` before the layering tickets (CBC-04-T4, T5)"
+            reason = "no module maps `Unwind` failures before the solver layering ticket (CBC-04-T5)"
         )
     )]
     pub(crate) fn map_fail<G>(self, map: impl FnOnce(F) -> G) -> Unwind<G> {
@@ -598,13 +605,6 @@ impl From<crate::matching::SortError> for Unwind<crate::implication::Implication
 
 /// Converts a module's internal `Unwind` result into the layered result it returns across the
 /// module boundary: the stop outside, the failure inside.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no module boundary is layered before the layering tickets (CBC-04-T4, T5)"
-    )
-)]
 pub(crate) trait Layered<T, F> {
     fn layered(self) -> Stoppable<Result<T, F>>;
 }

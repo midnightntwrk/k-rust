@@ -16,10 +16,17 @@ const PREVIOUS_WEIGHT: f64 = 0.95;
 /// Return whether the request was cancelled, a solver prelude failed, or the active rewrite/proof
 /// step has exhausted its deadline: whether any signal of the `stop` registry is raised.
 ///
-/// Native hooks and the simplifier's fixed-point loops call this at cooperative interruption
-/// points until they poll `stop::check` (CBC-04-T11). The deadline is armed by
+/// No production code calls this predicate: native hooks and the simplifier's fixed-point loops
+/// poll `stop::check`. It is kept for its tests until CBC-04-T11. The deadline is armed by
 /// `StepTimeoutController::begin_step` in the thread-local registry, and nested timers restore
 /// the previous deadline when they leave scope.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no production caller once hooks poll `stop::check`; deleted with its shim by CBC-04-T11"
+    )
+)]
 pub(crate) fn interruption_requested() -> bool {
     crate::stop::legacy_interruption_requested()
 }

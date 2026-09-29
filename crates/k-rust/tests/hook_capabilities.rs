@@ -100,7 +100,7 @@ fn crypto_namespace_hooks_have_an_enforced_classification() {
         assert!(
             matches!(
                 evaluate_hook(hook, &arguments),
-                Err(BuiltinError::WrongArity { expected, actual, .. })
+                Ok(Err(BuiltinError::WrongArity { expected, actual, .. }))
                     if expected == arity && actual == arity + 1
             ),
             "implemented crypto hook does not reach a concrete evaluator: {hook}"
@@ -110,6 +110,7 @@ fn crypto_namespace_hooks_have_an_enforced_classification() {
         let arity = manifest.crypto.arities[hook];
         let arguments = vec![dummy_term(); arity + 1];
         let result = evaluate_hook(hook, &arguments)
+            .unwrap_or_else(|stop| panic!("unsupported crypto hook {hook} stopped: {stop:?}"))
             .unwrap_or_else(|error| panic!("unsupported crypto hook {hook} failed: {error:?}"));
         assert_ne!(
             result,
@@ -214,7 +215,7 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
             assert!(
                 matches!(
                     evaluate_hook(hook, &arguments),
-                    Err(BuiltinError::WrongArity { expected, actual, .. })
+                    Ok(Err(BuiltinError::WrongArity { expected, actual, .. }))
                         if expected == *arity && actual == arity + 1
                 ),
                 "implemented hook registry does not reach a concrete evaluator for {hook}"
@@ -233,9 +234,9 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
             let arguments = vec![dummy_term(); *arity];
             assert_eq!(
                 evaluate_hook(hook, &arguments),
-                Ok(BuiltinResult::Unsupported(
+                Ok(Ok(BuiltinResult::Unsupported(
                     k_rust_backend::builtin::UnsupportedHookReason::NotImplemented
-                )),
+                ))),
                 "context-free evaluation must not expose execution-only hook {hook}"
             );
         }
@@ -255,6 +256,7 @@ fn pinned_prelude_hooks_have_an_enforced_capability_classification() {
         for arity in &declaration.arities {
             let arguments = vec![dummy_term(); arity + 1];
             let result = evaluate_hook(hook, &arguments)
+                .unwrap_or_else(|stop| panic!("unsupported hook {hook} stopped: {stop:?}"))
                 .unwrap_or_else(|error| panic!("unsupported hook {hook} failed: {error:?}"));
             assert_ne!(
                 result,
@@ -273,11 +275,11 @@ fn substitution_hooks_have_an_enforced_external_capability_classification() {
     assert_eq!(subst_one.arities, BTreeSet::from([3]));
     assert!(matches!(
         evaluate_hook("SUBSTITUTION.substOne", &vec![dummy_term(); 4]),
-        Err(BuiltinError::WrongArity {
+        Ok(Err(BuiltinError::WrongArity {
             expected: 3,
             actual: 4,
             ..
-        })
+        }))
     ));
 
     let subst_many = &declared["SUBSTITUTION.substMany"];
@@ -285,9 +287,9 @@ fn substitution_hooks_have_an_enforced_external_capability_classification() {
     assert_eq!(subst_many.arities, BTreeSet::from([2]));
     assert_eq!(
         evaluate_hook("SUBSTITUTION.substMany", &vec![dummy_term(); 2]),
-        Ok(BuiltinResult::Unsupported(
+        Ok(Ok(BuiltinResult::Unsupported(
             k_rust_backend::builtin::UnsupportedHookReason::NotImplemented
-        ))
+        )))
     );
 }
 

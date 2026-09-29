@@ -7,8 +7,7 @@ use k_rust_kore::kore::ast::KoreString;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, check_interrupted, expect_arity,
-    int_term, read_int,
+    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
 };
 use crate::term::{Sort, Term, TermKind};
 
@@ -16,7 +15,7 @@ pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
     result_sort: Option<&Sort>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     match hook {
         "STRING.eq" => compare(hook, arguments, |left, right| left == right),
         "STRING.ne" => compare(hook, arguments, |left, right| left != right),
@@ -46,7 +45,7 @@ fn compare(
     hook: &str,
     arguments: &[Term],
     comparison: impl FnOnce(&[u8], &[u8]) -> bool,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((left, right)) =
         read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
@@ -56,7 +55,7 @@ fn compare(
     Ok(BuiltinResult::Value(bool_term(comparison(left, right))))
 }
 
-fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn concatenate(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.concat", arguments, 2)?;
     let Some((left, right)) =
         read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
@@ -69,7 +68,7 @@ fn concatenate(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(result)))
 }
 
-fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn substring(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.substr", arguments, 3)?;
     let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -99,7 +98,7 @@ fn substring(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn length(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.length", arguments, 1)?;
     let Some(value) = read_string_bytes(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -109,7 +108,7 @@ fn length(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     ))))
 }
 
-fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn find(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.find", arguments, 3)?;
     let Some((haystack, needle)) =
         read_string_bytes(&arguments[0]).zip(read_string_bytes(&arguments[1]))
@@ -138,7 +137,7 @@ fn find(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         let mut found = None;
         for (unit, offset) in code_point_units(haystack).enumerate().skip(start) {
             if unit % 1024 == 0 {
-                check_interrupted()?;
+                crate::stop::check()?;
             }
             if haystack[offset..].starts_with(needle) && boundary[offset + needle.len()] {
                 found = Some(unit);
@@ -184,7 +183,7 @@ fn code_point_unit_length(bytes: &[u8]) -> usize {
     }
 }
 
-fn string_to_base(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn string_to_base(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.string2base", arguments, 2)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -201,7 +200,7 @@ fn string_to_base(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
-fn base_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.base2string", arguments, 2)?;
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -216,7 +215,7 @@ fn base_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(value.to_str_radix(base))))
 }
 
-fn string_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn string_to_int(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.string2int", arguments, 1)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -228,7 +227,7 @@ fn string_to_int(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
-fn int_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.int2string", arguments, 1)?;
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -236,7 +235,7 @@ fn int_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(string_term(value.to_string())))
 }
 
-fn chr(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn chr(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.chr", arguments, 1)?;
     let Some(value) = read_int(&arguments[0]).and_then(|value| value.to_u32()) else {
         return Ok(BuiltinResult::Bottom);
@@ -249,7 +248,7 @@ fn chr(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
-fn ord(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn ord(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.ord", arguments, 1)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -266,7 +265,7 @@ fn ord(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     ))))
 }
 
-fn token_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn token_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.token2string", arguments, 1)?;
     let TermKind::DomainValue { value, .. } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
@@ -277,10 +276,7 @@ fn token_to_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn string_to_token(
-    arguments: &[Term],
-    result_sort: Option<&Sort>,
-) -> Result<BuiltinResult, BuiltinError> {
+fn string_to_token(arguments: &[Term], result_sort: Option<&Sort>) -> HookResult<BuiltinResult> {
     expect_arity("STRING.string2token", arguments, 1)?;
     let Some(value) = read_string(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);

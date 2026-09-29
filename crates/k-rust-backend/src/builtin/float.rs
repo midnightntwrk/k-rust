@@ -6,7 +6,8 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term, read_int,
+    BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
+    int_term, read_int,
 };
 use crate::term::{Sort, Term, TermKind};
 
@@ -36,20 +37,23 @@ enum Comparison {
 }
 
 impl KFloat {
-    fn parse(hook: &str, token: &str) -> Result<Self, BuiltinError> {
+    fn parse(hook: &str, token: &str) -> HookResult<Self> {
         let (text, precision, exponent_bits) = parse_parts(hook, token)?;
         match (precision, exponent_bits) {
             (24, 8) => parse_f32(text)
                 .map(Self::Binary32)
-                .ok_or_else(|| invalid_token(hook, token)),
+                .ok_or_else(|| invalid_token(hook, token))
+                .map_err(Into::into),
             (53, 11) => parse_f64(text)
                 .map(Self::Binary64)
-                .ok_or_else(|| invalid_token(hook, token)),
+                .ok_or_else(|| invalid_token(hook, token))
+                .map_err(Into::into),
             _ => Err(BuiltinError::UnsupportedFloatFormat {
                 hook: hook.into(),
                 precision,
                 exponent_bits,
-            }),
+            }
+            .into()),
         }
     }
 
@@ -123,12 +127,7 @@ impl KFloat {
         }
     }
 
-    fn binary(
-        self,
-        other: Self,
-        hook: &str,
-        operation: BinaryOperation,
-    ) -> Result<Self, BuiltinError> {
+    fn binary(self, other: Self, hook: &str, operation: BinaryOperation) -> HookResult<Self> {
         match (self, other) {
             (Self::Binary32(left), Self::Binary32(right)) => Ok(Self::Binary32(match operation {
                 BinaryOperation::Add => left + right,
@@ -152,7 +151,8 @@ impl KFloat {
                 left_exponent_bits: left.exponent_bits(),
                 right_precision: right.precision(),
                 right_exponent_bits: right.exponent_bits(),
-            }),
+            }
+            .into()),
         }
     }
 
@@ -202,7 +202,7 @@ impl KFloat {
     }
 }
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     match hook {
         "FLOAT.precision" => inspect(hook, arguments, |value| {
             int_term(BigInt::from(value.precision()))
@@ -239,7 +239,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
     }
 }
 
-fn root(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn root(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -257,7 +257,7 @@ fn root(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(float_term(value.sqrt())))
 }
 
-fn round(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn round(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -270,7 +270,7 @@ fn round(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> 
     )))
 }
 
-fn int_to_float(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_to_float(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 3)?;
     let Some(integer) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -294,7 +294,7 @@ fn int_to_float(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builtin
     Ok(BuiltinResult::Value(float_term(value)))
 }
 
-fn float_to_int(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn float_to_int(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 1)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -305,7 +305,7 @@ fn float_to_int(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, Builtin
         .map_or(BuiltinResult::Bottom, BuiltinResult::Value))
 }
 
-fn maximum_value(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn maximum_value(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((precision, exponent_bits)) = read_format(hook, &arguments[0], &arguments[1])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -322,7 +322,7 @@ fn read_format(
     hook: &str,
     precision: &Term,
     exponent_bits: &Term,
-) -> Result<Option<(u32, u32)>, BuiltinError> {
+) -> HookResult<Option<(u32, u32)>> {
     let Some(precision) = read_int(precision) else {
         return Ok(None);
     };
@@ -336,7 +336,8 @@ fn read_format(
             hook: hook.into(),
             precision: precision.to_string(),
             exponent_bits: exponent_bits.to_string(),
-        });
+        }
+        .into());
     };
     match (precision_u32, exponent_bits_u32) {
         (24, 8) | (53, 11) => Ok(Some((precision_u32, exponent_bits_u32))),
@@ -344,15 +345,12 @@ fn read_format(
             hook: hook.into(),
             precision: precision_u32,
             exponent_bits: exponent_bits_u32,
-        }),
+        }
+        .into()),
     }
 }
 
-fn binary(
-    hook: &str,
-    arguments: &[Term],
-    operation: BinaryOperation,
-) -> Result<BuiltinResult, BuiltinError> {
+fn binary(hook: &str, arguments: &[Term], operation: BinaryOperation) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some(left) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -365,11 +363,7 @@ fn binary(
     )))
 }
 
-fn compare(
-    hook: &str,
-    arguments: &[Term],
-    comparison: Comparison,
-) -> Result<BuiltinResult, BuiltinError> {
+fn compare(hook: &str, arguments: &[Term], comparison: Comparison) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some(left) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -386,7 +380,7 @@ fn inspect(
     hook: &str,
     arguments: &[Term],
     operation: impl FnOnce(KFloat) -> Term,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 1)?;
     let Some(value) = read_float(hook, &arguments[0])? else {
         return Ok(BuiltinResult::NotApplicable);
@@ -394,7 +388,7 @@ fn inspect(
     Ok(BuiltinResult::Value(operation(value)))
 }
 
-fn read_float(hook: &str, term: &Term) -> Result<Option<KFloat>, BuiltinError> {
+fn read_float(hook: &str, term: &Term) -> HookResult<Option<KFloat>> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return Ok(None);
     };
@@ -411,7 +405,7 @@ fn float_term(value: KFloat) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::Float), value.token())
 }
 
-fn parse_parts<'a>(hook: &str, token: &'a str) -> Result<(&'a str, u32, u32), BuiltinError> {
+fn parse_parts<'a>(hook: &str, token: &'a str) -> HookResult<(&'a str, u32, u32)> {
     if let Some((value_and_precision, exponent)) = token.rsplit_once(['x', 'X'])
         && let Some((value, precision)) = value_and_precision.rsplit_once(['p', 'P'])
     {

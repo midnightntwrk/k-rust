@@ -1197,8 +1197,7 @@ fn simplification_halt(error: SimplificationError) -> HaltReason {
 /// The stop a simplification error carries, or the failure it reports, for a loop that arms
 /// step deadlines (execution and proof). Until the simplifier returns its stops apart from its
 /// failures (CBC-04-T7), a stop reaches the loop inside the failure as `Stopped(cause)`, with the
-/// cause its poll observed. A native hook's interruption stays inside its `Builtin` failure until
-/// hooks return their stops apart (CBC-04-T4).
+/// cause its poll observed.
 #[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn simplification_stop(
     error: SimplificationError,

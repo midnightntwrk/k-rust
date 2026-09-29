@@ -24,18 +24,36 @@ use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::BackendDefinition,
     matching::{InjectionEquality, SortGraph, match_injection_equality},
+    stop::{Layered, Stoppable, Unwind},
     term::{
         Sort, Term, TermKind,
         head::{FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
     },
-    timeout::interruption_requested,
     transition::ExecutionEvaluationContext,
 };
 
+/// The result of a hook inside this module: `?` propagates a stop and a failure alike, and the
+/// public entry points separate them with [`Layered::layered`].
+pub(crate) type HookResult<T> = Result<T, Unwind<BuiltinError>>;
+
+/// A failure determined by a hook's arguments, separate from a stop of its evaluation.
+///
+/// An interruption cannot be constructed as a builtin failure:
+///
+/// ```compile_fail,E0599
+/// use k_rust_backend::builtin::BuiltinError;
+/// let _ = BuiltinError::Interrupted;
+/// ```
+///
+/// An argument failure can be constructed:
+///
+/// ```
+/// use k_rust_backend::builtin::BuiltinError;
+/// let _ = BuiltinError::WrongArity { hook: "INT.add".into(), expected: 2, actual: 1 };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BuiltinError {
-    Interrupted,
     WrongArity {
         hook: String,
         expected: usize,
@@ -125,15 +143,31 @@ impl From<Option<Term>> for BuiltinResult {
 }
 
 /// Evaluate a hooked application, returning `None` when its arguments are not determined enough.
-pub fn evaluate(term: &Term) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_with_sort_graph(term, None)
+///
+/// A fallback on a builtin failure must first propagate the stop layer:
+///
+/// ```compile_fail,E0308
+/// use k_rust_backend::{builtin::{evaluate, BuiltinResult}, stop::Stoppable, term::Term};
+/// fn f(term: &Term) -> BuiltinResult {
+///     evaluate(term).unwrap_or(BuiltinResult::NotApplicable)
+/// }
+/// ```
+///
+/// ```
+/// use k_rust_backend::{builtin::{evaluate, BuiltinResult}, stop::Stoppable, term::Term};
+/// fn f(term: &Term) -> Stoppable<BuiltinResult> {
+///     Ok(evaluate(term)?.unwrap_or(BuiltinResult::NotApplicable))
+/// }
+/// ```
+pub fn evaluate(term: &Term) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    evaluate_with_sort_graph(term, None).layered()
 }
 
 pub(crate) fn evaluate_in_definition(
     term: &Term,
     definition: &BackendDefinition,
-) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_with_definition(term, Some(definition))
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    evaluate_with_definition(term, Some(definition)).layered()
 }
 
 /// Evaluate a hook candidate with buffered execution state available.
@@ -144,26 +178,27 @@ pub(crate) fn evaluate_in_execution(
     term: &Term,
     definition: &BackendDefinition,
     execution: &mut ExecutionEvaluationContext,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
     evaluate_with_context(
         term,
         Some(&definition.sort_graph),
         Some(definition),
         Some(execution),
     )
+    .layered()
 }
 
 fn evaluate_with_sort_graph(
     term: &Term,
     sort_graph: Option<&SortGraph>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     evaluate_with_context(term, sort_graph, None, None)
 }
 
 fn evaluate_with_definition(
     term: &Term,
     definition: Option<&BackendDefinition>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     evaluate_with_context(
         term,
         definition.map(|definition| &definition.sort_graph),
@@ -177,7 +212,7 @@ fn evaluate_with_context(
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let TermKind::Application {
         symbol, arguments, ..
     } = term.kind()
@@ -200,8 +235,11 @@ fn evaluate_with_context(
 
 pub use crate::term::names::PLUGIN_HOOK_NAMESPACES;
 
-pub fn evaluate_hook(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
-    evaluate_hook_with_context(hook, arguments, None, None, None, None)
+pub fn evaluate_hook(
+    hook: &str,
+    arguments: &[Term],
+) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
+    evaluate_hook_with_context(hook, arguments, None, None, None, None).layered()
 }
 
 fn evaluate_hook_with_context(
@@ -211,8 +249,8 @@ fn evaluate_hook_with_context(
     sort_graph: Option<&SortGraph>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
-    check_interrupted()?;
+) -> HookResult<BuiltinResult> {
+    crate::stop::check()?;
     match hook {
         "INT.ediv" => return int_partial_binary(hook, arguments, euclidean_division),
         "INT.emod" => return int_partial_binary(hook, arguments, euclidean_modulus),
@@ -301,7 +339,7 @@ fn io_getc(
     result_sort: Option<&Sort>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let Ok(execution) = execution_context(execution) else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -346,7 +384,7 @@ fn io_read(
     arguments: &[Term],
     result_sort: Option<&Sort>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let Ok(execution) = execution_context(execution) else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -384,7 +422,7 @@ fn io_putc(
     result_sort: Option<&Sort>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let Ok(execution) = execution_context(execution) else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -417,7 +455,7 @@ fn io_write(
     result_sort: Option<&Sort>,
     definition: Option<&BackendDefinition>,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let Ok(execution) = execution_context(execution) else {
         return Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -502,15 +540,7 @@ fn inject_result(value: Term, result_sort: &Sort) -> Term {
     }
 }
 
-fn check_interrupted() -> Result<(), BuiltinError> {
-    if interruption_requested() {
-        Err(BuiltinError::Interrupted)
-    } else {
-        Ok(())
-    }
-}
-
-fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn io_log_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("IO.logString", arguments, 1)?;
     let TermKind::DomainValue { sort, value } = arguments[0].kind() else {
         return Ok(BuiltinResult::NotApplicable);
@@ -530,7 +560,7 @@ fn io_log_string(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn bool_or(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn bool_or(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("BOOL.or", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -542,7 +572,7 @@ fn bool_or(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     })
 }
 
-fn bool_and(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn bool_and(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("BOOL.and", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -558,7 +588,7 @@ fn bool_binary(
     hook: &str,
     arguments: &[Term],
     operation: impl FnOnce(bool, bool) -> bool,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -568,12 +598,12 @@ fn bool_binary(
         .map(|(left, right)| bool_term(operation(left, right))))
 }
 
-fn bool_not(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn bool_not(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("BOOL.not", arguments, 1)?;
     Ok(read_bool(&arguments[0]).map(|value| bool_term(!value)))
 }
 
-fn bool_implies(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn bool_implies(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("BOOL.implies", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -589,7 +619,7 @@ fn int_compare(
     hook: &str,
     arguments: &[Term],
     comparison: impl FnOnce(&BigInt, &BigInt) -> bool,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
     if let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) {
         return Ok(Some(bool_term(comparison(&left, &right))));
@@ -608,14 +638,14 @@ fn int_binary(
     hook: &str,
     arguments: &[Term],
     operation: impl FnOnce(BigInt, BigInt) -> BigInt,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
     Ok(read_int(&arguments[0])
         .zip(read_int(&arguments[1]))
         .map(|(left, right)| int_term(operation(left, right))))
 }
 
-fn int_abs(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn int_abs(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("INT.abs", arguments, 1)?;
     Ok(read_int(&arguments[0]).map(|value| {
         if value.sign() == Sign::Minus {
@@ -630,7 +660,7 @@ fn int_unary(
     hook: &str,
     arguments: &[Term],
     operation: impl FnOnce(BigInt) -> BigInt,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 1)?;
     Ok(read_int(&arguments[0]).map(|value| int_term(operation(value))))
 }
@@ -639,7 +669,7 @@ fn int_partial_binary(
     hook: &str,
     arguments: &[Term],
     operation: impl FnOnce(BigInt, BigInt) -> Option<BigInt>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -675,7 +705,7 @@ fn euclidean_division(left: BigInt, right: BigInt) -> Option<BigInt> {
     Some((left - remainder) / right)
 }
 
-fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_pow(arguments: &[Term]) -> HookResult<BuiltinResult> {
     const MAX_POW_RESULT_BITS: u64 = 1 << 32;
 
     expect_arity("INT.pow", arguments, 2)?;
@@ -723,7 +753,7 @@ fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     }
     let mut result = BigInt::one();
     while exponent != 0 {
-        check_interrupted()?;
+        crate::stop::check()?;
         if exponent & 1 == 1 {
             result *= &base;
         }
@@ -735,7 +765,7 @@ fn int_pow(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(int_term(result)))
 }
 
-fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_powmod(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.powmod", arguments, 3)?;
     let Some((base, exponent, modulus)) = read_int(&arguments[0])
         .zip(read_int(&arguments[1]))
@@ -760,7 +790,7 @@ fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     let mut exponent = exponent;
     let mut result = BigInt::one();
     while !exponent.is_zero() {
-        check_interrupted()?;
+        crate::stop::check()?;
         if (&exponent & BigInt::one()) == BigInt::one() {
             result = (result * &base) % &modulus;
         }
@@ -772,11 +802,11 @@ fn int_powmod(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     Ok(BuiltinResult::Value(int_term(result % modulus)))
 }
 
-fn modular_inverse(value: &BigInt, modulus: &BigInt) -> Result<Option<BigInt>, BuiltinError> {
+fn modular_inverse(value: &BigInt, modulus: &BigInt) -> HookResult<Option<BigInt>> {
     let (mut old_r, mut r) = (value.clone(), modulus.clone());
     let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
     while !r.is_zero() {
-        check_interrupted()?;
+        crate::stop::check()?;
         let quotient = &old_r / &r;
         (old_r, r) = (r.clone(), old_r - &quotient * r);
         (old_s, s) = (s.clone(), old_s - quotient * s);
@@ -790,7 +820,7 @@ fn modular_inverse(value: &BigInt, modulus: &BigInt) -> Result<Option<BigInt>, B
     Ok(euclidean_modulus(old_s, modulus.clone()))
 }
 
-fn int_log2(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn int_log2(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("INT.log2", arguments, 1)?;
     let Some(value) = read_int(&arguments[0]) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -803,7 +833,7 @@ fn int_log2(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     ))))
 }
 
-fn int_shift(hook: &str, arguments: &[Term], right: bool) -> Result<BuiltinResult, BuiltinError> {
+fn int_shift(hook: &str, arguments: &[Term], right: bool) -> HookResult<BuiltinResult> {
     expect_arity(hook, arguments, 2)?;
     let Some((value, amount)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) else {
         return Ok(BuiltinResult::NotApplicable);
@@ -840,7 +870,7 @@ fn int_shift(hook: &str, arguments: &[Term], right: bool) -> Result<BuiltinResul
     ))
 }
 
-fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn kequal_ite(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("KEQUAL.ite", arguments, 3)?;
     let [condition, then_value, else_value] = arguments else {
         unreachable!()
@@ -850,7 +880,8 @@ fn kequal_ite(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         return Err(BuiltinError::AlternativeSortsDiffer {
             then_sort: then_value.sort(),
             else_sort: else_value.sort(),
-        });
+        }
+        .into());
     }
     Ok(match read_bool(condition) {
         Some(true) => Some(then_value.clone()),
@@ -863,7 +894,7 @@ fn kequal(
     arguments: &[Term],
     negate: bool,
     sort_graph: Option<&SortGraph>,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     expect_arity(if negate { "KEQUAL.ne" } else { "KEQUAL.eq" }, arguments, 2)?;
     if let (Some(left), Some(right)) = (
         k_sequence_injection(&arguments[0]),
@@ -1030,11 +1061,7 @@ pub(super) fn int_term(value: BigInt) -> Term {
     Term::domain_value(Sort::builtin(BuiltinSort::Int), value.to_string())
 }
 
-pub(super) fn expect_arity(
-    hook: &str,
-    arguments: &[Term],
-    expected: usize,
-) -> Result<(), BuiltinError> {
+pub(super) fn expect_arity(hook: &str, arguments: &[Term], expected: usize) -> HookResult<()> {
     if arguments.len() == expected {
         Ok(())
     } else {
@@ -1042,11 +1069,12 @@ pub(super) fn expect_arity(
             hook: hook.into(),
             expected,
             actual: arguments.len(),
-        })
+        }
+        .into())
     }
 }
 
-pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<(), BuiltinError> {
+pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> HookResult<()> {
     let actual = term.sort();
     if &actual == expected {
         Ok(())
@@ -1055,7 +1083,8 @@ pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> Result<()
             hook: hook.into(),
             expected: expected.clone(),
             actual,
-        })
+        }
+        .into())
     }
 }
 
@@ -1065,6 +1094,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        stop::{Stop, StopCause},
         term::{
             CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Symbol,
             SymbolAttributes, SymbolType, Variable,
@@ -1125,11 +1155,11 @@ mod tests {
 
         assert_eq!(
             evaluate_hook("KEQUAL.eq", &arguments),
-            Ok(BuiltinResult::Value(bool_term(true)))
+            Ok(Ok(BuiltinResult::Value(bool_term(true))))
         );
         assert_eq!(
             evaluate_hook("KEQUAL.ne", &arguments),
-            Ok(BuiltinResult::Value(bool_term(false)))
+            Ok(Ok(BuiltinResult::Value(bool_term(false))))
         );
     }
 
@@ -1142,11 +1172,11 @@ mod tests {
 
         assert_eq!(
             evaluate_hook("KEQUAL.eq", &arguments),
-            Ok(BuiltinResult::Value(bool_term(false)))
+            Ok(Ok(BuiltinResult::Value(bool_term(false))))
         );
         assert_eq!(
             evaluate_hook("KEQUAL.ne", &arguments),
-            Ok(BuiltinResult::Value(bool_term(true)))
+            Ok(Ok(BuiltinResult::Value(bool_term(true))))
         );
     }
 
@@ -1166,11 +1196,11 @@ mod tests {
 
         assert_eq!(
             evaluate(&false_and_unknown),
-            Ok(BuiltinResult::Value(bool_term(false)))
+            Ok(Ok(BuiltinResult::Value(bool_term(false))))
         );
         assert_eq!(
             evaluate(&true_and_unknown),
-            Ok(BuiltinResult::NotApplicable)
+            Ok(Ok(BuiltinResult::NotApplicable))
         );
     }
 
@@ -1191,11 +1221,11 @@ mod tests {
 
         assert_eq!(
             evaluate(&addition),
-            Ok(BuiltinResult::Value(int_term(left + 2)))
+            Ok(Ok(BuiltinResult::Value(int_term(left + 2))))
         );
         assert_eq!(
             evaluate(&comparison),
-            Ok(BuiltinResult::Value(bool_term(true)))
+            Ok(Ok(BuiltinResult::Value(bool_term(true))))
         );
     }
 
@@ -1206,14 +1236,14 @@ mod tests {
 
         assert_eq!(
             evaluate_hook("INT.pow", &[int_term(BigInt::one()), int_term(beyond_u32)]),
-            Ok(BuiltinResult::Value(int_term(BigInt::one())))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::one()))))
         );
         assert_eq!(
             evaluate_hook(
                 "INT.pow",
                 &[int_term(BigInt::zero()), int_term(enormous.clone())],
             ),
-            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::zero()))))
         );
         assert_eq!(
             evaluate_hook(
@@ -1223,20 +1253,20 @@ mod tests {
                     int_term(&enormous + BigInt::one()),
                 ],
             ),
-            Ok(BuiltinResult::Value(int_term(BigInt::from(-1))))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(-1)))))
         );
         assert!(matches!(
             evaluate_hook("INT.pow", &[int_term(BigInt::from(2)), int_term(enormous)]),
-            Ok(BuiltinResult::Unsupported(
+            Ok(Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge { .. }
-            ))
+            )))
         ));
         assert_eq!(
             evaluate_hook(
                 "INT.pow",
                 &[int_term(BigInt::from(2)), int_term(BigInt::from(-1))],
             ),
-            Ok(BuiltinResult::Bottom)
+            Ok(Ok(BuiltinResult::Bottom))
         );
     }
 
@@ -1249,30 +1279,30 @@ mod tests {
                 "INT.shr",
                 &[int_term(BigInt::from(8)), int_term(beyond_usize.clone())],
             ),
-            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::zero()))))
         );
         assert_eq!(
             evaluate_hook(
                 "INT.shr",
                 &[int_term(BigInt::from(-8)), int_term(beyond_usize.clone()),],
             ),
-            Ok(BuiltinResult::Value(int_term(BigInt::from(-1))))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(-1)))))
         );
         assert_eq!(
             evaluate_hook(
                 "INT.shl",
                 &[int_term(BigInt::zero()), int_term(beyond_usize.clone())],
             ),
-            Ok(BuiltinResult::Value(int_term(BigInt::zero())))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::zero()))))
         );
         assert!(matches!(
             evaluate_hook(
                 "INT.shl",
                 &[int_term(BigInt::one()), int_term(beyond_usize)],
             ),
-            Ok(BuiltinResult::Unsupported(
+            Ok(Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ResultTooLarge { .. }
-            ))
+            )))
         ));
     }
 
@@ -1286,11 +1316,11 @@ mod tests {
 
         assert_eq!(
             evaluate_hook("INT.eq", &[argument.clone(), argument.clone()]),
-            Ok(BuiltinResult::Value(bool_term(true)))
+            Ok(Ok(BuiltinResult::Value(bool_term(true))))
         );
         assert_eq!(
             evaluate_hook("INT.ne", &[argument.clone(), argument]),
-            Ok(BuiltinResult::Value(bool_term(false)))
+            Ok(Ok(BuiltinResult::Value(bool_term(false))))
         );
     }
 
@@ -1344,13 +1374,16 @@ mod tests {
 
         assert_eq!(
             evaluate(&application),
-            Ok(BuiltinResult::Value(Term::domain_value(
+            Ok(Ok(BuiltinResult::Value(Term::domain_value(
                 token_sort, "alpha"
-            )))
+            ))))
         );
     }
 
-    fn evaluate_int(hook: &str, arguments: &[i64]) -> BuiltinResult {
+    fn evaluate_int(
+        hook: &str,
+        arguments: &[i64],
+    ) -> Stoppable<Result<BuiltinResult, BuiltinError>> {
         evaluate_hook(
             hook,
             &arguments
@@ -1360,7 +1393,6 @@ mod tests {
                 .map(int_term)
                 .collect::<Vec<_>>(),
         )
-        .unwrap()
     }
 
     fn float_term(value: &str) -> Term {
@@ -1413,7 +1445,7 @@ mod tests {
         ];
 
         for (hook, arguments, expected) in cases {
-            assert_eq!(evaluate_hook(hook, &arguments), Ok(expected), "{hook}");
+            assert_eq!(evaluate_hook(hook, &arguments), Ok(Ok(expected)), "{hook}");
         }
     }
 
@@ -1421,24 +1453,24 @@ mod tests {
     fn float_tokens_reject_unsupported_or_malformed_ground_formats() {
         assert_eq!(
             evaluate_hook("FLOAT.precision", &[float_term("1.0p2x8")]),
-            Err(BuiltinError::UnsupportedFloatFormat {
+            Ok(Err(BuiltinError::UnsupportedFloatFormat {
                 hook: "FLOAT.precision".into(),
                 precision: 2,
                 exponent_bits: 8,
-            })
+            }))
         );
         assert_eq!(
             evaluate_hook("FLOAT.sign", &[float_term("not-a-float")]),
-            Err(BuiltinError::InvalidFloatToken {
+            Ok(Err(BuiltinError::InvalidFloatToken {
                 hook: "FLOAT.sign".into(),
                 token: "not-a-float".into(),
-            })
+            }))
         );
 
         let symbolic = Term::variable(Variable::new("F", Sort::simple("SortFloat")));
         assert_eq!(
             evaluate_hook("FLOAT.sign", &[symbolic]),
-            Ok(BuiltinResult::NotApplicable)
+            Ok(Ok(BuiltinResult::NotApplicable))
         );
     }
 
@@ -1465,7 +1497,7 @@ mod tests {
         for (hook, argument, expected) in cases {
             assert_eq!(
                 evaluate_hook(hook, &[float_term(argument)]),
-                Ok(BuiltinResult::Value(expected)),
+                Ok(Ok(BuiltinResult::Value(expected))),
                 "{hook}({argument})"
             );
         }
@@ -1493,7 +1525,7 @@ mod tests {
         for (hook, left, right, expected) in cases {
             assert_eq!(
                 evaluate_hook(hook, &[float_term(left), float_term(right)]),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "{hook}({left}, {right})"
             );
         }
@@ -1517,7 +1549,7 @@ mod tests {
                     "FLOAT.root",
                     &[float_term(value), int_term(BigInt::from(2))],
                 ),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "root({value}, 2)"
             );
         }
@@ -1527,11 +1559,11 @@ mod tests {
                 "FLOAT.root",
                 &[float_term("8.0f"), int_term(BigInt::from(3))],
             ),
-            Ok(BuiltinResult::Unsupported(
+            Ok(Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::ArgumentOutOfRange {
                     detail: "root degree 3 (only 2 is implemented)".into(),
                 }
-            ))
+            )))
         );
     }
 
@@ -1546,7 +1578,7 @@ mod tests {
         for (hook, left, right, expected) in float_cases {
             assert_eq!(
                 evaluate_hook(hook, &[float_term(left), float_term(right)]),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "{hook}({left}, {right})"
             );
         }
@@ -1561,14 +1593,14 @@ mod tests {
         for (hook, left, right, expected) in bool_cases {
             assert_eq!(
                 evaluate_hook(hook, &[float_term(left), float_term(right)]),
-                Ok(BuiltinResult::Value(bool_term(expected))),
+                Ok(Ok(BuiltinResult::Value(bool_term(expected)))),
                 "{hook}({left}, {right})"
             );
         }
         for hook in ["FLOAT.lt", "FLOAT.le", "FLOAT.gt", "FLOAT.ge", "FLOAT.eq"] {
             assert_eq!(
                 evaluate_hook(hook, &[float_term("NaNf"), float_term("1.0")]),
-                Ok(BuiltinResult::Value(bool_term(false))),
+                Ok(Ok(BuiltinResult::Value(bool_term(false)))),
                 "{hook}(NaN, 1)"
             );
         }
@@ -1578,13 +1610,13 @@ mod tests {
     fn float_arithmetic_rejects_mixed_formats() {
         assert_eq!(
             evaluate_hook("FLOAT.add", &[float_term("1.0f"), float_term("1.0")]),
-            Err(BuiltinError::MismatchedFloatFormats {
+            Ok(Err(BuiltinError::MismatchedFloatFormats {
                 hook: "FLOAT.add".into(),
                 left_precision: 24,
                 left_exponent_bits: 8,
                 right_precision: 53,
                 right_exponent_bits: 11,
-            })
+            }))
         );
     }
 
@@ -1618,7 +1650,7 @@ mod tests {
                         int_term(BigInt::from(exponent_bits)),
                     ],
                 ),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "round({value}, {precision}, {exponent_bits})"
             );
         }
@@ -1631,11 +1663,11 @@ mod tests {
                     int_term(BigInt::from(8)),
                 ],
             ),
-            Err(BuiltinError::UnsupportedFloatFormat {
+            Ok(Err(BuiltinError::UnsupportedFloatFormat {
                 hook: "FLOAT.round".into(),
                 precision: 2,
                 exponent_bits: 8,
-            })
+            }))
         );
     }
 
@@ -1675,7 +1707,7 @@ mod tests {
                         int_term(BigInt::from(exponent_bits)),
                     ],
                 ),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "int2float(_, {precision}, {exponent_bits})"
             );
         }
@@ -1694,7 +1726,7 @@ mod tests {
             });
             assert_eq!(
                 evaluate_hook("FLOAT.float2int", &[float_term(value)]),
-                Ok(expected),
+                Ok(Ok(expected)),
                 "float2int({value})"
             );
         }
@@ -1715,7 +1747,7 @@ mod tests {
                         int_term(BigInt::from(exponent_bits)),
                     ],
                 ),
-                Ok(BuiltinResult::Value(float_term(expected))),
+                Ok(Ok(BuiltinResult::Value(float_term(expected)))),
                 "maxValue({precision}, {exponent_bits})"
             );
         }
@@ -1742,24 +1774,33 @@ mod tests {
         for (hook, arguments, expected) in cases {
             assert_eq!(
                 evaluate_int(hook, arguments),
-                BuiltinResult::Value(int_term(BigInt::from(expected))),
+                Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(expected))))),
                 "{hook}"
             );
         }
         assert_eq!(
             evaluate_int("INT.not", &[0]),
-            BuiltinResult::Value(int_term(BigInt::from(-1)))
+            Ok(Ok(BuiltinResult::Value(int_term(BigInt::from(-1)))))
         );
     }
 
     #[test]
     fn undefined_integer_operations_are_bottom() {
-        assert_eq!(evaluate_int("INT.ediv", &[1, 0]), BuiltinResult::Bottom);
-        assert_eq!(evaluate_int("INT.pow", &[2, -1]), BuiltinResult::Bottom);
-        assert_eq!(evaluate_int("INT.log2", &[0]), BuiltinResult::Bottom);
+        assert_eq!(
+            evaluate_int("INT.ediv", &[1, 0]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
+            evaluate_int("INT.pow", &[2, -1]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
+        assert_eq!(
+            evaluate_int("INT.log2", &[0]),
+            Ok(Ok(BuiltinResult::Bottom))
+        );
         assert_eq!(
             evaluate_int("INT.powmod", &[2, -1, 4]),
-            BuiltinResult::Bottom
+            Ok(Ok(BuiltinResult::Bottom))
         );
     }
 
@@ -1771,10 +1812,11 @@ mod tests {
         });
         let _timer = controller.begin_step();
 
-        assert_eq!(
-            evaluate_hook("INT.pow", &[int_term(2.into()), int_term(10.into())]),
-            Err(BuiltinError::Interrupted)
-        );
+        assert!(matches!(
+            evaluate_hook("INT.pow", &[int_term(2.into()), int_term(10.into())])
+                .map_err(Stop::into_cause),
+            Err(StopCause::Deadline(..))
+        ));
     }
 
     #[test]
@@ -1787,11 +1829,11 @@ mod tests {
 
         assert_eq!(
             evaluate(&term),
-            Err(BuiltinError::WrongArity {
+            Ok(Err(BuiltinError::WrongArity {
                 hook: "INT.add".into(),
                 expected: 2,
                 actual: 1,
-            })
+            }))
         );
     }
 
@@ -1818,11 +1860,11 @@ mod tests {
             let arguments = vec![dummy.clone(); expected + 1];
             assert_eq!(
                 evaluate_hook(hook, &arguments),
-                Err(BuiltinError::WrongArity {
+                Ok(Err(BuiltinError::WrongArity {
                     hook: hook.into(),
                     expected,
                     actual: expected + 1,
-                }),
+                })),
                 "{hook}"
             );
         }
@@ -1836,7 +1878,7 @@ mod tests {
             assert!(
                 matches!(
                     evaluate_hook(hook, std::slice::from_ref(&empty)),
-                    Ok(BuiltinResult::Value(_))
+                    Ok(Ok(BuiltinResult::Value(_)))
                 ),
                 "{hook}"
             );
@@ -1850,11 +1892,11 @@ mod tests {
         for hook in ["KRYPTO.bn128valid", "KRYPTO.bn128g2valid"] {
             assert_eq!(
                 evaluate_hook(hook, &[dummy.clone(), dummy.clone()]),
-                Err(BuiltinError::WrongArity {
+                Ok(Err(BuiltinError::WrongArity {
                     hook: hook.into(),
                     expected: 1,
                     actual: 2,
-                }),
+                })),
                 "{hook}"
             );
         }
@@ -1868,11 +1910,11 @@ mod tests {
             let arguments = vec![dummy.clone(); 3];
             assert_eq!(
                 evaluate_hook(hook, &arguments),
-                Err(BuiltinError::WrongArity {
+                Ok(Err(BuiltinError::WrongArity {
                     hook: hook.into(),
                     expected: 2,
                     actual: 3,
-                }),
+                })),
                 "{hook}"
             );
         }
@@ -1885,11 +1927,11 @@ mod tests {
 
         assert_eq!(
             evaluate_hook("KRYPTO.bn128ate", &arguments),
-            Err(BuiltinError::WrongArity {
+            Ok(Err(BuiltinError::WrongArity {
                 hook: "KRYPTO.bn128ate".into(),
                 expected: 2,
                 actual: 3,
-            })
+            }))
         );
     }
 

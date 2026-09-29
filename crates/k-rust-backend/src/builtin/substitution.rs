@@ -45,7 +45,7 @@ use k_rust_kore::{
     names::WellKnownSymbol,
 };
 
-use super::{BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity};
+use super::{BuiltinResult, HookResult, UnsupportedHookReason, expect_arity};
 use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
@@ -56,7 +56,7 @@ pub(super) fn evaluate(
     hook: &str,
     arguments: &[Term],
     definition: Option<&BackendDefinition>,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let _span = measure::algorithm_span(Algorithm::BackendFreshObjectLanguage);
     match hook {
         "SUBSTITUTION.substOne" => {
@@ -199,8 +199,8 @@ fn is_opaque(term: &Term) -> bool {
 
 /// True when `term` has an opaque subterm whose sort may contain a `KVar` token. Opaque subterms
 /// of `KVar`-free sorts are not descended into, as in the substitution traversals.
-fn has_blocking_subterm(term: &Term, facts: &KVarSorts) -> Result<bool, BuiltinError> {
-    check_interrupted()?;
+fn has_blocking_subterm(term: &Term, facts: &KVarSorts) -> HookResult<bool> {
+    crate::stop::check()?;
     if is_opaque(term) {
         return Ok(facts.may_contain_kvar(&term.sort()));
     }
@@ -265,7 +265,7 @@ fn subst_one(
     arguments: &[Term],
     facts: &KVarSorts,
     sort_graph: &SortGraph,
-) -> Result<BuiltinResult, BuiltinError> {
+) -> HookResult<BuiltinResult> {
     let [body, replacement, variable] = arguments else {
         unreachable!("substOne arity was checked by the dispatcher")
     };
@@ -349,8 +349,8 @@ fn substitute(
     kvar_sorts: &BTreeSet<Name>,
     sort_graph: &SortGraph,
     fresh: &mut FreshNames,
-) -> Result<SubstituteOutcome, BuiltinError> {
-    check_interrupted()?;
+) -> HookResult<SubstituteOutcome> {
+    crate::stop::check()?;
     if read_kvar(term, kvar_sorts).as_ref() == Some(target) {
         return Ok(inject_to_sort(replacement.clone(), term.sort(), sort_graph)
             .map_or(SubstituteOutcome::NotApplicable, SubstituteOutcome::Value));
@@ -658,7 +658,7 @@ fn freshen_bound_kvar_identities(
     conflict: &Name,
     kvar_sorts: &BTreeSet<Name>,
     fresh: &mut FreshNames,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     freshen_bound_kvar_identities_inner(term, conflict, kvar_sorts, fresh, &mut Vec::new())
 }
 
@@ -668,8 +668,8 @@ fn freshen_bound_kvar_identities_inner(
     kvar_sorts: &BTreeSet<Name>,
     fresh: &mut FreshNames,
     bound_renamings: &mut Vec<Name>,
-) -> Result<Option<Term>, BuiltinError> {
-    check_interrupted()?;
+) -> HookResult<Option<Term>> {
+    crate::stop::check()?;
     if read_kvar(term, kvar_sorts).as_ref() == Some(conflict) {
         let Some(renamed) = bound_renamings.last() else {
             return Ok(Some(term.clone()));
@@ -830,7 +830,7 @@ fn freshen_bound_kvar_identities_inner(
                         bound_renamings,
                     )?))
                 })
-                .collect::<Result<Option<Vec<_>>, BuiltinError>>()?
+                .collect::<HookResult<Option<Vec<_>>>>()?
             else {
                 return Ok(None);
             };
@@ -946,10 +946,7 @@ fn freshen_bound_kvar_identities_inner(
     }))
 }
 
-fn free_kvars(
-    term: &Term,
-    kvar_sorts: &BTreeSet<Name>,
-) -> Result<Option<BTreeSet<Name>>, BuiltinError> {
+fn free_kvars(term: &Term, kvar_sorts: &BTreeSet<Name>) -> HookResult<Option<BTreeSet<Name>>> {
     let mut free = BTreeSet::new();
     let mut bound = BTreeMap::new();
     if collect_free_kvars(term, kvar_sorts, &mut bound, &mut free)? {
@@ -963,7 +960,7 @@ fn contains_free_kvar(
     term: &Term,
     target: &Name,
     kvar_sorts: &BTreeSet<Name>,
-) -> Result<Option<bool>, BuiltinError> {
+) -> HookResult<Option<bool>> {
     Ok(free_kvars(term, kvar_sorts)?.map(|free| free.contains(target)))
 }
 
@@ -972,8 +969,8 @@ fn collect_free_kvars(
     kvar_sorts: &BTreeSet<Name>,
     bound: &mut BTreeMap<Name, usize>,
     free: &mut BTreeSet<Name>,
-) -> Result<bool, BuiltinError> {
-    check_interrupted()?;
+) -> HookResult<bool> {
+    crate::stop::check()?;
     if let Some(name) = read_kvar(term, kvar_sorts) {
         if !bound.contains_key(&name) {
             free.insert(name);
@@ -1077,8 +1074,8 @@ fn collect_kvars(
     term: &Term,
     kvar_sorts: &BTreeSet<Name>,
     names: &mut BTreeSet<Name>,
-) -> Result<(), BuiltinError> {
-    check_interrupted()?;
+) -> HookResult<()> {
+    crate::stop::check()?;
     if let Some(name) = read_kvar(term, kvar_sorts) {
         names.insert(name);
         return Ok(());
@@ -1193,6 +1190,8 @@ mod tests {
 
     use super::*;
     use crate::{
+        builtin::BuiltinError,
+        stop::{StopCause, Unwind},
         term::{CollectionSymbols, ListDefinition, MapDefinition, Symbol},
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
@@ -1691,7 +1690,8 @@ mod tests {
                 hook: "SUBSTITUTION.substOne".into(),
                 expected: 3,
                 actual: 2,
-            })
+            }
+            .into())
         );
         assert_eq!(
             evaluate("SUBSTITUTION.substMany", &arguments, None),
@@ -1722,7 +1722,7 @@ mod tests {
 
         assert_eq!(
             crate::builtin::evaluate_in_definition(&application, &definition),
-            Ok(BuiltinResult::Value(kvar("y")))
+            Ok(Ok(BuiltinResult::Value(kvar("y"))))
         );
     }
 
@@ -1733,9 +1733,11 @@ mod tests {
             moving_average: false,
         });
         let _timer = controller.begin_step();
-        assert_eq!(
-            subst_one(&[kvar("x"), kvar("y"), kvar("x")], &facts(), &sort_graph()),
-            Err(BuiltinError::Interrupted)
-        );
+        match subst_one(&[kvar("x"), kvar("y"), kvar("x")], &facts(), &sort_graph()) {
+            Err(Unwind::Stop(stop)) => {
+                assert!(matches!(stop.into_cause(), StopCause::Deadline(..)))
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

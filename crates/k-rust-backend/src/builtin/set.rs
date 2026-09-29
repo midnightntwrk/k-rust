@@ -8,15 +8,13 @@ use num_bigint::BigInt;
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, int_term,
-};
+use super::{BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term};
 use crate::{
     builtin::list::k_item_definition as k_item_list_definition,
     term::{CollectionSymbols, SetDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal set that holds an
     // element twice is `\bottom`: set concatenation is nilpotent (`Term::set`). A `ceil_free`
     // set has pairwise distinct elements, so only other sets are scanned; the hooks below
@@ -63,7 +61,7 @@ pub(super) fn k_item_set_definition() -> Arc<SetDefinition> {
 /// Syntactically equal elements are equal values, so a shared one decides the overlap on every
 /// instance. Elements that are not syntactically equal stay apart in the result, and the
 /// result's definedness (`ceil_term`) carries the condition that they differ.
-fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("SET.concat", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -107,7 +105,7 @@ fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn element(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.element", arguments, 1)?;
     Ok(Some(Term::set(
         k_item_set_definition(),
@@ -116,12 +114,12 @@ fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn unit(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn unit(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.unit", arguments, 0)?;
     Ok(Some(Term::set(k_item_set_definition(), Vec::new(), None)))
 }
 
-fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn contains(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.in", arguments, 2)?;
     let [element, set] = arguments else {
         unreachable!()
@@ -135,7 +133,7 @@ fn contains(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(bool_term(elements.binary_search(element).is_ok())))
 }
 
-fn difference(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn difference(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.difference", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -160,7 +158,7 @@ fn difference(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn to_list(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn to_list(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.set2list", arguments, 1)?;
     let Some((_, elements)) = concrete_set(&arguments[0]) else {
         return Ok(None);
@@ -172,7 +170,7 @@ fn to_list(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.size", arguments, 1)?;
     let Some((_, elements)) = concrete_set(&arguments[0]) else {
         return Ok(None);
@@ -180,7 +178,7 @@ fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(int_term(BigInt::from(elements.len()))))
 }
 
-fn intersection(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn intersection(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.intersection", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -205,7 +203,7 @@ fn intersection(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn list_to_set(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn list_to_set(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.list2set", arguments, 1)?;
     let TermKind::List {
         heads, rest: None, ..
@@ -227,7 +225,7 @@ fn list_to_set(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(Term::set(k_item_set_definition(), elements, None)))
 }
 
-fn inclusion(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("SET.inclusion", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()

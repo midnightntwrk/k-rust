@@ -1581,15 +1581,20 @@ pub(super) fn list_update_cannot_match(pattern: &Term, subject: &Term) -> bool {
     let [_, index, value] = arguments.as_slice() else {
         return false;
     };
+    // false only declines to refute the match; a stop is minted again by the caller's next poll.
     match evaluate_hook(
         "LIST.update",
         &[subject.clone(), index.clone(), value.clone()],
     ) {
-        Ok(BuiltinResult::Bottom) => true,
-        Ok(BuiltinResult::Value(updated)) => {
+        Ok(Ok(BuiltinResult::Bottom)) => true,
+        Ok(Ok(BuiltinResult::Value(updated))) => {
             updated.attributes().constructor_like && updated != *subject
         }
-        _ => false,
+        Ok(_) => false,
+        Err(stop) => {
+            stop.forgo_refinement();
+            false
+        }
     }
 }
 

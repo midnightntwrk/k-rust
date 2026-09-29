@@ -11,15 +11,15 @@ use num_bigint::BigInt;
 use k_rust_kore::names::BuiltinSort;
 
 use super::{
-    BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
-    int_term,
+    BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
+    expect_sort, int_term,
 };
 use crate::{
     builtin::{list::k_item_definition as k_item_list_definition, set::k_item_set_definition},
     term::{CollectionSymbols, MapDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal map that binds a key
     // twice, with the same value or not, is `\bottom` (`Term::map`). A `ceil_free` map has
     // pairwise distinct keys, so only other maps are scanned.
@@ -67,7 +67,7 @@ fn k_item_definition() -> Arc<MapDefinition> {
     })
 }
 
-fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn element(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.element", arguments, 2)?;
     Ok(Some(Term::map(
         k_item_definition(),
@@ -76,12 +76,12 @@ fn element(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn unit(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn unit(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.unit", arguments, 0)?;
     Ok(Some(Term::map(k_item_definition(), Vec::new(), None)))
 }
 
-fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("MAP.concat", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -120,7 +120,7 @@ fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     )))
 }
 
-fn update(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn update(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.update", arguments, 3)?;
     let [map, key, new_value] = arguments else {
         unreachable!()
@@ -154,7 +154,7 @@ fn update(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(Term::map(definition.clone(), updated, None)))
 }
 
-fn update_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.updateAll", arguments, 2)?;
     let [original, updates] = arguments else {
         unreachable!()
@@ -174,7 +174,8 @@ fn update_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         return Err(BuiltinError::IncompatibleMapSorts {
             left: original.sort(),
             right: updates.sort(),
-        });
+        }
+        .into());
     }
     if matches!(
         updates.kind(),
@@ -251,7 +252,7 @@ fn update_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn remove(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn remove(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.remove", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
@@ -284,7 +285,7 @@ fn remove(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn remove_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn remove_all(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.removeAll", arguments, 2)?;
     let [map, set] = arguments else {
         unreachable!()
@@ -325,7 +326,7 @@ fn remove_all(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.size", arguments, 1)?;
     let TermKind::Map {
         entries,
@@ -338,7 +339,7 @@ fn size(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     Ok(Some(int_term(BigInt::from(entries.len()))))
 }
 
-fn lookup(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn lookup(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("MAP.lookup", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
@@ -366,7 +367,7 @@ fn lookup(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     }
 }
 
-fn lookup_or_default(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn lookup_or_default(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.lookupOrDefault", arguments, 3)?;
     let [map, key, default] = arguments else {
         unreachable!()
@@ -389,7 +390,7 @@ fn lookup_or_default(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn in_keys(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn in_keys(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.in_keys", arguments, 2)?;
     let [key, map] = arguments else {
         unreachable!()
@@ -412,7 +413,7 @@ fn in_keys(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     }
 }
 
-fn keys_list(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn keys_list(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.keys_list", arguments, 1)?;
     let TermKind::Map {
         entries,
@@ -429,7 +430,7 @@ fn keys_list(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn keys(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn keys(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.keys", arguments, 1)?;
     let TermKind::Map {
         entries,
@@ -452,7 +453,7 @@ fn keys(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn values(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn values(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.values", arguments, 1)?;
     let TermKind::Map {
         entries,
@@ -469,7 +470,7 @@ fn values(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     )))
 }
 
-fn inclusion(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+fn inclusion(arguments: &[Term]) -> HookResult<Option<Term>> {
     expect_arity("MAP.inclusion", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -530,7 +531,7 @@ fn entry_inclusion(
     left_entries: &[(Term, Term)],
     right_entries: &[(Term, Term)],
     right_rest: &Option<Term>,
-) -> Result<Option<Term>, BuiltinError> {
+) -> HookResult<Option<Term>> {
     let mut undecided = false;
     for (left_key, left_value) in left_entries {
         if let Some((_, right_value)) = right_entries
@@ -659,7 +660,8 @@ mod tests {
             Err(BuiltinError::IncompatibleMapSorts {
                 left: Sort::simple("SortLeftMap"),
                 right: Sort::simple("SortRightMap"),
-            })
+            }
+            .into())
         );
     }
 
