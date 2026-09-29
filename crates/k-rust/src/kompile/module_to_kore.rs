@@ -28,12 +28,14 @@
 
 mod axioms;
 mod equations;
+mod roles;
 
-use axioms::{constructor_productions, generated_axioms};
+use axioms::generated_axioms;
 use equations::{
     OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
     resolve_equation_production,
 };
+use roles::{Declaration, SymbolClaims, SymbolRoles};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -44,7 +46,7 @@ use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
-    SortCatalog, SortHead, match_rule_label,
+    SortCatalog, SortHead,
     production_kind::{BracketName, ProductionKind, is_builtin_label},
 };
 use crate::kast::{
@@ -478,39 +480,39 @@ pub fn declaration_modules_from_resolved_with_options(
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| DeclarationError::MissingModule(module.to_owned()))?;
-    let visible = definition.sentences(module_id);
-    let sorts = definition.sort_catalog(module_id);
     let productions = definition.production_catalog(module_id);
-    let valued_attributes = valued_attributes(&visible);
-    let impure_labels = transitive_impure_labels(definition, module_id, &productions);
     let overloads = definition
         .overloads(module_id)
         .map_err(DeclarationError::Relations)?;
-    let overloaded_greater = overloads
-        .order()
-        .elements()
-        .flat_map(|lesser| {
-            overloads
-                .order()
-                .relations_from(lesser)
-                .into_iter()
-                .flatten()
-                .copied()
-        })
-        .collect::<BTreeSet<_>>();
-    let rules = definition.rule_catalog(module_id);
-    let anywhere_labels = rules
-        .rules()
-        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-        .map(|(_, rule)| match_rule_label(rule).name)
-        .collect::<BTreeSet<_>>();
-    let equation_heads = anywhere_labels
-        .iter()
-        .map(LabelHead::new)
-        .chain(rules.all_macro_labels(&productions))
-        .collect::<BTreeSet<_>>();
-    let injectivity_withheld = injectivity_withheld(&productions, &overloads, &equation_heads);
-    let macro_rule_heads = rules.macro_labels();
+    let roles = SymbolRoles::classify(
+        &productions,
+        &definition.rule_catalog(module_id),
+        &overloads,
+    );
+    declarations_with_roles(
+        definition,
+        module_id,
+        module,
+        &productions,
+        &roles,
+        hook_namespaces,
+    )
+}
+
+/// The declarations of module `module` (`module_id`), whose productions are `productions`,
+/// each declared with the claims `roles` classified for it.
+fn declarations_with_roles(
+    definition: &ResolvedDefinition,
+    module_id: ModuleId,
+    module: &str,
+    productions: &ProductionCatalog<'_>,
+    roles: &SymbolRoles,
+    hook_namespaces: &[String],
+) -> Result<DeclarationModules, DeclarationError> {
+    let visible = definition.sentences(module_id);
+    let sorts = definition.sort_catalog(module_id);
+    let valued_attributes = valued_attributes(&visible);
+    let impure_labels = transitive_impure_labels(definition, module_id, productions);
     let priorities = definition
         .priorities(module_id)
         .map_err(|cycle| DeclarationError::CircularPriority(cycle.path))?;
@@ -521,11 +523,22 @@ pub fn declaration_modules_from_resolved_with_options(
         module: WellKnownModule::K.as_str().into(),
         attributes: Attributes::default(),
     }];
-    common.extend(sort_declarations(&sorts, &productions, &valued_attributes)?);
+    common.extend(sort_declarations(&sorts, productions, &valued_attributes)?);
 
     let mut semantic_sentences = common.clone();
     let mut syntax_sentences = common;
     for (id, production) in productions.productions() {
+        let claims = roles.claims(id);
+        let declared_semantically = match claims.declaration() {
+            Declaration::SemanticAndSyntax => true,
+            // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
+            // `format`, and the priority and associativity tags its label names; it gets no
+            // semantic-module declaration because no term contains it (`ProductionKind::Bracket`).
+            Declaration::SyntaxOnly(BracketName::OwnLabel) => false,
+            // An unlabelled bracket is declared under its `bracketLabel` below.
+            Declaration::SyntaxOnly(BracketName::BracketLabel | BracketName::Undeclared)
+            | Declaration::None => continue,
+        };
         let Sentence::Production {
             label: Some(label),
             parameters,
@@ -534,39 +547,19 @@ pub fn declaration_modules_from_resolved_with_options(
             attributes,
         } = production
         else {
-            continue;
+            unreachable!("a production declared under its own label is labelled")
         };
-        let declared_semantically = match ProductionKind::of(production) {
-            // A labelled production is neither a subsort nor unlabelled; the prelude declares a
-            // builtin.
-            ProductionKind::Subsort | ProductionKind::Unlabelled | ProductionKind::Builtin => {
-                continue;
-            }
-            // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
-            // `format`, and the priority and associativity tags its label names; it gets no
-            // semantic-module declaration because no term contains it (`ProductionKind::Bracket`).
-            ProductionKind::Bracket(_) => false,
-            ProductionKind::Function { .. }
-            | ProductionKind::MacroProduction
-            | ProductionKind::Token { .. }
-            | ProductionKind::Algebraic
-            | ProductionKind::Base => true,
-        };
-        // The claims a bracket's syntax declaration carries are those of the same production
-        // without `bracket`; every other production has one kind.
+        // A bracket's syntax declaration states the same production without `bracket`; every
+        // other production has one kind.
         let kind = ProductionKind::of_unbracketed(production);
         let semantic_attributes = if declared_semantically {
             Some(symbol_attributes(
                 attributes,
                 label,
                 kind,
-                id,
-                &productions,
+                claims,
+                productions,
                 &valued_attributes,
-                &overloaded_greater,
-                &anywhere_labels,
-                macro_rule_heads,
-                &injectivity_withheld,
                 &impure_labels,
                 None,
                 items,
@@ -579,13 +572,9 @@ pub fn declaration_modules_from_resolved_with_options(
             attributes,
             label,
             kind,
-            id,
-            &productions,
+            claims,
+            productions,
             &valued_attributes,
-            &overloaded_greater,
-            &anywhere_labels,
-            macro_rule_heads,
-            &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderLabel(&syntax_relations)),
             items,
@@ -614,11 +603,14 @@ pub fn declaration_modules_from_resolved_with_options(
         syntax_sentences.push(declaration(syntax_attributes));
     }
     for (id, production) in productions.productions() {
+        let claims = roles.claims(id);
         // An unlabelled bracket is declared in the syntax module under its `bracketLabel`.
-        let ProductionKind::Bracket(BracketName::BracketLabel) = ProductionKind::of(production)
-        else {
-            continue;
-        };
+        match claims.declaration() {
+            Declaration::SyntaxOnly(BracketName::BracketLabel) => {}
+            Declaration::SemanticAndSyntax
+            | Declaration::SyntaxOnly(BracketName::OwnLabel | BracketName::Undeclared)
+            | Declaration::None => continue,
+        }
         let Sentence::Production {
             label: None,
             parameters,
@@ -640,13 +632,9 @@ pub fn declaration_modules_from_resolved_with_options(
             attributes,
             &label,
             ProductionKind::of_unbracketed(production),
-            id,
-            &productions,
+            claims,
+            productions,
             &valued_attributes,
-            &overloaded_greater,
-            &anywhere_labels,
-            macro_rule_heads,
-            &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderBracketLabel),
             items,
@@ -675,7 +663,7 @@ pub fn declaration_modules_from_resolved_with_options(
         &valued_attributes,
         &BTreeMap::new(),
     );
-    let definition_attributes = definition_attributes(definition, module_id, &productions);
+    let definition_attributes = definition_attributes(definition, module_id, productions);
     Ok(DeclarationModules {
         semantics: Module {
             name: module_name.clone(),
@@ -773,22 +761,27 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     module: &str,
     options: ModuleToKoreOptions,
 ) -> Result<(DeclarationModules, Vec<KAttributes>), ModuleToKoreError> {
-    let mut modules = declaration_modules_from_resolved_with_options(
-        definition,
-        module,
-        &options.hook_namespaces,
-    )?;
     let module_id = definition
         .module_id(module)
         .ok_or_else(|| DeclarationError::MissingModule(module.to_owned()))?;
-    let visible = definition.sentences(module_id);
-    let valued = valued_attributes(&visible);
     let rules = definition.rule_catalog(module_id);
     let productions = definition.production_catalog(module_id);
-    let sorts = definition.sort_catalog(module_id);
     let overloads = definition
         .overloads(module_id)
         .map_err(DeclarationError::Relations)?;
+    // One classification serves the declarations, the generated axioms and rule emission.
+    let roles = SymbolRoles::classify(&productions, &rules, &overloads);
+    let mut modules = declarations_with_roles(
+        definition,
+        module_id,
+        module,
+        &productions,
+        &roles,
+        &options.hook_namespaces,
+    )?;
+    let visible = definition.sentences(module_id);
+    let valued = valued_attributes(&visible);
+    let sorts = definition.sort_catalog(module_id);
     let subsorts = definition
         .subsorts(module_id)
         .map_err(|error| DeclarationError::Relations(RelationError::CircularSubsort(error)))?;
@@ -811,10 +804,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     if options.generate_map_ceil_axioms {
         module_rules.extend(generate_map_ceil_rules(&productions)?);
     }
-    let constructors = constructor_productions(&productions, &overloads, &rules);
-
-    let generated_axioms =
-        generated_axioms(&productions, &sorts, &overloads, &subsorts, &constructors)?;
+    let generated_axioms = generated_axioms(&productions, &sorts, &overloads, &subsorts, &roles)?;
     for sentence in generated_axioms
         .semantics
         .iter()
@@ -1335,87 +1325,17 @@ fn collection_attribute_overrides(
     Ok(())
 }
 
-/// Whether a production's applications are its own values when no equation is headed by it:
-/// it is not a function, and no `assoc`, `comm` or `idem` axiom identifies applications with
-/// different arguments.
-fn is_base_constructor(attributes: &KAttributes) -> bool {
-    !attributes.has_any(&[
-        AttributeKey::Function,
-        AttributeKey::Assoc,
-        AttributeKey::Comm,
-        AttributeKey::Idem,
-    ])
-}
-
-/// The base constructors whose `injective` axiom an emitted equation can falsify.
-///
-/// The emitted `injective` attribute is an axiom: equal applications have equal arguments. In
-/// the definition's intended model every value is the value of a normal form of its equations,
-/// and distinct normal forms are distinct values. A base constructor `c` that heads no
-/// equation has `c(a)` as a normal form for normal arguments `a`, so it is injective. It stops
-/// being so as soon as it heads an equation that is not a lemma:
-///
-/// - an `anywhere` rule or a macro-like rule (`equation_heads`) may identify applications with
-///   different arguments (`wrap(s(X)) = wrap(X)` gives `wrap(s(z)) = wrap(z)`), and whether one
-///   does is undecidable in general, so such a head is withheld;
-/// - the overload equations `g(inj(x)) = inj(l(x))` of a production `g` over each lesser
-///   production `l` of its family (transitively) send `g(a)` to the injected normal form of the
-///   most specific lesser production that accepts `a`, or leave `g(a)` normal when none does.
-///   Two argument tuples then reach the same normal form only through the same production at the
-///   same arguments, and an injection is determined by its operand, so `g` is injective exactly
-///   when that production is. `g` is therefore withheld when some production below it is not a
-///   base constructor or heads an `anywhere` or macro-like rule.
-///
-/// `simplification` rules are lemmas, true in the model the other sentences define, so they
-/// cannot falsify an axiom that holds there and are not counted.
-fn injectivity_withheld(
-    productions: &ProductionCatalog<'_>,
-    overloads: &OverloadOrder<'_>,
-    equation_heads: &BTreeSet<LabelHead>,
-) -> BTreeSet<ProductionId> {
-    let heads_equation = |production: &Sentence| match production {
-        Sentence::Production {
-            label: Some(label), ..
-        } => equation_heads.contains(&LabelHead::from(label)),
-        _ => false,
-    };
-    let locally_injective = |production: &Sentence| {
-        is_base_constructor(production.attributes()) && !heads_equation(production)
-    };
-    let mut withheld = productions
-        .productions()
-        .filter(|(_, production)| heads_equation(production))
-        .map(|(id, _)| id)
-        .collect::<BTreeSet<_>>();
-    // `relations_from` is transitively closed, so one pass covers every chain of lowerings.
-    for lesser in overloads.order().elements() {
-        if locally_injective(overloads.production(*lesser)) {
-            continue;
-        }
-        withheld.extend(
-            overloads
-                .order()
-                .relations_from(lesser)
-                .into_iter()
-                .flatten()
-                .copied(),
-        );
-    }
-    withheld
-}
-
+/// The attributes of one symbol declaration: the source's semantic attributes, the claims
+/// `claims` states, the `macro` attribute of a macro-like `kind`, and, for a syntax-module
+/// declaration, the concrete-syntax metadata.
 #[allow(clippy::too_many_arguments)]
 fn symbol_attributes(
     source: &KAttributes,
     label: &Label,
     kind: ProductionKind,
-    id: crate::definition::ProductionId,
+    claims: SymbolClaims,
     productions: &ProductionCatalog<'_>,
     valued: &BTreeSet<String>,
-    overloaded_greater: &BTreeSet<crate::definition::ProductionId>,
-    anywhere_labels: &BTreeSet<String>,
-    macro_rule_heads: &BTreeSet<LabelHead>,
-    injectivity_withheld: &BTreeSet<crate::definition::ProductionId>,
     impure_labels: &BTreeSet<String>,
     syntax: Option<SyntaxDeclaration<'_>>,
     items: &[ProductionItem],
@@ -1436,47 +1356,25 @@ fn symbol_attributes(
         entries.remove(key.as_str());
     }
 
-    let function = source.has(AttributeKey::Function);
-    let base_constructor = is_base_constructor(source);
-    let injective = base_constructor && !injectivity_withheld.contains(&id);
-    let macro_like = kind.is_macro_like();
-    let token = match kind {
-        ProductionKind::Token { .. } => true,
-        ProductionKind::Subsort
-        | ProductionKind::Builtin
-        | ProductionKind::Bracket(_)
-        | ProductionKind::Function { .. }
-        | ProductionKind::MacroProduction
-        | ProductionKind::Unlabelled
-        | ProductionKind::Algebraic
-        | ProductionKind::Base => false,
-    };
-    // A macro-like rule headed by this production is an emitted equation between its
-    // applications and other terms, so they are not free values (`constructor_productions`).
-    // The declaration still carries no `macro` attribute: that would claim every application is
-    // expanded away, while a rule whose left side does not cover all arguments leaves others.
-    let rewritten_by_macro_rule = macro_rule_heads.contains(&LabelHead::from(label));
-    let anywhere = overloaded_greater.contains(&id) || anywhere_labels.contains(&label.name);
     if is_real_hook(source, hook_namespaces)
         && let Some(hook) = source.value(AttributeKey::Hook)
     {
         entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
-    // A token production's symbol is never applied (`ProductionKind::Token`), so it is no
-    // constructor.
-    if base_constructor && !macro_like && !rewritten_by_macro_rule && !anywhere && !token {
+    let freeness = claims.freeness();
+    if freeness.declares_constructor() {
         entries.insert(
             AttributeKey::Constructor.as_str().into(),
             Value::String(String::new()),
         );
     }
-    if !function || source.has(AttributeKey::Total) {
+    if claims.functional() {
         entries.insert(
             AttributeKey::Functional.as_str().into(),
             Value::String(String::new()),
         );
     }
-    if anywhere {
+    if claims.anywhere() {
         entries.insert(
             AttributeKey::Anywhere.as_str().into(),
             Value::String(String::new()),
@@ -1488,13 +1386,16 @@ fn symbol_attributes(
             Value::String(String::new()),
         );
     }
-    if injective {
+    if freeness.declares_injective() {
         entries.insert(
             AttributeKey::Injective.as_str().into(),
             Value::String(String::new()),
         );
     }
-    if macro_like {
+    // A macro-like rule headed by a production that is not itself macro-like adds no `macro`
+    // attribute: that would claim every application is expanded away, while a rule whose left
+    // side does not cover all arguments leaves others.
+    if kind.is_macro_like() {
         entries.insert(
             AttributeKey::Macro.as_str().into(),
             Value::String(String::new()),

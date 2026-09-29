@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "kompile.kore.axioms"
 //! name = "generated KORE axiom emission"
-//! sites = ["generated_axioms", "constructor_productions"]
+//! sites = ["generated_axioms"]
 //! variable = "P = productions; S = sorts; O = overloads; R = rules"
 //! counters = []
 //! no_counter = "generated-axiom emission has no dedicated counter"
@@ -30,7 +30,7 @@ pub(super) fn generated_axioms(
     sorts: &SortCatalog<'_>,
     overloads: &OverloadOrder<'_>,
     subsorts: &PartialOrder<Sort>,
-    constructors: &BTreeSet<ProductionId>,
+    roles: &SymbolRoles,
 ) -> Result<GeneratedAxioms, ModuleToKoreError> {
     let mut semantics = Vec::new();
     let mut syntax = Vec::new();
@@ -58,16 +58,17 @@ pub(super) fn generated_axioms(
             | ProductionKind::Base => {}
         }
         semantics.extend(algebraic_axioms(id, production, subsorts)?);
-        if kind.functional()
+        let claims = roles.claims(id);
+        if claims.functional()
             && let Some(axiom) = functional_axiom(production)
         {
             semantics.push(axiom);
         }
-        if constructors.contains(&id) {
+        if claims.no_confusion() {
             semantics.extend(no_confusion_axioms(
                 id,
                 productions,
-                constructors,
+                roles,
                 &mut no_confusion_pairs,
             ));
         }
@@ -90,53 +91,12 @@ pub(super) fn generated_axioms(
     Ok(GeneratedAxioms { semantics, syntax })
 }
 
-/// The productions whose applications are free values of their sort: no two distinct
-/// applications of them denote the same element, which the emitted `constructor` attribute and
-/// no-confusion axioms assert.
-///
-/// A production is excluded when an emitted sentence equates its applications with other
-/// terms: a function, an `assoc`/`comm`/`idem` production, the head of an `anywhere` rule, and
-/// the head of a macro-like rule, whether the production or the rule carries the macro-like
-/// attribute. A rule `plain(X) => done(X) [macro]` is the equation `plain(X) = done(X)`, so
-/// declaring `plain` a constructor next to `done` would add `plain(X) != done(Y)` and make the
-/// theory inconsistent.
-pub(super) fn constructor_productions(
-    productions: &ProductionCatalog<'_>,
-    _overloads: &OverloadOrder<'_>,
-    rules: &crate::definition::RuleCatalog<'_>,
-) -> BTreeSet<ProductionId> {
-    let anywhere_labels = rules
-        .rules()
-        .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-        .map(|(_, rule)| LabelHead::from(&match_rule_label(rule)))
-        .collect::<BTreeSet<_>>();
-    productions
-        .productions()
-        .filter_map(|(id, production)| {
-            // Every other kind is excluded by its own declaration: a subsort, a builtin, an
-            // unlabelled production or a bracket declares no semantic symbol, a function or a
-            // macro production heads its own equations, an algebraic production's axioms equate
-            // applications, and a token's applications are domain values.
-            let ProductionKind::Base = ProductionKind::of(production) else {
-                return None;
-            };
-            let Sentence::Production {
-                label: Some(label), ..
-            } = production
-            else {
-                unreachable!("a base production is labelled")
-            };
-            let head = LabelHead::from(label);
-            (!rules.macro_labels().contains(&head) && !anywhere_labels.contains(&head))
-                .then_some(id)
-        })
-        .collect()
-}
-
+/// The injectivity axiom of the no-confusion symbol `id` and its disjointness from every other
+/// no-confusion symbol of its sort ([`SymbolClaims::no_confusion`]).
 fn no_confusion_axioms(
     id: ProductionId,
     productions: &ProductionCatalog<'_>,
-    constructors: &BTreeSet<ProductionId>,
+    roles: &SymbolRoles,
     emitted_pairs: &mut BTreeSet<(ProductionId, ProductionId)>,
 ) -> Vec<KoreSentence> {
     let production = productions.production(id);
@@ -180,10 +140,10 @@ fn no_confusion_axioms(
         Sentence::Production { sort, .. } => SortHead::from(sort),
         _ => unreachable!("production catalogs contain productions"),
     };
-    // Invariant: `emitted_pairs` holds both orderings of every constructor pair that already has a no-confusion axiom, so each unordered pair is emitted once; this scan of `productions.productions()` runs once per constructor `id`, O(n^2) in the catalog size.
+    // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a disjointness axiom, so each unordered pair is emitted once; this scan of `productions.productions()` runs once per no-confusion `id`, O(n^2) in the catalog size.
     for (other_id, other_production) in productions.productions() {
         if other_id == id
-            || !constructors.contains(&other_id)
+            || !roles.claims(other_id).no_confusion()
             || emitted_pairs.contains(&(id, other_id))
         {
             continue;
@@ -442,7 +402,7 @@ fn generated_production_for_sort(
 }
 
 /// `∃ Val. Val = f(K0, …)` for a labelled production `f`; its caller emits it only when the
-/// production's kind is [`ProductionKind::functional`].
+/// production's claims are [`SymbolClaims::functional`].
 fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
     let Sentence::Production {
         label: Some(label),

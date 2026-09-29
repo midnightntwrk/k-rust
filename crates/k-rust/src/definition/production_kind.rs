@@ -117,6 +117,10 @@ impl ProductionKind {
 
     /// [`ProductionKind::of`] with the `bracket` test skipped: the kind whose claims a bracket's
     /// syntax-module declaration carries.
+    ///
+    /// That declaration is made under the bracket's label, or under its `bracketLabel` when it
+    /// has none, so a readable `bracketLabel` counts as a label here: an unlabelled bracket is
+    /// classified as the labelled production its declaration states, never as `Unlabelled`.
     pub(crate) fn of_unbracketed(production: &Sentence) -> Self {
         Self::classify(production, false)
     }
@@ -167,7 +171,9 @@ impl ProductionKind {
         if attributes.has(AttributeKey::Token) {
             return Self::Token { algebraic };
         }
-        if label.is_none() {
+        if label.is_none()
+            && (bracket_test || attributes.label(AttributeKey::BracketLabel).is_none())
+        {
             return Self::Unlabelled;
         }
         if algebraic {
@@ -529,6 +535,45 @@ mod tests {
         assert_eq!(
             ProductionKind::of_unbracketed(&bracket),
             ProductionKind::Unlabelled
+        );
+    }
+
+    /// The syntax declaration of an unlabelled bracket is made under its `bracketLabel`, so the
+    /// kind it states is that of a labelled production.
+    #[test]
+    fn an_unlabelled_bracket_is_classified_under_its_bracket_label_without_the_bracket_test() {
+        let bracket = |keys: &[AttributeKey]| {
+            let mut bracket = production(
+                None,
+                "Exp",
+                vec![
+                    ProductionItem::Terminal("(".into()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Exp"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(")".into()),
+                ],
+                keys,
+            );
+            let Sentence::Production { attributes, .. } = &mut bracket else {
+                unreachable!()
+            };
+            attributes.insert(
+                AttributeKey::BracketLabel.as_str(),
+                serde_json::Value::String("(_)_MAIN_Exp_Exp".into()),
+            );
+            bracket
+        };
+        let plain = bracket(&[AttributeKey::Bracket]);
+        assert_eq!(
+            ProductionKind::of(&plain),
+            ProductionKind::Bracket(BracketName::BracketLabel)
+        );
+        assert_eq!(ProductionKind::of_unbracketed(&plain), ProductionKind::Base);
+        assert_eq!(
+            ProductionKind::of_unbracketed(&bracket(&[AttributeKey::Bracket, AttributeKey::Assoc])),
+            ProductionKind::Algebraic
         );
     }
 }

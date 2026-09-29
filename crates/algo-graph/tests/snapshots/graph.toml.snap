@@ -4633,8 +4633,8 @@ symbol = "generated_axioms"
 
 [[node.sites]]
 crate = "k-rust"
-file = "crates/k-rust/src/kompile/module_to_kore/axioms.rs"
-symbol = "constructor_productions"
+file = "crates/k-rust/src/kompile/module_to_kore/roles.rs"
+symbol = "SymbolRoles::classify"
 
 [[node.cost]]
 mode = "one module"
