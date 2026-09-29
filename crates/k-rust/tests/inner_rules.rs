@@ -4335,6 +4335,7 @@ fn parametric_result_in_a_placeholder_slot_agrees_under_checked_inference() {
     );
 }
 
+#[cfg(feature = "z3-inference")]
 #[test]
 fn a_declared_mint_k_keeps_its_subsorts_while_the_bridges_stay_recognition_only() {
     // `syntax MInt{K}` declares the spelling the rule grammar also uses for the slot of an
@@ -4351,9 +4352,9 @@ fn a_declared_mint_k_keeps_its_subsorts_while_the_bridges_stay_recognition_only(
              rule f(_) => true\n{sentences}endmodule\n"
         )
     };
-    let load = |sentences: &str| {
-        load_with_prelude_options(&definition(sentences), "test.k", "TEST", Vec::new())
-    };
+    // Parametric sorts in rules need the Z3 engine; the portable build reports
+    // `Z3InferenceRequired` for them.
+    let load = |sentences: &str| load_with_prelude(&definition(sentences), "test.k", "TEST");
 
     // Only the generated `KItem ::= MInt{K}` relates `MInt{K}` to `KItem` here.
     load(indoc! {"
