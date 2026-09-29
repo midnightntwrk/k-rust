@@ -5,6 +5,8 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::DisplayPath;
+
 /// Exact source-level visibility of one Rust declaration.
 ///
 /// Restricted visibility retains whether the author wrote the explicit
@@ -170,7 +172,7 @@ impl PackageId {
         validate_component("cargo_name", &package.cargo_name)?;
         validate_component("cargo_version", &package.cargo_version)?;
         validate_component("cargo_source", &package.cargo_source)?;
-        if looks_like_absolute_path(&package.cargo_source) {
+        if DisplayPath::is_absolute_spelling(&package.cargo_source) {
             return Err(IdentityError::AbsoluteCargoSource);
         }
         Ok(package)
@@ -429,19 +431,13 @@ impl SourceFileId {
         package_relative_path: impl Into<String>,
         content_sha256: Sha256Digest,
     ) -> Result<Self, IdentityError> {
-        let package_relative_path = package_relative_path.into().replace('\\', "/");
-        if package_relative_path.is_empty()
-            || package_relative_path.starts_with('/')
-            || package_relative_path
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-            || looks_like_windows_absolute_path(&package_relative_path)
-        {
-            return Err(IdentityError::InvalidSourcePath(package_relative_path));
-        }
+        let package_relative_path =
+            DisplayPath::new(package_relative_path.into()).map_err(|error| {
+                IdentityError::InvalidSourcePath(error.spelling().replace('\\', "/"))
+            })?;
         Ok(Self {
             package,
-            package_relative_path,
+            package_relative_path: package_relative_path.as_str().to_owned(),
             content_sha256,
         })
     }
@@ -547,18 +543,6 @@ fn validate_component(name: &'static str, value: &str) -> Result<(), IdentityErr
     }
 }
 
-fn looks_like_absolute_path(value: &str) -> bool {
-    value.starts_with('/') || looks_like_windows_absolute_path(value)
-}
-
-fn looks_like_windows_absolute_path(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && matches!(bytes[2], b'/' | b'\\')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,11 +578,35 @@ mod tests {
     }
 
     #[test]
+    fn source_identity_rejects_file_scheme_and_drive_relative_spellings() {
+        let digest = crate::testing::digest_with("a".repeat(64));
+        for spelling in ["file:relative.rs", "file:/lib.rs", "file:", "C:relative.rs"] {
+            assert_eq!(
+                SourceFileId::new(package("ORG-A", "a"), spelling, digest.clone()),
+                Err(IdentityError::InvalidSourcePath(spelling.to_owned()))
+            );
+        }
+    }
+
+    #[test]
     fn absolute_checkout_path_is_not_a_package_identity() {
         assert_eq!(
             PackageId::new("ORG-A", "a", "1.0.0", "/tmp/checkout"),
             Err(IdentityError::AbsoluteCargoSource)
         );
+        for source in [
+            "file:relative",
+            "file:/checkout",
+            "file:",
+            r"\checkout",
+            r"\\server\checkout",
+        ] {
+            assert_eq!(
+                PackageId::new("ORG-A", "a", "1.0.0", source),
+                Err(IdentityError::AbsoluteCargoSource),
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -610,6 +618,8 @@ mod tests {
             "cargo_source":"/tmp/checkout"
         }"#;
         assert!(serde_json::from_str::<PackageId>(absolute_source).is_err());
+        let file_source = absolute_source.replace("/tmp/checkout", "file:relative");
+        assert!(serde_json::from_str::<PackageId>(&file_source).is_err());
         assert!(serde_json::from_str::<Sha256Digest>(r#""NOT-A-DIGEST""#).is_err());
     }
 }

@@ -39,7 +39,9 @@ pub use bundle::{
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorProvenanceError, SentenceKind, SortDescriptor,
 };
-pub use coordinates::{ByteRange, CoordinateError, LineIndex, LineIndexError, Position};
+pub use coordinates::{
+    ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
+};
 pub use definition::{
     ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
     DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,

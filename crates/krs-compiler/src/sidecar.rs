@@ -5,9 +5,9 @@ use std::fmt;
 use krs_ir::{
     ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr,
     DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent,
-    LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, StableItemId,
-    SymbolId, SymbolKind,
+    DisplayPath, FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell,
+    FixedInitializerContent, LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack,
+    SourceMapKey, StableItemId, SymbolId, SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -181,7 +181,7 @@ impl SymbolMap {
 
     fn reject_path_leaks(&self) -> Result<(), SidecarError> {
         for entry in &self.entries {
-            if looks_absolute_path(&entry.emitted_name) {
+            if DisplayPath::is_absolute_spelling(&entry.emitted_name) {
                 return Err(SidecarError::AbsolutePath(entry.emitted_name.clone()));
             }
         }
@@ -595,18 +595,21 @@ impl SourceMap {
                     OriginFrame::Ranged {
                         range, item, label, ..
                     } => {
-                        if looks_absolute_path(range.file.package_relative_path())
-                            || range.file.package().cargo_source().starts_with("file:")
+                        if DisplayPath::is_absolute_spelling(range.file.package_relative_path())
                             || package_has_path_leak(range.file.package())
                             || item.as_ref().is_some_and(item_has_path_leak)
-                            || label.as_deref().is_some_and(looks_absolute_path)
+                            || label
+                                .as_deref()
+                                .is_some_and(DisplayPath::is_absolute_spelling)
                         {
                             return Err(SidecarError::AbsolutePath(entry.key.as_str().to_owned()));
                         }
                     }
                     OriginFrame::Transformation { item, label, .. } => {
                         if item.as_ref().is_some_and(item_has_path_leak)
-                            || label.as_deref().is_some_and(looks_absolute_path)
+                            || label
+                                .as_deref()
+                                .is_some_and(DisplayPath::is_absolute_spelling)
                         {
                             return Err(SidecarError::AbsolutePath(entry.key.as_str().to_owned()));
                         }
@@ -616,7 +619,7 @@ impl SourceMap {
             if entry
                 .generated
                 .as_ref()
-                .is_some_and(|range| looks_absolute_path(&range.artifact))
+                .is_some_and(|range| DisplayPath::is_absolute_spelling(&range.artifact))
             {
                 return Err(SidecarError::AbsolutePath(entry.key.as_str().to_owned()));
             }
@@ -838,28 +841,18 @@ fn canonical_json(value: &impl Serialize) -> serde_json::Result<String> {
     Ok(json)
 }
 
-fn looks_absolute_path(value: &str) -> bool {
-    value.starts_with('/')
-        || value.starts_with("file:")
-        || (value.len() >= 3
-            && value.as_bytes()[0].is_ascii_alphabetic()
-            && value.as_bytes()[1] == b':'
-            && matches!(value.as_bytes()[2], b'/' | b'\\'))
-}
-
 fn item_has_path_leak(item: &krs_ir::StableItemId) -> bool {
     package_has_path_leak(item.package())
         || item
             .module_path()
             .iter()
-            .any(|value| looks_absolute_path(value))
-        || looks_absolute_path(item.item_name())
-        || looks_absolute_path(item.disambiguator())
+            .any(|value| DisplayPath::is_absolute_spelling(value))
+        || DisplayPath::is_absolute_spelling(item.item_name())
+        || DisplayPath::is_absolute_spelling(item.disambiguator())
 }
 
 fn package_has_path_leak(package: &krs_ir::PackageId) -> bool {
-    looks_absolute_path(package.k_namespace())
-        || looks_absolute_path(package.cargo_name())
-        || looks_absolute_path(package.cargo_version())
-        || package.cargo_source().starts_with("file:")
+    DisplayPath::is_absolute_spelling(package.k_namespace())
+        || DisplayPath::is_absolute_spelling(package.cargo_name())
+        || DisplayPath::is_absolute_spelling(package.cargo_version())
 }

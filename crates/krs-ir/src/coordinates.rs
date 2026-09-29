@@ -3,6 +3,92 @@
 use std::error::Error;
 use std::fmt;
 
+/// A normalized, slash-separated display path relative to a package root.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DisplayPath(String);
+
+impl DisplayPath {
+    /// Reports whether a spelling must be treated as absolute on any supported host.
+    #[must_use]
+    pub fn is_absolute_spelling(spelling: &str) -> bool {
+        let bytes = spelling.as_bytes();
+        spelling.starts_with(['/', '\\'])
+            || spelling.starts_with("file:")
+            || (bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'/' | b'\\'))
+    }
+
+    /// Normalizes separators and validates a package-relative display path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty, absolute, drive-relative, or non-normalized spelling.
+    pub fn new(spelling: impl Into<String>) -> Result<Self, DisplayPathError> {
+        let spelling = spelling.into();
+        let normalized = spelling.replace('\\', "/");
+        if normalized.is_empty() {
+            return Err(DisplayPathError::Empty(spelling));
+        }
+        if Self::is_absolute_spelling(&spelling) {
+            return Err(DisplayPathError::Absolute(spelling));
+        }
+        let bytes = normalized.as_bytes();
+        if (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+            || normalized
+                .split('/')
+                .any(|component| component.is_empty() || component == "." || component == "..")
+        {
+            return Err(DisplayPathError::NotNormalized(spelling));
+        }
+        Ok(Self(normalized))
+    }
+
+    /// Returns the normalized spelling.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A rejected display path spelling.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisplayPathError {
+    /// The spelling is empty.
+    Empty(String),
+    /// The spelling denotes an absolute path.
+    Absolute(String),
+    /// The spelling contains an empty, current, or parent component or a drive-relative prefix.
+    NotNormalized(String),
+}
+
+impl DisplayPathError {
+    /// Returns the spelling supplied to the constructor.
+    #[must_use]
+    pub fn spelling(&self) -> &str {
+        match self {
+            Self::Empty(spelling) | Self::Absolute(spelling) | Self::NotNormalized(spelling) => {
+                spelling
+            }
+        }
+    }
+}
+
+impl fmt::Display for DisplayPathError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty(spelling) => write!(formatter, "display path `{spelling}` is empty"),
+            Self::Absolute(spelling) => write!(formatter, "display path `{spelling}` is absolute"),
+            Self::NotNormalized(spelling) => {
+                write!(formatter, "display path `{spelling}` is not normalized")
+            }
+        }
+    }
+}
+
+impl Error for DisplayPathError {}
+
 /// A half-open byte range whose end is at least its start.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ByteRange {
@@ -258,6 +344,51 @@ impl Error for LineIndexError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_paths_are_normalized_and_host_independent() {
+        assert_eq!(
+            DisplayPath::new(r"src\nested\lib.rs").unwrap().as_str(),
+            "src/nested/lib.rs"
+        );
+        assert_eq!(
+            DisplayPath::new(""),
+            Err(DisplayPathError::Empty(String::new()))
+        );
+        for spelling in [
+            "/tmp/lib.rs",
+            r"\lib.rs",
+            "//server/share.rs",
+            r"\\server\share.rs",
+            "file:relative.rs",
+            "file:///tmp/lib.rs",
+            "C:/lib.rs",
+            r"C:\lib.rs",
+        ] {
+            assert!(DisplayPath::is_absolute_spelling(spelling), "{spelling}");
+            assert_eq!(
+                DisplayPath::new(spelling),
+                Err(DisplayPathError::Absolute(spelling.to_owned()))
+            );
+        }
+        for spelling in [
+            "src//lib.rs",
+            "src/./lib.rs",
+            "src/../lib.rs",
+            "src/lib.rs/",
+        ] {
+            assert!(!DisplayPath::is_absolute_spelling(spelling));
+            assert_eq!(
+                DisplayPath::new(spelling),
+                Err(DisplayPathError::NotNormalized(spelling.to_owned()))
+            );
+        }
+        assert!(!DisplayPath::is_absolute_spelling("C:relative.rs"));
+        assert_eq!(
+            DisplayPath::new("C:relative.rs"),
+            Err(DisplayPathError::NotNormalized("C:relative.rs".to_owned()))
+        );
+    }
 
     #[test]
     fn constructors_validate_bases_and_overflow() {

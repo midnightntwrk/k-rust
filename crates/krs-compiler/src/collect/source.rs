@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use krs_ir::measure::CollectorPathProbe;
-use krs_ir::{Sha256Digest, SourceFileId};
+use krs_ir::{DisplayPath, Sha256Digest, SourceFileId};
 use sha2::{Digest, Sha256};
 
 use super::PreparedContext;
@@ -235,21 +235,14 @@ fn normalized_relative_path(path: &Path) -> Result<String, CollectionError> {
 }
 
 pub(super) fn normalize_display_file(display_file: &str) -> Result<String, CollectionError> {
-    let normalized = display_file.replace('\\', "/");
-    let path = Path::new(&normalized);
-    if normalized.is_empty()
-        || path.is_absolute()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-        || normalized.split('/').any(str::is_empty)
-    {
-        return Err(CollectionError::new(
-            CollectionErrorKind::InvalidDisplayFile,
-            format!("display filename `{display_file}` is not normalized and package-relative"),
-        ));
-    }
-    Ok(normalized)
+    DisplayPath::new(display_file)
+        .map(|path| path.as_str().to_owned())
+        .map_err(|_| {
+            CollectionError::new(
+                CollectionErrorKind::InvalidDisplayFile,
+                format!("display filename `{display_file}` is not normalized and package-relative"),
+            )
+        })
 }
 
 pub(super) fn canonicalize_path(path: &Path, role: &str) -> Result<PathBuf, CollectionError> {
@@ -260,4 +253,32 @@ pub(super) fn canonicalize_path(path: &Path, role: &str) -> Result<PathBuf, Coll
             format!("cannot canonicalize {role} `{}`: {error}", path.display()),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_files_reject_absolute_and_dot_spellings() {
+        for spelling in [
+            "file:relative.rs",
+            "file:/lib.rs",
+            "file:",
+            "C:/lib.rs",
+            r"C:\lib.rs",
+            "C:relative.rs",
+            "src/./lib.rs",
+            "src/.",
+            "src/.rs/..",
+        ] {
+            let error = normalize_display_file(spelling).unwrap_err();
+            assert_eq!(error.kind(), CollectionErrorKind::InvalidDisplayFile);
+            assert_eq!(
+                error.to_string(),
+                format!("display filename `{spelling}` is not normalized and package-relative")
+            );
+        }
+        assert_eq!(normalize_display_file(r"src\lib.rs").unwrap(), "src/lib.rs");
+    }
 }

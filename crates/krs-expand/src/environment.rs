@@ -133,12 +133,20 @@ mod tests {
 
     #[test]
     fn absolute_anchor_includes_cargo_manifest_dir() {
-        let environment = FixedEnvironment::new("/package/src/lib.rs", "::k");
         let facade = syn::parse_str("::k").unwrap();
         let tokens: TokenStream = "alpha beta".parse().unwrap();
         let fallback = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
-        let output =
-            crate::provenance::host_provenance(&environment, &facade, fallback, &[]).to_string();
-        assert!(output.contains("env ! (\"CARGO_MANIFEST_DIR\")"));
+        for file in [
+            "/package/src/lib.rs",
+            "file:relative.rs",
+            "file:/lib.rs",
+            "file:",
+            r"\lib.rs",
+        ] {
+            let environment = FixedEnvironment::new(file, "::k");
+            let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
+                .to_string();
+            assert!(output.contains("env ! (\"CARGO_MANIFEST_DIR\")"), "{file}");
+        }
     }
 }

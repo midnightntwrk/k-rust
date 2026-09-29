@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    HostCellDeclaration, HostConfigurationRule, HostContextAlias, HostDeclarationIdentity,
-    HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule, HostStructuredRuleDescriptor,
-    ItemKind, ProvenanceRole, SchemaVersion, StateTransportError,
+    DisplayPath, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
+    HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
+    HostStructuredRuleDescriptor, ItemKind, ProvenanceRole, SchemaVersion, StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -352,7 +352,7 @@ impl HostSourceAnchor {
         if display_file.trim().is_empty() {
             return Err(HostProvenanceError::EmptyDisplayFile);
         }
-        if is_absolute_display_file(&display_file) {
+        if DisplayPath::is_absolute_spelling(&display_file) {
             return Err(HostProvenanceError::AbsoluteDisplayFile(display_file));
         }
         if end == start {
@@ -605,17 +605,6 @@ impl fmt::Display for HostProvenanceError {
 }
 
 impl Error for HostProvenanceError {}
-
-fn is_absolute_display_file(display_file: &str) -> bool {
-    let bytes = display_file.as_bytes();
-    Path::new(display_file).is_absolute()
-        || display_file.starts_with("file://")
-        || display_file.starts_with("\\\\")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && matches!(bytes[2], b'/' | b'\\'))
-}
 
 /// A rustc-resolved type reference awaiting collector resolution.
 #[derive(Clone, Debug)]
@@ -895,7 +884,16 @@ mod tests {
             HostSourceAnchor::new("src/lib.rs", start, end, AnchorPrecision::Exact),
             Err(HostProvenanceError::ReversedEndpoints { .. })
         ));
-        for filename in ["", "/tmp/lib.rs", r"C:\checkout\lib.rs", r"\\server\lib.rs"] {
+        for filename in [
+            "",
+            "/tmp/lib.rs",
+            r"C:\checkout\lib.rs",
+            r"\\server\lib.rs",
+            r"\lib.rs",
+            "file:relative.rs",
+            "file:/lib.rs",
+            "file:",
+        ] {
             assert!(
                 HostSourceAnchor::new(
                     filename,
@@ -906,6 +904,15 @@ mod tests {
                 .is_err()
             );
         }
+        assert!(
+            HostSourceAnchor::new(
+                "../lib.rs",
+                position(1, 1),
+                position(1, 2),
+                AnchorPrecision::Exact
+            )
+            .is_ok()
+        );
     }
 
     #[test]

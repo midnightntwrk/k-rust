@@ -330,14 +330,22 @@ fn dangling_semantic_references_are_rejected_before_lowering() {
 
 #[test]
 fn absolute_origin_labels_cannot_leak_into_sidecars() {
-    let mut json = serde_json::to_value(theory(false)).unwrap();
-    json["modules"][0]["origin"]["origin"][1]["label"] =
-        serde_json::json!("/home/worker/private/checkout");
-    let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
-    assert!(matches!(
-        lower_semantic_theory(&theory),
-        Err(LoweringError::InvalidSidecar(detail)) if detail.contains("absolute path")
-    ));
+    for label in [
+        "/home/worker/private/checkout",
+        r"\private",
+        r"\\server\private",
+    ] {
+        let mut json = serde_json::to_value(theory(false)).unwrap();
+        json["modules"][0]["origin"]["origin"][1]["label"] = serde_json::json!(label);
+        let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
+        assert!(
+            matches!(
+                lower_semantic_theory(&theory),
+                Err(LoweringError::InvalidSidecar(detail)) if detail.contains("absolute path")
+            ),
+            "{label}"
+        );
+    }
 }
 
 #[test]

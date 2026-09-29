@@ -1,5 +1,4 @@
-use std::path::Path;
-
+use krs_ir::DisplayPath;
 use krs_syntax::{ProvenanceAnchor, TokenRange, role_tokens};
 use quote::quote;
 
@@ -102,7 +101,7 @@ fn unavailable_invocation(env: &dyn MacroEnvironment, range: TokenRange) -> Capt
         } else {
             display_file
         },
-        absolute_display_file: is_absolute_display_file(&file),
+        absolute_display_file: DisplayPath::is_absolute_spelling(&file),
         start_line: 1,
         start_column: 1,
         end_line: 1,
@@ -142,7 +141,7 @@ fn capture(env: &dyn MacroEnvironment, range: TokenRange, exact: bool) -> Option
 
     Some(CapturedAnchor {
         display_file: normalized_display_file(&first_file),
-        absolute_display_file: is_absolute_display_file(&first_file),
+        absolute_display_file: DisplayPath::is_absolute_spelling(&first_file),
         start_line,
         start_column,
         end_line,
@@ -153,19 +152,6 @@ fn capture(env: &dyn MacroEnvironment, range: TokenRange, exact: bool) -> Option
 
 fn normalized_display_file(file: &str) -> String {
     file.replace('\\', "/").trim_start_matches("./").to_owned()
-}
-
-fn is_absolute_display_file(file: &str) -> bool {
-    let normalized = file.replace('\\', "/");
-    Path::new(file).is_absolute()
-        || normalized.starts_with("file://")
-        || normalized.starts_with("//")
-        || is_windows_absolute(&normalized)
-}
-
-fn is_windows_absolute(file: &str) -> bool {
-    let bytes = file.as_bytes();
-    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
 }
 
 fn raw_anchor(

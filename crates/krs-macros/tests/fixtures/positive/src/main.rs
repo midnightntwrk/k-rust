@@ -902,7 +902,9 @@ mod tests {
                 .provenance
                 .authored()
                 .iter()
-                .all(|anchor| !anchor.anchor().display_file().starts_with('/'))
+                .all(|anchor| {
+                    !krs_ir::DisplayPath::is_absolute_spelling(anchor.anchor().display_file())
+                })
         }));
         assert_eq!(RUNTIME_CELL_CONSTRUCTIONS.load(Ordering::SeqCst), 0);
     }
