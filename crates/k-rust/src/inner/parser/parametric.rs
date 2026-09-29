@@ -25,6 +25,7 @@ use crate::definition::{
 use crate::kast::{FrontendSort, Label, Sort};
 use crate::names::BuiltinSort;
 
+use super::grammar::placeholder_of;
 use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,8 +40,11 @@ pub(crate) struct ParametricFamily<'a> {
     pub(crate) instances: Vec<ParametricInstance>,
 }
 
+/// The recognition-only bridge `H{K} ::= H{..}` from a declared instance of the parametric head
+/// `head` to its placeholder (`placeholder_of`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParsingOnlySubsort {
+    pub(crate) head: SortHead,
     pub(crate) sentence: Sentence,
 }
 
@@ -192,13 +196,14 @@ pub(crate) fn concretize_parametric_productions<'a>(
 
     let parsing_only_subsorts = catalog
         .instantiations()
-        .values()
-        .flatten()
-        .map(|concrete| ParsingOnlySubsort {
+        .iter()
+        .flat_map(|(head, instances)| instances.iter().map(move |concrete| (head, concrete)))
+        .map(|(head, concrete)| ParsingOnlySubsort {
+            head: head.clone(),
             sentence: Sentence::Production {
                 label: None,
                 parameters: Vec::new(),
-                sort: Sort::with_parameters(concrete.name.clone(), vec![Sort::new("K")]),
+                sort: placeholder_of(head),
                 items: vec![ProductionItem::NonTerminal {
                     sort: concrete.clone(),
                     name: None,
@@ -221,6 +226,11 @@ impl Grammar {
         source_catalog: &ProductionCatalog<'_>,
     ) -> Result<(), ParseError> {
         let concretization = concretize_parametric_productions(sentences);
+        // The placeholders are registered before any production is added, so no instance and no
+        // bridge can put one into a subsort relation.
+        for bridge in &concretization.parsing_only_subsorts {
+            self.placeholder_sort(&bridge.head);
+        }
         for family in concretization.families {
             let sentence = family.formal_source;
             // All temporary concrete variants of this source production become the same original
@@ -234,11 +244,9 @@ impl Grammar {
             }
         }
 
-        // Connect concrete instances such as `MInt{6}` to the placeholder
-        // `MInt{K}` used by parameters which lack parse-time sort information. The bridge is a
-        // parsing-module production only (RuleGrammarGenerator.java:627-637): the inferencers
-        // must not see `MInt{6} <= MInt{K}`, or a production parameter constrained by that slot
-        // could be inferred as `K` instead of the declared width its token or cast anchors.
+        // Let a concrete instance such as `MInt{6}` be recognized at the placeholder `MInt{K}` of
+        // a slot whose parameter has no parse-time value. The placeholder is registered, so the
+        // bridge contributes no subsort pair.
         for bridge in concretization.parsing_only_subsorts {
             let Sentence::Production { sort, items, .. } = bridge.sentence else {
                 unreachable!()
@@ -247,10 +255,7 @@ impl Grammar {
                 sort,
                 &items,
                 None,
-                ProductionOptions {
-                    parsing_only_subsort: true,
-                    ..ProductionOptions::default()
-                },
+                ProductionOptions::default(),
                 &BTreeMap::new(),
             )?;
         }
@@ -348,7 +353,6 @@ fn production_options(attributes: &Attributes) -> ProductionOptions<'_> {
         user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
         precedence: attributes.string(AttributeKey::Prec),
         hook: attributes.string(AttributeKey::Hook),
-        parsing_only_subsort: false,
     }
 }
 
@@ -528,6 +532,30 @@ mod tests {
         assert!(
             grammar.parse(&Sort::new("KItem"), "i").is_ok(),
             "the generated parametric subsort should remain portable"
+        );
+    }
+
+    #[test]
+    fn placeholders_are_registered_and_stay_out_of_both_subsort_relations() {
+        let grammar = parametric_grammar();
+        let placeholder = Sort::with_parameters("MInt", vec![Sort::new("K")]);
+        assert_eq!(grammar.placeholders, BTreeSet::from([placeholder.clone()]));
+        for (lesser, greater) in grammar
+            .subsort_relations
+            .iter()
+            .chain(grammar.syntactic_subsort_relations.iter())
+        {
+            assert!(
+                lesser != &placeholder && greater != &placeholder,
+                "({lesser}, {greater}) mentions the placeholder"
+            );
+        }
+        // The instance's other unary production is an ordinary subsort.
+        let mint_8 = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        assert!(
+            grammar
+                .subsort_relations
+                .contains(&(mint_8, Sort::new("KItem")))
         );
     }
 

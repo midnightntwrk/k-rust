@@ -671,11 +671,6 @@ struct ProductionOptions<'a> {
     user_list_nonempty: bool,
     precedence: Option<&'a str>,
     hook: Option<&'a str>,
-    /// `RuleGrammarGenerator.java:629-637`: the `MInt{K} ::= MInt{64}` bridge between a declared
-    /// instantiation and the placeholder sort exists in the parsing module only; it is added after
-    /// `disambProds` is captured (:627), so the disambiguation module's subsort relations, which
-    /// the sort inferencers and the priority and empty-list passes read, never contain it.
-    parsing_only_subsort: bool,
 }
 
 /// A test view of one `k_rust_kore::measure` counter with the `set`/`get` shape of the scalar
@@ -810,6 +805,12 @@ pub struct Grammar {
     syntactic_subsort_relations: SubsortRelations,
     overloads: PartialOrder<ProductionIdentity>,
     user_lists: BTreeMap<Sort, UserList>,
+    /// Recognition placeholders `H{K}`: the sort a slot of the parametric head `H` is recognized
+    /// at when its parameter has no parse-time value. A placeholder denotes no set of terms, so a
+    /// unary production touching it only widens what the recognizer accepts and contributes no
+    /// subsort pair (`add_production_with_lexical`). Registered only by `placeholder_sort`, before
+    /// any production that mentions the placeholder, never recognized by spelling.
+    placeholders: BTreeSet<Sort>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,
 }
@@ -840,6 +841,7 @@ impl Default for Grammar {
             syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
+            placeholders: BTreeSet::new(),
             productive_unary_cycles: BTreeSet::new(),
             role: ParserRole::Rule,
         }

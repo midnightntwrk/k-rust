@@ -44,10 +44,11 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use crate::definition::ast::TransientWireValue;
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
-    Sentence, compute_associativities, compute_disambiguation_subsorts, compute_overloads,
-    compute_priorities, compute_subsorts, parse_regex,
+    Sentence, SortHead, compute_associativities, compute_disambiguation_subsorts,
+    compute_overloads, compute_priorities, compute_subsorts, parse_regex,
 };
 use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
+use crate::names::BuiltinSort;
 
 use super::disambiguation::parse_apply_priority;
 use super::scanner::{DeclarationSite, Item, Layout, Scanner, compile_item};
@@ -290,7 +291,6 @@ impl Grammar {
                     user_list_nonempty: attributes.string(AttributeKey::UserList) == Some("+"),
                     precedence: attributes.string(AttributeKey::Prec),
                     hook: attributes.string(AttributeKey::Hook),
-                    parsing_only_subsort: false,
                 },
                 &lexical,
             )?;
@@ -705,6 +705,36 @@ impl Grammar {
         )
     }
 
+    /// Register and return the recognition placeholder of the parametric head `head`.
+    ///
+    /// Registration must precede every production that mentions the placeholder: a subsort pair
+    /// inserted before it would put the placeholder in a relation it can never be part of.
+    pub(super) fn placeholder_sort(&mut self, head: &SortHead) -> Sort {
+        let placeholder = placeholder_of(head);
+        debug_assert!(
+            !self
+                .subsort_relations
+                .iter()
+                .chain(self.syntactic_subsort_relations.iter())
+                .any(|(lesser, greater)| lesser == &placeholder || greater == &placeholder),
+            "placeholder {placeholder} registered after a subsort pair mentioning it"
+        );
+        self.placeholders.insert(placeholder.clone());
+        placeholder
+    }
+
+    fn insert_subsort_pair(&mut self, lesser: &Sort, greater: &Sort, relation: SubsortRelation) {
+        debug_assert!(
+            !self.placeholders.contains(lesser) && !self.placeholders.contains(greater),
+            "subsort pair ({lesser}, {greater}) has a recognition placeholder side"
+        );
+        let relations = match relation {
+            SubsortRelation::Semantic => &mut self.subsort_relations,
+            SubsortRelation::Syntactic => &mut self.syntactic_subsort_relations,
+        };
+        relations.insert((lesser.clone(), greater.clone()));
+    }
+
     pub(super) fn add_production_with_lexical(
         &mut self,
         result: Sort,
@@ -780,20 +810,22 @@ impl Grammar {
             .apply_priority
             .map(parse_apply_priority)
             .transpose()?;
-        if label.is_none()
-            && syntactic_subsort
-            && !options.parsing_only_subsort
-            && let [Item::NonTerminal(child)] = items.as_slice()
+        // A unary production whose child or result is a recognition placeholder only widens
+        // what the recognizer accepts at the placeholder; the placeholder denotes no set of terms,
+        // so the production states no inclusion between sorts. `MInt{64} <= MInt{K}` in either
+        // relation would let inference choose `K` for a parameter constrained by that slot
+        // instead of the width its token or cast anchors, and would let bracket-overload
+        // selection rank productions through a recognition step.
+        if let [Item::NonTerminal(child)] = items.as_slice()
+            && !self.placeholders.contains(child)
+            && !self.placeholders.contains(&result)
         {
-            self.subsort_relations
-                .insert((child.clone(), result.clone()));
-        }
-        if !options.bracket
-            && !options.parsing_only_subsort
-            && let [Item::NonTerminal(child)] = items.as_slice()
-        {
-            self.syntactic_subsort_relations
-                .insert((child.clone(), result.clone()));
+            if label.is_none() && syntactic_subsort {
+                self.insert_subsort_pair(child, &result, SubsortRelation::Semantic);
+            }
+            if !options.bracket {
+                self.insert_subsort_pair(child, &result, SubsortRelation::Syntactic);
+            }
         }
         self.productions.push(Production {
             result: result.clone(),
@@ -1098,6 +1130,23 @@ pub(super) fn render_parsing_production(production: &Production) -> String {
     )
 }
 
+/// The recognition placeholder `H{K}` of the parametric head `H`: the sort a slot of head `H` is
+/// recognized at when its parameter has no parse-time value, reached from every declared instance
+/// of `H` by a recognition-only bridge. The one spelling shared by the grammar's registration
+/// (`Grammar::placeholder_sort`) and the concretization plan's bridges.
+pub(super) fn placeholder_of(head: &SortHead) -> Sort {
+    Sort::with_parameters(head.as_str(), vec![Sort::new(BuiltinSort::K.k_name())])
+}
+
+/// Which of a grammar's two subsort relations a unary production contributes to.
+#[derive(Clone, Copy)]
+enum SubsortRelation {
+    /// Unlabeled, non-bracket unary productions: read by sort inference.
+    Semantic,
+    /// Every non-bracket unary production, labeled or not: read by bracket-overload selection.
+    Syntactic,
+}
+
 fn render_production_item(item: &ProductionItem) -> String {
     match item {
         ProductionItem::NonTerminal { sort, name } => name
@@ -1138,6 +1187,67 @@ mod tests {
     use super::*;
     use crate::kast::{Term, TermMetadata};
     use crate::provenance::SourceId;
+
+    #[test]
+    fn a_registered_placeholder_never_enters_a_subsort_relation() {
+        let mint_64 = Sort::with_parameters("MInt", vec![Sort::new("64")]);
+        let unary = |sort: &Sort| {
+            vec![ProductionItem::NonTerminal {
+                sort: sort.clone(),
+                name: None,
+            }]
+        };
+        let mut grammar = Grammar::default();
+        let placeholder = grammar.placeholder_sort(&SortHead::new("MInt", 1));
+        assert_eq!(
+            placeholder,
+            Sort::with_parameters("MInt", vec![Sort::new("K")])
+        );
+
+        // The bridge added the way the parametric pass added it before placeholders were
+        // registered: an unlabeled, non-bracket unary production with default options.
+        grammar
+            .add(placeholder.clone(), unary(&mint_64), None, false, false)
+            .unwrap();
+        let bridge = (mint_64.clone(), placeholder.clone());
+        assert!(!grammar.subsort_relations.contains(&bridge));
+        assert!(!grammar.syntactic_subsort_relations.contains(&bridge));
+        // The production is still there for the recognizer.
+        assert!(grammar.productions.iter().any(|production| {
+            production.result == placeholder
+                && matches!(production.items.as_slice(), [Item::NonTerminal(child)] if child == &mint_64)
+        }));
+
+        // A placeholder child is excluded as well, labeled or not.
+        let int = Sort::new("Int");
+        grammar
+            .add(int.clone(), unary(&placeholder), None, false, false)
+            .unwrap();
+        grammar
+            .add(
+                int.clone(),
+                unary(&placeholder),
+                Some(Label::new("toInt")),
+                false,
+                false,
+            )
+            .unwrap();
+        let from_placeholder = (placeholder.clone(), int.clone());
+        assert!(!grammar.subsort_relations.contains(&from_placeholder));
+        assert!(
+            !grammar
+                .syntactic_subsort_relations
+                .contains(&from_placeholder)
+        );
+
+        // Control: the same call between sorts that are not placeholders states the inclusion.
+        grammar
+            .add(int.clone(), unary(&mint_64), None, false, false)
+            .unwrap();
+        let control = (mint_64, int);
+        assert!(grammar.subsort_relations.contains(&control));
+        assert!(grammar.syntactic_subsort_relations.contains(&control));
+    }
 
     #[test]
     fn production_text_prints_a_stored_origin_value_like_any_attribute() {
