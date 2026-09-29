@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ast
 from concurrent.futures import ThreadPoolExecutor
-import json
 import os
 from pathlib import Path
 import re
@@ -15,9 +14,9 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError  # noqa: E402
+from support import krs_gate  # noqa: E402
 from support.hashing import canonical_json, json_sha256  # noqa: E402
 from support.pins import load_toml  # noqa: E402
-from support.process import run  # noqa: E402
 
 
 def kore_bytes(source: str) -> str:
@@ -572,33 +571,25 @@ def checked(case: Mapping[str, Any], outcome: dict[str, str]) -> dict[str, str]:
 
 
 def execute_batch(
-    runner: Path,
+    gate: Path,
     definition: Path,
     module: str,
     cases: list[tuple[int, Mapping[str, Any]]],
 ) -> list[tuple[int, dict[str, str]]]:
-    requests = "".join(
-        canonical_json({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
-        for _, case in cases
-    )
-    process = run([runner, definition, module], input=requests, timeout=600)
-    lines = process.stdout.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    responses = [json.loads(line) for line in lines]
-    if len(responses) != len(cases):
-        raise GateError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
     outcomes: list[tuple[int, dict[str, str]]] = []
-    for (index, case), response in zip(cases, responses, strict=True):
-        if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
-            raise GateError(f"native response order or shape differs: {response}")
-        outcome = checked(case, observed(case, sole_state(response["result"])))
-        outcomes.append((index, outcome))
+    with krs_gate.Session(gate) as session:
+        session.load(definition, module)
+        for index, case in cases:
+            result = session.execute(initial_pattern(case))
+            if not isinstance(result, dict):
+                raise GateError(f"native result shape differs: {result}")
+            outcome = checked(case, observed(case, sole_state(result)))
+            outcomes.append((index, outcome))
     return outcomes
 
 
 def execute_corpus(
-    runner: Path,
+    gate: Path,
     definition: Path,
     module: str,
     cases: list[Mapping[str, Any]],
@@ -610,7 +601,7 @@ def execute_corpus(
     chunks = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
     with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
         batches = pool.map(
-            lambda chunk: execute_batch(runner, definition, module, chunk),
+            lambda chunk: execute_batch(gate, definition, module, chunk),
             chunks,
         )
     ordered = sorted((item for batch in batches for item in batch), key=lambda item: item[0])
@@ -632,7 +623,7 @@ def main() -> int:
         dest="case_ids",
         help="execute only the named corpus case; may be repeated",
     )
-    parser.add_argument("runner", type=Path)
+    parser.add_argument("krs_gate", type=Path)
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
@@ -650,7 +641,7 @@ def main() -> int:
             raise GateError(f"unknown behavior cases: {', '.join(missing)}")
         cases = [case for case in cases if case.get("id") in requested]
     outcomes = execute_corpus(
-        arguments.runner,
+        arguments.krs_gate,
         arguments.definition,
         arguments.module,
         cases,

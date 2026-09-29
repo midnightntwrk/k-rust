@@ -13,9 +13,9 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError  # noqa: E402
+from support import krs_gate  # noqa: E402
 from support.hashing import canonical_json, json_sha256  # noqa: E402
 from support.pins import load_toml  # noqa: E402
-from support.process import run  # noqa: E402
 
 
 def application(name: str, *arguments: str) -> str:
@@ -1901,7 +1901,7 @@ def checked(case: Mapping[str, Any], outcome: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("runner", type=Path)
+    parser.add_argument("krs_gate", type=Path)
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
@@ -1924,19 +1924,14 @@ def main() -> int:
         missing = requested - found
         if missing:
             raise GateError(f"unknown behavior case ids: {sorted(missing)}")
-    requests = "".join(
-        canonical_json({"id": str(case["id"]), "operation": "execute", "pattern": initial_pattern(case)}) + "\n"
-        for case in cases
-    )
-    process = run([arguments.runner, arguments.definition, arguments.module], input=requests, timeout=600)
-    responses = [json.loads(line) for line in process.stdout.splitlines()]
-    if len(responses) != len(cases):
-        raise GateError(f"native runner returned {len(responses)} responses for {len(cases)} requests")
     outcomes = []
-    for case, response in zip(cases, responses, strict=True):
-        if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
-            raise GateError(f"native response order or shape differs: {response}")
-        outcomes.append(checked(case, observed(case, sole_state(response["result"]))))
+    with krs_gate.Session(arguments.krs_gate) as session:
+        session.load(arguments.definition, arguments.module)
+        for case in cases:
+            result = session.execute(initial_pattern(case))
+            if not isinstance(result, dict):
+                raise GateError(f"native result shape differs: {result}")
+            outcomes.append(checked(case, observed(case, sole_state(result))))
     digest = json_sha256(outcomes)
     if arguments.outcomes is not None:
         arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")

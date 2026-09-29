@@ -25,12 +25,11 @@ import sys
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
-from support import ROOT, GateError
+from support import ROOT, GateError, krs_gate, lsp
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256, parse_kore_pattern
 from support.krs import Invocation, build, fresh_deterministic_emissions
-from support import lsp
 from support.lock import k_version, krs_ir_schema, msrv
 from support.pins import Ledger, load_toml
 from support.process import run
@@ -169,14 +168,14 @@ def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, 
     return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
 
-def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
-    """Build the CLI and native tools; check, test, lint, and format the port."""
+def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
+    """Build the CLI and native gate; check, test, lint, and format the port."""
 
     root_target = port.target("root")
     root_env = {**environment, "CARGO_TARGET_DIR": os.fspath(root_target)}
     krs = build(root_env, target=root_target)
     run(
-        ["cargo", "build", "--locked", "--offline", "--release", "-p", "krs-k-rust", "--bins"],
+        ["cargo", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
         environment=root_env,
         timeout=900,
     )
@@ -205,11 +204,7 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, P
         environment=lsp_env,
         timeout=900,
     )
-    return (
-        krs,
-        root_target / "release/krs-native-compile",
-        root_target / "release/krs-native-runner",
-    )
+    return krs, root_target / "release/krs-gate"
 
 
 def artifact_gate(
@@ -279,14 +274,14 @@ def artifact_gate(
 def native_definition(
     workspace: Path,
     artifacts: Path,
-    compiler: Path,
+    gate: Path,
     pins: Ledger,
     environment: Mapping[str, str],
 ) -> Path:
     """Lower the emitted Definition IR through k-rust and record its KORE digest."""
 
     definition = workspace / "native-definition.kore"
-    run([compiler, artifacts / "definition-ir.json", definition], environment=environment, timeout=900)
+    krs_gate.compile(gate, artifacts / "definition-ir.json", definition, environment=environment)
     pins.expect("native_definition_kore_sha256", sha256_file(definition))
     return definition
 
@@ -296,7 +291,7 @@ _NATIVE_SUMMARY = re.compile(r"^PASS native (\S+) behavior: (\d+) executions; sh
 
 def native_behavior(
     port: Port,
-    runner: Path,
+    gate: Path,
     definition: Path,
     pins: Ledger,
     corpus: Mapping[str, Any],
@@ -310,7 +305,7 @@ def native_behavior(
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-outcomes-", dir=scratch_root()) as temporary:
         outcomes_path = Path(temporary) / "outcomes.json"
         result = run(
-            [sys.executable, port.here / "native.py", runner, definition, port.module,
+            [sys.executable, port.here / "native.py", gate, definition, port.module,
              port.corpus_path, "--outcomes", outcomes_path],
             environment=environment,
             timeout=900,
@@ -488,18 +483,18 @@ def run_port(port: Port, hooks: Hooks) -> int:
     pins = Ledger(port.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
     corpus = load_toml(port.corpus_path)
     environment = preflight(port, pins, corpus)
-    krs, compiler, runner = rust_gate(port, environment)
+    krs, gate = rust_gate(port, environment)
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-gate-", dir=scratch_root()) as temporary:
         workspace = Path(temporary)
         artifacts = artifact_gate(port, workspace, krs, pins, environment)
         if hooks.definition_checks is not None:
             hooks.definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
-        definition = native_definition(workspace, artifacts, compiler, pins, environment)
+        definition = native_definition(workspace, artifacts, gate, pins, environment)
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")
             return 0
         executions, native_outcomes = native_behavior(
-            port, runner, definition, pins, corpus, environment
+            port, gate, definition, pins, corpus, environment
         )
         proofs = 0
         if arguments.java_reference:

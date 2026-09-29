@@ -1,0 +1,18 @@
+[package]
+name = "krs-gate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Native KRS gate protocol and compiler"
+
+[dependencies]
+k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+krs-ir = { path = "../krs-ir" }
+krs-k-rust = { path = "../krs-k-rust" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

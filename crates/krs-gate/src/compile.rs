@@ -1,17 +1,12 @@
-//! Compile KRS Definition IR directly through the pinned K-Rust frontend.
-//!
-//! `--timings FILE` writes a `krs-timings/1` document (see
-//! `krs_ir::measure`) on success and on failure.
+//! One-shot native compiler with optional timing output.
 
 use krs_ir::DefinitionIr;
 use krs_ir::measure::Timings;
 use krs_k_rust::{Backend, CompileOptions, compile_definition_timed};
-use std::path::PathBuf;
-use std::{env, error::Error, fs};
+use std::path::{Path, PathBuf};
+use std::{error::Error, fs};
 
-const USAGE: &str = "usage: krs-native-compile [--timings FILE] DEFINITION-IR OUTPUT-KORE";
-
-fn run(timings: &mut Timings, input: PathBuf, output: PathBuf) -> Result<(), Box<dyn Error>> {
+fn compile(timings: &mut Timings, input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     let definition_ir: DefinitionIr = timings.try_span("native.input", |_| {
         Ok::<_, Box<dyn Error>>(krs_ir::json::from_slice(&fs::read(input)?)?)
     })?;
@@ -30,23 +25,18 @@ fn run(timings: &mut Timings, input: PathBuf, output: PathBuf) -> Result<(), Box
     Ok(())
 }
 
-fn parse() -> Result<(Option<PathBuf>, PathBuf, PathBuf), Box<dyn Error>> {
-    let mut timings = None;
-    let mut positional = Vec::new();
-    let mut arguments = env::args_os().skip(1);
-    while let Some(argument) = arguments.next() {
-        if argument == "--timings" {
-            timings = Some(PathBuf::from(arguments.next().ok_or(USAGE)?));
-        } else {
-            positional.push(PathBuf::from(argument));
-        }
-    }
-    let [input, output]: [PathBuf; 2] = positional.try_into().map_err(|_| USAGE)?;
-    Ok((timings, input, output))
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let (timings_path, input, output) = parse()?;
+/// Run the native compiler in a 64 MiB stack worker.
+///
+/// The timing document is written on both compilation success and failure.
+///
+/// # Errors
+///
+/// Returns an error when reading, compiling, or writing fails, or when the worker fails.
+pub fn run(
+    input: PathBuf,
+    output: PathBuf,
+    timings_path: Option<PathBuf>,
+) -> Result<(), Box<dyn Error>> {
     let result = std::thread::Builder::new()
         .name("krs-native-frontend".into())
         .stack_size(64 * 1024 * 1024)
@@ -56,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 Timings::disabled()
             };
-            let result = run(&mut timings, input, output).map_err(|error| error.to_string());
+            let result = compile(&mut timings, &input, &output).map_err(|error| error.to_string());
             let document = timings_path.map(|path| {
                 let document = timings.document("native-compile", result.is_ok());
                 (path, document)

@@ -8,7 +8,7 @@
 //! # `krs-timings/1`
 //!
 //! `krs <check|expand|emit-k|build> --timings FILE` and
-//! `krs-native-compile --timings FILE` write one [`TimingsDocument`] as pretty
+//! `krs-gate compile --timings FILE` write one [`TimingsDocument`] as pretty
 //! JSON, on success and on failure:
 //!
 //! ```json
@@ -89,7 +89,7 @@
 //! and in k-rust's order, one level deeper than in k-rust. A native failure
 //! loses them, because k-rust returns no timings with its error.
 //!
-//! `krs-native-compile` uses `native.input` (read and decode the Definition
+//! `krs-gate compile` uses `native.input` (read and decode the Definition
 //! IR JSON), then the `native.*` ids above.
 //!
 //! # `krs-counters/1`

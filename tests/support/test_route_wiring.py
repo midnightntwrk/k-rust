@@ -73,7 +73,7 @@ class RouteWiringTests(unittest.TestCase):
                         patches.enter_context(mock.patch.object(semantics, "preflight", side_effect=lambda *_: phases.append("preflight") or {}))
                         patches.enter_context(mock.patch.object(
                             semantics, "rust_gate",
-                            side_effect=lambda *_: phases.append("rust") or (root / "krs", root / "compiler", root / "runner"),
+                            side_effect=lambda *_: phases.append("rust") or (root / "krs", root / "krs-gate"),
                         ))
                         patches.enter_context(mock.patch.object(
                             semantics, "artifact_gate", side_effect=lambda *_: phases.append("artifact") or artifacts,
@@ -131,7 +131,7 @@ class RouteWiringTests(unittest.TestCase):
             patches.enter_context(mock.patch.object(semantics, "scratch_root", return_value=root))
             patches.enter_context(mock.patch.object(semantics, "preflight", return_value={}))
             patches.enter_context(mock.patch.object(
-                semantics, "rust_gate", return_value=(root / "krs", root / "compiler", root / "runner"),
+                semantics, "rust_gate", return_value=(root / "krs", root / "krs-gate"),
             ))
             patches.enter_context(mock.patch.object(
                 semantics, "artifact_gate", return_value=root / "artifacts",
