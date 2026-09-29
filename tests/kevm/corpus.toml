@@ -2162,7 +2162,7 @@ expected_program = 'b"\x54\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_storage = { "0" = ["5"] }
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2177,8 +2177,8 @@ expected_program = 'b"\x54\x00"'
 expected_stack = "9 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_storage = { "5" = "9" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 9'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2193,8 +2193,8 @@ expected_program = 'b"\x60\x05\x54\x60\x05\x54\x00"'
 expected_stack = "9 : 9 : .WordStack"
 expected_pc = "6"
 expected_gas = "0"
-expected_storage = { "5" = "9" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 9'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2208,8 +2208,8 @@ expected_program = 'b"\x55\x00"'
 expected_stack = ".WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_storage = { "5" = "9" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 9'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2225,8 +2225,8 @@ expected_program = 'b"\x55\x00"'
 expected_stack = ".WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_storage = { "5" = "7" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 7'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2242,8 +2242,8 @@ expected_program = 'b"\x55\x00"'
 expected_stack = ".WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_storage = { "5" = "0" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 0'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_refund = "4800"
 expected_status = "EVMC_SUCCESS"
 
@@ -2261,8 +2261,8 @@ expected_program = 'b"\x55\x00"'
 expected_stack = ".WordStack"
 expected_pc = "1"
 expected_gas = "2300"
-expected_storage = { "5" = "0" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 0'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_refund = "19900"
 expected_status = "EVMC_SUCCESS"
 
@@ -2280,8 +2280,8 @@ expected_program = 'b"\x55\x00"'
 expected_stack = ".WordStack"
 expected_pc = "1"
 expected_gas = "2300"
-expected_storage = { "5" = "7" }
-expected_accessed_storage = { "0" = ["5"] }
+expected_storage = '5 |-> 7'
+expected_accessed_storage = '0 |-> SetItem(5)'
 expected_refund = "2800"
 expected_status = "EVMC_SUCCESS"
 
@@ -2373,7 +2373,7 @@ gas = "2100"
 address = "7"
 account_id = "8"
 observe_storage = true
-expected_stuck_operation = "storageLoad"
+expected_stuck_operation = "SLOAD"
 expected_program = 'b"\x54\x00"'
 expected_stack = "5 : .WordStack"
 expected_pc = "0"
@@ -2393,7 +2393,7 @@ expected_program = 'b"\x31\x00"'
 expected_stack = "99 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2410,7 +2410,7 @@ expected_program = 'b"\x31\x00"'
 expected_stack = "99 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2426,7 +2426,7 @@ expected_program = 'b"\x31\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2442,7 +2442,7 @@ expected_program = 'b"\x31\x00"'
 expected_stack = "7 : .WordStack"
 expected_pc = "0"
 expected_gas = "2599"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
@@ -2456,7 +2456,7 @@ expected_program = 'b"\x31\x00"'
 expected_stack = ".WordStack"
 expected_pc = "0"
 expected_gas = "2600"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -2472,7 +2472,7 @@ expected_program = 'b"\x3b\x00"'
 expected_stack = "2 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2489,7 +2489,7 @@ expected_program = 'b"\x3b\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2503,7 +2503,7 @@ expected_program = 'b"\x3b\x00"'
 expected_stack = ".WordStack"
 expected_pc = "0"
 expected_gas = "2600"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -2522,7 +2522,7 @@ expected_pc = "1"
 expected_gas = "0"
 expected_local_mem = 'b"\xff\x62\x63\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2540,7 +2540,7 @@ expected_pc = "1"
 expected_gas = "0"
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2559,7 +2559,7 @@ expected_pc = "0"
 expected_gas = "2605"
 expected_local_mem = 'b"\xff"'
 expected_memory_used = "0"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
@@ -2573,7 +2573,7 @@ expected_program = 'b"\x3c\x00"'
 expected_stack = "7 : 0 : 0 : .WordStack"
 expected_pc = "0"
 expected_gas = "3000"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -2589,7 +2589,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "35286403120855365962805127237049809881669876751651884979611909062921250761797 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2606,7 +2606,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "89477152217924674838424037953991966239322087453347756267410168184682657981552 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2622,7 +2622,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "89477152217924674838424037953991966239322087453347756267410168184682657981552 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2637,7 +2637,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2654,7 +2654,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2670,7 +2670,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = "7 : .WordStack"
 expected_pc = "0"
 expected_gas = "2599"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
@@ -2684,7 +2684,7 @@ expected_program = 'b"\x3f\x00"'
 expected_stack = ".WordStack"
 expected_pc = "0"
 expected_gas = "2600"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -2705,7 +2705,7 @@ expected_gas = "897"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x5f\x45\x52\x09\x1a\x69\x12\x5d\x5d\xfc\xb7\xb8\xc2\x65\x90\x29\x39\x5b\xdf"'
 expected_local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x5f\x45\x52\x09\x1a\x69\x12\x5d\x5d\xfc\xb7\xb8\xc2\x65\x90\x29\x39\x5b\xdf"'
 expected_memory_used = "5"
-expected_accessed_accounts = ["1"]
+expected_accessed_accounts = 'SetItem(1)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2726,7 +2726,7 @@ expected_gas = "897"
 expected_output = 'b""'
 expected_local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1d\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "5"
-expected_accessed_accounts = ["1"]
+expected_accessed_accounts = 'SetItem(1)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2747,7 +2747,7 @@ expected_gas = "898"
 expected_output = 'b""'
 expected_local_mem = 'b"\x21\x4b\x37\xe7\x1b\x42\x13\xc6\xf2\x07\x8d\x1b\x5a\x57\xf9\x27\x6f\x82\x9b\xca\xb6\xf2\x53\xed\xba\x79\x8f\x0a\x36\x8e\xf1\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1b\xa3\x27\x4c\x5e\x45\xc5\xcc\x6f\x37\x60\x45\x24\x39\xdb\xcd\x4c\xad\xee\x5d\xd5\x84\x68\x72\x52\xf8\xef\xce\xbe\x07\x67\x71\xc6\x6f\xdf\xe3\x74\xa0\x6d\x77\xa3\xa2\xeb\x10\x39\xa4\xc8\xed\x2e\x9f\xc3\x9e\xb9\xee\x8c\x4f\x24\xb0\x17\x85\xd5\x83\xbe\x55\xaa\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "5"
-expected_accessed_accounts = ["1"]
+expected_accessed_accounts = 'SetItem(1)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2768,7 +2768,7 @@ expected_gas = "28"
 expected_output = 'b"\xba\x78\x16\xbf\x8f\x01\xcf\xea\x41\x41\x40\xde\x5d\xae\x22\x23\xb0\x03\x61\xa3\x96\x17\x7a\x9c\xb4\x10\xff\x61\xf2\x00\x15\xad"'
 expected_local_mem = 'b"\xba\x78\x16\xbf\x8f\x01\xcf\xea\x41\x41\x40\xde\x5d\xae\x22\x23\xb0\x03\x61\xa3\x96\x17\x7a\x9c\xb4\x10\xff\x61\xf2\x00\x15\xad"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["2"]
+expected_accessed_accounts = 'SetItem(2)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2789,7 +2789,7 @@ expected_gas = "29"
 expected_output = 'b""'
 expected_local_mem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["2"]
+expected_accessed_accounts = 'SetItem(2)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2810,7 +2810,7 @@ expected_gas = "180"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x8e\xb2\x08\xf7\xe0\x5d\x98\x7a\x9b\x04\x4a\x8e\x98\xc6\xb0\x87\xf1\x5a\x0b\xfc"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x8e\xb2\x08\xf7\xe0\x5d\x98\x7a\x9b\x04\x4a\x8e\x98\xc6\xb0\x87\xf1\x5a\x0b\xfc"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["3"]
+expected_accessed_accounts = 'SetItem(3)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2831,7 +2831,7 @@ expected_gas = "181"
 expected_output = 'b""'
 expected_local_mem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["3"]
+expected_accessed_accounts = 'SetItem(3)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2852,7 +2852,7 @@ expected_gas = "82"
 expected_output = 'b"abc"'
 expected_local_mem = 'b"abc\x00ab\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["4"]
+expected_accessed_accounts = 'SetItem(4)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2873,7 +2873,7 @@ expected_gas = "83"
 expected_output = 'b""'
 expected_local_mem = 'b"abc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["4"]
+expected_accessed_accounts = 'SetItem(4)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2894,7 +2894,7 @@ expected_gas = "100"
 expected_output = 'b"\x06"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x05\x0d\x06\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "4"
-expected_accessed_accounts = ["5"]
+expected_accessed_accounts = 'SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2914,7 +2914,7 @@ expected_pc = "1"
 expected_gas = "100"
 expected_output = 'b"\x00"'
 expected_memory_used = "4"
-expected_accessed_accounts = ["5"]
+expected_accessed_accounts = 'SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2934,7 +2934,7 @@ expected_pc = "1"
 expected_gas = "100"
 expected_output = 'b""'
 expected_memory_used = "4"
-expected_accessed_accounts = ["5"]
+expected_accessed_accounts = 'SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2954,7 +2954,7 @@ expected_pc = "1"
 expected_gas = "101"
 expected_output = 'b""'
 expected_memory_used = "4"
-expected_accessed_accounts = ["5"]
+expected_accessed_accounts = 'SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2975,7 +2975,7 @@ expected_gas = "184"
 expected_output = 'b"\x01"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x21\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0d\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "7"
-expected_accessed_accounts = ["5"]
+expected_accessed_accounts = 'SetItem(5)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -2996,7 +2996,7 @@ expected_gas = "100"
 expected_output = 'b"\x22\x43\x52\x5c\x5e\xfd\x4b\x9c\x3d\x3c\x45\xac\x0c\xa3\xfe\x4d\xd8\x5e\x83\x0a\x4c\xe6\xb6\x5f\xa1\xee\xae\xe2\x02\x83\x97\x03\x30\x1d\x1d\x33\xbe\x6d\xa8\xe5\x09\xdf\x21\xcc\x35\x96\x47\x23\x18\x0e\xed\x75\x32\x53\x7d\xb9\xae\x5e\x7d\x48\xf1\x95\xc9\x15"'
 expected_local_mem = 'b"\x18\xb1\x8a\xcf\xb4\xc2\xc3\x02\x76\xdb\x54\x11\x36\x8e\x71\x85\xb3\x11\xdd\x12\x46\x91\x61\x0c\x5d\x3b\x74\x03\x4e\x09\x3d\xc9\x06\x3c\x90\x9c\x47\x20\x84\x0c\xb5\x13\x4c\xb9\xf5\x9f\xa7\x49\x75\x57\x96\x81\x96\x58\xd3\x2e\xfc\x0d\x28\x81\x98\xf3\x72\x66\x07\xc2\xb7\xf5\x8a\x84\xbd\x61\x45\xf0\x0c\x9c\x2b\xc0\xbb\x1a\x18\x7f\x20\xff\x2c\x92\x96\x3a\x88\x01\x9e\x7c\x6a\x01\x4e\xed\x06\x61\x4e\x20\xc1\x47\xe9\x40\xf2\xd7\x0d\xa3\xf7\x4c\x9a\x17\xdf\x36\x17\x06\xa4\x48\x5c\x74\x2b\xd6\x78\x84\x78\xfa\x17\xd7\x22\x43\x52\x5c\x5e\xfd\x4b\x9c\x3d\x3c\x45\xac\x0c\xa3\xfe\x4d\xd8\x5e\x83\x0a\x4c\xe6\xb6\x5f\xa1\xee\xae\xe2\x02\x83\x97\x03\x30\x1d\x1d\x33\xbe\x6d\xa8\xe5\x09\xdf\x21\xcc\x35\x96\x47\x23\x18\x0e\xed\x75\x32\x53\x7d\xb9\xae\x5e\x7d\x48\xf1\x95\xc9\x15"'
 expected_memory_used = "6"
-expected_accessed_accounts = ["6"]
+expected_accessed_accounts = 'SetItem(6)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3017,7 +3017,7 @@ expected_gas = "100"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "6"
-expected_accessed_accounts = ["6"]
+expected_accessed_accounts = 'SetItem(6)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3037,7 +3037,7 @@ expected_pc = "1"
 expected_gas = "100"
 expected_output = 'b""'
 expected_memory_used = "6"
-expected_accessed_accounts = ["6"]
+expected_accessed_accounts = 'SetItem(6)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3057,7 +3057,7 @@ expected_pc = "1"
 expected_gas = "101"
 expected_output = 'b""'
 expected_memory_used = "6"
-expected_accessed_accounts = ["6"]
+expected_accessed_accounts = 'SetItem(6)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3078,7 +3078,7 @@ expected_gas = "100"
 expected_output = 'b"\x03\x06\x44\xe7\x2e\x13\x1a\x02\x9b\x85\x04\x5b\x68\x18\x15\x85\xd9\x78\x16\xa9\x16\x87\x1c\xa8\xd3\xc2\x08\xc1\x6d\x87\xcf\xd3\x15\xed\x73\x8c\x0e\x0a\x7c\x92\xe7\x84\x5f\x96\xb2\xae\x9c\x0a\x68\xa6\xa4\x49\xe3\x53\x8f\xc7\xff\x3e\xbf\x7a\x5a\x18\xa2\xc4"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x03\x06\x44\xe7\x2e\x13\x1a\x02\x9b\x85\x04\x5b\x68\x18\x15\x85\xd9\x78\x16\xa9\x16\x87\x1c\xa8\xd3\xc2\x08\xc1\x6d\x87\xcf\xd3\x15\xed\x73\x8c\x0e\x0a\x7c\x92\xe7\x84\x5f\x96\xb2\xae\x9c\x0a\x68\xa6\xa4\x49\xe3\x53\x8f\xc7\xff\x3e\xbf\x7a\x5a\x18\xa2\xc4"'
 expected_memory_used = "5"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3099,7 +3099,7 @@ expected_gas = "100"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "5"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3119,7 +3119,7 @@ expected_pc = "1"
 expected_gas = "100"
 expected_output = 'b""'
 expected_memory_used = "5"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3139,7 +3139,7 @@ expected_pc = "1"
 expected_gas = "101"
 expected_output = 'b""'
 expected_memory_used = "5"
-expected_accessed_accounts = ["7"]
+expected_accessed_accounts = 'SetItem(7)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3160,7 +3160,7 @@ expected_gas = "900"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"'
 expected_local_mem = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3180,7 +3180,7 @@ expected_pc = "1"
 expected_gas = "1900"
 expected_output = 'b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "7"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3200,7 +3200,7 @@ expected_pc = "1"
 expected_gas = "1900"
 expected_output = 'b""'
 expected_memory_used = "7"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3220,7 +3220,7 @@ expected_pc = "1"
 expected_gas = "1900"
 expected_output = 'b""'
 expected_memory_used = "7"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3240,7 +3240,7 @@ expected_pc = "1"
 expected_gas = "900"
 expected_output = 'b""'
 expected_memory_used = "2"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3260,7 +3260,7 @@ expected_pc = "1"
 expected_gas = "1901"
 expected_output = 'b""'
 expected_memory_used = "7"
-expected_accessed_accounts = ["8"]
+expected_accessed_accounts = 'SetItem(8)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3277,7 +3277,7 @@ expected_stack = "1 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
 expected_output = 'b""'
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3294,7 +3294,7 @@ expected_program = 'b"\xfa\x00"'
 expected_stack = "1 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3313,7 +3313,7 @@ expected_stack = "1 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
 expected_output = 'b""'
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3332,7 +3332,7 @@ expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "1291"
 expected_output = 'b""'
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3351,7 +3351,7 @@ expected_stack = "0 : .WordStack"
 expected_pc = "1"
 expected_gas = "900"
 expected_output = 'b""'
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3372,7 +3372,7 @@ expected_gas = "879"
 expected_output = 'b""'
 expected_local_mem = 'b"\x2a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"'
 expected_memory_used = "1"
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3391,7 +3391,7 @@ expected_gas = "0"
 expected_output = 'b""'
 expected_local_mem = 'b"\xff"'
 expected_memory_used = "2"
-expected_accessed_accounts = ["10"]
+expected_accessed_accounts = 'SetItem(10)'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3407,7 +3407,7 @@ expected_stack = "1000 : 10 : 0 : 0 : 0 : 0 : .WordStack"
 expected_pc = "0"
 expected_gas = "2599"
 expected_output = 'b"\xaa"'
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
@@ -3421,7 +3421,7 @@ expected_program = 'b"\xfa\x00"'
 expected_stack = "1000 : 10 : 0 : 0 : 0 : .WordStack"
 expected_pc = "0"
 expected_gas = "2600"
-expected_accessed_accounts = []
+expected_accessed_accounts = '.Set'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -3455,10 +3455,7 @@ expected_pc = "1"
 expected_gas = "0"
 expected_local_mem = 'b"\x11\x22\x33"'
 expected_memory_used = "1"
-expected_logs = [
-  { address = "1", topics = ["9"], data = 'b"\xaa"' },
-  { address = "7", topics = [], data = 'b"\x22\x33"' },
-]
+expected_logs = 'ListItem(logEntry(1, ListItem(9) .List, b"\xaa")) ListItem(logEntry(7, .List, b"\x22\x33")) .List'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3477,7 +3474,7 @@ expected_pc = "0"
 expected_gas = "760"
 expected_local_mem = 'b"\xaa"'
 expected_memory_used = "0"
-expected_logs = [{ address = "1", topics = [], data = 'b"\xbb"' }]
+expected_logs = 'ListItem(logEntry(1, .List, b"\xbb")) .List'
 expected_status = "EVMC_OUT_OF_GAS"
 
 [[behavior]]
@@ -3495,7 +3492,7 @@ expected_pc = "1"
 expected_gas = "0"
 expected_local_mem = 'b"\xaa"'
 expected_memory_used = "0"
-expected_logs = [{ address = "7", topics = ["10", "11"], data = 'b""' }]
+expected_logs = 'ListItem(logEntry(7, ListItem(10) ListItem(11) .List, b"")) .List'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3511,7 +3508,7 @@ expected_stack = "0 : 0 : 10 : .WordStack"
 expected_pc = "0"
 expected_gas = "5000"
 expected_memory_used = "0"
-expected_logs = []
+expected_logs = '.List'
 expected_status = "EVMC_STACK_UNDERFLOW"
 
 [[behavior]]
@@ -3527,7 +3524,7 @@ expected_stack = "99 : .WordStack"
 expected_pc = "1"
 expected_gas = "0"
 expected_memory_used = "0"
-expected_logs = [{ address = "7", topics = ["10", "11", "12"], data = 'b""' }]
+expected_logs = 'ListItem(logEntry(7, ListItem(10) ListItem(11) ListItem(12) .List, b"")) .List'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3545,7 +3542,7 @@ expected_pc = "1"
 expected_gas = "0"
 expected_local_mem = 'b"\xaa\xbb"'
 expected_memory_used = "1"
-expected_logs = [{ address = "7", topics = ["10", "11", "12", "13"], data = 'b"\xbb\x00\x00"' }]
+expected_logs = 'ListItem(logEntry(7, ListItem(10) ListItem(11) ListItem(12) ListItem(13) .List, b"\xbb\x00\x00")) .List'
 expected_status = "EVMC_SUCCESS"
 
 [[behavior]]
@@ -3562,7 +3559,7 @@ expected_stack = "0 : 0 : 99 : .WordStack"
 expected_pc = "0"
 expected_gas = "5000"
 expected_memory_used = "0"
-expected_logs = [{ address = "1", topics = [], data = 'b"\xaa"' }]
+expected_logs = 'ListItem(logEntry(1, .List, b"\xaa")) .List'
 expected_status = "EVMC_STATIC_MODE_VIOLATION"
 
 [[behavior]]

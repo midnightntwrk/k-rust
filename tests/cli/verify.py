@@ -14,7 +14,7 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.diagnostics import krs_diagnostics  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.lock import k_version  # noqa: E402
@@ -22,7 +22,7 @@ from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.report import Results  # noqa: E402
-from support.tools import executable, find_k_tool, k_tool  # noqa: E402
+from support.tools import checkout_scratch, executable, find_k_tool, k_tool, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -30,6 +30,7 @@ FIXTURE = HERE / "fixtures" / "foo-bar"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
+MODULE = "ORG-KRS-CLI-ORACLE"
 EXPECTED_K_FILES = {
     ".krs-artifacts",
     "definition-ir.json",
@@ -367,20 +368,22 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
     workspace.mkdir(parents=True)
     source = workspace / "definition.k"
     source.write_bytes(artifacts["definition.k"])
-    match = re.search(r"(?m)^module\s+([A-Za-z0-9-]+)\s*$", source.read_text(encoding="utf-8"))
-    if match is None:
-        results.add("reference_execution", "FAIL", "canonical K has no module declaration")
+    definition_ir = workspace / "definition-ir.json"
+    definition_ir.write_bytes(artifacts["definition-ir.json"])
+    try:
+        gate = krs_gate.build(checkout_scratch() / "cli-gate-root-target")
+    except (GateError, OSError) as error:
+        results.add("reference_execution", "FAIL", str(error))
         return
-    module = match.group(1)
     definition = workspace / "compiled-definition"
     compile_process = run(
         [
             executables["kompile"],
             str(source),
             "--main-module",
-            module,
+            MODULE,
             "--syntax-module",
-            module,
+            MODULE,
             "--backend",
             "llvm",
             "--emit-json",
@@ -396,15 +399,20 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
         return
     initial = run([executables["krun"], "--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60, check=False, text=False)
     final = run([executables["krun"], "--definition", str(definition), "--output", "kore"], timeout=60, check=False, text=False)
-    ok = (
-        initial.returncode == 0
-        and final.returncode == 0
-        and b"Lblfoo" in initial.stdout
-        and b"Lblbar" not in initial.stdout
-        and b"Lblbar" in final.stdout
-        and b"Lblfoo" not in final.stdout
-    )
-    results.add("reference_execution", "PASS" if ok else "FAIL", f"K {k_version()} compiled canonical output and executed foo -> bar" if ok else compact(final))
+    if initial.returncode != 0 or final.returncode != 0:
+        results.add("reference_execution", "FAIL", compact(initial if initial.returncode != 0 else final))
+        return
+    try:
+        with krs_gate.Session(gate, environment=z3_environment()) as session:
+            session.load(definition_ir, MODULE)
+            session.read(initial.stdout.decode("utf-8"), "initial")
+            session.expect("initial", "k", text="foo ~> .K")
+            session.read(final.stdout.decode("utf-8"), "final")
+            session.expect("final", "k", text="bar ~> .K")
+    except (GateError, OSError, UnicodeError) as error:
+        results.add("reference_execution", "FAIL", str(error))
+        return
+    results.add("reference_execution", "PASS", f"K {k_version()} compiled canonical output and executed foo -> bar")
 
 
 def main() -> int:

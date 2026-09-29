@@ -62,7 +62,6 @@ class RouteWiringTests(unittest.TestCase):
             run = patches.enter_context(mock.patch.object(
                 semantics, "run", return_value=mock.Mock(stdout="term"),
             ))
-            patches.enter_context(mock.patch.object(semantics, "parse_kore_pattern", return_value={}))
             patches.enter_context(mock.patch.object(semantics, "compare_routes"))
             patches.enter_context(mock.patch.object(semantics, "reference_proof"))
             gate_session = patches.enter_context(mock.patch.object(semantics.krs_gate, "Session"))
@@ -73,12 +72,10 @@ class RouteWiringTests(unittest.TestCase):
                     for name in verifier.native.configuration_variables(case)
                 }
             }
-            hooks = replace(
-                verifier.HOOKS,
-                observed=lambda _, _state: observed,
-                checked=lambda _, _outcome: None,
-                java_skips={},
-            )
+            checked = patches.enter_context(mock.patch.object(
+                semantics.behavior_module, "java_case", return_value=observed,
+            ))
+            hooks = replace(verifier.HOOKS, java_skips={})
             self.assertEqual(
                 semantics.java_reference_gate(
                     verifier.PORT, hooks, Path("workspace"), Path("artifacts"),
@@ -90,6 +87,7 @@ class RouteWiringTests(unittest.TestCase):
         gate_session.assert_called_once_with(Path("gate"), environment={"KEY": "VALUE"})
         session.load.assert_called_once_with(Path("artifacts/definition-ir.json"), verifier.PORT.module)
         session.configure.assert_called_once_with(verifier.native.configuration_variables(case))
+        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
         arguments = run.call_args.args[0]
         self.assertIn("-cPGM=run", arguments)
         self.assertIn("-cPROGRAM=kore-PROGRAM", arguments)

@@ -15,9 +15,29 @@ from typing import Any, Mapping
 
 from support import GateError, ROOT
 from support import process
+from support.tools import z3_environment
 
 
 SESSION_EXIT_TIMEOUT_SECONDS = 30
+
+
+def build(target: Path, *, environment: Mapping[str, str] | None = None) -> Path:
+    """Build the locked release gate in a caller-owned Cargo target directory."""
+
+    binary = target / "release" / "krs-gate"
+    process.run(
+        ["cargo", "+stable", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
+        environment={
+            **z3_environment(),
+            **(environment or {}),
+            "CARGO_NET_OFFLINE": "true",
+            "CARGO_TARGET_DIR": os.fspath(target),
+        },
+        timeout=900,
+    )
+    if not binary.is_file():
+        raise GateError(f"Cargo did not produce the gate binary at {binary}")
+    return binary
 
 
 def compile(

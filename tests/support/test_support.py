@@ -307,56 +307,6 @@ class KDefinitionTests(unittest.TestCase):
             self.assertEqual(digests[0], digests[1])
 
 
-    def test_parse_kore_pattern_yields_kore_json(self) -> None:
-        text = (
-            "Lbl'-LT-'k'-GT-'{}(/* InternalList: */ Lbl'Unds'List'Unds'{}(LblListItem{}(inj{SortInt{}, SortKItem{}}"
-            '(\\dv{SortInt{}}("-7"))), Lbl\'Stop\'List{}()))\n'
-        )
-        int_sort = {"tag": "SortApp", "name": "SortInt", "args": []}
-        self.assertEqual(
-            kdefinition.parse_kore_pattern(text),
-            {
-                "tag": "App", "name": "Lbl'-LT-'k'-GT-'", "sorts": [], "args": [
-                    {"tag": "App", "name": "Lbl'Unds'List'Unds'", "sorts": [], "args": [
-                        {"tag": "App", "name": "LblListItem", "sorts": [], "args": [
-                            {"tag": "App", "name": "inj", "sorts": [
-                                int_sort, {"tag": "SortApp", "name": "SortKItem", "args": []},
-                            ], "args": [{"tag": "DV", "sort": int_sort, "value": "-7"}]},
-                        ]},
-                        {"tag": "App", "name": "Lbl'Stop'List", "sorts": [], "args": []},
-                    ]},
-                ],
-            },
-        )
-
-    def test_parse_kore_pattern_decodes_string_escapes_and_rejects_connectives(self) -> None:
-        pattern = kdefinition.parse_kore_pattern('\\dv{SortString{}}("a\\"b\\\\\\x41\\u00e9")')
-        self.assertEqual(pattern["value"], 'a"b\\A\u00e9')
-        with self.assertRaisesRegex(GateError, "unsupported KORE connective"):
-            kdefinition.parse_kore_pattern("\\and{SortInt{}}(a{}(), b{}())")
-        with self.assertRaisesRegex(GateError, "trailing KORE text"):
-            kdefinition.parse_kore_pattern("a{}() b{}()")
-
-    def test_parse_kore_pattern_handles_deep_applications_and_sorts(self) -> None:
-        depth = 5_000
-        prefix = 'Lbl\'Unds\'WS{}(\\dv{SortInt{}}("1"),'
-        term = kdefinition.parse_kore_pattern(
-            prefix * depth + "Lbl'Stop'WordStack{}()" + ")" * depth
-        )
-        for _ in range(depth):
-            self.assertEqual(term["name"], "Lbl'Unds'WS")
-            term = term["args"][1]
-        self.assertEqual(term["name"], "Lbl'Stop'WordStack")
-
-        nested_sort = "SortBox{" * depth + "SortInt{}" + "}" * depth
-        term = kdefinition.parse_kore_pattern(f"Lblvalue{{{nested_sort}}}()")
-        sort = term["sorts"][0]
-        for _ in range(depth):
-            self.assertEqual(sort["name"], "SortBox")
-            sort = sort["args"][0]
-        self.assertEqual(sort["name"], "SortInt")
-
-
 class LedgerTests(unittest.TestCase):
     TOML = (
         'schema = 1\n'

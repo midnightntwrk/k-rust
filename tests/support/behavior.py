@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -26,6 +27,7 @@ class Specification:
     variables: Callable[[Mapping[str, Any]], dict[str, str]]
     expectations: Callable[[Mapping[str, Any]], list[Expectation]]
     outcome: Callable[[Mapping[str, Any]], dict[str, Any]]
+    reason: str | None = None
 
 
 def check_case(session: krs_gate.Session, case: Mapping[str, Any], spec: Specification) -> dict[str, Any]:
@@ -43,19 +45,36 @@ def native_case(session: krs_gate.Session, case: Mapping[str, Any], spec: Specif
     """Configure, execute, retain, and check one native case."""
 
     pattern = session.configure(spec.variables(case))["pattern"]
-    session.execute(pattern, keep="case")
+    result = session.execute(pattern, keep="case")
+    if spec.reason is not None:
+        leaves = result.get("leaves")
+        if not isinstance(leaves, list) or len(leaves) != 1 or leaves[0].get("reason") != spec.reason:
+            raise GateError(f"{case['id']}: expected execution reason {spec.reason}, got {leaves}")
     return check_case(session, case, spec)
 
 
 def native_corpus(
     gate: Path, definition_ir: Path, module: str,
-    cases: list[Mapping[str, Any]], spec: Specification,
+    cases: list[Mapping[str, Any]], spec: Specification, jobs: int = 1,
 ) -> list[dict[str, Any]]:
-    """Run all selected native cases in one loaded session."""
+    """Run selected native cases with one loaded session per worker."""
 
-    with krs_gate.Session(gate) as session:
-        session.load(definition_ir, module)
-        return [native_case(session, case, spec) for case in cases]
+    if jobs < 1:
+        raise GateError("jobs must be at least one")
+
+    def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, dict[str, Any]]]:
+        with krs_gate.Session(gate) as session:
+            session.load(definition_ir, module)
+            return [(index, native_case(session, case, spec)) for index, case in batch]
+
+    indexed = list(enumerate(cases))
+    batches = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
+    if len(batches) == 1:
+        return [outcome for _, outcome in run_batch(batches[0])]
+    with ThreadPoolExecutor(max_workers=len(batches)) as pool:
+        completed = pool.map(run_batch, batches)
+        ordered = sorted((item for batch in completed for item in batch), key=lambda item: item[0])
+    return [outcome for _, outcome in ordered]
 
 
 def java_case(
