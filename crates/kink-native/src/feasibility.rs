@@ -32,7 +32,7 @@
 //! assumptions. Unification preserves the solutions of the equation set, so a proved clash means
 //! no instance satisfies them, and a solved form without residual constraints is equivalent to
 //! them. Only clashes that hold in K's constructor algebra count (distinct free constructors, a
-//! free constructor against an injection, distinct canonical `Int`/`Bool`/`String` values, and a
+//! free constructor against an injection, distinct canonical `Int`/`Bool`/ASCII `String` values, and a
 //! variable occurring under free constructors); anything else, including a residual function
 //! equation, is undecided. Two distinct ground terms are not assumed unequal. Terms that the
 //! unifier would decompose on a non-`anywhere` `injective` declaration or a non-free
@@ -237,7 +237,9 @@ pub(crate) fn shared_leaf_feasibility(
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
         return LeafFeasibility::Unknown;
     };
-    if contains_non_strict_injection(definition, &pattern) {
+    if contains_non_strict_injection(definition, &pattern)
+        || contains_non_ascii_string_value(&pattern)
+    {
         return LeafFeasibility::Unknown;
     }
     let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
@@ -309,12 +311,28 @@ pub(crate) fn contains_non_strict_injection(
     found
 }
 
+/// Decoded non-ASCII String bytes do not identify a unique K String value.
+pub(crate) fn contains_non_ascii_string_value(pattern: &Pattern) -> bool {
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(pattern, |node| {
+        if let Pattern::DomainValue { sort, value } = node {
+            found |= matches!(sort, KoreSort::Application { name, arguments }
+                if name == "SortString" && arguments.is_empty())
+                && !value.as_bytes().is_ascii();
+        }
+    });
+    found
+}
+
 /// Every term of `predicate` is built from hooked symbols, free constructors, injections,
-/// domain values and variables only (no collection and no conjunction term).
+/// canonical domain values and variables only (no collection and no conjunction term).
 pub(crate) fn interpreted_predicate(predicate: &Predicate) -> bool {
     fn interpreted(term: &Term) -> bool {
         match term.kind() {
-            TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
+            TermKind::Variable(_) => true,
+            TermKind::DomainValue { sort, value } => {
+                !sort.is_builtin(BuiltinSort::String) || value.as_bytes().is_ascii()
+            }
             TermKind::Injection { term, .. } => interpreted(term),
             TermKind::Application {
                 symbol, arguments, ..
@@ -370,10 +388,10 @@ pub(crate) fn proves_clash(failure: &UnificationFailure) -> bool {
         }
         UnificationFailure::DifferentValues(left, right) => {
             let canonical = |term: &Term| {
-                matches!(term.kind(), TermKind::DomainValue { sort, .. }
-                    if [BuiltinSort::Int, BuiltinSort::Bool, BuiltinSort::String]
-                        .into_iter()
-                        .any(|builtin| sort.is_builtin(builtin)))
+                matches!(term.kind(), TermKind::DomainValue { sort, value }
+                    if sort.is_builtin(BuiltinSort::Int)
+                        || sort.is_builtin(BuiltinSort::Bool)
+                        || (sort.is_builtin(BuiltinSort::String) && value.as_bytes().is_ascii()))
             };
             canonical(left) && canonical(right)
         }
@@ -643,9 +661,14 @@ impl RelationDecider for BackendRelations<'_> {
             && (contains_non_strict_injection(self.definition, left)
                 || contains_non_strict_injection(self.definition, right)
                 || contains_non_strict_injection(self.definition, &path.path_predicate)
+                || contains_non_ascii_string_value(left)
+                || contains_non_ascii_string_value(right)
+                || contains_non_ascii_string_value(&path.path_predicate)
                 || assumed.iter().any(|relation| {
                     contains_non_strict_injection(self.definition, &relation.left)
                         || contains_non_strict_injection(self.definition, &relation.right)
+                        || contains_non_ascii_string_value(&relation.left)
+                        || contains_non_ascii_string_value(&relation.right)
                 }))
         {
             return RelationDecision::Indeterminate;
@@ -712,9 +735,12 @@ impl RelationDecider for BackendRelations<'_> {
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
         if self.interpreted_only
             && (contains_non_strict_injection(self.definition, &path.path_predicate)
+                || contains_non_ascii_string_value(&path.path_predicate)
                 || assumptions.iter().any(|relation| {
                     contains_non_strict_injection(self.definition, &relation.left)
                         || contains_non_strict_injection(self.definition, &relation.right)
+                        || contains_non_ascii_string_value(&relation.left)
+                        || contains_non_ascii_string_value(&relation.right)
                 }))
         {
             return Feasibility::Unknown;
@@ -780,6 +806,27 @@ mod tests {
             BackendOptions::default(),
         )
         .expect("backend")
+    }
+
+    #[test]
+    fn non_ascii_strings_are_not_clashes_or_interpreted_predicates() {
+        let value =
+            |bytes: &[u8]| Term::domain_value(Sort::builtin(BuiltinSort::String), bytes.to_vec());
+        let non_ascii = value("é".as_bytes());
+        let other = value("Ã©".as_bytes());
+        assert!(!proves_clash(&UnificationFailure::DifferentValues(
+            non_ascii.clone(),
+            other.clone()
+        )));
+        assert!(!interpreted_predicate(&Predicate::Equals(non_ascii, other)));
+        assert!(proves_clash(&UnificationFailure::DifferentValues(
+            value(b"a"),
+            value(b"b")
+        )));
+        assert!(interpreted_predicate(&Predicate::Equals(
+            value(b"a"),
+            value(b"b")
+        )));
     }
 
     fn nat(name: &str) -> Pattern {

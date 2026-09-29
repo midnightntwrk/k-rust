@@ -22,7 +22,8 @@ use kink_native::step_events::{
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
-    EventPresence, ExecutionTerminalKind, PathInput, RelationDecider, SymbolSorts, TermRelation,
+    EventPresence, ExecutionTerminalKind, Feasibility, PathInput, RelationDecider,
+    RelationDecision, SymbolSorts, TermRelation,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -268,6 +269,159 @@ fn bare_spec(pre: Pattern, payload: &[&str]) -> StepEventSpec {
         post: None,
         payload: payload.iter().map(|name| (*name).into()).collect(),
     }
+}
+
+fn string_value(bytes: &[u8]) -> Pattern {
+    Pattern::DomainValue {
+        sort: kore_sort("SortString"),
+        value: bytes.to_vec().into(),
+    }
+}
+
+fn string_definition(result: &str) -> (ValidatedDefinition, std::path::PathBuf) {
+    let directory = std::env::temp_dir().join(format!(
+        "so03-string-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&directory).expect("temporary definition directory");
+    let source = format!(
+        "module STRINGS-SYNTAX\n  imports INT-SYNTAX\n  imports STRING-SYNTAX\n  syntax Prog ::= step(Int) [symbol(step)]\n                | done(String) [symbol(done)]\nendmodule\nmodule STRINGS\n  imports STRINGS-SYNTAX\n  imports INT\n  imports STRING\n  configuration <k> .K </k>\n  rule [step]: step(_N) => done({result})\nendmodule\n"
+    );
+    let path = directory.join("strings.k");
+    std::fs::write(&path, source).expect("definition source");
+    let side = NativeValidator::bind(
+        support::load_path(&path, "STRINGS"),
+        CompileOptions::default(),
+    )
+    .compile_baseline()
+    .expect("string definition compiles");
+    (side, directory)
+}
+
+#[test]
+fn non_ascii_string_encodings_do_not_distinguish_equal_executions() {
+    let (baseline, baseline_directory) = string_definition("chrChar(195) +String chrChar(169)");
+    let (mutant, mutant_directory) = string_definition("\"Ã©\"");
+    let state = support::initial_state(app("Lblstep", vec![support::int(0)]), "SortProg");
+    let spec = StepEventSpec {
+        constructor: "probe".into(),
+        pre: support::k_config(
+            app("Lblstep", vec![support::var("N", "SortInt")]),
+            "SortProg",
+            "R",
+            "C",
+        ),
+        post: Some(support::k_config(
+            app("Lbldone", vec![string_value("Ã©".as_bytes())]),
+            "SortProg",
+            "R2",
+            "C2",
+        )),
+        payload: vec![],
+    };
+    let mut backend = Backend::new(
+        &baseline.artifacts().definition_kore,
+        "STRINGS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    assert!(matches!(
+        StepObservation::new(&mut backend, vec![spec.clone()]),
+        Err(StepObservationError::NonCanonicalValue(_))
+    ));
+    let baseline_steps = run_steps(&baseline, "STRINGS", &state);
+    let mutant_steps = run_steps(&mutant, "STRINGS", &state);
+    let path = paths_for(&baseline, &baseline, "STRINGS", &state, vec![]).remove(0);
+    backend
+        .with_solver(None, |definition, solver| {
+            let decider = ObservationDecider::new(definition, solver, &state, false);
+            assert!(!decider.definition_independent(&string_value(&[195, 169])));
+            assert!(!decider.definition_independent(&string_value("é".as_bytes())));
+            assert!(decider.definition_independent(&string_value(b"abc")));
+            assert!(matches!(
+                decider.classify_step(
+                    &spec,
+                    &baseline_steps.states[0][0],
+                    Some(&baseline_steps.states[0][1]),
+                    &path,
+                ),
+                StepPresence::Undecided
+            ));
+            assert!(matches!(
+                decider.classify_step(
+                    &bare_spec(string_value(&[195, 169]), &[]),
+                    &string_value(&[195, 169]),
+                    None,
+                    &path,
+                ),
+                StepPresence::Undecided
+            ));
+            assert!(matches!(
+                decider.classify_step(
+                    &spec,
+                    &mutant_steps.states[0][0],
+                    Some(&mutant_steps.states[0][1]),
+                    &path,
+                ),
+                StepPresence::Undecided
+            ));
+            assert!(matches!(
+                decider.classify_step(
+                    &bare_spec(string_value(b"a"), &[]),
+                    &string_value(b"b"),
+                    None,
+                    &path,
+                ),
+                StepPresence::Absent
+            ));
+            Ok::<_, k_rust::backend::BackendError>(())
+        })
+        .expect("decider");
+    std::fs::remove_dir_all(baseline_directory).expect("remove baseline definition");
+    std::fs::remove_dir_all(mutant_directory).expect("remove mutant definition");
+}
+
+#[test]
+fn shared_string_relations_refuse_non_ascii_clashes() {
+    let (side, directory) = string_definition("\"a\"");
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "STRINGS",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let state = support::initial_state(app("Lblstep", vec![support::int(0)]), "SortProg");
+    let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
+    backend
+        .with_solver(None, |definition, solver| {
+            let relations = BackendRelations::shared(definition, solver, &state, false);
+            for (left, right) in [
+                (string_value(&[195, 169]), string_value("Ã©".as_bytes())),
+                (string_value("é".as_bytes()), string_value("Ã©".as_bytes())),
+                (string_value(&[195, 169]), string_value(&[195, 169])),
+                (string_value(b"a"), string_value("é".as_bytes())),
+            ] {
+                assert_eq!(
+                    relations.relate(&path, &[], &left, &right),
+                    RelationDecision::Indeterminate
+                );
+                assert_ne!(
+                    relations.feasible(&path, &[TermRelation { left, right }]),
+                    Feasibility::Unsat
+                );
+            }
+            assert_eq!(
+                relations.relate(&path, &[], &string_value(b"a"), &string_value(b"b")),
+                RelationDecision::Unequal
+            );
+            Ok::<_, k_rust::backend::BackendError>(())
+        })
+        .expect("relations");
+    std::fs::remove_dir_all(directory).expect("remove temporary definition");
 }
 
 fn validation_backend() -> Backend {

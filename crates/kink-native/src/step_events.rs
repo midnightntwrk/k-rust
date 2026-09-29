@@ -174,7 +174,8 @@ fn canonical_value(sort: &Sort, value: &[u8]) -> bool {
                     && (digits == "0" || !digits.starts_with('0'))
                     && value != "-0"
             }
-            "SortString" => true,
+            // k-rust's Unicode folding and byte-oriented KORE decoding agree on ASCII.
+            "SortString" => value.is_ascii(),
             _ => false,
         },
         _ => false,
@@ -375,7 +376,11 @@ impl<'a> ObservationDecider<'a> {
             } else {
                 left.clone()
             };
-            let decision = if left == *right && names_exact(&left) && names_exact(right) {
+            let decision = if left == *right
+                && names_exact(&left)
+                && names_exact(right)
+                && !crate::feasibility::contains_non_ascii_string_value(&left)
+            {
                 RelationDecision::Equal
             } else {
                 self.relations.relate(path, &[], &left, right)
@@ -464,15 +469,13 @@ impl Walk {
                     value: sv,
                 },
             ) => {
-                if ps != ss {
-                    self.undecided = true;
-                } else if pv != sv
-                    && canonical_value(ps, pv.as_bytes())
-                    && canonical_value(ss, sv.as_bytes())
+                if ps != ss
+                    || !canonical_value(ps, pv.as_bytes())
+                    || !canonical_value(ss, sv.as_bytes())
                 {
-                    self.absent = true;
-                } else if pv != sv {
                     self.undecided = true;
+                } else if pv != sv {
+                    self.absent = true;
                 }
             }
             (
