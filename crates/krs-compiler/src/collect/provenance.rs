@@ -145,12 +145,10 @@ impl MaterializationContext<'_> {
             let authored_cache_key = authored_documents
                 .get(authored.key())
                 .expect("every authored key has a loaded document");
-            let document = document(
-                self.source_cache,
-                self.contexts,
-                self.context_index,
-                &authored_cache_key.1,
-            )?;
+            let document = self
+                .source_cache
+                .get(authored_cache_key)
+                .expect("every authored document remains cached");
             materialized.insert(
                 authored.key().clone(),
                 source_range(document, authored.anchor())?,
