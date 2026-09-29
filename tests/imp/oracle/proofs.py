@@ -16,25 +16,12 @@ from typing import Any, Mapping, Sequence
 
 from support import GateError
 from support.hashing import canonical_json, json_sha256, sha256_text
-from support.pins import Ledger
 from support.process import run
 
 try:
     from .source_definition import DEFAULT_METADATA_ATTRIBUTES, NODE_FIELDS
 except ImportError:  # Direct loading by tests/imp/verify.py.
     from source_definition import DEFAULT_METADATA_ATTRIBUTES, NODE_FIELDS
-
-
-STATIC_SELECTED_CASES = frozenset(
-    {
-        "addition-1",
-        "addition-var",
-        "branching",
-        "sum-loop",
-        "sum-spec",
-        "addition-depth-zero",
-    }
-)
 
 
 CLAIM_NODE_FIELDS: Mapping[str, frozenset[frozenset[str]]] = {
@@ -484,37 +471,3 @@ def compare_proof_evidence(
         observed[name] = pin
     return observed
 
-
-def verify_imp_static_semantics_selected_pins(
-    root: Path,
-    evidence: Mapping[str, ProofEvidence],
-    legacy_outcomes: Mapping[str, Mapping[str, str]],
-) -> None:
-    """Check the six individually frozen IMP static semantics invocations.
-
-    The legacy ``static-adjunct`` pin covers a five-claim module as one run, so
-    it cannot validate IMP's five individually selectable adjunct claims.  Root
-    must provide new per-claim IMP pins for those cases.
-    """
-
-    pins_path = root / "tests" / "imp_static_semantics" / "pins.json"
-    pins = Ledger(pins_path).get("proof_outcomes")
-    if not isinstance(pins, dict):
-        raise GateError("IMP static semantics proof pins are absent")
-    if set(evidence) != STATIC_SELECTED_CASES:
-        raise GateError(
-            f"IMP static semantics selected evidence must be exactly {sorted(STATIC_SELECTED_CASES)}"
-        )
-    if set(legacy_outcomes) != STATIC_SELECTED_CASES:
-        raise GateError("legacy IMP static semantics outcomes must cover exactly the selected invocations")
-    for name, item in evidence.items():
-        legacy = pins.get(name)
-        if not isinstance(legacy, dict) or set(legacy) != {
-            "status", "result_sha256", "claim_sha256"
-        }:
-            raise GateError(f"legacy IMP static semantics pin shape differs for {name}")
-        if legacy_outcomes[name] != legacy:
-            raise GateError(f"frozen IMP static semantics hash evidence differs for {name}")
-        legacy_status = "incomplete" if legacy["status"] == "frontier" else legacy["status"]
-        if item.status != legacy_status:
-            raise GateError(f"IMP status differs from IMP static semantics for {name}")

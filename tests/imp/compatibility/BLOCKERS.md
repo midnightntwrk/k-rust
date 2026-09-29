@@ -1,7 +1,9 @@
-# Current compatibility evidence and remaining blockers
+# Compatibility evidence
 
-The Lane C fixtures prove everything the current public APIs expose and fail
-closed at the missing seams.
+IMP.8 `compatibility-reproduction` runs the live stable-name and diagnostic
+probes in this directory; each fails closed rather than accepting a weaker
+anchor.
+No compatibility blocker remains.
 
 ## Stable identity
 
@@ -35,15 +37,17 @@ blocker in this fixture surface.
   it to the exact hash-checked `src/claims.rs` bytes 12765..12774. The reusable
   probe is green, and the released translation API requires that same exact
   interval rather than line/column containment.
-- Native frontend: the structured diagnostic seam is audited statically. Full
-  IMP LLVM compilation succeeds and omits the 20 claims, since that backend
-  executes but does not prove, so it no longer supplies a dynamic adversary.
+- Native frontend: IMP supplies no native adversary, since full IMP
+  compilation succeeds on both backends.
+  `native_rejection_reports_the_authored_rust_item_on_every_backend` in
+  `crates/krs-cli/tests/cli_commands.rs` covers this boundary end to end: it
+  builds an authored equation that k-rust rejects on both backends and
+  requires one schema-1 `native` JSON envelope selecting the exact authored
+  item.
 
 Raw generated collector paths, a generated K range without its exact sidecar
 mapping, or an unstructured error string are never accepted as authored
 diagnostic evidence.
 
-Complete-IMP native/reference KORE parity is now exact for all 20 claims and
-all non-claim sentences. Reproducible evidence remains at
-`native/CURRENT-BLOCKERS.md`; diagnostics and stable identities are also
-green in this compatibility lane.
+Complete-IMP native/reference KORE parity is exact for all 20 claims and all
+non-claim sentences; `native/PARITY.md` describes the evidence.

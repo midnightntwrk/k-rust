@@ -4,9 +4,8 @@ Each subdirectory owns one intentional failure and an exact authored anchor.
 The fixtures do not accept a raw collector path, generated `.k` location, or
 unstructured backend string as a substitute for an authored Rust range.
 
-- `rust-expansion` is runnable now and checks rustc's primary macro span.
-  The release runner must additionally issue the same document diagnostic
-  through rust-analyzer.
+- `rust-expansion` checks rustc's primary macro span, and its `lsp_probe.py`
+  requires rust-analyzer to issue the same document diagnostic.
 - `krs-analysis` contains a cross-item emitted-symbol collision. The production
   CLI returns one schema-1 `analysis`/`symbol-name-collision` JSON envelope
   selecting the exact second authored `Collision` byte range.

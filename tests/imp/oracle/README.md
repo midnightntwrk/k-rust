@@ -1,8 +1,10 @@
 # IMP source, behavior, and proof oracle library
 
-This directory is Lane B of the complete IMP gate.  It is deliberately a
-library: the root-owned `tests/imp/verify.py`, `corpus.json`, and `pins.json`
-must supply the generated artifacts and the reviewed normalization tables.
+This directory holds the source, behavior, and proof comparison libraries of
+the complete IMP gate.
+It is deliberately a library: the root-owned `tests/imp/verify.py`,
+`corpus.json`, and `pins.json` supply the generated artifacts and the reviewed
+normalization tables.
 Missing evidence is an error; none of these modules falls back to an earlier
 fixture or another frontend route.
 
@@ -38,24 +40,22 @@ runner.
    proved/failed/incomplete status, frontier states and constraints, semantic
    bounds, and representative applied user labels before checking pins.
 
-`proofs.verify_imp_static_semantics_selected_pins` additionally requires exact legacy outcomes
-computed with the IMP static semantics normalizer in `tests/imp_static_semantics/normalize.py`.  It covers the six individually
-frozen invocations.  The old `static-adjunct` hash represents five claims in
-one module, so root must add five per-claim IMP pins; this library does not
-pretend that the aggregate pin selects them independently.
+## Corpus wiring
 
-## Required root-owned corpus wiring
+`behavior.plan_from_manifest` constructs these cases from `corpus.json`
+without copying source files, and IMP.6 pins their counts in
+`behavior.expected` of `pins.json`:
 
-`corpus.json` should construct these cases without copying source files:
-
-- 22 accepted parse cases: expression 9, IMP state 5, IMP control flow 8;
+- 23 accepted parse cases: expression 9 plus the IMP-owned expression case,
+  IMP state 5, and IMP control flow 8;
 - all accepted concrete executions plus the expression corpus's two
-  parsed-but-stuck cases, IMP state's two stuck cases, IMP control flow's three stuck cases, and
-  IMP static semantics static evaluation;
-- 238 existing IMP state/IMP control flow depth states plus the eight bounded infinite-loop
-  states (`run_to_completion=False` for the loop);
-- the eight finite IMP control flow search frontiers and eight bounded infinite-loop search
-  frontiers (each search depth must also have a direct depth state);
+  parsed-but-stuck cases, IMP state's two stuck cases, IMP control flow's
+  three stuck cases, and IMP static semantics static evaluation;
+- 238 IMP state and IMP control flow depth states plus the eight bounded
+  infinite-loop states (`run_to_completion=False` for the loop);
+- the eight finite IMP control flow search frontiers and eight bounded
+  infinite-loop search frontiers (each search depth also has a direct depth
+  state);
 - all eight syntax rejections with exact class and four-coordinate range; and
 - division by zero as a `FailureCase` with the exact frozen
   `[hook_INT_tdiv]: Division by zero: 1 / 0` fragment.
@@ -63,30 +63,31 @@ pretend that the aggregate pin selects them independently.
 The LLVM failure routes require `prlimit`.
 They restore an unlimited soft address-space limit only for the LLVM interpreter because its collector reserves a sparse 2 TiB virtual region; the root gate may keep every resident-memory-heavy route under a soft `RLIMIT_AS` ceiling.
 
-Each case needs both its upstream module and KRS module.  `TermPolicy` must map
-every KRS-generated label/sort to the upstream identity; identities are also
-explicit. Unparse differences are permitted only as complete, case-named
-reference/actual strings. This includes the existing expression unary-binding
-round-trip exception and the exact `zeroAlias` spelling differences; no generic
-whitespace or token rewrite is allowed.
+Each case has both its upstream module and KRS module.
+`TermPolicy` maps every KRS-generated label/sort to the upstream identity;
+identities are also explicit.
+Unparse differences are permitted only as complete, case-named
+reference/actual strings.
+This includes the expression unary-binding round-trip exception and the exact
+`zeroAlias` spelling differences; no generic whitespace or token rewrite is
+allowed.
 
-## Required root-owned proof wiring
+## Proof wiring
 
-`pins.json` needs one expanded pin in the exact shape returned by
-`ProofEvidence.pin()` for all 20 unique claims (15 upstream plus five adjunct
-claims).  `addition-depth-zero` is an additional invocation of `addition-1`,
-not another claim.  The root proof harness must provide applied user labels;
-empty labels are valid only when the reviewed reference evidence also has
-none.
-
-All 20 unique claim outcomes (15 upstream plus five split adjunct claims) are
-now pinned from exact-identity evidence produced under deterministic
-depth/branch bounds.  The harness compares all 21 invocations independently
-across the reference source, projected source, dry-run specification, and
-native Haskell routes.  The five expected incomplete outcomes are accepted
-only after their parsed residual patterns match structurally; exit status or
-wall-clock timeout is never proof evidence.  Process-session cleanup remains
-mandatory, and every timeout is an error.
+`proof_outcomes` in `pins.json` holds one expanded pin in the exact shape
+returned by `ProofEvidence.pin()` for each of the 21 invocations: the 20
+unique claims (15 upstream plus five split adjunct claims) and
+`addition-depth-zero`, an additional invocation of `addition-1`.
+The pins come from exact-identity evidence produced under deterministic
+depth/branch bounds.
+IMP.7 compares all 21 invocations independently across the reference source,
+projected source, dry-run specification, and native Haskell routes.
+The root proof harness provides applied user labels; empty labels are valid
+only when the reviewed reference evidence also has none.
+The five expected incomplete outcomes are accepted only after their parsed
+residual patterns match structurally; exit status or wall-clock timeout is
+never proof evidence.
+Process-session cleanup is mandatory, and every timeout is an error.
 
 ## Fast validation
 

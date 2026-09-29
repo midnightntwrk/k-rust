@@ -24,22 +24,32 @@ The original eight-phase IMP gate passed against that pin on 2026-09-15 JST.
 
 ## Evidence layers
 
-`verify.py` owns the ordered top-level gate and stops at the first failed
-layer:
+`verify.py` owns the ordered top-level gate of eight layers and stops at the
+first failed layer; its `PASS` and `FAIL` lines use these names:
 
-1. external checkout revisions and file digests, `Krs.lock` tool and schema
-   versions, and the corpus;
-2. ordinary Rust formatting, check, Clippy, docs, tests, and LSP evidence;
-3. repeated KRS collection, byte-exact layer-2 Rust expansion, `.k`, sidecar,
-   IR, and native artifact determinism;
-4. fail-closed parsed and compiled source-definition comparison;
-5. native Definition/KORE comparison with reviewed constructor-axiom order canonicalization and the closed unused named-projector allowance;
-6. parser and unparser comparison over the expression, IMP state, and IMP control flow corpora;
-7. concrete execution, all frozen depth states, stuck states, and failures;
-8. finite and bounded-live search frontier comparison;
-9. bounded proof comparison for the 20 claims plus the depth-zero invocation;
-10. stable-name, diagnostic-boundary, clean-reproduction, and final
-    byte-for-byte compatibility checks.
+- IMP.1 `preflight`: external checkout revisions and file digests,
+  `Krs.lock` tool and schema versions, and the corpus;
+- IMP.2 `rust-and-lsp`: ordinary Rust formatting, check, Clippy, docs,
+  tests, and LSP evidence;
+- IMP.3 `deterministic-artifacts`: repeated KRS collection, byte-exact
+  layer-2 Rust expansion, `.k`, sidecar, IR, and native artifact
+  determinism;
+- IMP.4 `source-definition`: fail-closed parsed and compiled
+  source-definition comparison;
+- IMP.5 `native-kore`: native Definition/KORE comparison with reviewed
+  constructor-axiom order canonicalization and the closed unused
+  named-projector allowance;
+- IMP.6 `parser-execution-search`: parser and unparser comparison over the
+  expression, IMP state, and IMP control flow corpora; concrete execution,
+  all frozen depth states, stuck states, and failures; and finite and
+  bounded-live search frontier comparison;
+- IMP.7 `bounded-proofs`: bounded proof comparison for the 20 claims plus
+  the depth-zero invocation;
+- IMP.8 `compatibility-reproduction`: stable-name, diagnostic-boundary,
+   clean-reproduction, and final byte-for-byte compatibility checks.
+
+`--audit-all` runs every layer whose prerequisites passed and reports every
+failure instead of stopping at the first.
 
 Layers are serial. Inside the behavior, proof, and compatibility layers every
 independent case runs concurrently, bounded by `KRS_IMP_ORACLE_WORKERS`
