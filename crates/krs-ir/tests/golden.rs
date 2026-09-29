@@ -457,11 +457,17 @@ fn descriptor_provenance_rejects_unknown_wire_fields() {
             "unexpected": true
         }]
     });
-    assert!(serde_json::from_value::<DescriptorProvenance>(value).is_err());
+    let error = serde_json::from_value::<DescriptorProvenance>(value).unwrap_err();
+    assert!(error.to_string().contains("unexpected"));
 
-    let top_level =
-        r#"{"protocol_version":20,"descriptors":[],"declarations":[],"unexpected":true}"#;
-    assert!(serde_json::from_str::<DescriptorBundle>(top_level).is_err());
+    let top_level = serde_json::json!({
+        "protocol_version": SchemaVersion::CURRENT.0,
+        "descriptors": [],
+        "declarations": [],
+        "unexpected": true
+    });
+    let error = serde_json::from_value::<DescriptorBundle>(top_level).unwrap_err();
+    assert!(error.to_string().contains("unexpected"));
 }
 
 #[test]
