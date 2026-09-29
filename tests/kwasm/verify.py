@@ -58,13 +58,14 @@ PORT = semantics.Port(
     descriptors=60,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=90,
+    native_configuration=True,
 )
 
 
 def krun_arguments(case: dict) -> list[str]:
     """Build the KWasm program and stack configuration for the Java route."""
 
-    return [f"-cPGM={case['program']}", "-cSTACK=.ValStack"]
+    return [f"-c{name}={value}" for name, value in native.configuration_variables(case).items()]
 
 
 HOOKS = semantics.Hooks(

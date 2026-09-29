@@ -9,8 +9,12 @@
 //! Every response carries the same `id` and either `result` or an `error`
 //! object with a string `message` field.
 //!
-//! The first request must be `definition.load` with string `kore` (a path to
-//! a compiled definition) and `module` (its main module).
+//! The first request must be `definition.load` with string `module` (the main module)
+//! and exactly one of `definition_ir` (a path to emitted Definition IR) or `kore`
+//! (a path to compiled KORE for execution and proof without configuration).
+//! The KORE form remains for the KEVM gate until its surface configuration migrates.
+//! The Definition IR form compiles with the Haskell backend in process using
+//! the same options as `compile` and retains its frontend definition and variable sorts.
 //! Its result is an object containing the loaded `module`.
 //! `definition.load` may be requested only once per session, including when
 //! loading fails.
@@ -21,6 +25,15 @@
 //! empty unless `trace` is true.
 //! `prove` requires a string `claim` and returns the backend's serialized
 //! `ProveResult`.
+//! `configure` requires a `variables` object mapping names without `$` to
+//! surface K text and returns `pattern` (KORE text of `initGeneratedTopCell`)
+//! and `variables` (an object mapping each name to `sort` and `kore` text).
+//! Every declared variable must be supplied once, except declared `$IO` and
+//! `$STDIN` may be omitted; those receive krun stream defaults with IO off and
+//! empty stdin. Unknown names are errors.
+//! Bindings are assembled with `$PGM` first and other supplied names in lexical
+//! order, followed by synthesized stream defaults.
+//! `configure` requires a definition loaded through `definition_ir`.
 //!
 //! A failure while handling a valid operation, including a pattern parse or
 //! backend error, produces an error response and leaves the session open.
@@ -31,5 +44,7 @@
 
 /// Compile Definition IR into native KORE.
 pub mod compile;
+/// Assemble surface configuration variables through the native frontend.
+pub mod configuration;
 /// Serve requests against one loaded native definition.
 pub mod session;

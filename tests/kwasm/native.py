@@ -15,54 +15,10 @@ from support.hashing import canonical_json, json_sha256  # noqa: E402
 from support.pins import load_toml  # noqa: E402
 
 
-def application(name: str, *arguments: str) -> str:
-    return f"Lbl{name}{{}}({','.join(arguments)})"
+def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
+    """Return surface configuration text for both native and Java execution."""
 
-
-def integer(value: str | int) -> str:
-    return f'\\dv{{SortInt{{}}}}("{int(value)}")'
-
-
-def map_entry(name: str, sort: str, value: str) -> str:
-    key = f'\\dv{{SortKConfigVar{{}}}}("${name}")'
-    return application(
-        "'UndsPipe'-'-GT-Unds'",
-        f"inj{{SortKConfigVar{{}},SortKItem{{}}}}({key})",
-        f"inj{{Sort{sort}{{}},SortKItem{{}}}}({value})",
-    )
-
-
-def instruction(source: str) -> str:
-    parts = source.split()
-    if len(parts) == 2 and parts[0] in {"i32.const", "i64.const"}:
-        return application("const", application(parts[0][:3]), integer(parts[1]))
-    if len(parts) == 1 and "." in parts[0]:
-        ty, operation = parts[0].split(".", 1)
-        operations = {"add": "add", "sub": "sub", "mul": "mul", "div_u": "divU"}
-        if ty in {"i32", "i64"} and operation in operations:
-            return application("binary", application(ty), application(operations[operation]))
-    raise GateError(f"unsupported concrete KWasm instruction: {source}")
-
-
-def instruction_list(source: str) -> str:
-    items = [item.strip() for item in source.split(";")]
-    if not items or items.pop() != ".Instrs":
-        raise GateError(f"unsupported concrete Instrs: {source}")
-    result = application("instrEmpty")
-    for item in reversed(items):
-        result = application("instrCons", instruction(item), result)
-    return result
-
-
-def initial_pattern(case: Mapping[str, Any]) -> str:
-    entries = (
-        map_entry("PGM", "Instrs", instruction_list(str(case["program"]))),
-        map_entry("STACK", "ValStack", application("empty")),
-    )
-    configuration = application("'Stop'Map")
-    for entry in entries:
-        configuration = application("'Unds'Map'Unds'", configuration, entry)
-    return application("initGeneratedTopCell", configuration)
+    return {"PGM": str(case["program"]), "STACK": ".ValStack"}
 
 
 def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
@@ -174,7 +130,8 @@ def main() -> int:
     with krs_gate.Session(arguments.krs_gate) as session:
         session.load(arguments.definition, arguments.module)
         for case in cases:
-            result = session.execute(initial_pattern(case))
+            pattern = session.configure(configuration_variables(case))["pattern"]
+            result = session.execute(pattern)
             if not isinstance(result, dict):
                 raise GateError(f"native result shape differs: {result}")
             outcomes.append(checked(case, observed(case, sole_state(result))))

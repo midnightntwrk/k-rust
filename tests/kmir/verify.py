@@ -61,6 +61,7 @@ PORT = semantics.Port(
     descriptors=1222,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=600,
+    native_configuration=True,
 )
 
 
@@ -312,30 +313,7 @@ def definition_checks(readable: str) -> None:
 def krun_arguments(case: dict) -> list[str]:
     """Build the KMIR configuration for the Java route."""
 
-    current_func = str(case.get("current_func", "ty(-1)"))
-    caller = str(case.get("caller", "ty(-1)"))
-    destination = str(case.get("destination", "place(local(-1), .ProjectionElems)"))
-    target = str(case.get("target", "noBasicBlockIdx"))
-    unwind = str(case.get("unwind", "unwindActionContinue"))
-    stack = str(case.get("stack", ".List"))
-    functions = str(case.get("functions", ".Map"))
-    types = str(case.get("types", ".Map"))
-    memory = str(case.get("memory", ".Map"))
-    return [
-        "-cPGM=run",
-        f"-cPROGRAM={case['program']}",
-        f"-cLOCALS={case['locals']}",
-        "-cRETVAL=noReturn",
-        f"-cCURRENTFUNC={current_func}",
-        f"-cCALLER={caller}",
-        f"-cDEST={destination}",
-        f"-cTARGET={target}",
-        f"-cUNWIND={unwind}",
-        f"-cSTACK={stack}",
-        f"-cFUNCTIONS={functions}",
-        f"-cTYPES={types}",
-        f"-cMEMORY={memory}",
-    ]
+    return [f"-c{name}={value}" for name, value in native.configuration_variables(case).items()]
 
 
 HOOKS = semantics.Hooks(

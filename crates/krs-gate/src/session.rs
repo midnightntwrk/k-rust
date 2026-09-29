@@ -1,15 +1,18 @@
 //! Newline-delimited JSON native backend session.
 
+use crate::{compile::compile_ir, configuration::Configuration};
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest},
     kore::{json as kore_json, parser::parse_pattern},
 };
+use krs_ir::measure::Timings;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     error::Error,
     fs,
     io::{self, BufRead, Write},
+    path::Path,
 };
 
 fn required_string<'a>(request: &'a Value, key: &str) -> Result<&'a str, Box<dyn Error>> {
@@ -73,6 +76,7 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
 #[derive(Default)]
 pub struct Session {
     backend: Option<Backend>,
+    configuration: Option<Configuration>,
     load_attempted: bool,
 }
 
@@ -93,7 +97,10 @@ impl Session {
     pub fn dispatch(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
         let id = required_string(request, "id")?.to_owned();
         let operation = required_string(request, "operation")?;
-        if !matches!(operation, "definition.load" | "execute" | "prove") {
+        if !matches!(
+            operation,
+            "definition.load" | "configure" | "execute" | "prove"
+        ) {
             return Err(format!("unsupported operation `{operation}`").into());
         }
         if self.backend.is_none() && operation != "definition.load" {
@@ -107,6 +114,7 @@ impl Session {
         }
         let result: Result<Value, Box<dyn Error>> = match operation {
             "definition.load" => self.load(request),
+            "configure" => self.configure(request),
             "execute" => execute(self.backend.as_mut().ok_or("backend not loaded")?, request),
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
             _ => unreachable!("validated operation"),
@@ -118,15 +126,48 @@ impl Session {
     }
 
     fn load(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
-        let kore = required_string(request, "kore")?;
         let module = required_string(request, "module")?;
-        let definition = fs::read_to_string(kore)?;
+        let (definition, configuration) = match (request.get("definition_ir"), request.get("kore"))
+        {
+            (Some(Value::String(path)), None) => {
+                let (artifacts, context) = compile_ir(&mut Timings::disabled(), Path::new(path))?;
+                if context.frontend_definition.main_module != module {
+                    return Err(format!(
+                        "Definition IR main module is `{}`, not requested `{module}`",
+                        context.frontend_definition.main_module
+                    )
+                    .into());
+                }
+                (
+                    artifacts.definition_kore,
+                    Some(Configuration::new(context)?),
+                )
+            }
+            (None, Some(Value::String(path))) => (fs::read_to_string(path)?, None),
+            _ => {
+                return Err(
+                    "definition.load requires exactly one string `definition_ir` or `kore`".into(),
+                );
+            }
+        };
         self.backend = Some(Backend::new(
             &definition,
             module.to_owned(),
             BackendOptions::default(),
         )?);
+        self.configuration = configuration;
         Ok(json!({"module": module}))
+    }
+
+    fn configure(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let variables = request
+            .get("variables")
+            .and_then(Value::as_object)
+            .ok_or("request field `variables` must be an object")?;
+        self.configuration
+            .as_mut()
+            .ok_or("configure requires definition_ir loading")?
+            .configure(variables)
     }
 }
 
@@ -186,6 +227,11 @@ mod tests {
         assert!(
             session
                 .dispatch(&json!({"id": "1", "operation": "execute"}))
+                .is_err()
+        );
+        assert!(
+            session
+                .dispatch(&json!({"id": "1", "operation": "configure"}))
                 .is_err()
         );
         assert!(

@@ -52,6 +52,8 @@ class Port:
     descriptors: int
     lsp_probes: tuple[lsp.Probe, ...]
     lsp_diagnostic_timeout: float
+    native_configuration: bool = False
+    """Load Definition IR when the native route configures surface programs."""
     clippy_allow: tuple[str, ...] = ()
     hook_namespaces: tuple[str, ...] = ()
     """Hook namespaces the Java frontend must keep; it drops hooks outside its defaults."""
@@ -493,8 +495,9 @@ def run_port(port: Port, hooks: Hooks) -> int:
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")
             return 0
+        native_input = artifacts / "definition-ir.json" if port.native_configuration else definition
         executions, native_outcomes = native_behavior(
-            port, gate, definition, pins, corpus, environment
+            port, gate, native_input, pins, corpus, environment
         )
         proofs = 0
         if arguments.java_reference:

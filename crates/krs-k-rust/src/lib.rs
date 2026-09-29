@@ -412,6 +412,17 @@ pub struct RawCompiledArtifacts {
     pub diagnostics: Vec<FrontendDiagnostic>,
     /// Native rule and claim relation, keyed by `UNIQUE_ID`.
     pub sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
+    /// Configuration variable sorts in the compiled main module.
+    pub configuration_variables: BTreeMap<String, NativeSort>,
+}
+
+/// Frontend source and configuration metadata retained for surface parsing.
+#[derive(Clone, Debug)]
+pub struct ConfigurationContext {
+    /// Prepared frontend definition used by the compiler.
+    pub frontend_definition: NativeDefinition,
+    /// Configuration variable sorts collected after compiler transformations.
+    pub configuration_variables: BTreeMap<String, NativeSort>,
 }
 
 /// One input author of an emitted rule or claim.
@@ -727,6 +738,19 @@ pub fn compile_definition_timed(
     options: CompileOptions,
     timings: &mut Timings,
 ) -> Result<CompiledArtifacts, DefinitionCompileError> {
+    compile_definition_with_context_timed(ir, options, timings).map(|(artifacts, _)| artifacts)
+}
+
+/// Compile Definition IR and retain the matching frontend configuration context.
+///
+/// # Errors
+///
+/// Fails exactly when [`compile_definition_timed`] fails.
+pub fn compile_definition_with_context_timed(
+    ir: &DefinitionIr,
+    options: CompileOptions,
+    timings: &mut Timings,
+) -> Result<(CompiledArtifacts, ConfigurationContext), DefinitionCompileError> {
     let adapted = timings.try_span("native.adapt", |_| {
         adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)
     })?;
@@ -768,14 +792,21 @@ pub fn compile_definition_timed(
         join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
             .map_err(DefinitionCompileError::Provenance)
     })?;
-    Ok(CompiledArtifacts {
-        definition_kore: artifacts.definition_kore,
-        syntax_definition_kore: artifacts.syntax_definition_kore,
-        macros_kore: artifacts.macros_kore,
-        diagnostics: artifacts.diagnostics,
-        sentence_provenance,
-        omitted_claims: adapted.omitted_claims,
-    })
+    let context = ConfigurationContext {
+        frontend_definition: loaded.definition,
+        configuration_variables: artifacts.configuration_variables,
+    };
+    Ok((
+        CompiledArtifacts {
+            definition_kore: artifacts.definition_kore,
+            syntax_definition_kore: artifacts.syntax_definition_kore,
+            macros_kore: artifacts.macros_kore,
+            diagnostics: artifacts.diagnostics,
+            sentence_provenance,
+            omitted_claims: adapted.omitted_claims,
+        },
+        context,
+    ))
 }
 
 /// Resolve a native diagnostic's Structured sentence address to its KRS source key.
@@ -1064,6 +1095,7 @@ pub fn compile_loaded_definition_timed(
             macros_kore: artifacts.macros_kore,
             diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
             sentence_provenance: artifacts.sentence_provenance,
+            configuration_variables: artifacts.configuration_variables,
         },
         phases,
     ))

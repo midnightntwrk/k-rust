@@ -2,15 +2,22 @@
 
 use krs_ir::DefinitionIr;
 use krs_ir::measure::Timings;
-use krs_k_rust::{Backend, CompileOptions, compile_definition_timed};
+use krs_k_rust::{
+    Backend, CompileOptions, CompiledArtifacts, ConfigurationContext,
+    compile_definition_with_context_timed,
+};
 use std::path::{Path, PathBuf};
 use std::{error::Error, fs};
 
-fn compile(timings: &mut Timings, input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
+/// Compile the emitted Definition IR with the same options as the one-shot command.
+pub(crate) fn compile_ir(
+    timings: &mut Timings,
+    input: &Path,
+) -> Result<(CompiledArtifacts, ConfigurationContext), Box<dyn Error>> {
     let definition_ir: DefinitionIr = timings.try_span("native.input", |_| {
         Ok::<_, Box<dyn Error>>(krs_ir::json::from_slice(&fs::read(input)?)?)
     })?;
-    let artifacts = compile_definition_timed(
+    compile_definition_with_context_timed(
         &definition_ir,
         CompileOptions {
             backend: Backend::Haskell,
@@ -18,7 +25,11 @@ fn compile(timings: &mut Timings, input: &Path, output: &Path) -> Result<(), Box
         },
         timings,
     )
-    .map_err(|error| format!("{error:#?}"))?;
+    .map_err(|error| format!("{error:#?}").into())
+}
+
+fn compile(timings: &mut Timings, input: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
+    let (artifacts, _) = compile_ir(timings, input)?;
     timings.try_span("native.write", |_| {
         fs::write(output, artifacts.definition_kore)
     })?;

@@ -103,6 +103,10 @@ class RouteWiringTests(unittest.TestCase):
                         with redirect_stdout(io.StringIO()):
                             self.assertEqual(semantics.run_port(verifier.PORT, hooks), 0)
                         native_gate.assert_called_once()
+                        self.assertEqual(
+                            native_gate.call_args.args[2],
+                            artifacts / "definition-ir.json" if port != "kevm" else root / "definition.kore",
+                        )
                         if java_reference:
                             reference_gate.assert_called_once()
                             self.assertIs(reference_gate.call_args.args[-1], native_outcomes)

@@ -8,7 +8,7 @@ A verifier puts `tests/` on `sys.path` in one line and imports what it needs:
 
 The modules are:
 
-- `support.krs_gate`: compile, definition.load, execute, and prove through the
+- `support.krs_gate`: compile, definition.load, configure, execute, and prove through the
   native gate protocol;
 - `support.process`: subprocess execution with captured output and process-group
   cleanup;
