@@ -48,17 +48,6 @@ pub(super) fn literal_tokens(facade: &Path, literal: &TermLiteral) -> TokenStrea
     }
 }
 
-pub(super) fn bytes_token_value(literal: &syn::LitByteStr) -> String {
-    use std::fmt::Write as _;
-
-    let mut value = String::from("b\"");
-    for byte in literal.value() {
-        write!(&mut value, "\\x{byte:02x}").expect("writing to a String cannot fail");
-    }
-    value.push('"');
-    value
-}
-
 pub(super) fn take_counter(counter: &mut u32) -> syn::Result<u32> {
     let value = *counter;
     *counter = counter
@@ -190,15 +179,4 @@ pub(super) fn call_site_cfg_attributes(attributes: &[Attribute]) -> syn::Result<
         parsed.push(attributes.remove(0));
     }
     Ok(parsed)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::bytes_token_value;
-
-    #[test]
-    fn byte_string_transport_is_canonical_lower_hex() {
-        let literal = syn::parse_str::<syn::LitByteStr>(r#"b"\x00A\xff""#).unwrap();
-        assert_eq!(bytes_token_value(&literal), r#"b"\x00\x41\xff""#);
-    }
 }

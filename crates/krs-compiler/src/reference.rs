@@ -1266,8 +1266,8 @@ fn render_term(
                 Ok(quote!(k::id!(#value)))
             }
             BuiltinSort::Bytes => {
-                let value = decode_bytes_token(value)
-                    .ok_or_else(|| ReferenceExpansionError::InvalidLiteral(value.clone()))?;
+                let value = krs_ir::bytes_token::decode(value)
+                    .map_err(|_| ReferenceExpansionError::InvalidLiteral(value.clone()))?;
                 let value = syn::LitByteStr::new(&value, Span::call_site());
                 Ok(quote!(k::bytes!(#value)))
             }
@@ -1302,21 +1302,6 @@ fn render_term(
             Ok(quote!(k::fragment![#owner { #(#fields),* }]))
         }
     }
-}
-
-fn decode_bytes_token(value: &str) -> Option<Vec<u8>> {
-    let body = value.strip_prefix("b\"")?.strip_suffix('"')?;
-    if body.len() % 4 != 0 {
-        return None;
-    }
-    body.as_bytes()
-        .chunks(4)
-        .map(|chunk| {
-            (chunk[0] == b'\\' && chunk[1] == b'x')
-                .then(|| u8::from_str_radix(std::str::from_utf8(&chunk[2..]).ok()?, 16).ok())
-                .flatten()
-        })
-        .collect()
 }
 
 fn render_sort_type(

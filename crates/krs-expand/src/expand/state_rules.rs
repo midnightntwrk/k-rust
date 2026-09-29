@@ -1,5 +1,6 @@
 //! Whole-configuration rules and named contexts: cells-form `#[k::rule]` and `#[k::context_alias]`.
 
+use krs_ir::bytes_token;
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole,
@@ -17,9 +18,9 @@ use super::nonce::expansion_nonce;
 use super::rules::{rule_label_tokens, rule_owise_tokens};
 use super::terms::{TermBuilder, TermRole, TermSide};
 use super::tokens::{
-    bytes_token_value, call_site_cfg_attributes, call_site_path, is_bound_ident_path, k_notation,
-    literal_tokens, map_has_role, option_key, provenance_key, sequence_has_role, sort_type_tokens,
-    spelling, take_counter,
+    call_site_cfg_attributes, call_site_path, is_bound_ident_path, k_notation, literal_tokens,
+    map_has_role, option_key, provenance_key, sequence_has_role, sort_type_tokens, spelling,
+    take_counter,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -771,7 +772,7 @@ impl<'a> StateRuleBuilder<'a> {
                 }
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
                 let key = provenance_key(facade, ProvenanceRole::ClaimBytesToken, ordinal);
-                let value = bytes_token_value(literal);
+                let value = bytes_token::encode(&literal.value());
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
                 )

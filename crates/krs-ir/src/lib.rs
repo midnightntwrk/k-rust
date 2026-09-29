@@ -12,6 +12,7 @@
 //! or the KRS command-line interface.
 
 pub mod bundle;
+pub mod bytes_token;
 pub mod coordinates;
 pub mod definition;
 mod display;

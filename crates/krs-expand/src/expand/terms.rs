@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellTermField, WireSortReference, WireTerm, WireTermArgument,
     WireTypeReference,
@@ -17,8 +18,8 @@ use syn::{Attribute, Ident, Path};
 
 use super::nonce::rule_application_selector;
 use super::tokens::{
-    bytes_token_value, call_site_path, enum_variant_parts, is_bound_ident_path, provenance_key,
-    spelling, take_counter, variant_marker_function,
+    call_site_path, enum_variant_parts, is_bound_ident_path, provenance_key, spelling,
+    take_counter, variant_marker_function,
 };
 
 /// Resolved expressions retained by a factory's static host wire.
@@ -408,7 +409,7 @@ impl<'a> TermBuilder<'a> {
                 let ordinal = self.bytes_token_ordinal;
                 self.bytes_token_ordinal += 1;
                 let key = provenance_key(facade, ProvenanceRole::ClaimBytesToken, ordinal);
-                let value = bytes_token_value(literal);
+                let value = bytes_token::encode(&literal.value());
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
                 )
@@ -616,7 +617,7 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     sort: BuiltinSort::Bytes,
-                    value: bytes_token_value(literal),
+                    value: bytes_token::encode(&literal.value()),
                 })
             }
             TermTree::Anonymous { spelling, .. } => Err(syn::Error::new(

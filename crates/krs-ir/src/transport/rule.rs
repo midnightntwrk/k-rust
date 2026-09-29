@@ -1006,30 +1006,13 @@ fn builtin_token_role<'a>(
         {
             Ok((ProvenanceRole::ClaimIdToken, &mut counters.id_token))
         }
-        crate::BuiltinSort::Bytes if valid_bytes_token(value) => {
+        crate::BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
             Ok((ProvenanceRole::ClaimBytesToken, &mut counters.bytes_token))
         }
         _ => Err(StateTransportError::InvalidTerm(
             "invalid compiler-owned builtin token",
         )),
     }
-}
-
-fn valid_bytes_token(value: &str) -> bool {
-    let Some(body) = value
-        .strip_prefix("b\"")
-        .and_then(|value| value.strip_suffix('"'))
-    else {
-        return false;
-    };
-    let (chunks, remainder) = body.as_bytes().as_chunks::<4>();
-    remainder.is_empty()
-        && chunks.iter().all(|chunk| {
-            chunk[0] == b'\\'
-                && chunk[1] == b'x'
-                && (chunk[2].is_ascii_digit() || (b'a'..=b'f').contains(&chunk[2]))
-                && (chunk[3].is_ascii_digit() || (b'a'..=b'f').contains(&chunk[3]))
-        })
 }
 
 impl DescriptorConfigurationReference {
@@ -2783,35 +2766,4 @@ fn rule_increment(value: u32) -> Result<u32, StateTransportError> {
     value.checked_add(1).ok_or(StateTransportError::InvalidTerm(
         "rule provenance ordinal exceeds u32",
     ))
-}
-
-#[cfg(test)]
-mod bytes_token_tests {
-    use super::{RuleCounters, builtin_token_role};
-    use crate::{BuiltinSort, ProvenanceRole, StateTransportError};
-
-    #[test]
-    fn bytes_tokens_accept_only_canonical_lower_hex_transport() {
-        let mut counters = RuleCounters::default();
-        let (role, ordinal) =
-            builtin_token_role(BuiltinSort::Bytes, r#"b"\x00\x7f\xff""#, &mut counters).unwrap();
-        assert_eq!(role, ProvenanceRole::ClaimBytesToken);
-        assert_eq!(*ordinal, 0);
-
-        for malformed in [
-            r#""\x00""#,
-            r#"b"00""#,
-            r#"b"\x0""#,
-            r#"b"\xGG""#,
-            r#"b"\xAF""#,
-            r#"b"\u{00}""#,
-        ] {
-            assert!(matches!(
-                builtin_token_role(BuiltinSort::Bytes, malformed, &mut counters),
-                Err(StateTransportError::InvalidTerm(
-                    "invalid compiler-owned builtin token"
-                ))
-            ));
-        }
-    }
 }
