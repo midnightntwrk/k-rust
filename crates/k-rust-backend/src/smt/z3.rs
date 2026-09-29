@@ -44,6 +44,8 @@
 //! bound = "O(R) solver work as reported by Z3"
 //! ```
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     str::FromStr,
@@ -234,7 +236,7 @@ impl Z3Solver {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match &*state {
             PreludeState::Failed(error) => Some(error.clone()),
-            _ => None,
+            PreludeState::Unchecked | PreludeState::Consistent => None,
         }
     }
 
@@ -248,7 +250,15 @@ impl Z3Solver {
         let failure = match error {
             SmtError::InconsistentPrelude => PreludeFailure::Inconsistent,
             SmtError::UnknownPrelude(reason) => PreludeFailure::Unknown(reason.as_str().into()),
-            other => unreachable!("a failed prelude records a prelude failure, not {other:?}"),
+            other @ SmtError::Translation(_)
+            | other @ SmtError::Unavailable
+            | other @ SmtError::Unknown(_)
+            | other @ SmtError::InconsistentGroundTruth
+            | other @ SmtError::MissingModel
+            | other @ SmtError::MissingModelValue(_)
+            | other @ SmtError::InvalidModelValue { .. } => {
+                unreachable!("a failed prelude records a prelude failure, not {other:?}")
+            }
         };
         self.prelude_signal.raise(failure);
     }
@@ -305,7 +315,7 @@ impl Z3Solver {
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 match &*state {
                     PreludeState::Failed(error) => Err(error.clone()),
-                    _ => {
+                    PreludeState::Unchecked | PreludeState::Consistent => {
                         *state = PreludeState::Consistent;
                         Ok(Satisfiability::Sat)
                     }
@@ -420,7 +430,8 @@ impl Z3Solver {
             solver.from_string(query.base());
             match measured_check(&solver) {
                 SatResult::Sat => {
-                    self.confirm_answer(Satisfiability::Sat)?;
+                    // confirm_answer returns its argument unchanged; only the prelude check matters here.
+                    let _: Satisfiability = self.confirm_answer(Satisfiability::Sat)?;
                     let Some(mappings) = query.model_mappings() else {
                         return Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()));
                     };
@@ -428,7 +439,7 @@ impl Z3Solver {
                     return self.extract_model(&model, mappings, variables);
                 }
                 SatResult::Unsat => {
-                    self.confirm_answer(Satisfiability::Unsat)?;
+                    let _: Satisfiability = self.confirm_answer(Satisfiability::Unsat)?;
                     return Ok(ModelResult::Unsat);
                 }
                 SatResult::Unknown if attempt < self.options.retry_limit => {
@@ -438,7 +449,8 @@ impl Z3Solver {
                     let reason = solver
                         .get_reason_unknown()
                         .unwrap_or_else(|| "Z3 returned unknown".into());
-                    self.confirm_answer(Satisfiability::Unknown(reason.clone()))?;
+                    let _: Satisfiability =
+                        self.confirm_answer(Satisfiability::Unknown(reason.clone()))?;
                     return Ok(ModelResult::Unknown(reason));
                 }
             }
@@ -595,6 +607,7 @@ impl SmtSolver for Z3Solver {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 

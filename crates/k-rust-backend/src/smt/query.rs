@@ -1,5 +1,7 @@
 //! A query posed to the solver, with the exactness its translation recorded.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::collections::BTreeMap;
 
 use super::{Exactness, SExpr, TranslationState};
@@ -52,6 +54,7 @@ impl TranslatedQuery {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use std::sync::Arc;
 

@@ -76,6 +76,7 @@ enum PriorityGroupOutcome {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[deny(clippy::wildcard_enum_match_arm)]
 fn apply_priority_group(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -287,6 +288,7 @@ fn inherit_diagnostics(
     }
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn classify_first_group(
     pattern: &Pattern,
     mut branches: Vec<AppliedRule>,

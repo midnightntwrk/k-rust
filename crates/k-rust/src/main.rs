@@ -3281,6 +3281,7 @@ fn kprove_solver_error(error: BackendError) -> io::Error {
     )
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let _trace = start_trace(options.trace.as_deref(), options.trace_aggregate.as_deref())?;
     let started = Instant::now();
@@ -3466,7 +3467,13 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                          result is empty for them, so they have no successor \
                          (--allow-vacuous accepts such branches)"
                     )?,
-                    _ => {}
+                    ProofLeafOutcome::Proven(_)
+                    | ProofLeafOutcome::Trusted
+                    | ProofLeafOutcome::Stuck
+                    | ProofLeafOutcome::DepthBound
+                    | ProofLeafOutcome::BreadthBound
+                    | ProofLeafOutcome::Stopped(_)
+                    | ProofLeafOutcome::Indeterminate(_) => {}
                 }
                 // An empty leaf whose emptiness comes from an equation reducing an application
                 // of a `total` symbol to bottom: the definition contradicts the attribute there.

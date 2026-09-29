@@ -10,6 +10,8 @@
 //! search loops can state an end other than a cancellation only through [`pop_or_exhausted`],
 //! [`remaining`], [`breadth_exceeded`] and [`retain_witness`].
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::collections::VecDeque;
 
 use super::{

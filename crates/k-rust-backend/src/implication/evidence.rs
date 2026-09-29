@@ -5,6 +5,8 @@
 //! states one fact about the instances of a pattern; the verdict that holds it asserts that
 //! fact, and the minting function is the one place its premise is decided.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use crate::{
     definedness::ceil_term,
     definition::BackendDefinition,
@@ -259,6 +261,7 @@ pub(super) enum Everywhere {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
 

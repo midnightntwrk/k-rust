@@ -1,6 +1,8 @@
 //! Portable SMT-LIB translation shared by native Z3 and solver-free builds: one pass per query
 //! script; a responsibility, not an algorithm; no counter of its own, no worklist.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -518,6 +520,10 @@ impl TranslationState {
             .dependent_mappings
             .iter()
             .map(|((predicate, arguments), name)| {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "Predicate is syntax; only the listed variants are special here"
+                )]
                 let result = match predicate {
                     Predicate::Term(term) => Some(term.sort()),
                     _ => None,
@@ -912,6 +918,7 @@ fn quote(name: &str) -> String {
     format!("|{name}|")
 }
 
+#[must_use]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Satisfiability {
     /// The translation has a model. It is a K valuation of the predicates only when the
@@ -923,6 +930,7 @@ pub enum Satisfiability {
 }
 
 /// The answer of `SmtSolver::check_predicates(known, substitution, checked)`.
+#[must_use]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Validity {
     /// `known ∧ ¬checked` is unsatisfiable: every instance of `known` satisfies `checked`.
@@ -1050,6 +1058,7 @@ fn fill_placeholders(expression: &SExpr, arguments: &[SExpr]) -> Result<SExpr, T
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use std::sync::Arc;
 

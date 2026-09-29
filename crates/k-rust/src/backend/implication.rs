@@ -1,5 +1,7 @@
 //! Shared implication validation, checking, and condition results.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{collections::BTreeSet, error::Error};
 
 use k_rust_backend::{
@@ -157,6 +159,10 @@ pub fn cli_output(
         "implication": kore_json::to_value(&implication)?,
     });
     if let Some(condition) = verdict.into_condition() {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "KorePattern is syntax; only the listed variants are special here"
+        )]
         let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,

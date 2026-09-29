@@ -13,6 +13,8 @@
 //! bound = "O(d + l + b * h) term visits and buffer copies; only stream-cell paths are externalized"
 //! ```
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     error::Error,
@@ -442,6 +444,10 @@ fn stream_list_items<'a, S: PatternSource<'a>>(pattern: S) -> Option<Vec<S>> {
     append(pattern, &mut items).then_some(items)
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "PatternNode is syntax; only the listed variants are special here"
+)]
 fn unwrap_injections<'a, S: PatternSource<'a>>(mut pattern: S) -> S {
     loop {
         match pattern.clone().node() {
@@ -670,7 +676,14 @@ fn run_backend_with_solver(
         .find(|leaf| match &leaf.halt_reason {
             HaltReason::Stopped(cause) => stop_fails_the_run(cause),
             HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => true,
-            _ => false,
+            HaltReason::Stuck
+            | HaltReason::Trivial { .. }
+            | HaltReason::Vacuous { .. }
+            | HaltReason::Branch { .. }
+            | HaltReason::CutPointRule { .. }
+            | HaltReason::TerminalRule { .. }
+            | HaltReason::DepthBound
+            | HaltReason::BreadthBound => false,
         })
     {
         let reason = match &leaf.halt_reason {
@@ -680,7 +693,17 @@ fn run_backend_with_solver(
                 let application = KorePrinter::pretty(100).print_pattern(&externalize::term(term));
                 format!("{error}\n{application}")
             }
-            reason => format!("{reason:?}"),
+            reason @ HaltReason::Stopped(_)
+            | reason @ HaltReason::Stuck
+            | reason @ HaltReason::Trivial { .. }
+            | reason @ HaltReason::Vacuous { .. }
+            | reason @ HaltReason::Branch { .. }
+            | reason @ HaltReason::CutPointRule { .. }
+            | reason @ HaltReason::TerminalRule { .. }
+            | reason @ HaltReason::DepthBound
+            | reason @ HaltReason::BreadthBound
+            | reason @ HaltReason::Indeterminate(_)
+            | reason @ HaltReason::Simplification(_) => format!("{reason:?}"),
         };
         return Err(io::Error::other(format!(
             "in-process backend halted at depth {}: {reason}",
@@ -811,7 +834,17 @@ fn run_backend_with_solver(
                         );
                     }
                 }
-                _ => unreachable!("all dropped leaves were checked above"),
+                HaltReason::Stopped(_)
+                | HaltReason::Stuck
+                | HaltReason::Branch { .. }
+                | HaltReason::CutPointRule { .. }
+                | HaltReason::TerminalRule { .. }
+                | HaltReason::DepthBound
+                | HaltReason::BreadthBound
+                | HaltReason::Indeterminate(_)
+                | HaltReason::Simplification(_) => {
+                    unreachable!("all dropped leaves were checked above")
+                }
             }
             if let HaltReason::Trivial {
                 contradicted_total: Some(contradicted),

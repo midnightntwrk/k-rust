@@ -69,6 +69,8 @@
 //! output-restricted variant of substitution extraction, O(c^2 x t) for c constraints plus the
 //! definedness of each solved value that is not `ceil_free`, no counter.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     borrow::Cow,
     collections::{BTreeSet, HashSet, VecDeque},
@@ -2633,6 +2635,7 @@ fn replay_search_remainder(
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use std::{collections::BTreeSet, sync::Arc};
 

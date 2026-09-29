@@ -34,6 +34,8 @@
 //! a [`Counterexample`]. The wire vocabulary ([`ImplicationStatus`], [`ImplicationFailure`],
 //! [`ImplicationCondition`]) is derived from a verdict, never stored.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{collections::BTreeSet, error::Error, fmt};
 
 use k_rust_kore::kore::ast as kore;
@@ -199,6 +201,10 @@ pub enum SpecialConsequent {
 /// It takes no definition and no solver, so it cannot mint a [`Counterexample`]; the invalid
 /// answers of the routed cases come from [`grade_bottom_consequent`] and
 /// [`check_negated_consequent`].
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "KorePattern is syntax; only the listed variants are special here"
+)]
 pub fn special_consequent(consequent: &kore::Pattern) -> Option<SpecialConsequent> {
     match consequent.strip_exists() {
         kore::Pattern::Top { .. } => Some(SpecialConsequent::Top),
@@ -937,6 +943,10 @@ pub fn check_disjunctive_implication_with_existentials(
     }
     // One span per problem: the check and its grading.
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "TermKind is syntax; only the listed variants are special here"
+    )]
     let antecedent_variable = match antecedent.term.kind() {
         crate::term::TermKind::Variable(variable) => Some(variable.clone()),
         _ => None,
@@ -1256,6 +1266,10 @@ fn check_established(
     let mut antecedent =
         rename_existentials_apart(antecedent, antecedent_existentials, &consequent)
             .unwrap_or_else(|| antecedent.clone());
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "TermKind is syntax; only the listed variants are special here"
+    )]
     let antecedent_variable = match antecedent.term.kind() {
         crate::term::TermKind::Variable(variable) => Some(variable.clone()),
         _ => None,
@@ -2185,6 +2199,7 @@ fn implication_binding<'a>(
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 

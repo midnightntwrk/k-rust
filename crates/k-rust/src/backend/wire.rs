@@ -1,5 +1,7 @@
 //! Versioned JSON wire contracts v1 for the JavaScript hosts; converters only.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, value::RawValue};
 
@@ -1258,7 +1260,15 @@ fn execution_candidates_output<K: WireKore>(
             ),
             None,
         )),
-        _ => Ok((None, None)),
+        HaltReason::Stopped(_)
+        | HaltReason::Stuck
+        | HaltReason::Trivial { .. }
+        | HaltReason::Vacuous { .. }
+        | HaltReason::TerminalRule { .. }
+        | HaltReason::DepthBound
+        | HaltReason::BreadthBound
+        | HaltReason::Indeterminate(_)
+        | HaltReason::Simplification(_) => Ok((None, None)),
     }
 }
 
@@ -1529,7 +1539,16 @@ pub(super) fn execution_response<K: WireKore>(
                 let (reason, detail) = halt_reason(&leaf.halt_reason)?;
                 let (rule_id, rule_label) = match &leaf.halt_reason {
                     HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
-                    _ => (None, None),
+                    HaltReason::Stopped(_)
+                    | HaltReason::Stuck
+                    | HaltReason::Vacuous { .. }
+                    | HaltReason::Branch { .. }
+                    | HaltReason::CutPointRule { .. }
+                    | HaltReason::TerminalRule { .. }
+                    | HaltReason::DepthBound
+                    | HaltReason::BreadthBound
+                    | HaltReason::Indeterminate(_)
+                    | HaltReason::Simplification(_) => (None, None),
                 };
                 let contradicted_total = match &leaf.halt_reason {
                     HaltReason::Trivial {
@@ -1540,14 +1559,33 @@ pub(super) fn execution_response<K: WireKore>(
                         contradicted_total: Some(contradicted),
                         ..
                     } => Some(contradicted_total_output(contradicted)?),
-                    _ => None,
+                    HaltReason::Stopped(_)
+                    | HaltReason::Stuck
+                    | HaltReason::Trivial { .. }
+                    | HaltReason::Vacuous { .. }
+                    | HaltReason::Branch { .. }
+                    | HaltReason::CutPointRule { .. }
+                    | HaltReason::TerminalRule { .. }
+                    | HaltReason::DepthBound
+                    | HaltReason::BreadthBound
+                    | HaltReason::Indeterminate(_)
+                    | HaltReason::Simplification(_) => None,
                 };
                 let result_sort = leaf.pattern.term.sort();
                 let cause = match &leaf.halt_reason {
                     HaltReason::Indeterminate(reason) => {
                         Some(indeterminate_failure_output(reason.clone(), &result_sort)?)
                     }
-                    _ => None,
+                    HaltReason::Stopped(_)
+                    | HaltReason::Stuck
+                    | HaltReason::Trivial { .. }
+                    | HaltReason::Vacuous { .. }
+                    | HaltReason::Branch { .. }
+                    | HaltReason::CutPointRule { .. }
+                    | HaltReason::TerminalRule { .. }
+                    | HaltReason::DepthBound
+                    | HaltReason::BreadthBound
+                    | HaltReason::Simplification(_) => None,
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
@@ -1665,6 +1703,7 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
 

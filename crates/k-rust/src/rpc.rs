@@ -1162,6 +1162,7 @@ fn stop_fault(cause: &StopCause) -> RpcFault {
     }
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
     if let SimplificationError::UnsupportedHook { term, .. } = &error {
         return RpcFault::runtime(error.to_string(), Some(term));
@@ -1180,7 +1181,14 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
             "(incomplete (theory arithmetic))".into()
         }
         SmtError::Unknown(reason) => reason,
-        error => format!("{error:?}"),
+        error @ SmtError::Translation(_)
+        | error @ SmtError::Unavailable
+        | error @ SmtError::InconsistentPrelude
+        | error @ SmtError::UnknownPrelude(_)
+        | error @ SmtError::InconsistentGroundTruth
+        | error @ SmtError::MissingModel
+        | error @ SmtError::MissingModelValue(_)
+        | error @ SmtError::InvalidModelValue { .. } => format!("{error:?}"),
     };
     let Ok(term) = encode_kore(&term) else {
         return RpcFault::runtime("could not encode the predicate rejected by SMT", None);
@@ -1528,6 +1536,7 @@ fn implication_pattern_context(
     ]
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
     let (reason, rule_id) = match reason {
         HaltReason::Stuck => ("No applicable rules found", None),
@@ -1551,7 +1560,14 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
             ),
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
-        _ => return None,
+        HaltReason::Stopped(_)
+        | HaltReason::Trivial { .. }
+        | HaltReason::Vacuous { .. }
+        | HaltReason::Branch { .. }
+        | HaltReason::CutPointRule { .. }
+        | HaltReason::TerminalRule { .. }
+        | HaltReason::DepthBound
+        | HaltReason::BreadthBound => return None,
     };
     let mut result = Map::from_iter([
         ("tag".into(), Value::String("failure".into())),
@@ -1928,6 +1944,7 @@ fn is_rewrite_existential(variable: &Variable) -> bool {
     decoded.is_ok_and(|name| name.starts_with('?'))
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn implication_result(
     antecedent: &KorePattern,
     consequent: &KorePattern,
@@ -1949,6 +1966,10 @@ fn implication_result(
         "status": status,
     });
     if let Some(condition) = verdict.into_condition() {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "KorePattern is syntax; only the listed variants are special here"
+        )]
         let antecedent_variable = match antecedent.strip_exists() {
             KorePattern::Variable(variable) => Some(variable.name.as_str()),
             _ => None,

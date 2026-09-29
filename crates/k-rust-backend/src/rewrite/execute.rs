@@ -283,6 +283,7 @@ impl<'a> Execution<'a> {
     /// The per-state pipeline E2 to E7; the interruption checks sit where the loop body had
     /// them (before constraint simplification, after it, after term simplification, after the
     /// rewrite step, and inside E6 and E7). Returns the successors `run` enqueues.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn expand(
         &mut self,
         state: ExecutionState,
@@ -568,6 +569,7 @@ impl<'a> Execution<'a> {
 
     /// E5: `Stuck` (or `Vacuous` when the initial vacuity was deferred), `Trivial`, `Vacuous`,
     /// and `Indeterminate` results become leaves with the matching `HaltReason`.
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn halt_leaf(
         &mut self,
         state: ExecutionState,

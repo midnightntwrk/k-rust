@@ -790,6 +790,7 @@ fn recover_by_split(
 /// plus constraints, several re-enter, `Bottom` ends the attempt); when unification is
 /// unsupported, the functional-symbolic and function-equality witnesses are tried, and
 /// otherwise the attempt is `Indeterminate` unless the solver refutes the unclear `requires`.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn recover_by_unification(
     context: RuleContext<'_>,
     fresh_counter: &mut u64,
@@ -1024,6 +1025,7 @@ fn definedness(
 
 /// P10: with match conditions present, the path plus the conditions must be satisfiable;
 /// `Unsat` ends the attempt, `Unknown` or a solver error makes it `Indeterminate`.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Phase<()> {
     if match_conditions.is_empty() {
         return Ok(());
@@ -1138,6 +1140,7 @@ fn simplify_rule_condition(
 /// the attempt, solver trouble makes it `Indeterminate`); the applicability is the
 /// existential closure of the match conditions and the unclear `requires`, and an attempt
 /// whose negated applicability is already on the path (alpha-equivalently) ends.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn validity_and_applicability(
     context: RuleContext<'_>,
     requires: Vec<Predicate>,
@@ -1212,6 +1215,7 @@ fn validity_and_applicability(
 /// (`Instantiation`); the existentials are freshened; every right-hand-side alternative goes
 /// through `apply_rhs_alternative`, and the attempt is `Unified` with the applications and
 /// trivial results collected (an `Indeterminate` alternative ends it).
+#[deny(clippy::wildcard_enum_match_arm)]
 fn instantiate(
     context: RuleContext<'_>,
     substitution: Substitution,
@@ -1363,6 +1367,7 @@ enum ObligationVerdict {
     Carried,
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn rhs_obligation_verdict(condition: Result<RuleCondition, SmtError>) -> ObligationVerdict {
     match condition {
         Ok(RuleCondition::Satisfied) => ObligationVerdict::Discharged,
@@ -1381,6 +1386,7 @@ enum EnsuresStepVerdict {
     Indeterminate(SmtError),
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn rhs_ensures_verdict(condition: Result<RuleCondition, SmtError>) -> EnsuresStepVerdict {
     match condition {
         Ok(RuleCondition::Satisfied) => EnsuresStepVerdict::Cleared,
@@ -1659,6 +1665,7 @@ fn term_alias_variables(term: &Term) -> BTreeSet<Variable> {
     variables
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
     let mut groups = Vec::new();
     for attempt in attempts {

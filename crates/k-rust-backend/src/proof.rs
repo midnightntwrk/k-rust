@@ -28,6 +28,8 @@
 //! as a refutation by at most two more satisfiability queries and two more rewrite steps
 //! (`stuck_leaf`).
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     collections::{BTreeSet, VecDeque},
     error::Error,
@@ -1899,6 +1901,10 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
 /// `ensures ?X >Int 0` always has a witness. An empty set holds no instance of the claim, so it
 /// is dropped rather than reported as a vacuous path; a set not shown empty (satisfiable or
 /// undecided) is kept.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Predicate is syntax; only the listed variants are special here"
+)]
 fn undefined_step_state(
     definition: &BackendDefinition,
     state: &ProofState,
@@ -2057,6 +2063,7 @@ fn complement_implication_condition(
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use std::{thread, time::Duration};
 

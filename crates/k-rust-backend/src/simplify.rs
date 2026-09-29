@@ -1034,6 +1034,7 @@ fn decide_rule_condition(
 /// failure other than those. The rewriter's `requires` check, standalone predicate
 /// simplification, and the residual-constraint discharge of pattern simplification all share
 /// this decision.
+#[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn decide_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
