@@ -1,5 +1,6 @@
 //! Materialization of descriptor provenance from reparsed authored invocations.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
@@ -78,6 +79,21 @@ struct LoadedSources {
     materialized: BTreeMap<ProvenanceKey, SourceRange>,
 }
 
+fn document<'a>(
+    source_cache: &'a mut BTreeMap<(usize, String), SourceDocument>,
+    contexts: &[PreparedContext],
+    context_index: usize,
+    relative: &str,
+) -> Result<&'a SourceDocument, CollectionError> {
+    match source_cache.entry((context_index, relative.to_owned())) {
+        Entry::Occupied(entry) => Ok(entry.into_mut()),
+        Entry::Vacant(entry) => {
+            let loaded = load_source_document(&contexts[context_index], relative)?;
+            Ok(entry.insert(loaded))
+        }
+    }
+}
+
 fn materialize_invocation(
     context: &mut MaterializationContext<'_>,
 ) -> Result<(ParsedInvocation, Vec<DescriptorNodeOrigin>), CollectionError> {
@@ -103,29 +119,24 @@ impl MaterializationContext<'_> {
     fn load_sources(&mut self) -> Result<LoadedSources, CollectionError> {
         let display_file = self.provenance.invocation().display_file();
         let relative = normalize_display_file(display_file)?;
-        let cache_key = (self.context_index, relative.clone());
-        if !self.source_cache.contains_key(&cache_key) {
-            let document = load_source_document(&self.contexts[self.context_index], &relative)?;
-            self.source_cache.insert(cache_key.clone(), document);
-        }
-        let invocation_document = self.source_cache.get(&cache_key).ok_or_else(|| {
-            CollectionError::new(
-                CollectionErrorKind::HostIo,
-                "internal source cache insertion failed",
-            )
-        })?;
+        let invocation_document = document(
+            self.source_cache,
+            self.contexts,
+            self.context_index,
+            &relative,
+        )?;
         let invocation_range = source_range(invocation_document, self.provenance.invocation())?;
 
         let mut authored_documents = BTreeMap::new();
         for authored in self.provenance.authored() {
             let authored_relative = normalize_display_file(authored.anchor().display_file())?;
             let authored_cache_key = (self.context_index, authored_relative.clone());
-            if !self.source_cache.contains_key(&authored_cache_key) {
-                let document =
-                    load_source_document(&self.contexts[self.context_index], &authored_relative)?;
-                self.source_cache
-                    .insert(authored_cache_key.clone(), document);
-            }
+            document(
+                self.source_cache,
+                self.contexts,
+                self.context_index,
+                &authored_relative,
+            )?;
             authored_documents.insert(authored.key().clone(), authored_cache_key);
         }
 
@@ -134,12 +145,12 @@ impl MaterializationContext<'_> {
             let authored_cache_key = authored_documents
                 .get(authored.key())
                 .expect("every authored key has a loaded document");
-            let document = self.source_cache.get(authored_cache_key).ok_or_else(|| {
-                CollectionError::new(
-                    CollectionErrorKind::HostIo,
-                    "internal authored source cache insertion failed",
-                )
-            })?;
+            let document = document(
+                self.source_cache,
+                self.contexts,
+                self.context_index,
+                &authored_cache_key.1,
+            )?;
             materialized.insert(
                 authored.key().clone(),
                 source_range(document, authored.anchor())?,
@@ -178,12 +189,10 @@ impl MaterializationContext<'_> {
             .authored_documents
             .get(self.primary_key)
             .expect("the primary authored key has a loaded document");
-        let primary_document = self.source_cache.get(primary_cache_key).ok_or_else(|| {
-            CollectionError::new(
-                CollectionErrorKind::HostIo,
-                "internal primary source cache insertion failed",
-            )
-        })?;
+        let primary_document = self
+            .source_cache
+            .get(primary_cache_key)
+            .expect("the primary authored document remains cached");
         let primary_candidates = primary_document
             .invocations
             .iter()
@@ -262,12 +271,10 @@ impl MaterializationContext<'_> {
                 .authored_documents
                 .get(authored.key())
                 .expect("every authored key has a loaded document");
-            let document = self.source_cache.get(authored_cache_key).ok_or_else(|| {
-                CollectionError::new(
-                    CollectionErrorKind::HostIo,
-                    "internal authored source cache lookup failed",
-                )
-            })?;
+            let document = self
+                .source_cache
+                .get(authored_cache_key)
+                .expect("every authored document remains cached");
             let coordinates = host_coordinates(authored.anchor());
             let candidate_hits = if authored_cache_key == primary_cache_key
                 && invocation.anchors.get(authored.key()) == Some(&coordinates)
