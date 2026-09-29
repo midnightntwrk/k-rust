@@ -4384,6 +4384,34 @@ fn a_declared_mint_k_keeps_its_subsorts_while_the_bridges_stay_recognition_only(
 
 #[cfg(feature = "z3-inference")]
 #[test]
+fn a_definition_production_shaped_like_a_recognition_bridge_keeps_its_subsort() {
+    // `syntax MInt{K, K} ::= MInt{Foo, Foo}` is the definition's own unary production between two
+    // declared instances of the arity-two head, so it states `MInt{Foo, Foo} <= MInt{K, K}` and
+    // `h(X) => f(X)` is well sorted. It has the shape of a recognition bridge, but only the
+    // bridges the grammar adds for placeholder slots are recognition-only.
+    load_with_prelude(
+        indoc! {r#"
+            module TEST
+              syntax {A, B} MInt{A, B}
+              syntax MInt{Foo, Foo}
+              syntax MInt{K, K}
+              syntax MInt{K, K} ::= MInt{Foo, Foo}
+              syntax MInt{Foo, Foo} ::= "a"
+              syntax Foo ::= "foo"
+              syntax Foo ::= f(MInt{K, K}) [function]
+              rule f(_) => foo
+              syntax Foo ::= h(MInt{Foo, Foo}) [function]
+              rule h(X) => f(X)
+            endmodule
+        "#},
+        "test.k",
+        "TEST",
+    )
+    .expect("the definition's MInt{Foo, Foo} <= MInt{K, K} holds");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
 fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
     for explicit_counter in [false, true] {
         let counter = if explicit_counter {

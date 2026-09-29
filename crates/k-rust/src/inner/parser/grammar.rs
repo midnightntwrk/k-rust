@@ -714,7 +714,7 @@ impl Grammar {
     /// role the definition gives its spelling.
     ///
     /// Registration must precede every production: a unary production added before it would be
-    /// judged without the placeholder and could put a recognition step into a subsort relation.
+    /// judged without the placeholder and could put a scaffolding pair into a subsort relation.
     pub(super) fn placeholder_sort(&mut self, head: &SortHead, role: Placeholder) -> Sort {
         debug_assert!(
             self.productions.is_empty(),
@@ -725,38 +725,60 @@ impl Grammar {
         placeholder
     }
 
-    /// Whether the unary production `result ::= child` is a recognition step: it widens what the
-    /// recognizer accepts at a placeholder and states no inclusion between sorts.
+    /// Whether a unary production between `child` and `result` touches a scaffolding placeholder.
     ///
     /// A scaffolding placeholder denotes no set of terms, so no unary production touching it
-    /// states an inclusion. A placeholder spelling that the definition also declares as an
-    /// instance is a defined sort, and its own unary productions (`KItem ::= MInt{K}`,
-    /// `Thing ::= MInt{K}`) state inclusions like those of any defined sort; only a production
-    /// into it from an instance of its own head is a recognition step. That production is the
-    /// bridge by which a slot whose parameter has no parse-time value recognizes the instance:
-    /// `MInt{64}` and `MInt{K}` are the instances of `MInt` at two different parameters, so they
-    /// are different sorts and the bridge states no inclusion between them.
-    fn is_recognition_step(&self, child: &Sort, result: &Sort) -> bool {
-        self.placeholders.get(child) == Some(&Placeholder::Scaffolding)
-            || match self.placeholders.get(result) {
-                None => false,
-                Some(Placeholder::Scaffolding) => true,
-                Some(Placeholder::DeclaredInstance) => {
-                    SortHead::from(child) == SortHead::from(result)
-                }
-            }
+    /// states an inclusion between sorts, whoever adds it. A placeholder spelling that the
+    /// definition also declares as an instance is a defined sort: its unary productions state
+    /// inclusions like those of any defined sort, and only the bridges added by
+    /// `add_recognition_bridge` are kept out of the relations.
+    fn touches_scaffolding(&self, child: &Sort, result: &Sort) -> bool {
+        [child, result]
+            .into_iter()
+            .any(|sort| self.placeholders.get(sort) == Some(&Placeholder::Scaffolding))
     }
 
     fn insert_subsort_pair(&mut self, lesser: &Sort, greater: &Sort, relation: SubsortRelation) {
         debug_assert!(
-            !self.is_recognition_step(lesser, greater),
-            "subsort pair ({lesser}, {greater}) is a recognition step at a placeholder"
+            !self.touches_scaffolding(lesser, greater),
+            "subsort pair ({lesser}, {greater}) has a scaffolding placeholder side"
         );
         let relations = match relation {
             SubsortRelation::Semantic => &mut self.subsort_relations,
             SubsortRelation::Syntactic => &mut self.syntactic_subsort_relations,
         };
         relations.insert((lesser.clone(), greater.clone()));
+    }
+
+    /// Add the recognition bridge `placeholder ::= instance`, by which a slot whose parameter has
+    /// no parse-time value recognizes a declared instance at the registered `placeholder`.
+    ///
+    /// The bridge states no inclusion: `MInt{64}` and `MInt{K}` are instances of `MInt` at two
+    /// different parameters, so they are different sorts, and `MInt{64} <= MInt{K}` in a relation
+    /// would let inference choose `K` for a parameter constrained by that slot instead of the
+    /// width its token or cast anchors. The bridge is therefore added without its pairs even when
+    /// the definition declares the placeholder spelling, while the definition's own unary
+    /// productions, including one with the same shape, keep theirs.
+    pub(super) fn add_recognition_bridge(
+        &mut self,
+        placeholder: Sort,
+        instance: Sort,
+    ) -> Result<(), ParseError> {
+        debug_assert!(
+            self.placeholders.contains_key(&placeholder),
+            "recognition bridge into the unregistered sort {placeholder}"
+        );
+        self.add_production_of(
+            placeholder,
+            &[ProductionItem::NonTerminal {
+                sort: instance,
+                name: None,
+            }],
+            None,
+            ProductionOptions::default(),
+            &BTreeMap::new(),
+            UnaryProduction::RecognitionBridge,
+        )
     }
 
     pub(super) fn add_production_with_lexical(
@@ -766,6 +788,25 @@ impl Grammar {
         label: Option<Label>,
         options: ProductionOptions<'_>,
         lexical: &BTreeMap<String, KRegex>,
+    ) -> Result<(), ParseError> {
+        self.add_production_of(
+            result,
+            items,
+            label,
+            options,
+            lexical,
+            UnaryProduction::Inclusion,
+        )
+    }
+
+    fn add_production_of(
+        &mut self,
+        result: Sort,
+        items: &[ProductionItem],
+        label: Option<Label>,
+        options: ProductionOptions<'_>,
+        lexical: &BTreeMap<String, KRegex>,
+        unary: UnaryProduction,
     ) -> Result<(), ParseError> {
         // Registration of an earlier item can survive a later compile/attribute failure.
         self.invalidate_prediction_analysis();
@@ -834,13 +875,14 @@ impl Grammar {
             .apply_priority
             .map(parse_apply_priority)
             .transpose()?;
-        // A recognition step at a placeholder (`is_recognition_step`) only widens what the
-        // recognizer accepts, so it states no inclusion between sorts. `MInt{64} <= MInt{K}` in
-        // either relation would let inference choose `K` for a parameter constrained by that slot
-        // instead of the width its token or cast anchors, and would let bracket-overload
-        // selection rank productions through a recognition step.
+        // A recognition bridge, or any unary production touching a scaffolding placeholder, only
+        // widens what the recognizer accepts, so it states no inclusion between sorts. Such a pair
+        // in the semantic relation would let inference choose `K` for a parameter constrained by a
+        // placeholder slot, and in the syntactic relation would let bracket-overload selection
+        // rank productions through a recognition step.
         if let [Item::NonTerminal(child)] = items.as_slice()
-            && !self.is_recognition_step(child, &result)
+            && unary == UnaryProduction::Inclusion
+            && !self.touches_scaffolding(child, &result)
         {
             if label.is_none() && syntactic_subsort {
                 self.insert_subsort_pair(child, &result, SubsortRelation::Semantic);
@@ -1153,16 +1195,16 @@ pub(super) fn render_parsing_production(production: &Production) -> String {
 }
 
 /// The recognition placeholder `H{K}` of the parametric head `H`: the sort a slot of head `H` is
-/// recognized at when its parameters have no parse-time value, reached from every declared
-/// instance of `H` by a recognition-only bridge. The concretization plan substitutes `K` for each
-/// parameter without a parse-time value, so the placeholder has one `K` per parameter of `H`.
-/// The one spelling shared by the grammar's registration (`Grammar::placeholder_sort`) and the
-/// concretization plan's bridges.
+/// recognized at when its parameter has no parse-time value, reached from every declared instance
+/// of `H` by a recognition bridge. The one spelling shared by the grammar's registration
+/// (`Grammar::placeholder_sort`) and the concretization plan's bridges.
+///
+/// The spelling has one `K` whatever the arity of `H`, so heads that share a name share the
+/// placeholder. `MInt` is the only parametric head the sort checks admit and only its arity-one
+/// head carries the hook; which placeholder a head of another arity should have belongs with the
+/// concretization cases that also assume one parameter (case 2 reads `parameters[0]`).
 pub(super) fn placeholder_of(head: &SortHead) -> Sort {
-    Sort::with_parameters(
-        head.as_str(),
-        vec![Sort::new(BuiltinSort::K.k_name()); head.parameters()],
-    )
+    Sort::with_parameters(head.as_str(), vec![Sort::new(BuiltinSort::K.k_name())])
 }
 
 /// The role a definition gives the spelling of a recognition placeholder `H{K}`.
@@ -1170,9 +1212,19 @@ pub(super) fn placeholder_of(head: &SortHead) -> Sort {
 pub(super) enum Placeholder {
     /// No visible sentence declares `H{K}`: parser scaffolding that denotes no set of terms.
     Scaffolding,
-    /// A visible sentence declares `H{K}` as an instance of `H`: a defined sort that is also the
-    /// recognition target of the bridges from the instances of `H`.
+    /// A visible sentence declares the spelling `H{K}`: a defined sort that is also the target of
+    /// the recognition bridges from the instances of `H`.
     DeclaredInstance,
+}
+
+/// Whether a unary production states an inclusion between its sorts.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum UnaryProduction {
+    /// A production of the definition or generated from it: it states `child <= result` unless
+    /// it touches a scaffolding placeholder.
+    Inclusion,
+    /// A recognition bridge (`Grammar::add_recognition_bridge`): it states no inclusion.
+    RecognitionBridge,
 }
 
 /// Which of a grammar's two subsort relations a unary production contributes to.
@@ -1288,8 +1340,10 @@ mod tests {
     }
 
     #[test]
-    fn a_declared_placeholder_spelling_drops_only_the_bridges_from_its_own_head() {
+    fn a_declared_placeholder_spelling_drops_only_the_recognition_bridges() {
         let mint_64 = Sort::with_parameters("MInt", vec![Sort::new("64")]);
+        let foo = Sort::new("Foo");
+        let mint_foo_foo = Sort::with_parameters("MInt", vec![foo.clone(), foo]);
         let unary = |sort: &Sort| {
             vec![ProductionItem::NonTerminal {
                 sort: sort.clone(),
@@ -1300,10 +1354,11 @@ mod tests {
         let mint_k =
             grammar.placeholder_sort(&SortHead::new("MInt", 1), Placeholder::DeclaredInstance);
 
-        // The bridges from an instance of `MInt`, including the declared `MInt{K}` itself.
-        for instance in [&mint_64, &mint_k] {
+        // The bridges from the declared instances, including `MInt{K}` itself and an instance of
+        // the arity-two head, whose placeholder has the same spelling.
+        for instance in [&mint_64, &mint_k, &mint_foo_foo] {
             grammar
-                .add(mint_k.clone(), unary(instance), None, false, false)
+                .add_recognition_bridge(mint_k.clone(), instance.clone())
                 .unwrap();
             let bridge = (instance.clone(), mint_k.clone());
             assert!(!grammar.subsort_relations.contains(&bridge), "{bridge:?}");
@@ -1313,7 +1368,8 @@ mod tests {
             );
         }
 
-        // The declared sort's own unary productions state inclusions in both directions.
+        // The declared sort's own unary productions state inclusions in both directions, and so
+        // does a production of the definition with a bridge's shape: it is not a bridge.
         let kitem = Sort::new("KItem");
         let kbott = Sort::new("KBott");
         grammar
@@ -1322,7 +1378,14 @@ mod tests {
         grammar
             .add(mint_k.clone(), unary(&kbott), None, false, false)
             .unwrap();
-        for pair in [(mint_k.clone(), kitem), (kbott, mint_k)] {
+        grammar
+            .add(mint_k.clone(), unary(&mint_foo_foo), None, false, false)
+            .unwrap();
+        for pair in [
+            (mint_k.clone(), kitem),
+            (kbott, mint_k.clone()),
+            (mint_foo_foo, mint_k),
+        ] {
             assert!(grammar.subsort_relations.contains(&pair), "{pair:?}");
             assert!(
                 grammar.syntactic_subsort_relations.contains(&pair),
@@ -1332,15 +1395,15 @@ mod tests {
     }
 
     #[test]
-    fn a_placeholder_has_one_k_per_parameter_of_its_head() {
+    fn a_placeholder_has_one_k_whatever_the_arity_of_its_head() {
         let k = Sort::new("K");
         assert_eq!(
             placeholder_of(&SortHead::new("MInt", 1)),
             Sort::with_parameters("MInt", vec![k.clone()])
         );
         assert_eq!(
-            placeholder_of(&SortHead::new("Pair", 2)),
-            Sort::with_parameters("Pair", vec![k.clone(), k])
+            placeholder_of(&SortHead::new("MInt", 2)),
+            Sort::with_parameters("MInt", vec![k])
         );
     }
 

@@ -808,10 +808,11 @@ pub struct Grammar {
     user_lists: BTreeMap<Sort, UserList>,
     /// Recognition placeholders `H{K}`: the sort a slot of the parametric head `H` is recognized
     /// at when its parameter has no parse-time value, with whether the definition also declares
-    /// that spelling as an instance of `H` (`Placeholder`). A unary production that is a
-    /// recognition step at a placeholder only widens what the recognizer accepts and contributes
-    /// no subsort pair (`add_production_with_lexical`). Registered only by `placeholder_sort`,
-    /// before any production is added, never recognized by spelling.
+    /// that spelling as an instance of `H` (`Placeholder`). The recognition bridges into a
+    /// placeholder (`add_recognition_bridge`) and every unary production touching a scaffolding
+    /// placeholder only widen what the recognizer accepts and contribute no subsort pair.
+    /// Registered only by `placeholder_sort`, before any production is added, never recognized
+    /// by spelling.
     placeholders: BTreeMap<Sort, Placeholder>,
     productive_unary_cycles: BTreeSet<usize>,
     role: ParserRole,

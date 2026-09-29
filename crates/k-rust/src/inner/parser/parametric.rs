@@ -234,6 +234,7 @@ impl ParsingOnlySubsort {
 impl Grammar {
     /// Register the placeholder of every parametric head the plan bridges, as a declared instance
     /// when the plan's declared instances include its spelling and as scaffolding otherwise.
+    /// Heads that share a name share the placeholder spelling (`placeholder_of`) and so the role.
     pub(super) fn register_placeholders(&mut self, concretization: &ParametricConcretization<'_>) {
         let instances = concretization
             .parsing_only_subsorts
@@ -275,20 +276,13 @@ impl Grammar {
         }
 
         // Let a concrete instance such as `MInt{6}` be recognized at the placeholder `MInt{K}` of
-        // a slot whose parameter has no parse-time value. The placeholder was registered before
-        // any production (`register_placeholders`), so the bridge is a recognition step and
-        // contributes no subsort pair.
-        for bridge in concretization.parsing_only_subsorts {
-            let Sentence::Production { sort, items, .. } = bridge.sentence else {
-                unreachable!()
+        // a slot whose parameter has no parse-time value. The bridge states no inclusion, so it
+        // is added as a recognition bridge and contributes no subsort pair.
+        for bridge in &concretization.parsing_only_subsorts {
+            let Sentence::Production { sort, .. } = &bridge.sentence else {
+                unreachable!("a bridge is a production")
             };
-            self.add_production_with_lexical(
-                sort,
-                &items,
-                None,
-                ProductionOptions::default(),
-                &BTreeMap::new(),
-            )?;
+            self.add_recognition_bridge(sort.clone(), bridge.instance().clone())?;
         }
         Ok(())
     }
