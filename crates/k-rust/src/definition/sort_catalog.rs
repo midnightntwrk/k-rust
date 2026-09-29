@@ -40,6 +40,7 @@ pub struct SortCatalog<'a> {
     attributes_by_head: BTreeMap<SortHead, Attributes>,
     hooks: BTreeMap<String, String>,
     token_sorts: BTreeSet<Sort>,
+    token_heads: BTreeSet<SortHead>,
     parametric_token_sorts: Vec<(Sort, Vec<Sort>)>,
     list_sorts: BTreeSet<Sort>,
 }
@@ -134,7 +135,8 @@ impl<'a> SortCatalog<'a> {
                 } if attributes.has(AttributeKey::Token) => Some(sort.clone()),
                 _ => None,
             })
-            .collect();
+            .collect::<BTreeSet<_>>();
+        let token_heads = token_sorts.iter().map(SortHead::from).collect();
         let parametric_token_sorts = sentences
             .iter()
             .filter_map(|sentence| match sentence {
@@ -177,6 +179,7 @@ impl<'a> SortCatalog<'a> {
             attributes_by_head,
             hooks,
             token_sorts,
+            token_heads,
             parametric_token_sorts,
             list_sorts,
         }
@@ -248,22 +251,52 @@ impl<'a> SortCatalog<'a> {
         &self.token_sorts
     }
 
-    /// Whether a term of this sort can denote a domain value in this module.
+    /// Whether the values of `sort` in this module include domain values: its head has a token
+    /// declaration, possibly parametric, or it is `Bool` or `KConfigVar`, whose literals the
+    /// compiler writes itself (side conditions, configuration-map keys).
+    ///
+    /// A hook alone does not qualify: it fixes how the backend computes on a sort's values, not
+    /// a literal domain (`MAP.Map` has a hook and no literals). Every sort this accepts has a head
+    /// that [`Self::head_admits_domain_values`] accepts, so a domain value admitted here is always
+    /// emitted under a declaration that carries `hasDomainValues`.
     pub fn admits_domain_value(&self, sort: &Sort) -> bool {
-        self.token_sorts.contains(sort)
-            || self.parametric_token_sorts.iter().any(|(declared, formals)| {
-                matches_token_sort(declared, sort, formals, &mut BTreeMap::new())
-            })
-            || self.hooks.contains_key(&sort.name)
-            // Truth values and configuration-map keys have intrinsic domains even in a
-            // minimal structured definition without their usual syntax declarations.
-            || sort.is_builtin(BuiltinSort::Bool)
-            || sort.is_builtin(BuiltinSort::KConfigVar)
+        has_compiler_written_literals(&SortHead::from(sort))
+            || self.token_sorts.contains(sort)
+            || self
+                .parametric_token_sorts
+                .iter()
+                .any(|(declared, formals)| {
+                    matches_token_sort(declared, sort, formals, &mut BTreeMap::new())
+                })
+    }
+
+    /// [`Self::admits_domain_value`] for a declared head, used for `hasDomainValues`: whether
+    /// some sort with this head admits domain values.
+    ///
+    /// A token declaration at a sort names its head; a parametric token declaration at a bare
+    /// sort parameter matches a sort of every head.
+    pub fn head_admits_domain_values(&self, head: &SortHead) -> bool {
+        has_compiler_written_literals(head)
+            || self.token_heads.contains(head)
+            || self
+                .parametric_token_sorts
+                .iter()
+                .any(|(declared, formals)| formals.contains(declared))
     }
 
     pub fn list_sorts(&self) -> &BTreeSet<Sort> {
         &self.list_sorts
     }
+}
+
+/// `Bool` and `KConfigVar` values include domain values in every module, even a minimal
+/// structured definition without their token productions: the compiler writes their literals
+/// itself (a side condition becomes an equation against `true`, a configuration-map key is a
+/// `KConfigVar` literal).
+fn has_compiler_written_literals(head: &SortHead) -> bool {
+    head.parameters() == 0
+        && (head.as_str() == BuiltinSort::Bool.k_name()
+            || head.as_str() == BuiltinSort::KConfigVar.k_name())
 }
 
 fn matches_token_sort(

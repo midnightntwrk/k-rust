@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= \"done\" [symbol(do
 // semantics
 module MAIN
   import K []
-  sort SortBool{} []
+  sort SortBool{} [hasDomainValues{}()]
   sort SortExp{} []
   symbol Lbldone{}() : SortExp{}
   [
@@ -217,7 +217,7 @@ endmodule [
 // syntax
 module MAIN
   import K []
-  sort SortBool{} []
+  sort SortBool{} [hasDomainValues{}()]
   sort SortExp{} []
   symbol Lbldone{}() : SortExp{}
   [

@@ -148,6 +148,16 @@ The check applies to every rule-like sentence `compile_loaded_definition` emits,
 It types in the order injection runs in, where every user sort is declared below `KItem`; it reports no sort for `#cells`, `#dots`, `#noDots`, and variables nothing types, places an authored cell's body at its content sort, and reports a cast operand's requirement as the cast's sort (below a downcast the operand's own sort is above it).
 [Typing-view tests](../crates/k-rust/tests/sentence_typing.rs) check it on hand-picked positions, on every loaded rule of the prelude, and against the injections the compiled definition contains.
 
+## Domain values
+
+A literal `#token("s", "S")`, emitted as `\dv{S}("s")`, denotes the element of `S` that `s` names in `S`'s literal domain, and the emitted definition declares that domain only by the attribute `hasDomainValues` on the declaration of `S`'s head.
+A sort admits domain values exactly when its head has a token declaration (a `token` production or a `token` sort declaration; for a parametric one, the instances of the declared sort), or it is `Bool` or `KConfigVar`.
+`Bool` and `KConfigVar` admit them in every module, even a structured definition without their token productions, because the compiler writes their literals itself: a `requires` clause becomes an equation against `true`, and configuration-map keys are `KConfigVar` literals.
+A hook alone does not admit domain values: it fixes how the backend computes on a sort's values, not a literal syntax for them, and `MAP.Map` has a hook and no literals.
+A literal at any other sort is rejected by the definition checks with `InvalidDomainValue`, and one a compiler pass writes after them is rejected by term conversion with `InvalidToken`.
+The emitted declaration of a head carries `hasDomainValues` exactly when that head admits domain values, so `Bool` and `KConfigVar` carry it even without token productions, and every domain value of the emitted definition is at a sort declared with it.
+[Token admissibility tests](../crates/k-rust/tests/token_admissibility.rs) pin the admitted sorts and the rejection of a hooked sort's literal.
+
 ## Resource bounds
 
 Simplification budgets and term nesting depth are k-rust's own resource contracts, specified in [backend-port.md](backend-port.md#simplification-iteration-budgets) and [backend-port.md](backend-port.md#json-depth-policy); this section records how they differ from the reference and why.

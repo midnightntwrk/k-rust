@@ -7,6 +7,7 @@ module MAIN
   import K []
   sort SortBool{}
   [
+    hasDomainValues{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,14)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]
@@ -69,6 +70,7 @@ module MAIN
   import K []
   sort SortBool{}
   [
+    hasDomainValues{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,3,4,14)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
   ]

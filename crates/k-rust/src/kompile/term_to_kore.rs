@@ -290,7 +290,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 {
                     return Err(TermConversionError::InvalidToken {
                         sort: sort.clone(),
-                        message: "the sort has no visible token declaration or domain hook".into(),
+                        message: "the sort has no visible token declaration".into(),
                     });
                 }
                 Ok(Pattern::DomainValue {

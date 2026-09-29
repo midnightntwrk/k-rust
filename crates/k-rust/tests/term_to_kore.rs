@@ -346,8 +346,8 @@ fn recovers_parameterized_semantic_cast_sorts() {
 fn decodes_string_and_bytes_token_syntax() {
     let definition = lowered(indoc! {r#"
         module MAIN
-          syntax String [hook(STRING.String)]
-          syntax Bytes [hook(BYTES.Bytes)]
+          syntax String [hook(STRING.String), token]
+          syntax Bytes [hook(BYTES.Bytes), token]
         endmodule
     "#});
     let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();

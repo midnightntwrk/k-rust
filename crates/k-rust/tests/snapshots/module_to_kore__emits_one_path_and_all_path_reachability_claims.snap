@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN [all-path]\n  syntax Int ::= r\"[0-9]
 // semantics
 module MAIN
   import K []
-  sort SortBool{} []
+  sort SortBool{} [hasDomainValues{}()]
   sort SortExp{} []
   sort SortGeneratedTopCell{} []
   sort SortInt{} [hasDomainValues{}()]
@@ -133,7 +133,7 @@ endmodule [
 // syntax
 module MAIN
   import K []
-  sort SortBool{} []
+  sort SortBool{} [hasDomainValues{}()]
   sort SortExp{} []
   sort SortGeneratedTopCell{} []
   sort SortInt{} [hasDomainValues{}()]

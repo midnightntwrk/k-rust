@@ -1216,11 +1216,6 @@ fn sort_declarations(
     productions: &ProductionCatalog<'_>,
     valued: &BTreeSet<String>,
 ) -> Result<Vec<KoreSentence>, DeclarationError> {
-    let token_heads = sorts
-        .token_sorts()
-        .iter()
-        .map(SortHead::from)
-        .collect::<BTreeSet<_>>();
     let mut declarations = Vec::new();
     // Invariant: `declarations` holds one sort declaration for every head of `sorts.sorted_defined_heads()` before `head` other than `K` and `KItem`; a collection-hooked head also scans `productions` once in `collection_attribute_overrides`.
     for head in sorts.sorted_defined_heads() {
@@ -1230,8 +1225,11 @@ fn sort_declarations(
         }
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
         let mut entries = source_attributes.semantic_entries().clone();
+        // The definition checks and term conversion admit a domain value by
+        // `SortCatalog::admits_domain_value`, whose sorts all have heads this predicate accepts,
+        // so every `\dv` of the emitted theory is at a sort declared here with `hasDomainValues`.
         entries.remove(AttributeKey::HasDomainValues.as_str());
-        if token_heads.contains(head) {
+        if sorts.head_admits_domain_values(head) {
             entries.insert(
                 AttributeKey::HasDomainValues.as_str().into(),
                 Value::String(String::new()),

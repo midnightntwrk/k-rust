@@ -2961,6 +2961,7 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
               syntax Int [hook(INT.Int)]
               syntax String [hook(STRING.String)]
               syntax Int ::= r"[\\+\\-]?[0-9]+" [token]
+              syntax String ::= r"[\\\"][^\\\"]*[\\\"]" [token]
               syntax String ::= "result" [function, symbol(result)]
               syntax String ::= "chr(" Int ")" [function, hook(STRING.chr), symbol(chr)]
               rule result => chr({value})

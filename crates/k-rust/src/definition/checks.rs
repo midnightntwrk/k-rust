@@ -519,7 +519,7 @@ fn check_domain_value_tokens(sentences: &[&Sentence], sorts: &SortCatalog<'_>) -
                     diagnostics.push(Diagnostic::error(
                         DiagnosticCode::InvalidDomainValue,
                         format!(
-                            "Token {token:?} of sort {sort} has no visible token declaration or domain hook in {sentence:?}"
+                            "Token {token:?} of sort {sort} has no visible token declaration in {sentence:?}"
                         ),
                         sentence,
                     ));
