@@ -133,7 +133,8 @@ def main() -> None:
     env = cli_environment()
     binary = build(env)
 
-    run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
+    # The chapter slices lie outside every target's source directory, so they are named explicitly.
+    run([binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE, sync.CHAPTERS], environment=env)
     run(cli(binary, "check"), environment=env)
     first_expansion = run(cli(binary, "expand"), environment=env).stdout
     second_expansion = run(cli(binary, "expand"), environment=env).stdout

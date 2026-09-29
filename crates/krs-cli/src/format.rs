@@ -20,8 +20,13 @@ pub struct FormatInput {
 ///
 /// Without paths, every workspace member target contributes the `.rs` files
 /// under the directory of its crate root.
-/// Explicit files and directories are expanded the same way and must belong to a workspace member.
-/// A walk never enters `.git`, Cargo's target directory, or a directory holding another package's `Cargo.toml`.
+/// A workspace walk never enters `.git`, Cargo's target directory,
+/// or a directory holding another package's `Cargo.toml`.
+/// An explicit file must be a `.rs` file of a workspace member.
+/// An explicit directory is walked through every workspace member it contains,
+/// never entering another package's directory,
+/// and contributes only the files owned by a workspace member;
+/// a directory that contributes none is an error.
 /// Each file takes the edition of the target whose source directory most specifically contains it.
 ///
 /// # Errors
@@ -63,7 +68,12 @@ pub fn discover_format_inputs(
                 })?;
                 let edition = target_edition(package, target.edition.as_deref())?;
                 let mut files = BTreeSet::new();
-                walk(root, package_root, target_directory.as_deref(), &mut files)?;
+                walk(
+                    root,
+                    &|directory| directory == package_root.as_path(),
+                    target_directory.as_deref(),
+                    &mut files,
+                )?;
                 for file in files {
                     // A more specific target source directory selects the edition.
                     // Equal directories use Cargo's target order.
@@ -85,43 +95,79 @@ pub fn discover_format_inputs(
     let mut files = BTreeMap::new();
     for path in paths {
         let root = canonical(path)?;
-        let package_root = nearest_manifest_root(&root);
-        let allowed_root = package_root.as_deref().unwrap_or(&root);
-        let mut found = BTreeSet::new();
-        walk(&root, allowed_root, target_directory.as_deref(), &mut found)?;
-        for file in found {
-            let spelled = match file.strip_prefix(&root) {
-                Ok(relative) if !relative.as_os_str().is_empty() => path.join(relative),
-                _ => path.clone(),
-            };
-            files.entry(file).or_insert(spelled);
-        }
-    }
-    files
-        .into_iter()
-        .map(|(canonical_path, path)| {
-            let root = nearest_manifest_root(&canonical_path);
-            let package = root.as_ref().and_then(|root| packages.get(root));
-            let Some(package) = package else {
+        if root.is_file() {
+            if root.extension().is_none_or(|extension| extension != "rs") {
+                return Err(format!("`{}` is not a Rust source file", path.display()));
+            }
+            let Some(edition) = explicit_edition(&root, &packages)? else {
                 return Err(format!(
                     "`{}` is not owned by a workspace package; pass --manifest-path of the workspace that owns it",
                     path.display()
                 ));
             };
-            let mut edition = target_edition(package, None)?;
-            let mut specificity = 0;
-            for target in &package.targets {
-                let Some(source) = &target.src_path else { continue };
-                let source = canonical(Path::new(source))?;
-                let Some(root) = source.parent() else { continue };
-                if canonical_path.starts_with(root) && root.components().count() > specificity {
-                    specificity = root.components().count();
-                    edition = target_edition(package, target.edition.as_deref())?;
-                }
-            }
-            Ok(FormatInput { path, edition })
-        })
-        .collect()
+            files.entry(root).or_insert(FormatInput {
+                path: path.clone(),
+                edition,
+            });
+            continue;
+        }
+        let mut found = BTreeSet::new();
+        let enter = |directory: &Path| directory == root || packages.contains_key(directory);
+        walk(&root, &enter, target_directory.as_deref(), &mut found)?;
+        let mut owned = 0_usize;
+        for file in found {
+            // Files of no workspace member, such as a virtual workspace root's fixtures, are not inputs.
+            let Some(edition) = explicit_edition(&file, &packages)? else {
+                continue;
+            };
+            owned += 1;
+            let spelled = match file.strip_prefix(&root) {
+                Ok(relative) => path.join(relative),
+                Err(_) => file.clone(),
+            };
+            files.entry(file).or_insert(FormatInput {
+                path: spelled,
+                edition,
+            });
+        }
+        if owned == 0 {
+            return Err(format!(
+                "`{}` holds no Rust file owned by a workspace package; pass --manifest-path of the workspace that owns it",
+                path.display()
+            ));
+        }
+    }
+    Ok(files.into_values().collect())
+}
+
+/// Returns the edition of the workspace member owning `file`,
+/// taken from the member target whose source directory most specifically contains it.
+fn explicit_edition(
+    file: &Path,
+    packages: &BTreeMap<PathBuf, &MetadataPackage>,
+) -> Result<Option<Edition>, String> {
+    let Some(package) = nearest_manifest_root(file)
+        .as_ref()
+        .and_then(|root| packages.get(root))
+    else {
+        return Ok(None);
+    };
+    let mut edition = target_edition(package, None)?;
+    let mut specificity = 0;
+    for target in &package.targets {
+        let Some(source) = &target.src_path else {
+            continue;
+        };
+        let source = canonical(Path::new(source))?;
+        let Some(root) = source.parent() else {
+            continue;
+        };
+        if file.starts_with(root) && root.components().count() > specificity {
+            specificity = root.components().count();
+            edition = target_edition(package, target.edition.as_deref())?;
+        }
+    }
+    Ok(Some(edition))
 }
 
 fn load_metadata(manifest_path: Option<&Path>) -> Result<CargoMetadata, String> {
@@ -183,9 +229,11 @@ fn nearest_manifest_root(path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// Collects `.rs` files under `path`.
+/// A directory holding a `Cargo.toml` is entered only when `enter_package` accepts it.
 fn walk(
     path: &Path,
-    package_root: &Path,
+    enter_package: &dyn Fn(&Path) -> bool,
     target_directory: Option<&Path>,
     files: &mut BTreeSet<PathBuf>,
 ) -> Result<(), String> {
@@ -200,7 +248,7 @@ fn walk(
     if !metadata.is_dir()
         || path.file_name().is_some_and(|name| name == ".git")
         || target_directory.is_some_and(|target| path == target)
-        || (path != package_root && path.join("Cargo.toml").is_file())
+        || (path.join("Cargo.toml").is_file() && !enter_package(path))
     {
         return Ok(());
     }
@@ -214,7 +262,7 @@ fn walk(
         if entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
             continue;
         }
-        walk(&child, package_root, target_directory, files)?;
+        walk(&child, enter_package, target_directory, files)?;
     }
     Ok(())
 }
@@ -283,5 +331,76 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("nested/src/lib.rs"));
         assert!(error.contains("--manifest-path"));
+    }
+
+    #[test]
+    fn explicit_directories_span_members_and_skip_unowned_files() {
+        let temporary = temp_dir();
+        let root = temporary.path();
+        for directory in [
+            "crates/first/src",
+            "crates/second/src",
+            "crates/first/tests/fixtures/nested/src",
+            "fixtures",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/first\", \"crates/second\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+        for (name, edition) in [("first", "2021"), ("second", "2024")] {
+            fs::write(
+                root.join(format!("crates/{name}/Cargo.toml")),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"{edition}\"\n"
+                ),
+            )
+            .unwrap();
+            fs::write(root.join(format!("crates/{name}/src/lib.rs")), "\n").unwrap();
+        }
+        fs::write(
+            root.join("crates/first/tests/fixtures/nested/Cargo.toml"),
+            "[package]\nname = \"nested\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("crates/first/tests/fixtures/nested/src/lib.rs"),
+            "\n",
+        )
+        .unwrap();
+        fs::write(root.join("fixtures/unowned.rs"), "\n").unwrap();
+        let manifest = root.join("Cargo.toml");
+        let root = root.canonicalize().unwrap();
+        let expected = vec![
+            FormatInput {
+                path: root.join("crates/first/src/lib.rs"),
+                edition: Edition::E2021,
+            },
+            FormatInput {
+                path: root.join("crates/second/src/lib.rs"),
+                edition: Edition::E2024,
+            },
+        ];
+
+        for directory in [root.join("crates"), root.clone()] {
+            assert_eq!(
+                discover_format_inputs(Some(&manifest), &[directory]).unwrap(),
+                expected
+            );
+        }
+        for unowned in [
+            root.join("fixtures"),
+            root.join("fixtures/unowned.rs"),
+            root.join("crates/first/tests/fixtures/nested"),
+        ] {
+            let error = discover_format_inputs(Some(&manifest), &[unowned]).unwrap_err();
+            assert!(error.contains("--manifest-path"), "{error}");
+        }
+        let error =
+            discover_format_inputs(Some(&manifest), &[root.join("crates/first/Cargo.toml")])
+                .unwrap_err();
+        assert!(error.contains("not a Rust source file"), "{error}");
     }
 }
