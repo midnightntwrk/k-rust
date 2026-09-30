@@ -29,15 +29,11 @@
 //! ```
 
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     io::{self, BufWriter, Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU8, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -53,7 +49,7 @@ use k_rust::kore::{
 };
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
-    cancellation::{CancellationToken, cancellation_requested},
+    cancellation::cancellation_requested,
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
     implication::{
@@ -84,9 +80,6 @@ use k_rust_backend::session::BackendSession;
 
 const JSON_RPC_VERSION: &str = "2.0";
 const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
-const REQUEST_PENDING: u8 = 0;
-const REQUEST_CANCELLED: u8 = 1;
-const REQUEST_COMPLETED: u8 = 2;
 
 #[cfg(all(feature = "measure", unix))]
 static SHUTDOWN_REQUESTED: std::sync::atomic::AtomicBool =
@@ -94,7 +87,7 @@ static SHUTDOWN_REQUESTED: std::sync::atomic::AtomicBool =
 
 #[cfg(all(feature = "measure", unix))]
 extern "C" fn request_shutdown(_: libc::c_int) {
-    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    SHUTDOWN_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 /// A connection's session ends when its reader stops (end of stream or a read error); its
 /// requests are then cancelled. A peer that vanishes without closing (crash, lost network)
@@ -126,54 +119,6 @@ const KEEPALIVE_RETRIES: u32 = 3;
 const UNACKNOWLEDGED_DATA_TIMEOUT: Duration = Duration::from_secs(
     KEEPALIVE_IDLE.as_secs() + KEEPALIVE_RETRIES as u64 * KEEPALIVE_INTERVAL.as_secs(),
 );
-
-struct RequestControl {
-    token: CancellationToken,
-    state: AtomicU8,
-    cancellation_response: Option<String>,
-}
-
-impl RequestControl {
-    fn new(message: Option<&Value>) -> Self {
-        Self {
-            token: CancellationToken::new(),
-            state: AtomicU8::new(REQUEST_PENDING),
-            cancellation_response: message.and_then(cancellation_response),
-        }
-    }
-
-    fn cancel(&self) -> bool {
-        if self
-            .state
-            .compare_exchange(
-                REQUEST_PENDING,
-                REQUEST_CANCELLED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return false;
-        }
-        self.token.cancel();
-        true
-    }
-
-    fn is_cancelled(&self) -> bool {
-        self.state.load(Ordering::Acquire) == REQUEST_CANCELLED
-    }
-
-    fn complete(&self) -> bool {
-        self.state
-            .compare_exchange(
-                REQUEST_PENDING,
-                REQUEST_COMPLETED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-}
 
 pub(super) struct RpcService {
     backend: Backend,
@@ -2024,7 +1969,7 @@ pub(super) fn serve(backend: Backend, address: impl ToSocketAddrs) -> Result<(),
     let mut workers = Vec::new();
     for connection in listener.incoming() {
         #[cfg(all(feature = "measure", unix))]
-        if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+        if SHUTDOWN_REQUESTED.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
         let stream = connection?;
@@ -2062,61 +2007,18 @@ pub(super) fn serve(backend: Backend, address: impl ToSocketAddrs) -> Result<(),
 /// Serves one connection until its client stops sending. Closing either direction of the
 /// connection ends the session: nothing more can be requested, so every active and queued
 /// request of the connection is cancelled and none of them is answered.
+///
+/// Every path out of this function ends the [`ConnectionSession`]: the normal end through
+/// [`ConnectionSession::finish`], an early return or an unwind through its `Drop`, so no request
+/// of the connection outlives it.
 fn serve_connection(
     stream: TcpStream,
     service: Arc<Mutex<RpcService>>,
 ) -> Result<(), Box<dyn Error>> {
-    #[cfg(feature = "measure")]
-    let dispatch = tracing::dispatcher::get_default(Clone::clone);
     enable_keepalive(&stream)?;
     let mut reader = stream.try_clone()?;
     let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
-    let controls = Arc::new(Mutex::new(VecDeque::<Arc<RequestControl>>::new()));
-    let (sender, receiver) = mpsc::channel::<(Option<Value>, Arc<RequestControl>)>();
-    let worker_writer = Arc::clone(&writer);
-    let worker_controls = Arc::clone(&controls);
-    let worker = thread::Builder::new()
-        .name("krust-kore-rpc-worker".into())
-        .stack_size(CONNECTION_STACK_SIZE)
-        .spawn(move || -> io::Result<()> {
-            #[cfg(feature = "measure")]
-            let _merge = k_rust_kore::measure::MergeOnDrop;
-            #[cfg(feature = "measure")]
-            let _default = tracing::dispatcher::set_default(&dispatch);
-            for (message, control) in receiver {
-                // A request cancelled before it runs (its session ended while it was queued, or
-                // while this worker waited for another connection's request) is not run.
-                let response = if control.is_cancelled() {
-                    None
-                } else {
-                    control.token.scope(|| {
-                        service
-                            .lock()
-                            .map_err(|_| {
-                                io::Error::other("KORE JSON-RPC session lock was poisoned")
-                            })
-                            .map(|mut service| {
-                                if control.is_cancelled() {
-                                    None
-                                } else {
-                                    service.handle_parsed(message)
-                                }
-                            })
-                    })?
-                };
-                if control.complete()
-                    && let Some(response) = response
-                {
-                    write_response(&worker_writer, &response)?;
-                }
-                let removed = worker_controls
-                    .lock()
-                    .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
-                    .pop_front();
-                debug_assert!(removed.is_some_and(|queued| Arc::ptr_eq(&queued, &control)));
-            }
-            Ok(())
-        })?;
+    let session = ConnectionSession::start(Arc::clone(&writer), service)?;
 
     let mut buffer = Vec::new();
     let mut connection_error = None;
@@ -2130,14 +2032,9 @@ fn serve_connection(
             }
         };
         if message.value.as_ref().is_some_and(is_standalone_cancel) {
-            let active = controls
-                .lock()
-                .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
-                .front()
-                .cloned();
-            if let Some(active) = active
+            if let Some(active) = session.active()?
                 && active.cancel()
-                && let Some(response) = &active.cancellation_response
+                && let Some(response) = active.cancellation_response()
                 && let Err(error) = write_response(&writer, response)
             {
                 connection_error = Some(error);
@@ -2145,32 +2042,360 @@ fn serve_connection(
             }
             continue;
         }
-        let control = Arc::new(RequestControl::new(message.value.as_ref()));
-        controls
-            .lock()
-            .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
-            .push_back(Arc::clone(&control));
-        if sender.send((message.value, control)).is_err() {
+        if !session.admit(message.value)? {
             break;
         }
     }
-    // The session is over: no request of this connection may outlive it, and the worker must
-    // not hold the shared service for requests nobody can ask about any more.
-    for control in controls
-        .lock()
-        .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
-        .iter()
-    {
-        control.cancel();
-    }
-    drop(sender);
-    worker
-        .join()
-        .map_err(|_| io::Error::other("KORE JSON-RPC worker panicked"))??;
+    session.finish()?;
     if let Some(error) = connection_error {
         return Err(error.into());
     }
     Ok(())
+}
+
+use session::ConnectionSession;
+
+/// A connection's requests and the worker that runs them. A [`RequestControl`] exists only as
+/// a request admitted by a [`ConnectionSession`] (its constructor is private to this module), so
+/// every request is in the queue of the session that ends it.
+mod session {
+    use std::{
+        collections::VecDeque,
+        io::{self, BufWriter},
+        net::TcpStream,
+        sync::{
+            Arc, Mutex, PoisonError,
+            atomic::{AtomicU8, Ordering},
+            mpsc,
+        },
+        thread,
+    };
+
+    use k_rust_backend::cancellation::CancellationToken;
+    use serde_json::Value;
+
+    use super::{CONNECTION_STACK_SIZE, RpcService, cancellation_response, write_response};
+
+    const REQUEST_PENDING: u8 = 0;
+    const REQUEST_CANCELLED: u8 = 1;
+    const REQUEST_COMPLETED: u8 = 2;
+
+    /// One admitted request: its cancellation token, whether it was cancelled or completed
+    /// first, and the answer a standalone cancel of it receives.
+    pub(super) struct RequestControl {
+        token: CancellationToken,
+        state: AtomicU8,
+        cancellation_response: Option<String>,
+    }
+
+    impl RequestControl {
+        fn new(message: Option<&Value>) -> Self {
+            Self {
+                token: CancellationToken::new(),
+                state: AtomicU8::new(REQUEST_PENDING),
+                cancellation_response: message.and_then(cancellation_response),
+            }
+        }
+
+        /// Cancels the request unless it already completed or was cancelled; returns whether
+        /// this call cancelled it.
+        pub(super) fn cancel(&self) -> bool {
+            if self
+                .state
+                .compare_exchange(
+                    REQUEST_PENDING,
+                    REQUEST_CANCELLED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_err()
+            {
+                return false;
+            }
+            self.token.cancel();
+            true
+        }
+
+        /// The answer to a standalone cancel of this request, if the request has an id.
+        pub(super) fn cancellation_response(&self) -> Option<&str> {
+            self.cancellation_response.as_deref()
+        }
+
+        fn is_cancelled(&self) -> bool {
+            self.state.load(Ordering::Acquire) == REQUEST_CANCELLED
+        }
+
+        fn complete(&self) -> bool {
+            self.state
+                .compare_exchange(
+                    REQUEST_PENDING,
+                    REQUEST_COMPLETED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+        }
+    }
+
+    type Controls = Arc<Mutex<VecDeque<Arc<RequestControl>>>>;
+    type Admitted = (Option<Value>, Arc<RequestControl>);
+    type Worker = thread::JoinHandle<io::Result<()>>;
+
+    fn queue_poisoned() -> io::Error {
+        io::Error::other("KORE JSON-RPC request queue was poisoned")
+    }
+
+    /// A connection's session: owns every request control it admitted and the worker that runs
+    /// them, in admission order. Ending it, by [`Self::finish`] or by dropping it, cancels every
+    /// admitted request, closes the queue and joins the worker, in that order, so no request of
+    /// the connection outlives its session and the worker never holds the shared service for a
+    /// request nobody can ask about any more.
+    pub(super) struct ConnectionSession {
+        controls: Controls,
+        sender: Option<mpsc::Sender<Admitted>>,
+        worker: Option<Worker>,
+    }
+
+    impl ConnectionSession {
+        /// Starts the worker that runs this session's requests one at a time on `service` and
+        /// writes their answers to `writer`.
+        pub(super) fn start(
+            writer: Arc<Mutex<BufWriter<TcpStream>>>,
+            service: Arc<Mutex<RpcService>>,
+        ) -> io::Result<Self> {
+            #[cfg(feature = "measure")]
+            let dispatch = tracing::dispatcher::get_default(Clone::clone);
+            let controls = Controls::default();
+            let (sender, receiver) = mpsc::channel::<Admitted>();
+            let worker_controls = Arc::clone(&controls);
+            let worker = thread::Builder::new()
+                .name("krust-kore-rpc-worker".into())
+                .stack_size(CONNECTION_STACK_SIZE)
+                .spawn(move || -> io::Result<()> {
+                    #[cfg(feature = "measure")]
+                    let _merge = k_rust_kore::measure::MergeOnDrop;
+                    #[cfg(feature = "measure")]
+                    let _default = tracing::dispatcher::set_default(&dispatch);
+                    for (message, control) in receiver {
+                        // A request cancelled before it runs (its session ended while it was
+                        // queued, or while this worker waited for another connection's request)
+                        // is not run.
+                        let response = if control.is_cancelled() {
+                            None
+                        } else {
+                            control.token.scope(|| {
+                                service
+                                    .lock()
+                                    .map_err(|_| {
+                                        io::Error::other("KORE JSON-RPC session lock was poisoned")
+                                    })
+                                    .map(|mut service| {
+                                        if control.is_cancelled() {
+                                            None
+                                        } else {
+                                            service.handle_parsed(message)
+                                        }
+                                    })
+                            })?
+                        };
+                        if control.complete()
+                            && let Some(response) = response
+                        {
+                            write_response(&writer, &response)?;
+                        }
+                        let removed = worker_controls
+                            .lock()
+                            .map_err(|_| queue_poisoned())?
+                            .pop_front();
+                        debug_assert!(removed.is_some_and(|queued| Arc::ptr_eq(&queued, &control)));
+                    }
+                    Ok(())
+                })?;
+            Ok(Self {
+                controls,
+                sender: Some(sender),
+                worker: Some(worker),
+            })
+        }
+
+        /// Admits one request and queues it for the worker; `Ok(false)` when the worker has
+        /// stopped and nothing more can be served.
+        pub(super) fn admit(&self, message: Option<Value>) -> io::Result<bool> {
+            let control = Arc::new(RequestControl::new(message.as_ref()));
+            self.controls
+                .lock()
+                .map_err(|_| queue_poisoned())?
+                .push_back(Arc::clone(&control));
+            Ok(self
+                .sender
+                .as_ref()
+                .is_some_and(|sender| sender.send((message, control)).is_ok()))
+        }
+
+        /// The request the worker runs now or runs next: the oldest admitted one that has not
+        /// finished.
+        pub(super) fn active(&self) -> io::Result<Option<Arc<RequestControl>>> {
+            Ok(self
+                .controls
+                .lock()
+                .map_err(|_| queue_poisoned())?
+                .front()
+                .cloned())
+        }
+
+        /// Ends the session normally: cancels, closes and joins as `Drop` does, then reports a
+        /// poisoned queue or the worker's error.
+        pub(super) fn finish(mut self) -> io::Result<()> {
+            let (poisoned, joined) = self.end();
+            if poisoned {
+                return Err(queue_poisoned());
+            }
+            match joined {
+                Some(Ok(result)) => result,
+                Some(Err(_)) => Err(io::Error::other("KORE JSON-RPC worker panicked")),
+                None => Ok(()),
+            }
+        }
+
+        /// Cancels every admitted request, closes the queue and joins the worker. The controls
+        /// are cancelled even when their lock is poisoned: a poisoned lock says a thread panicked
+        /// while holding it, not that the queue lost its requests, and a request left running
+        /// would keep the worker, and the service lock it holds, for as long as it runs. Returns
+        /// whether the lock was poisoned and the worker's outcome (`None` once already ended).
+        fn end(&mut self) -> (bool, Option<thread::Result<io::Result<()>>>) {
+            let controls = self.controls.lock();
+            let poisoned = controls.is_err();
+            for control in controls.unwrap_or_else(PoisonError::into_inner).iter() {
+                control.cancel();
+            }
+            self.sender = None;
+            (poisoned, self.worker.take().map(Worker::join))
+        }
+    }
+
+    impl Drop for ConnectionSession {
+        fn drop(&mut self) {
+            // The outcome belongs to `finish`; a session dropped on another path only needs
+            // its requests ended.
+            let _ = self.end();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::{
+            io::Read,
+            net::{TcpListener, TcpStream},
+            sync::{TryLockError, mpsc},
+            time::{Duration, Instant},
+        };
+
+        use super::super::tests::{divergent_execute, looping_service};
+        use super::*;
+
+        /// A hang detector, not a timing assertion.
+        const WATCHDOG: Duration = Duration::from_secs(60);
+
+        /// What the test observes of a session's divergent request after the session ends.
+        struct Observed {
+            service: Arc<Mutex<RpcService>>,
+            control: Arc<RequestControl>,
+            client: TcpStream,
+        }
+
+        /// A session whose worker is running a divergent request, with its controls lock
+        /// poisoned by a thread that panicked while holding it.
+        fn running_divergent_request_with_poisoned_controls() -> (ConnectionSession, Observed) {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (stream, _) = listener.accept().unwrap();
+            let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
+            let service = Arc::new(Mutex::new(looping_service()));
+            let session = ConnectionSession::start(writer, Arc::clone(&service)).unwrap();
+            assert!(session.admit(Some(divergent_execute())).unwrap());
+            let control = session.active().unwrap().expect("the admitted request");
+
+            // The request runs once the worker holds the service lock.
+            let started = Instant::now();
+            while !matches!(service.try_lock(), Err(TryLockError::WouldBlock)) {
+                assert!(started.elapsed() < WATCHDOG, "the request never started");
+                thread::yield_now();
+            }
+
+            let controls = Arc::clone(&session.controls);
+            let poisoner = thread::spawn(move || {
+                let _held = controls.lock().unwrap();
+                panic!("poison the session's controls lock");
+            });
+            assert!(poisoner.join().is_err());
+            assert!(session.controls.is_poisoned());
+            assert!(session.active().is_err());
+            assert!(!control.is_cancelled(), "the request is still running");
+            let observed = Observed {
+                service,
+                control,
+                client,
+            };
+            (session, observed)
+        }
+
+        /// Ends the session on another thread, so a session that fails to end fails the test
+        /// instead of hanging it.
+        fn end_within_watchdog<T: Send + 'static>(
+            session: ConnectionSession,
+            end: impl FnOnce(ConnectionSession) -> T + Send + 'static,
+        ) -> T {
+            let (done, ended) = mpsc::channel();
+            thread::spawn(move || {
+                let _ = done.send(end(session));
+            });
+            ended
+                .recv_timeout(WATCHDOG)
+                .expect("ending the session must cancel its running request and join the worker")
+        }
+
+        fn assert_request_ended_by_cancellation(observed: Observed) {
+            let Observed {
+                service,
+                control,
+                mut client,
+            } = observed;
+            // The worker was joined, so the divergent request returned; it returns only by
+            // observing its cancellation.
+            assert!(control.is_cancelled());
+            assert!(control.token.is_cancelled());
+            assert!(
+                service.try_lock().is_ok(),
+                "the service lock is released and not poisoned"
+            );
+            // The session's writer is gone with its worker, and nothing was answered.
+            client.set_read_timeout(Some(WATCHDOG)).unwrap();
+            let mut answer = String::new();
+            client.read_to_string(&mut answer).unwrap();
+            assert!(
+                answer.is_empty(),
+                "a request cancelled by the end of its session is not answered: {answer}"
+            );
+        }
+
+        #[test]
+        fn dropping_a_session_with_a_poisoned_queue_cancels_its_running_request_then_joins() {
+            let (session, observed) = running_divergent_request_with_poisoned_controls();
+            end_within_watchdog(session, drop);
+            assert_request_ended_by_cancellation(observed);
+        }
+
+        #[test]
+        fn finishing_a_session_with_a_poisoned_queue_cancels_joins_and_reports_the_poison() {
+            let (session, observed) = running_divergent_request_with_poisoned_controls();
+            let result = end_within_watchdog(session, ConnectionSession::finish);
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                queue_poisoned().to_string()
+            );
+            assert_request_ended_by_cancellation(observed);
+        }
+    }
 }
 
 fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
@@ -2337,9 +2562,10 @@ fn cancellation_error_for_request(request: &Map<String, Value>) -> Option<Value>
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::VecDeque,
         io::{BufRead, BufReader, Read, Write},
         net::{Shutdown, TcpListener, TcpStream},
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, mpsc},
     };
 
     use k_rust::kore::{
@@ -5501,7 +5727,7 @@ endmodule
     /// blocking the suite.
     const WATCHDOG: Duration = Duration::from_secs(60);
 
-    fn looping_service() -> RpcService {
+    pub(super) fn looping_service() -> RpcService {
         let definition = parse_definition(
             r#"[]
             module MAIN
@@ -5518,7 +5744,7 @@ endmodule
         RpcService::new(BackendSession::new(definition, "MAIN"))
     }
 
-    fn divergent_execute() -> Value {
+    pub(super) fn divergent_execute() -> Value {
         let state =
             encode_kore(&parse_pattern(r#"wrap{}(\dv{SortS{}}("zero"))"#).unwrap()).unwrap();
         json!({
