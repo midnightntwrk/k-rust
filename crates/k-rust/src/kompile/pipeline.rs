@@ -9,14 +9,20 @@
 
 use std::{convert::Infallible, fmt};
 
+#[cfg(debug_assertions)]
 use k_rust_kore::measure;
 
+// Read only by the stage-boundary identity check, which exists in builds with debug assertions.
 use crate::{
-    definition::{Definition, ProductionCatalog, ResolveError, ResolvedDefinition, Sentence},
+    definition::{Definition, ResolveError, ResolvedDefinition},
     diagnostic::Diagnostic,
-    kast::Term,
     provenance::{GeneratingPass, record_generated_origins},
     timings::PhaseTimings,
+};
+#[cfg(debug_assertions)]
+use crate::{
+    definition::{ProductionCatalog, Sentence},
+    kast::Term,
 };
 
 use super::{CompileError, CompileOptions};

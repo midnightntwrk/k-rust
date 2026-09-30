@@ -30,6 +30,9 @@ mod axioms;
 mod equations;
 mod roles;
 
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+use super::invariants::emitted::{EmittedTheory, emitted_from};
+
 use axioms::generated_axioms;
 use equations::{
     OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
@@ -817,6 +820,12 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         .sentences
         .extend(generated_axioms.semantics);
     modules.syntax.sentences.extend(generated_axioms.syntax);
+    // The declarations and generated axioms are the whole theory the emitted rules are read in:
+    // rule emission adds neither sort declarations nor subsort axioms.
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    let semantics_theory = checked_theory(&modules.semantics);
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    checked_theory(&modules.syntax);
 
     // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
     // the error order. Only successful results from the first owise scan are reusable by later
@@ -835,6 +844,8 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     for rule in &module_rules {
         let emitted = emit_rule_or_claim(rule, false, &emission_context, &mut owise_competitors)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(rule))?;
+        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+        check_emitted_rule(&semantics_theory, &emitted, rule);
         if is_macro_rule(rule) {
             modules.macros.push(emitted);
         } else {
@@ -855,6 +866,8 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         }
         let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_competitors)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
+        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+        check_emitted_rule(&semantics_theory, &emitted, claim);
         modules.semantics.sentences.push(emitted);
         emitted_sources.push(claim.attributes().clone());
     }
@@ -893,6 +906,36 @@ fn specification_claims<'a>(
             .collect(),
         None => rules.local_claims().map(|(_, claim)| claim).collect(),
     }
+}
+
+/// Build the emitted theory of `module` and check every sentence it holds before rules are
+/// emitted: its declarations and generated axioms.
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+fn checked_theory(module: &Module) -> EmittedTheory {
+    k_rust_kore::measure::without_counting(|| {
+        let theory = EmittedTheory::of(module);
+        // Invariant: every sentence of `module` before `sentence` satisfies K1-K3 in `theory`.
+        for sentence in &module.sentences {
+            theory.check(sentence, &|| {
+                format!("a declaration or generated axiom of module {}", module.name)
+            });
+        }
+        theory
+    })
+}
+
+/// Check the sentence `emitted` from the rule, claim or macro `source` against the semantics
+/// theory, naming `source` and the pass of its origin record on a violation.
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+fn check_emitted_rule(theory: &EmittedTheory, emitted: &KoreSentence, source: &Sentence) {
+    k_rust_kore::measure::without_counting(|| {
+        theory.check(emitted, &|| {
+            emitted_from(
+                &describe_source_sentence(source),
+                source.attributes().origin_record(),
+            )
+        });
+    });
 }
 
 fn describe_source_sentence(sentence: &Sentence) -> String {

@@ -690,12 +690,12 @@ impl Definition {
     }
 }
 
-#[cfg(test)]
+// The raw-marker guard exists only in builds with debug assertions.
+#[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(debug_assertions)]
     #[should_panic(expected = "declare_total")]
     fn raw_total_marker_requires_evidence() {
         Attributes::default().mark(AttributeKey::Total);

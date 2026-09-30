@@ -66,6 +66,9 @@ cli = [
   "mpfr-folding",
   "z3-inference",
 ]
+# Run the kompile invariant checkers (docs in k-rust/src/kompile/invariants.rs) in builds without
+# debug assertions, such as the conformance and reference gates.
+kompile-invariant-checks = []
 measure = ["k-rust-kore/measure", "k-rust-backend/measure", "dep:libc"]
 mpfr-folding = ["dep:gmp-mpfr-sys", "dep:rug"]
 z3-inference = ["dep:z3", "k-rust-backend/z3"]

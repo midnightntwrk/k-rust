@@ -7,6 +7,8 @@
 mod compile;
 mod fresh_names;
 pub mod initial_configuration;
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+mod invariants;
 mod label_graph;
 mod module_to_kore;
 mod passes;
