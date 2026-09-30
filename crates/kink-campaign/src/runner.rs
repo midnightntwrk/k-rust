@@ -20,8 +20,8 @@
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
 //! - A pattern oracle evaluates declared predicates of consecutive configurations.
-//!   Both sides use the baseline signature, evaluation context and solver, with the same
-//!   pair existential flag. A witness and complete contrary coverage prove an observation
+//!   Both sides use the baseline signature, evaluation context and solver, and link only the
+//!   test's initial variables. A witness and complete contrary coverage prove an observation
 //!   difference for some ground instance; an undecided presence, relation or discard is
 //!   Unknown. Bindings require complete coverage, ground terms and definition independence.
 //!
@@ -397,15 +397,10 @@ pub fn run_campaign(
             .zip(&mut baseline_evidence)
             .zip(&baseline_runs)
         {
-            let patterns = facts.as_ref().ok().map(|facts| {
-                runtime.step_sides(
-                    campaign,
-                    test,
-                    &observation,
-                    facts.existentials,
-                    cache.stepped.as_ref(),
-                )
-            });
+            let patterns = facts
+                .as_ref()
+                .ok()
+                .map(|_| runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref()));
             replace_patterns(test, evidence, patterns.as_deref());
         }
     }
@@ -672,29 +667,25 @@ fn run_tests(
         let (mut mutant, cache) = sides.run(campaign, test, *symbolic);
         let mut paired_baseline = baseline.clone();
         {
-            let observation = &certifier.observation;
-            let pair_facts = certifier.runtime.facts().and_then(|baseline_facts| {
-                sides
-                    .facts(*symbolic)
-                    .map(|mutant_facts| (baseline_facts, mutant_facts))
-            });
-            let patterns = pair_facts
-                .ok()
-                .filter(|(b, m)| b.signature == m.signature)
-                .map(|(b, m)| {
-                    certifier.runtime.step_pair(
-                        campaign,
-                        test,
-                        observation,
-                        b.existentials || m.existentials,
-                        (
-                            certifier.caches[index].stepped.as_ref(),
-                            cache.stepped.as_ref(),
-                        ),
-                    )
-                });
-            if let Some((baseline_patterns, mutant_patterns)) = patterns {
-                replace_patterns(test, &mut paired_baseline, Some(&baseline_patterns));
+            // The baseline's pattern sides were evaluated at admission by the same function of
+            // (its stepped run, declarations, baseline signature, test initial variables), so
+            // only the mutant's are evaluated here.
+            let signatures_match = certifier
+                .runtime
+                .facts()
+                .and_then(|baseline_facts| {
+                    sides
+                        .facts(*symbolic)
+                        .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
+                })
+                .unwrap_or(false);
+            if signatures_match {
+                let mutant_patterns = certifier.runtime.step_sides(
+                    campaign,
+                    test,
+                    &certifier.observation,
+                    cache.stepped.as_ref(),
+                );
                 replace_patterns(test, &mut mutant, Some(&mutant_patterns));
             } else {
                 replace_patterns(test, &mut paired_baseline, None);
@@ -928,34 +919,21 @@ impl Runtime {
         )
     }
 
+    /// The pattern-slot sides of one side's stepped run, evaluated with this (the baseline's)
+    /// definition, solver and evaluation context.
     fn step_sides(
         &mut self,
         campaign: &Campaign<'_>,
         test: &TestCase,
         observation: &StepObservation,
-        existentials: bool,
         execution: Option<&SteppedExecution>,
     ) -> Vec<OracleSide> {
-        self.step_pair(campaign, test, observation, existentials, (execution, None))
-            .0
-    }
-
-    fn step_pair(
-        &mut self,
-        campaign: &Campaign<'_>,
-        test: &TestCase,
-        observation: &StepObservation,
-        existentials: bool,
-        executions: (Option<&SteppedExecution>, Option<&SteppedExecution>),
-    ) -> (Vec<OracleSide>, Vec<OracleSide>) {
         let mut context = self.context.clone();
         context.test_id.clone_from(&test.id);
         self.backend
             .with_solver(None, |definition, solver| {
-                let decider =
-                    ObservationDecider::new(definition, solver, &test.initial_state, existentials);
-                let relations =
-                    BackendRelations::shared(definition, solver, &test.initial_state, existentials);
+                let decider = ObservationDecider::new(definition, solver, &test.initial_state);
+                let relations = BackendRelations::shared(definition, solver, &test.initial_state);
                 let evaluate = |execution: Option<&SteppedExecution>| {
                     let bridged = execution.and_then(|execution| {
                         paths_from_steps(
@@ -1012,17 +990,9 @@ impl Runtime {
                         })
                         .collect()
                 };
-                Ok::<_, k_rust::backend::BackendError>((
-                    evaluate(executions.0),
-                    evaluate(executions.1),
-                ))
+                Ok::<_, k_rust::backend::BackendError>(evaluate(execution))
             })
-            .unwrap_or_else(|_| {
-                (
-                    vec![OracleSide::Unknown; test.oracles.len()],
-                    vec![OracleSide::Unknown; test.oracles.len()],
-                )
-            })
+            .unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
     }
 }
 

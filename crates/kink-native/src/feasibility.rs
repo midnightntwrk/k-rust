@@ -54,6 +54,16 @@
 //! solver to accept one, `rewrite/apply.rs` phases P7 and P10); with Z3, every rule condition
 //! k-rust relied on stays in the leaf predicate (the evidence behind [`LeafFeasibility::Solver`]),
 //! so every model of the path predicate does.
+//!
+//! **Variable identity.** Every state decided here is decoded from k-rust's externalized KORE.
+//! Under k-rust's variable-identity contract (`VARIABLE_IDENTITY == 2`, asserted at compile time
+//! below; `draft/tasks/variable-identity/` README 3) decoding is the exact inverse of printing,
+//! and every free variable a request mints is new: it is minted once, from one counter seeded
+//! past the request's names, and never has a request variable's name. So a decoded state is the
+//! internal state: within one request a decoded name, with its kind and sort, is one variable,
+//! and two distinct variables never share a name. A leaf `Unsat` is about the real state, and
+//! the relations compare variables by identity. Across requests only the test's initial
+//! variables are shared ([`InitialVariables`]).
 
 use std::collections::BTreeSet;
 
@@ -69,6 +79,16 @@ use k_rust_backend::unification::{
     Unification, UnificationFailure, UnificationResult, unify_term_pairs,
 };
 use kink_pattern::{Feasibility, PathInput, RelationDecider, RelationDecision, TermRelation};
+
+/// k-rust's variable-identity contract, version 2 (`k_rust_backend::term::names`): printing and
+/// reading variable names are a bijection, and every free rewrite mint of a request is unique in
+/// the request, never reused on a path, and distinct from every request name. kink decides on
+/// decoded names as variable identities because of it: leaf `Unsat` and the bridge's discard,
+/// the relations' `Equal`, `Unequal` and `Unsat`, identity `Equal` in step observations, the
+/// certificate's stable set, its `Vacuous` exclusion and its consistent renaming. A pin with only
+/// half of the contract, or a later regression, fails to compile here instead of silently
+/// removing a premise.
+const _: () = assert!(k_rust_backend::term::names::VARIABLE_IDENTITY == 2);
 
 /// Whether a leaf state is shown to have an instance, or shown to have none.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -148,6 +168,51 @@ impl Inhabitation {
 
     pub(crate) fn contains(&self, sort: &Sort) -> bool {
         self.sorts.contains(sort)
+    }
+}
+
+/// The variables that kink links across requests: the free element variables of the **test's**
+/// initial state, when every free variable of it internalizes to an element variable of an
+/// inhabited sort, and none otherwise.
+///
+/// **Cross-request rule.** kink combines the payloads of several k-rust requests: the baseline
+/// run and the mutant run of a test, and the stepped run of each. Under the variable-identity
+/// contract the only names such requests share are their request names, and every one of these
+/// requests has the test's initial state as its input. So an initial variable means the same
+/// variable in every state of every path of each of them (no mint re-binds a request name), and
+/// it is the only kind of variable that may be identified between them: a minted name of one
+/// request says nothing about a minted name of another (exploration order and rule-variable
+/// names choose them). The spelling of an initial name does not matter (`X1`, `ExVarI0` and
+/// `Ex-hX-b0` are stable like `X`). Callers pass the test's initial state and nothing else.
+pub(crate) struct InitialVariables;
+
+impl InitialVariables {
+    /// The test's initial variables per the type documentation; `None` when some free variable
+    /// of `initial` is not an element variable of a sort `inhabitation` shows inhabited.
+    pub(crate) fn of(
+        definition: &BackendDefinition,
+        inhabitation: &Inhabitation,
+        initial: &Pattern,
+    ) -> Option<BTreeSet<Variable>> {
+        initial
+            .free_variables()
+            .into_iter()
+            .map(|variable| {
+                match definition
+                    .internalize_term(&Pattern::Variable(variable), &[])
+                    .as_ref()
+                    .map(Term::kind)
+                {
+                    Ok(TermKind::Variable(internal))
+                        if internal.kind == VariableKind::Element
+                            && inhabitation.contains(&internal.sort) =>
+                    {
+                        Some(internal.clone())
+                    }
+                    _ => None,
+                }
+            })
+            .collect()
     }
 }
 
@@ -535,51 +600,30 @@ fn pairs_decompose_freely<'t>(pairs: impl IntoIterator<Item = &'t (Term, Term)>)
 /// the baseline definition's unifier and solver (see the module documentation).
 ///
 /// The paths must come from [`crate::bridge::paths_from_steps`] over executions of
-/// `initial_state` whose signatures match the baseline. Only terms whose variables are element
-/// variables of `initial_state` are compared: those names mean one value along the whole path. A variable
-/// introduced during execution is not, because k-rust renames a rule's existential variables
-/// apart only from the current state, so one name can stand for two values on one path; a
-/// definition whose rewrite rules have existential variables therefore leaves every comparison
-/// involving a variable undecided.
+/// `initial_state` whose signatures match the baseline. Only terms whose variables are the test's
+/// initial variables ([`InitialVariables`]) are compared: the paths of both sides come from
+/// different requests, and those are the only variables the requests share. Under the
+/// variable-identity contract each of them means one value along every path, whatever rules
+/// the definitions have, because no variable a request mints has a request variable's name.
 pub struct BackendRelations<'a> {
     definition: &'a BackendDefinition,
     solver: &'a dyn SmtSolver,
     inhabitation: Inhabitation,
-    /// The initial-state element variables, when they are stable and all inhabited.
+    /// The test's initial variables, when all of them are inhabited element variables.
     variables: Option<BTreeSet<Variable>>,
 }
 
 impl<'a> BackendRelations<'a> {
-    /// Relations for pattern observations on both sides of a mutant pair. The caller supplies
-    /// the pair's existential flag; only interpreted predicates may reach the solver.
+    /// Relations for pattern observations on both sides of a mutant pair, over the test's
+    /// initial state; only interpreted predicates may reach the solver.
     #[must_use]
     pub fn shared(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
         initial_state: &Pattern,
-        existentials: bool,
     ) -> Self {
         let inhabitation = Inhabitation::of(definition);
-        let variables = initial_state
-            .free_variables()
-            .into_iter()
-            .map(|variable| {
-                match definition
-                    .internalize_term(&Pattern::Variable(variable), &[])
-                    .as_ref()
-                    .map(Term::kind)
-                {
-                    Ok(TermKind::Variable(internal))
-                        if internal.kind == VariableKind::Element
-                            && inhabitation.contains(&internal.sort) =>
-                    {
-                        Some(internal.clone())
-                    }
-                    _ => None,
-                }
-            })
-            .collect::<Option<BTreeSet<_>>>()
-            .filter(|_| !existentials);
+        let variables = InitialVariables::of(definition, &inhabitation, initial_state);
         Self {
             definition,
             solver,
@@ -680,8 +724,9 @@ impl<'a> BackendRelations<'a> {
         {
             return Feasibility::Unknown;
         }
-        // Every variable of an exact `Sat` must be an initial-state variable, which names one
-        // value along the whole path (R9); a variable introduced during execution may not.
+        // Every variable of an exact `Sat` must be one of the test's initial variables: the
+        // model then values variables that both sides' requests share, each one value along the
+        // whole path (`InitialVariables`).
         let stable = self.variables.as_ref().is_some_and(|stable| {
             query
                 .iter()
@@ -876,7 +921,7 @@ mod tests {
         let real = path(PathStop::DepthLimit, top());
         backend
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state, false);
+                let relations = BackendRelations::shared(definition, solver, &state);
                 for (bytes, canonical) in [
                     (b"01".as_slice(), b"1".as_slice()),
                     (b"+1", b"1"),
@@ -1177,7 +1222,7 @@ mod tests {
         let state = symmem_state();
         let answers = symmem
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state, false);
+                let relations = BackendRelations::shared(definition, solver, &state);
                 Ok::<_, BackendError>(
                     rows.iter()
                         .map(|(id, assumed, left, right, _)| {
@@ -1252,7 +1297,7 @@ mod tests {
         let state = symmem_state();
         let answers = symmem
             .with_solver(None, |definition, solver| {
-                let relations = BackendRelations::shared(definition, solver, &state, false);
+                let relations = BackendRelations::shared(definition, solver, &state);
                 Ok::<_, BackendError>(
                     rows.iter()
                         .map(|(id, path, assumptions, _)| {
@@ -1281,7 +1326,7 @@ mod tests {
                     .name
                     .to_string();
                 let one_plus_one = support::app(&plus, vec![support::int(1), support::int(1)]);
-                let relations = BackendRelations::shared(definition, solver, &state, false);
+                let relations = BackendRelations::shared(definition, solver, &state);
                 let real = path(PathStop::Terminal, top());
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &one_plus_one, &support::int(2)),
@@ -1379,7 +1424,7 @@ mod tests {
                     answer: answer.clone(),
                     queries: std::cell::RefCell::default(),
                 };
-                let feasible = BackendRelations::shared(definition, &solver, state, false)
+                let feasible = BackendRelations::shared(definition, &solver, state)
                     .feasible(path, assumptions);
                 let asked = solver.queries.into_inner();
                 let expected_queries = query.iter().cloned().collect::<Vec<_>>();
@@ -1645,13 +1690,12 @@ mod tests {
                     answer: Ok(Satisfiability::Unsat),
                     queries: std::cell::RefCell::default(),
                 };
-                let answer = BackendRelations::shared(definition, &solver, &symmem_state(), false)
-                    .relate(
-                        &path(PathStop::Terminal, top()),
-                        &[],
-                        &addr(x.clone()),
-                        &addr(y.clone()),
-                    );
+                let answer = BackendRelations::shared(definition, &solver, &symmem_state()).relate(
+                    &path(PathStop::Terminal, top()),
+                    &[],
+                    &addr(x.clone()),
+                    &addr(y.clone()),
+                );
                 Ok::<_, BackendError>((answer, solver.queries.into_inner().len()))
             })
             .expect("definition");
@@ -1858,7 +1902,7 @@ mod tests {
         let both = |value: Pattern| support::app("Lblboth", vec![value]);
         let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
         let solver = Scripted(Err(SmtError::Unavailable));
-        let relations = BackendRelations::shared(&definition, &solver, &state, false);
+        let relations = BackendRelations::shared(&definition, &solver, &state);
         let real = path(PathStop::Terminal, top_of("SortNat"));
         assert_eq!(
             [
@@ -1893,10 +1937,12 @@ mod tests {
         );
     }
 
-    /// A definition whose rewrite rules introduce existential variables can reuse a variable
-    /// name for two values on one path, so no comparison involving a variable is decided.
+    /// Before variable identity, a definition whose rewrite rules introduce existential
+    /// variables could reuse a variable name for two values on one path, so every comparison
+    /// involving a variable was undecided (`[Indeterminate, Indeterminate, Unequal]`). Under the
+    /// contract no mint re-binds an initial name, so the initial variables stay comparable.
     #[test]
-    fn existential_rules_leave_variable_comparisons_undecided() {
+    fn existential_rules_keep_initial_variable_comparisons() {
         let mut symmem = backend("symmem.k", "SYMMEM");
         let state = symmem_state();
         let (x, y) = (nat("X"), nat("Y"));
@@ -1916,7 +1962,7 @@ mod tests {
                     .existentials
                     .insert(Variable::new("Ex#Fresh", Sort::simple("SortNat")));
                 rule.rule = std::sync::Arc::new(changed);
-                let relations = BackendRelations::shared(&definition, solver, &state, true);
+                let relations = BackendRelations::shared(&definition, solver, &state);
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &addr(x.clone()), &addr(x.clone())),
                     relations.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
@@ -1924,28 +1970,87 @@ mod tests {
                 ])
             })
             .expect("relations");
-        assert_eq!(answers, [Indeterminate, Indeterminate, Unequal]);
+        assert_eq!(
+            answers,
+            [Equal, EqualIf(vec![relation(nat("X"), nat("Y"))]), Unequal]
+        );
     }
 
+    /// The test's initial variables are linked whatever their spelling: a digit suffix, an old
+    /// mint spelling (`ExVarI0`, `RuleX`) and a wire name that decodes to a marked, counted
+    /// name (`Ex-hX-b0` is `Ex#X!0`) all name request variables. All or nothing: one variable
+    /// of an uninhabited sort leaves no initial variable.
     #[test]
-    fn shared_relations_use_the_pair_existential_flag() {
+    fn initial_variables_are_every_inhabited_initial_variable() {
         let mut symmem = backend("symmem.k", "SYMMEM");
-        let state = symmem_state();
+        let (a, b, c, d) = (nat("X1"), nat("ExVarI0"), nat("RuleX"), nat("Ex-hX-b0"));
+        let state = support::initial_state(
+            support::app(
+                "Lblseq",
+                vec![
+                    support::app("Lblwrite", vec![addr(a.clone()), b.clone()]),
+                    support::app(
+                        "Lblseq",
+                        vec![
+                            support::app("Lblload", vec![addr(c.clone()), d.clone()]),
+                            support::app("Lblhalt", vec![]),
+                        ],
+                    ),
+                ],
+            ),
+            "SortProg",
+        );
         let real = path(PathStop::DepthLimit, top());
-        let (x, y) = (nat("X"), nat("Y"));
-        let answers = symmem
+        let (variables, answers) = symmem
             .with_solver(None, |definition, solver| {
-                let stable = BackendRelations::shared(definition, solver, &state, false);
-                let unstable = BackendRelations::shared(definition, solver, &state, true);
-                Ok::<_, BackendError>([
-                    stable.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
-                    unstable.relate(&real, &[], &addr(x), &addr(y)),
-                ])
+                let relations = BackendRelations::shared(definition, solver, &state);
+                Ok::<_, BackendError>((
+                    relations.variables.clone(),
+                    [
+                        relations.relate(&real, &[], &addr(a.clone()), &addr(a.clone())),
+                        relations.relate(&real, &[], &addr(a.clone()), &addr(c.clone())),
+                        relations.relate(&real, &[], &b, &d),
+                    ],
+                ))
             })
             .expect("relations");
         assert_eq!(
+            variables,
+            Some(
+                ["X1", "ExVarI0", "RuleX", "Ex#X!0"]
+                    .into_iter()
+                    .map(|name| Variable::new(name, Sort::simple("SortNat")))
+                    .collect()
+            )
+        );
+        assert_eq!(
             answers,
-            [EqualIf(vec![relation(nat("X"), nat("Y"))]), Indeterminate]
+            [
+                Equal,
+                EqualIf(vec![relation(c.clone(), a.clone())]),
+                EqualIf(vec![relation(d.clone(), b.clone())]),
+            ]
+        );
+        let definition =
+            BackendDefinition::internalize(&parse_definition(EMPTY).expect("KORE"), "MAIN")
+                .expect("definition");
+        let solver = k_rust_backend::smt::NoSolver;
+        let inhabited = support::var("VarS", "SortS");
+        let empty = support::var("VarE", "SortEmpty");
+        assert_eq!(
+            BackendRelations::shared(&definition, &solver, &inhabited).variables,
+            Some(BTreeSet::from([Variable::new(
+                "VarS",
+                Sort::simple("SortS")
+            )]))
+        );
+        let pair = support::app(
+            "Lblpair",
+            vec![inhabited, support::app("Lblwrap", vec![empty])],
+        );
+        assert_eq!(
+            BackendRelations::shared(&definition, &solver, &pair).variables,
+            None
         );
     }
 
@@ -1965,7 +2070,7 @@ mod tests {
         let real = path(PathStop::DepthLimit, top());
         backend
             .with_solver(None, |definition, solver| {
-                let shared = BackendRelations::shared(definition, solver, &state, false);
+                let shared = BackendRelations::shared(definition, solver, &state);
                 assert_eq!(
                     shared.relate(&real, &[], &identity, &y),
                     RelationDecision::Indeterminate
@@ -1994,5 +2099,152 @@ mod tests {
                 Ok::<_, BackendError>(())
             })
             .expect("relations");
+    }
+
+    /// state-observations SO-03 review R1-D3/R2-D2 (probe `r6`), the printed-name exposure the
+    /// EI certificate backstopped: `go(B)` narrows `B:Box` to `c(I)` with a fresh `I`, and the
+    /// test's own variable is named `ExVarI0`, the spelling k-rust printed that mint in before
+    /// the variable-identity contract. Then the decoded state 1 read
+    /// `seq(check2(ExVarI0), seq(check2(ExVarI0), done))`, so the declaration
+    /// `seq(check2(J), seq(check2(J), P))` was Certain at step 1 by name identity, and
+    /// shared leaf feasibility proved the real `fail` leaf (mint `> 0`, user `<= 0`) Unsat over
+    /// the merged names and discarded it. Under the contract the mint is its own variable: no
+    /// Certain event and no Unsat leaf, in either profile.
+    #[test]
+    fn minted_and_initial_variables_are_never_identified() {
+        use crate::bridge::{BridgeContext, paths_from_steps};
+        use crate::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile};
+        use crate::step_events::{ObservationDecider, StepEventSpec, StepObservation};
+        use kink_pattern::{EventPresence, ExecutionTerminalKind, SymbolSorts};
+
+        const SOURCE: &str = "module CONFLATETERM-SYNTAX\n  imports INT-SYNTAX\n  syntax Box ::= c(Int) [symbol(c)]\n  syntax Op ::= check2(Int) [symbol(check2)] | go(Box) [symbol(go)]\n  syntax Prog ::= \"done\" [symbol(done)] | \"fail\" [symbol(fail)] | seq(Op, Prog) [symbol(seq)]\nendmodule\n\nmodule CONFLATETERM\n  imports CONFLATETERM-SYNTAX\n  imports BASIC-K\n  imports INT\n  configuration <k> .K </k>\n  rule [check2]:     seq(check2(J), P) => P requires J >Int 0\n  rule [check2Fail]: seq(check2(J), _) => fail requires J <=Int 0\n  rule [goPos]: seq(go(c(I)), P) => seq(check2(I), P) requires I >Int 0\n  rule [goNeg]: seq(go(c(I)), P) => P requires I <=Int 0\nendmodule\n";
+        let directory = std::env::temp_dir().join(format!(
+            "vi04-conflateterm-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).expect("temporary definition directory");
+        let source = directory.join("conflateterm.k");
+        std::fs::write(&source, SOURCE).expect("definition source");
+        let side = NativeValidator::bind(
+            support::load_path(&source, "CONFLATETERM"),
+            CompileOptions::default(),
+        )
+        .compile_baseline()
+        .expect("conflateterm compiles");
+        std::fs::remove_dir_all(&directory).expect("remove temporary definition");
+        let kore = &side.artifacts().definition_kore;
+        let mut backend =
+            Backend::new(kore, "CONFLATETERM", BackendOptions::default()).expect("backend");
+        let seq = |head, tail| support::app("Lblseq", vec![head, tail]);
+        let check2 = |value| support::app("Lblcheck2", vec![value]);
+        let state = support::initial_state(
+            seq(
+                support::app("Lblgo", vec![support::var("B", "SortBox")]),
+                seq(
+                    check2(support::var("ExVarI0", "SortInt")),
+                    support::app("Lbldone", vec![]),
+                ),
+            ),
+            "SortProg",
+        );
+        let j = support::var("J", "SortInt");
+        let spec = StepEventSpec {
+            constructor: "same".into(),
+            pre: support::k_config(
+                seq(
+                    check2(j.clone()),
+                    seq(check2(j), support::var("P", "SortProg")),
+                ),
+                "SortProg",
+                "R",
+                "C",
+            ),
+            post: None,
+            payload: vec!["J".into()],
+        };
+        let observation = StepObservation::new(&mut backend, vec![spec]).expect("declaration");
+        let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
+            .execute_steps(
+                &mut backend,
+                &state,
+                ExecutionBudget {
+                    time: std::time::Duration::from_secs(30),
+                    max_simplification_iterations: 1000,
+                    max_depth: None,
+                    max_breadth: None,
+                },
+            )
+            .expect("execution")
+            .expect("stepped run");
+        let sorts = SymbolSorts::from_definition(&parse_definition(kore).expect("KORE"));
+        let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+        let (feasibility, events) = backend
+            .with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(definition, solver, &state);
+                let feasibility = execution
+                    .adapted
+                    .leaves()
+                    .iter()
+                    .map(|leaf| decider.shared_leaf_feasibility(&leaf.branch.state))
+                    .collect::<Vec<_>>();
+                let paths = paths_from_steps(
+                    &BridgeContext {
+                        test_id: "r6",
+                        classify: &normal,
+                        sorts: &sorts,
+                    },
+                    &execution,
+                    &observation,
+                    &decider,
+                )
+                .expect("bridge")
+                .paths;
+                let events = paths
+                    .iter()
+                    .map(|path| {
+                        path.events
+                            .iter()
+                            .map(|event| (event.step, event.presence.clone()))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                Ok::<_, BackendError>((feasibility, events))
+            })
+            .expect("shared decider");
+        assert!(
+            !feasibility.contains(&LeafFeasibility::Unsat),
+            "{feasibility:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .flatten()
+                .all(|(_, presence)| *presence != EventPresence::Certain),
+            "{events:?}"
+        );
+        // Z3: five leaves, none shared-Unsat, so every leaf is bridged; the two paths through
+        // `seq(check2(mint), seq(check2(ExVarI0), done))` leave the step-1 event Undecided (the
+        // mint is no initial variable, so `relate` does not compare it). No-Z3: the narrowing
+        // step is Indeterminate at the initial state.
+        if cfg!(feature = "z3") {
+            assert_eq!(feasibility, vec![LeafFeasibility::Unknown; 5]);
+            assert_eq!(
+                events,
+                vec![
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![(1, EventPresence::Undecided)],
+                    vec![(1, EventPresence::Undecided)],
+                ]
+            );
+        } else {
+            assert_eq!(feasibility, vec![LeafFeasibility::Syntactic]);
+            assert_eq!(events, vec![Vec::new()]);
+        }
     }
 }

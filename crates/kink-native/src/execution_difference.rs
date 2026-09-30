@@ -17,9 +17,9 @@ use k_rust_backend::unification::{UnificationResult, unify_term_pairs};
 use crate::{
     execution::HaltClass,
     feasibility::{
-        Inhabitation, LeafFeasibility, free_constructor, interpreted_predicate, proves_clash,
+        Inhabitation, InitialVariables, LeafFeasibility, free_constructor, interpreted_predicate,
+        proves_clash,
     },
-    names::identifies_one_variable,
 };
 
 /// One path's states; its rewrite length is `states.len() - 1`, never its halt depth.
@@ -168,8 +168,6 @@ impl SymbolShape {
 /// What the certificate needs to know about one side's definition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionFacts {
-    /// Some rewrite rule has existential variables, so no variable name is stable on a path.
-    pub existentials: bool,
     /// The signature projection compared between the sides.
     pub signature: SignatureProjection,
 }
@@ -178,12 +176,6 @@ pub struct DefinitionFacts {
 pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotProvedReason> {
     backend.with_solver(None, |definition, _| {
         Ok(DefinitionFacts {
-            existentials: definition
-                .rewrite_theory
-                .values()
-                .flat_map(|priorities| priorities.values())
-                .flatten()
-                .any(|rule| !rule.existentials.is_empty()),
             signature: SignatureProjection::of(definition),
         })
     })
@@ -196,75 +188,77 @@ pub fn definition_facts(backend: &mut Backend) -> Result<DefinitionFacts, NotPro
 ///
 /// **Rule.** If the signature projections differ, the result is `SignatureDiffers`. Every
 /// state is generalized, scoped per side, leaf and position: free constructors, injections and
-/// domain values are kept; *stable* variables are kept; every other element variable whose
-/// name identifies one variable (`identifies_one_variable`: the states are decoded from
-/// k-rust's externalized KORE, whose variable names are not injective) is renamed apart
-/// consistently within the scope; every other subterm (a variable with any other name, a
-/// non-free application, a set variable, a collection, a conjunction) becomes a fresh wildcard
-/// variable of its sort, one per occurrence. The stable variables are the free variables of
-/// `initial` when neither side has existential rewrite variables and every one of them
-/// internalizes to an element variable of an inhabited sort whose name identifies one
-/// variable, and none otherwise. A leaf's predicate conjuncts (its `pc`, from the leaf state)
-/// are kept apart and never generalized. A covering-side path `q` excludes a witness path `p`
-/// by the first of: `Vacuous` (`q` halts Vacuous, or is Unsat and every variable name of its
-/// leaf state identifies one variable), `Length` (on positions `states.len() - 1`: `q`
-/// terminal and shorter, or `p` terminal and `q` longer), `Clash` (a clash that
-/// `proves_clash` certifies in the joint unification of the generalized states at every
-/// common position) and `Disjoint` (both pcs non-empty, a non-empty stable set, only stable
-/// variables, only hooked, free-constructor, injection and domain-value symbols, an exact SMT
-/// translation, and a solver `Unsat` for their conjunction). A side is covering when it has a
-/// leaf and every leaf halts Stuck, Trivial, Vacuous, Indeterminate or DepthBound; a witness is
-/// a leaf that is not Vacuous and is Syntactic or Solver feasible. With the mutant, then the
-/// baseline, as the witness side and the other side covering, the first witness in leaf order
-/// that every covering leaf excludes is `Proved`, with one exclusion per covering leaf in leaf
-/// order. Otherwise the result is `NotCovering` when neither direction was attempted,
-/// `Internalization` when a leaf failed to internalize, and `NoWitness` otherwise; a backend
-/// error is `Backend`.
+/// domain values are kept; *stable* variables are kept; every other element variable is renamed
+/// consistently within the scope, to a scope variable whose name is no stable variable's
+/// (`Scope::fresh`); every other subterm (a non-free application, a set variable, a
+/// collection, a conjunction) becomes a fresh wildcard variable of its sort, one per
+/// occurrence. The stable variables are the test's initial variables (`InitialVariables`: the
+/// free variables of `initial` when every one of them internalizes to an element variable of
+/// an inhabited sort, and none otherwise). A leaf's predicate conjuncts (its `pc`, from the
+/// leaf state) are kept apart and never generalized. A covering-side path `q` excludes a
+/// witness path `p` by the first of: `Vacuous` (`q` halts Vacuous or is Unsat), `Length` (on
+/// positions `states.len() - 1`: `q` terminal and shorter, or `p` terminal and `q` longer),
+/// `Clash` (a clash that `proves_clash` certifies in the joint unification of the generalized
+/// states at every common position) and `Disjoint` (both pcs non-empty, a non-empty stable
+/// set, only stable variables, only hooked, free-constructor, injection and domain-value
+/// symbols, an exact SMT translation, and a solver `Unsat` for their conjunction). A side is
+/// covering when it has a leaf and every leaf halts Stuck, Trivial, Vacuous, Indeterminate or
+/// DepthBound; a witness is a leaf that is not Vacuous and is Syntactic or Solver feasible.
+/// With the mutant, then the baseline, as the witness side and the other side covering, the
+/// first witness in leaf order that every covering leaf excludes is `Proved`, with one
+/// exclusion per covering leaf in leaf order. Otherwise the result is `NotCovering` when
+/// neither direction was attempted, `Internalization` when a leaf failed to internalize, and
+/// `NoWitness` otherwise; a backend error is `Backend`.
 ///
 /// **Claim.** `Proved` means that some ground instance σ of `initial` has, as the two
 /// definitions execute in k-rust, a witness-side state sequence that no covering-side sequence
 /// equals.
 ///
-/// **Proof.** Decoding is sound for the witness: its decoded states and pc are the real ones
-/// under a merge μ of the variables that print alike (of one sort), so a θ satisfying the
-/// decoded pc gives θ∘μ satisfying the real one. The witness `p` is feasible, so some θ
-/// satisfies its pc; let σ be θ restricted to the variables of `initial`. k-rust keeps every
-/// condition it relied on in the leaf predicate, so θ∘μ follows `p`: σ has a witness-side
+/// **Proof.** Every state is read under k-rust's variable-identity contract
+/// (`feasibility`'s `VARIABLE_IDENTITY` assertion): decoding inverts printing, so a decoded
+/// state and its pc are the real ones, and within the request that produced them one name is
+/// one variable, no minted variable has a request variable's name, and a request variable
+/// keeps its meaning in every state of every path. Both sides' runs are requests whose input
+/// is `initial`, so their only shared names are its variables. The witness `p` is feasible, so
+/// some θ satisfies its pc; let σ be θ restricted to the variables of `initial`. k-rust keeps
+/// every condition it relied on in the leaf predicate, so θ follows `p`: σ has a witness-side
 /// sequence `S` whose states `0..=n_p` are instances of `p`'s states, ending there if `p` is
-/// terminal. If the covering side had a σ-sequence
-/// `S' = S`, then, because strategy `all` with PathSet leaves covers the initial state and the
-/// covering condition excludes breadth bounds, cancellation and errors, `S'` follows some
-/// covering path `q` under a θ' that agrees with σ on the initial variables. Each exclusion
-/// contradicts `S' = S`. `Vacuous`: `q` has no instance (a merge can make a feasible pc Unsat,
-/// so Unsat counts only when every name of the leaf state identifies one variable, and then
-/// the decoded pc is the real one up to renaming). `Length`: a Stuck or Trivial leaf has
-/// no defined successor, so the lengths differ. `Clash`: equal states at every common position
-/// would be a common solution of the generalized equations (each wildcard or renamed variable
-/// taking the value it hides, which holds because a consistently renamed name stands for one
-/// variable and every other variable is renamed per occurrence; each stable variable its one
-/// value along the path, because k-rust mints every new variable with a `!` counter or a
-/// marker, and so never re-binds an initial name, and no other variable prints as a stable
-/// name), and a certified clash has none in K's free-constructor algebra, which means the
-/// same on both sides because the projections are equal. `Disjoint`: σ satisfies both pcs
-/// because they mention only stable variables, their symbols mean the same in both
-/// definitions, and the translation is exact, so the solver's `Unsat` contradicts σ. Every
-/// covering path is excluded, so no covering-side sequence from σ equals `S`.
+/// terminal. If the covering side had a σ-sequence `S' = S`, then, because strategy `all`
+/// with PathSet leaves covers the initial state and the covering condition excludes breadth
+/// bounds, cancellation and errors, `S'` follows some covering path `q` under a θ' that agrees
+/// with σ on the initial variables. Each exclusion contradicts `S' = S`. `Vacuous`: `q` has no
+/// instance (its halt, or a solver `Unsat` for its real pc). `Length`: a Stuck or Trivial leaf
+/// has no defined successor, so the lengths differ. `Clash`: equal states at every common
+/// position would be a common solution of the generalized equations. Each wildcard takes the
+/// value it hides; each scope variable the value of the one variable it renames, which is one
+/// value because within one state a name is one variable; each stable variable its σ value on
+/// both sides, because it is a request variable of both runs. No two of these are identified
+/// by accident: a scope variable is new in its scope, different scopes have different
+/// prefixes, and no scope variable has a stable variable's name. A certified clash has no
+/// solution in K's free-constructor algebra, which means the same on both sides because the
+/// projections are equal. Scopes are per position, so no valuation of a minted variable across
+/// positions or paths is assumed (ticket VI-T01). `Disjoint`: σ satisfies both pcs because
+/// they mention only stable variables, their symbols mean the same in both definitions, and
+/// the translation is exact, so the solver's `Unsat` contradicts σ. Every covering path is
+/// excluded, so no covering-side sequence from σ equals `S`.
 ///
 /// Positions count Rewrite transitions, so a Stuck and a Trivial leaf at the same state have
 /// the same length: the certificate never separates a Stuck end from an undefined step
 /// (EI-T05). Duplicate paths, leaf order and which rule fired are not evidence.
 ///
 /// **Trust base.** k-rust's `all`-mode coverage, symbolic soundness and feasibility contracts
-/// (every symbolic verdict trusts them); the unifier's clash soundness (`proves_clash`, as
-/// `BackendRelations`); solver `Unsat` and the consistency of the baseline's smt-lemmas, which
-/// a `Disjoint` query asserts. A mutant-side witness's feasibility is decided under that side's
-/// supported lemmas only; on a patched ground run, lemmas the mutant inserted are trusted in
-/// that side's normal forms, and a lemma headed by a constructor, which contradicts freeness, is
-/// not seen by `Clash` (the state oracle has the same trust). A covering leaf's `Unsat` is
-/// decided by the backend of the side that ran it, under that side's supported lemmas: a
-/// `Vacuous` exclusion of a mutant-side leaf trusts the mutant's lemmas as that side's `Vacuous`
-/// halts and its feasibility already do. The sequences' branch check relies on k-rust running
-/// one request deterministically, and fails closed if it does not.
+/// (every symbolic verdict trusts them) and its variable-identity contract (version 2, asserted
+/// at compile time and pinned by `tests/name_identity.rs`); the unifier's clash soundness
+/// (`proves_clash`, as `BackendRelations`); solver `Unsat` and the consistency of the
+/// baseline's smt-lemmas, which a `Disjoint` query asserts. A mutant-side witness's feasibility
+/// is decided under that side's supported lemmas only; on a patched ground run, lemmas the
+/// mutant inserted are trusted in that side's normal forms, and a lemma headed by a
+/// constructor, which contradicts freeness, is not seen by `Clash` (the state oracle has the
+/// same trust). A covering leaf's `Unsat` is decided by the backend of the side that ran it,
+/// under that side's supported lemmas: a `Vacuous` exclusion of a mutant-side leaf trusts the
+/// mutant's lemmas as that side's `Vacuous` halts and its feasibility already do. The
+/// sequences' branch check relies on k-rust running one request deterministically, and fails
+/// closed if it does not.
 ///
 /// A failure never proves anything: every failure is `NotProved`, which can only turn a
 /// pattern-slot `Distinguish` into `Unknown`.
@@ -279,11 +273,10 @@ pub fn certify_difference(
     if baseline_facts.signature != mutant_facts.signature {
         return DifferenceCertificate::NotProved(NotProvedReason::SignatureDiffers);
     }
-    let existentials = baseline_facts.existentials || mutant_facts.existentials;
     backend
         .with_solver(None, |definition, solver| {
             Ok::<_, NotProvedReason>(
-                Prover::new(definition, solver, initial, existentials)
+                Prover::new(definition, solver, initial)
                     .certify(baseline_sequences, mutant_sequences),
             )
         })
@@ -313,38 +306,14 @@ struct Internal {
 }
 
 impl<'a> Prover<'a> {
+    /// The stable variables are the test's initial variables, or none.
     fn new(
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
         initial: &Pattern,
-        existentials: bool,
     ) -> Self {
-        let stable = if existentials {
-            BTreeSet::new()
-        } else {
-            let inhabitation = Inhabitation::of(definition);
-            initial
-                .free_variables()
-                .into_iter()
-                .map(|variable| {
-                    match definition
-                        .internalize_term(&Pattern::Variable(variable), &[])
-                        .as_ref()
-                        .map(Term::kind)
-                    {
-                        Ok(TermKind::Variable(internal))
-                            if internal.kind == VariableKind::Element
-                                && inhabitation.contains(&internal.sort)
-                                && identifies_one_variable(&internal.name) =>
-                        {
-                            Some(internal.clone())
-                        }
-                        _ => None,
-                    }
-                })
-                .collect::<Option<BTreeSet<_>>>()
-                .unwrap_or_default()
-        };
+        let stable = InitialVariables::of(definition, &Inhabitation::of(definition), initial)
+            .unwrap_or_default();
         Self {
             definition,
             solver,
@@ -431,15 +400,7 @@ impl<'a> Prover<'a> {
     /// Vacuous, Length, Clash, Disjoint.
     fn excludes(&self, other: &Leaf<'_>, witness: &Leaf<'_>) -> Option<Exclusion> {
         let (p, q) = (witness.sequence, other.sequence);
-        if q.halt == HaltClass::Vacuous
-            || (q.feasibility == LeafFeasibility::Unsat
-                && q.states.last().is_some_and(|state| {
-                    state
-                        .variables()
-                        .iter()
-                        .all(|variable| identifies_one_variable(&variable.name))
-                }))
-        {
+        if q.halt == HaltClass::Vacuous || q.feasibility == LeafFeasibility::Unsat {
             return Some(Exclusion::Vacuous);
         }
         let (n_p, n_q) = (witness.positions?, other.positions?);
@@ -480,16 +441,29 @@ impl<'a> Prover<'a> {
 /// The generalization scope of one state of one leaf of one side.
 struct Scope<'a> {
     stable: &'a BTreeSet<Variable>,
-    /// Unique per scope; contains `!`, so no generated name is a stable name.
+    /// `EI!{side}{leaf}.{position}`: unique per scope, so two scopes never generate one name.
     prefix: String,
     renamed: BTreeMap<Variable, Variable>,
     fresh: usize,
 }
 
 impl Scope<'_> {
+    /// A variable new to this scope whose name is the name of no stable variable, whatever the
+    /// stable variables are called. A decoded initial name can contain `!` (the wire name
+    /// `EI-bB0-b1` decodes to `EI!B0!1`); the prefix's `.` is in no decoded name, but the
+    /// disjointness rests on this check, not on the name alphabet.
     fn fresh(&mut self, sort: Sort) -> Variable {
-        self.fresh += 1;
-        Variable::new(format!("{}!{}", self.prefix, self.fresh), sort)
+        loop {
+            self.fresh += 1;
+            let name = format!("{}!{}", self.prefix, self.fresh);
+            if !self
+                .stable
+                .iter()
+                .any(|variable| *variable.name == *name.as_str())
+            {
+                return Variable::new(name, sort);
+            }
+        }
     }
 
     fn generalize(&mut self, term: &Term) -> Term {
@@ -499,10 +473,7 @@ impl Scope<'_> {
             {
                 term.clone()
             }
-            TermKind::Variable(variable)
-                if variable.kind == VariableKind::Element
-                    && identifies_one_variable(&variable.name) =>
-            {
+            TermKind::Variable(variable) if variable.kind == VariableKind::Element => {
                 let renamed = match self.renamed.get(variable) {
                     Some(renamed) => renamed.clone(),
                     None => {
@@ -566,4 +537,42 @@ fn is_witness(leaf: &Leaf<'_>) -> bool {
             LeafFeasibility::Syntactic | LeafFeasibility::Solver
         )
         && leaf.positions.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Under variable identity a decoded name can contain `!`, so a stable variable can have
+    /// the name of the first scope candidate. The scope never returns a stable variable's name,
+    /// whatever its sort, and renames every other element variable consistently, apart from
+    /// the stable names (variable-identity README 5.4 and 7 item 4).
+    #[test]
+    fn scope_names_avoid_stable_variables() {
+        let int = Sort::simple("SortInt");
+        let forged = Variable::new("EI!B0.0!1", Sort::simple("SortBool"));
+        let stable = BTreeSet::from([forged.clone(), Variable::new("EI!B0.0!2", int.clone())]);
+        let mut scope = Scope {
+            stable: &stable,
+            prefix: "EI!B0.0".into(),
+            renamed: BTreeMap::new(),
+            fresh: 0,
+        };
+        let first = scope.fresh(int.clone());
+        assert_eq!(first, Variable::new("EI!B0.0!3", int.clone()));
+        assert!(stable.iter().all(|variable| variable.name != first.name));
+        let x = Term::variable(Variable::new("X", int.clone()));
+        let renamed = scope.generalize(&x);
+        assert_eq!(
+            renamed,
+            Term::variable(Variable::new("EI!B0.0!4", int.clone()))
+        );
+        assert_eq!(
+            scope.generalize(&x),
+            renamed,
+            "one variable, one scope variable"
+        );
+        let kept = Term::variable(forged);
+        assert_eq!(scope.generalize(&kept), kept, "a stable variable is kept");
+    }
 }

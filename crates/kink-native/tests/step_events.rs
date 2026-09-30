@@ -124,17 +124,6 @@ fn paths_for(
     state: &Pattern,
     specs: Vec<StepEventSpec>,
 ) -> Vec<PathInput> {
-    paths_for_with_flag(baseline, side, module, state, specs, false)
-}
-
-fn paths_for_with_flag(
-    baseline: &ValidatedDefinition,
-    side: &ValidatedDefinition,
-    module: &str,
-    state: &Pattern,
-    specs: Vec<StepEventSpec>,
-    existentials: bool,
-) -> Vec<PathInput> {
     let execution = run_steps(side, module, state);
     let mut baseline_backend = Backend::new(
         &baseline.artifacts().definition_kore,
@@ -150,7 +139,7 @@ fn paths_for_with_flag(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     baseline_backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, state, existentials);
+            let decider = ObservationDecider::new(definition, solver, state);
             let bridged = paths_from_steps(
                 &BridgeContext {
                     test_id: "identity",
@@ -358,12 +347,12 @@ fn hooked_string_sort_identity_is_undecided() {
     StepObservation::new(&mut backend, vec![spec.clone()]).expect("declaration validates");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             assert!(matches!(
                 decider.classify_step(&spec, &steps.states[0][0], Some(&steps.states[0][1]), &path),
                 StepPresence::Undecided
             ));
-            let relations = BackendRelations::shared(definition, solver, &state, false);
+            let relations = BackendRelations::shared(definition, solver, &state);
             let value = custom_value("SortMyStr", &[206, 169]);
             assert_eq!(
                 relations.relate(&path, &[], &value, &value),
@@ -418,7 +407,7 @@ fn unknown_domain_codec_blocks_identity() {
     let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             let spec = StepEventSpec {
                 constructor: "probe".into(),
                 pre: support::var("X", "SortGeneratedTopCell"),
@@ -443,7 +432,7 @@ fn unknown_domain_codec_blocks_identity() {
                     StepPresence::Undecided
                 ));
                 assert_eq!(
-                    BackendRelations::shared(definition, solver, &state, false).relate(
+                    BackendRelations::shared(definition, solver, &state).relate(
                         &path,
                         &[],
                         &value,
@@ -518,7 +507,7 @@ fn non_ascii_string_encodings_do_not_distinguish_equal_executions() {
     let path = paths_for(&baseline, &baseline, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             assert!(!decider.definition_independent(&string_value(&[195, 169])));
             assert!(!decider.definition_independent(&string_value("é".as_bytes())));
             assert!(decider.definition_independent(&string_value(b"abc")));
@@ -578,7 +567,7 @@ fn shared_string_relations_refuse_non_ascii_clashes() {
     let path = paths_for(&side, &side, "STRINGS", &state, vec![]).remove(0);
     backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, &state, false);
+            let relations = BackendRelations::shared(definition, solver, &state);
             for (left, right) in [
                 (string_value(&[195, 169]), string_value("Ã©".as_bytes())),
                 (string_value("é".as_bytes()), string_value("Ã©".as_bytes())),
@@ -724,6 +713,9 @@ fn label_swapped_copy_gives_identical_paths() {
     );
 }
 
+/// A mutant with a dead existential rule (never fires) has the baseline's canonical PathInputs
+/// and relation answers. Before variable identity both sides were decided under the pair
+/// existentials flag; now both link the test's initial variables.
 #[test]
 fn dead_existential_rule_does_not_change_paths() {
     let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
@@ -819,10 +811,9 @@ fn dead_existential_rule_does_not_change_paths() {
         symbolic,
     ] {
         let specs = step_support::symmem(true);
-        let before =
-            paths_for_with_flag(&original, &original, "SYMMEM", &state, specs.clone(), true);
-        let after = paths_for_with_flag(&original, &mutant, "SYMMEM", &state, specs, true);
-        assert_eq!(before, after, "canonical PathInputs with pair existentials");
+        let before = paths_for(&original, &original, "SYMMEM", &state, specs.clone());
+        let after = paths_for(&original, &mutant, "SYMMEM", &state, specs);
+        assert_eq!(before, after, "canonical PathInputs");
 
         let mut backend = Backend::new(
             &original.artifacts().definition_kore,
@@ -832,7 +823,7 @@ fn dead_existential_rule_does_not_change_paths() {
         .expect("baseline backend");
         backend
             .with_solver(None, |definition, solver| {
-                let decider = BackendRelations::shared(definition, solver, &state, true);
+                let decider = BackendRelations::shared(definition, solver, &state);
                 let x = support::var("X", "SortNat");
                 let z = app("Lblz", vec![]);
                 let assumption = TermRelation {
@@ -1018,7 +1009,7 @@ fn missing_stepped_states_refuse_the_whole_bridge() {
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             let result = paths_from_steps(
                 &BridgeContext {
                     test_id: "missing",
@@ -1188,7 +1179,7 @@ fn injections_match_modulo_subsorts() {
     .expect("backend");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             let nested = inj(
                 "SortLarge",
                 "SortKItem",
@@ -1347,7 +1338,7 @@ fn unvalidated_identity_injections_are_undecided() {
         .expect("backend");
         backend
             .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, &state, false);
+                let decider = ObservationDecider::new(definition, solver, &state);
                 assert!(matches!(
                     decider.classify_step(
                         &spec,
@@ -1406,7 +1397,7 @@ fn ill_sorted_injection_constructor_heads_are_undecided() {
     .expect("backend");
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, false);
+            let decider = ObservationDecider::new(definition, solver, &state);
             for (pattern, subject) in [
                 (
                     inj("SortSmall", "SortKItem", support::var("X", "SortSmall")),

@@ -39,7 +39,9 @@
 //! A leaf proved to have no instance is discarded: no path, no stop, counted by the report. That
 //! is a `Vacuous` leaf, or a stuck, trivial or bounded leaf whose predicate the solver refuted
 //! ([`LeafFeasibility::Unsat`]). An undecided `Trivial` leaf is `SolverUnknown`, like an
-//! undecided stuck leaf. A diagnosed leaf is never discarded.
+//! undecided stuck leaf. A diagnosed leaf is never discarded. The refutation is about the real
+//! leaf: under k-rust's variable-identity contract the decoded state is the internal one, with
+//! no two variables printed alike (execution-identity ticket EI-T02 (iii), closed).
 
 use k_rust::backend::SearchFailureOutput;
 use k_rust::kore::{

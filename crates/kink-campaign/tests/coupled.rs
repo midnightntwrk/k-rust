@@ -2837,6 +2837,10 @@ fn ei_check(
 }
 
 /// AT1: freshgen observes its stamped continuation. Renaming an existential outside the payload preserves both declared values.
+/// The two definitions execute identically, so the result does not rest on names being renamed
+/// apart: under variable identity the renamed existential is minted from the request's counter
+/// on both sides (`Ex#Var'Ques'T!N` against `Ex#Var'Ques'U!N`), and freshgen's existential rules
+/// no longer switch off the initial variables.
 #[test]
 fn audit_so_at1_existential_rename_is_not_killed() {
     with_stack(|| {
@@ -3491,13 +3495,15 @@ fn audit_so_at13_first_kill_equals_full() {
     });
 }
 
-/// EI-05, new (precision, EI-02b): a stable variable needs a name that only one backend
-/// variable can print as (README 6.2), so initial names ending in a digit are never stable.
-/// G's sym-guarded test with `X1`, `Y1`, `V1`, `W1` for `X`, `Y`, `V`, `W` loses its
-/// `Disjoint` exclusion and its pattern kill becomes Unknown (Z3); the mutant stays Killed by
-/// ground-guarded's final state. Without Z3 the symbolic baseline is refused, as for G.
+/// Variable identity (VI-04; EI-05 pinned the opposite): the stable variables are the test's
+/// initial variables whatever their spelling. G's sym-guarded test with `X1`, `Y1`, `V1`, `W1`
+/// for `X`, `Y`, `V`, `W` keeps G's certificate (`Disjoint`, `Clash`, `Length`) and its pattern
+/// kill (Z3), and FirstKill stops at it. Before VI-04 names ending in a digit were never
+/// stable (a mint could print as one), so the pattern slot was Unknown by a NoWitness demotion
+/// (`[[A,U],[D,D]]`, killed by ground-guarded only). Without Z3 the symbolic baseline is
+/// refused, as for G.
 #[test]
-fn audit_ei_digit_suffixed_initial_names_are_not_stable() {
+fn audit_vi_digit_suffixed_initial_names_are_stable() {
     with_stack(|| {
         let fixture = Guarded::new();
         let generation = inverted_load_sign(fixture.validator.baseline());
@@ -3513,13 +3519,32 @@ fn audit_ei_digit_suffixed_initial_names_are_not_stable() {
         let run = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full);
         if cfg!(feature = "z3") {
             let run = run.expect("Z3 admits the symbolic baseline");
-            assert_eq!(outcomes(&run), vec![vec![A, U], vec![D, D]]);
+            assert_eq!(outcomes(&run), vec![vec![A, D], vec![D, D]]);
             assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
-            assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-guarded"]);
+            assert_eq!(
+                run.mutants[0].report.killing_test_ids,
+                ["sym-guarded-1", "ground-guarded"]
+            );
             assert_eq!(
                 run.mutants[0].certificate_checks,
-                [no_witness_check("sym-guarded-1")]
+                [CertificateCheck {
+                    test_id: "sym-guarded-1".into(),
+                    certificate: DifferenceCertificate::Proved {
+                        witness_side: CertifiedSide::Mutant,
+                        witness_leaf: 0,
+                        exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
+                    },
+                    demoted_slots: vec![],
+                }]
             );
+            let first = run_campaign(
+                &fixture.campaign(&tests),
+                &generation,
+                ScheduleMode::FirstKill,
+            )
+            .expect("Z3 admits the symbolic baseline");
+            assert_eq!(first.mutants[0].report.status, MutantStatus::Killed);
+            assert_eq!(first.mutants[0].report.killing_test_ids, ["sym-guarded-1"]);
         } else {
             assert_eq!(
                 run.expect_err("symbolic baseline remains undecided").kind(),
@@ -3529,14 +3554,15 @@ fn audit_ei_digit_suffixed_initial_names_are_not_stable() {
     });
 }
 
-/// EI-05, new: the state-oracle side of the EI-02b name conflation. conflate.k's `go` narrows
-/// `X:Box` to `c(I)` with a fresh `I` that k-rust prints as `ExVarI<n>`; with the initial
-/// variables named `ExVarI0` and `ExVarI1`, two feasible baseline leaves are decided Unsat on
-/// their decoded state, and the bridge discards Unsat leaves, so a state slot could lose a
-/// real terminal. It is not reached: narrowing also leaves a remainder leaf
-/// (`not exists I. X = c(I)`) whose feasibility is Unknown, so the state slot is incomplete and
-/// the baseline is refused, for either naming and in both profiles (the mutant merges `goPos`
-/// and `goNeg` into one unguarded rule; ticket EI-T02 (iii)).
+/// EI-05: the state-oracle side of the EI-02b name conflation. conflate.k's `go` narrows
+/// `X:Box` to `c(I)` with a fresh `I`, which k-rust printed as `ExVarI<n>` before variable
+/// identity; with the initial variables named `ExVarI0` and `ExVarI1`, two feasible baseline
+/// leaves were then decided Unsat on their decoded state and could be discarded. Under
+/// variable identity the mint is printed apart from every initial name, so no such leaf is
+/// Unsat and the Unsat discard is sound (ticket EI-T02 (iii), closed). The baseline is still
+/// refused, for either naming and in both profiles, because narrowing also leaves a remainder
+/// leaf (`not exists I. X = c(I)`) whose feasibility is Unknown, so the state slot is
+/// incomplete (the mutant merges `goPos` and `goNeg` into one unguarded rule).
 #[test]
 fn audit_ei_conflated_names_leave_the_state_slot_refused() {
     with_stack(|| {
@@ -4078,7 +4104,6 @@ fn audit_so_k_prime() {
                         "SYMMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        false
                     ),
                     pattern_paths(
                         &compiled,
@@ -4086,7 +4111,6 @@ fn audit_so_k_prime() {
                         "SYMMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        false
                     )
                 );
             }
@@ -4201,7 +4225,6 @@ fn audit_so_g_prime() {
                         "GUARDEDMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        false
                     ),
                     pattern_paths(
                         &compiled,
@@ -4209,7 +4232,6 @@ fn audit_so_g_prime() {
                         "GUARDEDMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        false
                     )
                 );
             }
@@ -4218,7 +4240,10 @@ fn audit_so_g_prime() {
 }
 
 /// A symmem mutant with one dead existential rule (never fires on these tests): identical
-/// executions; the pair flag makes both sides decide alike.
+/// executions, and both sides decide alike. Before variable identity the rule's existential
+/// variable switched off the initial variables for the whole pair (the pair existentials
+/// flag), so the symbolic tests were `[A,U,U,A]` and the mutant Unknown; under the contract no
+/// mint re-binds an initial name, the flag is gone, and they are `[A,A,A,A]`, Survived.
 #[test]
 fn audit_so_dead_existential_rule_is_not_killed() {
     with_stack(|| {
@@ -4267,12 +4292,12 @@ fn audit_so_dead_existential_rule_is_not_killed() {
                 outcomes(&run),
                 vec![
                     vec![A, A, A, A],
-                    vec![A, U, U, A],
-                    vec![A, U, U, A],
-                    vec![A, U, U, A]
+                    vec![A, A, A, A],
+                    vec![A, A, A, A],
+                    vec![A, A, A, A]
                 ]
             );
-            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
             let kills = Vec::<&str>::new();
             assert_eq!(run.mutants[0].report.killing_test_ids, kills);
             assert_eq!(
@@ -4292,7 +4317,6 @@ fn audit_so_dead_existential_rule_is_not_killed() {
                         "SYMMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        true
                     ),
                     pattern_paths(
                         &compiled,
@@ -4300,7 +4324,6 @@ fn audit_so_dead_existential_rule_is_not_killed() {
                         "SYMMEM",
                         &test.initial_state,
                         &fixture.observation,
-                        true
                     )
                 );
             }
@@ -4315,7 +4338,6 @@ fn pattern_paths(
     module: &str,
     initial: &Pattern,
     specs: &[StepEventSpec],
-    existentials: bool,
 ) -> Vec<kink_pattern::PathInput> {
     use k_rust::backend::{Backend, BackendOptions};
     use kink_native::bridge::{BridgeContext, paths_from_steps};
@@ -4344,7 +4366,7 @@ fn pattern_paths(
     let sorts = kink_pattern::SymbolSorts::from_definition(&parsed);
     backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, initial, existentials);
+            let decider = ObservationDecider::new(definition, solver, initial);
             Ok::<_, k_rust::backend::BackendError>(
                 paths_from_steps(
                     &BridgeContext {
@@ -4371,7 +4393,6 @@ fn assert_baseline_emissions(
     states: &[Pattern],
 ) {
     let baseline = validator.compile_baseline().expect("baseline");
-    let existentials = module == "FRESHGEN";
     for spec in specs {
         assert!(
             states.iter().any(|state| {
@@ -4381,7 +4402,6 @@ fn assert_baseline_emissions(
                     module,
                     state,
                     std::slice::from_ref(spec),
-                    existentials,
                 )
                 .iter()
                 .any(|path| {

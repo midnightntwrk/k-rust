@@ -21,7 +21,6 @@ use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, pat
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::execution_difference::definition_facts;
 use kink_native::feasibility::{BackendRelations, LeafFeasibility};
 use kink_native::report::{ReportInput, ReportResult, step3_report};
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
@@ -230,7 +229,6 @@ struct Run {
     context: EvaluationContext,
     backend: Backend,
     state: Pattern,
-    existentials: bool,
 }
 
 fn observations(fixture: Fixture) -> Vec<StepEventSpec> {
@@ -256,9 +254,6 @@ fn run_side(
     let observation =
         StepObservation::new(&mut backend, observations(fixture)).expect("declarations validate");
     let vocabulary = observation.vocabulary().clone();
-    let existentials = definition_facts(&mut backend)
-        .expect("definition facts")
-        .existentials;
     let stepped = adapter()
         .execute_steps(&mut backend, &state, budget)
         .expect("execution adapts")
@@ -269,7 +264,7 @@ fn run_side(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, existentials);
+            let decider = ObservationDecider::new(definition, solver, &state);
             Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
                 &BridgeContext {
                     test_id: "symbolic",
@@ -305,7 +300,6 @@ fn run_side(
             },
             backend,
             state,
-            existentials,
         },
         vocabulary,
     )
@@ -484,8 +478,7 @@ fn outcome(run: &Run, plan: &PatternPlan) -> Evaluation {
 fn decided(run: &mut Run, plan: &PatternPlan) -> Evaluation {
     run.backend
         .with_solver(None, |definition, solver| {
-            let decider =
-                BackendRelations::shared(definition, solver, &run.state, run.existentials);
+            let decider = BackendRelations::shared(definition, solver, &run.state);
             Ok::<_, k_rust::backend::BackendError>(evaluate_with(
                 &run.context,
                 plan,
@@ -1120,9 +1113,6 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
     let observation =
         StepObservation::new(backend, observations(row.fixture)).expect("declarations validate");
     let vocabulary = observation.vocabulary().clone();
-    let existentials = definition_facts(backend)
-        .expect("definition facts")
-        .existentials;
     let plan = (row.plan)(&vocabulary);
     let state = support::initial_state((row.program)(), "SortProg");
     let stepped = adapter()
@@ -1137,7 +1127,7 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, &state, existentials);
+            let decider = ObservationDecider::new(definition, solver, &state);
             Ok::<_, k_rust::backend::BackendError>(paths_from_steps(
                 &BridgeContext {
                     test_id: row.id,
@@ -1165,7 +1155,7 @@ fn report_on_backend(row: ReportRow, side: &ValidatedDefinition, backend: &mut B
     };
     let evaluation = backend
         .with_solver(None, |definition, solver| {
-            let relations = BackendRelations::shared(definition, solver, &state, existentials);
+            let relations = BackendRelations::shared(definition, solver, &state);
             Ok::<_, k_rust::backend::BackendError>(evaluate_with(
                 &context,
                 &plan,
@@ -2241,18 +2231,8 @@ fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [E
     run.backend
         .with_solver(None, |definition, solver| {
             Ok::<_, k_rust::backend::BackendError>([
-                evaluate(&BackendRelations::shared(
-                    definition,
-                    solver,
-                    &state,
-                    run.existentials,
-                )),
-                evaluate(&BackendRelations::shared(
-                    definition,
-                    &NoSolver,
-                    &state,
-                    run.existentials,
-                )),
+                evaluate(&BackendRelations::shared(definition, solver, &state)),
+                evaluate(&BackendRelations::shared(definition, &NoSolver, &state)),
             ])
         })
         .expect("backend definition")
@@ -2496,8 +2476,7 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     let (always_sat, z3_answer) = run
         .backend
         .with_solver(None, |definition, solver| {
-            let relations =
-                BackendRelations::shared(definition, &AlwaysSat, &state, run.existentials);
+            let relations = BackendRelations::shared(definition, &AlwaysSat, &state);
             let evaluation = evaluate_with(
                 &run.context,
                 &plan,

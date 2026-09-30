@@ -13,6 +13,7 @@ use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
+use k_rust_backend::externalize::external_variable_name;
 use kink_native::execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile};
 use kink_native::execution_difference::{
     CertifiedSide, DefinitionFacts, DifferenceCertificate, Exclusion, NotProvedReason,
@@ -352,28 +353,15 @@ fn chain(count: usize) -> Vec<Pattern> {
         .collect()
 }
 
-/// A synthetic certificate over one backend's definition, whose facts both sides share unless
-/// `existentials` marks one side's.
+/// A synthetic certificate over one backend's definition, whose facts both sides share.
 fn synthetic(
     backend: &mut Backend,
     initial: &Pattern,
-    existentials: [bool; 2],
     baseline: &StateSequences,
     mutant: &StateSequences,
 ) -> DifferenceCertificate {
     let facts = definition_facts(backend).expect("facts");
-    let with = |existentials| DefinitionFacts {
-        existentials,
-        ..facts.clone()
-    };
-    certify_difference(
-        backend,
-        initial,
-        &with(existentials[0]),
-        &with(existentials[1]),
-        baseline,
-        mutant,
-    )
+    certify_difference(backend, initial, &facts, &facts, baseline, mutant)
 }
 
 fn symmem_backend() -> Backend {
@@ -486,7 +474,6 @@ fn signature_projections_compare_constructor_and_sort_structure() {
     let mut guarded = guardedmem_backend();
     let symmem_facts = symmem.facts();
     assert_eq!(symmem_facts, released.facts(), "d11 symmem and S1");
-    assert!(!symmem_facts.existentials, "symmem has no existential rule");
     let guarded_facts = definition_facts(&mut guarded).expect("facts");
     assert_ne!(
         symmem_facts.signature, guarded_facts.signature,
@@ -520,7 +507,7 @@ fn stuck_and_trivial_at_one_state_are_not_separated() {
     let trivial = leaves(vec![leaf(HaltClass::Trivial, &states)]);
     for (baseline, mutant) in [(&stuck, &trivial), (&trivial, &stuck)] {
         assert_eq!(
-            synthetic(&mut backend, &states[0], [false; 2], baseline, mutant),
+            synthetic(&mut backend, &states[0], baseline, mutant),
             NotProved(NoWitness),
             "d5"
         );
@@ -538,7 +525,7 @@ fn depth_bound_prefixes_are_excluded_only_when_the_terminal_is_shorter() {
     let stuck_3 = leaves(vec![leaf(HaltClass::Stuck, &three)]);
     for (baseline, mutant) in [(&bounded_2, &stuck_3), (&stuck_3, &bounded_2)] {
         assert_eq!(
-            synthetic(&mut backend, &three[0], [false; 2], baseline, mutant),
+            synthetic(&mut backend, &three[0], baseline, mutant),
             NotProved(NoWitness),
             "d6 DepthBound 2 against Stuck 3"
         );
@@ -548,12 +535,12 @@ fn depth_bound_prefixes_are_excluded_only_when_the_terminal_is_shorter() {
     let stuck_2 = leaves(vec![leaf(HaltClass::Stuck, &states[..3])]);
     let bounded_4 = leaves(vec![leaf(HaltClass::DepthBound, &states)]);
     assert_eq!(
-        synthetic(&mut backend, initial, [false; 2], &stuck_2, &bounded_4),
+        synthetic(&mut backend, initial, &stuck_2, &bounded_4),
         proved(CertifiedSide::Mutant, &[Length]),
         "d6 DepthBound 4 against Stuck 2"
     );
     assert_eq!(
-        synthetic(&mut backend, initial, [false; 2], &bounded_4, &stuck_2),
+        synthetic(&mut backend, initial, &bounded_4, &stuck_2),
         proved(CertifiedSide::Mutant, &[Length]),
         "d6 reversed sides: the shorter Stuck witness is tried first"
     );
@@ -571,7 +558,7 @@ fn breadth_bounds_lose_coverage() {
         leaf(HaltClass::BreadthBound, &states[..2]),
     ]);
     assert_eq!(
-        synthetic(&mut backend, &states[0], [false; 2], &both, &both),
+        synthetic(&mut backend, &states[0], &both, &both),
         NotProved(NotCovering),
         "d7 both sides"
     );
@@ -579,7 +566,7 @@ fn breadth_bounds_lose_coverage() {
     let bounded = leaves(vec![leaf(HaltClass::BreadthBound, &states)]);
     for (baseline, mutant) in [(&stuck, &bounded), (&bounded, &stuck)] {
         assert_eq!(
-            synthetic(&mut backend, &states[0], [false; 2], baseline, mutant),
+            synthetic(&mut backend, &states[0], baseline, mutant),
             NotProved(NoWitness),
             "d7 one side"
         );
@@ -615,7 +602,6 @@ fn values_clash_and_function_residues_do_not() {
         synthetic(
             &mut backend,
             &initial,
-            [false; 2],
             &path(written(int(5))),
             &path(written(int(6))),
         ),
@@ -627,7 +613,6 @@ fn values_clash_and_function_residues_do_not() {
         synthetic(
             &mut backend,
             &initial,
-            [false; 2],
             &path(written(sum(1))),
             &path(written(sum(2))),
         ),
@@ -638,10 +623,11 @@ fn values_clash_and_function_residues_do_not() {
 
 /// d9 and d10: a stable variable denotes one value along the path. `addr(X)` against
 /// `addr(1)` is no clash; `X` against `1` at one position and against `2` at the next is,
-/// but only while `X` is stable: with existential rules on either side, or a name that a
-/// backend-minted variable could also print as, `X` is renamed per position and the
-/// difference is not proved. k-rust externalizes `Ex#VarX!0` as `ExVarX0`, `X!0` as `X0`,
-/// `Rule#X` as `RuleX`, `Eq#X` as `EqX` and `X!apart1` as `X'Bang'apart1` (EI-02b).
+/// because `X` is one of the test's initial variables, whatever its spelling. Before variable
+/// identity the names that a backend mint could also print as (`ExVarX0`, `X0`, `RuleX`, `EqX`,
+/// `X'Bang'apart1`) and every name under an existential rule were not stable, and the
+/// difference was not proved. d10: a variable that is not initial, named alike at two
+/// positions, is renamed in each position's own scope, so it links nothing across positions.
 #[test]
 fn stable_variables_carry_differences_across_positions() {
     let mut backend = guardedmem_backend();
@@ -658,33 +644,35 @@ fn stable_variables_carry_differences_across_positions() {
         let one = path(vec![initial.clone(), loaded(int(1)), loaded(int(1))]);
         let one_two = path(vec![initial.clone(), loaded(int(1)), loaded(int(2))]);
         assert_eq!(
-            synthetic(&mut backend, &initial, [false; 2], &symbolic, &one),
+            synthetic(&mut backend, &initial, &symbolic, &one),
             NotProved(NoWitness),
             "d9 {name}: addr(X) against addr(1)"
         );
-        let stable = if name == "X" {
-            proved(CertifiedSide::Mutant, &[Clash])
-        } else {
-            NotProved(NoWitness)
-        };
         assert_eq!(
-            synthetic(&mut backend, &initial, [false; 2], &symbolic, &one_two),
-            stable,
+            synthetic(&mut backend, &initial, &symbolic, &one_two),
+            proved(CertifiedSide::Mutant, &[Clash]),
             "d9 {name}: X against 1, then 2"
         );
-        for existentials in [[true, false], [false, true]] {
-            assert_eq!(
-                synthetic(&mut backend, &initial, existentials, &symbolic, &one_two),
-                NotProved(NoWitness),
-                "d10 {name}: existentials {existentials:?}"
-            );
-        }
     }
+    let x = || integer("X");
+    let initial = state(seq(
+        load(addr(x()), int(7)),
+        seq(load(addr(x()), int(7)), halt()),
+    ));
+    let path = |states: Vec<Pattern>| leaves(vec![leaf(HaltClass::Stuck, &states)]);
+    // A narrowing mint of the rule variable `N`, as k-rust prints it.
+    let minted = || integer(&external_variable_name("Ex#N!0"));
+    let symbolic = path(vec![initial.clone(), loaded(minted()), loaded(minted())]);
+    let one_two = path(vec![initial.clone(), loaded(int(1)), loaded(int(2))]);
+    assert_eq!(
+        synthetic(&mut backend, &initial, &symbolic, &one_two),
+        NotProved(NoWitness),
+        "d10 a minted N against 1, then 2"
+    );
 }
 
 /// d12: a Vacuous leaf and an Unsat leaf of the covering side have no instance and are
-/// excluded by `Vacuous`; neither is ever a witness. The Unsat leaf's states are ground, so
-/// no ambiguous name can have made it Unsat (EI-02b).
+/// excluded by `Vacuous`; neither is ever a witness.
 #[test]
 fn vacuous_and_unsat_leaves_are_excluded() {
     let mut backend = symmem_backend();
@@ -696,24 +684,18 @@ fn vacuous_and_unsat_leaves_are_excluded() {
     let covering = leaves(vec![leaf(HaltClass::Vacuous, &states), unsat.clone()]);
     let witness = leaves(vec![leaf(HaltClass::Stuck, &states)]);
     assert_eq!(
-        synthetic(&mut backend, &states[0], [false; 2], &covering, &witness),
+        synthetic(&mut backend, &states[0], &covering, &witness),
         proved(CertifiedSide::Mutant, &[Vacuous, Vacuous]),
         "d12 mutant witness"
     );
     assert_eq!(
-        synthetic(&mut backend, &states[0], [false; 2], &witness, &covering),
+        synthetic(&mut backend, &states[0], &witness, &covering),
         proved(CertifiedSide::Baseline, &[Vacuous, Vacuous]),
         "d12 baseline witness"
     );
     let unwitnessed = leaves(vec![leaf(HaltClass::Vacuous, &states), unsat]);
     assert_eq!(
-        synthetic(
-            &mut backend,
-            &states[0],
-            [false; 2],
-            &unwitnessed,
-            &unwitnessed
-        ),
+        synthetic(&mut backend, &states[0], &unwitnessed, &unwitnessed),
         NotProved(NoWitness),
         "d12 no side has a witness"
     );
@@ -732,19 +714,19 @@ fn uninternalizable_states_fail_closed() {
     )]);
     let good = leaves(vec![leaf(HaltClass::Stuck, &states)]);
     assert_eq!(
-        synthetic(&mut backend, &states[0], [false; 2], &good, &broken),
+        synthetic(&mut backend, &states[0], &good, &broken),
         NotProved(Internalization),
         "equal lengths, one state foreign"
     );
     let longer = leaves(vec![leaf(HaltClass::Stuck, &chain(3))]);
     assert_eq!(
-        synthetic(&mut backend, &states[0], [false; 2], &broken, &longer),
+        synthetic(&mut backend, &states[0], &broken, &longer),
         proved(CertifiedSide::Mutant, &[Length]),
         "Length needs no internalization"
     );
 }
 
-// ------------------------------------------------------------------ externalized names (EI-02b)
+// ------------------------------------------------------------------ decoded names (variable identity)
 
 /// `check(a); check2(b); go(X); done` over conflate.k: `check` continues when `a <=Int 0`,
 /// `check2` when `b >Int 0`, and the baseline's `go` narrows `X:Box` to `c(I)` with a fresh
@@ -770,7 +752,7 @@ fn conflate_program(a: &str, b: &str) -> Pattern {
 /// The injective printer preserves their identities, so neither naming has an Unsat leaf.
 /// The certificate remains NotProved(NoWitness) in both profiles.
 #[test]
-fn externalized_fresh_names_do_not_conflate_paths() {
+fn initial_names_are_distinct_from_minted_names() {
     let mut baseline = Side::unobserved("conflate.k");
     let mut mutant = Side::unobserved("conflatem.k");
     let (baseline_facts, mutant_facts) = (baseline.facts(), mutant.facts());
@@ -819,12 +801,12 @@ fn externalized_fresh_names_do_not_conflate_paths() {
     }
 }
 
-/// EI-02b: k-rust's external names are not injective (`Ex#VarI1!0` and `Ex#VarI!10` both
-/// print as `ExVarI10`), so two occurrences of such a name in one decoded state may be two
-/// variables. They are renamed apart per occurrence: `write(addr(N), N)` against
-/// `write(addr(z), s(z))` clashes only when `N` names one variable.
+/// Within one decoded state a name is one variable, whatever its spelling, so it is renamed
+/// consistently in its scope: `write(addr(N), N)` against `write(addr(z), s(z))` clashes for
+/// every name. Before variable identity the names a mint could print as (`ExVarI10`, `N10`)
+/// were renamed per occurrence, and the difference was not proved.
 #[test]
-fn ambiguous_names_are_renamed_per_occurrence() {
+fn every_name_is_renamed_consistently() {
     let mut backend = symmem_backend();
     let initial = state(seq(write(addr(z()), z()), halt()));
     let witness = leaves(vec![leaf(
@@ -836,8 +818,8 @@ fn ambiguous_names_are_renamed_per_occurrence() {
     )]);
     for (name, expected) in [
         ("N", proved(CertifiedSide::Mutant, &[Clash])),
-        ("ExVarI10", NotProved(NoWitness)),
-        ("N10", NotProved(NoWitness)),
+        ("ExVarI10", proved(CertifiedSide::Mutant, &[Clash])),
+        ("N10", proved(CertifiedSide::Mutant, &[Clash])),
     ] {
         let covering = leaves(vec![leaf(
             HaltClass::Stuck,
@@ -847,18 +829,19 @@ fn ambiguous_names_are_renamed_per_occurrence() {
             ],
         )]);
         assert_eq!(
-            synthetic(&mut backend, &initial, [false; 2], &covering, &witness),
+            synthetic(&mut backend, &initial, &covering, &witness),
             expected,
             "{name}"
         );
     }
 }
 
-/// EI-02b: a leaf's feasibility is decided on its decoded state, where one printed name may
-/// stand for several variables, so Unsat proves that the leaf has no instance only when every
-/// name of that state identifies one variable. Otherwise the leaf is not Vacuous.
+/// A leaf's feasibility is decided on its decoded state, which is the real state under variable
+/// identity, so an Unsat covering leaf has no instance and is `Vacuous` whatever its names.
+/// Before variable identity only names that no mint could print as (`N`, not `ExVarI10` or
+/// `N10`) made an Unsat leaf Vacuous.
 #[test]
-fn unsat_is_vacuous_only_on_identifying_names() {
+fn unsat_leaves_are_vacuous() {
     let mut backend = symmem_backend();
     let initial = state(seq(write(addr(z()), z()), halt()));
     let witness = leaves(vec![leaf(
@@ -867,8 +850,8 @@ fn unsat_is_vacuous_only_on_identifying_names() {
     )]);
     for (name, expected) in [
         ("N", proved(CertifiedSide::Mutant, &[Vacuous])),
-        ("ExVarI10", NotProved(NoWitness)),
-        ("N10", NotProved(NoWitness)),
+        ("ExVarI10", proved(CertifiedSide::Mutant, &[Vacuous])),
+        ("N10", proved(CertifiedSide::Mutant, &[Vacuous])),
     ] {
         let covering = leaves(vec![StateSequence {
             feasibility: LeafFeasibility::Unsat,
@@ -881,7 +864,7 @@ fn unsat_is_vacuous_only_on_identifying_names() {
             )
         }]);
         assert_eq!(
-            synthetic(&mut backend, &initial, [false; 2], &covering, &witness),
+            synthetic(&mut backend, &initial, &covering, &witness),
             expected,
             "{name}"
         );

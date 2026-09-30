@@ -16,7 +16,6 @@ use crate::feasibility::{
     BackendRelations, Inhabitation, contains_non_strict_injection, domain_value_identity_safe,
     free_constructor, non_strict_injection_node, strict_injection_sorts,
 };
-use crate::names::names_exact;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StepEventSpec {
@@ -275,13 +274,12 @@ impl<'a> ObservationDecider<'a> {
         definition: &'a BackendDefinition,
         solver: &'a dyn SmtSolver,
         initial_state: &Pattern,
-        existentials: bool,
     ) -> Self {
         Self {
             definition,
             solver,
             inhabitation: Inhabitation::of(definition),
-            relations: BackendRelations::shared(definition, solver, initial_state, existentials),
+            relations: BackendRelations::shared(definition, solver, initial_state),
         }
     }
     pub fn definition_independent(&self, term: &Pattern) -> bool {
@@ -356,9 +354,9 @@ impl<'a> ObservationDecider<'a> {
             } else {
                 left.clone()
             };
+            // Both terms are subterms of states of one request, where one decoded name is one
+            // variable (variable identity), so identical terms are equal on every instance.
             let decision = if left == *right
-                && names_exact(&left)
-                && names_exact(right)
                 && !crate::feasibility::contains_untrusted_domain_value(self.definition, &left)
             {
                 RelationDecision::Equal

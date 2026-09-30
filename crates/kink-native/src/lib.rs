@@ -14,7 +14,6 @@ mod equivalence;
 pub mod execution;
 pub mod execution_difference;
 pub mod feasibility;
-mod names;
 pub mod observation;
 pub mod report;
 pub mod step_events;

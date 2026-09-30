@@ -194,7 +194,7 @@ fn run(
     let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
     let bridged = baseline_backend
         .with_solver(None, |definition, solver| {
-            let decider = ObservationDecider::new(definition, solver, state, false);
+            let decider = ObservationDecider::new(definition, solver, state);
             Ok::<_, k_rust::backend::BackendError>(
                 paths_from_steps(
                     &BridgeContext {
@@ -288,8 +288,7 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
         return backend
             .borrow_mut()
             .with_solver(None, |definition, solver| {
-                let relations =
-                    BackendRelations::shared(definition, solver, &run.initial_state, false);
+                let relations = BackendRelations::shared(definition, solver, &run.initial_state);
                 Ok::<_, k_rust::backend::BackendError>(
                     evaluate_with(
                         &run.context,
