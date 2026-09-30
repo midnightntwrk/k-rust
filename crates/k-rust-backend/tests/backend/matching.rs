@@ -1158,7 +1158,7 @@ fn defers_a_closed_map_pattern_against_a_variable_frame_in_rewrite_mode() {
     for mode in [MatchMode::Evaluate, MatchMode::Implies] {
         assert!(matches!(
             match_terms(mode, &sort_graph(), &pattern, &subject),
-            MatchResult::Failed(FailReason::DifferentSymbols(_, _))
+            MatchResult::Failed(FailReason::DifferentContents(_, _))
         ));
     }
 }
@@ -1416,7 +1416,7 @@ fn defers_a_closed_set_pattern_against_a_variable_frame_in_rewrite_mode() {
     ));
     assert!(matches!(
         match_terms(MatchMode::Evaluate, &sort_graph(), &pattern, &subject),
-        MatchResult::Failed(FailReason::DifferentSymbols(_, _))
+        MatchResult::Failed(FailReason::DifferentContents(_, _))
     ));
 }
 
@@ -1455,7 +1455,7 @@ fn rejects_a_nonempty_pattern_against_the_empty_set() {
 
     assert!(matches!(
         match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-        MatchResult::Failed(FailReason::DifferentSymbols(_, _))
+        MatchResult::Failed(FailReason::DifferentContents(_, _))
     ));
 }
 
@@ -1554,4 +1554,123 @@ fn reports_the_least_duplicate_map_key() {
         match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
         MatchResult::Failed(FailReason::DuplicateKeys(found, _)) if found == key("a")
     ));
+}
+
+/// A pattern variable bound to a subject variable reaches a map key, so that matching binds the
+/// subject variable `X` to the subject key: `pair(K, {K |-> V})` against `pair(X, {key(X) |->
+/// 1})` asks `X = key(X)`. Through the free constructor `succ` the equation has no finite
+/// solution, and the refutation carries the cycle; through the function `g` it holds when
+/// `g(X)` evaluates to `X`, so the pair is left to the caller in every mode.
+#[test]
+fn a_variable_cycle_refutes_a_match_only_through_free_constructors() {
+    let key_sort = Sort::simple("MapKey");
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![key_sort.clone(), Sort::simple("MapSort")],
+        sort(),
+    ));
+    let successor = Arc::new(Symbol::constructor(
+        "succ",
+        vec![key_sort.clone()],
+        key_sort.clone(),
+    ));
+    let mut g = Symbol::constructor("g", vec![key_sort.clone()], key_sort.clone());
+    g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
+    let g = Arc::new(g);
+    let x = variable("X", key_sort.clone());
+    let one = domain_value(Sort::simple("MapValue"), "1");
+    let pattern = Term::application(
+        pair.clone(),
+        Vec::new(),
+        vec![
+            var("K", key_sort.clone()),
+            Term::map(
+                map_definition(),
+                vec![(
+                    var("K", key_sort.clone()),
+                    var("V", Sort::simple("MapValue")),
+                )],
+                None,
+            ),
+        ],
+    );
+    let subject = |key: Term| {
+        Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                Term::variable(x.clone()),
+                Term::map(map_definition(), vec![(key, one.clone())], None),
+            ],
+        )
+    };
+    let through_constructor =
+        Term::application(successor, Vec::new(), vec![Term::variable(x.clone())]);
+    let through_function = Term::application(g, Vec::new(), vec![Term::variable(x.clone())]);
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate] {
+        let result = match_terms(
+            mode,
+            &sort_graph(),
+            &pattern,
+            &subject(through_constructor.clone()),
+        );
+        assert!(
+            matches!(
+                &result,
+                MatchResult::Failed(FailReason::VariableRecursion(cycle))
+                    if cycle.variable() == &x && cycle.term() == &through_constructor
+            ),
+            "{mode:?}: {result:?}"
+        );
+        let result = match_terms(
+            mode,
+            &sort_graph(),
+            &pattern,
+            &subject(through_function.clone()),
+        );
+        assert!(
+            matches!(
+                &result,
+                MatchResult::Indeterminate { remainder, .. }
+                    if remainder.contains(&(Term::variable(x.clone()), through_function.clone()))
+            ),
+            "{mode:?}: {result:?}"
+        );
+    }
+}
+
+/// In `Implies` mode the two sides share variables: `q(X, Y)` against `q(Y, X)` binds `X` to
+/// `Y` and then asks `Y = Y`, which holds. A variable is no cycle of itself, so the match is not
+/// refuted.
+#[test]
+fn a_variable_is_no_cycle_of_itself() {
+    let q = Arc::new(Symbol::constructor("q", vec![sort(), sort()], sort()));
+    let pattern = Term::application(
+        q.clone(),
+        Vec::new(),
+        vec![var("X", sort()), var("Y", sort())],
+    );
+    let subject = Term::application(q, Vec::new(), vec![var("Y", sort()), var("X", sort())]);
+    let result = match_terms(MatchMode::Implies, &sort_graph(), &pattern, &subject);
+    assert!(
+        matches!(result, MatchResult::Indeterminate { .. }),
+        "{result:?}"
+    );
+}
+
+/// A refutation by the roots holds the pattern and the subject the matcher compared.
+#[test]
+fn a_head_clash_holds_the_compared_pattern_and_subject() {
+    let other = Arc::new(Symbol::constructor("con2", vec![sort()], sort()));
+    let value = domain_value(sort(), "value");
+    let pattern = application(constructor(), value.clone());
+    let subject = application(other, value);
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let MatchResult::Failed(FailReason::DifferentSymbols(clash)) =
+            match_terms(mode, &sort_graph(), &pattern, &subject)
+        else {
+            panic!("two free constructors with different names clash in {mode:?}");
+        };
+        assert_eq!(clash.into_terms(), (pattern.clone(), subject.clone()));
+    }
 }

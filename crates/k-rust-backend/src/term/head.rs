@@ -139,17 +139,41 @@ impl NormalEvidence {
     /// equation rewrites as written. One call site: the matcher's oracle, for a subject among its
     /// given heads, a set with exactly two insertion points (the equation root and the overload
     /// lift).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "first read by the matcher's oracle (CBC-02-T4)")
-    )]
     #[must_use]
     pub(crate) fn given() -> Self {
         Self(Source::Given)
     }
 
     /// The simplifier's certificate: `Some` exactly for an equation-head application that
-    /// carries the `evaluated` mark (`Term::with_evaluated_cache`).
+    /// carries the `evaluated` mark (`Term::with_evaluated_cache`), whose root is then fixed
+    /// without the equation scan of `BackendDefinition::instance_normal`.
+    ///
+    /// Only `simplify::simplify_root` sets the `evaluated` bit on an application that is not a
+    /// free constructor. It does so on a ground term whose arguments carry the bit, and only when
+    /// both equation scans end `NotApplicable`. Every equation that equation selection offers the
+    /// head or a bare variable, in the function and simplification theories, failed to match the
+    /// term: its `Evaluate` match failed, or its collection match had no solution. The bit is set
+    /// only in a definition where that selection reaches every term equation that could match an
+    /// application (`BackendDefinition::equation_selection_complete`). A simplification with an
+    /// `\and` left-hand side, which is filed apart, disables the mark for the whole definition. A
+    /// `requires` does not count: undecided it blocks the scan, refuted it makes the scan context
+    /// dependent, and both withhold the bit. An equation whose left-hand side matched but that
+    /// the evaluator set aside (`concrete`, `symbolic`, a binding outside the left-hand side, a
+    /// predicate right-hand side) also withholds it.
+    ///
+    /// A failed `Evaluate` match holds on every instance, which is the test `instance_normal`
+    /// applies. A ground term is its own only instance, and the matcher reads no path condition,
+    /// so the certificate is independent of the path the term is met on. It is a property of the
+    /// term's structure, and it survives any later substitution that keeps the term by pointer.
+    ///
+    /// The arguments carry the bit as well. So every equation-head subterm was certified the same
+    /// way, and free-constructor, injection and domain-value subterms are values. A marked
+    /// function argument (a stuck overloaded function) is allowed: equation matching defers on a
+    /// function subject, so an equation can fail on the parent only through another position,
+    /// and then it fails for every value of the function. A collection argument carries the bit
+    /// when its elements do. The collection axioms only identify representations of one value,
+    /// and matching compares collections as values. Each of these arguments is compared by the
+    /// matcher's own arm for its kind when the parent is decomposed.
     #[must_use]
     pub(crate) fn certified(term: &Term) -> Option<Self> {
         (term.shape() == Shape::Application(HeadRole::EquationHead) && term.attributes().evaluated)
@@ -193,10 +217,6 @@ impl NormalForms for CertifiedOnly {
 }
 
 /// The instance-normal scan of the definition only (unification).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "first read by the unifier (CBC-02-T4)")
-)]
 pub(crate) struct Scanned<'d>(pub &'d BackendDefinition);
 
 impl NormalForms for Scanned<'_> {
@@ -250,13 +270,6 @@ pub(crate) struct Fixed<'t> {
 
 impl<'t> Fixed<'t> {
     /// The classified term.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher and the unifier (CBC-02-T4)"
-        )
-    )]
     #[must_use]
     pub(crate) fn term(self) -> &'t Term {
         self.term
@@ -299,16 +312,7 @@ pub(crate) enum Open {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Head<'t> {
     Fixed(Fixed<'t>),
-    Open(
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "first read by the matcher and the unifier (CBC-02-T4)"
-            )
-        )]
-        Open,
-    ),
+    Open(Open),
     /// A macro or alias application: preprocessing should have replaced it, so its value is not
     /// described by the definition. Each consumer decides it in an arm of its own.
     Residual,
@@ -396,7 +400,10 @@ pub(crate) enum RootComparison<'t> {
     Collections(
         #[cfg_attr(
             not(test),
-            expect(dead_code, reason = "first read by the matcher (CBC-02-T4)")
+            expect(
+                dead_code,
+                reason = "the matcher and the unifier decide two collections in arms of their own"
+            )
         )]
         CollectionKind,
     ),
@@ -482,6 +489,37 @@ pub(crate) struct RootsDiffer<'t> {
     right: &'t Term,
 }
 
+impl RootsDiffer<'_> {
+    /// The witness without its borrow of the two compared terms, so that their owner can move
+    /// its handles of them into [`HeadClash::new`]: a borrowing witness would keep the owner
+    /// from moving the handles it borrows, and cloning them instead would cost two reference
+    /// count updates per refutation, the common outcome of a rule attempt. Debug builds keep
+    /// which allocations were compared, and `HeadClash::new` checks that it is given those.
+    #[must_use]
+    pub(crate) fn release(self) -> ReleasedRoots {
+        ReleasedRoots {
+            #[cfg(debug_assertions)]
+            compared: (allocation(self.left), allocation(self.right)),
+        }
+    }
+}
+
+/// A [`RootsDiffer`] whose borrow has ended ([`RootsDiffer::release`]): the roots of two terms,
+/// which the holder owns, differ. Built only from a `RootsDiffer`; zero-sized in release
+/// builds.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ReleasedRoots {
+    /// The allocations of the two compared terms, left first.
+    #[cfg(debug_assertions)]
+    compared: (usize, usize),
+}
+
+/// The address of a term's allocation, which every handle of the term shares.
+#[cfg(debug_assertions)]
+fn allocation(term: &Term) -> usize {
+    std::sync::Arc::as_ptr(&term.0).addr()
+}
+
 /// The argument slices of two applications of one free symbol with equal sort arguments and
 /// arity: the only source of argument pairs for a decomposition by a fixed root.
 #[derive(Clone, Copy, Debug)]
@@ -542,20 +580,18 @@ impl HeadClash {
     }
 
     /// The clash `compare_roots` found between two fixed roots. Moves the owned handles the
-    /// caller already holds for the two classified terms.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher and the unifier (CBC-02-T4)"
-        )
-    )]
+    /// caller already holds for the two classified terms, which the released witness no longer
+    /// borrows.
     #[must_use]
-    pub(crate) fn new(witness: RootsDiffer<'_>, left: Term, right: Term) -> Self {
-        debug_assert!(
-            witness.left.ptr_eq(&left) && witness.right.ptr_eq(&right),
+    pub(crate) fn new(witness: ReleasedRoots, left: Term, right: Term) -> Self {
+        #[cfg(debug_assertions)]
+        assert_eq!(
+            witness.compared,
+            (allocation(&left), allocation(&right)),
             "a head clash holds the terms its witness compared"
         );
+        #[cfg(not(debug_assertions))]
+        let _ = witness;
         Self { left, right }
     }
 
@@ -563,13 +599,6 @@ impl HeadClash {
     /// order, where the overloaded side is not fixed under its reading. It holds only because an
     /// overloaded production has no equations besides its overload equations, which the backend
     /// does not check (open question Q2 of the classifier's design).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher's overload refutations (CBC-02-T4)"
-        )
-    )]
     #[must_use]
     pub(crate) fn overload_family(left: Term, right: Term) -> Self {
         debug_assert!(
@@ -584,13 +613,6 @@ impl HeadClash {
     /// residual application's value is its unknown expansion, so the clash holds only because
     /// the executable boundary rejects such terms first (open question Q3 of the classifier's
     /// design).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher's residual refutation (CBC-02-T4)"
-        )
-    )]
     #[must_use]
     pub(crate) fn residual_root(left: Term, right: Term) -> Self {
         let residual = Shape::Application(HeadRole::Residual);
@@ -696,13 +718,6 @@ impl RigidCycle {
 /// being `variable` itself is no cycle.
 #[must_use]
 #[deny(clippy::wildcard_enum_match_arm)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "first read by the matcher and the unifier (CBC-02-T4)"
-    )
-)]
 pub(crate) fn rigid_occurrence(variable: &Variable, term: &Term) -> Option<RigidCycle> {
     let below = match term.shape() {
         Shape::Injection | Shape::Application(HeadRole::FreeConstructor) => {
@@ -1104,7 +1119,7 @@ mod tests {
         else {
             panic!("two free constructors with different names differ");
         };
-        let clash = HeadClash::new(witness, application.clone(), another.clone());
+        let clash = HeadClash::new(witness.release(), application.clone(), another.clone());
         assert_eq!(clash.left(), &application);
         assert_eq!(clash.right(), &another);
         let _: Distinct = Distinct::of_roots(witness);

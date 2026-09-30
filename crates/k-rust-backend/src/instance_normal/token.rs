@@ -186,13 +186,6 @@ impl InstanceNormal {
 
     /// A subterm of an instance-normal term is instance-normal: a normal form's subterms are
     /// normal forms, on every instance.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the matcher's inheritance of instance normality (CBC-02-T4)"
-        )
-    )]
     #[must_use]
     pub(crate) fn argument(self) -> Self {
         self

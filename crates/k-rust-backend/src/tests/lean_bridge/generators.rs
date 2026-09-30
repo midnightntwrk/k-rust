@@ -124,7 +124,7 @@ fn leaf() -> impl Strategy<Value = Term> {
     ]
 }
 
-pub(in crate::tests) fn term() -> impl Strategy<Value = Term> {
+pub(crate) fn term() -> impl Strategy<Value = Term> {
     terms(false)
 }
 

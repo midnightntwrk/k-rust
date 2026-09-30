@@ -115,8 +115,8 @@ pub(crate) fn recover_indeterminate_match(
                 }
                 UnificationResult::Bottom(failure) => {
                     let reason = match failure {
-                        UnificationFailure::VariableRecursion(variable, term) => {
-                            FailReason::VariableRecursion(variable, term)
+                        UnificationFailure::VariableRecursion(cycle) => {
+                            FailReason::VariableRecursion(cycle)
                         }
                         UnificationFailure::DifferentSorts(left, right) => {
                             FailReason::DifferentSorts(left, right)
@@ -124,8 +124,11 @@ pub(crate) fn recover_indeterminate_match(
                         UnificationFailure::DifferentValues(left, right) => {
                             FailReason::DifferentValues(left, right)
                         }
-                        UnificationFailure::DifferentSymbols(left, right) => {
-                            FailReason::DifferentSymbols(left, right)
+                        UnificationFailure::DifferentSymbols(clash) => {
+                            FailReason::DifferentSymbols(clash)
+                        }
+                        UnificationFailure::ArgumentLengthsDiffer(left, right) => {
+                            FailReason::ArgumentLengthsDiffer(left, right)
                         }
                     };
                     return Ok(RecoveredMatch {

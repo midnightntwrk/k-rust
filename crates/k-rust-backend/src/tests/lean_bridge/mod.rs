@@ -10,6 +10,6 @@
 //! set, a missing `lake` is a failure. `scripts/lean-check.sh --bridge` sets it.
 
 mod attributes;
-pub(super) mod generators;
+pub(crate) mod generators;
 mod term_json;
 mod walks;

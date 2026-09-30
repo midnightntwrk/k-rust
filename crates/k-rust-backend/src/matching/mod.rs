@@ -70,10 +70,15 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
-    instance_normal::{certified_normal_form, is_anywhere_application},
+    instance_normal::InstanceNormal,
     substitution::{Substitution, substitute},
     term::{
         HeadRole, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable,
+        head::{
+            Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
+            ReleasedRoots, RigidCycle, RootComparison, classify_pattern, classify_value,
+            compare_roots, rigid_occurrence,
+        },
     },
 };
 
@@ -94,12 +99,37 @@ pub enum MatchResult {
     },
 }
 
+/// Why no instance of a subject is an instance of a pattern.
+///
+/// A clash of roots carries a [`HeadClash`], and a variable that would be bound to a term built
+/// around itself a [`RigidCycle`]. The backend builds both only from roots that are the roots of
+/// every value their terms denote, so neither refutation can be stated about two bare terms:
+///
+/// ```compile_fail
+/// use k_rust_backend::{matching::FailReason, term::Term};
+/// fn refute(t: Term) -> FailReason {
+///     FailReason::DifferentSymbols(t.clone(), t)
+/// }
+/// ```
+///
+/// ```
+/// use k_rust_backend::{matching::FailReason, term::Term};
+/// fn refute(t: Term) -> FailReason {
+///     FailReason::DifferentValues(t.clone(), t)
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FailReason {
     DifferentValues(Term, Term),
-    DifferentSymbols(Term, Term),
+    /// Two roots that no one value has.
+    DifferentSymbols(HeadClash),
+    /// Two collections whose elements or entries cannot be paired: their contents differ, not
+    /// their roots.
+    DifferentContents(Term, Term),
     DifferentSorts(Term, Term),
-    VariableRecursion(Variable, Term),
+    /// A variable that would be bound to a term built around it by free constructors and
+    /// injections.
+    VariableRecursion(RigidCycle),
     VariableConflict(Variable, Term, Term),
     KeyNotFound(Term, Term),
     /// A map key or a set element that occurs twice, and the collection: `\bottom`.
@@ -442,7 +472,7 @@ fn match_terms_with_context(
         VecDeque::from([(pattern.clone(), subject.clone())]),
     );
     if equation_root {
-        matcher.given_heads.push(subject.clone());
+        matcher.normal_forms.given.equation_root(subject.clone());
     }
     if let Err(reason) = matcher.run() {
         return MatchResult::Failed(reason);
@@ -466,14 +496,102 @@ struct Matcher<'a> {
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
-    /// Subject applications (these handles, not equal terms) whose head is taken as it stands:
-    /// the root an equation is tried on, and a subject that overload resolution lifted from an
-    /// application whose head is fixed.
-    given_heads: Vec<Term>,
+    /// The oracle that classifies subject terms as the values they denote.
+    normal_forms: SubjectNormalForms<'a>,
+}
+
+/// Subject applications (these handles, not equal terms) whose root is taken as it stands: the
+/// root an equation is tried on, which the equation rewrites as written, and a subject that
+/// overload resolution lifted from an application whose root is fixed, which an overload
+/// equation rewrites by construction ([`Matcher::resolve_overloads`]). The two insertion
+/// methods are the only ones.
+#[derive(Default)]
+struct GivenHeads(Vec<Term>);
+
+impl GivenHeads {
+    /// The term an equation is tried on.
+    fn equation_root(&mut self, subject: Term) {
+        self.0.push(subject);
+    }
+
+    /// The lifted form of a subject application whose root is fixed.
+    fn overload_lift(&mut self, lifted: Term) {
+        self.0.push(lifted);
+    }
+
+    fn contains(&self, term: &Term) -> bool {
+        self.0.iter().any(|given| given.ptr_eq(term))
+    }
+}
+
+/// The matcher's evidence that an equation-head subject application is a normal form on every
+/// instance, so that its root is the root of every value it denotes: its root is given
+/// ([`GivenHeads`]), the simplifier certified it ([`NormalEvidence::certified`]), or it is
+/// instance-normal ([`BackendDefinition::instance_normal`]), which is asked once per term.
+struct SubjectNormalForms<'a> {
+    definition: Option<&'a BackendDefinition>,
+    given: GivenHeads,
     /// Instance normality of the subject terms asked about or implied so far: every argument of
-    /// an instance-normal constructor or `anywhere` application, and the operand of an
+    /// an instance-normal constructor or equation-head application, and the operand of an
     /// instance-normal injection, is instance-normal, so one scan covers the whole subterm.
-    instance_normal: FxHashMap<Term, bool>,
+    instance_normal: FxHashMap<Term, Option<InstanceNormal>>,
+}
+
+impl NormalForms for SubjectNormalForms<'_> {
+    fn evidence(&mut self, application: &Term) -> Option<NormalEvidence> {
+        if self.given.contains(application) {
+            return Some(NormalEvidence::given());
+        }
+        // Certified by the simplifier: no equation applies to it on any path, so no scan.
+        if let Some(certified) = NormalEvidence::certified(application) {
+            return Some(certified);
+        }
+        let token = match self.instance_normal.get(application) {
+            Some(known) => *known,
+            None => {
+                let token = self
+                    .definition
+                    .and_then(|definition| definition.instance_normal(application));
+                self.instance_normal.insert(application.clone(), token);
+                token
+            }
+        };
+        token.map(NormalEvidence::instance_normal)
+    }
+}
+
+impl SubjectNormalForms<'_> {
+    /// Record the immediate subterms of an instance-normal `subject` that the matcher is about
+    /// to compare as instance-normal too: a subterm of a normal form is a normal form, on every
+    /// instance.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn inherit(&mut self, subject: &Term) {
+        let Some(Some(token)) = self.instance_normal.get(subject).copied() else {
+            return;
+        };
+        let subterm = Some(token.argument());
+        match subject.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } => match symbol.attributes.head_role() {
+                HeadRole::FreeConstructor | HeadRole::EquationHead => {
+                    for argument in arguments {
+                        self.instance_normal.insert(argument.clone(), subterm);
+                    }
+                }
+                HeadRole::Function { .. } | HeadRole::Residual => {}
+            },
+            TermKind::Injection { term, .. } => {
+                self.instance_normal.insert(term.clone(), subterm);
+            }
+            TermKind::Variable(_)
+            | TermKind::And(..)
+            | TermKind::DomainValue { .. }
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. } => {}
+        }
+    }
 }
 
 impl<'a> Matcher<'a> {
@@ -491,58 +609,11 @@ impl<'a> Matcher<'a> {
             queue,
             map_queue: VecDeque::new(),
             indeterminate: Vec::new(),
-            given_heads: Vec::new(),
-            instance_normal: FxHashMap::default(),
-        }
-    }
-
-    /// Whether the head of the subject term `subject` is the head of every value it denotes.
-    /// That holds for every term but an equation-head application ([`HeadRole::EquationHead`]);
-    /// such an application qualifies when its head is given ([`Self::given_heads`]), when the
-    /// simplifier certified it as a normal form ([`certified_normal_form`]), or when it is
-    /// instance-normal, so that no equation can rewrite any of its instances.
-    fn subject_head_is_fixed(&mut self, subject: &Term) -> bool {
-        if !is_anywhere_application(subject)
-            || self.given_heads.iter().any(|given| given.ptr_eq(subject))
-        {
-            return true;
-        }
-        // Certified by the simplifier: no equation applies to it on any path, so no scan.
-        if certified_normal_form(subject) {
-            return true;
-        }
-        if let Some(known) = self.instance_normal.get(subject) {
-            return *known;
-        }
-        let normal = self
-            .definition
-            .is_some_and(|definition| definition.instance_normal(subject).is_some());
-        self.instance_normal.insert(subject.clone(), normal);
-        normal
-    }
-
-    /// Record the immediate subterms of an instance-normal `subject` that the matcher is about
-    /// to compare as instance-normal too.
-    fn inherit_instance_normality(&mut self, subject: &Term) {
-        if self.instance_normal.get(subject) != Some(&true) {
-            return;
-        }
-        match subject.kind() {
-            TermKind::Application {
-                symbol, arguments, ..
-            } if matches!(
-                symbol.attributes.head_role(),
-                HeadRole::FreeConstructor | HeadRole::EquationHead
-            ) =>
-            {
-                for argument in arguments {
-                    self.instance_normal.insert(argument.clone(), true);
-                }
-            }
-            TermKind::Injection { term, .. } => {
-                self.instance_normal.insert(term.clone(), true);
-            }
-            _ => {}
+            normal_forms: SubjectNormalForms {
+                definition,
+                given: GivenHeads::default(),
+                instance_normal: FxHashMap::default(),
+            },
         }
     }
 
@@ -595,16 +666,29 @@ impl<'a> Matcher<'a> {
         if matches!(subject.kind(), TermKind::Variable(_)) {
             return self.defer(pattern, subject);
         }
-        // Every arm below either compares the subject's head and arguments or refutes the pair
-        // by the subject's head. For an `anywhere` subject application whose head is not fixed,
-        // an equation may give some instance other arguments or another head, so neither is
-        // sound; the pair is left to the caller, unless it is syntactically solved.
-        if !self.subject_head_is_fixed(&subject) {
+        // Every arm below either compares the subject's root and arguments or refutes the pair
+        // by the subject's root, so the subject is classified here as the value it denotes, and
+        // not earlier: its oracle may run the instance-normal scan, which the pairs decided above
+        // never need. For an equation-head subject application whose root is not fixed, an
+        // equation may give some instance other arguments or another root, so neither is sound;
+        // the pair is left to the caller, unless it is syntactically solved.
+        let subject_head = classify_value(&subject, &mut self.normal_forms);
+        if let Head::Open(Open::EquationHead) = subject_head {
             if pattern == subject {
                 return Ok(());
             }
             return self.defer(pattern, subject);
         }
+        let policy = matcher_root_policy(
+            self.mode,
+            classify_pattern(pattern_reading(self.mode), &pattern),
+            subject_head,
+            &MatchedPair {
+                definition: self.definition,
+                pattern: &pattern,
+                subject: &subject,
+            },
+        );
 
         match (pattern.kind(), subject.kind()) {
             (
@@ -634,15 +718,17 @@ impl<'a> Matcher<'a> {
                 TermKind::Injection {
                     source: subject_source,
                     target: subject_target,
-                    term: subject_term,
+                    ..
                 },
             ) => {
                 if pattern_target != subject_target {
                     return Err(FailReason::DifferentSorts(pattern, subject));
                 }
                 if pattern_source == subject_source {
-                    self.inherit_instance_normality(&subject);
-                    self.enqueue(pattern_term.clone(), subject_term.clone());
+                    self.match_subterms(
+                        std::slice::from_ref(pattern_term),
+                        ComparedSubject::of(subject_head, &subject),
+                    );
                     return Ok(());
                 }
                 self.match_differing_injections(pattern, subject)
@@ -654,45 +740,11 @@ impl<'a> Matcher<'a> {
                     arguments: pattern_arguments,
                 },
                 TermKind::Application {
-                    symbol: subject_symbol,
                     sort_arguments: subject_sorts,
                     arguments: subject_arguments,
+                    ..
                 },
-            ) if (is_constructor(&pattern) && is_constructor(&subject))
-                || (self.mode == MatchMode::Rewrite
-                    && is_rewrite_rigid(pattern.kind())
-                    && is_rewrite_rigid(subject.kind()))
-                // An equal equation head is compared by arguments in every mode without asking
-                // for `injective`: the subject's head is fixed (checked above), so its arguments
-                // are those of the normal form it denotes, and the pattern is read as written.
-                // A declared `injective` counts only for a function without `anywhere`, whose
-                // equations could otherwise identify applications with different arguments.
-                || ((matches!(
-                    pattern_symbol.attributes.head_role(),
-                    HeadRole::Function {
-                        injective: true,
-                        ..
-                    }
-                ) || is_anywhere_application(&pattern))
-                    && pattern_symbol.name == subject_symbol.name)
-                || (self.mode == MatchMode::Evaluate
-                    && is_function(&pattern)
-                    && is_function(&subject)) =>
-            {
-                if pattern_symbol.name != subject_symbol.name {
-                    // An equation pattern headed by an overloaded production cannot denote a
-                    // different production once the subject is concrete and its head fixed
-                    // (checked before this match).
-                    if self.mode == MatchMode::Rewrite
-                        || (is_constructor(&pattern) && is_constructor(&subject))
-                        || (self.mode == MatchMode::Evaluate
-                            && is_overload_head(self.definition, pattern.kind())
-                            && subject.concrete_after_normalization())
-                    {
-                        return Err(FailReason::DifferentSymbols(pattern, subject));
-                    }
-                    return self.defer(pattern, subject);
-                }
+            ) if matches!(policy, RootPolicy::Decompose) => {
                 if pattern_arguments.len() != subject_arguments.len() {
                     return Err(FailReason::ArgumentLengthsDiffer(pattern, subject));
                 }
@@ -705,10 +757,10 @@ impl<'a> Matcher<'a> {
                 {
                     return self.defer(pattern, subject);
                 }
-                self.inherit_instance_normality(&subject);
-                for (pattern, subject) in pattern_arguments.iter().zip(subject_arguments) {
-                    self.enqueue(pattern.clone(), subject.clone());
-                }
+                self.match_subterms(
+                    pattern_arguments,
+                    ComparedSubject::of(subject_head, &subject),
+                );
                 Ok(())
             }
             (
@@ -789,48 +841,37 @@ impl<'a> Matcher<'a> {
             {
                 self.defer(pattern, subject)
             }
-            // Two applications of one macro or alias symbol that the arm above did not compare by
-            // arguments: the symbol is not free, so its applications may denote one value with
-            // different arguments, and one symbol is no clash of roots.
-            (
-                TermKind::Application {
-                    symbol: pattern_symbol,
-                    ..
-                },
-                TermKind::Application {
-                    symbol: subject_symbol,
-                    ..
-                },
-            ) if pattern_symbol.name == subject_symbol.name
-                && pattern_symbol.attributes.head_role() == HeadRole::Residual =>
-            {
-                self.defer(pattern, subject)
-            }
             (_, _) if self.can_narrow_overload(&pattern, &subject) => self.defer(pattern, subject),
-            (left, right)
-                if (is_overload_head(self.definition, left) && is_rigid(right))
-                    || (is_rigid(left) && is_overload_head(self.definition, right)) =>
-            {
-                Err(FailReason::DifferentSymbols(pattern, subject))
-            }
-            (left, right)
-                if (self.mode == MatchMode::Rewrite
-                    && is_rewrite_rigid(left)
-                    && is_rewrite_rigid(right))
-                    || (is_rigid(left) && is_rigid(right))
-                    // The subject is not rigid, so it is an `anywhere` application, whose head
-                    // is fixed (checked before this match), or a declared function, which is
-                    // never concrete after normalization.
-                    || (self.mode == MatchMode::Evaluate
-                        && is_rigid(left)
-                        && subject.concrete_after_normalization()) =>
-            {
-                Err(FailReason::DifferentSymbols(pattern, subject))
-            }
-            _ if list_update_cannot_match(&pattern, &subject) => {
-                Err(FailReason::DifferentValues(pattern, subject))
-            }
-            _ => self.defer(pattern, subject),
+            _ => match policy {
+                RootPolicy::Refute(clash) => Err(FailReason::DifferentSymbols(
+                    clash.between(pattern, subject),
+                )),
+                RootPolicy::Decompose | RootPolicy::Undecided => {
+                    if list_update_cannot_match(&pattern, &subject) {
+                        Err(FailReason::DifferentValues(pattern, subject))
+                    } else {
+                        self.defer(pattern, subject)
+                    }
+                }
+            },
+        }
+    }
+
+    /// Pair the immediate subterms of a pattern with those of a subject with the same root,
+    /// the one place the matcher replaces a pair by pairs of subterms: the arguments of two
+    /// applications of one symbol that the root policy decomposes, or the operands of two
+    /// injections with the same sorts. `subject` says why the subject's subterms are the ones
+    /// to compare. An instance-normal subject passes its normality on to its subterms.
+    fn match_subterms(&mut self, pattern_subterms: &[Term], subject: ComparedSubject<'_>) {
+        let subject = subject.term();
+        self.normal_forms.inherit(subject);
+        let subject_subterms = match subject.kind() {
+            TermKind::Application { arguments, .. } => arguments.as_slice(),
+            TermKind::Injection { term, .. } => std::slice::from_ref(term),
+            _ => unreachable!("only applications and injections are compared by their subterms"),
+        };
+        for (pattern, subject) in pattern_subterms.iter().zip(subject_subterms) {
+            self.enqueue(pattern.clone(), subject.clone());
         }
     }
 
@@ -900,9 +941,13 @@ impl<'a> Matcher<'a> {
                 pattern_term.clone(),
             );
             debug_assert_eq!(pattern_term.sort(), subject_term.sort());
+            // A rewrite rule's pattern is compared as written with an operand whose root is
+            // fixed, or residual as in `matcher_root_policy`.
             if self.mode == MatchMode::Rewrite
-                && is_rewrite_rigid(subject_term.kind())
-                && self.subject_head_is_fixed(subject_term)
+                && matches!(
+                    classify_value(subject_term, &mut self.normal_forms),
+                    Head::Fixed(_) | Head::Residual
+                )
             {
                 self.enqueue(pattern_term, subject_term.clone());
                 return Ok(());
@@ -927,7 +972,12 @@ impl<'a> Matcher<'a> {
                     subject_term.clone(),
                 );
                 debug_assert_eq!(pattern_term.sort(), subject_term.sort());
-                if self.mode == MatchMode::Rewrite && is_rewrite_rigid(pattern_term.kind()) {
+                if self.mode == MatchMode::Rewrite
+                    && matches!(
+                        classify_pattern(PatternReading::AsWritten, pattern_term),
+                        Head::Fixed(_) | Head::Residual
+                    )
+                {
                     self.enqueue(pattern_term.clone(), subject_term);
                     return Ok(());
                 }
@@ -985,11 +1035,7 @@ impl<'a> Matcher<'a> {
         else {
             // A domain value or a collection: no equation changes the sort of its value, so a
             // concrete one is not an injection from `target`.
-            return if term.concrete_after_normalization() {
-                OverloadLowering::Impossible
-            } else {
-                OverloadLowering::Indeterminate
-            };
+            return self.no_lowering(term);
         };
 
         let candidates = definition.overloads.overloaded_by(&symbol.name);
@@ -1075,17 +1121,24 @@ impl<'a> Matcher<'a> {
         {
             return OverloadLowering::Lowered(first.clone());
         }
-        // No production of the overload family represents `term` in `target`, which refutes
-        // only when `term` denotes a value with its own head: an equation may rewrite an
-        // `anywhere` application that is not instance-normal to one that lowers.
-        if minimal.is_empty()
-            && indeterminate.is_empty()
-            && term.concrete_after_normalization()
-            && self.subject_head_is_fixed(term)
-        {
-            OverloadLowering::Impossible
+        if minimal.is_empty() && indeterminate.is_empty() {
+            self.no_lowering(term)
         } else {
             OverloadLowering::Indeterminate
+        }
+    }
+
+    /// No production of the overload family represents `term` in the requested sort. That
+    /// refutes only when `term` is concrete and its root is the root of every value it denotes:
+    /// an equation may rewrite an equation-head application that is not a normal form on every
+    /// instance to one that lowers, and a macro or alias application denotes its expansion.
+    fn no_lowering(&mut self, term: &Term) -> OverloadLowering {
+        if !term.concrete_after_normalization() {
+            return OverloadLowering::Indeterminate;
+        }
+        match classify_value(term, &mut self.normal_forms) {
+            Head::Fixed(_) => OverloadLowering::Impossible,
+            Head::Open(_) | Head::Residual => OverloadLowering::Indeterminate,
         }
     }
 
@@ -1095,7 +1148,7 @@ impl<'a> Matcher<'a> {
     /// the lifted term denotes the subject's value through the overload equation, and a value
     /// with head `common` is an instance of the lifted pattern exactly when the arguments match.
     /// A subject whose head is not fixed is not lifted, and its lifted form, which an overload
-    /// equation rewrites by construction, is given its head ([`Self::given_heads`]).
+    /// equation rewrites by construction, is given its head ([`GivenHeads::overload_lift`]).
     fn resolve_overloads(&mut self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
         let definition = self.definition?;
         let pattern_name = &overload_head(pattern)?.name;
@@ -1150,13 +1203,15 @@ impl<'a> Matcher<'a> {
             return None;
         };
         let subject_application = overload_application(subject)?;
-        if !self.subject_head_is_fixed(subject_application) {
+        if let Head::Open(Open::EquationHead) =
+            classify_value(subject_application, &mut self.normal_forms)
+        {
             return None;
         }
         let pattern = pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?;
         let subject = subject_view.lift(common, &sort_arguments, self.sorts)?;
         if let Some(lifted) = overload_application(&subject) {
-            self.given_heads.push(lifted.clone());
+            self.normal_forms.given.overload_lift(lifted.clone());
         }
         Some((pattern, subject))
     }
@@ -1438,7 +1493,10 @@ impl<'a> Matcher<'a> {
             if self.mode == MatchMode::Rewrite && subject_has_rest {
                 return self.defer(set(Vec::new(), None), subject);
             }
-            return Err(FailReason::DifferentSymbols(set(Vec::new(), None), subject));
+            return Err(FailReason::DifferentContents(
+                set(Vec::new(), None),
+                subject,
+            ));
         }
 
         if pattern_symbolic.len() == 1 && subject_elements.len() == 1 && subject_rest.is_none() {
@@ -1453,7 +1511,7 @@ impl<'a> Matcher<'a> {
         }
 
         if subject_elements.is_empty() && subject_rest.is_none() {
-            return Err(FailReason::DifferentSymbols(
+            return Err(FailReason::DifferentContents(
                 set(pattern_elements.into_iter().collect(), pattern_rest),
                 set(Vec::new(), None),
             ));
@@ -1494,7 +1552,7 @@ impl<'a> Matcher<'a> {
                 )?;
                 return Ok(Vec::new());
             }
-            return Err(FailReason::DifferentSymbols(
+            return Err(FailReason::DifferentContents(
                 pattern.to_term(definition.clone()),
                 subject.to_term(definition.clone()),
             ));
@@ -1530,7 +1588,7 @@ impl<'a> Matcher<'a> {
                         .as_ref()
                         .is_some_and(|term| matches!(term.kind(), TermKind::Variable(_))))
             {
-                return Err(FailReason::DifferentSymbols(
+                return Err(FailReason::DifferentContents(
                     pattern.to_term(definition.clone()),
                     subject.to_term(definition.clone()),
                 ));
@@ -1596,11 +1654,16 @@ impl<'a> Matcher<'a> {
 
         let term = substitute(&term, &self.substitution);
         if term.attributes().variables.contains(&variable) {
-            if self.mode == MatchMode::Implies && !occurs_below_only_constructors(&variable, &term)
-            {
-                return self.defer(Term::variable(variable), term);
-            }
-            return Err(FailReason::VariableRecursion(variable, term));
+            // `variable = term` has no solution when `variable` occurs in `term` below free
+            // constructors and injections only. Below any other root the occurrence may vanish
+            // when that root is evaluated, and `variable` itself is no cycle, so the pair is left
+            // to the caller. The two sides share variables in `Implies` mode, and in the other
+            // modes once a pattern variable bound to a subject variable is substituted into a
+            // map key or set element.
+            return match rigid_occurrence(&variable, &term) {
+                Some(cycle) => Err(FailReason::VariableRecursion(cycle)),
+                None => self.defer(Term::variable(variable), term),
+            };
         }
         // Only a value that mentions `variable` changes under the singleton substitution;
         // every other value is kept as it is instead of being rebuilt into an equal handle.
@@ -1626,25 +1689,380 @@ impl<'a> Matcher<'a> {
     }
 }
 
-/// Return whether an occurrence of `variable` is reachable through only rigid constructors and
-/// sort injections. Such an occurrence makes a finite constructor term cyclic and therefore
-/// unsatisfiable. Occurrences below functions or internal collections may disappear during
-/// simplification, so implication matching retains those as equality conditions instead.
-pub(crate) fn occurs_below_only_constructors(variable: &Variable, term: &Term) -> bool {
-    match term.kind() {
-        TermKind::Variable(found) => found == variable,
-        TermKind::Injection { term, .. } => occurs_below_only_constructors(variable, term),
-        TermKind::Application {
-            symbol, arguments, ..
-        } if symbol.attributes.head_role() == HeadRole::FreeConstructor => arguments
-            .iter()
-            .any(|argument| occurs_below_only_constructors(variable, argument)),
-        TermKind::And(..)
-        | TermKind::Application { .. }
-        | TermKind::DomainValue { .. }
-        | TermKind::Map { .. }
-        | TermKind::List { .. }
-        | TermKind::Set { .. } => false,
+/// How a mode reads a pattern's root: a rewrite rule's left-hand side is matched as written,
+/// and an equation's left-hand side or an implication pattern denotes, at an equation-head
+/// subterm, the value of its normal form.
+fn pattern_reading(mode: MatchMode) -> PatternReading {
+    match mode {
+        MatchMode::Rewrite => PatternReading::AsWritten,
+        MatchMode::Evaluate | MatchMode::Implies => PatternReading::UpToEquations,
+    }
+}
+
+/// What [`matcher_root_policy`] reads about a pattern and a subject besides the classification
+/// of their roots. Each fact is computed when the policy asks for it, so that a pair pays only
+/// for the facts its arm reads (an overload fact is a set lookup).
+trait PairFacts {
+    /// Both roots are applications of symbols with one name.
+    fn same_name(&self) -> bool;
+    /// The pattern's root is an application of a function-typed symbol (`SymbolType::Function`),
+    /// which covers equation heads and function-typed macros as well as functions.
+    fn pattern_function_typed(&self) -> bool;
+    /// The subject's root is an application of a function-typed symbol.
+    fn subject_function_typed(&self) -> bool;
+    /// The pattern's root is an application of a production of an overload family.
+    fn pattern_overloaded(&self) -> bool;
+    /// The subject's root is an application of a production of an overload family.
+    fn subject_overloaded(&self) -> bool;
+    /// The subject is concrete after normalization: ground, with roots a normal form can have.
+    /// A shape, not evidence.
+    fn subject_concrete(&self) -> bool;
+}
+
+/// The facts of a pair the matcher met.
+struct MatchedPair<'p> {
+    definition: Option<&'p BackendDefinition>,
+    pattern: &'p Term,
+    subject: &'p Term,
+}
+
+impl PairFacts for MatchedPair<'_> {
+    fn same_name(&self) -> bool {
+        matches!(
+            (self.pattern.kind(), self.subject.kind()),
+            (
+                TermKind::Application { symbol: pattern, .. },
+                TermKind::Application { symbol: subject, .. },
+            ) if pattern.name == subject.name
+        )
+    }
+
+    fn pattern_function_typed(&self) -> bool {
+        is_function(self.pattern)
+    }
+
+    fn subject_function_typed(&self) -> bool {
+        is_function(self.subject)
+    }
+
+    fn pattern_overloaded(&self) -> bool {
+        is_overload_head(self.definition, self.pattern.kind())
+    }
+
+    fn subject_overloaded(&self) -> bool {
+        is_overload_head(self.definition, self.subject.kind())
+    }
+
+    fn subject_concrete(&self) -> bool {
+        self.subject.concrete_after_normalization()
+    }
+}
+
+/// What the roots of a pattern and a subject decide ([`matcher_root_policy`]).
+#[derive(Clone, Copy, Debug)]
+enum RootPolicy {
+    /// Two applications of one symbol, compared by their sort arguments, their arity, the
+    /// symbol's algebraic axioms, and then argument by argument.
+    Decompose,
+    /// No value of the subject has the pattern's root; the clash is built as `Clash` says.
+    Refute(Clash),
+    /// The roots decide nothing.
+    Undecided,
+}
+
+/// How the [`HeadClash`] of a refutation is built.
+#[derive(Clone, Copy, Debug)]
+enum Clash {
+    /// Two fixed roots that `compare_roots` found distinct.
+    Roots(ReleasedRoots),
+    /// An overloaded root that is not fixed under its reading, refuted because the productions of
+    /// an overload family have no equations besides their overload equations (open question Q2
+    /// of the classifier's design).
+    OverloadFamily,
+    /// A macro or alias root, refuted as if fixed because the executable boundary rejects
+    /// such terms first (open question Q3).
+    ResidualRoot,
+}
+
+impl Clash {
+    /// The clash between the owned pattern and subject the policy classified.
+    fn between(self, pattern: Term, subject: Term) -> HeadClash {
+        match self {
+            Clash::Roots(witness) => HeadClash::new(witness, pattern, subject),
+            Clash::OverloadFamily => HeadClash::overload_family(pattern, subject),
+            Clash::ResidualRoot => HeadClash::residual_root(pattern, subject),
+        }
+    }
+}
+
+/// A subject whose immediate subterms the matcher pairs with those of a pattern with the same
+/// root ([`Matcher::match_subterms`]), and why they are the subterms to compare.
+#[derive(Clone, Copy, Debug)]
+enum ComparedSubject<'t> {
+    /// Its root is fixed, so its subterms are those of every value it denotes.
+    Fixed(Fixed<'t>),
+    /// Its root is not fixed, and an arm of [`matcher_root_policy`] compares it as written: an
+    /// application of a function declared injective (open question Q5), of a function-typed
+    /// symbol in `Evaluate` mode, whose root is the one an equation is tried on, or of a macro
+    /// or alias in `Rewrite` mode (Q3).
+    AsWritten(&'t Term),
+}
+
+impl<'t> ComparedSubject<'t> {
+    fn of(head: Head<'t>, subject: &'t Term) -> Self {
+        match head {
+            Head::Fixed(fixed) => Self::Fixed(fixed),
+            Head::Open(_) | Head::Residual => Self::AsWritten(subject),
+        }
+    }
+
+    fn term(self) -> &'t Term {
+        match self {
+            Self::Fixed(fixed) => fixed.term(),
+            Self::AsWritten(term) => term,
+        }
+    }
+}
+
+/// The matcher's root policy: what the root of `pattern`, classified under the reading of
+/// `mode` ([`pattern_reading`]), and the root of `subject`, classified as the value it denotes
+/// and not an equation head without evidence (the gate of `Matcher::match_one`), decide.
+/// Pure: the classifications and `facts` are its only inputs.
+///
+/// The three modes read the roots differently (`matcher_root_policy` of the classifier's
+/// design). `Rewrite` matches a rule's left-hand side as written, so every fixed or residual
+/// root is compared by its symbol. `Evaluate` matches an equation's left-hand side against the
+/// term the equation is tried on, and refutes an equation-head subject with evidence by its
+/// root only when the subject is concrete (open question Q7). `Implies` never refutes an
+/// equation-head subject by its root (Q7). In every mode an equation-head pattern, read up to
+/// equations outside `Rewrite`, and a function declared injective are compared by arguments
+/// with an application of their own symbol (Q1, Q5), and an overloaded root is refuted
+/// against a rigid one (Q2).
+#[must_use]
+#[deny(clippy::wildcard_enum_match_arm)]
+fn matcher_root_policy(
+    mode: MatchMode,
+    pattern: Head<'_>,
+    subject: Head<'_>,
+    facts: &impl PairFacts,
+) -> RootPolicy {
+    let applications = is_application(pattern) && is_application(subject);
+    if applications && compares_applications(mode, pattern, subject, facts) {
+        return if facts.same_name() {
+            RootPolicy::Decompose
+        } else if refutes_another_symbol(mode, pattern, subject, facts) {
+            refutation(pattern, subject)
+        } else {
+            RootPolicy::Undecided
+        };
+    }
+    // Two applications of one macro or alias symbol that are not compared by arguments: the
+    // symbol is not free, so its applications may denote one value with different arguments,
+    // and one symbol is no clash of roots.
+    if applications && is_residual(pattern) && facts.same_name() {
+        return RootPolicy::Undecided;
+    }
+    if refutes_roots(mode, pattern, subject, facts) {
+        refutation(pattern, subject)
+    } else {
+        RootPolicy::Undecided
+    }
+}
+
+/// Whether two applications are compared by symbol and then by arguments.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn compares_applications(
+    mode: MatchMode,
+    pattern: Head<'_>,
+    subject: Head<'_>,
+    facts: &impl PairFacts,
+) -> bool {
+    // Two free-constructor applications are equal exactly when their symbols and arguments are.
+    (is_free_constructor(pattern) && is_free_constructor(subject))
+        // An equation-head pattern against an application of its own symbol, whose root is fixed
+        // (the gate), so that its arguments are those of the normal form it denotes; the pattern
+        // is read as written, although its instances need not be normal forms (Q1). A function
+        // declared injective, an axiom the backend does not check against the function's
+        // equations (Q5); the role keeps `injective` only for a function without `anywhere`.
+        || ((is_injective_function(pattern) || is_equation_head(pattern)) && facts.same_name())
+        || match mode {
+            // A rule's left-hand side is matched as written: its fixed or residual root against
+            // the subject's.
+            MatchMode::Rewrite => is_fixed_or_residual(pattern) && is_fixed_or_residual(subject),
+            // An equation's left-hand side against the term it is tried on: two applications of
+            // function-typed symbols are compared as written.
+            MatchMode::Evaluate => {
+                facts.pattern_function_typed() && facts.subject_function_typed()
+            }
+            MatchMode::Implies => false,
+        }
+}
+
+/// Whether two applications of different symbols that `compares_applications` compares are
+/// refuted.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn refutes_another_symbol(
+    mode: MatchMode,
+    pattern: Head<'_>,
+    subject: Head<'_>,
+    facts: &impl PairFacts,
+) -> bool {
+    (is_free_constructor(pattern) && is_free_constructor(subject))
+        || match mode {
+            MatchMode::Rewrite => true,
+            // Q2: an equation's left-hand side headed by an overloaded production against a
+            // concrete subject whose root is fixed.
+            MatchMode::Evaluate => facts.pattern_overloaded() && facts.subject_concrete(),
+            MatchMode::Implies => false,
+        }
+}
+
+/// Whether the roots of a pair that no arm compares by arguments are refuted.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn refutes_roots(
+    mode: MatchMode,
+    pattern: Head<'_>,
+    subject: Head<'_>,
+    facts: &impl PairFacts,
+) -> bool {
+    // Q2: an overloaded root against a rigid one, in either orientation.
+    (facts.pattern_overloaded() && is_rigid_root(subject))
+        || (is_rigid_root(pattern) && facts.subject_overloaded())
+        || (is_rigid_root(pattern) && is_rigid_root(subject))
+        || match mode {
+            MatchMode::Rewrite => is_fixed_or_residual(pattern) && is_fixed_or_residual(subject),
+            // Q7: an equation-head subject with evidence is refuted by its root only when it is
+            // concrete. A function application, the other root that is neither rigid nor a
+            // gated equation head, is never concrete after normalization.
+            MatchMode::Evaluate => is_rigid_root(pattern) && facts.subject_concrete(),
+            // Q7: never an equation-head subject.
+            MatchMode::Implies => false,
+        }
+}
+
+/// The refutation of a pair whose roots the policy separates. Two fixed roots clash through
+/// `compare_roots`; otherwise the refutation rests on an open question, and the clash is built
+/// by its named mint: a residual root against a fixed or residual one (Q3), and an overloaded
+/// root that is not fixed under its reading (Q2), the only refutation the policy makes with an
+/// open side.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn refutation(pattern: Head<'_>, subject: Head<'_>) -> RootPolicy {
+    RootPolicy::Refute(match pattern {
+        Head::Fixed(pattern) => match subject {
+            Head::Fixed(subject) => match compare_roots(pattern, subject) {
+                RootComparison::Distinct(witness) => Clash::Roots(witness.release()),
+                // Two roots `compare_roots` does not separate are compared by an arm of their own
+                // kind in `Matcher::match_one`, before any refutation.
+                RootComparison::SameApplication(_)
+                | RootComparison::SameAlgebraicSymbol
+                | RootComparison::ArityMismatch
+                | RootComparison::DomainValues
+                | RootComparison::Injections
+                | RootComparison::Collections(_) => return RootPolicy::Undecided,
+            },
+            Head::Residual => Clash::ResidualRoot,
+            Head::Open(_) => Clash::OverloadFamily,
+        },
+        Head::Residual => match subject {
+            Head::Fixed(_) | Head::Residual => Clash::ResidualRoot,
+            Head::Open(_) => Clash::OverloadFamily,
+        },
+        Head::Open(_) => Clash::OverloadFamily,
+    })
+}
+
+/// An application root: a free constructor, an equation head, a function, a macro or an alias.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_application(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(fixed) => match fixed.root() {
+            FixedRoot::FreeConstructor | FixedRoot::EquationHead(_) => true,
+            FixedRoot::DomainValue | FixedRoot::Injection | FixedRoot::Collection(_) => false,
+        },
+        Head::Open(open) => match open {
+            Open::Function { .. } | Open::EquationHead => true,
+            Open::Variable | Open::And => false,
+        },
+        Head::Residual => true,
+    }
+}
+
+/// A fixed root other than an equation head's, or a residual root: the roots the matcher
+/// refutes by in every mode.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_rigid_root(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(fixed) => match fixed.root() {
+            FixedRoot::DomainValue
+            | FixedRoot::Injection
+            | FixedRoot::Collection(_)
+            | FixedRoot::FreeConstructor => true,
+            FixedRoot::EquationHead(_) => false,
+        },
+        Head::Residual => true,
+        Head::Open(_) => false,
+    }
+}
+
+/// A fixed or residual root: every root a rule's left-hand side read as written compares by its
+/// symbol.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_fixed_or_residual(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(_) | Head::Residual => true,
+        Head::Open(_) => false,
+    }
+}
+
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_free_constructor(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(fixed) => match fixed.root() {
+            FixedRoot::FreeConstructor => true,
+            FixedRoot::DomainValue
+            | FixedRoot::Injection
+            | FixedRoot::Collection(_)
+            | FixedRoot::EquationHead(_) => false,
+        },
+        Head::Open(_) | Head::Residual => false,
+    }
+}
+
+/// An application of an equation head, fixed as written or open up to equations.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_equation_head(head: Head<'_>) -> bool {
+    match head {
+        Head::Fixed(fixed) => match fixed.root() {
+            FixedRoot::EquationHead(_) => true,
+            FixedRoot::DomainValue
+            | FixedRoot::Injection
+            | FixedRoot::Collection(_)
+            | FixedRoot::FreeConstructor => false,
+        },
+        Head::Open(open) => match open {
+            Open::EquationHead => true,
+            Open::Variable | Open::And | Open::Function { .. } => false,
+        },
+        Head::Residual => false,
+    }
+}
+
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_injective_function(head: Head<'_>) -> bool {
+    match head {
+        Head::Open(open) => match open {
+            Open::Function { injective } => injective,
+            Open::Variable | Open::And | Open::EquationHead => false,
+        },
+        Head::Fixed(_) | Head::Residual => false,
+    }
+}
+
+#[deny(clippy::wildcard_enum_match_arm)]
+fn is_residual(head: Head<'_>) -> bool {
+    match head {
+        Head::Residual => true,
+        Head::Fixed(_) | Head::Open(_) => false,
     }
 }
 
@@ -1836,15 +2254,10 @@ fn check_duplicate_elements(
     Ok(())
 }
 
-/// Whether `term` is a free-constructor application ([`HeadRole::FreeConstructor`]).
-fn is_constructor(term: &Term) -> bool {
-    matches!(
-        term.kind(),
-        TermKind::Application { symbol, .. }
-            if symbol.attributes.head_role() == HeadRole::FreeConstructor
-    )
-}
-
+/// Whether `term` is an application of a function-typed symbol (`SymbolType::Function`). This is
+/// a declaration read, not a role: it covers equation heads and function-typed macros and
+/// aliases as well as functions, which is what the matcher's `Evaluate` comparison of two
+/// function-typed applications and its subsort arms test.
 fn is_function(term: &Term) -> bool {
     matches!(
         term.kind(),
@@ -1858,36 +2271,6 @@ fn is_collection(kind: &TermKind) -> bool {
         kind,
         TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. }
     )
-}
-
-fn is_rigid(kind: &TermKind) -> bool {
-    matches!(
-        kind,
-        TermKind::DomainValue { .. }
-            | TermKind::Injection { .. }
-            | TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. }
-    ) || matches!(
-        kind,
-        TermKind::Application { symbol, .. }
-            if matches!(
-                symbol.attributes.head_role(),
-                HeadRole::FreeConstructor | HeadRole::Residual
-            )
-    )
-}
-
-/// Whether rewrite matching compares a term by its head: a rigid term or an equation-head
-/// application ([`HeadRole::EquationHead`]). On the subject side the equation-head case also
-/// needs a fixed head ([`Matcher::subject_head_is_fixed`]).
-fn is_rewrite_rigid(kind: &TermKind) -> bool {
-    is_rigid(kind)
-        || matches!(
-            kind,
-            TermKind::Application { symbol, .. }
-                if symbol.attributes.head_role() == HeadRole::EquationHead
-        )
 }
 
 fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {
@@ -1933,5 +2316,473 @@ fn collection_definition_matches(left: &TermKind, right: &TermKind) -> bool {
             },
         ) => left == right,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The root policy against the guards it replaced.
+
+    use std::{
+        cell::RefCell,
+        collections::{BTreeMap, BTreeSet},
+    };
+
+    use k_rust_kore::names::WellKnownSymbol;
+    use proptest::{
+        prelude::*,
+        test_runner::{Config, TestRunner},
+    };
+
+    use super::*;
+    use crate::{term::Symbol, tests::lean_bridge::generators};
+
+    /// How a transcription of `Matcher::match_one` reads a symbol's role.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Flags {
+        /// The declared flags, as `eea634ce` read them before the roles existed.
+        Declared,
+        /// The roles, as the integration base read them (`c11e4adb`).
+        Roles,
+    }
+
+    /// What an arm of `Matcher::match_one` decides about the roots of a pair.
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum Arm {
+        /// The subject is an equation-head application without evidence (the gate).
+        Gate,
+        /// An arm of its own kind: two domain values, two injections, two collections of one
+        /// category, or in `Evaluate` an injection against a collection.
+        Kind,
+        /// Two applications of one symbol compared by their arguments.
+        Decompose,
+        /// Refuted by the roots.
+        Refute,
+        /// Left undecided by the roots.
+        Undecided,
+    }
+
+    fn symbol(term: &Term) -> Option<&Symbol> {
+        match term.kind() {
+            TermKind::Application { symbol, .. } => Some(symbol),
+            _ => None,
+        }
+    }
+
+    /// `is_constructor` of the transcribed commit.
+    fn head_is_constructor(flags: Flags, term: &Term) -> bool {
+        symbol(term).is_some_and(|symbol| match flags {
+            Flags::Declared => symbol.attributes.symbol_type == SymbolType::Constructor,
+            Flags::Roles => symbol.attributes.head_role() == HeadRole::FreeConstructor,
+        })
+    }
+
+    /// `is_function` of both commits.
+    fn head_is_function(term: &Term) -> bool {
+        matches!(
+            term.kind(),
+            TermKind::Application { symbol, .. }
+                if matches!(symbol.attributes.symbol_type, SymbolType::Function(_))
+        )
+    }
+
+    /// `is_anywhere_application` of the transcribed commit.
+    fn head_is_anywhere_application(flags: Flags, term: &Term) -> bool {
+        symbol(term).is_some_and(|symbol| match flags {
+            Flags::Declared => {
+                let declared = symbol.attributes.declaration();
+                declared.anywhere && !declared.declared_function
+            }
+            Flags::Roles => symbol.attributes.head_role() == HeadRole::EquationHead,
+        })
+    }
+
+    /// The `injective` read of the decomposition guard of the transcribed commit.
+    fn head_is_injective(flags: Flags, symbol: &Symbol) -> bool {
+        match flags {
+            Flags::Declared => symbol.attributes.declaration().injective,
+            Flags::Roles => matches!(
+                symbol.attributes.head_role(),
+                HeadRole::Function {
+                    injective: true,
+                    ..
+                }
+            ),
+        }
+    }
+
+    /// `is_rigid` of the transcribed commit.
+    fn head_is_rigid(flags: Flags, term: &Term) -> bool {
+        matches!(
+            term.kind(),
+            TermKind::DomainValue { .. }
+                | TermKind::Injection { .. }
+                | TermKind::Map { .. }
+                | TermKind::List { .. }
+                | TermKind::Set { .. }
+        ) || symbol(term).is_some_and(|symbol| match flags {
+            Flags::Declared => {
+                symbol.attributes.symbol_type == SymbolType::Constructor
+                    || symbol.attributes.macro_or_alias
+            }
+            Flags::Roles => matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::Residual
+            ),
+        })
+    }
+
+    /// `is_rewrite_rigid` of the transcribed commit.
+    fn head_is_rewrite_rigid(flags: Flags, term: &Term) -> bool {
+        head_is_rigid(flags, term) || head_is_anywhere_application(flags, term)
+    }
+
+    /// `is_overload_head`, over the overloaded names of the generated case.
+    fn head_is_overload_head(overloaded: &BTreeSet<Name>, term: &Term) -> bool {
+        symbol(term).is_some_and(|symbol| overloaded.contains(&symbol.name))
+    }
+
+    /// The arms of `Matcher::match_one` from the subject gate to the end
+    /// (`git show eea634ce:crates/k-rust-backend/src/matching/mod.rs`, lines 598-803), with
+    /// every guard as written there, over the predicates above. `fixed` is the answer of
+    /// `subject_head_is_fixed` for an equation-head subject; `can_narrow_overload` is false,
+    /// since no overload family of the generated cases has a lesser production. With
+    /// [`Flags::Roles`] it transcribes the integration base, where the roles replaced the
+    /// declared flags and a pair of applications of one macro or alias symbol that the
+    /// decomposition guard does not take is deferred.
+    fn transcribed_arm(
+        flags: Flags,
+        mode: MatchMode,
+        pattern: &Term,
+        subject: &Term,
+        fixed: bool,
+        overloaded: &BTreeSet<Name>,
+    ) -> Arm {
+        let is_constructor = |term| head_is_constructor(flags, term);
+        let is_function = head_is_function;
+        let is_rigid = |term| head_is_rigid(flags, term);
+        let is_rewrite_rigid = |term| head_is_rewrite_rigid(flags, term);
+        let is_anywhere_application = |term| head_is_anywhere_application(flags, term);
+        let is_overload_head = |term| head_is_overload_head(overloaded, term);
+        let subject_head_is_fixed = !is_anywhere_application(subject) || fixed;
+        if !subject_head_is_fixed {
+            return Arm::Gate;
+        }
+        match (pattern.kind(), subject.kind()) {
+            (TermKind::DomainValue { .. }, TermKind::DomainValue { .. })
+            | (TermKind::Injection { .. }, TermKind::Injection { .. }) => Arm::Kind,
+            (
+                TermKind::Application {
+                    symbol: pattern_symbol,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: subject_symbol,
+                    ..
+                },
+            ) if (is_constructor(pattern) && is_constructor(subject))
+                || (mode == MatchMode::Rewrite
+                    && is_rewrite_rigid(pattern)
+                    && is_rewrite_rigid(subject))
+                || ((head_is_injective(flags, pattern_symbol)
+                    || is_anywhere_application(pattern))
+                    && pattern_symbol.name == subject_symbol.name)
+                || (mode == MatchMode::Evaluate
+                    && is_function(pattern)
+                    && is_function(subject)) =>
+            {
+                if pattern_symbol.name != subject_symbol.name {
+                    if mode == MatchMode::Rewrite
+                        || (is_constructor(pattern) && is_constructor(subject))
+                        || (mode == MatchMode::Evaluate
+                            && is_overload_head(pattern)
+                            && subject.concrete_after_normalization())
+                    {
+                        return Arm::Refute;
+                    }
+                    return Arm::Undecided;
+                }
+                Arm::Decompose
+            }
+            (left, right) if same_collection_category(left, right) => Arm::Kind,
+            (TermKind::Injection { .. }, right)
+                if mode == MatchMode::Evaluate && is_collection(right) =>
+            {
+                Arm::Kind
+            }
+            (left, TermKind::Injection { .. })
+                if mode == MatchMode::Evaluate && is_collection(left) =>
+            {
+                Arm::Kind
+            }
+            (
+                TermKind::Application {
+                    symbol: pattern_symbol,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: subject_symbol,
+                    ..
+                },
+            ) if flags == Flags::Roles
+                && pattern_symbol.name == subject_symbol.name
+                && pattern_symbol.attributes.head_role() == HeadRole::Residual =>
+            {
+                Arm::Undecided
+            }
+            _ if (is_overload_head(pattern) && is_rigid(subject))
+                || (is_rigid(pattern) && is_overload_head(subject)) =>
+            {
+                Arm::Refute
+            }
+            _ if (mode == MatchMode::Rewrite
+                && is_rewrite_rigid(pattern)
+                && is_rewrite_rigid(subject))
+                || (is_rigid(pattern) && is_rigid(subject))
+                || (mode == MatchMode::Evaluate
+                    && is_rigid(pattern)
+                    && subject.concrete_after_normalization()) =>
+            {
+                Arm::Refute
+            }
+            // `list_update_cannot_match`, then the deferral: neither reads a root's rigidity.
+            _ => Arm::Undecided,
+        }
+    }
+
+    /// Evidence for every equation-head subject, or for none.
+    struct Evidence(bool);
+
+    impl NormalForms for Evidence {
+        fn evidence(&mut self, _application: &Term) -> Option<NormalEvidence> {
+            self.0.then(NormalEvidence::given)
+        }
+    }
+
+    /// The facts of a generated pair, whose overloaded productions are given by name.
+    struct GeneratedPair<'p> {
+        pattern: &'p Term,
+        subject: &'p Term,
+        overloaded: &'p BTreeSet<Name>,
+    }
+
+    impl PairFacts for GeneratedPair<'_> {
+        fn same_name(&self) -> bool {
+            symbol(self.pattern)
+                .zip(symbol(self.subject))
+                .is_some_and(|(pattern, subject)| pattern.name == subject.name)
+        }
+
+        fn pattern_function_typed(&self) -> bool {
+            is_function(self.pattern)
+        }
+
+        fn subject_function_typed(&self) -> bool {
+            is_function(self.subject)
+        }
+
+        fn pattern_overloaded(&self) -> bool {
+            head_is_overload_head(self.overloaded, self.pattern)
+        }
+
+        fn subject_overloaded(&self) -> bool {
+            head_is_overload_head(self.overloaded, self.subject)
+        }
+
+        fn subject_concrete(&self) -> bool {
+            self.subject.concrete_after_normalization()
+        }
+    }
+
+    /// The arm the policy selects, in the arm order of `Matcher::match_one`, after checking
+    /// that its clash is built from what the refutation rests on.
+    fn policy_arm(
+        mode: MatchMode,
+        pattern: &Term,
+        subject: &Term,
+        fixed: bool,
+        overloaded: &BTreeSet<Name>,
+    ) -> Arm {
+        let subject_head = classify_value(subject, &mut Evidence(fixed));
+        if let Head::Open(Open::EquationHead) = subject_head {
+            return Arm::Gate;
+        }
+        let pattern_head = classify_pattern(pattern_reading(mode), pattern);
+        let facts = GeneratedPair {
+            pattern,
+            subject,
+            overloaded,
+        };
+        let policy = matcher_root_policy(mode, pattern_head, subject_head, &facts);
+        match (pattern.kind(), subject.kind()) {
+            (TermKind::DomainValue { .. }, TermKind::DomainValue { .. })
+            | (TermKind::Injection { .. }, TermKind::Injection { .. }) => Arm::Kind,
+            (TermKind::Application { .. }, TermKind::Application { .. })
+                if matches!(policy, RootPolicy::Decompose) =>
+            {
+                Arm::Decompose
+            }
+            (left, right) if same_collection_category(left, right) => Arm::Kind,
+            (TermKind::Injection { .. }, right)
+                if mode == MatchMode::Evaluate && is_collection(right) =>
+            {
+                Arm::Kind
+            }
+            (left, TermKind::Injection { .. })
+                if mode == MatchMode::Evaluate && is_collection(left) =>
+            {
+                Arm::Kind
+            }
+            _ => match policy {
+                RootPolicy::Refute(clash) => {
+                    match clash {
+                        Clash::Roots(_) => assert!(
+                            matches!(
+                                (pattern_head, subject_head),
+                                (Head::Fixed(_), Head::Fixed(_))
+                            ),
+                            "two fixed roots"
+                        ),
+                        Clash::ResidualRoot => assert!(
+                            matches!(pattern_head, Head::Residual)
+                                || matches!(subject_head, Head::Residual)
+                        ),
+                        Clash::OverloadFamily => {
+                            assert!(facts.pattern_overloaded() || facts.subject_overloaded())
+                        }
+                    }
+                    let built = clash.between(pattern.clone(), subject.clone());
+                    assert_eq!(built.into_terms(), (pattern.clone(), subject.clone()));
+                    Arm::Refute
+                }
+                RootPolicy::Decompose | RootPolicy::Undecided => Arm::Undecided,
+            },
+        }
+    }
+
+    /// Whether the root of `term` is an application of a symbol whose role CBC-02-T2 changed
+    /// (B1: `constructor` and `anywhere`; B2: a macro or alias; B3: `anywhere`, `function` and
+    /// `injective`), so that the declared flags and the role disagree.
+    fn changed_role(term: &Term) -> bool {
+        symbol(term).is_some_and(|symbol| {
+            let declared = symbol.attributes.declaration();
+            declared.macro_or_alias
+                || (declared.anywhere
+                    && !declared.declared_function
+                    && declared.symbol_type == SymbolType::Constructor)
+                || (declared.anywhere
+                    && declared.declared_function
+                    && declared.injective
+                    && matches!(declared.symbol_type, SymbolType::Function(_)))
+        })
+    }
+
+    /// One symbol per name, as in a definition: a subject application whose symbol has the
+    /// pattern root's name is rebuilt with the pattern's symbol, and `share` rebuilds any
+    /// subject application with it, so that pairs of one symbol are frequent.
+    fn consistent(pattern: &Term, subject: Term, share: bool) -> Term {
+        match (pattern.kind(), subject.kind()) {
+            (
+                TermKind::Application {
+                    symbol: pattern_symbol,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: subject_symbol,
+                    sort_arguments,
+                    arguments,
+                },
+            ) if share || pattern_symbol.name == subject_symbol.name => Term::application(
+                pattern_symbol.clone(),
+                sort_arguments.clone(),
+                arguments.clone(),
+            ),
+            _ => subject,
+        }
+    }
+
+    /// Acceptance of CBC-02-T4: over the terms of the Lean bridge generators, in every mode,
+    /// with and without evidence for an equation-head subject and with every set of overloaded
+    /// names, `matcher_root_policy` selects the arm the guards of `eea634ce` selected, except
+    /// for a root symbol whose role CBC-02-T2 changed (B1-B3), and the arm the integration
+    /// base selected for every root symbol.
+    #[test]
+    fn the_root_policy_selects_the_arms_of_the_guards_it_replaced() {
+        let names = [WellKnownSymbol::KCell.as_str(), "LblA", "LblB", "kseq"];
+        let strategy = (
+            prop_oneof![
+                Just(MatchMode::Rewrite),
+                Just(MatchMode::Evaluate),
+                Just(MatchMode::Implies)
+            ],
+            generators::term(),
+            generators::term(),
+            any::<bool>(),
+            any::<bool>(),
+            prop::sample::subsequence(names.to_vec(), 0..=names.len()),
+        );
+        let counts = RefCell::new(BTreeMap::<(String, Arm), usize>::new());
+        let mut runner = TestRunner::new(Config {
+            cases: 8192,
+            ..Config::default()
+        });
+        runner
+            .run(
+                &strategy,
+                |(mode, pattern, subject, share, fixed, overloaded)| {
+                    let subject = consistent(&pattern, subject, share);
+                    // Pairs decided before the gate: a variable or a conjunction on either
+                    // side, and in `Implies` two equal sides.
+                    let before_gate = |term: &Term| {
+                        matches!(term.kind(), TermKind::Variable(_) | TermKind::And(..))
+                    };
+                    if before_gate(&pattern)
+                        || before_gate(&subject)
+                        || (mode == MatchMode::Implies && pattern == subject)
+                    {
+                        return Ok(());
+                    }
+                    let overloaded = overloaded.into_iter().map(Name::from).collect();
+                    let arm = policy_arm(mode, &pattern, &subject, fixed, &overloaded);
+                    let base =
+                        transcribed_arm(Flags::Roles, mode, &pattern, &subject, fixed, &overloaded);
+                    prop_assert_eq!(arm, base, "integration base, {:?}", mode);
+                    let reading = if changed_role(&pattern) || changed_role(&subject) {
+                        "changed role"
+                    } else {
+                        let head = transcribed_arm(
+                            Flags::Declared,
+                            mode,
+                            &pattern,
+                            &subject,
+                            fixed,
+                            &overloaded,
+                        );
+                        prop_assert_eq!(arm, head, "eea634ce, {:?}", mode);
+                        "declared"
+                    };
+                    *counts
+                        .borrow_mut()
+                        .entry((format!("{mode:?} {reading}"), arm))
+                        .or_default() += 1;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let counts = counts.into_inner();
+        for mode in ["Rewrite", "Evaluate", "Implies"] {
+            for arm in [
+                Arm::Gate,
+                Arm::Kind,
+                Arm::Decompose,
+                Arm::Refute,
+                Arm::Undecided,
+            ] {
+                assert!(
+                    counts.contains_key(&(format!("{mode} declared"), arm)),
+                    "no {mode} case compared with eea634ce reached {arm:?}: {counts:?}"
+                );
+            }
+        }
     }
 }

@@ -2,7 +2,7 @@
 
 mod definedness;
 mod externalize;
-mod lean_bridge;
+pub(crate) mod lean_bridge;
 mod matching;
 mod matching_oracle;
 mod rewrite;

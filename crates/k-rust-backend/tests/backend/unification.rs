@@ -72,7 +72,7 @@ fn anywhere_applications_no_equation_reaches_are_refuted() {
     for left in ["wrap{}(s{}(s{}(X:SortNat{})))", "wrap{}(s{}(s{}(z{}())))"] {
         assert!(matches!(
             unify(left, "wrap{}(z{}())"),
-            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
+            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_))
         ));
     }
 }
