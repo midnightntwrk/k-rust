@@ -11,7 +11,6 @@ msrv = "1.88.0"
 [k]
 version = "7.1.337"
 commit = "4a46d1231473b599c699160132fd6e76a5c46406"
-pyk_version = "7.1.337"
 kore_exec_version = "0.1.155"
 llvm_backend_version = "0.1.140"
 

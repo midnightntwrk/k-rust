@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from unittest import mock
 
@@ -305,8 +306,6 @@ class LedgerTests(unittest.TestCase):
         return pins.Ledger(path, record=record)
 
     def test_toml_writer_round_trips_the_ledger_spelling(self) -> None:
-        import tomllib
-
         self.assertEqual(pins.dump_toml(tomllib.loads(self.TOML)), self.TOML)
 
     def test_check_mode_compares_and_never_writes(self) -> None:

@@ -442,18 +442,6 @@ def phase_preflight(context: Context) -> str:
     version = run([context.tools["kompile"], "--version"], timeout=30)
     if not k_version_matches(version, lock.k_version()):
         raise GateError(f"K tool version differs from Krs.lock: {compact(version)}")
-    pyk_python = checkouts["k"] / "pyk/.venv/bin/python"
-    if not pyk_python.is_file():
-        raise GateError("pinned K checkout pyk virtualenv is missing")
-    pyk = run(
-        [
-            pyk_python, "-c",
-            "import importlib.metadata; print(importlib.metadata.version('kframework'))",
-        ],
-        timeout=30,
-    ).stdout.strip()
-    if pyk != lock.value("k", "pyk_version"):
-        raise GateError(f"pinned checkout pyk version differs from Krs.lock: {pyk}")
     kore = run([context.tools["kore-exec"], "--version"], timeout=30).stdout.strip()
     if kore != lock.value("k", "kore_exec_version"):
         raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
@@ -464,8 +452,6 @@ def phase_preflight(context: Context) -> str:
     if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
     context.environment = z3_environment()
-    context.tools["pyk_python"] = os.fspath(pyk_python)
-    context.tools["python"] = os.fspath(pyk_python)
     msrv = run(["rustc", f"+{lock.msrv()}", "--version"], timeout=30).stdout.strip()
     if not msrv.startswith(f"rustc {lock.msrv()} "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
@@ -537,7 +523,7 @@ def phase_rust(context: Context) -> RustBuild:
         HERE / "oracle/test_oracle.py",
         HERE / "compatibility/test_probes.py",
     ):
-        run([context.tools["python"], suite], timeout=300, environment=env)
+        run([sys.executable, suite], timeout=300, environment=env)
 
     krs = build(env, target=context.target, timeout=600)
     krs_gate.build(context.target, environment=env)
@@ -545,7 +531,7 @@ def phase_rust(context: Context) -> RustBuild:
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(
-        [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
+        [sys.executable, HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
         timeout=240,
         environment={
             **context.environment,
@@ -553,7 +539,7 @@ def phase_rust(context: Context) -> RustBuild:
         },
     )
     run(
-        [context.tools["python"], HERE / "rust-definition/tools/lsp_probe.py"],
+        [sys.executable, HERE / "rust-definition/tools/lsp_probe.py"],
         timeout=240,
         environment={
             **context.environment,
@@ -944,7 +930,7 @@ def phase_proofs(context: Context, rust_build: RustBuild) -> str:
         raise GateError("complete source/native proof harness is missing")
     result = run(
         [
-            context.tools["python"], harness, "--pins", PINS_PATH,
+            sys.executable, harness, "--pins", PINS_PATH,
             "--workspace", context.workspace / "proofs",
             "--k-version", lock.k_version(), "--k-commit", lock.k_commit(),
             "--krs", rust_build.krs,
@@ -971,12 +957,12 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
         "KRS_IMP_PROBE_TARGET_ROOT": os.fspath(context.target / "probes"),
     }
     commands = [
-        [context.tools["python"], HERE / "compatibility/stable-names/probe.py", "--krs", rust_build.krs],
-        [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/probe.py"],
-        [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
-        [context.tools["python"], HERE / "compatibility/diagnostics/krs-analysis/probe.py", "--krs", rust_build.krs],
+        [sys.executable, HERE / "compatibility/stable-names/probe.py", "--krs", rust_build.krs],
+        [sys.executable, HERE / "compatibility/diagnostics/rust-expansion/probe.py"],
+        [sys.executable, HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
+        [sys.executable, HERE / "compatibility/diagnostics/krs-analysis/probe.py", "--krs", rust_build.krs],
         [
-            context.tools["python"], HERE / "compatibility/diagnostics/k-frontend/probe.py",
+            sys.executable, HERE / "compatibility/diagnostics/k-frontend/probe.py",
             "--spec", artifacts.paths / "spec.k",
             "--sources", artifacts.paths / "sources.json",
             "--authored", HERE / "rust-definition/src/claims.rs",

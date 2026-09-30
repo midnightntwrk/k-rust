@@ -33,10 +33,7 @@ The modules are:
 - `support.imp_oracle`: orchestration for the two strict IMP reference oracles;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.
 
-The package needs only the standard library. It must stay importable by
-Python 3.10, which runs the IMP oracles inside the pinned pyk environment;
-`support.pins.load_toml` (and so `support.lock` and a TOML `Ledger`) alone
-needs Python 3.11 for `tomllib`.
+The package needs only the standard library.
 
 Its unit tests run with
 

@@ -85,7 +85,7 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
 `pins.json` holds three kinds of values:
 
 - inputs IMP does not control: the IMP revision and the corpus digest.
-  The K and k-rust revisions, the K, kore-exec, LLVM backend, pyk, and Z3
+  The K and k-rust revisions, the K, kore-exec, LLVM backend, and Z3
   versions, the MSRV, and the schema versions come from `Krs.lock`.
   Each external checkout must be clean at its pinned revision, which fixes every
   external file, so no external file is digested separately;
