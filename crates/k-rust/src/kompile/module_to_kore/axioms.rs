@@ -19,7 +19,7 @@ use super::*;
 use crate::definition::production_kind::{
     NoJunkAlternative, ProductionKind, SortGenerators, match_sort_parameters,
 };
-use crate::kompile::passes::has_subsort_axiom;
+use crate::kompile::passes::{Injectable, has_subsort_axiom};
 
 pub(super) struct GeneratedAxioms {
     pub(super) semantics: Vec<KoreSentence>,
@@ -83,7 +83,7 @@ pub(super) fn generated_axioms(
         // Invariant: `semantics` and `syntax` hold one overload axiom for every production before `greater` in catalog order that `greater_productions` contains; this scan of `overloads.catalog().productions()` runs once per `lesser`, O(n^2) in the catalog size.
         for (greater, _) in overloads.catalog().productions() {
             if greater_productions.contains(&greater) {
-                let axiom = overload_axiom(overloads, lesser, greater)?;
+                let axiom = overload_axiom(overloads, lesser, greater, subsorts)?;
                 semantics.push(axiom.clone());
                 syntax.push(axiom);
             }
@@ -291,11 +291,10 @@ fn no_junk_axioms(
                     }
                     alternative
                 }
-                NoJunkAlternative::Injection(subsort) => {
-                    let subsort = encode_kore_sort(subsort);
+                NoJunkAlternative::Injection(witness) => {
                     let variable = consistent_generated_variable(
                         "Val",
-                        &subsort,
+                        &encode_kore_sort(witness.source()),
                         &mut variable_names,
                         &mut used_variable_names,
                         &mut variable_suffixes,
@@ -303,13 +302,7 @@ fn no_junk_axioms(
                     Pattern::Exists {
                         sort: result_sort.clone(),
                         variable: Box::new(variable.clone()),
-                        body: Box::new(Pattern::Application {
-                            symbol: Symbol {
-                                name: WellKnownSymbol::Inj.as_str().into(),
-                                sort_parameters: vec![subsort, result_sort.clone()],
-                            },
-                            arguments: vec![Pattern::Variable(variable)],
-                        }),
+                        body: Box::new(kore_injection(witness, Pattern::Variable(variable), &[])),
                     }
                 }
             })
@@ -741,10 +734,21 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
     })
 }
 
+/// `f_greater(place(K0), …) = place(f_lesser(K0, …))`: the overload axiom relating the lesser
+/// production `lesser_id` to the greater `greater_id`, where `place` puts each lesser argument and
+/// the lesser application at the greater production's sort ([`kore_place`]).
+///
+/// The overload order relates the pair when every sort of the lesser production is below or equal
+/// to the greater's in the declared order, which contains `KItem < K`; an argument or result that
+/// crosses `K` is placed as the one-element sequence, the embedding of an item in `K`. A pair
+/// with sort parameters is compared with its formals as the sorts they are written as, which
+/// stand for the axiom's sort variables. A pair that cannot be placed has no overload axiom and is
+/// rejected.
 fn overload_axiom(
     overloads: &OverloadOrder<'_>,
     lesser_id: ProductionId,
     greater_id: ProductionId,
+    subsorts: &PartialOrder<Sort>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let lesser = overload_production(overloads, lesser_id)?;
     let greater = overload_production(overloads, greater_id)?;
@@ -760,11 +764,26 @@ fn overload_axiom(
         });
     }
 
+    let formals = lesser
+        .formals
+        .iter()
+        .chain(greater.formals)
+        .cloned()
+        .collect::<Vec<_>>();
+    let unplaceable = |what: String, actual: &Sort, expected: &Sort| {
+        ModuleToKoreError::InvalidOverloadProduction {
+            production: lesser_id.0,
+            message: format!(
+                "{what} of sort {actual} cannot be placed at sort {expected} of production #{}",
+                greater_id.0
+            ),
+        }
+    };
     let variables = lesser
         .arguments
         .iter()
         .enumerate()
-        .map(|(index, sort)| Variable {
+        .map(|(index, (_, sort))| Variable {
             kind: VariableKind::Element,
             name: format!("K{index}"),
             sort: sort.clone(),
@@ -774,19 +793,32 @@ fn overload_axiom(
         .iter()
         .zip(&lesser.arguments)
         .zip(&greater.arguments)
-        .map(|((variable, lesser_sort), greater_sort)| {
-            inject_if_needed(
-                Pattern::Variable(variable.clone()),
-                lesser_sort,
-                greater_sort,
-            )
-        })
-        .collect();
+        .enumerate()
+        .map(
+            |(index, ((variable, (lesser_sort, _)), (greater_sort, _)))| {
+                kore_place(
+                    lesser_sort,
+                    greater_sort,
+                    Pattern::Variable(variable.clone()),
+                    subsorts,
+                    &formals,
+                )
+                .ok_or_else(|| unplaceable(format!("argument {index}"), lesser_sort, greater_sort))
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()?;
     let lesser_application = Pattern::Application {
         symbol: lesser.symbol.clone(),
         arguments: variables.into_iter().map(Pattern::Variable).collect(),
     };
-    let right = inject_if_needed(lesser_application, &lesser.result, &greater.result);
+    let right = kore_place(
+        lesser.sort,
+        greater.sort,
+        lesser_application,
+        subsorts,
+        &formals,
+    )
+    .ok_or_else(|| unplaceable("the result".into(), lesser.sort, greater.sort))?;
     Ok(KoreSentence::Axiom {
         parameters: vec!["R".into()],
         pattern: Box::new(Pattern::Equals {
@@ -817,16 +849,20 @@ fn overload_axiom(
     })
 }
 
-struct OverloadProduction {
+/// An overload production's symbol and sorts: each argument sort as declared beside its KORE
+/// encoding, and the result sort both ways.
+struct OverloadProduction<'a> {
     symbol: Symbol,
-    arguments: Vec<KoreSort>,
+    formals: &'a [Sort],
+    arguments: Vec<(&'a Sort, KoreSort)>,
+    sort: &'a Sort,
     result: KoreSort,
 }
 
-fn overload_production(
-    overloads: &OverloadOrder<'_>,
+fn overload_production<'a>(
+    overloads: &'a OverloadOrder<'_>,
     id: ProductionId,
-) -> Result<OverloadProduction, ModuleToKoreError> {
+) -> Result<OverloadProduction<'a>, ModuleToKoreError> {
     let Sentence::Production {
         label,
         parameters,
@@ -845,29 +881,301 @@ fn overload_production(
     };
     Ok(OverloadProduction {
         symbol: encode_kore_label_with_formals(label, parameters),
+        formals: parameters,
         arguments: items
             .iter()
             .filter_map(|item| match item {
                 ProductionItem::NonTerminal { sort, .. } => {
-                    Some(encode_kore_sort_with_formals(sort, parameters))
+                    Some((sort, encode_kore_sort_with_formals(sort, parameters)))
                 }
                 ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
             })
             .collect(),
+        sort,
         result: encode_kore_sort_with_formals(sort, parameters),
     })
 }
 
-fn inject_if_needed(pattern: Pattern, from: &KoreSort, to: &KoreSort) -> Pattern {
-    if from == to {
+/// `inj{source, target}(pattern)` in KORE, for the pair `witness` certifies: the only KORE
+/// construction of an injection application in the emitted theory apart from the subsort axiom
+/// that defines it. `formals` are the sort parameters of the sentence, encoded as sort variables.
+fn kore_injection(witness: &Injectable, pattern: Pattern, formals: &[Sort]) -> Pattern {
+    Pattern::Application {
+        symbol: Symbol {
+            name: WellKnownSymbol::Inj.as_str().into(),
+            sort_parameters: vec![
+                encode_kore_sort_with_formals(witness.source(), formals),
+                encode_kore_sort_with_formals(witness.target(), formals),
+            ],
+        },
+        arguments: vec![pattern],
+    }
+}
+
+/// `pattern` of sort `actual` placed at a position of sort `expected`, or `None` when no value of
+/// `actual` is a value of `expected` in the emitted theory.
+///
+/// The pattern is unchanged when the sorts are equal, and injected into `expected` when a chain of
+/// subsort axioms leads there ([`Injectable::between`]). Otherwise a value of `K` is a sequence of
+/// items, so at `K` the pattern becomes the one-element sequence `kseq{}(item, dotk{}())`, whose
+/// item is the pattern injected into `KItem` unless it already is a `KItem`; above `K`, that
+/// sequence is injected from `K` into `expected`. `formals` are the sort parameters of the
+/// sentence, encoded as sort variables.
+fn kore_place(
+    actual: &Sort,
+    expected: &Sort,
+    pattern: Pattern,
+    subsorts: &PartialOrder<Sort>,
+    formals: &[Sort],
+) -> Option<Pattern> {
+    if actual == expected {
+        return Some(pattern);
+    }
+    if let Some(witness) = Injectable::between(actual, expected, subsorts) {
+        return Some(kore_injection(&witness, pattern, formals));
+    }
+    let k = Sort::builtin(BuiltinSort::K);
+    let k_item = Sort::builtin(BuiltinSort::KItem);
+    // The witness above `K` is decided first, so that no item witness is minted for a position
+    // the sequence cannot reach.
+    let above_k = if *expected == k {
+        None
+    } else {
+        Some(Injectable::between(&k, expected, subsorts)?)
+    };
+    let item = if *actual == k_item {
         pattern
     } else {
-        Pattern::Application {
-            symbol: Symbol {
-                name: WellKnownSymbol::Inj.as_str().into(),
-                sort_parameters: vec![from.clone(), to.clone()],
+        kore_injection(
+            &Injectable::between(actual, &k_item, subsorts)?,
+            pattern,
+            formals,
+        )
+    };
+    let sequence = Pattern::Application {
+        symbol: Symbol {
+            name: WellKnownSymbol::KSeq.as_str().into(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: vec![
+            item,
+            Pattern::Application {
+                symbol: Symbol {
+                    name: WellKnownSymbol::DotK.as_str().into(),
+                    sort_parameters: Vec::new(),
+                },
+                arguments: Vec::new(),
             },
-            arguments: vec![pattern],
+        ],
+    };
+    Some(match above_k {
+        None => sequence,
+        Some(witness) => kore_injection(&witness, sequence, formals),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::definition::compute_overloads;
+
+    fn sort(name: &str) -> Sort {
+        Sort::new(name)
+    }
+
+    fn order(edges: &[(&str, &str)]) -> PartialOrder<Sort> {
+        PartialOrder::new(
+            edges
+                .iter()
+                .map(|(lesser, greater)| (sort(lesser), sort(greater))),
+        )
+        .expect("the test order is acyclic")
+    }
+
+    fn production(
+        label: Option<&str>,
+        result: &str,
+        arguments: &[&str],
+        overload: Option<&str>,
+    ) -> Sentence {
+        let mut attributes = KAttributes::default();
+        if let Some(group) = overload {
+            attributes.set(AttributeKey::Overload, Value::String(group.into()));
         }
+        Sentence::Production {
+            label: label.map(Label::new),
+            parameters: Vec::new(),
+            sort: sort(result),
+            items: arguments
+                .iter()
+                .map(|argument| ProductionItem::NonTerminal {
+                    sort: sort(argument),
+                    name: None,
+                })
+                .collect(),
+            attributes,
+        }
+    }
+
+    fn id_of(overloads: &OverloadOrder<'_>, label: &str) -> ProductionId {
+        overloads
+            .productions()
+            .find_map(|(id, sentence)| {
+                let Sentence::Production {
+                    label: Some(found), ..
+                } = sentence
+                else {
+                    return None;
+                };
+                (found.name == label).then_some(id)
+            })
+            .unwrap_or_else(|| panic!("the test declares {label}"))
+    }
+
+    /// The overload axiom relating the production labelled `lesser` to the one labelled `greater`.
+    fn overload(
+        productions: &[Sentence],
+        subsorts: &PartialOrder<Sort>,
+        lesser: &str,
+        greater: &str,
+    ) -> Result<String, ModuleToKoreError> {
+        let overloads = compute_overloads(productions, subsorts).expect("no overload cycle");
+        let lesser = id_of(&overloads, lesser);
+        let greater = id_of(&overloads, greater);
+        assert!(
+            overloads.order().less_than(&lesser, &greater),
+            "the overload order relates the pair"
+        );
+        overload_axiom(&overloads, lesser, greater, subsorts).map(|axiom| axiom.to_string())
+    }
+
+    #[test]
+    fn an_overload_argument_across_k_is_placed_as_the_one_element_sequence() {
+        // syntax Foo ::= f(K) [overload(f)]
+        // syntax Foo ::= f(Int) [overload(f)]
+        let productions = [
+            production(Some("fK"), "Foo", &["K"], Some("f")),
+            production(Some("fInt"), "Foo", &["Int"], Some("f")),
+        ];
+        let subsorts = order(&[("KItem", "K"), ("Int", "KItem"), ("Foo", "KItem")]);
+        let axiom = overload(&productions, &subsorts, "fInt", "fK").expect("the pair is placeable");
+        assert!(
+            axiom.contains("LblfK{}(kseq{}(inj{SortInt{}, SortKItem{}}(K0:SortInt{}), dotk{}()))"),
+            "{axiom}"
+        );
+        assert!(!axiom.contains("inj{SortInt{}, SortK{}}"), "{axiom}");
+        assert!(axiom.contains("LblfInt{}(K0:SortInt{})"), "{axiom}");
+    }
+
+    #[test]
+    fn an_overload_result_across_k_is_placed_as_the_one_element_sequence() {
+        // syntax K ::= g(Int) [overload(g)]
+        // syntax Bar ::= g(Int) [overload(g)]
+        let productions = [
+            production(Some("gK"), "K", &["Int"], Some("g")),
+            production(Some("gBar"), "Bar", &["Int"], Some("g")),
+        ];
+        let subsorts = order(&[("KItem", "K"), ("Int", "KItem"), ("Bar", "KItem")]);
+        let axiom = overload(&productions, &subsorts, "gBar", "gK").expect("the pair is placeable");
+        assert!(
+            axiom
+                .contains("kseq{}(inj{SortBar{}, SortKItem{}}(LblgBar{}(K0:SortInt{})), dotk{}())"),
+            "{axiom}"
+        );
+        assert!(!axiom.contains("inj{SortBar{}, SortK{}}"), "{axiom}");
+    }
+
+    #[test]
+    fn an_overload_argument_above_k_injects_the_sequence_from_k() {
+        let productions = [
+            production(Some("hKList"), "Foo", &["KList"], Some("h")),
+            production(Some("hInt"), "Foo", &["Int"], Some("h")),
+        ];
+        let subsorts = order(&[("KItem", "K"), ("K", "KList"), ("Int", "KItem")]);
+        let axiom =
+            overload(&productions, &subsorts, "hInt", "hKList").expect("the pair is placeable");
+        assert!(
+            axiom.contains(
+                "LblhKList{}(inj{SortK{}, SortKList{}}(kseq{}(inj{SortInt{}, SortKItem{}}(K0:SortInt{}), dotk{}())))"
+            ),
+            "{axiom}"
+        );
+        assert!(!axiom.contains("inj{SortInt{}, SortKList{}}"), "{axiom}");
+    }
+
+    #[test]
+    fn an_overload_along_subsort_axioms_injects_directly() {
+        let productions = [
+            production(Some("pExp"), "Exp", &["Exp"], Some("p")),
+            production(Some("pVal"), "Val", &["Int"], Some("p")),
+        ];
+        let subsorts = order(&[("Int", "Val"), ("Val", "Exp")]);
+        let axiom =
+            overload(&productions, &subsorts, "pVal", "pExp").expect("the pair is placeable");
+        assert!(
+            axiom.contains(
+                "LblpExp{}(inj{SortInt{}, SortExp{}}(K0:SortInt{})), inj{SortVal{}, SortExp{}}(LblpVal{}(K0:SortInt{}))"
+            ),
+            "{axiom}"
+        );
+    }
+
+    #[test]
+    fn an_overload_pair_that_cannot_be_placed_is_rejected() {
+        // A parser sort declared below `K` is neither injected into `KItem` nor into `K`.
+        let productions = [
+            production(Some("qK"), "Foo", &["K"], Some("q")),
+            production(Some("qParser"), "Foo", &["#Parser"], Some("q")),
+        ];
+        let subsorts = order(&[("KItem", "K"), ("#Parser", "K")]);
+        let error = overload(&productions, &subsorts, "qParser", "qK")
+            .expect_err("a parser sort has no embedding in K");
+        let ModuleToKoreError::InvalidOverloadProduction { message, .. } = &error else {
+            panic!("expected InvalidOverloadProduction, got {error}");
+        };
+        assert!(
+            message.contains("argument 0 of sort #Parser cannot be placed at sort K"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn the_no_junk_axiom_above_k_lists_only_injections_along_subsort_axioms() {
+        // syntax K ::= KItem, syntax KList ::= K, syntax KItem ::= Int
+        let declarations = ["K", "KItem", "KList", "Int"].map(|name| Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: sort(name),
+            attributes: KAttributes::default(),
+        });
+        let productions = [
+            production(None, "K", &["KItem"], None),
+            production(None, "KList", &["K"], None),
+            production(None, "KItem", &["Int"], None),
+        ];
+        let sorts = SortCatalog::from_visible(declarations.iter());
+        let catalog = ProductionCatalog::from_visible(productions.iter());
+        let subsorts = order(&[("KItem", "K"), ("K", "KList"), ("Int", "KItem")]);
+        let axioms = no_junk_axioms(&catalog, &sorts, &subsorts)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let klist = axioms
+            .iter()
+            .find(|axiom| axiom.contains("\\or{SortKList{}}"))
+            .unwrap_or_else(|| panic!("KList has a no-junk axiom: {axioms:?}"));
+        assert!(klist.contains("inj{SortK{}, SortKList{}}"), "{klist}");
+        assert!(!klist.contains("inj{SortInt{}, SortKList{}}"), "{klist}");
+        assert!(!klist.contains("inj{SortKItem{}, SortKList{}}"), "{klist}");
+        let k_item = axioms
+            .iter()
+            .find(|axiom| axiom.contains("\\or{SortKItem{}}"))
+            .unwrap_or_else(|| panic!("KItem has a no-junk axiom: {axioms:?}"));
+        assert!(k_item.contains("inj{SortInt{}, SortKItem{}}"), "{k_item}");
+        assert!(
+            !axioms.iter().any(|axiom| axiom.contains("\\or{SortK{}}")),
+            "K has no injection alternative: {axioms:?}"
+        );
     }
 }

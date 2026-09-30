@@ -128,8 +128,9 @@ mod witness {
     /// (`injectable`), under the module order the witness was minted against.
     ///
     /// The fields are private to this module, so a value exists only after
-    /// `Injectable::between` has decided the pair, and the only KAST builder of an injection,
-    /// `Injectable::apply`, takes one.
+    /// `Injectable::between` has decided the pair, and the only builders of an injection,
+    /// `Injectable::apply` in KAST and `module_to_kore::axioms::kore_injection` in KORE, take
+    /// one.
     #[must_use]
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub(crate) struct Injectable {
@@ -154,6 +155,16 @@ mod witness {
                 source: source.clone(),
                 target: target.clone(),
             })
+        }
+
+        /// The sort the injection embeds.
+        pub(crate) fn source(&self) -> &Sort {
+            &self.source
+        }
+
+        /// The sort the injection embeds into.
+        pub(crate) fn target(&self) -> &Sort {
+            &self.target
         }
 
         /// `inj{source, target}(term)`: the only KAST construction of an injection application

@@ -22,7 +22,7 @@ use super::{
     Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{InternalLabel, Sort};
-use crate::names::BuiltinSort;
+use crate::kompile::Injectable;
 
 /// Whether each application of a function production denotes exactly one value, as its
 /// declaration states.
@@ -270,13 +270,14 @@ pub(crate) fn match_sort_parameters(
 
 /// One alternative of a concrete sort's no-junk axiom, in axiom order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NoJunkAlternative<'s> {
+pub(crate) enum NoJunkAlternative<'g> {
     /// `\top`: the domain values of the sort.
     DomainValues,
     /// The symbol of this production, instantiated at the sort, applied to fresh variables.
     Generator(ProductionId),
-    /// The injection of this strict subsort into the sort.
-    Injection(&'s Sort),
+    /// The injection of a strict subsort into the sort, along the subsort axioms of the emitted
+    /// theory.
+    Injection(&'g Injectable),
 }
 
 /// An alternative a production of the sort contributes.
@@ -291,16 +292,16 @@ enum Alternative {
 /// The productions of the sort contribute their [`ProductionKind::no_junk`] alternatives in
 /// catalog order, with a single `\top` at the position of the first token production however many
 /// token productions the sort has, since each of them contributes the same alternative. The
-/// injections of the strict subsorts follow, and a sort whose own declaration carries `token` but
+/// injections of the strict subsorts along subsort axioms follow ([`injected_subsorts`]), and a sort whose own declaration carries `token` but
 /// that has no token production ends with `\top`.
 #[derive(Debug)]
-pub(crate) struct SortGenerators<'s> {
+pub(crate) struct SortGenerators {
     alternatives: Vec<Alternative>,
-    injections: Vec<&'s Sort>,
+    injections: Vec<Injectable>,
     token_sort: bool,
 }
 
-impl<'s> SortGenerators<'s> {
+impl SortGenerators {
     /// The no-junk alternatives of the concrete sort `sort` in a module whose productions,
     /// sorts and subsort order are `productions`, `sorts` and `subsorts`.
     ///
@@ -308,7 +309,7 @@ impl<'s> SortGenerators<'s> {
     /// instantiating its sort parameters ([`match_sort_parameters`]).
     pub(crate) fn of(
         productions: &ProductionCatalog<'_>,
-        sorts: &'s SortCatalog<'_>,
+        sorts: &SortCatalog<'_>,
         subsorts: &PartialOrder<Sort>,
         sort: &Sort,
     ) -> Self {
@@ -365,38 +366,40 @@ impl<'s> SortGenerators<'s> {
     }
 
     /// The alternatives in axiom order.
-    pub(crate) fn alternatives(&self) -> impl Iterator<Item = NoJunkAlternative<'s>> + '_ {
+    pub(crate) fn alternatives(&self) -> impl Iterator<Item = NoJunkAlternative<'_>> {
         self.alternatives
             .iter()
             .map(|alternative| match *alternative {
                 Alternative::DomainValues => NoJunkAlternative::DomainValues,
                 Alternative::Generator(id) => NoJunkAlternative::Generator(id),
             })
-            .chain(
-                self.injections
-                    .iter()
-                    .map(|subsort| NoJunkAlternative::Injection(subsort)),
-            )
+            .chain(self.injections.iter().map(NoJunkAlternative::Injection))
             .chain(self.token_sort.then_some(NoJunkAlternative::DomainValues))
     }
 }
 
-/// The strict subsorts of `sort` whose injections are alternatives of its no-junk axiom, in the
-/// sort catalog's order. `K` gets none: its values are sequences, which its no-junk axiom does not
-/// enumerate.
+/// The injections of the strict subsorts of `sort` that are alternatives of its no-junk axiom, in
+/// the sort catalog's order: one for every declared strict subsort from which a chain of subsort
+/// axioms of the emitted theory leads to `sort` ([`Injectable::between`]).
+///
+/// An alternative is a disjunct of an axiom stating what every value of `sort` is, so it may only
+/// name an embedding the theory defines. A declared subsort without such a chain is left out: the
+/// theory has no subsort axiom into `K`, whose values are sequences of `KItem`s, so `K` gets no
+/// injection alternative, and a sort above `K` gets none from the sorts below `K` (its values of
+/// those sorts are covered by the alternative for `K`). The declared order bounds the candidates:
+/// a subsort axiom is emitted only for a declared subsort, while the witness also counts the
+/// `S < KItem` subsorts that a definition declares only once `subsort KItem` has run.
 ///
 /// This is the one place that enumerates the injection alternatives.
-fn injected_subsorts<'s>(
-    sorts: &'s SortCatalog<'_>,
+fn injected_subsorts(
+    sorts: &SortCatalog<'_>,
     subsorts: &PartialOrder<Sort>,
     sort: &Sort,
-) -> Vec<&'s Sort> {
-    if sort.name == BuiltinSort::K.k_name() {
-        return Vec::new();
-    }
+) -> Vec<Injectable> {
     sorts
         .sorted_all_sorts()
         .filter(|subsort| subsorts.less_than(subsort, sort))
+        .filter_map(|subsort| Injectable::between(subsort, sort, subsorts))
         .collect()
 }
 
@@ -433,16 +436,14 @@ mod tests {
         )
     }
 
-    fn generators<'s>(
+    fn generators(
         productions: &[&Sentence],
-        sorts: &'s SortCatalog<'_>,
+        sorts: &SortCatalog<'_>,
         sort: &Sort,
-    ) -> Vec<NoJunkAlternative<'s>> {
+    ) -> SortGenerators {
         let catalog = ProductionCatalog::from_visible(productions.iter().copied());
         let subsorts = PartialOrder::new(std::iter::empty()).expect("no subsort cycle");
         SortGenerators::of(&catalog, sorts, &subsorts, sort)
-            .alternatives()
-            .collect()
     }
 
     #[test]
@@ -457,7 +458,8 @@ mod tests {
         let lower = token("idLower", "[a-z]+");
         let upper = token("idUpper", "[A-Z]+");
         for order in [[&lower, &upper], [&upper, &lower]] {
-            let alternatives = generators(&order, &sorts, &sort);
+            let generated = generators(&order, &sorts, &sort);
+            let alternatives = generated.alternatives().collect::<Vec<_>>();
             assert_eq!(
                 alternatives,
                 [NoJunkAlternative::DomainValues],
@@ -479,7 +481,8 @@ mod tests {
         let lexed = token("idLit", "[a-z]+");
         let last = production(Some("last"), "Id", Vec::new(), &[]);
         let relexed = token("idUpper", "[A-Z]+");
-        let alternatives = generators(&[&first, &lexed, &last, &relexed], &sorts, &sort);
+        let generated = generators(&[&first, &lexed, &last, &relexed], &sorts, &sort);
+        let alternatives = generated.alternatives().collect::<Vec<_>>();
         assert_eq!(
             alternatives,
             [
