@@ -233,6 +233,27 @@ class ToolTests(unittest.TestCase):
         self.assertFalse(tools.k_version_matches(
             subprocess.CompletedProcess([], 0, "K version: v7.0.0", ""), "7.1.337"
         ))
+        self.assertTrue(tools.k_version_matches(
+            subprocess.CompletedProcess(
+                [], 0, "K version:    v7.1.337\nBuild date:   Mon Aug 31 2026\n", ""
+            ),
+            "7.1.337",
+        ))
+        for stdout in ("K version: v7.1.3370", "K version: v7.1.337-dirty", "K version: 7.1.337"):
+            with self.subTest(stdout=stdout):
+                self.assertFalse(tools.k_version_matches(
+                    subprocess.CompletedProcess([], 0, stdout, ""), "7.1.337"
+                ))
+        self.assertFalse(tools.k_version_matches(
+            subprocess.CompletedProcess([], 0, "K version: v7.1.337", ""), "7.1.3"
+        ))
+        self.assertFalse(tools.k_version_matches(
+            subprocess.CompletedProcess([], 0, "K version: v7.0.0 (built from v7.1.337)", ""),
+            "7.1.337",
+        ))
+        self.assertFalse(tools.k_version_matches(
+            subprocess.CompletedProcess([], 0, "", "K version: v7.1.337"), "7.1.337"
+        ))
 
     def test_rustfmt_override(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

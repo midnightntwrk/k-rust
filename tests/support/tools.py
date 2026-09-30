@@ -121,12 +121,22 @@ def k_tool(name: str, version: str) -> str:
 
 
 def k_version_matches(reported: subprocess.CompletedProcess[str], version: str) -> bool:
-    """Return whether a K version command succeeded and reported the pinned version."""
+    """Return whether a K version command succeeded and reported exactly the pinned version.
 
-    return (
-        reported.returncode == 0
-        and f"v{version}" in reported.stdout + reported.stderr
+    The reported version is the first whitespace-separated stdout token of the form
+    `v<digit>...`; it must equal `v{version}`, so `v7.1.3` does not match `v7.1.337`.
+    """
+
+    if reported.returncode != 0:
+        return False
+    token = next(
+        (
+            token for token in reported.stdout.split()
+            if len(token) > 1 and token[0] == "v" and token[1].isascii() and token[1].isdigit()
+        ),
+        None,
     )
+    return token == f"v{version}"
 
 
 def rustfmt_dir() -> Path:
