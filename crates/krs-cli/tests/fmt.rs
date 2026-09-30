@@ -93,7 +93,7 @@ fn workspace_check_skips_the_configured_target_directory_but_not_build_modules()
     )
     .unwrap();
     fs::write(root.join("src/lib.rs"), "mod build;\n").unwrap();
-    // The build script's target walks the package root,
+    // The build script's target is rooted at the package root,
     // which holds the configured target directory and the nested package.
     fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
     let unformatted = "pub fn f( ) {}\n";

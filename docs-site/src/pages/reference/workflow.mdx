@@ -19,6 +19,7 @@ krs check --package my-semantics --definition main
 
 `fmt` canonicalizes KRS DSL islands while leaving ordinary Rust to the Rust formatter.
 It can format paths or stdin, and `--check` reports drift without rewriting files.
+Without paths it selects what `cargo fmt` selects: each workspace member target's root and the files of the modules it declares, so fixtures beside a target are left alone unless named explicitly.
 Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
 The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
 

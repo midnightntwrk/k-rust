@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use krs_fmt::Edition;
+use syn::ext::IdentExt as _;
 
 use crate::metadata::{CargoMetadata, MetadataPackage};
 
@@ -18,10 +19,12 @@ pub struct FormatInput {
 
 /// Discovers Rust files from workspace targets or explicit paths.
 ///
-/// Without paths, every workspace member target contributes the `.rs` files
-/// under the directory of its crate root.
-/// A workspace walk never enters `.git`, Cargo's target directory,
-/// or a directory holding another package's `Cargo.toml`.
+/// Without paths, every workspace member target contributes its crate root
+/// and the files of its out-of-line modules, as `cargo fmt` selects them:
+/// `mod name;` resolves to `name.rs` or `name/mod.rs` by Rust's module path rules,
+/// including `#[path]` and inline module nesting.
+/// Other files near a target, such as test fixtures, are not inputs,
+/// and a file that does not parse is an input whose modules are not followed.
 /// An explicit file must be a `.rs` file of a workspace member.
 /// An explicit directory is walked through every workspace member it contains,
 /// never entering another package's directory,
@@ -57,7 +60,7 @@ pub fn discover_format_inputs(
 
     if paths.is_empty() {
         let mut selected = BTreeMap::new();
-        for (package_root, package) in &packages {
+        for package in packages.values() {
             for target in &package.targets {
                 let Some(source) = &target.src_path else {
                     continue;
@@ -68,12 +71,7 @@ pub fn discover_format_inputs(
                 })?;
                 let edition = target_edition(package, target.edition.as_deref())?;
                 let mut files = BTreeSet::new();
-                walk(
-                    root,
-                    &|directory| directory == package_root.as_path(),
-                    target_directory.as_deref(),
-                    &mut files,
-                )?;
+                module_files(&source, &mut files)?;
                 for file in files {
                     // A more specific target source directory selects the edition.
                     // Equal directories use Cargo's target order.
@@ -221,6 +219,125 @@ fn canonical_or_normalized(path: &Path) -> Result<PathBuf, String> {
     Ok(canonical_or_normalized(parent)?.join(name))
 }
 
+/// Collects `crate_root` and every file reachable from it through out-of-line module declarations.
+fn module_files(crate_root: &Path, files: &mut BTreeSet<PathBuf>) -> Result<(), String> {
+    let directory = crate_root
+        .parent()
+        .ok_or_else(|| format!("target source has no parent: `{}`", crate_root.display()))?;
+    // A crate root owns its directory, like a `mod.rs` file.
+    module_file(crate_root, &ModuleDirectory::owned(directory), files)
+}
+
+/// Where the out-of-line modules declared in one module scope live.
+struct ModuleDirectory {
+    path: PathBuf,
+    /// The file stem of a non-`mod.rs` module file, whose child modules live under that stem.
+    relative: Option<String>,
+}
+
+impl ModuleDirectory {
+    fn owned(path: &Path) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            relative: None,
+        }
+    }
+
+    /// The directory holding the scope's `mod name;` files when no `#[path]` applies.
+    fn children(&self) -> PathBuf {
+        match &self.relative {
+            Some(relative) => self.path.join(relative),
+            None => self.path.clone(),
+        }
+    }
+}
+
+fn module_file(
+    file: &Path,
+    directory: &ModuleDirectory,
+    files: &mut BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    let file = canonical(file)?;
+    if !files.insert(file.clone()) {
+        return Ok(());
+    }
+    let source = std::fs::read_to_string(&file)
+        .map_err(|error| format!("cannot read `{}`: {error}", file.display()))?;
+    // The formatter reports the parse error; there are no declarations to follow.
+    let Ok(parsed) = syn::parse_file(&source) else {
+        return Ok(());
+    };
+    module_items(&file, &parsed.items, directory, files)
+}
+
+fn module_items(
+    file: &Path,
+    items: &[syn::Item],
+    directory: &ModuleDirectory,
+    files: &mut BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    for item in items {
+        let syn::Item::Mod(module) = item else {
+            continue;
+        };
+        let name = module.ident.unraw().to_string();
+        let path_attribute = module_path_attribute(module);
+        if let Some((_, items)) = &module.content {
+            let nested = match path_attribute {
+                Some(path) => ModuleDirectory::owned(&directory.path.join(path)),
+                None => ModuleDirectory::owned(&directory.children().join(&name)),
+            };
+            module_items(file, items, &nested, files)?;
+            continue;
+        }
+        if let Some(path) = path_attribute {
+            let child = directory.path.join(path);
+            let parent = child.parent().unwrap_or(&directory.path).to_path_buf();
+            module_file(&child, &ModuleDirectory::owned(&parent), files)?;
+            continue;
+        }
+        let base = directory.children();
+        let flat = base.join(format!("{name}.rs"));
+        let nested = base.join(&name).join("mod.rs");
+        if flat.is_file() {
+            let child = ModuleDirectory {
+                path: base,
+                relative: Some(name),
+            };
+            module_file(&flat, &child, files)?;
+        } else if nested.is_file() {
+            module_file(&nested, &ModuleDirectory::owned(&base.join(&name)), files)?;
+        } else {
+            return Err(format!(
+                "cannot find `{}` or `{}` for `mod {name};` in `{}`",
+                flat.display(),
+                nested.display(),
+                file.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Returns the value of a module's `#[path = "..."]` attribute.
+fn module_path_attribute(module: &syn::ItemMod) -> Option<String> {
+    module.attrs.iter().find_map(|attribute| {
+        let syn::Meta::NameValue(meta) = &attribute.meta else {
+            return None;
+        };
+        if !meta.path.is_ident("path") {
+            return None;
+        }
+        match &meta.value {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(path),
+                ..
+            }) => Some(path.value()),
+            _ => None,
+        }
+    })
+}
+
 fn nearest_manifest_root(path: &Path) -> Option<PathBuf> {
     let start = if path.is_dir() { path } else { path.parent()? };
     start
@@ -331,6 +448,77 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("nested/src/lib.rs"));
         assert!(error.contains("--manifest-path"));
+    }
+
+    #[test]
+    fn workspace_discovery_follows_module_declarations_only() {
+        let temporary = temp_dir();
+        let root = temporary.path();
+        for directory in [
+            "src/flat",
+            "src/outer/deep",
+            "src/moved",
+            "shared",
+            "tests/suite",
+            "tests/fixtures/broken",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"format-modules\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n",
+        )
+        .unwrap();
+        let sources = [
+            (
+                "src/lib.rs",
+                "mod flat;\nmod r#async;\nmod outer { mod deep; }\n#[path = \"moved/renamed.rs\"]\nmod moved;\n#[path = \"../shared/common.rs\"]\nmod common;\n",
+            ),
+            // A non-`mod.rs` file owns the directory named by its stem.
+            ("src/flat.rs", "mod inner;\n"),
+            ("src/flat/inner.rs", "\n"),
+            ("src/async.rs", "\n"),
+            ("src/outer/deep.rs", "\n"),
+            // A `#[path]` file owns its own directory, like `mod.rs`.
+            ("src/moved/renamed.rs", "mod sibling;\n"),
+            ("src/moved/sibling.rs", "\n"),
+            ("shared/common.rs", "\n"),
+            // A file that does not parse is still an input; its declarations are not followed.
+            ("tests/suite.rs", "mod helper;\nfn broken( {\n"),
+            ("tests/suite/helper.rs", "\n"),
+            ("tests/fixtures/broken/source.rs", "fn broken( {\n"),
+            ("src/unused.rs", "\n"),
+        ];
+        for (file, source) in sources {
+            fs::write(root.join(file), source).unwrap();
+        }
+        let root = root.canonicalize().unwrap();
+        let manifest = root.join("Cargo.toml");
+        let selected = discover_format_inputs(Some(&manifest), &[])
+            .unwrap()
+            .into_iter()
+            .map(|input| input.path)
+            .collect::<BTreeSet<_>>();
+        let expected = [
+            "shared/common.rs",
+            "src/async.rs",
+            "src/flat.rs",
+            "src/flat/inner.rs",
+            "src/lib.rs",
+            "src/moved/renamed.rs",
+            "src/moved/sibling.rs",
+            "src/outer/deep.rs",
+            "tests/suite.rs",
+        ]
+        .into_iter()
+        .map(|file| root.join(file))
+        .collect::<BTreeSet<_>>();
+        assert_eq!(selected, expected);
+
+        fs::write(root.join("src/flat.rs"), "mod missing;\n").unwrap();
+        let error = discover_format_inputs(Some(&manifest), &[]).unwrap_err();
+        assert!(error.contains("mod missing;"), "{error}");
+        assert!(error.contains("src/flat/missing.rs"), "{error}");
     }
 
     #[test]
