@@ -20,26 +20,27 @@ use crate::kast::{Sort, SortRole};
 
 /// The sorts of one grammar that per-sort generators range over (invariant I1).
 ///
-/// The members are the sorts the visible sentences declare ([`SortCatalog::all_sorts`]: declared
-/// nullary sorts, declared instances of parametric sorts and their numeral arguments) and, for
-/// every visible production, its result and nonterminal item sorts that are not among that
-/// production's `parameters` and are nullary or a declared instance.
+/// The members are the sorts that a visible sentence declares or gives a position: the sort of
+/// every `syntax S` declaration, and the result and nonterminal item sorts of every production,
+/// each unless the sentence's own `parameters` bind it, and each only when it is nullary or a
+/// declared instance of a parametric sort ([`SortCatalog::instantiations`]).
 ///
-/// The second part is required because a visible production is part of the grammar whether or
-/// not the sentence declaring one of its sorts is visible: a production imported through a module
-/// that imports the declaring module privately, or a cell production injected into every rule
-/// grammar, still declares positions of its operand sorts, and each position needs the per-sort
-/// productions of its sort (a variable, a cast, a bracket). Whether such a sort is declared
-/// anywhere is the sort check's judgement, not the grammar's.
+/// The positions count whether or not the sentence declaring their sort is visible: a production
+/// imported through a module that imports the declaring module privately, or a cell production
+/// injected into every rule grammar, still declares positions of its operand sorts, and each
+/// position needs the per-sort productions of its sort (a variable, a cast, a bracket). Whether
+/// such a sort is declared anywhere is the sort check's judgement, not the grammar's.
 ///
-/// A production's `parameters` are sort variables bound by that production alone
-/// (`syntax {Sort} Sort ::= "#Top"`), so a result or item sort naming one of them is not a sort of
-/// the module and is never a member; a declared sort that happens to share a parameter's spelling
-/// stays a member. A parametric sort with a free parameter (`MInt{Width}`) is a shape, not a
-/// sort, and is never a member.
+/// A sentence's `parameters` are sort variables bound by that sentence alone
+/// (`syntax {Sort} Sort ::= "#Top"`), so a sort naming one of them is not a sort of the module and
+/// is never a member; a declared sort that happens to share a parameter's spelling stays a member.
+/// A parametric sort with a free parameter (`MInt{Width}`) is a shape, not a sort, and is never a
+/// member. The arguments of a declared instance (the `8` of `MInt{8}`) are not positions of the
+/// grammar, so a numeral is a member only when a sentence declares it or gives a production a
+/// position of it (`syntax 8 ::= "eight"`); it is then a sort of terms like any declared sort.
 ///
 /// Membership is independent of the role: kernel, scaffolding and numeral sorts are members when
-/// the sentences mention them, and the plan tables decide what each role receives.
+/// the sentences declare or position them, and the plan tables decide what each role receives.
 pub(in crate::inner) struct SortUniverse {
     members: BTreeMap<Sort, SortRole>,
     /// `(alias, target)` of every visible sort synonym, in visible order. A synonym is another
@@ -56,15 +57,10 @@ impl SortUniverse {
             .values()
             .flatten()
             .collect::<BTreeSet<_>>();
-        let members = catalog
-            .all_sorts()
+        let members = visible
             .iter()
-            .chain(
-                visible
-                    .iter()
-                    .flat_map(|sentence| unbound_production_sorts(sentence))
-                    .filter(|sort| sort.parameters.is_empty() || instances.contains(sort)),
-            )
+            .flat_map(|sentence| unbound_sorts(sentence))
+            .filter(|sort| sort.parameters.is_empty() || instances.contains(sort))
             .map(|sort| (sort.clone(), sort.role()))
             .collect();
         let synonyms = visible
@@ -115,9 +111,10 @@ impl SortUniverse {
     }
 }
 
-/// The result and nonterminal item sorts of a production that its own `parameters` do not bind.
-/// No other sentence declares a position of a sort; the catalog reads the sort declarations.
-fn unbound_production_sorts(sentence: &Sentence) -> Vec<&Sort> {
+/// The sorts a sentence declares or gives a position that its own `parameters` do not bind: the
+/// sort of a `syntax S` declaration, the result and nonterminal item sorts of a production. No
+/// other sentence declares a sort or a position of one; a synonym is a spelling of its target.
+fn unbound_sorts(sentence: &Sentence) -> Vec<&Sort> {
     match sentence {
         Sentence::Production {
             parameters,
@@ -131,8 +128,12 @@ fn unbound_production_sorts(sentence: &Sentence) -> Vec<&Sort> {
             }))
             .filter(|sort| !parameters.contains(sort))
             .collect(),
-        Sentence::SyntaxSort { .. }
-        | Sentence::SortSynonym { .. }
+        Sentence::SyntaxSort {
+            parameters, sort, ..
+        } => std::iter::once(sort)
+            .filter(|sort| !parameters.contains(sort))
+            .collect(),
+        Sentence::SortSynonym { .. }
         | Sentence::SyntaxLexical { .. }
         | Sentence::SyntaxAssociativity { .. }
         | Sentence::SyntaxPriority { .. }
@@ -280,18 +281,19 @@ pub(in crate::inner) struct RuleMemberProductions {
 
 /// The rule grammar's per-member table.
 ///
-/// A defined sort receives every production. `Bool` is a sort of `K` terms, but its `KItem`
-/// subsort, its variable subsorts and its casts belong to the fixed kernel syntax both grammars
-/// share, so the member loop adds only its predicate, projection, scaffolding and bracket.
-/// `KLabel`, `KList` and `KString` receive every production when the module declares them (their
-/// predicate and projection are revisited by CBC-05-T10). `K`, `KItem`, `Bag`, `Cell`, `KBott` and
-/// `KConfigVar` receive their productions from the kernel syntax and the kernel seeds, not from
-/// the member loop. A rigid variable, a scaffolding sort and a numeral denote no set of terms a
-/// rule could mention, so they receive nothing.
+/// A defined sort receives every production. A numeral member is a sort that a sentence declares
+/// or gives a production a position of ([`SortUniverse`]), so it receives what a defined sort
+/// receives. `Bool` is a sort of `K` terms, but its `KItem` subsort, its variable subsorts and its
+/// casts belong to the fixed kernel syntax both grammars share, so the member loop adds only its
+/// predicate, projection, scaffolding and bracket. `KLabel`, `KList` and `KString` receive every
+/// production when the module declares them (their predicate and projection are revisited by
+/// CBC-05-T10). `K`, `KItem`, `Bag`, `Cell`, `KBott` and `KConfigVar` receive their productions
+/// from the kernel syntax and the kernel seeds, not from the member loop. A rigid variable and a
+/// scaffolding sort denote no set of terms a rule could mention, so they receive nothing.
 pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMemberProductions {
     use KernelSort as S;
     match role {
-        SortRole::Defined | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
+        SortRole::Defined | SortRole::Nat | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
             RuleMemberProductions {
                 predicate: true,
                 projection: true,
@@ -315,8 +317,7 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
         },
         SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell)
         | SortRole::RigidVariable
-        | SortRole::Scaffolding
-        | SortRole::Nat => RuleMemberProductions {
+        | SortRole::Scaffolding => RuleMemberProductions {
             predicate: false,
             projection: false,
             #[cfg(not(feature = "z3-inference"))]
@@ -459,7 +460,10 @@ const fn checked_order(order: [KernelSort; 10]) -> [KernelSort; 10] {
 /// The configuration grammar's tables.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "read by the configuration grammar (CBC-05-T4)")
+    expect(
+        dead_code,
+        reason = "the configuration grammar reads every item here (CBC-05-T4 deletes this attribute)"
+    )
 )]
 pub(in crate::inner) mod configuration {
     use super::{GrammarPlan, KernelSort, SortRole, checked_order};
@@ -479,17 +483,20 @@ pub(in crate::inner) mod configuration {
         pub(in crate::inner) casts: bool,
     }
 
-    /// The configuration grammar's per-member table: a defined sort and every kernel sort
-    /// receive a bracket; a defined sort, `KLabel`, `KList` and `KString` receive their subsorts
-    /// and casts here, the other kernel sorts from the fixed kernel syntax; a rigid variable, a
-    /// scaffolding sort and a numeral denote no set of terms a configuration could mention and
+    /// The configuration grammar's per-member table: a defined sort, a numeral member (a sort a
+    /// sentence declares or positions, as in the rule grammar) and every kernel sort receive a
+    /// bracket; a defined sort, a numeral member, `KLabel`, `KList` and `KString` receive their
+    /// subsorts and casts here, the other kernel sorts from the fixed kernel syntax; a rigid
+    /// variable and a scaffolding sort denote no set of terms a configuration could mention and
     /// receive nothing.
     pub(in crate::inner) const fn configuration_member_productions(
         role: SortRole,
     ) -> ConfigurationMemberProductions {
         use KernelSort as S;
         match role {
-            SortRole::Defined | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
+            SortRole::Defined
+            | SortRole::Nat
+            | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
                 ConfigurationMemberProductions {
                     bracket: true,
                     kitem_subsort: true,
@@ -505,14 +512,12 @@ pub(in crate::inner) mod configuration {
                 variable_subsorts: false,
                 casts: false,
             },
-            SortRole::RigidVariable | SortRole::Scaffolding | SortRole::Nat => {
-                ConfigurationMemberProductions {
-                    bracket: false,
-                    kitem_subsort: false,
-                    variable_subsorts: false,
-                    casts: false,
-                }
-            }
+            SortRole::RigidVariable | SortRole::Scaffolding => ConfigurationMemberProductions {
+                bracket: false,
+                kitem_subsort: false,
+                variable_subsorts: false,
+                casts: false,
+            },
         }
     }
 
@@ -600,15 +605,91 @@ mod tests {
         assert!(productions.kitem_subsort && productions.casts && productions.bracket);
         assert!(universe.member(&mint("Width")).is_none());
         assert!(universe.member(&Sort::new("Width")).is_none());
-        // The numeral argument is a member, and its role gives it no production.
-        assert_eq!(
-            universe.member(&Sort::new("8")).map(|member| member.role()),
-            Some(SortRole::Nat)
-        );
-        assert_eq!(
-            rule_member_productions(SortRole::Nat),
-            rule_member_productions(SortRole::Scaffolding)
-        );
+        // The numeral argument instantiates the shape; no sentence gives it a position.
+        assert!(universe.member(&Sort::new("8")).is_none());
+    }
+
+    /// A numeral that a sentence declares (`syntax 16`) or gives a production a position of
+    /// (`syntax 8 ::= "eight"`, the operand of `bar(8)`) is a sort of terms, and receives what a
+    /// defined sort receives in both grammars; a numeral that only instantiates a parametric sort
+    /// is not a member.
+    #[test]
+    fn a_numeral_declared_or_positioned_by_a_sentence_is_a_member_with_the_rows_of_a_defined_sort()
+    {
+        let sentences = [
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::new("8"),
+                items: vec![ProductionItem::Terminal("eight".into())],
+                attributes: Attributes::default(),
+            },
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::new("Foo"),
+                items: vec![
+                    ProductionItem::Terminal("bar".into()),
+                    ProductionItem::Terminal("(".into()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("8"),
+                        name: None,
+                    },
+                    ProductionItem::Terminal(")".into()),
+                ],
+                attributes: Attributes::default(),
+            },
+            syntax_sort(Sort::new("16")),
+            syntax_sort(mint("32")),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        for numeral in ["8", "16"] {
+            let member = universe
+                .member(&Sort::new(numeral))
+                .unwrap_or_else(|| panic!("{numeral} is a member"));
+            assert_eq!(member.role(), SortRole::Nat, "{numeral}");
+            assert_eq!(
+                rule_member_productions(member.role()),
+                rule_member_productions(SortRole::Defined),
+                "{numeral}"
+            );
+            assert_eq!(
+                configuration_member_productions(member.role()),
+                configuration_member_productions(SortRole::Defined),
+                "{numeral}"
+            );
+        }
+        assert!(universe.member(&mint("32")).is_some());
+        assert!(universe.member(&Sort::new("32")).is_none());
+    }
+
+    /// A declaration's own parameters bind its sort as a production's bind its positions:
+    /// `syntax {X} X` declares no sort, while `syntax {X} Foo` declares `Foo`, which the binder
+    /// does not mention.
+    #[test]
+    fn a_sort_declaration_binds_its_own_parameters() {
+        let x = Sort::new("X");
+        let sentences = [
+            Sentence::SyntaxSort {
+                parameters: vec![x.clone()],
+                sort: x.clone(),
+                attributes: Attributes::default(),
+            },
+            Sentence::SyntaxSort {
+                parameters: vec![x.clone()],
+                sort: Sort::new("Foo"),
+                attributes: Attributes::default(),
+            },
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        assert!(universe.member(&x).is_none());
+        assert!(universe.member(&Sort::new("Foo")).is_some());
     }
 
     /// 7a20220d: a visible synonym yields the casts of its alias, typed by its target, and is not
@@ -672,7 +753,8 @@ mod tests {
             .collect()
     }
 
-    /// The tables as the design states them (CBC-05 section 2.3). The columns are those of the
+    /// The tables of CBC-05 section 2.3, except the `Nat` rows, which equal the `Defined` rows: a
+    /// numeral member is a sort a sentence declares or positions. The columns are those of the
     /// struct, in field order.
     #[test]
     fn plan_tables_are_pinned() {
@@ -701,13 +783,14 @@ mod tests {
         };
         for role in every_role() {
             let every_rule_production = match role {
-                SortRole::Defined | SortRole::Kernel(S::KLabel | S::KList | S::KString) => true,
+                SortRole::Defined
+                | SortRole::Nat
+                | SortRole::Kernel(S::KLabel | S::KList | S::KString) => true,
                 SortRole::Kernel(
                     S::Bool | S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell,
                 )
                 | SortRole::RigidVariable
-                | SortRole::Scaffolding
-                | SortRole::Nat => false,
+                | SortRole::Scaffolding => false,
             };
             let expected_rule = if role == SortRole::Kernel(S::Bool) {
                 vec![
@@ -725,15 +808,13 @@ mod tests {
             };
             assert_eq!(rule_member(role).to_vec(), expected_rule, "{role:?}");
             let expected_configuration = match role {
-                SortRole::Defined | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
-                    [true, true, true, true]
-                }
+                SortRole::Defined
+                | SortRole::Nat
+                | SortRole::Kernel(S::KLabel | S::KList | S::KString) => [true, true, true, true],
                 SortRole::Kernel(
                     S::Bool | S::K | S::KItem | S::Bag | S::Cell | S::KBott | S::KConfigVar,
                 ) => [true, false, false, false],
-                SortRole::RigidVariable | SortRole::Scaffolding | SortRole::Nat => {
-                    [false, false, false, false]
-                }
+                SortRole::RigidVariable | SortRole::Scaffolding => [false, false, false, false],
             };
             assert_eq!(
                 configuration_member(role),

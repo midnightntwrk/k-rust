@@ -711,8 +711,10 @@ pub(super) fn add_casts(grammar: &mut Grammar, target: &CastTarget) -> Result<()
     )
 }
 
-/// The `Sort`-typed form of [`add_casts`], kept for the fixed kernel syntax and the configuration
-/// grammar until they take a [`CastTarget`] (CBC-05-T4).
+/// The `Sort`-typed form of [`add_casts`], still called by the configuration grammar's member
+/// loop and by the fixed kernel syntax of [`add_k_syntax`]. CBC-05-T4 deletes it: the member loop
+/// then passes [`CastTarget::member`], and `add_k_syntax` keeps its literal list of kernel casts,
+/// each passing [`CastTarget::kernel`] of its kernel sort.
 pub(super) fn add_casts_from_sorts(
     grammar: &mut Grammar,
     inner_sort: Sort,

@@ -1406,7 +1406,7 @@ mod tests {
                 ..crate::outer::LoadOptions::default()
             },
         )
-        .expect("MAIN loads")
+        .unwrap_or_else(|error| panic!("MAIN loads: {error}"))
     }
 
     /// The universe of the rule grammar of `module`, with the declared sorts of the same view.
@@ -1452,16 +1452,57 @@ endmodule
 
         let universe = SortUniverse::new(&visible);
 
+        // The heads of every member, whatever its arity: no member is a parameter.
         let names = universe
             .members()
             .map(|member| member.sort().name.clone())
             .collect::<BTreeSet<_>>();
-        assert!(universe.member(&Sort::new("Sort")).is_none(), "{names:?}");
-        assert!(universe.member(&Sort::new("Sort1")).is_none(), "{names:?}");
+        assert!(!names.contains("Sort"), "{names:?}");
+        assert!(!names.contains("Sort1"), "{names:?}");
         assert!(
-            universe.member(&Sort::new("Sort2")).is_some(),
+            names.contains("Sort2"),
             "the declared sort Sort2 shares a parameter's spelling and stays: {names:?}"
         );
+        assert!(universe.member(&Sort::new("Sort")).is_none(), "{names:?}");
+        assert!(universe.member(&Sort::new("Sort1")).is_none(), "{names:?}");
+        assert!(universe.member(&Sort::new("Sort2")).is_some(), "{names:?}");
+    }
+
+    /// A numeral sort that a sentence declares or gives a production a position of is a sort of
+    /// terms, so a rule variable stands at a position of it: `bar(_X)` parses with `_X` at the
+    /// operand sort `8`.
+    #[test]
+    fn a_rule_variable_stands_at_a_numeral_sort_a_sentence_declares() {
+        for declaration in [r#"syntax 8 ::= "eight""#, "syntax 8"] {
+            let loaded = load_with_prelude(&format!(
+                r#"
+module MAIN
+  {declaration}
+  syntax Foo ::= bar(8) | "done"
+  rule bar(_X) => done
+endmodule
+"#
+            ));
+            let main = loaded
+                .definition
+                .modules
+                .iter()
+                .find(|module| module.name == "MAIN")
+                .expect("MAIN is a module");
+            let bodies = main
+                .local_sentences
+                .iter()
+                .filter_map(|sentence| match &**sentence {
+                    Sentence::Rule { body, .. } => Some(body.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                bodies,
+                ["`bar(_)_MAIN_Foo_8`(#SemanticCastTo8(_X))=>`done_MAIN_Foo`(.KList)"],
+                "{declaration}"
+            );
+        }
     }
 
     /// F10: every rule grammar sees the RULE-CELLS cell `<generatedCounter> Int
