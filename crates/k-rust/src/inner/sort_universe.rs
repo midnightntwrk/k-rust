@@ -414,31 +414,41 @@ pub(in crate::inner) const RULE_GRAMMAR: GrammarPlan = GrammarPlan {
 
 use KernelSort::{Bag, Bool, Cell, K, KBott, KConfigVar, KItem, KLabel, KList, KString};
 
+/// Every kernel sort, in the order in which a grammar adds one family of kernel seeds; the seed
+/// table then decides which of them receive the family.
+///
+/// The length is that of [`KernelSort::ALL`], so a kernel sort added to `ALL` makes every ordering
+/// array fail to compile until it is placed in it, and [`checked_order`] rejects a repeated one.
+pub(in crate::inner) type SeedOrder = [KernelSort; KernelSort::ALL.len()];
+
 /// The order in which the rule grammar adds its kernel bracket seeds.
-pub(in crate::inner) const RULE_BRACKET_SEED_ORDER: [KernelSort; 10] = checked_order([
+pub(in crate::inner) const RULE_BRACKET_SEED_ORDER: SeedOrder = checked_order([
     K, KItem, Bag, KConfigVar, KBott, KLabel, KList, KString, Cell, Bool,
 ]);
 
 /// The order in which the rule grammar adds its kernel cast seeds.
-pub(in crate::inner) const RULE_CAST_SEED_ORDER: [KernelSort; 10] = checked_order([
+pub(in crate::inner) const RULE_CAST_SEED_ORDER: SeedOrder = checked_order([
     Bag, Cell, K, KItem, KConfigVar, KBott, KLabel, KList, KString, Bool,
 ]);
 
 /// The order in which the rule grammar adds the kernel scaffolding seeds at each
 /// [`ScaffoldPosition`].
 #[cfg(not(feature = "z3-inference"))]
-pub(in crate::inner) const RULE_SCAFFOLD_SEED_ORDER: [KernelSort; 10] = checked_order([
+pub(in crate::inner) const RULE_SCAFFOLD_SEED_ORDER: SeedOrder = checked_order([
     K, Bag, KItem, KConfigVar, KBott, KLabel, KList, KString, Cell, Bool,
 ]);
 
-/// Whether `order` names every kernel sort exactly once, so an ordering array filtered by a seed
-/// table cannot drop a kernel sort.
-const fn is_permutation_of_all(order: &[KernelSort; 10]) -> bool {
+/// Whether `order` names every kernel sort exactly once: as many entries as [`KernelSort::ALL`],
+/// no two equal. An ordering array filtered by a seed table then cannot drop a kernel sort.
+const fn is_permutation_of_all(order: &[KernelSort]) -> bool {
+    if order.len() != KernelSort::ALL.len() {
+        return false;
+    }
     let mut seen = [false; KernelSort::ALL.len()];
     let mut index = 0;
     while index < order.len() {
         let slot = order[index] as usize;
-        if seen[slot] {
+        if slot >= seen.len() || seen[slot] {
             return false;
         }
         seen[slot] = true;
@@ -449,7 +459,7 @@ const fn is_permutation_of_all(order: &[KernelSort; 10]) -> bool {
 
 /// `order`, checked while the constant it initializes is evaluated: an ordering array that does
 /// not name every kernel sort exactly once does not compile.
-const fn checked_order(order: [KernelSort; 10]) -> [KernelSort; 10] {
+const fn checked_order(order: SeedOrder) -> SeedOrder {
     assert!(
         is_permutation_of_all(&order),
         "an ordering array names every kernel sort exactly once"
@@ -466,7 +476,7 @@ const fn checked_order(order: [KernelSort; 10]) -> [KernelSort; 10] {
     )
 )]
 pub(in crate::inner) mod configuration {
-    use super::{GrammarPlan, KernelSort, SortRole, checked_order};
+    use super::{GrammarPlan, KernelSort, SeedOrder, SortRole, checked_order};
     use KernelSort::{Bag, Bool, Cell, K, KBott, KConfigVar, KItem, KLabel, KList, KString};
 
     /// The configuration grammar's per-sort productions for one universe member, by role.
@@ -554,10 +564,9 @@ pub(in crate::inner) mod configuration {
     };
 
     /// The order in which the configuration grammar adds its kernel bracket seeds.
-    pub(in crate::inner) const CONFIGURATION_BRACKET_SEED_ORDER: [KernelSort; 10] =
-        checked_order([
-            K, KItem, Bag, KConfigVar, KBott, KLabel, KList, KString, Cell, Bool,
-        ]);
+    pub(in crate::inner) const CONFIGURATION_BRACKET_SEED_ORDER: SeedOrder = checked_order([
+        K, KItem, Bag, KConfigVar, KBott, KLabel, KList, KString, Cell, Bool,
+    ]);
 }
 
 #[cfg(test)]
@@ -823,7 +832,7 @@ mod tests {
             );
         }
 
-        let rule_seeds = |order: &[KernelSort; 10], column: fn(RuleKernelSeeds) -> bool| {
+        let rule_seeds = |order: &SeedOrder, column: fn(RuleKernelSeeds) -> bool| {
             order
                 .iter()
                 .copied()
@@ -866,11 +875,24 @@ mod tests {
         );
     }
 
+    /// The control of [`checked_order`]: an ordering that repeats, omits or adds a kernel sort is
+    /// not a permutation of [`KernelSort::ALL`].
     #[test]
-    fn an_ordering_array_with_a_repeated_kernel_sort_is_rejected() {
-        let mut order = KernelSort::ALL;
-        assert!(is_permutation_of_all(&order));
-        order[9] = KernelSort::K;
-        assert!(!is_permutation_of_all(&order));
+    fn an_ordering_that_repeats_omits_or_adds_a_kernel_sort_is_rejected() {
+        let all = KernelSort::ALL;
+        assert!(is_permutation_of_all(&all));
+        let mut reversed = all;
+        reversed.reverse();
+        assert!(is_permutation_of_all(&reversed));
+
+        let mut repeated = all;
+        repeated[all.len() - 1] = KernelSort::K;
+        assert!(!is_permutation_of_all(&repeated));
+        // One kernel sort short: the length an ordering array written before a kernel sort was
+        // added to `ALL` has.
+        assert!(!is_permutation_of_all(&all[..all.len() - 1]));
+        let mut longer = all.to_vec();
+        longer.push(KernelSort::K);
+        assert!(!is_permutation_of_all(&longer));
     }
 }
