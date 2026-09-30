@@ -127,11 +127,6 @@ module MAIN
   axiom{}
     \not{SortValue{}}(\and{SortValue{}}(Lblwidest{}(X0:SortValue{}), LblasInt{}(Y0:SortInt{})))
     [constructor{}()]
-  axiom{}
-    \not{SortValue{}}(
-      \and{SortValue{}}(Lblwidest{}(X0:SortValue{}), LblasNumber{}(Y0:SortNumber{}))
-    )
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortValue{}, \equals{SortValue{}, R}(Val:SortValue{}, LblasInt{}(K0:SortInt{})))
     [functional{}()]
@@ -141,21 +136,12 @@ module MAIN
       LblasInt{}(\and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}))
     )
     [constructor{}()]
-  axiom{}
-    \not{SortValue{}}(\and{SortValue{}}(LblasInt{}(X0:SortInt{}), LblasNumber{}(Y0:SortNumber{})))
-    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortValue{},
       \equals{SortValue{}, R}(Val:SortValue{}, LblasNumber{}(K0:SortNumber{}))
     )
     [functional{}()]
-  axiom{}
-    \implies{SortValue{}}(
-      \and{SortValue{}}(LblasNumber{}(X0:SortNumber{}), LblasNumber{}(Y0:SortNumber{})),
-      LblasNumber{}(\and{SortNumber{}}(X0:SortNumber{}, Y0:SortNumber{}))
-    )
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, LblfromInt{}(K0:SortInt{})))
     [functional{}()]

@@ -529,6 +529,11 @@ fn emitted_kore_matches_the_reference_frontend() {
     println!("unsupported sort-predicate axioms normalized: {removed} true, {owise} owise");
     let withheld = normalize_withheld_injective(&mut reference, &actual);
     println!("injective withheld from equation-headed symbols (N33): {withheld}");
+    let dropped = normalize_withheld_overload_no_confusion(&mut reference, &actual);
+    println!(
+        "constructor-family axioms of overload-greaters without no-confusion dropped (N34): \
+         {dropped}"
+    );
     compare_definitions(reference, actual);
 }
 
@@ -629,6 +634,198 @@ fn withheld_injective_normalizer_applies_only_to_equation_heads_the_port_withhol
         "constructor{}(), functional{}()",
     );
     assert_eq!(normalize_withheld_injective(&mut reference, &port), 0);
+    assert_eq!(reference, original);
+}
+
+/// N34: on the reference side, drop the `constructor{}()` axioms of the injectivity shape
+/// `\implies(\and(g(X..), g(Y..)), g(..))` and of the pairwise no-confusion shape
+/// `\not(\and(P(X..), Q(Y..)))` that mention an overload-greater `g` (the first symbol of a
+/// `symbol-overload` attribute) which the port declares `anywhere` and states no axiom of either
+/// shape for. Returns the number of axioms dropped.
+///
+/// The port states them for an overload-greater only when every production below it is locally
+/// injective and no production related to it in the overload order has its result sort head
+/// (docs/compatibility.md#anywhere-rules). Otherwise an overload equation equates an application
+/// of `g` with an application of a same-sort production (`asNumber(inj(x)) = asInt(x)` against
+/// `\not(asInt(X) ∧ asNumber(Y))`) or two applications of `g` with different arguments, so the
+/// dropped axioms are false in every model of the equations. A port that states any such axiom
+/// for `g` leaves the reference untouched, so the port can never lose an axiom it states this way,
+/// and every other axiom stays compared.
+fn normalize_withheld_overload_no_confusion(
+    reference: &mut Definition,
+    actual: &Definition,
+) -> usize {
+    let has = |attributes: &Attributes, name: &str| {
+        attributes.0.iter().any(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == name && arguments.is_empty())
+        })
+    };
+    let sentences = || actual.modules.iter().flat_map(|module| &module.sentences);
+    let anywhere = sentences()
+        .filter_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if has(attributes, "anywhere") => Some(symbol.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let stated = sentences()
+        .filter_map(constructor_family_symbols)
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    let withheld = sentences()
+        .filter_map(overload_greater)
+        .filter(|greater| anywhere.contains(*greater) && !stated.contains(*greater))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    let mut dropped = 0;
+    for module in &mut reference.modules {
+        module.sentences.retain(|sentence| {
+            let drop = constructor_family_symbols(sentence)
+                .is_some_and(|symbols| symbols.iter().any(|symbol| withheld.contains(*symbol)));
+            dropped += usize::from(drop);
+            !drop
+        });
+    }
+    dropped
+}
+
+/// N34: the greater symbol of an axiom's `symbol-overload{}(greater{}(), lesser{}())` attribute.
+fn overload_greater(sentence: &Sentence) -> Option<&str> {
+    let Sentence::Axiom { attributes, .. } = sentence else {
+        return None;
+    };
+    attributes.0.iter().find_map(|attribute| match attribute {
+        Pattern::Application { symbol, arguments } if symbol.name == "symbol-overload" => {
+            match arguments.first() {
+                Some(Pattern::Application { symbol, .. }) => Some(symbol.name.as_str()),
+                _ => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+/// N34: the symbols a `constructor{}()` axiom of the injectivity or pairwise no-confusion shape
+/// mentions; `None` for every other sentence, including the no-junk axiom that carries the same
+/// attribute.
+fn constructor_family_symbols(sentence: &Sentence) -> Option<Vec<&str>> {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let constructor = attributes.0.iter().any(|attribute| {
+        matches!(attribute, Pattern::Application { symbol, arguments }
+            if symbol.name == "constructor" && arguments.is_empty())
+    });
+    if !constructor {
+        return None;
+    }
+    fn head(pattern: &Pattern) -> Option<&str> {
+        match pattern {
+            Pattern::Application { symbol, .. } => Some(symbol.name.as_str()),
+            _ => None,
+        }
+    }
+    match pattern.as_ref() {
+        Pattern::Not { argument, .. } => {
+            let Pattern::And { arguments, .. } = argument.as_ref() else {
+                return None;
+            };
+            let [left, right] = arguments.as_slice() else {
+                return None;
+            };
+            (is_application_over_variables(left) && is_application_over_variables(right))
+                .then(|| Some(vec![head(left)?, head(right)?]))
+                .flatten()
+        }
+        Pattern::Implies { left, right, .. } => {
+            let Pattern::And { arguments, .. } = left.as_ref() else {
+                return None;
+            };
+            let [first, second] = arguments.as_slice() else {
+                return None;
+            };
+            let symbol = head(right)?;
+            (is_application_over_variables(first)
+                && is_application_over_variables(second)
+                && head(first)? == symbol
+                && head(second)? == symbol)
+                .then(|| vec![symbol])
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn withheld_overload_no_confusion_normalizer_drops_only_axioms_the_port_withholds() {
+    let definition = |greater: &str, axioms: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lblg{{}}(S{{}}) : S{{}} [{greater}]
+              symbol Lbll{{}}(S{{}}) : S{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+              symbol Lblc{{}}(S{{}}) : S{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+              axiom{{R}} \equals{{S{{}}, R}}(Lblg{{}}(K0:S{{}}), Lbll{{}}(K0:S{{}}))
+                [symbol-overload{{}}(Lblg{{}}(), Lbll{{}}())]
+              axiom{{}} \or{{S{{}}}}(
+                  \exists{{S{{}}}}(X0:S{{}}, Lblg{{}}(X0:S{{}})),
+                  \exists{{S{{}}}}(X0:S{{}}, Lbll{{}}(X0:S{{}})),
+                  \exists{{S{{}}}}(X0:S{{}}, Lblc{{}}(X0:S{{}})),
+                  \bottom{{S{{}}}}())
+                [constructor{{}}()]
+              axiom{{}} \not{{S{{}}}}(\and{{S{{}}}}(Lbll{{}}(X0:S{{}}), Lblc{{}}(Y0:S{{}})))
+                [constructor{{}}()]
+              {axioms}
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let greater_axioms = r"
+        axiom{} \implies{S{}}(
+            \and{S{}}(Lblg{}(X0:S{}), Lblg{}(Y0:S{})),
+            Lblg{}(\and{S{}}(X0:S{}, Y0:S{})))
+          [constructor{}()]
+        axiom{} \not{S{}}(\and{S{}}(Lblg{}(X0:S{}), Lbll{}(Y0:S{}))) [constructor{}()]
+        axiom{} \not{S{}}(\and{S{}}(Lblc{}(X0:S{}), Lblg{}(Y0:S{}))) [constructor{}()]";
+    let anywhere = "anywhere{}(), functional{}(), injective{}()";
+    let port = definition(anywhere, "");
+    let mut reference = definition(anywhere, greater_axioms);
+    assert_eq!(
+        normalize_withheld_overload_no_confusion(&mut reference, &port),
+        3
+    );
+    assert_eq!(
+        reference, port,
+        "the no-junk axiom and the pairs without the greater stay"
+    );
+    // A port that states one axiom of the family for the greater leaves the reference untouched.
+    let port = definition(
+        anywhere,
+        r"axiom{} \not{S{}}(\and{S{}}(Lblg{}(X0:S{}), Lbll{}(Y0:S{}))) [constructor{}()]",
+    );
+    let mut reference = definition(anywhere, greater_axioms);
+    let original = reference.clone();
+    assert_eq!(
+        normalize_withheld_overload_no_confusion(&mut reference, &port),
+        0
+    );
+    assert_eq!(reference, original);
+    // A greater the port does not declare `anywhere` stays compared.
+    let plain = "functional{}(), injective{}()";
+    let port = definition(plain, "");
+    let mut reference = definition(plain, greater_axioms);
+    let original = reference.clone();
+    assert_eq!(
+        normalize_withheld_overload_no_confusion(&mut reference, &port),
+        0
+    );
     assert_eq!(reference, original);
 }
 

@@ -84,6 +84,18 @@ pub(super) fn generated_axioms(
         for (greater, _) in overloads.catalog().productions() {
             if greater_productions.contains(&greater) {
                 let axiom = overload_axiom(overloads, lesser, greater, subsorts)?;
+                if cfg!(debug_assertions) {
+                    let head = |id| match overloads.production(id) {
+                        Sentence::Production { sort, .. } => SortHead::from(sort),
+                        _ => unreachable!("overload catalogs contain productions"),
+                    };
+                    roles.debug_assert_overload_axiom(
+                        overloads,
+                        lesser,
+                        greater,
+                        head(lesser) == head(greater),
+                    );
+                }
                 semantics.push(axiom.clone());
                 syntax.push(axiom);
             }

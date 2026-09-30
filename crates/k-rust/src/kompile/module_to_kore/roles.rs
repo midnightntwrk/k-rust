@@ -15,12 +15,11 @@
 //!
 //! Every claim is an axiom of the emitted theory, whose intended values are the normal forms of
 //! its non-lemma equations. [`Freeness`] states `constructor`, `injective` and the no-confusion
-//! axioms together: outside its transitional `Legacy` variant, `constructor` (no equation heads
-//! the symbol, so its applications to values are values) implies the no-confusion axioms (no
-//! equation equates its applications with those of another constructor of its sort), which imply
-//! `injective` (no equation equates two of its applications with different arguments). The
-//! shape constructors of [`SymbolClaims`] give a token, a function and a macro production no
-//! freeness that has no-confusion axioms.
+//! axioms together: `constructor` (no equation heads the symbol, so its applications to values
+//! are values) implies the no-confusion axioms (no equation equates its applications with those
+//! of another no-confusion symbol of its sort), which imply `injective` (no equation equates two
+//! of its applications with different arguments). The shape constructors of [`SymbolClaims`] give
+//! a token, a function and a macro production no freeness that has no-confusion axioms.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -29,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::definition::production_kind::{BracketName, ProductionKind};
 use crate::definition::{
     AttributeKey, LabelHead, OverloadOrder, ProductionCatalog, ProductionId, RuleCatalog, Sentence,
-    match_rule_label,
+    SortHead, match_rule_label,
 };
 use crate::kast::Label;
 
@@ -41,13 +40,9 @@ use crate::kast::Label;
 struct EquationHeads {
     /// An `anywhere` rule is headed by the label.
     anywhere_rule: bool,
-    /// A macro-like rule is headed by the label ([`RuleCatalog::macro_labels`]).
-    ///
-    /// This is the first of the two macro readings CBC-01-T2 keeps unchanged: it decides
-    /// `constructor` and the no-confusion axioms, while `injective` reads
-    /// [`SymbolRole::locally_injective`], which also counts a label shared with a macro-like
-    /// production (`RuleCatalog::all_macro_labels`). CBC-01-T3 removes the difference by reading
-    /// `all_macro_labels` here for every claim.
+    /// A macro-like equation is headed by the label: the label heads a macro-like rule, or a
+    /// macro-like production has it, whose attribute makes every rule headed by the label a
+    /// macro-like rule ([`RuleCatalog::all_macro_labels`]).
     macro_rule: bool,
     overload: OverloadPosition,
 }
@@ -60,11 +55,22 @@ enum OverloadPosition {
     /// Greater than at least one production `l` of its family, so it heads the overload equation
     /// `g(inj(x)) = inj(l(x))` for each such `l`, which sends an application to the injected
     /// application of the most specific lesser production that accepts its arguments.
+    ///
+    /// Both conditions range over the transitive overload order, so they cover every chain of
+    /// lowerings.
     Greater {
-        /// Every production below it is locally injective ([`SymbolRole::locally_injective`]),
-        /// so two of its applications reach one normal form only through the same production
-        /// at the same arguments.
+        /// Condition (a): every production below it is locally injective
+        /// ([`LabelHeads::locally_injective`]), so two of its applications reach one normal form
+        /// only through the same production at the same arguments.
         lessers_locally_injective: bool,
+        /// Condition (b): no other production related to it in the overload order (above it,
+        /// below it, or sharing a lesser with it) has its result sort head. Then every value an
+        /// application reaches is either the application itself in normal form or an injection
+        /// from a strictly smaller sort, which differs from every application of another
+        /// no-confusion symbol of the sort. Without it an overload equation equates an
+        /// application with one of a sibling of the same sort (`asNumber(inj(x)) = asInt(x)`),
+        /// or two greaters of one sort that share a lesser `l` both equal `inj(l(x))`.
+        alone_in_sort: bool,
     },
 }
 
@@ -79,20 +85,6 @@ struct SymbolRole {
     /// The production has its own label.
     labelled: bool,
     heads: EquationHeads,
-    /// Neither the production's own declaration nor an equation other rules make it head
-    /// identifies two of its applications with different arguments: it is not a `function`
-    /// (whose equations evaluate it), carries no `assoc`, `comm` or `idem` (whose axioms
-    /// `generated_axioms` emits for any production carrying them), and heads no `anywhere` or
-    /// macro-like equation. Its overload equations are judged separately
-    /// ([`OverloadPosition::Greater`]).
-    ///
-    /// This is the second macro reading CBC-01-T2 keeps unchanged, and it decides `injective`.
-    /// It reads the heads under the production's own label, so an unlabelled bracket, whose
-    /// other claims read them under its `bracketLabel`, counts none, and it reads a macro-like
-    /// equation through `RuleCatalog::all_macro_labels`, so a label shared with a macro-like
-    /// production counts although [`EquationHeads::macro_rule`] does not count it. CBC-01-T3
-    /// reads both from [`EquationHeads`].
-    locally_injective: bool,
 }
 
 /// What the emitted theory states about the distinctness of a symbol's applications.
@@ -101,19 +93,15 @@ pub(super) enum Freeness {
     /// `constructor`, `injective`, the injectivity axiom and disjointness from every other
     /// no-confusion symbol of its sort: no equation heads the symbol.
     Constructor,
-    /// An overload-greater with `injective` and the no-confusion axioms but no `constructor`:
-    /// its overload equations evaluate it, and every production below it is locally injective.
+    /// A free overload-greater: `injective` and the no-confusion axioms but no `constructor`,
+    /// because its overload equations evaluate it. Every production below it is locally
+    /// injective, and no production related to it in the overload order has its result sort
+    /// head (conditions (a) and (b) of [`OverloadPosition::Greater`]).
     OverloadConstructor,
     /// `injective` only.
     Injective,
     /// No distinctness claim.
     None,
-    /// Transitional, removed by CBC-01-T3: no-confusion axioms with independent `constructor`
-    /// and `injective` flags, for the two states in which CBC-01-T2 keeps no-confusion axioms
-    /// without `injective`. An overload-greater over a production that is not locally injective
-    /// (`constructor: false`), and a production whose label is shared with a macro-like
-    /// production (`constructor: true`), both with `injective: false`.
-    Legacy { constructor: bool, injective: bool },
 }
 
 impl Freeness {
@@ -122,7 +110,6 @@ impl Freeness {
         match self {
             Self::Constructor => true,
             Self::OverloadConstructor | Self::Injective | Self::None => false,
-            Self::Legacy { constructor, .. } => constructor,
         }
     }
 
@@ -130,7 +117,7 @@ impl Freeness {
     /// disjointness from every other no-confusion symbol of the same sort.
     pub(super) fn has_no_confusion(self) -> bool {
         match self {
-            Self::Constructor | Self::OverloadConstructor | Self::Legacy { .. } => true,
+            Self::Constructor | Self::OverloadConstructor => true,
             Self::Injective | Self::None => false,
         }
     }
@@ -140,7 +127,6 @@ impl Freeness {
         match self {
             Self::Constructor | Self::OverloadConstructor | Self::Injective => true,
             Self::None => false,
-            Self::Legacy { injective, .. } => injective,
         }
     }
 }
@@ -303,12 +289,7 @@ impl SymbolRole {
                     unreachable!("ProductionKind::of_unbracketed never classifies a bracket")
                 }
                 let claims = declared.claims();
-                SymbolClaims::syntax_only(
-                    name,
-                    declared.syntax_freeness(claims.freeness),
-                    claims.functional,
-                    claims.anywhere,
-                )
+                SymbolClaims::syntax_only(name, claims.freeness, claims.functional, claims.anywhere)
             }
             ProductionKind::Function { .. } | ProductionKind::MacroProduction => {
                 SymbolClaims::defined_by_equations(self.labelled, self.kind.functional(), anywhere)
@@ -327,8 +308,10 @@ impl SymbolRole {
         }
     }
 
-    /// The `injective` claim: the production is locally injective and, when it is an
-    /// overload-greater, so is every production below it.
+    /// The `injective` claim of a production whose own declaration identifies no two of its
+    /// applications (neither a function nor algebraic, which the kind decides): it heads no
+    /// `anywhere` or macro-like equation and, when it is an overload-greater, every production
+    /// below it is locally injective (condition (a)).
     ///
     /// `injective` is an axiom: equal applications have equal arguments. A production that heads
     /// no equation has `c(a)` as a normal form for normal arguments `a`, so it is injective. An
@@ -343,11 +326,13 @@ impl SymbolRole {
     /// are lemmas, true in the model the other sentences define, so they cannot falsify an axiom
     /// that holds there and are not counted.
     fn injective(self) -> bool {
-        self.locally_injective
+        !self.heads.anywhere_rule
+            && !self.heads.macro_rule
             && match self.heads.overload {
                 OverloadPosition::NotGreater => true,
                 OverloadPosition::Greater {
                     lessers_locally_injective,
+                    alone_in_sort: _,
                 } => lessers_locally_injective,
             }
     }
@@ -355,142 +340,139 @@ impl SymbolRole {
     /// The freeness of a labelled production that is neither a function, a macro production, a
     /// token nor algebraic: its applications are values exactly when no equation heads it.
     fn base_freeness(self) -> Freeness {
-        let injective = self.injective();
         if self.heads.anywhere_rule || self.heads.macro_rule {
             // An `anywhere` or macro-like equation headed by the production may equate its
             // applications with other terms (`plain(X) = done(X)` for a rule
-            // `plain(X) => done(X) [macro]`), so they are not free values. Its injectivity
-            // reading counts these heads too, except for an unlabelled bracket (CBC-01-T3).
-            return if injective {
-                Freeness::Injective
-            } else {
-                Freeness::None
-            };
+            // `plain(X) => done(X) [macro]`) or with each other, so it makes no distinctness
+            // claim.
+            return Freeness::None;
         }
-        match (self.heads.overload, injective) {
-            (OverloadPosition::NotGreater, true) => Freeness::Constructor,
-            // Its label is shared with a macro-like production, which only the injectivity
-            // reading counts (CBC-01-T3).
-            (OverloadPosition::NotGreater, false) => Freeness::Legacy {
-                constructor: true,
-                injective: false,
-            },
-            // The no-confusion axioms of an overload-greater are kept without checking that no
-            // production related to it in the overload order has its result sort head, which
-            // CBC-01-T3 adds.
-            (OverloadPosition::Greater { .. }, true) => Freeness::OverloadConstructor,
-            // A production below it is not locally injective (CBC-01-T3 withholds no-confusion).
-            (OverloadPosition::Greater { .. }, false) => Freeness::Legacy {
-                constructor: false,
-                injective: false,
-            },
-        }
-    }
-
-    /// The freeness a bracket's syntax declaration states, given the claims of the production it
-    /// declares: that production's freeness, except that a macro-like bracket is declared
-    /// `injective` whenever [`SymbolRole::injective`] holds. That reading counts no equation
-    /// heads for an unlabelled bracket, while an own label is always the label of a macro-like
-    /// production, so only an unlabelled macro-like bracket's declaration is `injective`
-    /// (CBC-01-T3 removes the exception).
-    fn syntax_freeness(self, freeness: Freeness) -> Freeness {
-        match self.kind {
-            ProductionKind::MacroProduction => {
-                if self.injective() {
-                    Freeness::Injective
-                } else {
-                    Freeness::None
-                }
-            }
-            ProductionKind::Subsort
-            | ProductionKind::Builtin
-            | ProductionKind::Bracket(_)
-            | ProductionKind::Function { .. }
-            | ProductionKind::Token { .. }
-            | ProductionKind::Unlabelled
-            | ProductionKind::Algebraic
-            | ProductionKind::Base => freeness,
+        match self.heads.overload {
+            OverloadPosition::NotGreater => Freeness::Constructor,
+            OverloadPosition::Greater {
+                lessers_locally_injective: true,
+                alone_in_sort: true,
+            } => Freeness::OverloadConstructor,
+            // An overload equation equates one of its applications with an application of a
+            // production of the same sort, so disjointness fails while injectivity holds.
+            OverloadPosition::Greater {
+                lessers_locally_injective: true,
+                alone_in_sort: false,
+            } => Freeness::Injective,
+            // An overload equation reaches a production below it that may identify two
+            // applications with different arguments.
+            OverloadPosition::Greater {
+                lessers_locally_injective: false,
+                alone_in_sort: _,
+            } => Freeness::None,
         }
     }
 }
 
 /// The label heads the module's sentences make equation heads.
-struct LabelHeads<'a> {
+struct LabelHeads {
     /// The heads of `anywhere` rules.
     anywhere_rules: BTreeSet<LabelHead>,
-    /// The heads of macro-like rules ([`RuleCatalog::macro_labels`]).
-    macro_rules: &'a BTreeSet<LabelHead>,
-    /// The labels of macro-like productions ([`ProductionCatalog::macro_labels`]).
-    macro_productions: &'a BTreeSet<LabelHead>,
+    /// The heads of macro-like equations ([`RuleCatalog::all_macro_labels`]).
+    macro_rules: BTreeSet<LabelHead>,
 }
 
-impl<'a> LabelHeads<'a> {
-    fn of(productions: &'a ProductionCatalog<'_>, rules: &'a RuleCatalog<'_>) -> Self {
+impl LabelHeads {
+    fn of(productions: &ProductionCatalog<'_>, rules: &RuleCatalog<'_>) -> Self {
         Self {
             anywhere_rules: rules
                 .rules()
                 .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
                 .map(|(_, rule)| LabelHead::from(&match_rule_label(rule)))
                 .collect(),
-            macro_rules: rules.macro_labels(),
-            macro_productions: productions.macro_labels(),
+            macro_rules: rules.all_macro_labels(productions),
         }
     }
 
-    /// See [`SymbolRole::locally_injective`].
-    fn locally_injective(&self, production: &Sentence) -> bool {
+    /// The label a production's declaration is made under, which its equation heads are read
+    /// under: the `bracketLabel` of an unlabelled bracket, the production's own label otherwise.
+    fn declared_under(production: &Sentence, kind: ProductionKind) -> Option<LabelHead> {
         let Sentence::Production {
             label, attributes, ..
         } = production
         else {
             unreachable!("production catalogs contain productions")
         };
-        let heads_equation = label.as_ref().is_some_and(|label| {
-            let head = LabelHead::from(label);
-            self.anywhere_rules.contains(&head)
-                || self.macro_rules.contains(&head)
-                || self.macro_productions.contains(&head)
-        });
-        !attributes.has_any(&[
-            AttributeKey::Function,
-            AttributeKey::Assoc,
-            AttributeKey::Comm,
-            AttributeKey::Idem,
-        ]) && !heads_equation
-    }
-
-    fn role(&self, production: &Sentence, overload: OverloadPosition) -> SymbolRole {
-        let kind = ProductionKind::of(production);
-        let Sentence::Production {
-            label, attributes, ..
-        } = production
-        else {
-            unreachable!("production catalogs contain productions")
-        };
-        let declared_under = if let ProductionKind::Bracket(BracketName::BracketLabel) = kind {
+        if let ProductionKind::Bracket(BracketName::BracketLabel) = kind {
             attributes
                 .label(AttributeKey::BracketLabel)
                 .as_ref()
                 .map(LabelHead::from)
         } else {
             label.as_ref().map(LabelHead::from)
+        }
+    }
+
+    /// The `anywhere` and macro-like equations headed by a production, with its overload
+    /// position.
+    fn heads(
+        &self,
+        production: &Sentence,
+        kind: ProductionKind,
+        overload: OverloadPosition,
+    ) -> EquationHeads {
+        let declared_under = Self::declared_under(production, kind);
+        EquationHeads {
+            anywhere_rule: declared_under
+                .as_ref()
+                .is_some_and(|head| self.anywhere_rules.contains(head)),
+            macro_rule: declared_under
+                .as_ref()
+                .is_some_and(|head| self.macro_rules.contains(head)),
+            overload,
+        }
+    }
+
+    /// Whether a production below an overload-greater is locally injective: neither its own
+    /// declaration nor an equation other rules make it head identifies two of its applications
+    /// with different arguments. It is not a `function` (whose equations evaluate it), carries
+    /// no `assoc`, `comm` or `idem` (whose axioms `generated_axioms` emits for any production
+    /// carrying them), and heads no `anywhere` or macro-like equation. Its own overload
+    /// equations need no test: the overload order is transitive, so every production below it
+    /// is also below the greater.
+    fn locally_injective(&self, production: &Sentence) -> bool {
+        let Sentence::Production { attributes, .. } = production else {
+            unreachable!("production catalogs contain productions")
+        };
+        let heads = self.heads(
+            production,
+            ProductionKind::of(production),
+            OverloadPosition::NotGreater,
+        );
+        !attributes.has_any(&[
+            AttributeKey::Function,
+            AttributeKey::Assoc,
+            AttributeKey::Comm,
+            AttributeKey::Idem,
+        ]) && !heads.anywhere_rule
+            && !heads.macro_rule
+    }
+
+    fn role(&self, production: &Sentence, overload: OverloadPosition) -> SymbolRole {
+        let kind = ProductionKind::of(production);
+        let Sentence::Production { label, .. } = production else {
+            unreachable!("production catalogs contain productions")
         };
         SymbolRole {
             kind,
             unbracketed: ProductionKind::of_unbracketed(production),
             labelled: label.is_some(),
-            heads: EquationHeads {
-                anywhere_rule: declared_under
-                    .as_ref()
-                    .is_some_and(|head| self.anywhere_rules.contains(head)),
-                macro_rule: declared_under
-                    .as_ref()
-                    .is_some_and(|head| self.macro_rules.contains(head)),
-                overload,
-            },
-            locally_injective: self.locally_injective(production),
+            heads: self.heads(production, kind, overload),
         }
     }
+}
+
+/// The result sort head of an overload-order production.
+fn result_sort_head(overloads: &OverloadOrder<'_>, id: ProductionId) -> SortHead {
+    let Sentence::Production { sort, .. } = overloads.production(id) else {
+        unreachable!("overload catalogs contain productions")
+    };
+    SortHead::from(sort)
 }
 
 /// The claims of every production of one module, indexed by the [`ProductionId`] of the
@@ -503,7 +485,7 @@ impl SymbolRoles {
     /// Classify every production of `productions`, whose rules are `rules` and whose overload
     /// order `overloads` was computed from the same catalog.
     ///
-    /// O(P + R + O²) for P productions, R rules and O elements of the overload order.
+    /// O(P + R + O² log O) for P productions, R rules and O elements of the overload order.
     #[must_use]
     pub(super) fn classify(
         productions: &ProductionCatalog<'_>,
@@ -511,19 +493,26 @@ impl SymbolRoles {
         overloads: &OverloadOrder<'_>,
     ) -> Self {
         let heads = LabelHeads::of(productions, rules);
-        // Each greater, mapped to whether every production below it is locally injective.
-        let mut greaters = BTreeMap::<ProductionId, bool>::new();
-        // Invariant: `greaters` maps every greater of a lesser visited so far to whether every visited lesser below it is locally injective; `relations_from` is transitively closed, so one pass covers every chain of overloads, O(O²).
+        // Each greater, mapped to conditions (a) and (b) of `OverloadPosition::Greater`.
+        let mut greaters = BTreeMap::<ProductionId, (bool, bool)>::new();
+        // Invariant: `greaters` maps every greater of a lesser visited so far to whether every visited lesser below it is locally injective (a) and whether, for every visited lesser below it, no other member of that lesser's set {lesser} ∪ greaters has its result sort head (b); `relations_from` is transitively closed, so a production above a greater `g` is a greater of each lesser of `g` and one pass covers every relation and chain, O(O² log O).
         for lesser in overloads.order().elements() {
+            let Some(above) = overloads.order().relations_from(lesser) else {
+                continue;
+            };
+            if above.is_empty() {
+                continue;
+            }
             let injective = heads.locally_injective(overloads.production(*lesser));
-            for greater in overloads
-                .order()
-                .relations_from(lesser)
-                .into_iter()
-                .flatten()
-            {
-                let all = greaters.entry(*greater).or_insert(true);
-                *all = *all && injective;
+            let mut members = BTreeMap::<SortHead, usize>::new();
+            for id in std::iter::once(lesser).chain(above) {
+                *members.entry(result_sort_head(overloads, *id)).or_default() += 1;
+            }
+            for greater in above {
+                let alone = members[&result_sort_head(overloads, *greater)] == 1;
+                let (all_injective, all_alone) = greaters.entry(*greater).or_insert((true, true));
+                *all_injective = *all_injective && injective;
+                *all_alone = *all_alone && alone;
             }
         }
         let claims = productions
@@ -531,8 +520,9 @@ impl SymbolRoles {
             .map(|(id, production)| {
                 let overload = greaters.get(&id).map_or(
                     OverloadPosition::NotGreater,
-                    |&lessers_locally_injective| OverloadPosition::Greater {
+                    |&(lessers_locally_injective, alone_in_sort)| OverloadPosition::Greater {
                         lessers_locally_injective,
+                        alone_in_sort,
                     },
                 );
                 heads.role(production, overload).claims()
@@ -575,6 +565,99 @@ impl SymbolRoles {
             equation.describe(),
             self.claims(id).freeness(),
         );
+    }
+
+    /// Checks, in debug builds, that the overload axiom `greater(inj(x)) = inj(lesser(x))` being
+    /// emitted agrees with the claims of both productions; `same_sort_head` states that their
+    /// result sorts have one head, so the axiom equates an application of `greater` with an
+    /// application of `lesser` of the same sort.
+    ///
+    /// The claims decide conditions (a) and (b) of [`OverloadPosition::Greater`] from the
+    /// overload order as a whole; this check reads each emitted axiom on its own, so it rejects a
+    /// classification that states a distinctness claim the emitted overload equations refute:
+    /// - if `greater` is `injective`, so is `lesser`, because the axiom makes an application of
+    ///   `greater` equal to the injected application of `lesser` (I1, condition (a));
+    /// - with one result sort head, `greater` and `lesser` do not both have no-confusion
+    ///   axioms, because the axiom equates an application of each and their disjointness axiom
+    ///   denies it (I2, condition (b));
+    /// - among the greaters of `lesser` with the result sort head of `greater`, at most one has
+    ///   no-confusion axioms, because each of their overload axioms equates an application with
+    ///   `inj(lesser(x))`, so two of them share a value (I2, condition (b)).
+    ///
+    /// `overloads` is the overload order the axioms are emitted from, which names the
+    /// productions and gives the other greaters of `lesser`.
+    ///
+    /// # Panics
+    ///
+    /// With `debug_assertions` on, when one of the three conditions fails.
+    pub(super) fn debug_assert_overload_axiom(
+        &self,
+        overloads: &OverloadOrder<'_>,
+        lesser: ProductionId,
+        greater: ProductionId,
+        same_sort_head: bool,
+    ) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        let name = |id: ProductionId| {
+            if let Sentence::Production {
+                label: Some(label), ..
+            } = overloads.production(id)
+            {
+                format!("`{label}` ({id:?})")
+            } else {
+                format!("{id:?}")
+            }
+        };
+        let lesser_claims = self.claims(lesser);
+        let greater_claims = self.claims(greater);
+        debug_assert!(
+            !greater_claims.freeness().declares_injective()
+                || lesser_claims.freeness().declares_injective(),
+            "overload axiom {} > {}: the greater is `injective` but the lesser is not ({:?} > \
+             {:?}); I1, condition (a): the axiom equates an application of the greater with the \
+             injected application of the lesser, so the greater is injective only when every \
+             production below it is",
+            name(greater),
+            name(lesser),
+            greater_claims.freeness(),
+            lesser_claims.freeness(),
+        );
+        debug_assert!(
+            !(same_sort_head && greater_claims.no_confusion() && lesser_claims.no_confusion()),
+            "overload axiom {} > {}: both have no-confusion axioms but share their result sort \
+             head ({:?} > {:?}); I2, condition (b): the axiom equates an application of each, \
+             which their disjointness axiom denies",
+            name(greater),
+            name(lesser),
+            greater_claims.freeness(),
+            lesser_claims.freeness(),
+        );
+        if greater_claims.no_confusion() {
+            let head = result_sort_head(overloads, greater);
+            let sibling = overloads
+                .order()
+                .relations_from(&lesser)
+                .into_iter()
+                .flatten()
+                .copied()
+                .find(|&other| {
+                    other != greater
+                        && self.claims(other).no_confusion()
+                        && result_sort_head(overloads, other) == head
+                });
+            debug_assert!(
+                sibling.is_none(),
+                "overload axiom {} > {}: another greater {} of the same lesser with result sort \
+                 head {head} also has no-confusion axioms; I2, condition (b): both overload \
+                 axioms equate an application with the injected application of the lesser, \
+                 which their disjointness axiom denies",
+                name(greater),
+                name(lesser),
+                sibling.map_or_else(String::new, name),
+            );
+        }
     }
 }
 
@@ -721,10 +804,10 @@ mod tests {
     enum Overload {
         NotGreater,
         Greater {
-            /// Every production below it is locally injective.
+            /// Condition (a): every production below it is locally injective.
             lessers_locally_injective: bool,
-            /// No production related to it in the overload order has its result sort head.
-            /// Neither the predicates CBC-01-T2 deleted nor its claims read it; CBC-01-T3 adds it.
+            /// Condition (b): no production related to it in the overload order has its result
+            /// sort head.
             alone_in_sort: bool,
         },
     }
@@ -780,9 +863,10 @@ mod tests {
                 Overload::NotGreater => OverloadPosition::NotGreater,
                 Overload::Greater {
                     lessers_locally_injective,
-                    alone_in_sort: _,
+                    alone_in_sort,
                 } => OverloadPosition::Greater {
                     lessers_locally_injective,
+                    alone_in_sort,
                 },
             }
         }
@@ -797,40 +881,38 @@ mod tests {
         functional: bool,
         anywhere: bool,
         no_confusion: bool,
-        /// Whether the production counts as locally injective below an overload-greater.
-        locally_injective: bool,
     }
 
-    /// A fact-level restatement of the predicates CBC-01-T2 replaced by [`SymbolRoles`]: the
-    /// declaration loops (which `ProductionKind::of` filtered), `symbol_attributes` (the
-    /// `constructor`, `injective`, `functional` and `anywhere` attributes, computed with
-    /// `ProductionKind::of_unbracketed`), `constructor_productions` (the no-confusion axioms) and
-    /// `injectivity_withheld`, each written as it read the facts.
+    /// The kind of production a declaration states, as the claims table distinguishes it.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Declared {
+        Function,
+        Macro,
+        Token { algebraic: bool },
+        Algebraic,
+        Base,
+    }
+
+    /// A fact-level restatement of the claims table (design CBC-01 section 2.3) and of the
+    /// declaration loops, read directly from the facts of one production and its label.
     ///
     /// ```text
-    /// fn is_base_constructor(a) = !a.has_any([function, assoc, comm, idem])
-    ///
-    /// injectivity_withheld: withheld = { p | heads_equation(p) }
-    ///     ∪ { g > l | !(is_base_constructor(l) && !heads_equation(l)) }
-    ///   heads_equation(p) = p is labelled && its label ∈ anywhere_labels ∪ all_macro_labels
-    ///   all_macro_labels = RuleCatalog::macro_labels ∪ ProductionCatalog::macro_labels
-    ///
-    /// symbol_attributes(label = the declaration's label, kind = of_unbracketed(p)):
-    ///   injective   = is_base_constructor && id ∉ withheld
-    ///   anywhere    = id ∈ overloaded_greater || label ∈ anywhere_labels
-    ///   constructor = is_base_constructor && !kind.is_macro_like()
-    ///                 && label ∉ RuleCatalog::macro_labels && !anywhere && kind is not Token
-    ///   functional  = !function || total
-    ///
-    /// constructor_productions = { p | of(p) == Base && own label ∉ RuleCatalog::macro_labels
-    ///                                 && own label ∉ anywhere heads }
+    /// declaration: none for a subsort, a builtin label or an unlabelled non-bracket; syntax
+    ///   only for a bracket, under its own label or else its bracketLabel; both otherwise
+    /// heads (under the declaration's label): anywhere = an anywhere rule;
+    ///   macro = a macro-like rule, or a macro-like production with the label (all_macro_labels)
+    /// equation head = anywhere || macro
+    /// anywhere    = equation-head anywhere || greater
+    /// functional  = !function || total
+    /// constructor = Base && !equation head && !greater
+    /// no-confusion (semantic declarations only)
+    ///             = Base && !equation head && (!greater || (a) && (b))
+    /// injective   = (Base || Token && !algebraic) && !equation head && (!greater || (a))
     /// ```
     fn restated(production: ProductionFacts, heads: HeadFacts) -> Stated {
         let p = production;
         let builtin = p.label && p.builtin_label;
         let subsort = !p.label && p.subsort_shape;
-        // Labelled loop: `of` is Builtin, Bracket(OwnLabel) or a semantic kind; unlabelled
-        // loop: `of` is Bracket(BracketLabel).
         let declaration = if subsort || builtin {
             Declaration::None
         } else if p.bracket {
@@ -846,49 +928,52 @@ mod tests {
         } else {
             Declaration::None
         };
-        let declared = !matches!(declaration, Declaration::None);
-        let own = p.label;
-        let (greater, lessers_locally_injective) = match heads.overload {
-            Overload::NotGreater => (false, true),
+        if declaration == Declaration::None {
+            return Stated {
+                declaration,
+                constructor: false,
+                injective: false,
+                functional: false,
+                anywhere: false,
+                no_confusion: false,
+            };
+        }
+        // A declared production is labelled, or a bracket with a `bracketLabel`; a macro-like
+        // production with its own label puts that label among the macro-like labels.
+        let macro_head = heads.macro_rule || p.label && (heads.shared_macro_label || p.macro_like);
+        let equation_head = heads.anywhere_rule || macro_head;
+        let declared = if p.function {
+            Declared::Function
+        } else if p.macro_like {
+            Declared::Macro
+        } else if p.token {
+            Declared::Token {
+                algebraic: p.algebraic.is_some(),
+            }
+        } else if p.algebraic.is_some() {
+            Declared::Algebraic
+        } else {
+            Declared::Base
+        };
+        let (greater, a, b) = match heads.overload {
+            Overload::NotGreater => (false, true, true),
             Overload::Greater {
                 lessers_locally_injective,
-                ..
-            } => (true, lessers_locally_injective),
+                alone_in_sort,
+            } => (true, lessers_locally_injective, alone_in_sort),
         };
-        let base_constructor = !p.function && p.algebraic.is_none();
-        // The heads under the production's own label, as `injectivity_withheld` read them; a
-        // labelled macro-like production's label is one of `ProductionCatalog::macro_labels`.
-        let own_macro_production = own && (heads.shared_macro_label || p.macro_like);
-        let heads_equation =
-            own && (heads.anywhere_rule || heads.macro_rule || own_macro_production);
-        let locally_injective = base_constructor && !heads_equation;
-        let withheld = heads_equation || (greater && !lessers_locally_injective);
-        // `symbol_attributes` reads the declaration's label: own, or `bracketLabel`.
-        let anywhere = greater || heads.anywhere_rule;
-        // `of_unbracketed` of a declared production is Function { macro_like }, MacroProduction,
-        // Token, Algebraic or Base.
-        let macro_like = p.macro_like;
-        let token = p.token && !p.function && !p.macro_like;
-        let constructor =
-            base_constructor && !macro_like && !heads.macro_rule && !anywhere && !token;
-        let injective = base_constructor && !withheld;
-        let functional = !p.function || p.total;
-        let of_is_base = own
-            && !builtin
-            && !p.bracket
-            && !p.function
-            && !p.macro_like
-            && !p.token
-            && p.algebraic.is_none();
-        let no_confusion = of_is_base && !heads.macro_rule && !heads.anywhere_rule;
+        let base = declared == Declared::Base;
+        let injective_kind = base || declared == (Declared::Token { algebraic: false });
         Stated {
             declaration,
-            constructor: declared && constructor,
-            injective: declared && injective,
-            functional: declared && functional,
-            anywhere: declared && anywhere,
-            no_confusion,
-            locally_injective,
+            constructor: base && !equation_head && !greater,
+            injective: injective_kind && !equation_head && (!greater || a),
+            functional: !p.function || p.total,
+            anywhere: heads.anywhere_rule || greater,
+            no_confusion: declaration == Declaration::SemanticAndSyntax
+                && base
+                && !equation_head
+                && (!greater || a && b),
         }
     }
 
@@ -901,12 +986,12 @@ mod tests {
             functional: claims.functional(),
             anywhere: claims.anywhere(),
             no_confusion: claims.no_confusion(),
-            locally_injective: role.locally_injective,
         }
     }
 
-    /// The role of one production of a module whose other sentences state `heads`.
-    fn role(production: ProductionFacts, heads: HeadFacts) -> SymbolRole {
+    /// The equation heads of a module whose other sentences state `heads` about `production`,
+    /// with that production.
+    fn label_heads(production: ProductionFacts, heads: HeadFacts) -> (LabelHeads, Sentence) {
         let sentence = production.production();
         let mut anywhere_rules = BTreeSet::new();
         let mut macro_rules = BTreeSet::new();
@@ -931,18 +1016,28 @@ mod tests {
             });
         }
         let catalog = ProductionCatalog::from_visible(&sentences);
-        let label_heads = LabelHeads {
-            anywhere_rules,
-            macro_rules: &macro_rules,
-            macro_productions: catalog.macro_labels(),
-        };
+        // `RuleCatalog::all_macro_labels`: the macro-like rules' heads and the macro-like
+        // productions' labels.
+        macro_rules.extend(catalog.macro_labels().iter().cloned());
+        (
+            LabelHeads {
+                anywhere_rules,
+                macro_rules,
+            },
+            sentence,
+        )
+    }
+
+    /// The role of one production of a module whose other sentences state `heads`.
+    fn role(production: ProductionFacts, heads: HeadFacts) -> SymbolRole {
+        let (label_heads, sentence) = label_heads(production, heads);
         label_heads.role(&sentence, heads.position())
     }
 
-    /// The claims table reproduces, on every combination of production and head facts, what
-    /// the predicates it replaced stated.
+    /// The claims table states, on every combination of production and head facts, exactly the
+    /// claims its fact-level restatement states.
     #[test]
-    fn claims_restate_the_replaced_predicates_on_every_combination_of_facts() {
+    fn claims_restate_the_claims_table_on_every_combination_of_facts() {
         let heads = HeadFacts::all();
         let mut checked = 0;
         let mut greater_positions = BTreeSet::new();
@@ -971,42 +1066,52 @@ mod tests {
         );
     }
 
+    /// A production below an overload-greater is locally injective exactly when it is neither a
+    /// function nor algebraic and heads no `anywhere` or macro-like equation under the label its
+    /// declaration is made under.
+    #[test]
+    fn local_injectivity_restates_condition_a_on_every_combination_of_facts() {
+        for production in ProductionFacts::all() {
+            for head in HeadFacts::all() {
+                let (label_heads, sentence) = label_heads(production, head);
+                let under = if production.label {
+                    true
+                } else {
+                    production.bracket && production.bracket_label && !production.subsort_shape
+                };
+                let macro_head = head.macro_rule
+                    || production.label && (head.shared_macro_label || production.macro_like);
+                let expected = !production.function
+                    && production.algebraic.is_none()
+                    && !(under && (head.anywhere_rule || macro_head));
+                assert_eq!(
+                    label_heads.locally_injective(&sentence),
+                    expected,
+                    "{production:?} {head:?}"
+                );
+            }
+        }
+    }
+
     /// Every variant, listed through an exhaustive match so that a new variant must be added.
     fn every_freeness() -> Vec<Freeness> {
         let listed = |freeness: Freeness| match freeness {
             Freeness::Constructor
             | Freeness::OverloadConstructor
             | Freeness::Injective
-            | Freeness::None
-            | Freeness::Legacy { .. } => freeness,
+            | Freeness::None => freeness,
         };
-        let mut all = vec![
+        vec![
             listed(Freeness::Constructor),
             listed(Freeness::OverloadConstructor),
             listed(Freeness::Injective),
             listed(Freeness::None),
-        ];
-        for constructor in [false, true] {
-            for injective in [false, true] {
-                all.push(listed(Freeness::Legacy {
-                    constructor,
-                    injective,
-                }));
-            }
-        }
-        all
+        ]
     }
 
     #[test]
-    fn constructor_implies_no_confusion_implies_injective_outside_legacy() {
+    fn constructor_implies_no_confusion_implies_injective() {
         for freeness in every_freeness() {
-            match freeness {
-                Freeness::Legacy { .. } => continue,
-                Freeness::Constructor
-                | Freeness::OverloadConstructor
-                | Freeness::Injective
-                | Freeness::None => {}
-            }
             assert!(
                 !freeness.declares_constructor() || freeness.has_no_confusion(),
                 "{freeness:?}: constructor without no-confusion"
@@ -1183,5 +1288,317 @@ mod tests {
             &Label::new("wrap"),
             EmittedEquation::Anywhere,
         );
+    }
+
+    /// An overload family whose greater `asNumber` shares its result sort `Value` with its
+    /// lesser `asInt`: the overload axiom `asNumber(inj(x)) = asInt(x)` equates an application
+    /// of each.
+    const SAME_SORT_FAMILY: &str = r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Number ::= Int
+          syntax Value ::= Number
+          syntax K ::= Value
+
+          syntax Value ::= "widest(" Value ")" [overload(project), symbol(widest)]
+          syntax Value ::= "asInt(" Int ")" [overload(view), symbol(asInt)]
+          syntax Value ::= "asNumber(" Number ")" [overload(view), symbol(asNumber)]
+        endmodule
+    "#;
+
+    fn definition(source: &str) -> crate::definition::Definition {
+        let parsed = crate::outer::parse("roles.k", source).expect("definition should parse");
+        let lowered = crate::outer::lower(&parsed, "MAIN").expect("definition should lower");
+        crate::inner::resolve_rule_bubbles(&lowered).expect("rule bubbles should resolve")
+    }
+
+    /// The semantic module emitted for `source`.
+    fn semantics(source: &str) -> crate::kore::ast::Module {
+        super::super::module_to_kore(&definition(source), "MAIN")
+            .expect("KORE modules should emit")
+            .semantics
+    }
+
+    /// The symbol names of an application pattern `σ(..)`.
+    fn applied(pattern: &crate::kore::ast::Pattern) -> Option<&str> {
+        if let crate::kore::ast::Pattern::Application { symbol, .. } = pattern {
+            Some(symbol.name.as_str())
+        } else {
+            None
+        }
+    }
+
+    /// The pairs of symbols of the disjointness axioms `\not(\and(σ(..), τ(..)))`.
+    fn disjoint_pairs(module: &crate::kore::ast::Module) -> Vec<(String, String)> {
+        use crate::kore::ast::{Pattern as KorePattern, Sentence as KoreSentence};
+        module
+            .sentences
+            .iter()
+            .filter_map(|sentence| {
+                let KoreSentence::Axiom { pattern, .. } = sentence else {
+                    return None;
+                };
+                let KorePattern::Not { argument, .. } = pattern.as_ref() else {
+                    return None;
+                };
+                let KorePattern::And { arguments, .. } = argument.as_ref() else {
+                    return None;
+                };
+                let [left, right] = arguments.as_slice() else {
+                    return None;
+                };
+                Some((applied(left)?.to_owned(), applied(right)?.to_owned()))
+            })
+            .collect()
+    }
+
+    /// The symbols of the injectivity axioms `\implies(\and(σ(X), σ(Y)), σ(..))`.
+    fn injectivity_axioms(module: &crate::kore::ast::Module) -> BTreeSet<String> {
+        use crate::kore::ast::{Pattern as KorePattern, Sentence as KoreSentence};
+        module
+            .sentences
+            .iter()
+            .filter_map(|sentence| {
+                let KoreSentence::Axiom { pattern, .. } = sentence else {
+                    return None;
+                };
+                let KorePattern::Implies { left, right, .. } = pattern.as_ref() else {
+                    return None;
+                };
+                let KorePattern::And { arguments, .. } = left.as_ref() else {
+                    return None;
+                };
+                let [first, second] = arguments.as_slice() else {
+                    return None;
+                };
+                let symbol = applied(right)?;
+                (applied(first)? == symbol && applied(second)? == symbol).then(|| symbol.to_owned())
+            })
+            .collect()
+    }
+
+    /// The marker attributes of the declaration of `symbol`.
+    fn declared_attributes(module: &crate::kore::ast::Module, symbol: &str) -> Vec<String> {
+        use crate::kore::ast::Sentence as KoreSentence;
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| {
+                let KoreSentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } = sentence
+                else {
+                    return None;
+                };
+                (declared.name == symbol).then(|| {
+                    attributes
+                        .0
+                        .iter()
+                        .filter_map(|attribute| applied(attribute).map(str::to_owned))
+                        .collect()
+                })
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    }
+
+    /// The overload axiom `asNumber(inj(x)) = asInt(x)` equates an application of each, so the
+    /// theory states no disjointness of the two, while `asInt`, which heads no equation, stays a
+    /// constructor and `asNumber` keeps `injective` (its only lesser is a constructor).
+    #[test]
+    fn a_same_sort_overload_family_states_no_disjointness_of_its_members() {
+        let module = semantics(SAME_SORT_FAMILY);
+        let pairs = disjoint_pairs(&module);
+        assert!(!pairs.is_empty(), "the family's constructors are disjoint");
+        for (left, right) in &pairs {
+            assert!(
+                !([left.as_str(), right.as_str()].contains(&"LblasInt")
+                    && [left.as_str(), right.as_str()].contains(&"LblasNumber")),
+                "{left} and {right} are declared disjoint"
+            );
+            assert!(
+                left != "LblasNumber" && right != "LblasNumber",
+                "`asNumber` fails condition (b), since it equals `asInt` on an injected argument, \
+                 so it has no no-confusion axioms: {left} and {right}"
+            );
+        }
+        assert!(!injectivity_axioms(&module).contains("LblasNumber"));
+        assert!(injectivity_axioms(&module).contains("LblasInt"));
+        let as_number = declared_attributes(&module, "LblasNumber");
+        assert!(as_number.contains(&"injective".to_owned()), "{as_number:?}");
+        assert!(as_number.contains(&"anywhere".to_owned()), "{as_number:?}");
+        assert!(
+            !as_number.contains(&"constructor".to_owned()),
+            "{as_number:?}"
+        );
+    }
+
+    /// An overload-greater over a `function` lesser is not injective: `g(inj(1))` and
+    /// `g(inj(-1))` both equal `inj(abs(1))` when `abs(1) = abs(-1)`. So `g` carries neither
+    /// `injective` nor the injectivity axiom, nor any no-confusion axiom.
+    #[test]
+    fn an_overload_greater_over_a_function_lesser_states_no_injectivity() {
+        let module = semantics(
+            r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Number ::= Int
+              syntax K ::= Number
+
+              syntax Int ::= "abs(" Int ")" [function, overload(abs), symbol(abs)]
+              syntax Number ::= "g(" Number ")" [overload(abs), symbol(g)]
+              syntax Number ::= "node(" Number ")" [symbol(node)]
+            endmodule
+            "#,
+        );
+        let g = declared_attributes(&module, "Lblg");
+        assert!(!g.contains(&"injective".to_owned()), "{g:?}");
+        assert!(!g.contains(&"constructor".to_owned()), "{g:?}");
+        assert!(g.contains(&"anywhere".to_owned()), "{g:?}");
+        assert!(!injectivity_axioms(&module).contains("Lblg"));
+        assert!(
+            disjoint_pairs(&module)
+                .iter()
+                .all(|(left, right)| left != "Lblg" && right != "Lblg")
+        );
+        assert!(injectivity_axioms(&module).contains("Lblnode"));
+    }
+
+    /// Condition (b) of each greater. A chain `high > middle > low` over three sorts relates no
+    /// two members of one sort. A chain `asLarge > asMedium > asSmall` of one result sort relates
+    /// `asLarge` to both others, directly and through the transitive order. Two greaters of one
+    /// sort that share a lesser (`left`, `right` over `base`) both equal `inj(base(x))`.
+    #[test]
+    fn condition_b_covers_siblings_and_chains() {
+        let claims = classified(indoc::indoc! {r#"
+            module MAIN
+              syntax Small ::= "z" [symbol(z)]
+              syntax Medium ::= Small
+              syntax Large ::= Medium
+              syntax K ::= Large
+
+              syntax Small ::= "low(" Small ")" [overload(chain), symbol(low)]
+              syntax Medium ::= "middle(" Medium ")" [overload(chain), symbol(middle)]
+              syntax Large ::= "high(" Large ")" [overload(chain), symbol(high)]
+
+              syntax Large ::= "asSmall(" Small ")" [overload(view), symbol(asSmall)]
+              syntax Large ::= "asMedium(" Medium ")" [overload(view), symbol(asMedium)]
+              syntax Large ::= "asLarge(" Large ")" [overload(view), symbol(asLarge)]
+
+              syntax Small ::= "base(" Small ")" [overload(twin), symbol(base)]
+              syntax Large ::= "left(" Large ")" [overload(twin), symbol(left)]
+              syntax Large ::= "right(" Large ")" [overload(twin), symbol(right)]
+            endmodule
+        "#});
+        assert_eq!(claims["low"].freeness(), Freeness::Constructor);
+        assert_eq!(claims["middle"].freeness(), Freeness::OverloadConstructor);
+        assert_eq!(claims["high"].freeness(), Freeness::OverloadConstructor);
+        assert_eq!(claims["asSmall"].freeness(), Freeness::Constructor);
+        assert_eq!(claims["asMedium"].freeness(), Freeness::Injective);
+        assert_eq!(claims["asLarge"].freeness(), Freeness::Injective);
+        assert_eq!(claims["base"].freeness(), Freeness::Constructor);
+        // `left` and `right` are unordered (same arguments, same sort) but share `base`.
+        assert_eq!(claims["left"].freeness(), Freeness::Injective);
+        assert_eq!(claims["right"].freeness(), Freeness::Injective);
+    }
+
+    /// Runs the overload-axiom check on the axiom `asNumber > asInt` of `SAME_SORT_FAMILY`, with
+    /// the classified claims of `asInt` and `asNumber` replaced by `as_int` and `as_number` where
+    /// given.
+    fn check_same_sort_family(as_int: Option<Freeness>, as_number: Option<Freeness>) {
+        let definition = definition(SAME_SORT_FAMILY);
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let overloads = resolved.overloads(module).expect("no overload cycle");
+        let mut roles =
+            SymbolRoles::classify(&productions, &resolved.rule_catalog(module), &overloads);
+        let id = |name: &str| {
+            productions
+                .productions()
+                .find_map(|(id, production)| {
+                    let Sentence::Production {
+                        label: Some(label), ..
+                    } = production
+                    else {
+                        return None;
+                    };
+                    (label.name == name).then_some(id)
+                })
+                .unwrap_or_else(|| panic!("{name} should be a production"))
+        };
+        let (as_int_id, as_number_id) = (id("asInt"), id("asNumber"));
+        for (id, freeness) in [(as_int_id, as_int), (as_number_id, as_number)] {
+            if let Some(freeness) = freeness {
+                roles.claims[id.0] = SymbolClaims::generator(freeness, true, true);
+            }
+        }
+        roles.debug_assert_overload_axiom(&overloads, as_int_id, as_number_id, true);
+    }
+
+    /// Control for the demonstration below: the classified claims of the same-sort family pass
+    /// the check.
+    #[test]
+    fn a_same_sort_overload_axiom_between_a_constructor_and_an_injective_greater_passes() {
+        check_same_sort_family(None, None);
+        check_same_sort_family(Some(Freeness::Constructor), Some(Freeness::Injective));
+    }
+
+    /// 62c50639: every overload-greater was given no-confusion axioms (the classifier arm
+    /// `Greater { .. } => Freeness::OverloadConstructor`), so `asNumber` and `asInt`, which the
+    /// overload axiom `asNumber(inj(x)) = asInt(x)` equates, were declared disjoint.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "both have no-confusion axioms but share their result sort head")]
+    fn a_same_sort_overload_axiom_between_two_no_confusion_symbols_fails_the_check() {
+        check_same_sort_family(None, Some(Freeness::OverloadConstructor));
+    }
+
+    /// 1ab34aad (overload half): an overload-greater over a lesser that is not injective was
+    /// still declared `injective`.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "the greater is `injective` but the lesser is not")]
+    fn an_injective_greater_over_a_non_injective_lesser_fails_the_check() {
+        check_same_sort_family(Some(Freeness::None), Some(Freeness::Injective));
+    }
+
+    /// Two greaters of one sort that share a lesser, both with no-confusion axioms.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "also has no-confusion axioms")]
+    fn two_no_confusion_greaters_of_one_lesser_and_sort_fail_the_check() {
+        let definition = definition(indoc::indoc! {r#"
+            module MAIN
+              syntax Small ::= "z" [symbol(z)]
+              syntax Large ::= Small
+              syntax K ::= Large
+
+              syntax Small ::= "base(" Small ")" [overload(twin), symbol(base)]
+              syntax Large ::= "left(" Large ")" [overload(twin), symbol(left)]
+              syntax Large ::= "right(" Large ")" [overload(twin), symbol(right)]
+            endmodule
+        "#});
+        let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
+        let module = resolved.module_id("MAIN").unwrap();
+        let productions = resolved.production_catalog(module);
+        let overloads = resolved.overloads(module).expect("no overload cycle");
+        let mut roles =
+            SymbolRoles::classify(&productions, &resolved.rule_catalog(module), &overloads);
+        let mut ids = BTreeMap::new();
+        for (id, production) in productions.productions() {
+            if let Sentence::Production {
+                label: Some(label), ..
+            } = production
+            {
+                ids.insert(label.name.clone(), id);
+            }
+        }
+        for name in ["left", "right"] {
+            roles.claims[ids[name].0] =
+                SymbolClaims::generator(Freeness::OverloadConstructor, true, true);
+        }
+        roles.debug_assert_overload_axiom(&overloads, ids["base"], ids["left"], false);
     }
 }
