@@ -228,6 +228,36 @@ impl ProductionKind {
             | Self::Unlabelled => NoJunk::Absent,
         }
     }
+
+    /// Whether a named nonterminal of a labelled production of this kind gets a field
+    /// projection `field(source(X0, .., Xn)) = Xi`.
+    ///
+    /// The projection's equation applies the source's symbol, so the source must declare a
+    /// symbol of the semantic module whose applications are built from their arguments. A base
+    /// or algebraic production declares such a symbol, and so does a labelled token production:
+    /// a program parses its text as a domain value, but its label is still a declared symbol a
+    /// rule may apply. A bracket is erased by every parser and declared only in the syntax
+    /// module, so no term applies it and a projection through it would name a symbol the
+    /// semantic module does not have. A function or a macro production is evaluated or expanded
+    /// away, so an application of it is not the term its arguments build, and reading an
+    /// argument back out of it is no projection. A subsort or unlabelled production declares no
+    /// symbol, and a builtin is a matching-logic connective, not a term constructor.
+    ///
+    /// Eligibility reads the declaration alone; whether the source's own equations identify
+    /// applications with different arguments is not decided here. The rule grammar and the
+    /// projection pass both read this one predicate, so they agree on which productions a field
+    /// projection passes through.
+    pub(crate) fn admits_field_projection(self) -> bool {
+        match self {
+            Self::Base | Self::Algebraic | Self::Token { .. } => true,
+            Self::Subsort
+            | Self::Builtin
+            | Self::Bracket(_)
+            | Self::Function { .. }
+            | Self::MacroProduction
+            | Self::Unlabelled => false,
+        }
+    }
 }
 
 fn is_algebraic(attributes: &Attributes) -> bool {
@@ -375,6 +405,21 @@ impl SortGenerators {
             })
             .chain(self.injections.iter().map(NoJunkAlternative::Injection))
             .chain(self.token_sort.then_some(NoJunkAlternative::DomainValues))
+    }
+
+    /// The production that is the only alternative of the sort's no-junk axiom, if there is one.
+    ///
+    /// Then every value of the sort is an application of that production's symbol, which is what
+    /// makes each field projection through it total.
+    pub(crate) fn sole_generator(&self) -> Option<ProductionId> {
+        if self.injections.is_empty()
+            && !self.token_sort
+            && let [Alternative::Generator(id)] = self.alternatives.as_slice()
+        {
+            Some(*id)
+        } else {
+            None
+        }
     }
 }
 

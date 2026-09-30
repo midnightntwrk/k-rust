@@ -41,7 +41,7 @@ Phases:
   - 19 resolve local functions
     - kompile.functions.lift — O(N + (L + G) x G) plus one… — at k-rust/kompile/passes/resolve_fun.rs `resolve_fun`
   - 20 seed sort predicate syntax
-    - kompile.sort_helpers.generate — O(M x (S + V log V)) +1 mode — at k-rust/kompile/passes/generate_sort_helpers.rs `generate_sort_predicate_syntax`
+    - kompile.sort_helpers.generate — O(M x (S + V log V) + F x (V + S log S)) +1 mode — at k-rust/kompile/passes/generate_sort_helpers.rs `generate_sort_predicate_syntax`
   - 21 resolve function configuration
   - 22 resolve strictness
     - kompile.strictness.resolve — O(L + P x k^2 x a + C^2) — at k-rust/kompile/passes/resolve_strict.rs `resolve_strict`

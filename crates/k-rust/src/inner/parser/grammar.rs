@@ -42,6 +42,7 @@ use std::sync::{Arc, OnceLock};
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::ast::TransientWireValue;
+use crate::definition::production_kind::ProductionKind;
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
     Sentence, SortHead, compute_associativities, compute_disambiguation_subsorts,
@@ -947,12 +948,12 @@ impl<'c, 'a> SourceLinks<'c, 'a> {
     }
 }
 
-/// `GenerateSortProjections.gen(Production)` as `RuleGrammarGenerator.getCombinedGrammar`
-/// (RuleGrammarGenerator.java:400-401) applies it to every production of a parsing module,
-/// rules and programs alike: one function production `Field ::= name "(" Sort ")"` labelled
-/// `project:<klabel>:<name>` per named nonterminal of a labelled production that is neither a
-/// function nor a macro, unless the module already defines one of those labels itself. The
-/// projection rules are the kompile pass's; a parsing grammar needs only the syntax.
+/// The syntax of the field projections a parsing module's text may apply, rules and programs
+/// alike: one function production `Field ::= name "(" Sort ")"` labelled
+/// `project:<klabel>:<name>` per named nonterminal of a labelled production whose kind admits a
+/// field projection ([`ProductionKind::admits_field_projection`], the predicate the kompile pass
+/// that declares the projections reads), unless the module already defines one of those labels
+/// itself. The projection rules are the kompile pass's; a parsing grammar needs only the syntax.
 pub(in crate::inner) fn named_projection_productions<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<Sentence> {
@@ -972,13 +973,12 @@ pub(in crate::inner) fn named_projection_productions<'a>(
             label: Some(label),
             sort,
             items,
-            attributes,
             ..
         } = sentence
         else {
             continue;
         };
-        if attributes.has(AttributeKey::Function) || attributes.has_any(&AttributeKey::MACRO_LIKE) {
+        if !ProductionKind::of(sentence).admits_field_projection() {
             continue;
         }
         let fields = items
@@ -1608,5 +1608,75 @@ mod tests {
             ])));
         assert!(matches!(filtered, ParsedTerm::Production { production, .. }
             if grammar.productions[production].source_production == Some(small)));
+    }
+
+    /// A bracket is erased by every parser, so no term applies it: neither the rule grammar nor
+    /// the kompile pass that declares field projections offers a projection through it, while
+    /// the same production without `bracket` gets one in both.
+    #[test]
+    fn a_bracket_with_a_named_nonterminal_yields_no_field_projection_in_the_grammar_or_the_pass() {
+        let paren = |bracket: bool| {
+            let mut attributes = Attributes::default();
+            if bracket {
+                attributes.mark(AttributeKey::Bracket);
+            }
+            Sentence::Production {
+                label: Some(Label::new("paren")),
+                parameters: Vec::new(),
+                sort: Sort::new("Exp"),
+                items: vec![
+                    ProductionItem::Terminal("(".into()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Exp"),
+                        name: Some("inner".into()),
+                    },
+                    ProductionItem::Terminal(")".into()),
+                ],
+                attributes,
+            }
+        };
+        let field_labels = |sentences: &[Sentence]| {
+            sentences
+                .iter()
+                .filter_map(|sentence| match sentence {
+                    Sentence::Production {
+                        label: Some(label), ..
+                    } if label.name == "project:paren:inner" => Some(label.name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let pass = |production: Sentence| {
+            let definition = crate::definition::Definition {
+                main_module: "MAIN".into(),
+                modules: vec![crate::definition::FlatModule {
+                    name: "MAIN".into(),
+                    imports: Vec::new(),
+                    local_sentences: vec![Arc::new(production)],
+                    attributes: Attributes::default(),
+                }],
+                attributes: Attributes::default(),
+            };
+            crate::kompile::generate_sort_projections(&definition)
+                .unwrap()
+                .modules[0]
+                .local_sentences
+                .iter()
+                .map(|sentence| (**sentence).clone())
+                .collect::<Vec<_>>()
+        };
+
+        let bracket = paren(true);
+        assert!(field_labels(&named_projection_productions([&bracket])).is_empty());
+        assert!(field_labels(&pass(bracket)).is_empty());
+
+        // Control: without `bracket` the production is a base production and gets the
+        // projection in both.
+        let base = paren(false);
+        assert_eq!(
+            field_labels(&named_projection_productions([&base])),
+            ["project:paren:inner"]
+        );
+        assert_eq!(field_labels(&pass(base)), ["project:paren:inner"]);
     }
 }

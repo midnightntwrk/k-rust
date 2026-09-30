@@ -2,13 +2,13 @@
 //! id = "kompile.sort_helpers.generate"
 //! name = "generation of sort predicates, projections, and helper rules"
 //! sites = ["generate_sort_predicate_syntax", "regenerate_sort_predicate_syntax", "generate_sort_projections"]
-//! variable = "M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions declared locally, summed over modules"
+//! variable = "M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions declared locally, summed over modules; F = distinct result sorts of the productions that get a named field projection"
 //! counters = []
 //! no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition, excluding the predicate rules"
-//! bound = "O(M x (S + V log V))"
+//! bound = "O(M x (S + V log V) + F x (V + S log S))"
 //!
 //! [[cost]]
 //! mode = "predicate rules (generate_sort_predicate_rules_pass)"
@@ -18,21 +18,26 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
+//! The field projections of a production are total only when it is the sole no-junk alternative of its sort; that judgement derives the alternatives of the sort from the main module once per sort (one scan of its productions and one of its sorts, O(V + S log S)), and only for the F sorts of productions with a named field.
+//!
 //! The predicate-rule step (`generate_sort_predicate_rules_pass` in `finalize.rs`) forces each module's subsort view and emits the `true` rule of a predicate only when its sort is placeable at `K`; that check scans the sort's supersorts in the closure, O(S log S).
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::definition::ResolveError;
 use serde_json::{Value, json};
 
-use crate::definition::AttributeKey;
+use crate::definition::production_kind::{ProductionKind, SortGenerators};
 use crate::definition::totality::TotalityWitness;
+use crate::definition::{AttributeKey, DefinitionViews, ModuleId, ProductionId};
+use crate::kast::ProductionIdentity;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
+        Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence,
         extend_with_new_sentences, retain_new_sentences,
     },
     kast::{Label, Sort, Term},
@@ -209,9 +214,8 @@ pub(crate) fn generate_sort_projections_pass(
     _: &mut super::super::pipeline::PipelineState,
 ) -> Result<Definition, ResolveError> {
     let resolved = input.resolved_raw().map_err(Clone::clone)?;
-    let main_id = resolved.main_module_id();
     let views = resolved.views();
-    let main_productions = views.production_catalog(main_id);
+    let mut main_generators = MainSortGenerators::new(&views, resolved.main_module_id());
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
@@ -226,7 +230,7 @@ pub(crate) fn generate_sort_projections_pass(
         let local_productions = productions
             .productions()
             .filter(|(id, _)| productions.is_local(*id))
-            .map(|(_, production)| production.clone())
+            .map(|(id, production)| (productions.identity(id), production.clone()))
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
         // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` that is not a parser sort (`K` and `KItem` excepted) and whose projection label is not in `defined_labels`; each iteration consumes one sort.
@@ -241,10 +245,10 @@ pub(crate) fn generate_sort_projections_pass(
             generated.extend(sort_projection(sort, label));
         }
         // Invariant: `generated` also holds the named field projections of every production of `local_productions` before `production`; each iteration consumes one production.
-        for production in &local_productions {
+        for (identity, production) in &local_productions {
             // A field projection derives from the one production that names the field.
             generated.extend(
-                named_projections(production, productions, main_productions, &defined_labels)
+                named_projections(production, *identity, &mut main_generators, &defined_labels)
                     .into_iter()
                     .map(|mut projection| {
                         projection
@@ -301,28 +305,21 @@ fn sort_projection(sort: &Sort, label: Label) -> [Sentence; 2] {
 
 fn named_projections(
     production: &Sentence,
-    productions: &crate::definition::ProductionCatalog<'_>,
-    main_productions: &crate::definition::ProductionCatalog<'_>,
+    identity: ProductionIdentity,
+    main_generators: &mut MainSortGenerators<'_, '_>,
     defined_labels: &std::collections::BTreeSet<LabelHead>,
 ) -> Vec<Sentence> {
     let Sentence::Production {
         label: Some(source_label),
+        parameters,
         sort,
         items,
-        attributes,
         ..
     } = production
     else {
         return Vec::new();
     };
-    // A bracket builds no term (the parsers erase it), so a projection through it would
-    // mention a symbol that no term contains.
-    if attributes.has(AttributeKey::Function)
-        || attributes.has(AttributeKey::Bracket)
-        || productions
-            .macro_labels()
-            .contains(&LabelHead::from(source_label))
-    {
+    if !ProductionKind::of(production).admits_field_projection() {
         return Vec::new();
     }
     let nonterminals = items
@@ -346,7 +343,7 @@ fn named_projections(
     {
         return Vec::new();
     }
-    let sole_generator = sole_generator(main_productions, sort);
+    let sole_generator = sole_generator(main_generators, identity, parameters, sort);
     let variables = nonterminals
         .iter()
         .enumerate()
@@ -406,32 +403,95 @@ fn named_projections(
 /// denotes exactly one value.
 ///
 /// Its field is private, which makes `sole_generator` its only constructor: the one judgement
-/// that counts the generators of the source's sort mints it. It is `Copy` because one judgement
+/// that reads the alternatives of the source's sort mints it. It is `Copy` because one judgement
 /// on the source covers every projection generated from it.
 #[derive(Clone, Copy)]
 pub(crate) struct SoleGenerator(());
 
-/// Judge whether the projection source of sort `sort` is its sort's sole generator, minting the
-/// evidence when it is.
+/// The no-junk alternatives of the main module's sorts, as [`SortGenerators`] derives them for the
+/// emitted no-junk axioms, computed once per sort a projection source asks about.
 ///
-/// The judgement counts the productions of `sort` that are neither functions nor brackets and
-/// requires exactly one. It does not yet read the sort's no-junk alternatives themselves (a
-/// `token` sort attribute, macro and unlabelled productions); CBC-01-T7 derives it from them.
+/// The subsort order and sort catalog are read only when a source has a named field, and one
+/// sort's alternatives are one scan of the main module's productions, so the pass does that scan
+/// at most once per sort of a field projection source.
+struct MainSortGenerators<'v, 'a> {
+    views: &'v DefinitionViews<'a>,
+    main: ModuleId,
+    sole: BTreeMap<Sort, Option<ProductionId>>,
+}
+
+impl<'v, 'a> MainSortGenerators<'v, 'a> {
+    fn new(views: &'v DefinitionViews<'a>, main: ModuleId) -> Self {
+        Self {
+            views,
+            main,
+            sole: BTreeMap::new(),
+        }
+    }
+
+    /// The main-module production that is the only alternative of `sort`'s no-junk axiom.
+    ///
+    /// `None` also when the main module's subsort order is cyclic: that order has no no-junk
+    /// axioms at all (emission rejects the cycle), so no projection is judged total on it.
+    fn sole_generator(&mut self, sort: &Sort) -> Option<ProductionId> {
+        if let Some(sole) = self.sole.get(sort) {
+            return *sole;
+        }
+        let sole = self.views.subsorts(self.main).ok().and_then(|subsorts| {
+            SortGenerators::of(
+                self.views.production_catalog(self.main),
+                self.views.sort_catalog(self.main),
+                subsorts,
+                sort,
+            )
+            .sole_generator()
+        });
+        self.sole.insert(sort.clone(), sole);
+        sole
+    }
+}
+
+/// Judge whether the projection source with content identity `source`, sort parameters
+/// `parameters` and result sort `sort` is the only alternative of `sort`'s no-junk axiom, minting
+/// the evidence when it is.
+///
+/// The alternatives are those [`SortGenerators`] derives from the main module's productions,
+/// sort catalog and subsort order, the same derivation the emitted no-junk axiom of `sort` uses.
+/// A source not visible in the main module is no alternative there, so it is never the sole one.
+/// A source with sort parameters generates one sort per instantiation, and each instance may have
+/// further productions of its own, so no single axiom makes it sole and it is never judged so.
+///
+/// The judgement runs at the `generate_sort_projections` stage, before the definition is final,
+/// and still gives the alternatives the emitted axiom lists for every sort it can judge sole. An
+/// alternative of a sort's no-junk axiom comes from a base, algebraic or token production of the
+/// sort, from a declared strict subsort with a chain of subsort axioms into it, or from a `token`
+/// attribute on the sort's declaration. After this stage the pipeline adds only function
+/// productions (sort predicates, sort and field projections, the counter-cell getter), rules,
+/// configurations, the `KItem ::= S` subsort productions, the counter cell inside the generated
+/// top cell's production, a `Bool` sort declaration that the seeding stage has already added, and
+/// a parsing module above the main module. None of them gives an existing sort a new alternative:
+/// function productions and rules are no alternatives, and the `KItem ::= S` productions add
+/// injection alternatives only to `KItem` and to the sorts `KItem` injects into. `KItem` already
+/// has the injections of the `KItem` subsorts an earlier stage added (the seeded `Bool` among
+/// them), and every sort `KItem` injects into already has the injection of `KItem`, so none of
+/// them is judged sole here. Nothing after this stage removes the `function`, `macro`
+/// or `bracket` attribute that keeps a production out of the alternatives. A cell sort's
+/// projection is total for a different reason (its one cell production), which
+/// `TotalityWitness::cell_projection` names.
 fn sole_generator(
-    main_productions: &crate::definition::ProductionCatalog<'_>,
+    main_generators: &mut MainSortGenerators<'_, '_>,
+    source: ProductionIdentity,
+    parameters: &[Sort],
     sort: &Sort,
 ) -> Option<SoleGenerator> {
-    (main_productions
-        .productions_for_sort(&SortHead::from(sort))
-        .iter()
-        .filter(|id| {
-            let attributes = main_productions.production(**id).attributes();
-            attributes.value(AttributeKey::Function).is_none()
-                && !attributes.has(AttributeKey::Bracket)
-        })
-        .count()
-        == 1)
-        .then_some(SoleGenerator(()))
+    if !parameters.is_empty() {
+        return None;
+    }
+    let source = main_generators
+        .views
+        .production_catalog(main_generators.main)
+        .lookup(&source)?;
+    (main_generators.sole_generator(sort) == Some(source)).then_some(SoleGenerator(()))
 }
 
 fn truth() -> Term {
@@ -447,4 +507,163 @@ fn sort_json(sort: &Sort) -> Value {
         "name": sort.name,
         "params": sort.parameters.iter().map(sort_json).collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::definition::FlatModule;
+
+    fn attributes(keys: &[AttributeKey]) -> Attributes {
+        let mut attributes = Attributes::default();
+        for key in keys {
+            attributes.insert(key.as_str(), Value::String(String::new()));
+        }
+        attributes
+    }
+
+    fn sort_declaration(sort: &str, keys: &[AttributeKey]) -> Sentence {
+        Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new(sort),
+            attributes: attributes(keys),
+        }
+    }
+
+    fn named(sort: &str, name: &str) -> ProductionItem {
+        ProductionItem::NonTerminal {
+            sort: Sort::new(sort),
+            name: Some(name.into()),
+        }
+    }
+
+    fn production(
+        label: &str,
+        sort: &str,
+        items: Vec<ProductionItem>,
+        keys: &[AttributeKey],
+    ) -> Sentence {
+        Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters: Vec::new(),
+            sort: Sort::new(sort),
+            items,
+            attributes: attributes(keys),
+        }
+    }
+
+    /// `mk(field: Int)` of sort `S`, next to `others`.
+    fn source_and(others: Vec<Sentence>) -> Vec<Sentence> {
+        let mut sentences = vec![
+            sort_declaration("Int", &[]),
+            production(
+                "mk",
+                "S",
+                vec![
+                    ProductionItem::Terminal("mk".into()),
+                    ProductionItem::Terminal("(".into()),
+                    named("Int", "field"),
+                    ProductionItem::Terminal(")".into()),
+                ],
+                &[],
+            ),
+        ];
+        sentences.extend(others);
+        sentences
+    }
+
+    /// The generated field projections of `sentences` in a one-module definition, with whether
+    /// each declares `total`.
+    fn field_projections(sentences: Vec<Sentence>) -> Vec<(String, bool)> {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: sentences.into_iter().map(Arc::new).collect(),
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+        let definition = generate_sort_predicate_syntax(&definition).unwrap();
+        let generated = generate_sort_projections(&definition).unwrap();
+        generated.modules[0]
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    attributes,
+                    ..
+                } if label.name.starts_with("project:") && label.name.matches(':').count() == 2 => {
+                    Some((label.name.clone(), attributes.has(AttributeKey::Total)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The source is the sort's only production, but the sort's `token` attribute adds `\top`
+    /// to its no-junk axiom, so a value of the sort need not be an application of `mk` and
+    /// `field` is undefined on it.
+    #[test]
+    fn a_token_sort_with_one_labelled_production_gets_no_total_field_projection() {
+        assert_eq!(
+            field_projections(source_and(vec![sort_declaration(
+                "S",
+                &[AttributeKey::Token]
+            )])),
+            [("project:mk:field".to_owned(), false)]
+        );
+        // Control: the same sort without `token` has `mk` as its only alternative.
+        assert_eq!(
+            field_projections(source_and(vec![sort_declaration("S", &[])])),
+            [("project:mk:field".to_owned(), true)]
+        );
+    }
+
+    /// A macro production of the sort is expanded away, so it is no alternative of the sort's
+    /// no-junk axiom and leaves `mk` the only one.
+    #[test]
+    fn a_macro_production_of_the_sort_leaves_the_source_its_sole_generator() {
+        let other = |keys: &[AttributeKey]| {
+            production(
+                "other",
+                "S",
+                vec![ProductionItem::Terminal("other".into())],
+                keys,
+            )
+        };
+        assert_eq!(
+            field_projections(source_and(vec![
+                sort_declaration("S", &[]),
+                other(&[AttributeKey::Macro]),
+            ])),
+            [("project:mk:field".to_owned(), true)]
+        );
+        // Control: a base production of the sort is a second alternative.
+        assert_eq!(
+            field_projections(source_and(vec![sort_declaration("S", &[]), other(&[])])),
+            [("project:mk:field".to_owned(), false)]
+        );
+    }
+
+    /// A strict subsort of the sort contributes its injection to the sort's no-junk axiom.
+    #[test]
+    fn a_subsort_of_the_sort_is_a_second_alternative() {
+        let subsort = Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("S"),
+            items: vec![ProductionItem::NonTerminal {
+                sort: Sort::new("Int"),
+                name: None,
+            }],
+            attributes: Attributes::default(),
+        };
+        assert_eq!(
+            field_projections(source_and(vec![sort_declaration("S", &[]), subsort])),
+            [("project:mk:field".to_owned(), false)]
+        );
+    }
 }
