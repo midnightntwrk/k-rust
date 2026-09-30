@@ -1207,6 +1207,7 @@ fn labelled_bracket_stays_out_of_the_backend_constructor_domain() {
         SimplificationOptions::default(),
         &NoSolver,
     )
+    .expect("no stop is armed")
     .expect("the exclusions should simplify");
     assert_eq!(simplified, vec![Predicate::False]);
     let simplified = simplify_predicates_with_solver(
@@ -1216,6 +1217,7 @@ fn labelled_bracket_stays_out_of_the_backend_constructor_domain() {
         SimplificationOptions::default(),
         &NoSolver,
     )
+    .expect("no stop is armed")
     .expect("the exclusion should simplify");
     assert_ne!(simplified, vec![Predicate::False]);
 }

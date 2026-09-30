@@ -945,7 +945,7 @@ fn exit_code_of(
     let mut results = BTreeSet::new();
     // Invariant: results contains the distinct satisfiable exit values of leaves already visited.
     for leaf in finals {
-        let simplified = simplify_pattern_with_solver(
+        let simplified = super::simplification::bridge_stop(simplify_pattern_with_solver(
             backend,
             &Pattern {
                 term: Term::application(
@@ -960,7 +960,7 @@ fn exit_code_of(
                 ..SimplificationOptions::default()
             },
             solver,
-        )
+        ))
         .map_err(|error| {
             io::Error::other(format!(
                 "could not evaluate getExitCode on a final configuration: {error}"

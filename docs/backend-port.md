@@ -128,7 +128,7 @@ The backend does not yet implement Booster's separate equation-loop detector, so
 ## Simplification stack depth
 
 Simplification recursion depth is bounded by the native stack of the thread that runs it, not by a depth count or the iteration budget, which restarts for every equation condition and does not count determined ground function steps.
-The simplifier reads the current thread's stack bounds at every fixed-point round and predicate entry and stops with the typed stop `SimplificationError::Stopped(StopCause::StackExhausted)` when less than a 128 KiB red zone remains, instead of overflowing the stack, which would abort the process.
+The simplifier reads the current thread's stack bounds at every fixed-point round and predicate entry and stops with the typed stop `StopCause::StackExhausted`, returned on the outer layer of its layered result (`Stoppable<Result<_, SimplificationError>>`, apart from its failures), when less than a 128 KiB red zone remains, instead of overflowing the stack, which would abort the process.
 The guard covers every native thread, whoever created it: CLI and RPC workers, Node-API calls on Node's JavaScript thread, and embedders' own threads.
 On wasm32 the engine's call-stack limit is invisible to the module, so the guard is absent and exhaustion is a trap reported to the JavaScript host.
 Ground function recursion reaches about 26,000 levels on a 64 MiB release thread (about 2.5 KiB per level in release builds and 16 KiB in debug builds).

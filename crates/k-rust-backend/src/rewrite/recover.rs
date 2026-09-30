@@ -87,14 +87,16 @@ pub(crate) fn recover_indeterminate_match(
         let subject = substitute(&subject, &substitution);
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
-        let simplified_pattern =
-            simplify_with_solver(definition, &pattern, &knowledge, options, solver)?;
+        let simplified_pattern = SimplificationError::bridge(simplify_with_solver(
+            definition, &pattern, &knowledge, options, solver,
+        ))?;
         extend_unique(&mut conditions, simplified_pattern.constraints);
         let simplified_pattern = simplified_pattern.term;
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
-        let simplified_subject =
-            simplify_with_solver(definition, &subject, &knowledge, options, solver)?;
+        let simplified_subject = SimplificationError::bridge(simplify_with_solver(
+            definition, &subject, &knowledge, options, solver,
+        ))?;
         extend_unique(&mut conditions, simplified_subject.constraints);
         let simplified_subject = simplified_subject.term;
 
@@ -193,13 +195,13 @@ pub(crate) fn recover_indeterminate_match(
         let candidate_pattern = substitute(&pattern, &candidate_substitution);
         let mut witness_knowledge = known_predicates.to_vec();
         extend_unique(&mut witness_knowledge, conditions.iter().cloned());
-        let candidate_pattern = simplify_with_solver(
+        let candidate_pattern = SimplificationError::bridge(simplify_with_solver(
             definition,
             &candidate_pattern,
             &witness_knowledge,
             options,
             solver,
-        )?;
+        ))?;
         extend_unique(&mut conditions, candidate_pattern.constraints);
         match match_terms_in_definition(
             MatchMode::Rewrite,

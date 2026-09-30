@@ -41,6 +41,7 @@ pub fn check(
         consequent_existentials,
         solver,
     )
+    .unwrap_or_else(|stop| Err(stopped_check(stop)))
 }
 
 impl Backend {
@@ -135,6 +136,7 @@ impl Backend {
                         &consequent_existentials,
                         solver,
                     )
+                    .unwrap_or_else(|stop| Err(stopped_check(stop)))
                     .map_err(error("could not check implication"))?
                 }
             };
@@ -143,8 +145,9 @@ impl Backend {
     }
 }
 
-/// A stop of a check of a special consequent, spelled as the complete check spells a stop in its
-/// error, so that every check reports a stop with one text (until CBC-04-T9 types it).
+/// A stop of a check, spelled as a stop inside a failure of the check, so that every check
+/// reports a stop with one text and the RPC surface maps it with the other stops (until
+/// CBC-04-T9 types it).
 fn stopped_check(stop: Stop) -> ImplicationError {
     ImplicationError::Simplification(SimplificationError::Stopped(stop.into_cause()))
 }

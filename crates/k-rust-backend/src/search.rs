@@ -692,13 +692,13 @@ fn search_graph_collecting(
         // The state's own constraint and term simplification is on its path: every result,
         // incomplete entry and successor derived from this state carries it.
         let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            simplify_predicates_with_solver(
+            SimplificationError::bridge(simplify_predicates_with_solver(
                 definition,
                 &state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            )
+            ))
         });
         diagnostics.extend(&emitted);
         match simplified_constraints {
@@ -718,13 +718,13 @@ fn search_graph_collecting(
         }
         let pattern_before_simplification = state.pattern.clone();
         let (simplified_term, emitted) = diagnostic::collect(|| {
-            simplify_with_solver(
+            SimplificationError::bridge(simplify_with_solver(
                 definition,
                 &state.pattern.term,
                 &state.pattern.constraints,
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            )
+            ))
         });
         diagnostics.extend(&emitted);
         match simplified_term {
@@ -1379,13 +1379,13 @@ fn search_paths_collecting(
         // The path's own simplification of this state is on the path: every witness, incomplete
         // entry and extension derived from it carries it.
         let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            simplify_predicates_with_solver(
+            SimplificationError::bridge(simplify_predicates_with_solver(
                 definition,
                 &path.state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            )
+            ))
         });
         path.diagnostics.extend(&emitted);
         match simplified_constraints {
@@ -1400,13 +1400,13 @@ fn search_paths_collecting(
         }
         let pattern_before_simplification = path.state.pattern.clone();
         let (simplified_term, emitted) = diagnostic::collect(|| {
-            simplify_with_solver(
+            SimplificationError::bridge(simplify_with_solver(
                 definition,
                 &path.state.pattern.term,
                 &path.state.pattern.constraints,
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            )
+            ))
         });
         path.diagnostics.extend(&emitted);
         match simplified_term {
@@ -2256,9 +2256,14 @@ fn match_pattern_with_variables(
         facts,
         output_variables,
     );
-    let constraints =
-        simplify_predicates_with_solver(definition, &constraints, &facts, options, solver)
-            .map_err(PatternMatchError::Simplification)?;
+    let constraints = SimplificationError::bridge(simplify_predicates_with_solver(
+        definition,
+        &constraints,
+        &facts,
+        options,
+        solver,
+    ))
+    .map_err(PatternMatchError::Simplification)?;
     match predicates_truth(&constraints) {
         Truth::False => return Ok(None),
         Truth::True => {}

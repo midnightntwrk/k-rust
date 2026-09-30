@@ -63,7 +63,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver, Validity},
-    stop::{Stop, Stoppable},
+    stop::{Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::Variable,
     term::names::FreshMarker,
@@ -835,14 +835,36 @@ impl fmt::Display for ImplicationError {
 
 impl Error for ImplicationError {}
 
+impl ImplicationError {
+    /// A layered check result on the single layer of a caller that has no stop layer of its own
+    /// yet: the stop becomes `Simplification(Stopped(cause))`, and the verdict and the failures
+    /// pass unchanged. A caller bridges at the call, so no `Stop` outlives it, and the loop that
+    /// owns the step recovers the cause and publishes it (removed with
+    /// `SimplificationError::Stopped` by CBC-04-T7).
+    pub(crate) fn bridge<T>(result: Stoppable<Result<T, Self>>) -> Result<T, Self> {
+        result
+            .unwrap_or_else(|stop| Err(Self::Simplification(SimplificationError::from_stop(stop))))
+    }
+}
+
+/// The result of a check inside this module: `?` propagates a stop and a failure alike. Every
+/// entry point returns it layered ([`Layered::layered`]): the stop outside, the failure inside.
+type CheckResult<T> = Result<T, Unwind<ImplicationError>>;
+
 /// Check an implication under the proof policy: which instances of `antecedent` lie in
 /// `consequent` ([`Coverage`]).
+///
+/// Like every check of this module, the result has two layers: the outer `Err` is a
+/// [`Stop`](crate::stop::Stop) (the request was cancelled, the step deadline passed, the solver's
+/// prelude failed, or the thread's stack ran low), for which the check has no verdict; the inner
+/// `Result` is the verdict or the check's failure. No verdict, not even an undecided one, stands
+/// in for a stop.
 pub fn check_implication(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: &Pattern,
     solver: &dyn SmtSolver,
-) -> Result<Coverage, ImplicationError> {
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -861,7 +883,7 @@ pub fn check_implication_with_options(
     consequent: &Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Coverage, ImplicationError> {
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -881,7 +903,7 @@ pub fn check_implication_with_existentials(
     consequent: &Pattern,
     consequent_existentials: &BTreeSet<Variable>,
     solver: &dyn SmtSolver,
-) -> Result<Coverage, ImplicationError> {
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     check_implication_with_existentials_and_options(
         definition,
         antecedent,
@@ -910,10 +932,10 @@ pub fn check_implication_with_existentials_complete(
     consequent: &Pattern,
     consequent_existentials: &BTreeSet<Variable>,
     solver: &dyn SmtSolver,
-) -> Result<ImplicationVerdict, ImplicationError> {
+) -> Stoppable<Result<ImplicationVerdict, ImplicationError>> {
     // One span per problem: the check and the grading's counterexample query.
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
-    let checked = check_established(
+    check_established(
         definition,
         antecedent,
         antecedent_existentials,
@@ -921,8 +943,9 @@ pub fn check_implication_with_existentials_complete(
         consequent_existentials,
         SimplificationOptions::default(),
         solver,
-    )?;
-    grade_verdict(checked, definition, solver).map_err(solver_stopped)
+    )
+    .and_then(|checked| grade_verdict(checked, definition, solver).map_err(Unwind::Stop))
+    .layered()
 }
 
 /// Check whether an antecedent is covered by the union of several consequents, under the proof
@@ -939,7 +962,7 @@ pub fn check_disjunctive_implication_with_existentials(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Coverage, ImplicationError> {
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     if let [consequent] = consequents {
         return check_implication_with_existentials_and_options(
             definition,
@@ -961,19 +984,22 @@ pub fn check_disjunctive_implication_with_existentials(
         crate::term::TermKind::Variable(variable) => Some(variable.clone()),
         _ => None,
     };
-    let (established, antecedent) = establish_disjunction(
+    establish_disjunction(
         definition,
         antecedent,
         consequents,
         consequent_existentials,
         options,
         solver,
-    )?;
-    Ok(grade_coverage(Checked {
-        established,
-        antecedent,
-        antecedent_variable,
-    }))
+    )
+    .map(|(established, antecedent)| {
+        grade_coverage(Checked {
+            established,
+            antecedent,
+            antecedent_variable,
+        })
+    })
+    .layered()
 }
 
 /// The disjunctive check's policy-neutral part: what it established, and the antecedent it
@@ -985,7 +1011,7 @@ fn establish_disjunction(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<(Established, Pattern), ImplicationError> {
+) -> CheckResult<(Established, Pattern)> {
     let consequents = consequents
         .iter()
         .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))
@@ -993,9 +1019,7 @@ fn establish_disjunction(
     let mut antecedent = antecedent.clone();
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
-            solver
-                .is_sat(&antecedent.constraints, &Substitution::new())
-                .map_err(solver_stopped)?,
+            solver.is_sat(&antecedent.constraints, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
         )
     {
@@ -1023,7 +1047,7 @@ fn establish_disjunction(
                 &antecedent.term,
             ) {
                 MatchResult::Failed(FailReason::Subsorting(error)) => {
-                    return Err(ImplicationError::Subsorting(error));
+                    return Err(ImplicationError::Subsorting(error).into());
                 }
                 MatchResult::Failed(_) => continue,
                 MatchResult::Indeterminate {
@@ -1041,6 +1065,8 @@ fn establish_disjunction(
                 remainder,
                 &knowledge,
             );
+            // A stop propagates before either fallback below sees the result: an obligation that
+            // could not be prepared leaves the round open, but a stop is no answer to leave open.
             let obligations = match eliminate_and_quantify_obligation_branches(
                 definition,
                 obligations,
@@ -1048,10 +1074,11 @@ fn establish_disjunction(
                 &knowledge,
                 options,
                 solver,
-            ) {
+            )
+            .layered()?
+            {
                 Ok(obligations) => obligations,
-                Err(error) => {
-                    stopped_error(error)?;
+                Err(_) => {
                     open = Some(Established::Unprepared);
                     continue;
                 }
@@ -1062,10 +1089,9 @@ fn establish_disjunction(
                 &knowledge,
                 options,
                 solver,
-            ) {
+            )? {
                 Ok(predicates) => predicates,
-                Err(error) => {
-                    stopped_error(error)?;
+                Err(_) => {
                     open = Some(Established::Unprepared);
                     continue;
                 }
@@ -1122,12 +1148,9 @@ fn establish_disjunction(
             )];
             let combined = match simplify_predicates_with_solver(
                 definition, &combined, &knowledge, options, solver,
-            ) {
+            )? {
                 Ok(simplified) => simplified,
-                Err(error) => {
-                    stopped_error(error)?;
-                    combined
-                }
+                Err(_) => combined,
             };
             // The combined obligation is refuted, or it leaves the round open with what the check
             // established about it.
@@ -1143,16 +1166,16 @@ fn establish_disjunction(
                     None => Some(undecided(combined)),
                 },
                 Truth::Unknown => {
-                    let verdict = solver
-                        .check_predicates(&knowledge, &Substitution::new(), &combined)
-                        .map_err(solver_stopped)?;
+                    let verdict =
+                        solver.check_predicates(&knowledge, &Substitution::new(), &combined)?;
                     if !matches!(
                         &verdict,
                         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
                     ) && refuted_by_simplification(
                         definition, &knowledge, &combined, options, solver,
                     )
-                    .or_else(|error| stopped_error(error).map(|()| false))?
+                    .layered()?
+                    .unwrap_or(false)
                     {
                         return Ok((holds(witnesses), antecedent));
                     }
@@ -1198,8 +1221,7 @@ fn establish_disjunction(
                 &antecedent.constraints,
                 options,
                 solver,
-            )
-            .map_err(ImplicationError::Simplification)?;
+            )??;
             let simplified = Pattern {
                 term: simplified.term,
                 constraints: merge_predicates(
@@ -1244,7 +1266,7 @@ pub fn check_implication_with_existentials_and_options(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Coverage, ImplicationError> {
+) -> Stoppable<Result<Coverage, ImplicationError>> {
     // One span per problem: the check and its grading.
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
     check_established(
@@ -1257,6 +1279,7 @@ pub fn check_implication_with_existentials_and_options(
         solver,
     )
     .map(grade_coverage)
+    .layered()
 }
 
 /// The policy-neutral check: match the consequent against the antecedent, simplifying the
@@ -1270,7 +1293,7 @@ fn check_established(
     consequent_existentials: &BTreeSet<Variable>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Checked, ImplicationError> {
+) -> CheckResult<Checked> {
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
     let consequent = simplify_consequent(definition, antecedent, consequent, options, solver)?;
@@ -1293,9 +1316,7 @@ fn check_established(
     };
     let established = if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
-            solver
-                .is_sat(&antecedent.constraints, &Substitution::new())
-                .map_err(solver_stopped)?,
+            solver.is_sat(&antecedent.constraints, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
         ) {
         Established::AntecedentEmpty
@@ -1310,7 +1331,7 @@ fn check_established(
                 &antecedent.term,
             ) {
                 MatchResult::Failed(FailReason::Subsorting(error)) => {
-                    return Err(ImplicationError::Subsorting(error));
+                    return Err(ImplicationError::Subsorting(error).into());
                 }
                 MatchResult::Failed(_) => break Established::TermMismatch,
                 MatchResult::Indeterminate {
@@ -1323,8 +1344,7 @@ fn check_established(
                         &antecedent.constraints,
                         options,
                         solver,
-                    )
-                    .map_err(ImplicationError::Simplification)?;
+                    )??;
                     let simplified = Pattern {
                         term: simplified.term,
                         constraints: merge_predicates(
@@ -1554,15 +1574,22 @@ fn grade_outside(
 /// (Kore/Reachability/Claim.hs simplify', simplifyRightHandSide: Pattern.makeEvaluate under the
 /// left-hand side's side condition). A top equation result erases its conjunction operand, so
 /// `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A simplification failure keeps the
-/// destination as written; the check then proceeds exactly as before. A stop is returned
-/// instead (`stopped_error`).
+/// destination as written; the check then proceeds exactly as before.
+///
+/// Where a simplification inside the check fails, the check falls back to a weaker but sound
+/// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
+/// to an error of the input. A stop is neither: the cancelled request, the passed step deadline,
+/// the failed solver prelude or the exhausted stack belongs to the step or operation that runs
+/// the check, and says nothing about the implication. So every fallback of the check, here and
+/// in its other steps, is written on the failure layer of a layered result, after `?` has
+/// propagated the stop to the check's owner.
 fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Pattern, ImplicationError> {
+) -> CheckResult<Pattern> {
     if consequent.term.attributes().evaluated {
         return Ok(consequent);
     }
@@ -1572,41 +1599,13 @@ fn simplify_consequent(
         &antecedent.constraints,
         options,
         solver,
-    ) {
+    )? {
         Ok(simplified) => Ok(Pattern {
             term: simplified.term,
             constraints: merge_predicates(consequent.constraints, simplified.constraints),
         }),
-        Err(error) => {
-            stopped_error(error)?;
-            Ok(consequent)
-        }
+        Err(_) => Ok(consequent),
     }
-}
-
-/// Return a stop as the check's error; any other simplification failure is left to the
-/// caller's fallback.
-///
-/// Where a simplification inside the check fails, the check falls back to a weaker but sound
-/// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
-/// to an error of the input. A stop is neither: the cancelled request, the passed step deadline,
-/// the failed solver prelude or the exhausted stack belongs to the step or operation that runs
-/// the check, and says nothing about the implication. Falling back would decide the verdict from
-/// a missing answer, so every stop ends the check and reaches its owner as this error.
-fn stopped_error(error: SimplificationError) -> Result<(), ImplicationError> {
-    if error.stopped().is_some() {
-        Err(ImplicationError::Simplification(error))
-    } else {
-        Ok(())
-    }
-}
-
-/// A stop of one of the check's solver queries, spelled as the check's error as a stop of its
-/// simplifier is (`stopped_error`): the query has no answer, so the check has no verdict, and
-/// no undecided or contingent verdict stands in for it (removed once the check returns its stops
-/// apart from its failures, CBC-04-T6).
-fn solver_stopped(stop: Stop) -> ImplicationError {
-    ImplicationError::Simplification(SimplificationError::from_stop(stop))
 }
 
 /// ```toml algorithm-site
@@ -1701,7 +1700,7 @@ fn discharge_consequent(
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Established, ImplicationError> {
+) -> CheckResult<Established> {
     // Every obligation is decided on the antecedent's instances, where its term is defined and its
     // constraints hold with their definedness stated (I7).
     let knowledge = pattern_knowledge(definition, antecedent);
@@ -1731,6 +1730,8 @@ fn discharge_consequent(
             }
         }
     }
+    // A stop propagates before either fallback below sees the result: obligations that could
+    // not be prepared establish nothing, but a stop is no answer to establish nothing from.
     let obligations = match eliminate_and_quantify_obligation_branches(
         definition,
         obligations,
@@ -1738,12 +1739,11 @@ fn discharge_consequent(
         &knowledge,
         options,
         solver,
-    ) {
+    )
+    .layered()?
+    {
         Ok(obligations) => obligations,
-        Err(error) => {
-            stopped_error(error)?;
-            return Ok(Established::Unprepared);
-        }
+        Err(_) => return Ok(Established::Unprepared),
     };
     let bindings = Bindings {
         substitution,
@@ -1759,12 +1759,9 @@ fn discharge_consequent(
         &knowledge,
         options,
         solver,
-    ) {
+    )? {
         Ok(predicates) => predicates,
-        Err(error) => {
-            stopped_error(error)?;
-            return Ok(Established::Unprepared);
-        }
+        Err(_) => return Ok(Established::Unprepared),
     };
     let truth = predicates_truth(&obligations);
     match truth {
@@ -1784,14 +1781,13 @@ fn discharge_consequent(
         Truth::Unknown => {}
     }
 
-    let verdict = solver
-        .check_predicates(&knowledge, &Substitution::new(), &obligations)
-        .map_err(solver_stopped)?;
+    let verdict = solver.check_predicates(&knowledge, &Substitution::new(), &obligations)?;
     if !matches!(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
     ) && refuted_by_simplification(definition, &knowledge, &obligations, options, solver)
-        .or_else(|error| stopped_error(error).map(|()| false))?
+        .layered()?
+        .unwrap_or(false)
     {
         return Ok(Established::Holds(bindings));
     }
@@ -1833,24 +1829,24 @@ fn discharge_consequent(
 }
 
 /// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
-/// `obligations` once the simplifier evaluates functions under the negated obligations.
+/// `obligations` once the simplifier evaluates functions under the negated obligations. A
+/// failure of the simplification is the caller's to fall back on; a stop is not.
 fn refuted_by_simplification(
     definition: &BackendDefinition,
     knowledge: &[Predicate],
     obligations: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<bool, SimplificationError> {
+) -> Result<bool, Unwind<SimplificationError>> {
     let counterexample =
         normalize_predicate(Predicate::Not(Box::new(conjoin(obligations.to_vec()))));
     let mut conjuncts = knowledge.to_vec();
     conjuncts.push(counterexample);
-    let simplified = simplify_predicates_with_solver(definition, &conjuncts, &[], options, solver)?;
+    let simplified =
+        simplify_predicates_with_solver(definition, &conjuncts, &[], options, solver)??;
     Ok(predicates_truth(&simplified) == Truth::False
         || matches!(
-            solver
-                .is_sat(&simplified, &Substitution::new())
-                .map_err(SimplificationError::from_stop)?,
+            solver.is_sat(&simplified, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
         ))
 }
@@ -1888,7 +1884,7 @@ fn eliminate_and_quantify_obligation_branches(
     known: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Obligations, SimplificationError> {
+) -> Result<Obligations, Unwind<SimplificationError>> {
     let mut prepared = Vec::with_capacity(branches.len());
     for branch in branches {
         let mut obligations = eliminate_existential_witnesses(
@@ -1917,8 +1913,8 @@ fn eliminate_existential_witnesses(
     known: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Obligations, SimplificationError> {
-    let mut branch = simplify_predicates_with_solver(definition, &branch, known, options, solver)?;
+) -> Result<Obligations, Unwind<SimplificationError>> {
+    let mut branch = simplify_predicates_with_solver(definition, &branch, known, options, solver)??;
     branch.retain(|predicate| !matches!(predicate, Predicate::True));
     let mut witnesses = Substitution::new();
     if predicates_truth(&branch) == Truth::False {
@@ -1946,7 +1942,7 @@ fn eliminate_existential_witnesses(
             known,
             options,
             solver,
-        )?;
+        )??;
         branch.retain(|predicate| !matches!(predicate, Predicate::True));
         if predicates_truth(&branch) == Truth::False {
             return Ok(Obligations {
@@ -2240,8 +2236,87 @@ mod tests {
     use crate::{
         definition::BackendDefinition,
         smt::{NoSolver, SmtError},
+        stop::Stop,
         term::{Sort, Term},
     };
+
+    // The checks on their failure layer, shadowing the entry points for the tests that arm no
+    // stop: a stop is a test failure, reported with its cause. The test that expects a stop calls
+    // the entry point itself (`super::`).
+
+    fn unstopped<T>(result: Stoppable<Result<T, ImplicationError>>) -> Result<T, ImplicationError> {
+        result.unwrap_or_else(|stop| {
+            panic!(
+                "the check stopped although no stop was armed: {}",
+                stop.into_cause()
+            )
+        })
+    }
+
+    fn check_implication(
+        definition: &BackendDefinition,
+        antecedent: &Pattern,
+        consequent: &Pattern,
+        solver: &dyn SmtSolver,
+    ) -> Result<Coverage, ImplicationError> {
+        unstopped(super::check_implication(
+            definition, antecedent, consequent, solver,
+        ))
+    }
+
+    fn check_implication_with_existentials(
+        definition: &BackendDefinition,
+        antecedent: &Pattern,
+        antecedent_existentials: &BTreeSet<Variable>,
+        consequent: &Pattern,
+        consequent_existentials: &BTreeSet<Variable>,
+        solver: &dyn SmtSolver,
+    ) -> Result<Coverage, ImplicationError> {
+        unstopped(super::check_implication_with_existentials(
+            definition,
+            antecedent,
+            antecedent_existentials,
+            consequent,
+            consequent_existentials,
+            solver,
+        ))
+    }
+
+    fn check_implication_with_existentials_complete(
+        definition: &BackendDefinition,
+        antecedent: &Pattern,
+        antecedent_existentials: &BTreeSet<Variable>,
+        consequent: &Pattern,
+        consequent_existentials: &BTreeSet<Variable>,
+        solver: &dyn SmtSolver,
+    ) -> Result<ImplicationVerdict, ImplicationError> {
+        unstopped(super::check_implication_with_existentials_complete(
+            definition,
+            antecedent,
+            antecedent_existentials,
+            consequent,
+            consequent_existentials,
+            solver,
+        ))
+    }
+
+    fn check_disjunctive_implication_with_existentials(
+        definition: &BackendDefinition,
+        antecedent: &Pattern,
+        consequents: &[Pattern],
+        consequent_existentials: &BTreeSet<Variable>,
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Coverage, ImplicationError> {
+        unstopped(super::check_disjunctive_implication_with_existentials(
+            definition,
+            antecedent,
+            consequents,
+            consequent_existentials,
+            options,
+            solver,
+        ))
+    }
 
     fn definition() -> BackendDefinition {
         let syntax = parse_definition(
@@ -4302,10 +4377,11 @@ mod tests {
         assert_eq!(result.status(), ImplicationStatus::Valid, "{result:#?}");
     }
 
-    /// A stop observed inside the check is returned with its cause, never folded into a verdict.
-    /// The destination's obligation `f(X) = X` holds by `identity-f`, so the check covers the
-    /// state; a check whose request was cancelled, or whose step deadline passed, before it could
-    /// simplify the obligation has no answer about it, and the owner of the stop publishes it.
+    /// A stop observed inside the check is returned with its cause on the outer layer, never
+    /// folded into a verdict or a failure. The destination's obligation `f(X) = X` holds by
+    /// `identity-f`, so the check covers the state; a check whose request was cancelled, or whose
+    /// step deadline passed, before it could simplify the obligation has no answer about it, and
+    /// the owner of the stop publishes it.
     #[test]
     fn a_stop_inside_the_check_is_returned_with_its_cause_instead_of_a_verdict() {
         use std::time::Duration;
@@ -4325,7 +4401,7 @@ mod tests {
             ..antecedent.clone()
         };
         let check = || {
-            check_disjunctive_implication_with_existentials(
+            super::check_disjunctive_implication_with_existentials(
                 &definition,
                 &antecedent,
                 std::slice::from_ref(&consequent),
@@ -4333,14 +4409,13 @@ mod tests {
                 SimplificationOptions::default(),
                 &NoSolver,
             )
+            .map_err(Stop::into_cause)
         };
-        let stopped = |cause| {
-            Err(ImplicationError::Simplification(
-                SimplificationError::Stopped(cause),
-            ))
-        };
+        let stopped = Err;
 
-        let covered = check().expect("an unstopped check decides the implication");
+        let covered = check()
+            .expect("an unstopped check has an answer")
+            .expect("an unstopped check decides the implication");
         assert!(matches!(covered, Coverage::Covered(_)), "{covered:#?}");
 
         let token = CancellationToken::new();

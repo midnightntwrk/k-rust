@@ -291,6 +291,38 @@ fn normalized_ground_terms_are_distinct(
         )
 }
 
+/// The instantiated right-hand side `predicates` of a ceil equation, simplified.
+///
+/// Simplifying the right-hand side only refines it: the unsimplified predicates are the same
+/// condition, so a failure keeps them.
+///
+/// Not inlined: `ceil_term_node` recurses once per level of the term, and the temporaries of this
+/// nested simplification would otherwise be part of every one of those frames.
+#[inline(never)]
+fn simplified_ceil_condition(
+    definition: &BackendDefinition,
+    predicates: Vec<Predicate>,
+) -> Vec<Predicate> {
+    match simplify_predicates_with_solver(
+        definition,
+        &predicates,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    ) {
+        Ok(Ok(simplified)) => simplified,
+        Ok(Err(_failure)) => predicates,
+        Err(stop) => {
+            // The stop interrupted only that refinement. The ceil keeps its condition, the
+            // instantiated right-hand side `predicates`, unsimplified, which is sound without the
+            // simplified form; a stop of the request or of the solver stays raised, so its
+            // owner's next poll mints it again.
+            stop.forgo_refinement();
+            predicates
+        }
+    }
+}
+
 fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let indexes = [term_index(term), TermIndex::Variable];
     for index in indexes {
@@ -315,19 +347,15 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
                 let RuleRhs::Predicates(predicates) = &rule.rhs else {
                     continue;
                 };
-                let predicates = substitute_predicates(predicates, &substitution);
+                let predicates = simplified_ceil_condition(
+                    definition,
+                    substitute_predicates(predicates, &substitution),
+                );
                 return Some(
-                    simplify_predicates_with_solver(
-                        definition,
-                        &predicates,
-                        &[],
-                        SimplificationOptions::default(),
-                        &NoSolver,
-                    )
-                    .unwrap_or(predicates)
-                    .into_iter()
-                    .filter(|predicate| predicate != &Predicate::True)
-                    .collect(),
+                    predicates
+                        .into_iter()
+                        .filter(|predicate| predicate != &Predicate::True)
+                        .collect(),
                 );
             }
         }
@@ -774,9 +802,8 @@ mod tests {
             &[],
             SimplificationOptions::default(),
             &NoSolver,
-        )
-        .unwrap();
-        assert_eq!(contradictory, vec![Predicate::False]);
+        );
+        assert_eq!(contradictory, Ok(Ok(vec![Predicate::False])));
 
         let consistent = simplify_predicates_with_solver(
             &definition,
@@ -785,6 +812,7 @@ mod tests {
             SimplificationOptions::default(),
             &NoSolver,
         )
+        .unwrap()
         .unwrap();
         assert!(!consistent.contains(&Predicate::False));
         assert!(!consistent.is_empty());

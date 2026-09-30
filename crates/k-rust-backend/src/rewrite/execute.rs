@@ -375,13 +375,13 @@ impl<'a> Execution<'a> {
         let pattern_before_constraint_simplification = state.pattern.clone();
         let mut deferred_initial_vacuity = None;
         let (simplified_constraints, diagnostics) = diagnostic::collect(|| {
-            simplify_predicates_with_solver(
+            SimplificationError::bridge(simplify_predicates_with_solver(
                 self.definition,
                 &state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
                 self.solver,
-            )
+            ))
         });
         state.diagnostics.extend(&diagnostics);
         let mut state = self.check_interrupted(state, step_timer)?;
@@ -448,22 +448,24 @@ impl<'a> Execution<'a> {
         let pattern_before_term_simplification = state.pattern.clone();
         state.io_enabled &= pattern_supports_execution_io(&state.pattern);
         let mut io_evaluation = state.io_enabled.then(|| state.io.begin_evaluation());
-        let (simplified, diagnostics) = diagnostic::collect(|| match io_evaluation.as_mut() {
-            Some(execution) => simplify_in_execution_with_solver(
-                self.definition,
-                &state.pattern.term,
-                &state.pattern.constraints,
-                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                self.solver,
-                execution,
-            ),
-            None => simplify_with_solver(
-                self.definition,
-                &state.pattern.term,
-                &state.pattern.constraints,
-                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                self.solver,
-            ),
+        let (simplified, diagnostics) = diagnostic::collect(|| {
+            SimplificationError::bridge(match io_evaluation.as_mut() {
+                Some(execution) => simplify_in_execution_with_solver(
+                    self.definition,
+                    &state.pattern.term,
+                    &state.pattern.constraints,
+                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                    self.solver,
+                    execution,
+                ),
+                None => simplify_with_solver(
+                    self.definition,
+                    &state.pattern.term,
+                    &state.pattern.constraints,
+                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                    self.solver,
+                ),
+            })
         });
         state.diagnostics.extend(&diagnostics);
         let mut state = self.check_interrupted(state, step_timer)?;
@@ -1356,12 +1358,12 @@ pub(crate) fn simplify_leaf_pattern(
     depth: u64,
     trace: &mut Vec<TraceEntry>,
 ) -> Result<PatternSimplification, SimplificationError> {
-    let simplified = simplify_pattern_details_with_solver(
+    let simplified = SimplificationError::bridge(simplify_pattern_details_with_solver(
         definition,
         pattern,
         SimplificationOptions::keep_partial(max_iterations),
         solver,
-    )?;
+    ))?;
     trace.extend(
         simplified
             .applied_rules

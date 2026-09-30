@@ -392,13 +392,13 @@ pub fn prove_claim(
             }};
         }
         finish_if_interrupted!();
-        let simplified_constraints = simplify_predicates_with_solver(
+        let simplified_constraints = SimplificationError::bridge(simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
             &[],
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
-        );
+        ));
         finish_if_interrupted!();
         state.pattern.constraints = match simplified_constraints {
             Ok(constraints) => constraints,
@@ -417,13 +417,13 @@ pub fn prove_claim(
             record_leaf!(state.leaf(outcome));
             continue;
         }
-        let simplified = simplify_with_solver(
+        let simplified = SimplificationError::bridge(simplify_with_solver(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
-        );
+        ));
         finish_if_interrupted!();
         let simplified = match simplified {
             Ok(simplified) => simplified,
@@ -470,17 +470,18 @@ pub fn prove_claim(
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
             measure::bump(Counter::ProofImplicationChecks);
-            let implication = check_disjunctive_implication_with_existentials(
-                definition,
-                &state.pattern,
-                &claim.rhs,
-                &claim.existentials,
-                SimplificationOptions {
-                    max_iterations: options.max_simplification_iterations,
-                    ..SimplificationOptions::default()
-                },
-                solver,
-            );
+            let implication =
+                ImplicationError::bridge(check_disjunctive_implication_with_existentials(
+                    definition,
+                    &state.pattern,
+                    &claim.rhs,
+                    &claim.existentials,
+                    SimplificationOptions {
+                        max_iterations: options.max_simplification_iterations,
+                        ..SimplificationOptions::default()
+                    },
+                    solver,
+                ));
             finish_if_interrupted!();
             let implication = match implication {
                 // The check stopped (it ran out of this thread's stack, say): the state cannot be
@@ -1416,13 +1417,13 @@ fn apply_claim(
     // the definedness of its term (I7): the claim's condition is stated and decided under these
     // facts, so a `⌈t⌉` the subject already implies is neither restated nor left open.
     let subject_knowledge = pattern_knowledge(definition, subject);
-    let mut match_conditions = match simplify_predicates_with_solver(
+    let mut match_conditions = match SimplificationError::bridge(simplify_predicates_with_solver(
         definition,
         &match_conditions,
         &subject_knowledge,
         simplification,
         solver,
-    ) {
+    )) {
         Ok(conditions) => conditions,
         Err(error) => {
             return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
@@ -1444,13 +1445,13 @@ fn apply_claim(
         substitute_predicates(&claim.lhs.constraints, &substitution),
         &match_knowledge,
     );
-    let requires = match simplify_predicates_with_solver(
+    let requires = match SimplificationError::bridge(simplify_predicates_with_solver(
         definition,
         &requires,
         &match_knowledge,
         simplification,
         solver,
-    ) {
+    )) {
         Ok(requires) => requires,
         Err(error) => {
             return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
@@ -1472,13 +1473,13 @@ fn apply_claim(
     // value's definedness stays among the conditions the claim applies under (I2).
     match_conditions =
         eliminate_bindings(definition, &match_conditions, &defined, &subject_knowledge);
-    match_conditions = match simplify_predicates_with_solver(
+    match_conditions = match SimplificationError::bridge(simplify_predicates_with_solver(
         definition,
         &match_conditions,
         &subject_knowledge,
         simplification,
         solver,
-    ) {
+    )) {
         Ok(conditions) => conditions,
         Err(error) => {
             return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
@@ -1492,13 +1493,13 @@ fn apply_claim(
     let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
     let requires = eliminate_bindings(definition, &requires, &defined, &match_knowledge);
-    let requires = match simplify_predicates_with_solver(
+    let requires = match SimplificationError::bridge(simplify_predicates_with_solver(
         definition,
         &requires,
         &match_knowledge,
         simplification,
         solver,
-    ) {
+    )) {
         Ok(requires) => requires,
         Err(error) => {
             return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
@@ -1647,15 +1648,18 @@ fn remainder_is_unsatisfiable(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<bool, SimplificationError> {
+    // The stop is bridged and returned before the fallback sees the result, which it matches on
+    // the failure layer only.
     let simplified = match simplify_predicates_with_solver(
         definition,
         std::slice::from_ref(negated),
         subject_knowledge,
         options,
         solver,
-    ) {
+    )
+    .map_err(SimplificationError::from_stop)?
+    {
         Ok(simplified) => simplified,
-        Err(error @ SimplificationError::Stopped(_)) => return Err(error),
         Err(_) => return Ok(false),
     };
     if predicates_truth(&simplified) == Truth::False {
@@ -1959,13 +1963,13 @@ fn undefined_step_state(
         return Ok(None);
     }
     // A failed simplification only loses precision: the unsimplified constraints are kept.
-    if let Ok(constraints) = simplify_predicates_with_solver(
+    if let Ok(constraints) = SimplificationError::bridge(simplify_predicates_with_solver(
         definition,
         &pattern.constraints,
         &[],
         SimplificationOptions::keep_partial(options.max_simplification_iterations),
         solver,
-    ) {
+    )) {
         pattern.constraints = constraints;
     }
     let mut undefined = state.clone();
@@ -3144,6 +3148,7 @@ mod tests {
             SimplificationOptions::default(),
             &NoSolver,
         )
+        .expect("no stop is armed")
         .expect("the destination check should run");
         let Coverage::ConditionRefuted { report, .. } = &refutation else {
             panic!("a refutation reports the match it refuted: {refutation:#?}");

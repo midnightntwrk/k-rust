@@ -14,7 +14,14 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::{ground_cell_set_definition, ground_overload_definition};
+// Explicit imports shadow the glob: these tests arm no stop and assert on the failure layer.
+use crate::support::{
+    ground_cell_set_definition, ground_overload_definition,
+    unstopped::{
+        simplify, simplify_and_decide_predicate_with_solver, simplify_pattern_with_solver,
+        simplify_predicate_with_solver, simplify_predicates_with_solver, simplify_with_solver,
+    },
+};
 
 fn definition(axioms: &str) -> BackendDefinition {
     let source = format!(

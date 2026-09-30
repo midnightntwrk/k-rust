@@ -69,7 +69,7 @@ use crate::{
         applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
-    stop::{self, Stop, StopCause, Stoppable},
+    stop::{self, Layered, Stop, StopCause, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
     transition::ExecutionEvaluationContext,
@@ -237,8 +237,10 @@ pub enum SimplificationError {
     /// instead of overflowing, which would abort the process). The cause belongs to the owner of
     /// the exhausted resource, so no site inside the simplifier or its callers may substitute a
     /// value for the missing answer; the stop only unwinds to the step or operation that
-    /// publishes it. Transitional: the simplifier returns its stops apart from its failures
-    /// once CBC-04-T7 lands.
+    /// publishes it. The simplifier itself returns its stops on the outer layer of its layered
+    /// result and never builds this variant; it is the spelling of a stop that a caller without
+    /// a stop layer of its own bridges (`SimplificationError::bridge`). Transitional: deleted
+    /// with the bridges by CBC-04-T7.
     Stopped(StopCause),
     Builtin(BuiltinError),
     DisjunctiveResult {
@@ -289,17 +291,6 @@ impl fmt::Display for SimplificationError {
 }
 
 impl SimplificationError {
-    /// The cause, when the error reports that the simplification stopped (a resource or context
-    /// it ran under ran out or failed) rather than a fact about the simplified input or a bound
-    /// the simplifier chose. An unsimplified value is no substitute for the result of a stopped
-    /// simplification: deciding with it turns the lack of a resource into a verdict.
-    pub fn stopped(&self) -> Option<&StopCause> {
-        match self {
-            Self::Stopped(cause) => Some(cause),
-            _ => None,
-        }
-    }
-
     /// The transitional spelling of a stop that a caller without a stop layer of its own
     /// received from the solver or the simplifier: the cause is kept, and the stop unwinds as
     /// `Stopped` to the step or operation that publishes it (removed with the variant by
@@ -307,13 +298,34 @@ impl SimplificationError {
     pub(crate) fn from_stop(stop: Stop) -> Self {
         Self::Stopped(stop.into_cause())
     }
+
+    /// A layered simplifier result on the single layer of a caller that has no stop layer of its
+    /// own yet: the stop becomes `Stopped` with its cause ([`Self::from_stop`]), and the answer
+    /// and the failures pass unchanged. A caller bridges at the call, so no `Stop` outlives it,
+    /// and the loop that owns the step recovers the cause from `Stopped` and publishes it
+    /// (removed with the variant by CBC-04-T7).
+    pub(crate) fn bridge<T>(result: Stoppable<Result<T, Self>>) -> Result<T, Self> {
+        result.unwrap_or_else(|stop| Err(Self::from_stop(stop)))
+    }
 }
 
+/// The result of a simplification inside this module: `?` propagates a stop and a failure alike.
+/// Every entry point returns it layered ([`Layered::layered`]): the stop outside, the failure
+/// inside, so that a caller's fallback on a failure cannot see a stop.
+type SimplifyResult<T> = Result<T, Unwind<SimplificationError>>;
+
+/// Simplify `term` without a solver.
+///
+/// Like every entry point of the simplifier, the result has two layers: the outer `Err` is a
+/// [`Stop`] (the request was cancelled, the step deadline passed, the solver's prelude failed,
+/// or the thread's stack ran low), for which no answer exists; the inner `Result` is the
+/// simplification or its failure. A fallback on a failure is written against the inner layer,
+/// after `?` (see [`simplify_predicates_with_solver`]).
 pub fn simplify(
     definition: &BackendDefinition,
     term: &Term,
     options: SimplificationOptions,
-) -> Result<Simplification, SimplificationError> {
+) -> Stoppable<Result<Simplification, SimplificationError>> {
     simplify_with_solver(definition, term, &[], options, &NoSolver)
 }
 
@@ -323,8 +335,9 @@ pub fn simplify_with_solver(
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Simplification, SimplificationError> {
+) -> Stoppable<Result<Simplification, SimplificationError>> {
     simplify_with_optional_execution(definition, term, known_predicates, options, solver, None)
+        .layered()
 }
 
 pub(crate) fn simplify_in_execution_with_solver(
@@ -334,7 +347,7 @@ pub(crate) fn simplify_in_execution_with_solver(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     execution: &mut ExecutionEvaluationContext,
-) -> Result<Simplification, SimplificationError> {
+) -> Stoppable<Result<Simplification, SimplificationError>> {
     simplify_with_optional_execution(
         definition,
         term,
@@ -343,6 +356,7 @@ pub(crate) fn simplify_in_execution_with_solver(
         solver,
         Some(execution),
     )
+    .layered()
 }
 
 fn simplify_with_optional_execution(
@@ -352,7 +366,7 @@ fn simplify_with_optional_execution(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<Simplification, SimplificationError> {
+) -> SimplifyResult<Simplification> {
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
@@ -388,8 +402,11 @@ pub fn simplify_pattern_with_solver(
     pattern: &Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Pattern, SimplificationError> {
-    Ok(simplify_pattern_details_with_solver(definition, pattern, options, solver)?.pattern)
+) -> Stoppable<Result<Pattern, SimplificationError>> {
+    Ok(
+        simplify_pattern_details_with_solver(definition, pattern, options, solver)?
+            .map(|simplified| simplified.pattern),
+    )
 }
 
 /// Simplify a constrained term while retaining the equation trace and builtin effects produced
@@ -400,16 +417,26 @@ pub(crate) fn simplify_pattern_details_with_solver(
     pattern: &Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<PatternSimplification, SimplificationError> {
+) -> Stoppable<Result<PatternSimplification, SimplificationError>> {
+    simplify_pattern_details(definition, pattern, options, solver).layered()
+}
+
+fn simplify_pattern_details(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<PatternSimplification> {
     let mut pattern = pattern.clone();
     let retained_substitution =
         normalize_pattern_substitution(&mut pattern, &definition.sort_graph);
-    let simplified = simplify_with_solver(
+    let simplified = simplify_with_optional_execution(
         definition,
         &pattern.term,
         &pattern.constraints,
         options,
         solver,
+        None,
     )?;
     let mut constraints = pattern.constraints;
     for constraint in simplified.constraints {
@@ -418,7 +445,7 @@ pub(crate) fn simplify_pattern_details_with_solver(
         }
     }
     let mut constraints =
-        simplify_predicates_with_solver(definition, &constraints, &[], options, solver)?;
+        simplify_predicates_with_solver(definition, &constraints, &[], options, solver)??;
     if constraints
         .iter()
         .any(|constraint| predicate_refutes_term(constraint, &simplified.term))
@@ -511,7 +538,7 @@ fn discharge_valid_constraints(
     definition: &BackendDefinition,
     constraints: Vec<Predicate>,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> SimplifyResult<Vec<Predicate>> {
     let mut pending = std::collections::VecDeque::from(constraints);
     let mut retained = Vec::with_capacity(pending.len());
     // Invariant: `retained` holds, in order, the popped constraints that are substitution bindings or that the solver left undecided, and `pending` holds the unexamined ones; each iteration pops one constraint and pushes none, so the loop runs at most |constraints| times.
@@ -525,9 +552,8 @@ fn discharge_valid_constraints(
             .chain(pending.iter())
             .cloned()
             .collect::<Vec<_>>();
-        match decide_condition(std::slice::from_ref(&constraint), &known, solver)
-            .map_err(SimplificationError::from_stop)?
-        {
+        // A stop of the query propagates on its own layer; only a failure is the constraint's.
+        match decide_condition(std::slice::from_ref(&constraint), &known, solver)? {
             Ok(RuleCondition::Satisfied) => {}
             Ok(
                 RuleCondition::Refuted
@@ -541,7 +567,8 @@ fn discharge_valid_constraints(
                 return Err(SimplificationError::SmtPredicate {
                     predicate: Box::new(constraint),
                     error,
-                });
+                }
+                .into());
             }
         }
     }
@@ -560,13 +587,64 @@ fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
     }
 }
 
+/// Simplify a conjunction of predicates under `known_predicates`.
+///
+/// The result has two layers: the outer `Err` is a [`Stop`], for which no simplified form
+/// exists; the inner `Result` is the simplified conjunction or the simplification's failure. The
+/// unsimplified predicates are the same condition, so a caller may keep them on a failure, but
+/// not on a stop: a stop says nothing about the predicates, and the owner of the exhausted
+/// resource publishes it. The single-layer fallback, which kept the predicates on a stop, no
+/// longer compiles:
+///
+/// ```compile_fail,E0308
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::Predicate,
+///     simplify::{SimplificationOptions, simplify_predicates_with_solver},
+///     smt::NoSolver,
+/// };
+///
+/// fn f(definition: &BackendDefinition, predicates: Vec<Predicate>) -> Vec<Predicate> {
+///     simplify_predicates_with_solver(
+///         definition,
+///         &predicates,
+///         &[],
+///         SimplificationOptions::default(),
+///         &NoSolver,
+///     )
+///     .unwrap_or(predicates)
+/// }
+/// ```
+///
+/// The same fallback with the stop propagated first, so that it applies to a failure only:
+///
+/// ```
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::Predicate,
+///     simplify::{SimplificationOptions, simplify_predicates_with_solver},
+///     smt::NoSolver,
+///     stop::Stoppable,
+/// };
+///
+/// fn f(definition: &BackendDefinition, predicates: Vec<Predicate>) -> Stoppable<Vec<Predicate>> {
+///     Ok(simplify_predicates_with_solver(
+///         definition,
+///         &predicates,
+///         &[],
+///         SimplificationOptions::default(),
+///         &NoSolver,
+///     )?
+///     .unwrap_or(predicates))
+/// }
+/// ```
 pub fn simplify_predicates_with_solver(
     definition: &BackendDefinition,
     predicates: &[Predicate],
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyPredicates);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
@@ -580,10 +658,13 @@ pub fn simplify_predicates_with_solver(
         &active_conditions,
         solver,
     ) {
-        Err(
+        // A stop is handled first and propagates: the unsimplified predicates answer an
+        // exhausted budget, never a stop.
+        Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
+        Err(Unwind::Fail(
             SimplificationError::IterationLimit { .. }
             | SimplificationError::PredicateIterationLimit { .. },
-        ) if options.budget == BudgetPolicy::KeepPartial => {
+        )) if options.budget == BudgetPolicy::KeepPartial => {
             diagnostic::emit(BackendDiagnostic::SimplificationBudgetExhausted {
                 limit: options.max_iterations,
                 subject: BudgetSubject::Predicates,
@@ -592,6 +673,7 @@ pub fn simplify_predicates_with_solver(
         }
         result => result,
     }
+    .layered()
 }
 
 struct TermAssumptions<'a> {
@@ -638,7 +720,7 @@ fn simplify_predicates_with_budget(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> SimplifyResult<Vec<Predicate>> {
     let _apart = crate::rule::ApartScope::enter();
     let mut conjuncts = Vec::new();
     let mut conjunct_index = FxHashSet::default();
@@ -738,7 +820,8 @@ fn simplify_predicates_with_budget(
         return Err(SimplificationError::PredicateIterationLimit {
             limit,
             predicate: Predicate::And(simplified),
-        });
+        }
+        .into());
     }
     *remaining -= 1;
     // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
@@ -775,7 +858,7 @@ fn simplify_rule_predicates(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> SimplifyResult<Vec<Predicate>> {
     let key = (condition_key.0.to_owned(), condition_key.1.clone());
     if active_conditions.contains(&key) {
         return Ok(predicates.to_vec());
@@ -811,10 +894,12 @@ fn simplify_rule_predicates(
 /// defined, and a `false` refutes the condition with or without the obligations. With no known
 /// predicate the decision rests on evaluation alone, never on an assumption about a term the
 /// evaluation left unevaluated. The solver sees nothing in this attempt except equation
-/// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and an
-/// error in the first attempt other than resource exhaustion take the general path: the
-/// obligations are stated and the condition is simplified under `known`. The diagnostics of a
-/// discarded attempt are dropped, since the general path redoes and reports its work.
+/// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and a
+/// failure of the first attempt take the general path: the obligations are stated and the
+/// condition is simplified under `known`. A stop of the first attempt ends the condition with
+/// the stop, on the outer layer: the attempt has no answer, and the general path would answer in
+/// its place. The diagnostics of a discarded attempt are dropped, since the general path redoes
+/// and reports its work.
 pub(crate) fn simplify_condition(
     definition: &BackendDefinition,
     conditions: Vec<Predicate>,
@@ -824,8 +909,27 @@ pub(crate) fn simplify_condition(
         Vec<Predicate>,
         &[Predicate],
         bool,
-    ) -> Result<Vec<Predicate>, SimplificationError>,
-) -> Result<Vec<Predicate>, SimplificationError> {
+    ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>>,
+) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
+    simplify_condition_within(
+        definition,
+        conditions,
+        known,
+        definedness_known,
+        |conditions, known, first_attempt| Ok(simplify(conditions, known, first_attempt)??),
+    )
+    .layered()
+}
+
+/// [`simplify_condition`] for the simplifier's own equation conditions, whose simplification
+/// returns inside this module.
+fn simplify_condition_within(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+    definedness_known: &[Predicate],
+    mut simplify: impl FnMut(Vec<Predicate>, &[Predicate], bool) -> SimplifyResult<Vec<Predicate>>,
+) -> SimplifyResult<Vec<Predicate>> {
     let mut ceil_free = true;
     let mut ground = true;
     for condition in &conditions {
@@ -838,7 +942,7 @@ pub(crate) fn simplify_condition(
         return simplify(conditions, known, false);
     }
     if ground && !GENERAL_CONDITION_PATH.with(Cell::get) {
-        let decided = |result: &Result<Vec<Predicate>, SimplificationError>| {
+        let decided = |result: &SimplifyResult<Vec<Predicate>>| {
             result
                 .as_ref()
                 .is_ok_and(|simplified| predicates_truth(simplified) != Truth::Unknown)
@@ -847,8 +951,10 @@ pub(crate) fn simplify_condition(
             Ok(simplified) if predicates_truth(&simplified) != Truth::Unknown => {
                 return Ok(simplified);
             }
-            Err(error) if error.stopped().is_some() => return Err(error),
-            _ => {}
+            // A stop is handled first: the attempt has no answer, and the general path below
+            // would answer in its place.
+            Err(Unwind::Stop(stop)) => return Err(Unwind::Stop(stop)),
+            Ok(_) | Err(Unwind::Fail(_)) => {}
         }
         // The general path redoes the nested conditions the attempt met; they take the general
         // path too, so a chain of nested conditions costs at most twice the general path
@@ -879,7 +985,7 @@ thread_local! {
 }
 
 /// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
-/// them unsimplified when simplification fails for a reason other than a stop.
+/// them unsimplified when simplification fails.
 ///
 /// The unsimplified predicates are the same condition, so deciding them instead is sound; it
 /// is only weaker, and may leave the condition undecided where the simplified form would have
@@ -887,11 +993,15 @@ thread_local! {
 /// otherwise an equation left unapplied for lack of budget is indistinguishable from one whose
 /// condition is open (`diagnostic::emit_rule_condition_budget_exhausted`).
 ///
-/// A stop (`SimplificationError::stopped`) is returned instead. The budget is a bound the
-/// simplifier chose, and a weaker condition is a fit answer to it; a cancelled request, a passed
-/// deadline, a failed solver prelude, or an exhausted stack says nothing about the condition,
-/// and deciding the unsimplified predicates would leave the equation blocked and report a silent
-/// `Stuck` one level up, a wrong answer in place of the stop.
+/// A stop is matched first and propagates; the fallback matches failures only (`Unwind::Fail`).
+/// The budget is a bound the simplifier chose, and a weaker condition is a fit answer to it; a
+/// cancelled request, a passed deadline, a failed solver prelude, or an exhausted stack says
+/// nothing about the condition, and deciding the unsimplified predicates would leave the equation
+/// blocked and report a silent `Stuck` one level up, a wrong answer in place of the stop.
+///
+/// The match is on the module's own result rather than on its layered form: this function is a
+/// frame of the simplifier's recursion through equation conditions, and converting to the
+/// layered form here would add its temporaries to that frame.
 #[allow(clippy::too_many_arguments)]
 fn simplify_rule_predicates_or_keep(
     definition: &BackendDefinition,
@@ -902,7 +1012,7 @@ fn simplify_rule_predicates_or_keep(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> SimplifyResult<Vec<Predicate>> {
     match simplify_rule_predicates(
         definition,
         (rule_id, anchor),
@@ -913,15 +1023,15 @@ fn simplify_rule_predicates_or_keep(
         solver,
     ) {
         Ok(simplified) => Ok(simplified),
-        Err(
+        Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
+        Err(Unwind::Fail(
             SimplificationError::IterationLimit { limit, .. }
             | SimplificationError::PredicateIterationLimit { limit, .. },
-        ) => {
+        )) => {
             diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
             Ok(predicates)
         }
-        Err(error) if error.stopped().is_some() => Err(error),
-        Err(_) => Ok(predicates),
+        Err(Unwind::Fail(_)) => Ok(predicates),
     }
 }
 
@@ -958,7 +1068,7 @@ fn evaluate_rule_condition(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<RuleCondition, SimplificationError> {
+) -> SimplifyResult<RuleCondition> {
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
     // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
@@ -972,7 +1082,7 @@ fn evaluate_rule_condition(
     };
     let definedness_known = definedness_known.as_deref().unwrap_or(known_predicates);
     let predicates = if let Some(anchor) = anchor {
-        simplify_condition(
+        simplify_condition_within(
             definition,
             requires,
             known_predicates,
@@ -1015,13 +1125,13 @@ fn decide_rule_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
     solver: &dyn SmtSolver,
-) -> Result<RuleCondition, SimplificationError> {
-    let condition = decide_condition(predicates, known_predicates, solver)
-        .map_err(SimplificationError::from_stop)?
-        .map_err(|error| SimplificationError::Smt {
+) -> SimplifyResult<RuleCondition> {
+    let condition = decide_condition(predicates, known_predicates, solver)?.map_err(|error| {
+        SimplificationError::Smt {
             rule_id: rule_id.to_owned(),
             error,
-        })?;
+        }
+    })?;
     if let RuleCondition::Indeterminate(reason) = &condition
         && solver_could_not_answer(reason)
     {
@@ -1115,7 +1225,17 @@ pub fn simplify_predicate_with_solver(
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Predicate, SimplificationError> {
+) -> Stoppable<Result<Predicate, SimplificationError>> {
+    simplify_predicate(definition, predicate, known_predicates, options, solver).layered()
+}
+
+fn simplify_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
     let mut remaining = options.max_iterations;
     let active_conditions = BTreeSet::new();
     let known_index = predicate_conjunct_index(known_predicates);
@@ -1146,15 +1266,23 @@ pub fn simplify_and_decide_predicate_with_solver(
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Predicate, SimplificationError> {
-    let simplified =
-        simplify_predicate_with_solver(definition, predicate, known_predicates, options, solver)?;
+) -> Stoppable<Result<Predicate, SimplificationError>> {
+    simplify_and_decide_predicate(definition, predicate, known_predicates, options, solver)
+        .layered()
+}
+
+fn simplify_and_decide_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let simplified = simplify_predicate(definition, predicate, known_predicates, options, solver)?;
     if matches!(simplified, Predicate::True | Predicate::False) {
         return Ok(simplified);
     }
-    match decide_condition(std::slice::from_ref(&simplified), known_predicates, solver)
-        .map_err(SimplificationError::from_stop)?
-    {
+    match decide_condition(std::slice::from_ref(&simplified), known_predicates, solver)? {
         Ok(RuleCondition::Satisfied) => Ok(Predicate::True),
         Ok(RuleCondition::Refuted) => Ok(Predicate::False),
         Ok(RuleCondition::Indeterminate(reason)) => {
@@ -1164,7 +1292,8 @@ pub fn simplify_and_decide_predicate_with_solver(
         Err(error) => Err(SimplificationError::SmtPredicate {
             predicate: Box::new(simplified),
             error,
-        }),
+        }
+        .into()),
     }
 }
 
@@ -1176,10 +1305,10 @@ fn simplify_predicate_with_budget(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Predicate, SimplificationError> {
+) -> SimplifyResult<Predicate> {
     let _apart = crate::rule::ApartScope::enter();
-    stop::check().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
-    stop::check_stack().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
+    stop::check()?;
+    stop::check_stack()?;
     if assumptions.contains(predicate) {
         return Ok(Predicate::True);
     }
@@ -1284,7 +1413,8 @@ fn simplify_predicate_with_budget(
                     return Err(SimplificationError::PredicateIterationLimit {
                         limit,
                         predicate: conjunction,
-                    });
+                    }
+                    .into());
                 }
                 *remaining -= 1;
                 return simplify_predicate_with_budget(
@@ -1426,7 +1556,8 @@ fn simplify_predicate_with_budget(
             return Err(SimplificationError::PredicateIterationLimit {
                 limit,
                 predicate: simplified,
-            });
+            }
+            .into());
         }
         *remaining -= 1;
         // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
@@ -1458,7 +1589,8 @@ fn simplify_predicate_with_budget(
         return Err(SimplificationError::PredicateIterationLimit {
             limit,
             predicate: simplified,
-        });
+        }
+        .into());
     }
     *remaining -= 1;
     // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
@@ -1511,7 +1643,7 @@ fn apply_ceil_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Option<Predicate>, SimplificationError> {
+) -> SimplifyResult<Option<Predicate>> {
     let Predicate::Ceil(term) = predicate else {
         return Ok(None);
     };
@@ -1544,7 +1676,7 @@ fn apply_ceil_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<EquationAttempt<Predicate>, SimplificationError> {
+) -> SimplifyResult<EquationAttempt<Predicate>> {
     if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_ceil_equation(
             definition,
@@ -1646,7 +1778,7 @@ fn apply_predicate_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Option<Predicate>, SimplificationError> {
+) -> SimplifyResult<Option<Predicate>> {
     for rules in definition.predicate_simplification_theory().values() {
         match scan_group(rules, |rule| {
             apply_predicate_equation(
@@ -1675,7 +1807,7 @@ fn apply_predicate_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<EquationAttempt<Predicate>, SimplificationError> {
+) -> SimplifyResult<EquationAttempt<Predicate>> {
     if let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates) {
         return apply_predicate_equation(
             definition,
@@ -2421,7 +2553,7 @@ fn simplify_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<Simplification, SimplificationError> {
+) -> SimplifyResult<Simplification> {
     let mut term = term.clone();
     let mut constraints = Vec::new();
     let mut assumed = Vec::new();
@@ -2441,8 +2573,8 @@ fn simplify_with_budget(
         measure::bump(Counter::SimplifyRounds);
         // Neither the request's cancellation nor the step's deadline is bounded by the iteration
         // budget, which counts rewrites of one lineage rather than time, so every round polls.
-        stop::check().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
-        stop::check_stack().map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?;
+        stop::check()?;
+        stop::check_stack()?;
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
             return Ok(Simplification {
@@ -2545,7 +2677,8 @@ fn simplify_with_budget(
                 BudgetPolicy::Fail => Err(SimplificationError::IterationLimit {
                     limit: options.max_iterations,
                     term: root.term,
-                }),
+                }
+                .into()),
                 BudgetPolicy::KeepPartial => Ok(Simplification {
                     term: root.term,
                     constraints,
@@ -2722,7 +2855,7 @@ fn matches_top_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<Option<(String, Vec<Predicate>)>, SimplificationError> {
+) -> SimplifyResult<Option<(String, Vec<Predicate>)>> {
     for rules in applicable_groups(definition.simplification_theory(), &term_index(term)).values() {
         for rule in rules {
             if !matches!(rule.rhs, RuleRhs::Top) {
@@ -2813,7 +2946,7 @@ fn simplify_children(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<Simplification, SimplificationError> {
+) -> SimplifyResult<Simplification> {
     let mut constraints = Vec::new();
     let mut assumed = Vec::new();
     let mut applied_rules = Vec::new();
@@ -2825,7 +2958,7 @@ fn simplify_children(
     let mut child = |term: &Term| {
         if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok::<_, SimplificationError>(term.clone());
+            return Ok::<_, Unwind<SimplificationError>>(term.clone());
         }
         // The iteration limit bounds one fixed-point lineage, not the total amount of productive
         // work in an entire term. Siblings receive independent copies of the current budget, while
@@ -2852,7 +2985,7 @@ fn simplify_children(
             contradicted_total = result.contradicted_total;
         }
         children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
-        Ok::<_, SimplificationError>(result.term)
+        Ok::<_, Unwind<SimplificationError>>(result.term)
     };
     let rebuilt = match term.kind() {
         TermKind::And(left, right) => {
@@ -2889,7 +3022,9 @@ fn simplify_children(
                 }
                 (None, None) => Term::and(child(left)?, child(right)?),
                 (Some((rule_id, _)), Some(_)) => {
-                    return Err(SimplificationError::TopEquationOutsideConjunction { rule_id });
+                    return Err(
+                        SimplificationError::TopEquationOutsideConjunction { rule_id }.into(),
+                    );
                 }
             }
         }
@@ -2919,7 +3054,7 @@ fn simplify_children(
             entries
                 .iter()
                 .map(|(key, value)| Ok((child(key)?, child(value)?)))
-                .collect::<Result<Vec<_>, SimplificationError>>()?,
+                .collect::<SimplifyResult<Vec<_>>>()?,
             rest.as_ref().map(&mut child).transpose()?,
         ),
         TermKind::List {
@@ -2934,12 +3069,12 @@ fn simplify_children(
                 .collect::<Result<Vec<_>, _>>()?,
             rest.as_ref()
                 .map(|(middle, tails)| {
-                    Ok((
+                    Ok::<_, Unwind<SimplificationError>>((
                         child(middle)?,
                         tails
                             .iter()
                             .map(&mut child)
-                            .collect::<Result<Vec<_>, SimplificationError>>()?,
+                            .collect::<SimplifyResult<Vec<_>>>()?,
                     ))
                 })
                 .transpose()?,
@@ -3023,7 +3158,7 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<(Simplification, RootStep, Option<Arc<RewriteRule>>), SimplificationError> {
+) -> SimplifyResult<(Simplification, RootStep, Option<Arc<RewriteRule>>)> {
     // A set holding an element twice, or a map binding a key twice (with the same value or
     // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
     // elements and keys, and syntactically equal terms denote the same element on every
@@ -3053,8 +3188,7 @@ fn simplify_root(
     let builtin = match execution {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
-    }
-    .map_err(|stop| SimplificationError::Stopped(stop.into_cause()))?
+    }?
     .map_err(SimplificationError::Builtin)?;
     let unsupported = match builtin {
         BuiltinResult::NotApplicable => None,
@@ -3183,7 +3317,8 @@ fn simplify_root(
                     hook: hook.to_owned(),
                     reason,
                     term: term.clone(),
-                });
+                }
+                .into());
             }
         } else if let Some(reason) = unsupported {
             diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated {
@@ -3320,7 +3455,7 @@ fn apply_theory(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<TheoryScan, SimplificationError> {
+) -> SimplifyResult<TheoryScan> {
     let (theory, indeterminate_equation) = theory;
     let groups = applicable_groups(theory, &term_index(term));
     let mut blocked = false;
@@ -3400,8 +3535,8 @@ enum GroupScan<T> {
 
 fn scan_group<R, T>(
     rules: &[Arc<R>],
-    mut attempt: impl FnMut(&Arc<R>) -> Result<EquationAttempt<T>, SimplificationError>,
-) -> Result<GroupScan<T>, SimplificationError> {
+    mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T>>,
+) -> SimplifyResult<GroupScan<T>> {
     let mut indeterminate = false;
     let mut not_cacheable = false;
     for rule in rules {
@@ -3459,7 +3594,7 @@ fn decide_definedness(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<DefinednessVerdict, SimplificationError> {
+) -> SimplifyResult<DefinednessVerdict> {
     if definedness.is_empty() {
         return Ok(DefinednessVerdict::Discharged);
     }
@@ -3537,7 +3672,7 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<EquationAttempt<Simplification>, SimplificationError> {
+) -> SimplifyResult<EquationAttempt<Simplification>> {
     if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_equation(
             definition,
@@ -3666,7 +3801,8 @@ fn apply_equation(
         RuleRhs::Top => {
             return Err(SimplificationError::TopEquationOutsideConjunction {
                 rule_id: rule.attributes.unique_id.clone(),
-            });
+            }
+            .into());
         }
         RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
     };
@@ -3736,7 +3872,8 @@ fn apply_equation(
         alternatives => Err(SimplificationError::DisjunctiveResult {
             rule_id: rule.attributes.unique_id.clone(),
             alternatives,
-        }),
+        }
+        .into()),
     }
 }
 
@@ -3773,9 +3910,9 @@ fn evaluate_ensures(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Result<EnsuresVerdict, SimplificationError> {
+) -> SimplifyResult<EnsuresVerdict> {
     // An `ensures` constrains the result only where its terms are defined.
-    let ensures = simplify_condition(
+    let ensures = simplify_condition_within(
         definition,
         substitute_predicates(ensures, substitution),
         known_predicates,
@@ -3809,16 +3946,15 @@ fn evaluate_ensures(
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
     // and an inconsistent path condition, which under the path condition alone says nothing
     // about the equation. No diagnostic is emitted here, as none was before.
-    match decide_condition(&ensures, known_predicates, solver)
-        .map_err(SimplificationError::from_stop)?
-    {
+    match decide_condition(&ensures, known_predicates, solver)? {
         Ok(RuleCondition::Satisfied) => Ok(EnsuresVerdict::Holds),
         Ok(RuleCondition::Refuted) => Ok(EnsuresVerdict::Refuted),
         Ok(RuleCondition::Indeterminate(_)) => Ok(EnsuresVerdict::Open(ensures)),
         Err(error) => Err(SimplificationError::Smt {
             rule_id: rule.attributes.unique_id.clone(),
             error,
-        }),
+        }
+        .into()),
     }
 }
 
@@ -3828,6 +3964,19 @@ mod tests {
 
     use super::*;
     use crate::term::{CollectionSymbols, ListDefinition, MapDefinition};
+
+    /// The inner layer of an entry point's result, for the tests that arm no stop: a stop is a
+    /// test failure, reported with its cause.
+    fn unstopped<T>(
+        result: Stoppable<Result<T, SimplificationError>>,
+    ) -> Result<T, SimplificationError> {
+        result.unwrap_or_else(|stop| {
+            panic!(
+                "the simplification stopped although no stop was armed: {}",
+                stop.into_cause()
+            )
+        })
+    }
 
     fn term(definition: &BackendDefinition, source: &str) -> Term {
         let syntax = parse_pattern(source).expect("term should parse");
@@ -4042,20 +4191,24 @@ mod tests {
 
         // `discard(t) = \ceil(t) /\ "done"`: nothing decides `\ceil(partial(Y))`, so the
         // equation applies and the obligation becomes a constraint of the result.
-        let result = simplify(&definition, &input, SimplificationOptions::default())
-            .expect("the equation should apply");
+        let result = unstopped(simplify(
+            &definition,
+            &input,
+            SimplificationOptions::default(),
+        ))
+        .expect("the equation should apply");
         assert_eq!(result.term, done);
         assert_eq!(result.constraints, vec![Predicate::Ceil(argument.clone())]);
         assert_eq!(result.applied_rules, vec!["discard".to_owned()]);
 
         // A path condition that already carries the obligation discharges it.
-        let result = simplify_with_solver(
+        let result = unstopped(simplify_with_solver(
             &definition,
             &input,
             &[Predicate::Ceil(argument)],
             SimplificationOptions::default(),
             &NoSolver,
-        )
+        ))
         .expect("the equation should apply");
         assert_eq!(result.term, done);
         assert!(result.constraints.is_empty());
@@ -4069,16 +4222,24 @@ mod tests {
         // Negative control: the same open definedness obligation, but the equation's own
         // `requires` is undecided, so applying it would narrow the subject.
         let input = term(&definition, "guarded{}(partial{}(Y:SortS{}))");
-        let result = simplify(&definition, &input, SimplificationOptions::default())
-            .expect("an indeterminate equation retains the subject");
+        let result = unstopped(simplify(
+            &definition,
+            &input,
+            SimplificationOptions::default(),
+        ))
+        .expect("an indeterminate equation retains the subject");
         assert_eq!(result.term, input);
         assert!(result.constraints.is_empty());
         assert!(result.applied_rules.is_empty());
 
         // Positive control: the equation itself applies once `requires` is decided.
         let input = term(&definition, r#"guarded{}(\dv{SortS{}}("expected"))"#);
-        let result = simplify(&definition, &input, SimplificationOptions::default())
-            .expect("the guarded equation should apply");
+        let result = unstopped(simplify(
+            &definition,
+            &input,
+            SimplificationOptions::default(),
+        ))
+        .expect("the guarded equation should apply");
         assert_eq!(result.term, done);
         assert!(result.constraints.is_empty());
     }
@@ -4089,7 +4250,7 @@ mod tests {
         let argument = term(&definition, "partial{}(Y:SortS{})");
         let obligation = Predicate::Ceil(argument.clone());
         let simplify_pattern = |source: &str| {
-            simplify_pattern_with_solver(
+            unstopped(simplify_pattern_with_solver(
                 &definition,
                 &Pattern {
                     term: term(&definition, source),
@@ -4097,7 +4258,7 @@ mod tests {
                 },
                 SimplificationOptions::default(),
                 &NoSolver,
-            )
+            ))
             .expect("the pattern should simplify")
         };
 
@@ -4122,7 +4283,7 @@ mod tests {
         assert_eq!(unrelated.constraints, vec![obligation.clone()]);
 
         // An equation that discards `t` leaves the carried obligation as the only witness.
-        let discarded = simplify_pattern_with_solver(
+        let discarded = unstopped(simplify_pattern_with_solver(
             &definition,
             &Pattern {
                 term: term(&definition, "wrap{}(discard{}(partial{}(Y:SortS{})))"),
@@ -4130,7 +4291,7 @@ mod tests {
             },
             SimplificationOptions::default(),
             &NoSolver,
-        )
+        ))
         .expect("the pattern should simplify");
         assert_eq!(
             discarded.term,
@@ -4233,13 +4394,13 @@ mod tests {
         // The standalone predicate entry reaches the equation in one call: the ceil arm's
         // expansion supplies `\ceil(t)` as a sibling, and the conjunction is simplified again.
         assert_eq!(
-            simplify_predicate_with_solver(
+            unstopped(simplify_predicate_with_solver(
                 &definition,
                 &subject,
                 &[],
                 SimplificationOptions::default(),
                 &NoSolver,
-            )
+            ))
             .expect("the predicate should simplify"),
             Predicate::And(vec![rhs, obligation])
         );
@@ -4370,11 +4531,65 @@ mod tests {
             .expect("anywhere function definition should internalize");
         let input = term(&definition, r#"cached{}(\dv{SortBool{}}("false"))"#);
 
-        let result = simplify(&definition, &input, SimplificationOptions::default())
-            .expect("the incompatible equation should reach a fixed point");
+        let result = unstopped(simplify(
+            &definition,
+            &input,
+            SimplificationOptions::default(),
+        ))
+        .expect("the incompatible equation should reach a fixed point");
 
         assert_eq!(result.term, input);
         assert!(result.applied_rules.is_empty());
         assert!(!result.term.attributes().evaluated);
+    }
+
+    /// A cancellation observed by the predicate simplifier is returned on the outer layer with
+    /// its cause: no simplified conjunction and no failure stands in for it.
+    #[test]
+    fn a_stop_is_returned_on_the_outer_layer_with_its_cause() {
+        let definition = definedness_definition();
+        let predicates = vec![Predicate::Ceil(term(&definition, "partial{}(Y:SortS{})"))];
+        let simplify = || {
+            simplify_predicates_with_solver(
+                &definition,
+                &predicates,
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            )
+            .map_err(Stop::into_cause)
+        };
+
+        assert!(matches!(simplify(), Ok(Ok(_))), "{:?}", simplify());
+        let token = stop::CancellationToken::new();
+        token.cancel();
+        assert_eq!(token.scope(simplify), Err(StopCause::Cancelled));
+    }
+
+    /// The layering rejects a fallback written against the single-layer result at compile time
+    /// (the `compile_fail` example on `simplify_predicates_with_solver`), but a two-layer
+    /// wildcard compiles and absorbs the stop as that fallback did. The unreported-stop checker
+    /// catches it at run time: the stop the wildcard drops is dropped armed.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "was dropped without being propagated or published")]
+    fn a_two_layer_wildcard_fallback_over_a_simplification_stop_panics() {
+        let definition = definedness_definition();
+        let predicates = vec![Predicate::Ceil(term(&definition, "partial{}(Y:SortS{})"))];
+        let fallback = predicates.clone();
+        let token = stop::CancellationToken::new();
+        token.cancel();
+        let _kept = token.scope(|| {
+            match simplify_predicates_with_solver(
+                &definition,
+                &predicates,
+                &[],
+                SimplificationOptions::default(),
+                &NoSolver,
+            ) {
+                Ok(Ok(simplified)) => simplified,
+                _ => fallback,
+            }
+        });
     }
 }

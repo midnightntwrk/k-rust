@@ -21,7 +21,7 @@ use k_rust_backend::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
-    stop::{StopCause, Stoppable},
+    stop::{Stop, StopCause, Stoppable},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
@@ -793,7 +793,7 @@ fn anywhere_normalization_and_covered_matching_remain_available() {
     let definition = rewrite_coverage_definition();
     let term = internal_term(&definition, "state{}(box{}(value{}()))");
     let normalized =
-        k_rust_backend::simplify::simplify(&definition, &term, SimplificationOptions::default())
+        crate::support::unstopped::simplify(&definition, &term, SimplificationOptions::default())
             .unwrap();
     assert_eq!(
         normalized.term,
@@ -5683,7 +5683,7 @@ fn simplify_size_of_chain(
         Vec::new(),
         vec![stack.clone()],
     );
-    let simplified = k_rust_backend::simplify::simplify(
+    let simplified = crate::support::unstopped::simplify(
         definition,
         &size,
         SimplificationOptions {
@@ -5897,11 +5897,10 @@ fn unbounded_non_tail_recursion_reports_an_exhausted_stack() {
             &int_application(&definition, "down", 0),
             SimplificationOptions::unbounded(),
         )
+        .map_err(Stop::into_cause)
     });
-    assert_eq!(
-        result,
-        Err(SimplificationError::Stopped(StopCause::StackExhausted))
-    );
+    // The stop is the outer layer: no simplification and no failure of it exists.
+    assert_eq!(result, Err(StopCause::StackExhausted));
 }
 
 #[test]
@@ -5915,11 +5914,10 @@ fn an_embedder_sized_thread_reports_an_exhausted_stack() {
             &int_application(&definition, "down", 0),
             SimplificationOptions::unbounded(),
         )
+        .map_err(Stop::into_cause)
     });
-    assert_eq!(
-        result,
-        Err(SimplificationError::Stopped(StopCause::StackExhausted))
-    );
+    // The stop is the outer layer: no simplification and no failure of it exists.
+    assert_eq!(result, Err(StopCause::StackExhausted));
 }
 
 #[test]

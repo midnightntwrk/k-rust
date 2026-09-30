@@ -7,7 +7,7 @@ use k_rust_backend::{
         substitute_predicates,
     },
     search::ResultModality,
-    simplify::{SimplificationOptions, simplify_predicates_with_solver},
+    simplify::SimplificationOptions,
     smt::{NoSolver, SmtSolver},
     substitution::{Substitution, substitute},
     term::{Sort, Term, Variable},
@@ -17,7 +17,7 @@ use k_rust_kore::kore::parser::parse_definition;
 #[cfg(feature = "z3")]
 use k_rust_backend::rewrite::TraceKind;
 
-use crate::support::internal_term;
+use crate::support::{internal_term, unstopped::simplify_predicates_with_solver};
 
 const DEFINITION: &str = r#"[]
 module STUCK-INSTANCES

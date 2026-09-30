@@ -552,7 +552,8 @@ impl<F> Unwind<F> {
         not(test),
         expect(
             dead_code,
-            reason = "no module maps `Unwind` failures before the simplifier is layered (CBC-04-T6)"
+            reason = "the layered modules convert failures with `?` and the cross `From` pairs; no \
+                      module maps an `Unwind` failure by hand yet"
         )
     )]
     pub(crate) fn map_fail<G>(self, map: impl FnOnce(F) -> G) -> Unwind<G> {

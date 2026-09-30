@@ -11,7 +11,7 @@ use k_rust_backend::{
     definedness::ceil_term,
     definition::BackendDefinition,
     rule::Predicate,
-    simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
+    simplify::SimplificationOptions,
     smt::{NoSolver, SmtError, SmtSolver, Validity},
     stop::Stoppable,
     substitution::Substitution,
@@ -19,7 +19,10 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::internal_term;
+use crate::support::{
+    internal_term,
+    unstopped::{simplify, simplify_predicate_with_solver},
+};
 
 /// `z`, `s`, `addr`, `sub`, `cell`, `spare` and `item` are constructors; `wrap` and `tag` are
 /// `anywhere` productions (`wrap` with the `injective` attribute kompile emits, `tag` without

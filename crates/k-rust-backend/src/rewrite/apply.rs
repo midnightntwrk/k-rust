@@ -52,7 +52,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
-    stop::Stop,
+    stop::{Stop, Stoppable},
     substitution::{Substitution, compose, extract_substitution, substitute},
     term::{Sort, Symbol, Term, TermKind, Variable},
     transition::ExecutionIoState,
@@ -876,7 +876,9 @@ fn recover_by_unification(
                 inherited_knowledge,
                 context.simplification_options,
                 context.solver,
-            ) {
+            )
+            .map_err(stopped_attempt)?
+            {
                 Ok(requires) => requires,
                 Err(error) => {
                     return Err(RuleAttempt::Simplification(error));
@@ -954,7 +956,9 @@ fn simplify_conditions(
         path_knowledge,
         context.simplification_options,
         context.solver,
-    ) {
+    )
+    .map_err(stopped_attempt)?
+    {
         Ok(conditions) => conditions,
         Err(error) => {
             return Err(RuleAttempt::Simplification(error));
@@ -996,7 +1000,9 @@ fn definedness(
         &definedness_knowledge,
         context.simplification_options,
         context.solver,
-    ) {
+    )
+    .map_err(stopped_attempt)?
+    {
         Ok(conditions) => conditions,
         Err(error) => {
             return Err(RuleAttempt::Simplification(error));
@@ -1082,7 +1088,9 @@ fn requires(
         &match_knowledge,
         context.simplification_options,
         context.solver,
-    ) {
+    )
+    .map_err(stopped_attempt)?
+    {
         Ok(requires) => requires,
         Err(error) => {
             return Err(RuleAttempt::Simplification(error));
@@ -1128,7 +1136,7 @@ fn simplify_rule_condition(
     known: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Vec<Predicate>, SimplificationError> {
+) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
     simplify_condition(
         definition,
         conditions,
@@ -1455,7 +1463,7 @@ fn apply_rhs_alternative(
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
             (rhs, Vec::new(), Vec::new(), None, Vec::new(), None)
         } else {
-            let simplified = match io_evaluation.as_mut() {
+            let simplified = SimplificationError::bridge(match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
                     definition,
                     &rhs,
@@ -1471,7 +1479,7 @@ fn apply_rhs_alternative(
                     simplification_options,
                     solver,
                 ),
-            };
+            });
             match simplified {
                 Ok(simplified) => (
                     simplified.term,
@@ -1506,13 +1514,13 @@ fn apply_rhs_alternative(
         let reported_obligation = undefined_term
             .map(Predicate::Ceil)
             .unwrap_or_else(|| conjunction(&obligations));
-        let obligations = match simplify_predicates_with_solver(
+        let obligations = match SimplificationError::bridge(simplify_predicates_with_solver(
             definition,
             &obligations,
             &condition_knowledge,
             simplification_options,
             solver,
-        ) {
+        )) {
             Ok(obligations) => obligations,
             Err(error) => {
                 return RhsAlternativeAttempt::Simplification(error);
@@ -1543,13 +1551,13 @@ fn apply_rhs_alternative(
     let reported_ensures = conjunction(&ensures);
     // An `ensures` constrains the successor only where its terms are defined, as a `requires`
     // constrains the instance.
-    let mut ensures = match simplify_rule_condition(
+    let mut ensures = match SimplificationError::bridge(simplify_rule_condition(
         definition,
         ensures,
         &condition_knowledge,
         simplification_options,
         solver,
-    ) {
+    )) {
         Ok(ensures) => ensures,
         Err(error) => {
             return RhsAlternativeAttempt::Simplification(error);

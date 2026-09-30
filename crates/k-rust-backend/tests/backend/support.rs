@@ -147,3 +147,114 @@ pub fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
         .internalize_term(&syntax, &[])
         .expect("term should internalize")
 }
+
+/// The simplifier's entry points on their failure layer, for the tests that arm no stop.
+///
+/// Each entry point returns a layered result: a stop outside, the simplification or its failure
+/// inside. A test that arms no stop asserts on the inner layer; a stop there is a test failure,
+/// reported with its cause. A test that expects a stop calls `k_rust_backend::simplify` itself.
+pub mod unstopped {
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        rewrite::Pattern,
+        rule::Predicate,
+        simplify::{self, Simplification, SimplificationError, SimplificationOptions},
+        smt::SmtSolver,
+        stop::Stoppable,
+        term::Term,
+    };
+
+    fn unstopped<T>(
+        result: Stoppable<Result<T, SimplificationError>>,
+    ) -> Result<T, SimplificationError> {
+        result.unwrap_or_else(|stop| {
+            panic!(
+                "the simplification stopped although no stop was armed: {}",
+                stop.into_cause()
+            )
+        })
+    }
+
+    pub fn simplify(
+        definition: &BackendDefinition,
+        term: &Term,
+        options: SimplificationOptions,
+    ) -> Result<Simplification, SimplificationError> {
+        unstopped(simplify::simplify(definition, term, options))
+    }
+
+    pub fn simplify_with_solver(
+        definition: &BackendDefinition,
+        term: &Term,
+        known_predicates: &[Predicate],
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Simplification, SimplificationError> {
+        unstopped(simplify::simplify_with_solver(
+            definition,
+            term,
+            known_predicates,
+            options,
+            solver,
+        ))
+    }
+
+    pub fn simplify_pattern_with_solver(
+        definition: &BackendDefinition,
+        pattern: &Pattern,
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Pattern, SimplificationError> {
+        unstopped(simplify::simplify_pattern_with_solver(
+            definition, pattern, options, solver,
+        ))
+    }
+
+    pub fn simplify_predicates_with_solver(
+        definition: &BackendDefinition,
+        predicates: &[Predicate],
+        known_predicates: &[Predicate],
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Vec<Predicate>, SimplificationError> {
+        unstopped(simplify::simplify_predicates_with_solver(
+            definition,
+            predicates,
+            known_predicates,
+            options,
+            solver,
+        ))
+    }
+
+    pub fn simplify_predicate_with_solver(
+        definition: &BackendDefinition,
+        predicate: &Predicate,
+        known_predicates: &[Predicate],
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Predicate, SimplificationError> {
+        unstopped(simplify::simplify_predicate_with_solver(
+            definition,
+            predicate,
+            known_predicates,
+            options,
+            solver,
+        ))
+    }
+
+    pub fn simplify_and_decide_predicate_with_solver(
+        definition: &BackendDefinition,
+        predicate: &Predicate,
+        known_predicates: &[Predicate],
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Result<Predicate, SimplificationError> {
+        unstopped(simplify::simplify_and_decide_predicate_with_solver(
+            definition,
+            predicate,
+            known_predicates,
+            options,
+            solver,
+        ))
+    }
+}

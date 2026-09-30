@@ -78,6 +78,7 @@ fn ground_normalized_inequality_is_decided_but_symbolic_inequality_is_not() {
     };
     let normalized = |source: &str| {
         crate::simplify::simplify(&definition, &term(source), SimplificationOptions::default())
+            .expect("no stop is armed")
             .unwrap()
             .term
     };

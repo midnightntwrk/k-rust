@@ -162,13 +162,13 @@ fn apply_priority_group(
         )
         .collect::<Vec<_>>();
     let (remainder, remainder_diagnostics) = diagnostic::collect(|| {
-        simplify_predicates_with_solver(
+        SimplificationError::bridge(simplify_predicates_with_solver(
             definition,
             &raw_remainder,
             &pattern.constraints,
             simplification_options,
             solver,
-        )
+        ))
     });
     let remainder = match remainder {
         Ok(remainder) => remainder,
@@ -473,13 +473,13 @@ fn fold_lower_priority_groups(
         if needs_simplification {
             let before = current.pattern.clone();
             let (simplified, diagnostics) = diagnostic::collect(|| {
-                simplify_with_solver(
+                SimplificationError::bridge(simplify_with_solver(
                     definition,
                     &before.term,
                     &before.constraints,
                     simplification_options,
                     solver,
-                )
+                ))
             });
             extend_distinct(&mut current.diagnostics, &diagnostics);
             match simplified {
@@ -762,13 +762,13 @@ fn simplify_remaining(
     solver: &dyn SmtSolver,
 ) -> Result<(), SimplificationError> {
     let (constraints, diagnostics) = diagnostic::collect(|| {
-        simplify_predicates_with_solver(
+        SimplificationError::bridge(simplify_predicates_with_solver(
             definition,
             &remaining.constraints,
             &pattern.constraints,
             simplification_options,
             solver,
-        )
+        ))
     });
     extend_distinct(remaining_diagnostics, &diagnostics);
     let constraints = constraints?;

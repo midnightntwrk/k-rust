@@ -5,13 +5,13 @@
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
-    simplify::{SimplificationOptions, simplify},
+    simplify::SimplificationOptions,
     substitution::Substitution,
     term::{Sort, Term, Variable},
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::internal_term;
+use crate::support::{internal_term, unstopped::simplify};
 
 /// `wrap` carries the anywhere equation `wrap(s(z)) = wrap(z)` and `into` the anywhere equation
 /// `into(s(X)) = addr(X)`, both emitted with `\in` binders as kompile emits anywhere rules; the
