@@ -87,6 +87,46 @@ fn matches_direct_rewrite_and_with_config_labels() {
     assert_eq!(match_rule_label(&unmatched), Label::new(""));
 }
 
+/// An alias `P #as V` matches the terms `P` matches, so the rule it heads is headed by `P`'s
+/// symbol, in every position the head is read from.
+#[test]
+fn matches_the_label_under_an_alias() {
+    let alias = |pattern: Term| Term::As {
+        pattern: Box::new(pattern),
+        alias: Box::new(Term::variable("V")),
+    };
+    let aliased_rewrite = rule(
+        Term::Rewrite {
+            left: Box::new(alias(alias(apply(Label::new("aliased"))))),
+            right: Box::new(Term::variable("RESULT")),
+        },
+        Attributes::default(),
+    );
+    let aliased_direct = rule(alias(apply(Label::new("direct"))), Attributes::default());
+    let with_config = rule(
+        Term::Apply {
+            label: Label::new("#withConfig"),
+            arguments: vec![
+                Term::Rewrite {
+                    left: Box::new(alias(apply(Label::new("configuredRewrite")))),
+                    right: Box::new(Term::variable("RESULT")),
+                },
+                Term::variable("CONFIG"),
+            ],
+        },
+        Attributes::default(),
+    );
+
+    assert_eq!(match_rule_label(&aliased_rewrite), Label::new("aliased"));
+    assert_eq!(match_rule_label(&aliased_direct), Label::new("direct"));
+    assert_eq!(
+        match_rule_label(&with_config),
+        Label::new("configuredRewrite")
+    );
+    let catalog = k_rust::definition::RuleCatalog::from_visible([&aliased_rewrite]);
+    assert_eq!(catalog.rules_for(&Label::new("aliased")), [RuleId(0)]);
+}
+
 #[test]
 fn derives_visible_local_sorted_and_grouped_sentence_views() {
     let base = FlatModule {

@@ -970,6 +970,89 @@ fn a_production_rewritten_by_a_macro_rule_is_not_a_constructor() {
     }
 }
 
+/// An alias `P #as V` matches exactly the terms `P` matches and binds `V` to the whole term, so
+/// it leaves the symbol that heads a rule's left side unchanged. `wrap(X) #as _V => done(X)
+/// [anywhere]` is the equation `wrap(X) = done(X)` and `plain(X) #as _W => done(X) [macro]` the
+/// macro axiom `plain(X) = done(X)`, so neither head is a free constructor: declaring either
+/// `constructor` or `injective`, or stating its disjointness from `done`, would contradict its
+/// own equation.
+#[test]
+fn an_aliased_rule_head_heads_its_equation() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "z" [symbol(z)]
+          syntax Exp ::= "done(" Exp ")" [symbol(done)]
+          syntax Exp ::= "wrap(" Exp ")" [symbol(wrap)]
+          syntax Exp ::= "plain(" Exp ")" [symbol(plain)]
+
+          rule wrap(X:Exp) #as _V:Exp => done(X:Exp) [anywhere]
+          rule plain(X:Exp) #as _W:Exp => done(X:Exp) [macro]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let attributes = |module: &k_rust::kore::ast::Module, symbol: &str| {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared.name == symbol => Some(
+                    attributes
+                        .0
+                        .iter()
+                        .filter_map(|attribute| match attribute {
+                            Pattern::Application { symbol, .. } => Some(symbol.name.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    };
+    for module in [&modules.semantics, &modules.syntax] {
+        for symbol in ["Lblz", "Lbldone"] {
+            let attributes = attributes(module, symbol);
+            assert!(
+                attributes.iter().any(|name| name == "constructor"),
+                "{symbol} in {}: {attributes:?}",
+                module.name
+            );
+        }
+        for symbol in ["Lblwrap", "Lblplain"] {
+            let attributes = attributes(module, symbol);
+            for absent in ["constructor", "injective"] {
+                assert!(
+                    !attributes.iter().any(|name| name == absent),
+                    "{symbol} in {} carries {absent}: {attributes:?}",
+                    module.name
+                );
+            }
+        }
+    }
+    let printer = Printer::compact();
+    for sentence in &modules.semantics.sentences {
+        let Sentence::Axiom { attributes, .. } = sentence else {
+            continue;
+        };
+        if attributes.0.iter().any(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "constructor")
+        }) {
+            // The no-confusion axioms; the no-junk axiom still lists both as generators.
+            let axiom = printer.print_sentence(sentence);
+            if axiom.contains("\\not") || axiom.contains("\\implies") {
+                assert!(
+                    !axiom.contains("Lblwrap") && !axiom.contains("Lblplain"),
+                    "{axiom}"
+                );
+            }
+        }
+    }
+}
+
 module_snapshot!(
     emits_algebraic_axioms,
     r#"

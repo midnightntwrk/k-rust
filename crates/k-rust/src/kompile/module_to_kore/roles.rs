@@ -1047,6 +1047,23 @@ mod tests {
         assert!(claims["done"].no_confusion());
     }
 
+    /// An alias around a rule's left side leaves the head that the classification reads, so
+    /// `wrap(X) #as _V => done(X) [anywhere]` makes `wrap` an equation head.
+    #[test]
+    fn an_aliased_anywhere_head_classifies_as_freeness_none() {
+        let claims = classified(indoc::indoc! {r#"
+            module MAIN
+              syntax Exp ::= "done(" Exp ")" [symbol(done)]
+              syntax Exp ::= "wrap(" Exp ")" [symbol(wrap)]
+
+              rule wrap(X:Exp) #as _V:Exp => done(X:Exp) [anywhere]
+            endmodule
+        "#});
+        assert_eq!(claims["wrap"].freeness(), Freeness::None);
+        assert!(claims["wrap"].anywhere());
+        assert_eq!(claims["done"].freeness(), Freeness::Constructor);
+    }
+
     /// The labelled token of a module is declared with `injective` only.
     #[test]
     fn a_labelled_token_of_a_module_classifies_as_injective() {

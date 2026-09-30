@@ -201,6 +201,10 @@ impl ResolvedDefinition {
 }
 
 /// Scala's `Module.matchKLabel`, including its two `#withConfig` cases.
+///
+/// This is the one reading of the symbol that heads a rule. An alias `P #as V` matches exactly
+/// the terms `P` matches and binds `V` to the whole term, so it is peeled wherever the head is
+/// read: `f(X) #as V => r` is headed by `f`, like `f(X) => r`.
 pub fn match_rule_label(rule: &Sentence) -> Label {
     let Sentence::Rule { body, .. } = rule else {
         panic!("match_rule_label requires a rule")
@@ -210,21 +214,22 @@ pub fn match_rule_label(rule: &Sentence) -> Label {
         .unwrap_or_else(|| Label::new(""))
 }
 
+/// `term` without its annotations and the aliases around it.
+fn unaliased(term: &Term) -> &Term {
+    let mut term = term.unannotated();
+    while let Term::As { pattern, .. } = term {
+        term = pattern.unannotated();
+    }
+    term
+}
+
 fn matched_term_label(term: &Term) -> Option<&Label> {
-    if let Term::Apply { label, arguments } = term.unannotated() {
+    if let Term::Apply { label, arguments } = unaliased(term) {
         if label.is(InternalLabel::WithConfig) {
-            match arguments.first() {
-                Some(term) if matches!(term.unannotated(), Term::Apply { .. }) => {
-                    let Term::Apply { label, .. } = term.unannotated() else {
-                        unreachable!()
-                    };
-                    return Some(label);
-                }
-                Some(term) if matches!(term.unannotated(), Term::Rewrite { .. }) => {
-                    let Term::Rewrite { left, .. } = term.unannotated() else {
-                        unreachable!()
-                    };
-                    if let Term::Apply { label, .. } = left.unannotated() {
+            match arguments.first().map(unaliased) {
+                Some(Term::Apply { label, .. }) => return Some(label),
+                Some(Term::Rewrite { left, .. }) => {
+                    if let Term::Apply { label, .. } = unaliased(left) {
                         return Some(label);
                     }
                 }
@@ -233,8 +238,8 @@ fn matched_term_label(term: &Term) -> Option<&Label> {
         }
         return Some(label);
     }
-    if let Term::Rewrite { left, .. } = term.unannotated()
-        && let Term::Apply { label, .. } = left.unannotated()
+    if let Term::Rewrite { left, .. } = unaliased(term)
+        && let Term::Apply { label, .. } = unaliased(left)
     {
         return Some(label);
     }
