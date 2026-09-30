@@ -918,7 +918,7 @@ mod tests {
             },
         ])
         .unwrap();
-        crate::inner::config::add_casts(
+        crate::inner::config::add_casts_from_sorts(
             &mut grammar,
             Sort::new("K"),
             Sort::new("Int"),

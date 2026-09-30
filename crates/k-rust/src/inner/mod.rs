@@ -8,6 +8,7 @@ mod location;
 mod parser;
 mod programs;
 mod rules;
+mod sort_universe;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
 pub use parser::{

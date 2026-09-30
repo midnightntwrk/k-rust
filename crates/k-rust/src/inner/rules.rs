@@ -34,20 +34,28 @@ use crate::definition::AttributeKey;
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence, SortCatalog,
+    Sentence,
 };
+use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::BuiltinSort;
 use crate::timings::PhaseTimings;
 
 use super::config::{
-    BuiltinTokenGrammar, add_casts, add_implicit_ml_syntax, add_k_syntax, add_subsort,
-    add_synonym_casts, implicit_kseq_bracket, nonterminal, truth,
+    BuiltinTokenGrammar, add_bottom_subsort, add_casts, add_implicit_ml_syntax, add_k_syntax,
+    add_kitem_subsort, add_sort_bracket, add_subsort, add_synonym_casts, implicit_kseq_bracket,
+    nonterminal, truth,
 };
 use super::location::span_location;
 use super::parser::{
     Grammar, ParseError, Scanner, TokenPrecedenceDeclaration, named_projection_productions,
 };
+use super::sort_universe::{
+    CastTarget, GrammarSort, RULE_BRACKET_SEED_ORDER, RULE_CAST_SEED_ORDER, RULE_GRAMMAR,
+    SortUniverse, rule_kernel_seeds, rule_member_productions,
+};
+#[cfg(not(feature = "z3-inference"))]
+use super::sort_universe::{RULE_SCAFFOLD_SEED_ORDER, ScaffoldPosition};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuleError {
@@ -527,11 +535,14 @@ enum RuleGrammarScope<'a> {
     Module { scanner_seed: Option<&'a Scanner> },
 }
 
-fn rule_grammar(
-    resolved: &ResolvedDefinition,
+/// The sentences the rule grammar of `module` is built from: the module's sentences (all of them
+/// for the global scanner, the signature plus ML-SYNTAX for a module grammar), plus the RULE-CELLS
+/// cell productions that no visible cell production already provides.
+fn rule_grammar_view<'a>(
+    resolved: &'a ResolvedDefinition,
     module: ModuleId,
     scope: RuleGrammarScope<'_>,
-) -> Result<Grammar, ParseError> {
+) -> Vec<&'a Sentence> {
     let mut visible = match scope {
         RuleGrammarScope::GlobalScanner => resolved.sentences(module),
         RuleGrammarScope::Module { .. } => {
@@ -570,11 +581,21 @@ fn rule_grammar(
             }
         }
     }
+    visible
+}
+
+fn rule_grammar(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+    scope: RuleGrammarScope<'_>,
+) -> Result<Grammar, ParseError> {
+    let visible = rule_grammar_view(resolved, module, scope);
     let scanner_seed = match scope {
         RuleGrammarScope::GlobalScanner => None,
         RuleGrammarScope::Module { scanner_seed } => scanner_seed,
     };
-    let concrete_sorts = concrete_sorts(&visible);
+    // Built after the RULE-CELLS injection, so the injected cells' body sorts are members.
+    let universe = SortUniverse::new(&visible);
     let has_generated_top_sort = visible.iter().any(|sentence| {
         matches!(
             sentence,
@@ -631,20 +652,25 @@ fn rule_grammar(
         })
         .map(|sentence| (*sentence).clone())
         .collect::<Vec<_>>();
-    parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
-        let predicate = Label::sort_predicate(sort).name;
-        (!visible.iter().any(|sentence| {
-            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == predicate)
-        }))
-        .then(|| sort_predicate_production(sort))
-    }));
-    parsing_sentences.extend(concrete_sorts.iter().filter_map(|sort| {
-        let projection = Label::projection(sort).name;
-        (!visible.iter().any(|sentence| {
-            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == projection)
-        }))
-        .then(|| sort_projection_production(sort))
-    }));
+    let has_production_labeled = |name: &str| {
+        visible.iter().any(|sentence| {
+            matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == name)
+        })
+    };
+    parsing_sentences.extend(
+        universe
+            .members()
+            .filter(|member| rule_member_productions(member.role()).predicate)
+            .filter(|member| !has_production_labeled(&Label::sort_predicate(member.sort()).name))
+            .map(|member| sort_predicate_production(&member)),
+    );
+    parsing_sentences.extend(
+        universe
+            .members()
+            .filter(|member| rule_member_productions(member.role()).projection)
+            .filter(|member| !has_production_labeled(&Label::projection(member.sort()).name))
+            .map(|member| sort_projection_production(&member)),
+    );
     parsing_sentences.extend(named_projection_productions(visible.iter().copied()));
     if !parsing_sentences
         .iter()
@@ -712,47 +738,52 @@ fn rule_grammar(
     let default_bracket = implicit_kseq_bracket(resolved);
     add_rule_k_syntax(
         &mut grammar,
-        &concrete_sorts,
+        &universe,
         &bracket_sorts,
         &klabel_terminals,
         default_bracket,
     )?;
-    add_rule_cells(&mut grammar, &visible)?;
+    add_rule_cells(&mut grammar, &visible, &universe)?;
     #[cfg(not(feature = "z3-inference"))]
-    add_rule_sort(&mut grammar, &Sort::new("Bag"))?;
-    // `KItem` is reserved, so it is not among the concrete sorts, but it is the declared sort of
-    // common argument positions (`ListItem`, `SetItem`, user `KItem` arguments). A rewrite whose
-    // sides are `KItem`s is a `KItem` pattern, admissible at such a position like any other.
+    for kernel in RULE_SCAFFOLD_SEED_ORDER {
+        if rule_kernel_seeds(kernel).rule_scaffold == Some(ScaffoldPosition::AfterRuleCells) {
+            add_rule_sort(&mut grammar, GrammarSort::kernel(kernel).sort())?;
+        }
+    }
+    // The sorts that have a `#Rule` scaffolding sort; every argument position of one of them
+    // admits a rewrite or `#as` pattern of that sort.
     #[cfg(not(feature = "z3-inference"))]
-    add_rule_sort(&mut grammar, &Sort::new("KItem"))?;
-    // The sorts that have a `#Rule` scaffolding sort (`K` from add_rule_k_syntax); every argument
-    // position of one of them admits a rewrite or `#as` pattern of that sort.
-    #[cfg(not(feature = "z3-inference"))]
-    let mut rule_sorts = [Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")]
+    let mut rule_sorts = RULE_SCAFFOLD_SEED_ORDER
         .into_iter()
-        .map(|sort| {
+        .filter(|kernel| rule_kernel_seeds(*kernel).rule_scaffold.is_some())
+        .map(|kernel| {
+            let sort = kernel.sort();
             let rule = rule_sort(&sort);
             (sort, rule)
         })
         .collect::<std::collections::BTreeMap<_, _>>();
 
-    for sort in concrete_sorts {
+    for member in universe.members() {
+        let productions = rule_member_productions(member.role());
         #[cfg(not(feature = "z3-inference"))]
-        {
-            add_rule_sort(&mut grammar, &sort)?;
-            rule_sorts.insert(sort.clone(), rule_sort(&sort));
+        if productions.rule_scaffold {
+            add_rule_sort(&mut grammar, member.sort())?;
+            rule_sorts.insert(member.sort().clone(), rule_sort(member.sort()));
         }
-        if sort.name != BuiltinSort::Bool.k_name() {
-            if !has_generated_top_sort && !explicit_top_sorts.contains(&sort) {
-                add_subsort(&mut grammar, "KItem", sort.clone())?;
-            }
-            if !has_generated_bottom_sort {
-                grammar.add(sort.clone(), vec![nonterminal("KBott")], None, false, true)?;
-            }
-            add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort.clone())?;
+        if productions.kitem_subsort
+            && !has_generated_top_sort
+            && !explicit_top_sorts.contains(member.sort())
+        {
+            add_kitem_subsort(&mut grammar, &member)?;
+        }
+        if productions.bottom_subsort && !has_generated_bottom_sort {
+            add_bottom_subsort(&mut grammar, &member, FrontendSort::KBott.as_str())?;
+        }
+        if productions.casts {
+            add_casts(&mut grammar, &CastTarget::member(&member))?;
         }
     }
-    add_synonym_casts(&mut grammar, &visible)?;
+    add_synonym_casts(&mut grammar, &universe, &RULE_GRAMMAR)?;
     #[cfg(not(feature = "z3-inference"))]
     {
         let scaffolding = rule_sorts
@@ -765,8 +796,8 @@ fn rule_grammar(
     Ok(grammar)
 }
 
-fn sort_predicate_production(sort: &Sort) -> Sentence {
-    let label = Label::sort_predicate(sort);
+fn sort_predicate_production(sort: &GrammarSort) -> Sentence {
+    let label = Label::sort_predicate(sort.sort());
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
     attributes.declare_total(TotalityWitness::covering_predicate());
@@ -788,8 +819,8 @@ fn sort_predicate_production(sort: &Sort) -> Sentence {
     }
 }
 
-fn sort_projection_production(sort: &Sort) -> Sentence {
-    let label = Label::projection(sort);
+fn sort_projection_production(sort: &GrammarSort) -> Sentence {
+    let label = Label::projection(sort.sort());
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
     attributes.mark(AttributeKey::Projection);
@@ -797,7 +828,7 @@ fn sort_projection_production(sort: &Sort) -> Sentence {
     Sentence::Production {
         label: Some(label.clone()),
         parameters: Vec::new(),
-        sort: sort.clone(),
+        sort: sort.sort().clone(),
         items: vec![
             ProductionItem::Terminal(label.name),
             ProductionItem::Terminal("(".into()),
@@ -811,53 +842,9 @@ fn sort_projection_production(sort: &Sort) -> Sentence {
     }
 }
 
-#[expect(
-    deprecated,
-    reason = "the rule grammar keeps this set until it reads sort roles (CBC-05-T3)"
-)]
-fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
-    // `Module.allSorts` (outer.scala:413) holds every declared instantiation of a parametric
-    // sort, such as `MInt{8}` from `syntax MInt{8}`, next to the nullary sorts, and
-    // RuleGrammarGenerator derives the `KItem ::= MInt{8}` subsort, the `MInt{8}` casts, and the
-    // sort predicate and projection from it. Sort-variable shapes such as `MInt{Width}` are not
-    // instantiations and stay excluded.
-    let instantiations = SortCatalog::from_visible(sentences.iter().copied())
-        .instantiations()
-        .values()
-        .flatten()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    sentences
-        .iter()
-        .flat_map(|sentence| match sentence {
-            // A production's `parameters` are sort variables bound by that production alone
-            // (`syntax {Sort} Sort ::= "#Top"`), so a result or item sort naming one of them is
-            // not a sort of the module. Excluding by the production's own binders, not by
-            // spelling, keeps a declared sort that happens to share a parameter's name.
-            Sentence::Production {
-                parameters,
-                sort,
-                items,
-                ..
-            } => std::iter::once(sort.clone())
-                .chain(items.iter().filter_map(|item| match item {
-                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
-                    _ => None,
-                }))
-                .filter(|sort| !parameters.contains(sort))
-                .collect::<Vec<_>>(),
-            Sentence::SyntaxSort { sort, .. } => vec![sort.clone()],
-            _ => Vec::new(),
-        })
-        .filter(|sort| {
-            (sort.parameters.is_empty() || instantiations.contains(sort)) && !sort.is_reserved()
-        })
-        .collect()
-}
-
 fn add_rule_k_syntax(
     grammar: &mut Grammar,
-    concrete_sorts: &BTreeSet<Sort>,
+    universe: &SortUniverse,
     bracket_sorts: &BTreeSet<Sort>,
     klabel_terminals: &BTreeSet<String>,
     default_bracket: Option<&Attributes>,
@@ -941,38 +928,23 @@ fn add_rule_k_syntax(
         false,
         false,
     )?;
-    // `K`, `KItem`, and the generated rule-cell `Bag` sort are intentionally absent from
-    // `concrete_sorts`, but rule bodies still need their concrete bracket productions. In
-    // particular, cell-collection deletion commonly parenthesizes a `Bag => Bag` rewrite.
-    for sort in [Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")] {
-        grammar.add_bracket(
-            sort.clone(),
-            vec![
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal { sort, name: None },
-                ProductionItem::Terminal(")".into()),
-            ],
-            default_bracket,
-        )?;
+    for kernel in RULE_BRACKET_SEED_ORDER {
+        if rule_kernel_seeds(kernel).bracket {
+            add_sort_bracket(grammar, &GrammarSort::kernel(kernel), default_bracket)?;
+        }
     }
-    // `Bag` is likewise absent from `concrete_sorts`, but collection cells need a concrete
-    // bracket to finish a parenthesized Bag rewrite immediately before their trailing dots.
-    grammar.add_bracket(
-        Sort::new("Bag"),
-        vec![
-            ProductionItem::Terminal("(".into()),
-            nonterminal("Bag"),
-            ProductionItem::Terminal(")".into()),
-        ],
-        default_bracket,
-    )?;
-    // AUTO-CASTS covers these structural rule sorts even though neither reaches the generic loop.
-    for sort in [Sort::new("Bag"), Sort::new("Cell")] {
-        add_casts(grammar, Sort::new("K"), sort.clone(), sort)?;
+    for kernel in RULE_CAST_SEED_ORDER {
+        if rule_kernel_seeds(kernel).casts {
+            add_casts(grammar, &CastTarget::kernel(kernel))?;
+        }
     }
     #[cfg(not(feature = "z3-inference"))]
-    add_rule_sort(grammar, &Sort::new("K"))?;
-    let rule_body_sort = rule_sort(&Sort::new("K"));
+    for kernel in RULE_SCAFFOLD_SEED_ORDER {
+        if rule_kernel_seeds(kernel).rule_scaffold == Some(ScaffoldPosition::BeforeRuleBody) {
+            add_rule_sort(grammar, GrammarSort::kernel(kernel).sort())?;
+        }
+    }
+    let rule_body_sort = rule_sort(&KernelSort::K.sort());
     grammar.add(
         Sort::new("#RuleBody"),
         vec![ProductionItem::NonTerminal {
@@ -983,22 +955,11 @@ fn add_rule_k_syntax(
         false,
         true,
     )?;
-    for sort in concrete_sorts {
-        if bracket_sorts.contains(sort) {
-            continue;
+    for member in universe.members() {
+        if rule_member_productions(member.role()).bracket && !bracket_sorts.contains(member.sort())
+        {
+            add_sort_bracket(grammar, &member, default_bracket)?;
         }
-        grammar.add_bracket(
-            sort.clone(),
-            vec![
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal {
-                    sort: sort.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal(")".into()),
-            ],
-            default_bracket,
-        )?;
     }
     grammar.add(
         Sort::new("#RuleBody"),
@@ -1278,7 +1239,11 @@ fn add_k_rule_sentences(sentences: &mut Vec<Sentence>) {
     }
 }
 
-fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), ParseError> {
+fn add_rule_cells(
+    grammar: &mut Grammar,
+    sentences: &[&Sentence],
+    universe: &SortUniverse,
+) -> Result<(), ParseError> {
     grammar.add(
         Sort::new("#OptionalDots"),
         vec![ProductionItem::Terminal("...".into())],
@@ -1343,65 +1308,53 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
                     continue;
                 };
                 let middle = &items[1..items.len().saturating_sub(1)];
-                #[cfg(not(feature = "z3-inference"))]
-                {
-                    let body_sort = match middle {
-                        [ProductionItem::NonTerminal { sort, .. }]
-                            if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
-                        {
-                            sort.clone()
-                        }
-                        _ => Sort::new("Bag"),
-                    };
-                    // Infer a whole-cell anonymous variable at the cell's declared sort, while
-                    // recognizing the rule scaffolding needed for rewrites in that cell.
-                    grammar.add_with_recognized_operands(
-                        sort.clone(),
-                        vec![
-                            first,
-                            nonterminal("#OptionalDots"),
-                            ProductionItem::NonTerminal {
-                                sort: body_sort.clone(),
-                                name: None,
-                            },
-                            nonterminal("#OptionalDots"),
-                            last,
-                        ],
-                        Some(label),
-                        &body_sort,
-                        &rule_sort(&body_sort),
-                    )?;
-                }
-                #[cfg(feature = "z3-inference")]
-                {
-                    let body = match middle {
-                        [ProductionItem::NonTerminal { sort, .. }]
-                            if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
-                        {
-                            ProductionItem::NonTerminal {
-                                sort: rule_sort(sort),
-                                name: None,
-                            }
-                        }
-                        _ => ProductionItem::NonTerminal {
-                            sort: rule_sort(&Sort::new("Bag")),
+                // The body of a cell is a pattern of one sort: the sort of a single body that is
+                // neither a cell nor a cell collection, which is an unbound operand of this
+                // visible production and so a universe member, else `Bag`, the sort of the cells.
+                let body = match middle {
+                    [ProductionItem::NonTerminal { sort, .. }]
+                        if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
+                    {
+                        universe.member(sort).ok_or(sort)
+                    }
+                    _ => Ok(GrammarSort::kernel(KernelSort::Bag)),
+                };
+                // A parametric body sort whose instance declaration this view does not see is not
+                // a member; its body keeps the declared sort and the scaffolding spelled from it.
+                let body_sort = match &body {
+                    Ok(member) => member.sort(),
+                    Err(declared) => *declared,
+                };
+                let cell_items = |recognized: Sort| {
+                    vec![
+                        first,
+                        nonterminal("#OptionalDots"),
+                        ProductionItem::NonTerminal {
+                            sort: recognized,
                             name: None,
                         },
-                    };
-                    grammar.add(
-                        sort.clone(),
-                        vec![
-                            first,
-                            nonterminal("#OptionalDots"),
-                            body,
-                            nonterminal("#OptionalDots"),
-                            last,
-                        ],
-                        Some(label),
-                        false,
-                        false,
-                    )?;
-                }
+                        nonterminal("#OptionalDots"),
+                        last,
+                    ]
+                };
+                // Infer a whole-cell anonymous variable at the cell's declared sort, while
+                // recognizing the rule scaffolding needed for rewrites in that cell.
+                #[cfg(not(feature = "z3-inference"))]
+                grammar.add_with_recognized_operands(
+                    sort.clone(),
+                    cell_items(body_sort.clone()),
+                    Some(label),
+                    body_sort,
+                    &rule_sort(body_sort),
+                )?;
+                #[cfg(feature = "z3-inference")]
+                grammar.add(
+                    sort.clone(),
+                    cell_items(rule_sort(body_sort)),
+                    Some(label),
+                    false,
+                    false,
+                )?;
                 grammar.add(
                     Sort::new("Cell"),
                     vec![ProductionItem::NonTerminal {
@@ -1436,21 +1389,15 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::definition::SortCatalog;
 
-    #[test]
-    fn concrete_sorts_excludes_the_sort_parameters_of_the_ml_productions() {
-        let source = r#"
-module MAIN
-  imports ML-SYNTAX
-  syntax Sort2 ::= "s2"
-endmodule
-"#;
+    fn load_with_prelude(source: &str) -> crate::outer::LoadedDefinition {
         let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
         let mut resolver = |_: &str, required: &str| {
             crate::builtin::embedded(required)
                 .ok_or_else(|| format!("unexpected require {required}"))
         };
-        let loaded = crate::outer::load_with_options(
+        crate::outer::load_with_options(
             crate::outer::ResolvedSource::new("main.k", source.to_owned()),
             "MAIN",
             &mut resolver,
@@ -1459,7 +1406,39 @@ endmodule
                 ..crate::outer::LoadOptions::default()
             },
         )
-        .expect("MAIN loads");
+        .expect("MAIN loads")
+    }
+
+    /// The universe of the rule grammar of `module`, with the declared sorts of the same view.
+    fn rule_grammar_universe(
+        resolved: &ResolvedDefinition,
+        module: &str,
+    ) -> (SortUniverse, BTreeSet<Sort>) {
+        let module = resolved.module_id(module).expect("the module is resolved");
+        let visible = rule_grammar_view(
+            resolved,
+            module,
+            RuleGrammarScope::Module { scanner_seed: None },
+        );
+        let declared = SortCatalog::from_visible(visible.iter().copied())
+            .all_sorts()
+            .clone();
+        (SortUniverse::new(&visible), declared)
+    }
+
+    /// 86a21b90: the parameters `Sort`, `Sort1` and `Sort2` of the ML productions are bound by
+    /// each production alone and are not sorts of the module, while a declared sort that shares a
+    /// parameter's spelling is.
+    #[test]
+    fn the_universe_excludes_the_sort_parameters_of_the_ml_productions() {
+        let loaded = load_with_prelude(
+            r#"
+module MAIN
+  imports ML-SYNTAX
+  syntax Sort2 ::= "s2"
+endmodule
+"#,
+        );
         let resolved = &loaded.resolved;
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let mut visible = resolved.signature_sentences(module);
@@ -1471,17 +1450,66 @@ endmodule
             "the ML productions binding Sort1 are visible"
         );
 
-        let sorts = concrete_sorts(&visible);
+        let universe = SortUniverse::new(&visible);
 
-        let names = sorts
-            .iter()
-            .map(|sort| sort.name.as_str())
+        let names = universe
+            .members()
+            .map(|member| member.sort().name.clone())
             .collect::<BTreeSet<_>>();
-        assert!(!names.contains("Sort"), "{names:?}");
-        assert!(!names.contains("Sort1"), "{names:?}");
+        assert!(universe.member(&Sort::new("Sort")).is_none(), "{names:?}");
+        assert!(universe.member(&Sort::new("Sort1")).is_none(), "{names:?}");
         assert!(
-            names.contains("Sort2"),
+            universe.member(&Sort::new("Sort2")).is_some(),
             "the declared sort Sort2 shares a parameter's spelling and stays: {names:?}"
         );
+    }
+
+    /// F10: every rule grammar sees the RULE-CELLS cell `<generatedCounter> Int
+    /// </generatedCounter>`, so `Int` is a sort of the rule grammar of BOOL-COMMON, whose visible
+    /// sentences declare no `Int`.
+    #[test]
+    fn the_universe_of_a_view_with_the_injected_counter_cell_contains_int() {
+        let loaded = load_with_prelude("module MAIN\nendmodule\n");
+
+        let (universe, declared) = rule_grammar_universe(&loaded.resolved, "BOOL-COMMON");
+
+        let int = Sort::new("Int");
+        assert!(
+            !declared.contains(&int),
+            "BOOL-COMMON's view declares no Int"
+        );
+        assert_eq!(
+            universe.member(&int).map(|member| member.role()),
+            Some(crate::kast::SortRole::Defined)
+        );
+    }
+
+    /// F10: `updateArray(Array, Int, List)` is a public ARRAY-SYNTAX production whose module
+    /// imports LIST privately, so a module that sees it without LIST still has positions of sort
+    /// `List`, and `List` is a sort of its rule grammar. (The main module is not that module: it
+    /// imports the default configuration, which sees LIST.)
+    #[test]
+    fn the_universe_of_a_view_without_list_contains_the_list_operand_of_array_syntax() {
+        let loaded = load_with_prelude(
+            r#"
+module ARRAY-USER
+  imports ARRAY-SYNTAX
+endmodule
+
+module MAIN
+  imports ARRAY-USER
+endmodule
+"#,
+        );
+
+        let (universe, declared) = rule_grammar_universe(&loaded.resolved, "ARRAY-USER");
+
+        let list = Sort::new("List");
+        assert!(
+            !declared.contains(&list),
+            "ARRAY-USER's view declares no List"
+        );
+        assert!(universe.member(&list).is_some());
+        assert!(universe.member(&Sort::new("Array")).is_some());
     }
 }

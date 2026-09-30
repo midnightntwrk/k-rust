@@ -32,6 +32,7 @@ use crate::names::BuiltinSort;
 
 use super::location::span_location;
 use super::parser::{Grammar, ParseError};
+use super::sort_universe::{CastTarget, GrammarPlan, GrammarSort, SortUniverse};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigError {
@@ -307,10 +308,10 @@ fn configuration_grammar(
             add_subsort(&mut grammar, "KItem", sort.clone())?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("KConfigVar"))?;
             add_subsort(&mut grammar, sort.name.as_str(), Sort::new("#KVariable"))?;
-            add_casts(&mut grammar, Sort::new("K"), sort.clone(), sort)?;
+            add_casts_from_sorts(&mut grammar, Sort::new("K"), sort.clone(), sort)?;
         }
     }
-    add_synonym_casts(&mut grammar, &visible)?;
+    add_synonym_casts_from_sentences(&mut grammar, &visible)?;
 
     Ok(grammar)
 }
@@ -459,21 +460,21 @@ pub(super) fn add_k_syntax(
         false,
         false,
     )?;
-    add_casts(grammar, Sort::new("K"), Sort::new("Bag"), Sort::new("Bag"))?;
-    add_casts(grammar, Sort::new("K"), Sort::new("K"), Sort::new("K"))?;
-    add_casts(
+    add_casts_from_sorts(grammar, Sort::new("K"), Sort::new("Bag"), Sort::new("Bag"))?;
+    add_casts_from_sorts(grammar, Sort::new("K"), Sort::new("K"), Sort::new("K"))?;
+    add_casts_from_sorts(
         grammar,
         Sort::new("K"),
         Sort::new("KItem"),
         Sort::new("KItem"),
     )?;
-    add_casts(
+    add_casts_from_sorts(
         grammar,
         Sort::new("KLabel"),
         Sort::new("KLabel"),
         Sort::new("KLabel"),
     )?;
-    add_casts(
+    add_casts_from_sorts(
         grammar,
         Sort::new("KList"),
         Sort::new("KList"),
@@ -490,7 +491,7 @@ pub(super) fn add_k_syntax(
     }
     add_subsort(grammar, "Bool", Sort::new("#KVariable"))?;
     add_subsort(grammar, "Bool", Sort::new("KConfigVar"))?;
-    add_casts(
+    add_casts_from_sorts(
         grammar,
         Sort::new("K"),
         Sort::new("Bool"),
@@ -620,9 +621,70 @@ pub(super) fn add_subsort(
     )
 }
 
-/// RuleGrammarGenerator adds casts for visible synonyms separately from concrete sorts.
-/// Keep the alias in the source spelling and the target in semantic cast labels and operands.
+/// `KItem ::= S`: every term of the sort `S` is a `KItem`.
+pub(super) fn add_kitem_subsort(
+    grammar: &mut Grammar,
+    sort: &GrammarSort,
+) -> Result<(), ParseError> {
+    add_subsort(grammar, BuiltinSort::KItem.k_name(), sort.sort().clone())
+}
+
+/// `S ::= child` for a kernel bottom `child` (`KBott`, `KConfigVar`, `#KVariable`), through which
+/// a variable or a configuration variable stands at the sort. The result is the whole sort,
+/// parameters included.
+pub(super) fn add_bottom_subsort(
+    grammar: &mut Grammar,
+    sort: &GrammarSort,
+    child: &'static str,
+) -> Result<(), ParseError> {
+    grammar.add(
+        sort.sort().clone(),
+        vec![nonterminal(child)],
+        None,
+        false,
+        true,
+    )
+}
+
+/// `S ::= "(" S ")"`, carrying the priority contract of `default`, the implicit K-sequence
+/// bracket, when the grammar has one.
+pub(super) fn add_sort_bracket(
+    grammar: &mut Grammar,
+    sort: &GrammarSort,
+    default: Option<&Attributes>,
+) -> Result<(), ParseError> {
+    grammar.add_bracket(
+        sort.sort().clone(),
+        vec![
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::NonTerminal {
+                sort: sort.sort().clone(),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        default,
+    )
+}
+
+/// The casts of every synonym of `universe`, when the grammar's `plan` has them.
 pub(super) fn add_synonym_casts(
+    grammar: &mut Grammar,
+    universe: &SortUniverse,
+    plan: &GrammarPlan,
+) -> Result<(), ParseError> {
+    if plan.synonym_casts {
+        for target in universe.synonym_casts() {
+            add_casts(grammar, &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// The `Sort`-typed form of [`add_synonym_casts`], kept for the configuration grammar until it
+/// builds its per-sort productions from a [`SortUniverse`] (CBC-05-T4). A synonym's casts are
+/// written with the alias and typed by the target, which the alias spells.
+pub(super) fn add_synonym_casts_from_sentences(
     grammar: &mut Grammar,
     visible: &[&Sentence],
 ) -> Result<(), ParseError> {
@@ -631,13 +693,36 @@ pub(super) fn add_synonym_casts(
             new_sort, old_sort, ..
         } = sentence
         {
-            add_casts(grammar, Sort::new("K"), new_sort.clone(), old_sort.clone())?;
+            add_casts_from_sorts(grammar, Sort::new("K"), new_sort.clone(), old_sort.clone())?;
         }
     }
     Ok(())
 }
 
-pub(super) fn add_casts(
+/// The four cast productions of `target`: `S ::= L "::S"`, `S ::= "{" L "}" "::S"`,
+/// `L ::= L ":S"` and `L ::= "{" I "}" ":>S"`, with `S` its cast, `L` its label and `I` its
+/// outer inner sort.
+pub(super) fn add_casts(grammar: &mut Grammar, target: &CastTarget) -> Result<(), ParseError> {
+    add_cast_productions(
+        grammar,
+        target.outer_inner().clone(),
+        target.cast().clone(),
+        target.label().clone(),
+    )
+}
+
+/// The `Sort`-typed form of [`add_casts`], kept for the fixed kernel syntax and the configuration
+/// grammar until they take a [`CastTarget`] (CBC-05-T4).
+pub(super) fn add_casts_from_sorts(
+    grammar: &mut Grammar,
+    inner_sort: Sort,
+    cast_sort: Sort,
+    label_sort: Sort,
+) -> Result<(), ParseError> {
+    add_cast_productions(grammar, inner_sort, cast_sort, label_sort)
+}
+
+fn add_cast_productions(
     grammar: &mut Grammar,
     inner_sort: Sort,
     cast_sort: Sort,

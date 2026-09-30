@@ -63,13 +63,6 @@ impl KernelSort {
     }
 
     /// The nullary sort with the kernel spelling.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "first read by the per-sort grammar generators (CBC-05-T3)"
-        )
-    )]
     pub(crate) fn sort(self) -> Sort {
         Sort::new(self.name())
     }
