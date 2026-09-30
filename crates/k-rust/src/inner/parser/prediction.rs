@@ -886,7 +886,7 @@ mod tests {
     #[cfg(feature = "z3-inference")]
     #[test]
     fn dead_waiters_preserve_nullable_record_names_and_metadata() {
-        let mut grammar = Grammar::from_sentences(&[
+        let sentences = [
             production("Start", vec![nt("Dead"), terminal("bad")], "bad"),
             production("Start", vec![nt("Wide")], "start"),
             production("Dead", vec![terminal("n")], "n"),
@@ -916,13 +916,18 @@ mod tests {
                 items: vec![nt("Int")],
                 attributes: Attributes::default(),
             },
-        ])
-        .unwrap();
-        crate::inner::config::add_casts_from_sorts(
+        ];
+        let mut grammar = Grammar::from_sentences(&sentences).unwrap();
+        // `box(...)` completes the `Int` field through a cast; `Int` is a sort the test sentences
+        // give a position, so its casts come from its universe member.
+        let universe =
+            crate::inner::sort_universe::SortUniverse::new(&sentences.iter().collect::<Vec<_>>());
+        let int = universe
+            .member(&Sort::new("Int"))
+            .expect("Int is a sort of the test sentences");
+        crate::inner::config::add_casts(
             &mut grammar,
-            Sort::new("K"),
-            Sort::new("Int"),
-            Sort::new("Int"),
+            &crate::inner::sort_universe::CastTarget::member(&int),
         )
         .unwrap();
         let baseline = unfiltered(&grammar, "box(...)").unwrap();

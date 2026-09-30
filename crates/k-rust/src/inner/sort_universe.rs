@@ -468,13 +468,6 @@ const fn checked_order(order: SeedOrder) -> SeedOrder {
 }
 
 /// The configuration grammar's tables.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the configuration grammar reads every item here (CBC-05-T4 deletes this attribute)"
-    )
-)]
 pub(in crate::inner) mod configuration {
     use super::{GrammarPlan, KernelSort, SeedOrder, SortRole, checked_order};
     use KernelSort::{Bag, Bool, Cell, K, KBott, KConfigVar, KItem, KLabel, KList, KString};

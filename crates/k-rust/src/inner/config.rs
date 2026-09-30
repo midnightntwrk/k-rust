@@ -27,11 +27,15 @@ use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, Location, ModuleId, ProductionItem,
     ResolveError, ResolvedDefinition, Sentence, push_if_inequivalent,
 };
-use crate::kast::{InternalLabel, Label, Sort, Term};
-use crate::names::BuiltinSort;
+use crate::kast::sort_role::KernelSort;
+use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 
 use super::location::span_location;
 use super::parser::{Grammar, ParseError};
+use super::sort_universe::configuration::{
+    CONFIGURATION_BRACKET_SEED_ORDER, CONFIGURATION_GRAMMAR, configuration_kernel_seeds,
+    configuration_member_productions,
+};
 use super::sort_universe::{CastTarget, GrammarPlan, GrammarSort, SortUniverse};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -237,19 +241,10 @@ fn configuration_grammar(
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
-    let mut concrete_sorts = visible
-        .iter()
-        .flat_map(|sentence| match sentence {
-            Sentence::Production { sort, items, .. } => std::iter::once(sort.clone())
-                .chain(items.iter().filter_map(|item| match item {
-                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
-                    _ => None,
-                }))
-                .collect::<Vec<_>>(),
-            Sentence::SyntaxSort { sort, .. } => vec![sort.clone()],
-            _ => Vec::new(),
-        })
-        .collect::<std::collections::BTreeSet<_>>();
+    // The sorts the per-sort productions range over: the rule grammar's universe over this
+    // grammar's visible sentences. An operand sort that no visible sentence declares stays a
+    // member, because configuration bubbles are parsed before the sort check, which reports it.
+    let universe = SortUniverse::new(&visible);
 
     add_config_cells(&mut grammar)?;
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;
@@ -258,8 +253,8 @@ fn configuration_grammar(
     // source form that can intentionally construct a token without passing its value through
     // configuration-variable inference first. Keep this parser-only KBott bridge local to the
     // configuration grammar; lower_term converts the selected #KToken application to Term::Token.
-    add_subsort(&mut grammar, "KBott", Sort::new("KConfigVar"))?;
-    add_subsort(&mut grammar, "KItem", Sort::new("KBott"))?;
+    add_subsort(&mut grammar, "KBott", "KConfigVar")?;
+    add_subsort(&mut grammar, "KItem", "KBott")?;
     grammar.add(
         Sort::new("KBott"),
         vec![
@@ -275,43 +270,34 @@ fn configuration_grammar(
         false,
     )?;
 
-    // K is implicit in configuration grammar seeds, including KSEQ brackets.
-    // Keep concrete seeds so their inferred types match the rest of this grammar.
+    // Every member whose row has a bracket, then the kernel seeds (`K`, `KItem`, `Bag`) whether
+    // or not the module declares them; `add_bracket` skips a bracket the grammar already has.
     let default_bracket = implicit_kseq_bracket(resolved);
-    for sort in
-        concrete_sorts
-            .iter()
-            .cloned()
-            .chain([Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")])
-    {
-        if sort.name.starts_with('#') {
-            continue;
+    for member in universe.members() {
+        if configuration_member_productions(member.role()).bracket {
+            add_sort_bracket(&mut grammar, &member, default_bracket)?;
         }
-        grammar.add_bracket(
-            sort.clone(),
-            vec![
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal { sort, name: None },
-                ProductionItem::Terminal(")".into()),
-            ],
-            default_bracket,
-        )?;
+    }
+    for kernel in CONFIGURATION_BRACKET_SEED_ORDER {
+        if configuration_kernel_seeds(kernel).bracket {
+            add_sort_bracket(&mut grammar, &GrammarSort::kernel(kernel), default_bracket)?;
+        }
     }
 
-    #[expect(
-        deprecated,
-        reason = "the configuration grammar keeps this set until it reads sort roles (CBC-05-T4)"
-    )]
-    concrete_sorts.retain(|sort| !sort.is_reserved());
-    for sort in concrete_sorts {
-        if sort.name != BuiltinSort::Bool.k_name() {
-            add_subsort(&mut grammar, "KItem", sort.clone())?;
-            add_subsort(&mut grammar, sort.name.as_str(), Sort::new("KConfigVar"))?;
-            add_subsort(&mut grammar, sort.name.as_str(), Sort::new("#KVariable"))?;
-            add_casts_from_sorts(&mut grammar, Sort::new("K"), sort.clone(), sort)?;
+    for member in universe.members() {
+        let productions = configuration_member_productions(member.role());
+        if productions.kitem_subsort {
+            add_kitem_subsort(&mut grammar, &member)?;
+        }
+        if productions.variable_subsorts {
+            add_bottom_subsort(&mut grammar, &member, KernelSort::KConfigVar.name())?;
+            add_bottom_subsort(&mut grammar, &member, FrontendSort::KVariable.as_str())?;
+        }
+        if productions.casts {
+            add_casts(&mut grammar, &CastTarget::member(&member))?;
         }
     }
-    add_synonym_casts_from_sentences(&mut grammar, &visible)?;
+    add_synonym_casts(&mut grammar, &universe, &CONFIGURATION_GRAMMAR)?;
 
     Ok(grammar)
 }
@@ -412,12 +398,12 @@ pub(super) fn add_k_syntax(
     which: BuiltinTokenGrammar,
 ) -> Result<(), ParseError> {
     add_builtin_tokens(grammar, which)?;
-    add_subsort(grammar, "K", Sort::new("KItem"))?;
-    add_subsort(grammar, "KItem", Sort::new("Bag"))?;
-    add_subsort(grammar, "KItem", Sort::new("Bool"))?;
-    add_subsort(grammar, "KItem", Sort::new("KConfigVar"))?;
-    add_subsort(grammar, "KItem", Sort::new("#KVariable"))?;
-    add_subsort(grammar, "#RuleBody", Sort::new("K"))?;
+    add_subsort(grammar, "K", "KItem")?;
+    add_subsort(grammar, "KItem", "Bag")?;
+    add_subsort(grammar, "KItem", "Bool")?;
+    add_subsort(grammar, "KItem", "KConfigVar")?;
+    add_subsort(grammar, "KItem", "#KVariable")?;
+    add_subsort(grammar, "#RuleBody", "K")?;
 
     grammar.add(
         Sort::new("K"),
@@ -460,26 +446,11 @@ pub(super) fn add_k_syntax(
         false,
         false,
     )?;
-    add_casts_from_sorts(grammar, Sort::new("K"), Sort::new("Bag"), Sort::new("Bag"))?;
-    add_casts_from_sorts(grammar, Sort::new("K"), Sort::new("K"), Sort::new("K"))?;
-    add_casts_from_sorts(
-        grammar,
-        Sort::new("K"),
-        Sort::new("KItem"),
-        Sort::new("KItem"),
-    )?;
-    add_casts_from_sorts(
-        grammar,
-        Sort::new("KLabel"),
-        Sort::new("KLabel"),
-        Sort::new("KLabel"),
-    )?;
-    add_casts_from_sorts(
-        grammar,
-        Sort::new("KList"),
-        Sort::new("KList"),
-        Sort::new("KList"),
-    )?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::Bag))?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::K))?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::KItem))?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::KLabel))?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::KList))?;
     for value in ["true", "false"] {
         grammar.add(
             Sort::new("Bool"),
@@ -489,14 +460,9 @@ pub(super) fn add_k_syntax(
             false,
         )?;
     }
-    add_subsort(grammar, "Bool", Sort::new("#KVariable"))?;
-    add_subsort(grammar, "Bool", Sort::new("KConfigVar"))?;
-    add_casts_from_sorts(
-        grammar,
-        Sort::new("K"),
-        Sort::new("Bool"),
-        Sort::new("Bool"),
-    )?;
+    add_subsort(grammar, "Bool", "#KVariable")?;
+    add_subsort(grammar, "Bool", "KConfigVar")?;
+    add_casts(grammar, &CastTarget::kernel(KernelSort::Bool))?;
     grammar.add(
         Sort::new("#RuleContent"),
         vec![nonterminal("#RuleBody")],
@@ -601,16 +567,23 @@ fn add_config_cells(grammar: &mut Grammar) -> Result<(), ParseError> {
         false,
         false,
     )?;
-    add_subsort(grammar, "Bag", Sort::new("Cell"))
+    add_subsort(grammar, "Bag", "Cell")
 }
 
+/// `result ::= child` between two sorts of the fixed kernel syntax. The per-sort subsorts of a
+/// grammar's members go through [`add_kitem_subsort`] and [`add_bottom_subsort`], which take a
+/// [`GrammarSort`].
 pub(super) fn add_subsort(
     grammar: &mut Grammar,
-    result: &str,
-    child: Sort,
+    result: &'static str,
+    child: &'static str,
 ) -> Result<(), ParseError> {
+    add_unary_subsort(grammar, Sort::new(result), Sort::new(child))
+}
+
+fn add_unary_subsort(grammar: &mut Grammar, result: Sort, child: Sort) -> Result<(), ParseError> {
     grammar.add(
-        Sort::new(result),
+        result,
         vec![ProductionItem::NonTerminal {
             sort: child,
             name: None,
@@ -626,7 +599,7 @@ pub(super) fn add_kitem_subsort(
     grammar: &mut Grammar,
     sort: &GrammarSort,
 ) -> Result<(), ParseError> {
-    add_subsort(grammar, BuiltinSort::KItem.k_name(), sort.sort().clone())
+    add_unary_subsort(grammar, KernelSort::KItem.sort(), sort.sort().clone())
 }
 
 /// `S ::= child` for a kernel bottom `child` (`KBott`, `KConfigVar`, `#KVariable`), through which
@@ -637,13 +610,7 @@ pub(super) fn add_bottom_subsort(
     sort: &GrammarSort,
     child: &'static str,
 ) -> Result<(), ParseError> {
-    grammar.add(
-        sort.sort().clone(),
-        vec![nonterminal(child)],
-        None,
-        false,
-        true,
-    )
+    add_unary_subsort(grammar, sort.sort().clone(), Sort::new(child))
 }
 
 /// `S ::= "(" S ")"`, carrying the priority contract of `default`, the implicit K-sequence
@@ -681,55 +648,12 @@ pub(super) fn add_synonym_casts(
     Ok(())
 }
 
-/// The `Sort`-typed form of [`add_synonym_casts`], kept for the configuration grammar until it
-/// builds its per-sort productions from a [`SortUniverse`] (CBC-05-T4). A synonym's casts are
-/// written with the alias and typed by the target, which the alias spells.
-pub(super) fn add_synonym_casts_from_sentences(
-    grammar: &mut Grammar,
-    visible: &[&Sentence],
-) -> Result<(), ParseError> {
-    for sentence in visible {
-        if let Sentence::SortSynonym {
-            new_sort, old_sort, ..
-        } = sentence
-        {
-            add_casts_from_sorts(grammar, Sort::new("K"), new_sort.clone(), old_sort.clone())?;
-        }
-    }
-    Ok(())
-}
-
 /// The four cast productions of `target`: `S ::= L "::S"`, `S ::= "{" L "}" "::S"`,
 /// `L ::= L ":S"` and `L ::= "{" I "}" ":>S"`, with `S` its cast, `L` its label and `I` its
 /// outer inner sort.
 pub(super) fn add_casts(grammar: &mut Grammar, target: &CastTarget) -> Result<(), ParseError> {
-    add_cast_productions(
-        grammar,
-        target.outer_inner().clone(),
-        target.cast().clone(),
-        target.label().clone(),
-    )
-}
-
-/// The `Sort`-typed form of [`add_casts`], still called by the configuration grammar's member
-/// loop and by the fixed kernel syntax of [`add_k_syntax`]. CBC-05-T4 deletes it: the member loop
-/// then passes [`CastTarget::member`], and `add_k_syntax` keeps its literal list of kernel casts,
-/// each passing [`CastTarget::kernel`] of its kernel sort.
-pub(super) fn add_casts_from_sorts(
-    grammar: &mut Grammar,
-    inner_sort: Sort,
-    cast_sort: Sort,
-    label_sort: Sort,
-) -> Result<(), ParseError> {
-    add_cast_productions(grammar, inner_sort, cast_sort, label_sort)
-}
-
-fn add_cast_productions(
-    grammar: &mut Grammar,
-    inner_sort: Sort,
-    cast_sort: Sort,
-    label_sort: Sort,
-) -> Result<(), ParseError> {
+    let cast_sort = target.cast();
+    let label_sort = target.label();
     grammar.add(
         cast_sort.clone(),
         vec![
@@ -765,7 +689,7 @@ fn add_cast_productions(
         },
         ProductionItem::Terminal(format!(":{cast_sort}")),
     ];
-    if label_sort == Sort::new("K") && cast_sort == Sort::new("K") {
+    if *label_sort == Sort::new("K") && *cast_sort == Sort::new("K") {
         grammar.add_with_source_text(
             label_sort.clone(),
             semantic_cast_items,
@@ -778,17 +702,17 @@ fn add_cast_productions(
         grammar.add(
             label_sort.clone(),
             semantic_cast_items,
-            Some(Label::semantic_cast(&label_sort)),
+            Some(Label::semantic_cast(label_sort)),
             false,
             false,
         )?;
     }
     grammar.add(
-        label_sort,
+        label_sort.clone(),
         vec![
             ProductionItem::Terminal("{".into()),
             ProductionItem::NonTerminal {
-                sort: inner_sort,
+                sort: target.outer_inner().clone(),
                 name: None,
             },
             ProductionItem::Terminal("}".into()),
@@ -820,6 +744,142 @@ mod tests {
 
     fn regex(regex: &str) -> String {
         format!("r{regex:?}")
+    }
+
+    fn load_with_prelude(
+        source: &str,
+    ) -> Result<crate::outer::LoadedDefinition, crate::outer::LoadError> {
+        let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
+        let mut resolver = |_: &str, required: &str| {
+            crate::builtin::embedded(required)
+                .ok_or_else(|| format!("unexpected require {required}"))
+        };
+        crate::outer::load_with_options(
+            crate::outer::ResolvedSource::new("main.k", source.to_owned()),
+            "MAIN",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+    }
+
+    /// The configuration grammar of MAIN in `source`, loaded with the prelude.
+    fn main_configuration_grammar(source: &str) -> Grammar {
+        let loaded =
+            load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        let resolved = &loaded.resolved;
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        configuration_grammar(resolved, module).expect("the configuration grammar builds")
+    }
+
+    fn unary(child: &str) -> [ProductionItem; 1] {
+        [nonterminal(child)]
+    }
+
+    /// 86a21b90 in the configuration grammar: the parameters `Sort`, `Sort1` and `Sort2` of the
+    /// ML productions are bound by each production alone, so they are not sorts of the module and
+    /// no production of the grammar has one as its result or as a nonterminal item. A sort the
+    /// grammar has no id for occurs in no production, since every production's result and items
+    /// are interned when it is added.
+    #[test]
+    fn the_configuration_grammar_has_no_production_at_a_sort_parameter_of_the_ml_productions() {
+        let source = r#"
+module MAIN
+  imports ML-SYNTAX
+  syntax Foo ::= "foo"
+endmodule
+"#;
+        let loaded =
+            load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        let resolved = &loaded.resolved;
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        let mut visible = resolved.signature_sentences(module);
+        add_implicit_ml_syntax(resolved, &mut visible);
+        for parameter in ["Sort", "Sort1", "Sort2"] {
+            assert!(
+                visible.iter().any(|sentence| matches!(sentence,
+                    Sentence::Production { parameters, .. }
+                        if parameters.iter().any(|bound| bound.name == parameter))),
+                "an ML production binding {parameter} is visible"
+            );
+        }
+
+        let grammar = configuration_grammar(resolved, module).expect("the grammar builds");
+
+        for parameter in ["Sort", "Sort1", "Sort2"] {
+            assert_eq!(
+                grammar.sort_id(&Sort::new(parameter)),
+                None,
+                "a production of the configuration grammar mentions {parameter}"
+            );
+        }
+        // Control: the declared sort receives its per-sort productions.
+        assert!(grammar.has_equivalent_production(&Sort::new("Foo"), &unary("KConfigVar"), false));
+        assert!(grammar.has_equivalent_production(&Sort::new("KItem"), &unary("Foo"), false));
+    }
+
+    /// F9: the bottom subsorts of a declared instance have the whole sort as their result, so a
+    /// configuration variable and a variable stand at `MInt{8}`; the bare head `MInt` is not a
+    /// sort and receives no production.
+    #[test]
+    fn the_configuration_grammar_gives_a_declared_instance_its_variable_subsorts() {
+        let grammar = main_configuration_grammar(
+            r#"
+module MAIN
+  syntax MInt{8}
+  syntax Foo ::= foo(MInt{8})
+endmodule
+"#,
+        );
+        let instance = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+
+        for child in ["KConfigVar", "#KVariable"] {
+            assert!(
+                grammar.has_equivalent_production(&instance, &unary(child), false),
+                "MInt{{8}} ::= {child}"
+            );
+            assert!(
+                !grammar.has_equivalent_production(&Sort::new("MInt"), &unary(child), false),
+                "MInt ::= {child}"
+            );
+        }
+        assert!(grammar.has_equivalent_production(
+            &Sort::new("KItem"),
+            &[ProductionItem::NonTerminal {
+                sort: instance,
+                name: None,
+            }],
+            false
+        ));
+        assert_eq!(grammar.sort_id(&Sort::new("MInt")), None);
+    }
+
+    /// An operand sort that no module declares stays a sort of the configuration grammar, since
+    /// configuration bubbles are parsed before the sort check: the configuration parses, and the
+    /// sort check reports the undeclared sort.
+    #[test]
+    fn an_undeclared_operand_sort_of_a_configuration_is_reported_by_the_sort_check() {
+        let source = r#"
+module MAIN
+  syntax Foo ::= f(Bar)
+  configuration <k> f($PGM) </k>
+endmodule
+"#;
+        let error = match load_with_prelude(source) {
+            Ok(_) => panic!("MAIN uses the undeclared sort Bar and must not load"),
+            Err(error) => error,
+        };
+        let crate::outer::LoadError::SourceDiagnostics(diagnostics) = &error else {
+            panic!("expected the sort check's diagnostics, got {error}");
+        };
+        assert!(
+            diagnostics.iter().any(|diagnostic| diagnostic.code
+                == crate::diagnostic::DiagnosticCode::UndefinedSort
+                && diagnostic.message == "Could not find sorts: [Bar]"),
+            "{diagnostics:?}"
+        );
     }
 
     #[test]

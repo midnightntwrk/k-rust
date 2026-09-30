@@ -849,9 +849,9 @@ fn add_rule_k_syntax(
     klabel_terminals: &BTreeSet<String>,
     default_bracket: Option<&Attributes>,
 ) -> Result<(), ParseError> {
-    add_subsort(grammar, "KBott", Sort::new("#KVariable"))?;
-    add_subsort(grammar, "KBott", Sort::new("KConfigVar"))?;
-    add_subsort(grammar, "KItem", Sort::new("KBott"))?;
+    add_subsort(grammar, "KBott", "#KVariable")?;
+    add_subsort(grammar, "KBott", "KConfigVar")?;
+    add_subsort(grammar, "KItem", "KBott")?;
     // Literal terminals always beat regex lexemes in the global scanner. Retain this generated
     // bridge so labels whose spelling is also a terminal remain usable in prefix applications
     // and explicit `#klabel(...)` terms.
