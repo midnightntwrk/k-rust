@@ -463,8 +463,8 @@ impl Sort {
     /// builtins, the `KBott`, `Cell`, and `Bag` frontend sorts, or any `#`-prefixed name.
     /// Parameters are ignored.
     #[deprecated(
-        note = "this set mixes kernel, scaffolding and rigid-variable sort heads; it stays only \
-                for the grammar generators that still read it and will be removed"
+        note = "this set mixes kernel, scaffolding and rigid-variable sort heads; no code in the \
+                crate reads it, and it is kept only for the public API until it is removed"
     )]
     pub fn is_reserved(&self) -> bool {
         SortRole::is_reserved(self.role())
@@ -744,7 +744,7 @@ mod tests {
     #[test]
     #[expect(
         deprecated,
-        reason = "pins the deprecated wrapper until its last caller is removed"
+        reason = "pins the deprecated public wrapper until it is removed"
     )]
     fn is_reserved_agrees_with_the_configuration_grammar_predicate() {
         // `inner/config.rs` at c5bf88f: the sorts that get no cast, subsort, or bracket.

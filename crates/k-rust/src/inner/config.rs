@@ -242,8 +242,10 @@ fn configuration_grammar(
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
     // The sorts the per-sort productions range over: the rule grammar's universe over this
-    // grammar's visible sentences. An operand sort that no visible sentence declares stays a
-    // member, because configuration bubbles are parsed before the sort check, which reports it.
+    // grammar's visible sentences. A visible production gives each of its operand sorts a
+    // position whether or not that sort's declaration is visible here (a private import hides
+    // it), and a configuration variable standing at that position needs the sort's variable
+    // subsorts, so an operand sort is a member even when no visible sentence declares it.
     let universe = SortUniverse::new(&visible);
 
     add_config_cells(&mut grammar)?;
@@ -856,9 +858,9 @@ endmodule
         assert_eq!(grammar.sort_id(&Sort::new("MInt")), None);
     }
 
-    /// An operand sort that no module declares stays a sort of the configuration grammar, since
-    /// configuration bubbles are parsed before the sort check: the configuration parses, and the
-    /// sort check reports the undeclared sort.
+    /// A definition whose operand sort no module declares is rejected by the sort check, which
+    /// runs on every module before any configuration is parsed; the configuration grammar is
+    /// never built for it.
     #[test]
     fn an_undeclared_operand_sort_of_a_configuration_is_reported_by_the_sort_check() {
         let source = r#"
@@ -880,6 +882,51 @@ endmodule
                 && diagnostic.message == "Could not find sorts: [Bar]"),
             "{diagnostics:?}"
         );
+    }
+
+    /// A visible production's operand sort whose declaration the configuration module cannot
+    /// see (FOO imports BAR privately) is still a position of that production, so a
+    /// configuration variable must be able to stand there: the sort receives its variable
+    /// subsorts and the configuration `f($PGM)` parses.
+    #[test]
+    fn an_operand_sort_declared_behind_a_private_import_receives_its_variable_subsorts() {
+        let source = r#"
+module BAR
+  syntax Bar ::= "b"
+endmodule
+
+module FOO
+  imports private BAR
+  syntax Foo ::= f(Bar)
+endmodule
+
+module MAIN
+  imports FOO
+  configuration <k> f($PGM) </k>
+endmodule
+"#;
+        let loaded =
+            load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
+        let resolved = &loaded.resolved;
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        let bar = Sort::new("Bar");
+        // The shape under test: no sentence visible to MAIN declares Bar.
+        let visible = resolved.signature_sentences(module);
+        assert!(
+            !crate::definition::SortCatalog::from_visible(visible.iter().copied())
+                .all_sorts()
+                .contains(&bar),
+            "Bar is declared by a sentence visible to MAIN"
+        );
+
+        let grammar = configuration_grammar(resolved, module).expect("the grammar builds");
+
+        for child in ["KConfigVar", "#KVariable"] {
+            assert!(
+                grammar.has_equivalent_production(&bar, &unary(child), false),
+                "Bar ::= {child}"
+            );
+        }
     }
 
     #[test]
