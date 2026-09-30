@@ -2767,3 +2767,26 @@ fn rule_increment(value: u32) -> Result<u32, StateTransportError> {
         "rule provenance ordinal exceeds u32",
     ))
 }
+
+#[cfg(test)]
+mod bytes_token_tests {
+    use super::{RuleCounters, builtin_token_role};
+    use crate::{BuiltinSort, ProvenanceRole, StateTransportError};
+    use krs_test_support::assert_rejects;
+
+    #[test]
+    fn builtin_bytes_tokens_accept_only_the_canonical_codec() {
+        let mut counters = RuleCounters::default();
+        let (role, ordinal) =
+            builtin_token_role(BuiltinSort::Bytes, r#"b"\x00\x7f\xff""#, &mut counters).unwrap();
+        assert_eq!(role, ProvenanceRole::ClaimBytesToken);
+        assert_eq!(*ordinal, 0);
+
+        for malformed in [r#""\x00""#, r#"b"\x0""#, r#"b"\xAF""#, r#"b"\x+1""#] {
+            assert_rejects!(
+                builtin_token_role(BuiltinSort::Bytes, malformed, &mut counters),
+                StateTransportError::InvalidTerm("invalid compiler-owned builtin token")
+            );
+        }
+    }
+}
