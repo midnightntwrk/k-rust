@@ -4,9 +4,9 @@ k-in-k2 provides execution pattern matching and semantic mutation testing for K 
 It is built on k-rust,
 which the workspace consumes as a path dependency.
 The intended source is the on-disk checkout at `../inspirations/midnightntwrk/k-rust`, tracking k-rust main.
-The workspace builds against a read-only snapshot of k-rust commit `eea634ce66133625500513cec4414129a3430bd1` at `../k-rust-eea634ce`,
-exported with `git -C ../inspirations/midnightntwrk/k-rust archive eea634ce66133625500513cec4414129a3430bd1 | tar -x -C ../k-rust-eea634ce`.
-That commit is k-rust `main` on 2026-09-29, the API-only base for the variable-identity change.
+The workspace builds against a read-only snapshot of k-rust commit `9494bb488109a833031e280f3305fee45e6dba21` at `../k-rust-9494bb48`,
+exported with `git -C ../inspirations/midnightntwrk/k-rust archive 9494bb488109a833031e280f3305fee45e6dba21 | tar -x -C ../k-rust-9494bb48`.
+That commit is the head of k-rust `kink/integration-vi` (variable identity, KK-82..KK-85); the pin is provisional until k-rust main fast-forwards to it.
 Moving back to the live checkout means changing the two paths in `Cargo.toml` `[workspace.dependencies]` and adapting to the new k-rust.
 The work is intended to be merged into k-rust together with KRS.
 

@@ -4,22 +4,23 @@
 # and status-report.html; those files remain in git history.
 
 schema = 1
-updated = "2026-09-29"
+updated = "2026-09-30"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
-# eea634ce is k-rust main on 2026-09-29, the API-only base for variable identity.
-k_rust_commit = "eea634ce66133625500513cec4414129a3430bd1"
+# Provisional: 9494bb48 is the head of k-rust kink/integration-vi; it becomes final when k-rust main fast-forwards to it.
+k_rust_commit = "9494bb488109a833031e280f3305fee45e6dba21"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
 # The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-eea634ce"
+checkout = "../k-rust-9494bb48"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
+"eea634ce66133625500513cec4414129a3430bd1" = "Former API-only base pin; retired on 2026-09-30 for provisional variable-identity integration head 9494bb48 (KK-82..KK-85)."
 "c26386261f4b9e7a9a0483661e3a05928e680c41" = "Former K-in-K2 read-only archive pin; retired on 2026-09-29 for eea634ce, the k-rust main API base of variable identity before its naming change."
 "9b91332e06f9b3f706119dfbe0019842432f2d08" = "Former K-in-K2 read-only archive pin; retired on 2026-09-28 for c2638626 (k-rust KK-77, KK-80: concrete Set/Map concatenation agrees with its symbolic meaning)."
 "74f1356e0331e4337cd0043acf59913388ab7978" = "Former K-in-K2 read-only archive pin; retired on 2026-09-28 for 9b91332e (k-rust kink/integration-r3, round-3 answers KK-63..KK-76). The KK-65/KK-66 branches built against the intermediate KK-63 snapshot 78cd00ca, which was never a K-in-K2 main pin."
@@ -51,7 +52,7 @@ id = "claim-observation"
 title = "Proof claim observation remains unavailable"
 kind = "missing-feature"
 status = "partial"
-status_basis = "test run at eea634ce on 2026-09-29 (cargo test --workspace; kink-native observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not), plus static re-screen and k-rust claim-observation answer: Claim remains reserved without a producer; K-in-K2 has no proof caller or claim-specific test"
+status_basis = "static re-screen at 9494bb48 on 2026-09-30: TransitionClass::Claim remains reserved without a producer; proof claim applications are not observed. No longer needed by kink after SO-07; no proof caller or claim-specific test."
 blocking = false
 needed_by = ["none in the goal; proofs and claim observation are outside its delivery steps"]
 summary = "Observed and unobserved execution preserve solver queries and non-observation results. Leaf effects retain the committed transcript. Claim remains a reserved transition class with no producer; proof claim applications are not observed."
@@ -65,7 +66,7 @@ id = "malformed-deep-json"
 title = "Malformed deeply nested KORE JSON can overflow the stack on the persistent host routes"
 kind = "bug"
 status = "partial"
-status_basis = "test run at eea634ce on 2026-09-29 (cargo test --workspace; kink-native deterministic_runs_are_complete_under_path_set), plus static re-screen and k-rust malformed-deep-json answer: KORE JSON encoder changed, but K-in-K2 still has no host JSON ingress or malformed-host-input test"
+status_basis = "static re-screen at 9494bb48 on 2026-09-30: host request JSON still uses serde_json deserialization with recursion limits disabled (napi lib.rs deserialize_json); no ingress decoder change since eea634ce. K-in-K2 has no host JSON ingress or malformed-host-input test."
 blocking = false
 needed_by = ["none in the goal; K-in-K2 calls k-rust in process and has no host JSON request ingress"]
 summary = "The in-process K-in-K2 execution path does not parse host request JSON. Deep malformed input remains a concern for separate napi, wasm, and JSON-RPC ingress routes at this pin."
@@ -330,8 +331,9 @@ sources = ["k-rust draft/k-in-k/workers/KK-66-report.md open points, KK-75-repor
 id = "variable-identity"
 title = "Variable names are not identities: lossy printing and name reuse along a path"
 kind = "correctness"
-status = "open"
-status_basis = "static re-screen at eea634ce on 2026-09-29: external_variable_name still documents its noninjective spelling and freshen_existential still permits name reuse after a variable leaves the state; request remains open pending VI-K1..VI-K3 (draft/tasks/variable-identity/prototype/)"
+status = "fixed"
+fixed_in = "9494bb488109a833031e280f3305fee45e6dba21"
+status_basis = "static re-screen at 9494bb48 on 2026-09-30: provisional kink/integration-vi head (KK-82..KK-85); VARIABLE_IDENTITY = 2, encode/decode bijection, one request name scope and counter, unbound equations Indeterminate; VI-K3 contract tests and heavy gates accepted. kink guard retirement follows in VI-04; VI-03F makes the pin final after the main fast-forward."
 blocking = true
 needed_by = ["state-observations SO-08", "variable-identity VI-04"]
 summary = "k-rust externalizes variables with a lossy Booster/Kore spelling: it drops provenance markers and prints fresh counters as bare digits, so distinct internal names can share one KORE name and an output mint can share a request name. Reading KORE back does not invert that spelling. Separately, freshen_existential strips the Ex# marker, keeps a rule variable's name, and avoids only names in the current pattern, so a name can be reused for different values along one path. Both mechanisms break docs/compatibility.md:485-489's output contract that only request variables have names shared with the query."

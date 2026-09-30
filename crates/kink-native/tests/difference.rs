@@ -765,11 +765,10 @@ fn conflate_program(a: &str, b: &str) -> Pattern {
 
 /// EI-02b review regression. conflatem.k merges the baseline's guard-split `go` rules into
 /// one unguarded rule, so the two definitions execute identically on every ground instance.
-/// k-rust prints the fresh `Ex#VarI!0` of the baseline's narrowing as `ExVarI0`: with the
-/// initial variables named `ExVarI0` and `ExVarI1`, the decoded leaves conflate the fresh `I`
-/// with an initial variable, and their feasibility becomes Unsat under Z3 although the paths
-/// are feasible. Such a leaf is not Vacuous and such a name is not stable, so neither naming
-/// proves anything, in either profile.
+/// Before VI, the printer merged a fresh narrowing variable with initial variables named
+/// `ExVarI0` and `ExVarI1`, making two feasible leaves Unsat under Z3.
+/// The injective printer preserves their identities, so neither naming has an Unsat leaf.
+/// The certificate remains NotProved(NoWitness) in both profiles.
 #[test]
 fn externalized_fresh_names_do_not_conflate_paths() {
     let mut baseline = Side::unobserved("conflate.k");
@@ -789,11 +788,11 @@ fn externalized_fresh_names_do_not_conflate_paths() {
             .map(|leaf| leaf.feasibility == LeafFeasibility::Unsat)
             .collect::<Vec<_>>();
         // Z3: the baseline narrows into five leaves and the mutant has three; the renamed
-        // program's two `go` leaves are the conflated Unsat ones. No-Z3: one Indeterminate
+        // program's two `go` leaves are no longer conflated. No-Z3: one Indeterminate
         // leaf per side.
         let expected_unsat = match (cfg!(feature = "z3"), a) {
             (true, "A") => vec![false; 5],
-            (true, _) => vec![true, true, false, false, false],
+            (true, _) => vec![false; 5],
             (false, _) => vec![false],
         };
         assert_eq!(
