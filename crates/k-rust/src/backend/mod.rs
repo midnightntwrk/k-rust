@@ -18,6 +18,8 @@ use k_rust_backend::smt::NoSolver;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::{ModelResult, Z3Options, Z3Solver};
 #[cfg(feature = "z3-inference")]
+use k_rust_backend::stop;
+#[cfg(feature = "z3-inference")]
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
     definition::BackendDefinition,
@@ -1188,13 +1190,18 @@ impl Backend {
         let solver = self.solvers.get(&module).expect("solver was inserted");
         if let Some(failure) = solver.prelude_failure() {
             return Err(E::from(BackendError(format!(
-                "could not initialize Z3: {failure:?}"
+                "could not initialize Z3: {failure}"
             ))));
         }
-        let result = solver.scope_operation(|| operation(&definition, solver));
+        // The operation boundary: the solver's prelude signal is installed for the operation, a
+        // request stopped before it starts does not run, and a prelude failure found during it
+        // is its result. The stop is reported by its cause's text until the callers take it
+        // typed (CBC-04-T9); `SolverPrelude` displays `could not initialize Z3: <failure>`.
+        let result = stop::operation(solver, || operation(&definition, solver))
+            .map_err(|stop| E::from(BackendError(stop.into_cause().to_string())))?;
         if let Some(failure) = solver.prelude_failure() {
             return Err(E::from(BackendError(format!(
-                "could not initialize Z3: {failure:?}"
+                "could not initialize Z3: {failure}"
             ))));
         }
         result

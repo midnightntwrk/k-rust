@@ -470,9 +470,9 @@ impl Drop for SolverGuard {
     }
 }
 
-/// Install `signal` for `body` without polling. `Z3Solver::scope_operation` uses it until
-/// `run_with_solver` calls [`operation`] (CBC-04-T5).
-#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+/// Install `signal` for `body` without polling, as [`operation`] installs its solver's signal;
+/// tests observe the registry through it.
+#[cfg(test)]
 pub(crate) fn with_prelude_signal<T>(signal: &PreludeSignal, body: impl FnOnce() -> T) -> T {
     let _installed = install(signal);
     body()
@@ -552,7 +552,7 @@ impl<F> Unwind<F> {
         not(test),
         expect(
             dead_code,
-            reason = "no module maps `Unwind` failures before the solver layering ticket (CBC-04-T5)"
+            reason = "no module maps `Unwind` failures before the simplifier is layered (CBC-04-T6)"
         )
     )]
     pub(crate) fn map_fail<G>(self, map: impl FnOnce(F) -> G) -> Unwind<G> {
@@ -835,8 +835,8 @@ mod tests {
             &self,
             _predicates: &[Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Err(SmtError::Unavailable)
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Err(SmtError::Unavailable))
         }
 
         fn check_predicates(
@@ -844,8 +844,8 @@ mod tests {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            Err(SmtError::Unavailable)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Err(SmtError::Unavailable))
         }
 
         fn prelude_signal(&self) -> Option<&PreludeSignal> {
@@ -1043,12 +1043,11 @@ mod tests {
         );
         assert_eq!(
             PreludeFailure::Inconsistent.to_string(),
-            format!("{:?}", SmtError::InconsistentPrelude)
+            "InconsistentPrelude"
         );
-        let reason = "a \"quoted\" reason";
         assert_eq!(
-            PreludeFailure::Unknown(reason.into()).to_string(),
-            format!("{:?}", SmtError::UnknownPrelude(reason.into()))
+            PreludeFailure::Unknown("a \"quoted\" reason".into()).to_string(),
+            r#"UnknownPrelude("a \"quoted\" reason")"#
         );
         assert_eq!(
             StopCause::SolverPrelude(PreludeFailure::Inconsistent).to_string(),

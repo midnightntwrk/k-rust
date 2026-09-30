@@ -69,7 +69,7 @@ use crate::{
         applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
-    stop::{self, StopCause},
+    stop::{self, Stop, StopCause, Stoppable},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
     transition::ExecutionEvaluationContext,
@@ -299,6 +299,14 @@ impl SimplificationError {
             _ => None,
         }
     }
+
+    /// The transitional spelling of a stop that a caller without a stop layer of its own
+    /// received from the solver or the simplifier: the cause is kept, and the stop unwinds as
+    /// `Stopped` to the step or operation that publishes it (removed with the variant by
+    /// CBC-04-T7).
+    pub(crate) fn from_stop(stop: Stop) -> Self {
+        Self::Stopped(stop.into_cause())
+    }
 }
 
 pub fn simplify(
@@ -517,7 +525,9 @@ fn discharge_valid_constraints(
             .chain(pending.iter())
             .cloned()
             .collect::<Vec<_>>();
-        match decide_condition(std::slice::from_ref(&constraint), &known, solver) {
+        match decide_condition(std::slice::from_ref(&constraint), &known, solver)
+            .map_err(SimplificationError::from_stop)?
+        {
             Ok(RuleCondition::Satisfied) => {}
             Ok(
                 RuleCondition::Refuted
@@ -1006,12 +1016,12 @@ fn decide_rule_condition(
     known_predicates: &[Predicate],
     solver: &dyn SmtSolver,
 ) -> Result<RuleCondition, SimplificationError> {
-    let condition = decide_condition(predicates, known_predicates, solver).map_err(|error| {
-        SimplificationError::Smt {
+    let condition = decide_condition(predicates, known_predicates, solver)
+        .map_err(SimplificationError::from_stop)?
+        .map_err(|error| SimplificationError::Smt {
             rule_id: rule_id.to_owned(),
             error,
-        }
-    })?;
+        })?;
     if let RuleCondition::Indeterminate(reason) = &condition
         && solver_could_not_answer(reason)
     {
@@ -1030,8 +1040,9 @@ fn decide_rule_condition(
 /// Syntactic truth and membership in `known_predicates` are decided without the solver. The
 /// solver answers the rest within the timeout and retry bounds it was created with; the
 /// `Indeterminate` verdict names why it did not decide, including a query the SMT encoding
-/// could not pose, which leaves the predicates as open constraints. `Err` reports a solver
-/// failure other than those. The rewriter's `requires` check, standalone predicate
+/// could not pose, which leaves the predicates as open constraints. `Ok(Err)` reports a solver
+/// failure other than those. `Err` is a stop the solver observed: no verdict exists, and none
+/// of the others may stand in for it. The rewriter's `requires` check, standalone predicate
 /// simplification, and the residual-constraint discharge of pattern simplification all share
 /// this decision.
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -1039,40 +1050,42 @@ pub(crate) fn decide_condition(
     predicates: &[Predicate],
     known_predicates: &[Predicate],
     solver: &dyn SmtSolver,
-) -> Result<RuleCondition, SmtError> {
+) -> Stoppable<Result<RuleCondition, SmtError>> {
     match predicates_truth(predicates) {
-        Truth::False => return Ok(RuleCondition::Refuted),
-        Truth::True => return Ok(RuleCondition::Satisfied),
+        Truth::False => return Ok(Ok(RuleCondition::Refuted)),
+        Truth::True => return Ok(Ok(RuleCondition::Satisfied)),
         Truth::Unknown => {}
     }
     if predicates
         .iter()
         .all(|predicate| known_predicates.contains(predicate))
     {
-        return Ok(RuleCondition::Satisfied);
+        return Ok(Ok(RuleCondition::Satisfied));
     }
-    match solver.check_predicates(known_predicates, &Substitution::new(), predicates) {
-        Ok(validity) => Ok(match validity {
-            Validity::Valid => RuleCondition::Satisfied,
-            Validity::Refuted => RuleCondition::Refuted,
-            Validity::Contingent => {
-                RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)
-            }
-            Validity::InconsistentGroundTruth => {
-                RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)
-            }
-            Validity::Unknown(message) => {
-                RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(message))
-            }
-        }),
-        Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::NoSolver,
-        )),
-        Err(SmtError::Translation(error)) => Ok(RuleCondition::Indeterminate(
-            ConditionIndeterminacy::Untranslatable(error),
-        )),
-        Err(error) => Err(error),
-    }
+    Ok(
+        match solver.check_predicates(known_predicates, &Substitution::new(), predicates)? {
+            Ok(validity) => Ok(match validity {
+                Validity::Valid => RuleCondition::Satisfied,
+                Validity::Refuted => RuleCondition::Refuted,
+                Validity::Contingent => {
+                    RuleCondition::Indeterminate(ConditionIndeterminacy::ImplicationIndeterminate)
+                }
+                Validity::InconsistentGroundTruth => {
+                    RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)
+                }
+                Validity::Unknown(message) => {
+                    RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(message))
+                }
+            }),
+            Err(SmtError::Unavailable) => Ok(RuleCondition::Indeterminate(
+                ConditionIndeterminacy::NoSolver,
+            )),
+            Err(SmtError::Translation(error)) => Ok(RuleCondition::Indeterminate(
+                ConditionIndeterminacy::Untranslatable(error),
+            )),
+            Err(error) => Err(error),
+        },
+    )
 }
 
 /// Whether an indeterminate verdict came from a solver that was asked and did not answer,
@@ -1139,7 +1152,9 @@ pub fn simplify_and_decide_predicate_with_solver(
     if matches!(simplified, Predicate::True | Predicate::False) {
         return Ok(simplified);
     }
-    match decide_condition(std::slice::from_ref(&simplified), known_predicates, solver) {
+    match decide_condition(std::slice::from_ref(&simplified), known_predicates, solver)
+        .map_err(SimplificationError::from_stop)?
+    {
         Ok(RuleCondition::Satisfied) => Ok(Predicate::True),
         Ok(RuleCondition::Refuted) => Ok(Predicate::False),
         Ok(RuleCondition::Indeterminate(reason)) => {
@@ -3794,7 +3809,9 @@ fn evaluate_ensures(
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
     // and an inconsistent path condition, which under the path condition alone says nothing
     // about the equation. No diagnostic is emitted here, as none was before.
-    match decide_condition(&ensures, known_predicates, solver) {
+    match decide_condition(&ensures, known_predicates, solver)
+        .map_err(SimplificationError::from_stop)?
+    {
         Ok(RuleCondition::Satisfied) => Ok(EnsuresVerdict::Holds),
         Ok(RuleCondition::Refuted) => Ok(EnsuresVerdict::Refuted),
         Ok(RuleCondition::Indeterminate(_)) => Ok(EnsuresVerdict::Open(ensures)),
@@ -4130,7 +4147,7 @@ mod tests {
             &self,
             _predicates: &[Predicate],
             _substitution: &Substitution,
-        ) -> Result<crate::smt::Satisfiability, SmtError> {
+        ) -> Stoppable<Result<crate::smt::Satisfiability, SmtError>> {
             unreachable!()
         }
 
@@ -4139,8 +4156,8 @@ mod tests {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(Validity::Refuted)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Refuted))
         }
     }
 

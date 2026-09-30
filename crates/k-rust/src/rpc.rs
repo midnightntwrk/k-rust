@@ -1000,6 +1000,7 @@ impl RpcService {
                     &sort_variables,
                     solver,
                 )
+                .map_err(|stop| stop_fault(&stop.into_cause()))?
                 .map_err(|error| pattern_fault(error, &consequent))?;
                 let antecedent = simplified_implication_response_syntax(
                     definition,
@@ -1016,11 +1017,10 @@ impl RpcService {
                 return implication_result(&antecedent, &consequent, &result_sort, verdict);
             }
             Some(SpecialConsequent::Top) => Some(ImplicationVerdict::Valid(Bindings::default())),
-            Some(SpecialConsequent::Bottom) => Some(grade_bottom_consequent(
-                definition,
-                &antecedent_pattern,
-                solver,
-            )),
+            Some(SpecialConsequent::Bottom) => Some(
+                grade_bottom_consequent(definition, &antecedent_pattern, solver)
+                    .map_err(|stop| stop_fault(&stop.into_cause()))?,
+            ),
             None => None,
         };
         if let Some(verdict) = special {
@@ -1128,8 +1128,6 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
         SmtError::Unknown(reason) => reason,
         error @ SmtError::Translation(_)
         | error @ SmtError::Unavailable
-        | error @ SmtError::InconsistentPrelude
-        | error @ SmtError::UnknownPrelude(_)
         | error @ SmtError::InconsistentGroundTruth
         | error @ SmtError::MissingModel
         | error @ SmtError::MissingModelValue(_)

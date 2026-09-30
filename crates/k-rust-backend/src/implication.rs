@@ -63,6 +63,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver, Validity},
+    stop::{Stop, Stoppable},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::Variable,
     term::names::FreshMarker,
@@ -219,12 +220,13 @@ pub fn special_consequent(consequent: &kore::Pattern) -> Option<SpecialConsequen
 /// `\bottom` has no instance, so every instance of the antecedent lies outside it: the
 /// implication is invalid exactly when the antecedent has an instance, and holds vacuously
 /// otherwise. The answer is `Invalid` only when a [`Counterexample`] shows that instance, and
-/// `Indeterminate` otherwise; either reports the consequent's condition as refuted.
+/// `Indeterminate` otherwise; either reports the consequent's condition as refuted. `Err` is a
+/// stop of the solver's query: there is no verdict.
 pub fn grade_bottom_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     solver: &dyn SmtSolver,
-) -> ImplicationVerdict {
+) -> Stoppable<ImplicationVerdict> {
     grade_outside(
         definition,
         antecedent,
@@ -250,6 +252,9 @@ pub fn grade_bottom_consequent(
 /// - Anything else, including a collection unification left unsupported and a consequent
 ///   `\exists E. \not C` (which asks for `C` to fail for some `E` rather than for all), is
 ///   `Indeterminate` with no report.
+///
+/// `Ok(Err)` reports a consequent that does not internalize; `Err` is a stop of a solver query,
+/// for which there is no verdict.
 pub fn check_negated_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -257,12 +262,15 @@ pub fn check_negated_consequent(
     consequent: &kore::Pattern,
     sort_variables: &[crate::term::Name],
     solver: &dyn SmtSolver,
-) -> Result<ImplicationVerdict, crate::definition::DefinitionError> {
+) -> Stoppable<Result<ImplicationVerdict, crate::definition::DefinitionError>> {
     let kore::Pattern::Not { argument, .. } = consequent else {
-        return Ok(ImplicationVerdict::Indeterminate { outside: None });
+        return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
     };
     let (negated, negated_existentials) =
-        definition.internalize_implication_pattern(argument, sort_variables)?;
+        match definition.internalize_implication_pattern(argument, sort_variables) {
+            Ok(internalized) => internalized,
+            Err(error) => return Ok(Err(error)),
+        };
     let renamed = rename_existentials_apart(antecedent, antecedent_existentials, &negated);
     let antecedent = renamed.as_ref().unwrap_or(antecedent);
     let renamed = rename_existentials_apart(&negated, &negated_existentials, antecedent);
@@ -276,9 +284,11 @@ pub fn check_negated_consequent(
         substitution,
         constraints,
     } = match unification {
-        UnificationResult::Bottom(_) => return Ok(ImplicationVerdict::Valid(Bindings::default())),
+        UnificationResult::Bottom(_) => {
+            return Ok(Ok(ImplicationVerdict::Valid(Bindings::default())));
+        }
         UnificationResult::Unsupported { .. } => {
-            return Ok(ImplicationVerdict::Indeterminate { outside: None });
+            return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
         }
         UnificationResult::Unified(unification) => unification,
     };
@@ -315,11 +325,11 @@ pub fn check_negated_consequent(
             conjunction.constraints.push(predicate);
         }
     }
-    if let Some(counterexample) = Counterexample::common(definition, &conjunction, solver) {
-        return Ok(ImplicationVerdict::Invalid {
+    if let Some(counterexample) = Counterexample::common(definition, &conjunction, solver)? {
+        return Ok(Ok(ImplicationVerdict::Invalid {
             counterexample,
             outside: None,
-        });
+        }));
     }
     let mut query = conjunction.constraints.clone();
     for predicate in ceil_term(definition, &conjunction.term) {
@@ -329,13 +339,13 @@ pub fn check_negated_consequent(
     }
     if predicates_truth(&query) == Truth::False
         || matches!(
-            solver.is_sat(&query, &Substitution::new()),
+            solver.is_sat(&query, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
         )
     {
-        return Ok(ImplicationVerdict::Valid(Bindings::default()));
+        return Ok(Ok(ImplicationVerdict::Valid(Bindings::default())));
     }
-    Ok(ImplicationVerdict::Indeterminate { outside: None })
+    Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }))
 }
 
 /// The wire record of a verdict's condition ([`ImplicationVerdict::into_condition`]).
@@ -912,7 +922,7 @@ pub fn check_implication_with_existentials_complete(
         SimplificationOptions::default(),
         solver,
     )?;
-    Ok(grade_verdict(checked, definition, solver))
+    grade_verdict(checked, definition, solver).map_err(solver_stopped)
 }
 
 /// Check whether an antecedent is covered by the union of several consequents, under the proof
@@ -983,7 +993,9 @@ fn establish_disjunction(
     let mut antecedent = antecedent.clone();
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
-            solver.is_sat(&antecedent.constraints, &Substitution::new()),
+            solver
+                .is_sat(&antecedent.constraints, &Substitution::new())
+                .map_err(solver_stopped)?,
             Ok(Satisfiability::Unsat)
         )
     {
@@ -1131,8 +1143,9 @@ fn establish_disjunction(
                     None => Some(undecided(combined)),
                 },
                 Truth::Unknown => {
-                    let verdict =
-                        solver.check_predicates(&knowledge, &Substitution::new(), &combined);
+                    let verdict = solver
+                        .check_predicates(&knowledge, &Substitution::new(), &combined)
+                        .map_err(solver_stopped)?;
                     if !matches!(
                         &verdict,
                         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
@@ -1280,7 +1293,9 @@ fn check_established(
     };
     let established = if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
-            solver.is_sat(&antecedent.constraints, &Substitution::new()),
+            solver
+                .is_sat(&antecedent.constraints, &Substitution::new())
+                .map_err(solver_stopped)?,
             Ok(Satisfiability::Unsat)
         ) {
         Established::AntecedentEmpty
@@ -1404,12 +1419,13 @@ fn grade_coverage(checked: Checked) -> Coverage {
 
 /// The complete policy's grading: does every instance of the antecedent lie in the consequent?
 ///
-/// Every failing part is graded by [`grade_outside`], the one path to an `Invalid` verdict.
+/// Every failing part is graded by [`grade_outside`], the one path to an `Invalid` verdict. `Err`
+/// is a stop of its solver query.
 fn grade_verdict(
     checked: Checked,
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
-) -> ImplicationVerdict {
+) -> Stoppable<ImplicationVerdict> {
     let Checked {
         established,
         antecedent,
@@ -1419,8 +1435,8 @@ fn grade_verdict(
         |outside, evidence| grade_outside(definition, &antecedent, outside, evidence, solver);
     let refuted_everywhere = |refuted| OutsideEvidence::Everywhere(Everywhere::Refuted(refuted));
     match established {
-        Established::Holds(bindings) => ImplicationVerdict::Valid(bindings),
-        Established::AntecedentEmpty => ImplicationVerdict::VacuouslyValid,
+        Established::Holds(bindings) => Ok(ImplicationVerdict::Valid(bindings)),
+        Established::AntecedentEmpty => Ok(ImplicationVerdict::VacuouslyValid),
         Established::TermMismatch => grade(
             Outside::TermMismatch,
             OutsideEvidence::Everywhere(Everywhere::TermMismatch),
@@ -1489,18 +1505,18 @@ fn grade_verdict(
             origin: Origin::MatchRemainder,
             bindings,
             obligations,
-        } => ImplicationVerdict::Indeterminate {
+        } => Ok(ImplicationVerdict::Indeterminate {
             outside: Some(Outside::PartialCoverage(CoverageCondition::partial(
                 antecedent_variable.as_ref(),
                 bindings,
                 obligations,
             ))),
-        },
+        }),
         Established::Undecided {
             origin: Origin::ConsequentCondition,
             ..
         }
-        | Established::Unprepared => ImplicationVerdict::Indeterminate { outside: None },
+        | Established::Unprepared => Ok(ImplicationVerdict::Indeterminate { outside: None }),
     }
 }
 
@@ -1511,23 +1527,26 @@ fn grade_verdict(
 /// when every instance is outside, or an instance of the antecedent conjoined with the negated
 /// obligations when those instances are. Without that instance the implication may hold
 /// vacuously, so the answer is `Indeterminate`; the report is kept either way, because it
-/// describes the antecedent's instances whether or not there are any.
+/// describes the antecedent's instances whether or not there are any. A stop of the solver's
+/// query is no answer about that instance, so it is returned rather than graded `Indeterminate`.
 fn grade_outside(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     outside: Outside,
     evidence: OutsideEvidence,
     solver: &dyn SmtSolver,
-) -> ImplicationVerdict {
-    match Counterexample::outside(definition, antecedent, &evidence, solver) {
-        Some(counterexample) => ImplicationVerdict::Invalid {
-            counterexample,
-            outside: Some(outside),
+) -> Stoppable<ImplicationVerdict> {
+    Ok(
+        match Counterexample::outside(definition, antecedent, &evidence, solver)? {
+            Some(counterexample) => ImplicationVerdict::Invalid {
+                counterexample,
+                outside: Some(outside),
+            },
+            None => ImplicationVerdict::Indeterminate {
+                outside: Some(outside),
+            },
         },
-        None => ImplicationVerdict::Indeterminate {
-            outside: Some(outside),
-        },
-    }
+    )
 }
 
 /// Simplify the destination with the definition's equations under the antecedent's constraints
@@ -1580,6 +1599,14 @@ fn stopped_error(error: SimplificationError) -> Result<(), ImplicationError> {
     } else {
         Ok(())
     }
+}
+
+/// A stop of one of the check's solver queries, spelled as the check's error as a stop of its
+/// simplifier is (`stopped_error`): the query has no answer, so the check has no verdict, and
+/// no undecided or contingent verdict stands in for it (removed once the check returns its stops
+/// apart from its failures, CBC-04-T6).
+fn solver_stopped(stop: Stop) -> ImplicationError {
+    ImplicationError::Simplification(SimplificationError::from_stop(stop))
 }
 
 /// ```toml algorithm-site
@@ -1757,7 +1784,9 @@ fn discharge_consequent(
         Truth::Unknown => {}
     }
 
-    let verdict = solver.check_predicates(&knowledge, &Substitution::new(), &obligations);
+    let verdict = solver
+        .check_predicates(&knowledge, &Substitution::new(), &obligations)
+        .map_err(solver_stopped)?;
     if !matches!(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
@@ -1819,7 +1848,9 @@ fn refuted_by_simplification(
     let simplified = simplify_predicates_with_solver(definition, &conjuncts, &[], options, solver)?;
     Ok(predicates_truth(&simplified) == Truth::False
         || matches!(
-            solver.is_sat(&simplified, &Substitution::new()),
+            solver
+                .is_sat(&simplified, &Substitution::new())
+                .map_err(SimplificationError::from_stop)?,
             Ok(Satisfiability::Unsat)
         ))
 }
@@ -2340,8 +2371,8 @@ mod tests {
             &self,
             _predicates: &[Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            self.satisfiability.clone()
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(self.satisfiability.clone())
         }
 
         fn check_predicates(
@@ -2349,8 +2380,8 @@ mod tests {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            self.validity.clone()
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(self.validity.clone())
         }
     }
 
@@ -3553,8 +3584,8 @@ mod tests {
                 &self,
                 _predicates: &[Predicate],
                 _substitution: &Substitution,
-            ) -> Result<Satisfiability, SmtError> {
-                Ok(Satisfiability::Sat)
+            ) -> Stoppable<Result<Satisfiability, SmtError>> {
+                Ok(Ok(Satisfiability::Sat))
             }
 
             fn check_predicates(
@@ -3562,12 +3593,14 @@ mod tests {
                 _known: &[Predicate],
                 _substitution: &Substitution,
                 checked: &[Predicate],
-            ) -> Result<Validity, SmtError> {
-                if matches!(checked, [Predicate::Or(branches)] if branches.len() == 2) {
-                    Ok(Validity::Valid)
-                } else {
-                    Ok(Validity::Refuted)
-                }
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(
+                    if matches!(checked, [Predicate::Or(branches)] if branches.len() == 2) {
+                        Ok(Validity::Valid)
+                    } else {
+                        Ok(Validity::Refuted)
+                    },
+                )
             }
         }
 
@@ -3833,7 +3866,8 @@ mod tests {
                 &definition,
                 &constrained(&definition, "stay", op, "2"),
                 &solver,
-            );
+            )
+            .expect("the grading does not stop");
             assert_eq!(result.status(), status, "{op}: {result:#?}");
             assert_eq!(
                 result.failure(),
@@ -3917,6 +3951,7 @@ mod tests {
             &[],
             &solver,
         )
+        .expect("the check does not stop")
         .expect("the negated consequent should internalize")
         .status()
     }

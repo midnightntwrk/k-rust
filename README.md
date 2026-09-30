@@ -725,7 +725,9 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   is not; a deadline that passes while a step simplifies its state or result ends the step with the
   `timeout` halt (proofs: a timed-out leaf), and one that passes while a halted leaf is normalised
   for output leaves that leaf as it stands. Long-running Rust loops check the deadline while
-  working; one-shot third-party cryptographic operations are checked at hook boundaries.
+  working; one-shot third-party cryptographic operations are checked at hook boundaries. The SMT
+  solver polls the deadline before each attempt of a query, so a query posed after it passed
+  does not run: no answer to it could still be used by the step that posed it.
 
 ## TODOs
 

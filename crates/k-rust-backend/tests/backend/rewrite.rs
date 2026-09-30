@@ -21,7 +21,7 @@ use k_rust_backend::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
-    stop::StopCause,
+    stop::{StopCause, Stoppable},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
@@ -66,8 +66,8 @@ impl SmtSolver for FixedSolver {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
-        self.satisfiability.clone()
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(self.satisfiability.clone())
     }
 
     fn check_predicates(
@@ -75,8 +75,8 @@ impl SmtSolver for FixedSolver {
         _known: &[Predicate],
         _substitution: &Substitution,
         _checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
-        self.validity.clone()
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(self.validity.clone())
     }
 }
 
@@ -8034,8 +8034,8 @@ impl SmtSolver for KnowledgeDecidesSolver {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
-        Ok(Satisfiability::Sat)
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Sat))
     }
 
     fn check_predicates(
@@ -8043,12 +8043,12 @@ impl SmtSolver for KnowledgeDecidesSolver {
         known: &[Predicate],
         _substitution: &Substitution,
         _checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
-        Ok(if known.is_empty() {
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(Ok(if known.is_empty() {
             Validity::Contingent
         } else {
             Validity::Valid
-        })
+        }))
     }
 }
 
@@ -9045,8 +9045,8 @@ fn symbolic_remainder_emits_a_distinct_observation_class() {
             &self,
             _predicates: &[Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Ok(Satisfiability::Sat)
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -9054,8 +9054,8 @@ fn symbolic_remainder_emits_a_distinct_observation_class() {
             _known: &[Predicate],
             _substitution: &Substitution,
             _checked: &[Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(Validity::Contingent)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -9957,14 +9957,12 @@ fn search_guarded_under(
 
 #[test]
 fn search_reports_a_cancellation_observed_by_the_requires_check_as_cancelled() {
-    // The cancellation arrives while the solver decides the rule's condition, so the solver
-    // answers unknown; the condition is undecided only because the request was cancelled.
+    // The cancellation arrives while the solver decides the rule's condition, so the solver's
+    // poll returns the stop instead of an answer; the condition is not decided at all.
     let token = CancellationToken::new();
-    let solver = ScriptedSolver::new(
-        std::iter::empty(),
-        [Ok(Validity::Unknown("request cancelled".into()))],
-    )
-    .cancelling_at(0, token.clone());
+    let solver = ScriptedSolver::new(std::iter::empty(), std::iter::empty())
+        .cancelling_at(0, token.clone())
+        .polling();
 
     let result = search_guarded_under(&solver, &token);
 
@@ -9993,13 +9991,11 @@ fn search_reports_a_cancellation_observed_by_the_requires_check_as_cancelled() {
 fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() {
     // The condition is undecided on its own merits, so the rule applies under it and the
     // group's remainder `Y =/= "expected"` goes to the solver; the cancellation arrives during
-    // that satisfiability query, which therefore answers unknown.
+    // that satisfiability query, which therefore returns the stop instead of an answer.
     let token = CancellationToken::new();
-    let solver = ScriptedSolver::new(
-        [Ok(Satisfiability::Unknown("request cancelled".into()))],
-        [Ok(Validity::Contingent)],
-    )
-    .cancelling_at(1, token.clone());
+    let solver = ScriptedSolver::new(std::iter::empty(), [Ok(Validity::Contingent)])
+        .cancelling_at(1, token.clone())
+        .polling();
 
     let result = search_guarded_under(&solver, &token);
 
@@ -10057,14 +10053,13 @@ fn contradictory_final_state(definition: &BackendDefinition) -> Pattern {
     }
 }
 
-/// A solver whose every answer is unknown, as a cancelled solver answers, and which cancels
-/// `token` while answering its first query.
+/// A solver that cancels `token` while answering its first query and polls for a stop before
+/// answering each, as a solver polls before each attempt, so that under `token` it answers no
+/// query.
 fn solver_cancelling_at_first_query(token: &CancellationToken) -> ScriptedSolver {
-    ScriptedSolver::new(
-        std::iter::repeat_n(Ok(Satisfiability::Unknown("request cancelled".into())), 16),
-        std::iter::repeat_n(Ok(Validity::Unknown("request cancelled".into())), 16),
-    )
-    .cancelling_at(0, token.clone())
+    ScriptedSolver::new(std::iter::empty(), std::iter::empty())
+        .cancelling_at(0, token.clone())
+        .polling()
 }
 
 #[test]

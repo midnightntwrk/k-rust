@@ -875,7 +875,7 @@ mod smt {
             for _ in 0..2 {
                 assert_eq!(
                     solver.is_sat(&[positive("X")], &Substitution::new()),
-                    Ok(Satisfiability::Sat)
+                    Ok(Ok(Satisfiability::Sat))
                 );
             }
         });
@@ -891,7 +891,7 @@ mod smt {
         for _ in 0..16 {
             assert_eq!(
                 solver.is_sat(&[positive("Y")], &Substitution::new()),
-                Ok(Satisfiability::Sat)
+                Ok(Ok(Satisfiability::Sat))
             );
         }
         let delta = snapshot().delta(&before);

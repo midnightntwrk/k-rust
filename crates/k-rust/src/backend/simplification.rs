@@ -67,8 +67,11 @@ pub fn model_predicate_with_solver(
     match simplified {
         Predicate::False => Ok(ModelResult::Unsat),
         Predicate::True => Ok(ModelResult::Sat(Substitution::new())),
+        // A stopped query has no model; the stop is reported by its cause's text, as the
+        // operation boundary reports it (`Backend::run_with_solver`).
         residual => solver
             .get_model(&[residual], &Substitution::new())
+            .map_err(|stop| BackendError(stop.into_cause().to_string()))?
             .map_err(error("could not obtain model")),
     }
 }

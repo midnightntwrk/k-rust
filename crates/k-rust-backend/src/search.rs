@@ -96,7 +96,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
-    stop::StopCause,
+    stop::{StopCause, Stoppable},
     substitution::{Substitution, compose, substitute},
     transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
 };
@@ -2263,7 +2263,12 @@ fn match_pattern_with_variables(
         Truth::False => return Ok(None),
         Truth::True => {}
         Truth::Unknown if retain_unknown => {}
-        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution) {
+        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution)
+            // No answer exists, so the match is not decided; the stop reaches the search through
+            // the match's simplification-failure payload.
+            .map_err(|stop| {
+                PatternMatchError::Simplification(SimplificationError::from_stop(stop))
+            })? {
             Ok(Satisfiability::Unsat) => return Ok(None),
             Ok(Satisfiability::Sat) => {}
             Ok(Satisfiability::Unknown(reason)) => {
@@ -2285,7 +2290,7 @@ fn is_sat_with_facts(
     facts: &[Predicate],
     constraints: &[Predicate],
     substitution: &Substitution,
-) -> Result<Satisfiability, SmtError> {
+) -> Stoppable<Result<Satisfiability, SmtError>> {
     if facts.is_empty() {
         return solver.is_sat(constraints, substitution);
     }
@@ -3082,7 +3087,7 @@ mod tests {
             observations: Vec::new(),
             diagnostics: Vec::new(),
         };
-        let unknown = || SmtError::Unknown("request cancelled".into());
+        let unknown = || SmtError::Unknown("timeout".into());
         let smt = || IndeterminateReason::Smt {
             rule_id: "rule".into(),
             error: unknown(),
@@ -3090,7 +3095,7 @@ mod tests {
         let remainder = || IndeterminateReason::Remainder {
             rule_ids: vec!["rule".into()],
             predicates: Vec::new(),
-            satisfiability: Ok(Satisfiability::Unknown("request cancelled".into())),
+            satisfiability: Ok(Satisfiability::Unknown("timeout".into())),
         };
         let pattern_smt = || PatternMatchError::Smt(unknown());
         let pattern_match = || PatternMatchError::Indeterminate {

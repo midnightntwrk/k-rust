@@ -14,6 +14,7 @@ use crate::{
     rule::Predicate,
     simplify::normalize_predicate,
     smt::{Exactness, Satisfiability, SmtSolver, Validity, translation_exactness},
+    stop::Stoppable,
     substitution::Substitution,
     term::{Term, TermKind},
 };
@@ -44,15 +45,17 @@ impl Instance {
     /// free variable of the term and of the query must have a sort the definition shows
     /// inhabited ([`BackendDefinition::sort_is_inhabited`]). The `Int` and `Bool` variables an
     /// exact query may mention always are.
-    #[must_use]
+    ///
+    /// `Err` is a stop of the solver's query: no answer exists, so whether an instance is shown
+    /// is left to the caller's owner, never read as "not shown".
     pub(crate) fn shown(
         definition: &BackendDefinition,
         pattern: &Pattern,
         extra: &[Predicate],
         solver: &dyn SmtSolver,
-    ) -> Option<Self> {
+    ) -> Stoppable<Option<Self>> {
         if contains_conjunction(&pattern.term) {
-            return None;
+            return Ok(None);
         }
         let mut query = pattern.constraints.clone();
         for predicate in extra
@@ -73,15 +76,15 @@ impl Instance {
             .chain(query.iter().flat_map(Predicate::free_variables))
             .all(|variable| definition.sort_is_inhabited(&variable.sort))
         {
-            return None;
+            return Ok(None);
         }
         let shown = predicates_truth(&query) == Truth::True
             || (translation_exactness(&query) == Exactness::Exact
                 && matches!(
-                    solver.is_sat(&query, &Substitution::new()),
+                    solver.is_sat(&query, &Substitution::new())?,
                     Ok(Satisfiability::Sat)
                 ));
-        shown.then_some(Self(()))
+        Ok(shown.then_some(Self(())))
     }
 }
 
@@ -139,20 +142,20 @@ impl Counterexample {
     ///
     /// `Everywhere`: every instance of `antecedent` is outside, so one is shown by an instance
     /// of `antecedent` itself. `Where(o)`: the instances of `antecedent` that falsify `o` are
-    /// outside, so one is shown by an instance of `antecedent ∧ ¬o`.
-    #[must_use]
+    /// outside, so one is shown by an instance of `antecedent ∧ ¬o`. `Err` is a stop of the
+    /// solver's query ([`Instance::shown`]).
     pub(super) fn outside(
         definition: &BackendDefinition,
         antecedent: &Pattern,
         evidence: &OutsideEvidence,
         solver: &dyn SmtSolver,
-    ) -> Option<Self> {
-        match evidence {
+    ) -> Stoppable<Option<Self>> {
+        let instance = match evidence {
             OutsideEvidence::Everywhere(everywhere) => match everywhere {
                 Everywhere::TermMismatch
                 | Everywhere::BottomConsequent
                 | Everywhere::Refuted(ObligationRefuted(())) => {
-                    Instance::shown(definition, antecedent, &[], solver)
+                    Instance::shown(definition, antecedent, &[], solver)?
                 }
             },
             OutsideEvidence::Where(obligations) => Instance::shown(
@@ -162,21 +165,21 @@ impl Counterexample {
                     obligations.clone(),
                 ))))],
                 solver,
-            ),
-        }
-        .map(Self)
+            )?,
+        };
+        Ok(instance.map(Self))
     }
 
     /// `common` is the antecedent unified with the body `B` of a `\not B` consequent, with both
     /// sides' constraints and the bindings' definedness; an instance of it is an instance of the
-    /// antecedent inside `B`, hence outside `\not B`.
-    #[must_use]
+    /// antecedent inside `B`, hence outside `\not B`. `Err` is a stop of the solver's query
+    /// ([`Instance::shown`]).
     pub(super) fn common(
         definition: &BackendDefinition,
         common: &Pattern,
         solver: &dyn SmtSolver,
-    ) -> Option<Self> {
-        Instance::shown(definition, common, &[], solver).map(Self)
+    ) -> Stoppable<Option<Self>> {
+        Ok(Instance::shown(definition, common, &[], solver)?.map(Self))
     }
 }
 

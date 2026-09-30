@@ -52,6 +52,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
+    stop::Stop,
     substitution::{Substitution, compose, extract_substitution, substitute},
     term::{Sort, Symbol, Term, TermKind, Variable},
     transition::ExecutionIoState,
@@ -370,6 +371,13 @@ impl RuleContext<'_> {
 /// `NotApplicable` exit is the hottest path of the step (`Counter::RewriteMatchFailures`), and
 /// an allocation per failed attempt would be a cost no phase needs.
 type Phase<T> = Result<T, RuleAttempt>;
+
+/// The attempt a solver's stop ends: no condition of the rule was decided, so the stop unwinds
+/// through the attempt's simplification-failure payload to the step that publishes it, never
+/// as an undecided or refuted condition.
+fn stopped_attempt(stop: Stop) -> RuleAttempt {
+    RuleAttempt::Simplification(SimplificationError::from_stop(stop))
+}
 
 /// Invariant: every re-entry (the six recovery splits, the unification solutions, and the
 /// bindings extracted from conditions) carries the accumulated `inherited_conditions`, which
@@ -886,11 +894,10 @@ fn recover_by_unification(
                 .collect::<Vec<_>>();
             if !unclear.is_empty()
                 && matches!(
-                    context.solver.check_predicates(
-                        inherited_knowledge,
-                        &Substitution::new(),
-                        &unclear,
-                    ),
+                    context
+                        .solver
+                        .check_predicates(inherited_knowledge, &Substitution::new(), &unclear)
+                        .map_err(stopped_attempt)?,
                     Ok(Validity::Refuted)
                 )
             {
@@ -1024,7 +1031,8 @@ fn definedness(
 }
 
 /// P10: with match conditions present, the path plus the conditions must be satisfiable;
-/// `Unsat` ends the attempt, `Unknown` or a solver error makes it `Indeterminate`.
+/// `Unsat` ends the attempt, `Unknown` or a solver error makes it `Indeterminate`, and a stop
+/// ends it with the stop.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Phase<()> {
     if match_conditions.is_empty() {
@@ -1032,7 +1040,11 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
     }
     let mut narrowed = context.pattern.constraints.clone();
     extend_unique(&mut narrowed, match_conditions.iter().cloned());
-    match context.solver.is_sat(&narrowed, &Substitution::new()) {
+    match context
+        .solver
+        .is_sat(&narrowed, &Substitution::new())
+        .map_err(stopped_attempt)?
+    {
         Ok(Satisfiability::Sat) => Ok(()),
         Ok(Satisfiability::Unsat) => Err(RuleAttempt::NotApplicable),
         Ok(Satisfiability::Unknown(reason)) => {
@@ -1137,7 +1149,8 @@ fn simplify_rule_condition(
 }
 
 /// P12: the unclear `requires` are checked for validity (`Valid` empties them, `Refuted` ends
-/// the attempt, solver trouble makes it `Indeterminate`); the applicability is the
+/// the attempt, solver trouble makes it `Indeterminate`, a stop ends it with the stop); the
+/// applicability is the
 /// existential closure of the match conditions and the unclear `requires`, and an attempt
 /// whose negated applicability is already on the path (alpha-equivalently) ends.
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -1157,7 +1170,9 @@ fn validity_and_applicability(
         })
         .collect::<Vec<_>>();
     if !unclear_requires.is_empty() {
-        match decide_condition(&unclear_requires, match_knowledge, context.solver) {
+        match decide_condition(&unclear_requires, match_knowledge, context.solver)
+            .map_err(stopped_attempt)?
+        {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
             Ok(RuleCondition::Refuted) => return Err(RuleAttempt::NotApplicable),
             Ok(RuleCondition::Indeterminate(
@@ -1503,7 +1518,13 @@ fn apply_rhs_alternative(
                 return RhsAlternativeAttempt::Simplification(error);
             }
         };
-        match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
+        let condition = match decide_condition(&obligations, &condition_knowledge, solver) {
+            Ok(condition) => condition,
+            Err(stop) => {
+                return RhsAlternativeAttempt::Simplification(SimplificationError::from_stop(stop));
+            }
+        };
+        match rhs_obligation_verdict(condition) {
             ObligationVerdict::Discharged => {}
             ObligationVerdict::Trivial => {
                 return RhsAlternativeAttempt::Trivial {
@@ -1534,7 +1555,13 @@ fn apply_rhs_alternative(
             return RhsAlternativeAttempt::Simplification(error);
         }
     };
-    match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
+    let condition = match decide_condition(&ensures, &condition_knowledge, solver) {
+        Ok(condition) => condition,
+        Err(stop) => {
+            return RhsAlternativeAttempt::Simplification(SimplificationError::from_stop(stop));
+        }
+    };
+    match rhs_ensures_verdict(condition) {
         EnsuresStepVerdict::Cleared => ensures.clear(),
         EnsuresStepVerdict::Trivial => {
             return RhsAlternativeAttempt::Trivial {

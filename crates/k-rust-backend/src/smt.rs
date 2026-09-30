@@ -14,7 +14,7 @@ use crate::{
     definition::BackendDefinition,
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
-    stop::PreludeSignal,
+    stop::{PreludeSignal, Stoppable},
     substitution::Substitution,
     term::{FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable},
 };
@@ -926,6 +926,10 @@ pub enum Satisfiability {
     Sat,
     /// The predicates have no K valuation.
     Unsat,
+    /// The solver ran within its own per-query bounds (its timeout and retries) and did not
+    /// decide the query; the payload is its reason. Never a stop: a query that stopped (a
+    /// cancelled request, a passed step deadline, a failed prelude) returns the stop on the outer
+    /// layer of [`SmtSolver::is_sat`] instead.
     Unknown(String),
 }
 
@@ -945,6 +949,8 @@ pub enum Validity {
     /// With an approximate translation neither model need be a K valuation, so this answer
     /// shows no instance on either side.
     Contingent,
+    /// The solver ran within its own per-query bounds and decided neither side; the payload is
+    /// its reason. Never a stop, which [`SmtSolver::check_predicates`] returns on its outer layer.
     Unknown(String),
 }
 
@@ -952,20 +958,30 @@ pub enum Validity {
 pub enum ModelResult {
     Sat(Substitution),
     Unsat,
+    /// No model was obtained: the solver ran within its own per-query bounds and did not decide
+    /// the query, or its model was of an approximate translation and so no K valuation (the
+    /// payload says which). Never a stop, which [`SmtSolver::get_model`] returns on its outer
+    /// layer.
     Unknown(String),
 }
 
+/// A failure of one solver query: a fact about the query and the backend's capabilities. A stop
+/// is not a failure (design CBC-04): a failed solver prelude, in particular, is
+/// `stop::StopCause::SolverPrelude`, because it belongs to every operation using the solver.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SmtError {
     Translation(TranslationError),
     Unavailable,
-    InconsistentPrelude,
-    UnknownPrelude(String),
+    /// The solver ran within its own per-query bounds and returned unknown where the query's
+    /// consumer needed an answer. Never a stop.
     Unknown(String),
     InconsistentGroundTruth,
     MissingModel,
     MissingModelValue(Variable),
-    InvalidModelValue { variable: Variable, value: String },
+    InvalidModelValue {
+        variable: Variable,
+        value: String,
+    },
 }
 
 impl From<TranslationError> for SmtError {
@@ -974,19 +990,56 @@ impl From<TranslationError> for SmtError {
     }
 }
 
+/// A decision procedure for predicates under the definition's `smt-lemma` axioms and prelude.
+///
+/// Each query answers in two layers: the outer `Err` is a [`Stop`](crate::stop::Stop), the
+/// query ended before answering because a resource of its owner ran out or failed (the request
+/// was cancelled, the step deadline passed, the solver's prelude failed); the inner `Result` is
+/// the answer or the query's own failure. A consumer that falls back on a failure writes its
+/// fallback against the inner layer, after `?`, so the fallback cannot see a stop. The
+/// single-layer shape no longer compiles:
+///
+/// ```compile_fail,E0308
+/// use k_rust_backend::{
+///     smt::{NoSolver, Satisfiability, SmtSolver},
+///     stop::Stoppable,
+///     substitution::Substitution,
+/// };
+///
+/// fn refuted() -> Stoppable<bool> {
+///     Ok(matches!(NoSolver.is_sat(&[], &Substitution::new()), Ok(Satisfiability::Unsat)))
+/// }
+/// ```
+///
+/// The same decision with the stop propagated first:
+///
+/// ```
+/// use k_rust_backend::{
+///     smt::{NoSolver, Satisfiability, SmtSolver},
+///     stop::{Stop, Stoppable},
+///     substitution::Substitution,
+/// };
+///
+/// fn refuted() -> Stoppable<bool> {
+///     Ok(matches!(NoSolver.is_sat(&[], &Substitution::new())?, Ok(Satisfiability::Unsat)))
+/// }
+/// assert_eq!(refuted().map_err(Stop::into_cause), Ok(false));
+/// ```
+///
+/// An implementation that does work a stop should interrupt polls `stop::check()?` before it.
 pub trait SmtSolver {
     fn is_sat(
         &self,
         predicates: &[Predicate],
         substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError>;
+    ) -> Stoppable<Result<Satisfiability, SmtError>>;
 
     fn check_predicates(
         &self,
         known: &[Predicate],
         substitution: &Substitution,
         checked: &[Predicate],
-    ) -> Result<Validity, SmtError>;
+    ) -> Stoppable<Result<Validity, SmtError>>;
 
     /// A `Sat` substitution must satisfy `predicates` and `substitution` in K.
     /// An approximate SMT model is reported as `Unknown` instead.
@@ -994,8 +1047,8 @@ pub trait SmtSolver {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<ModelResult, SmtError> {
-        Err(SmtError::Unavailable)
+    ) -> Stoppable<Result<ModelResult, SmtError>> {
+        Ok(Err(SmtError::Unavailable))
     }
 
     /// The prelude-failure signal an operation using this solver installs
@@ -1005,6 +1058,8 @@ pub trait SmtSolver {
     }
 }
 
+/// The solver of a build without one: every query that needs a solver fails with `Unavailable`,
+/// immediately, so there is no work for a stop to interrupt.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoSolver;
 
@@ -1013,8 +1068,8 @@ impl SmtSolver for NoSolver {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
-        Err(SmtError::Unavailable)
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Err(SmtError::Unavailable))
     }
 
     fn check_predicates(
@@ -1022,12 +1077,12 @@ impl SmtSolver for NoSolver {
         _known: &[Predicate],
         _substitution: &Substitution,
         checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
-        if checked.is_empty() {
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(if checked.is_empty() {
             Ok(Validity::Valid)
         } else {
             Err(SmtError::Unavailable)
-        }
+        })
     }
 }
 

@@ -19,6 +19,7 @@ use crate::{
     rule::Predicate,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
+    stop::Stoppable,
     substitution::Substitution,
 };
 
@@ -67,17 +68,17 @@ impl SmtSolver for ScriptedSolver {
         &self,
         predicates: &[Predicate],
         substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
         self.record(ScriptedQuery::IsSat {
             predicates: predicates.to_vec(),
             substitution: substitution.clone(),
         });
-        self.answers.borrow_mut().pop_front().unwrap_or_else(|| {
+        Ok(self.answers.borrow_mut().pop_front().unwrap_or_else(|| {
             panic!(
                 "ScriptedSolver exhausted satisfiability answers after transcript {:#?}",
                 self.transcript.borrow()
             )
-        })
+        }))
     }
 
     fn check_predicates(
@@ -85,18 +86,18 @@ impl SmtSolver for ScriptedSolver {
         known: &[Predicate],
         substitution: &Substitution,
         checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
+    ) -> Stoppable<Result<Validity, SmtError>> {
         self.record(ScriptedQuery::CheckPredicates {
             known: known.to_vec(),
             substitution: substitution.clone(),
             checked: checked.to_vec(),
         });
-        self.validity.borrow_mut().pop_front().unwrap_or_else(|| {
+        Ok(self.validity.borrow_mut().pop_front().unwrap_or_else(|| {
             panic!(
                 "ScriptedSolver exhausted validity answers after transcript {:#?}",
                 self.transcript.borrow()
             )
-        })
+        }))
     }
 }
 
@@ -469,12 +470,12 @@ impl SmtSolver for D3SearchSolver {
         &self,
         predicates: &[Predicate],
         substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
         self.transcript.borrow_mut().push(ScriptedQuery::IsSat {
             predicates: predicates.to_vec(),
             substitution: substitution.clone(),
         });
-        Ok(Satisfiability::Sat)
+        Ok(Ok(Satisfiability::Sat))
     }
 
     fn check_predicates(
@@ -482,7 +483,7 @@ impl SmtSolver for D3SearchSolver {
         known: &[Predicate],
         substitution: &Substitution,
         checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
+    ) -> Stoppable<Result<Validity, SmtError>> {
         self.transcript
             .borrow_mut()
             .push(ScriptedQuery::CheckPredicates {
@@ -490,7 +491,7 @@ impl SmtSolver for D3SearchSolver {
                 substitution: substitution.clone(),
                 checked: checked.to_vec(),
             });
-        Ok(Validity::Contingent)
+        Ok(Ok(Validity::Contingent))
     }
 }
 

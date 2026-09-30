@@ -475,8 +475,6 @@ export type BackendDiagnostic =
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }
   | { kind: 'unavailable' }
-  | { kind: 'inconsistent-prelude' }
-  | { kind: 'unknown-prelude'; reason: string }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
   | { kind: 'missing-model' }

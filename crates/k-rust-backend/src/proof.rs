@@ -69,7 +69,7 @@ use crate::{
         SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
-    stop::StopCause,
+    stop::{StopCause, Stoppable},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::names::FreshMarker,
     term::{HeadRole, Term, TermKind},
@@ -452,7 +452,11 @@ pub fn prove_claim(
                 }),
         );
 
-        if state_is_bottom(&state, solver) {
+        let bottom = match state_is_bottom(&state, solver) {
+            Ok(bottom) => bottom,
+            Err(stop) => publish_stop!(stop.into_cause()),
+        };
+        if bottom {
             let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
             record_leaf!(
                 state
@@ -792,8 +796,12 @@ pub fn prove_claim(
                 // the entry has no instance.
                 for trivial in trivial {
                     let contradicted_total = trivial.contradicted_total.clone();
+                    // The stop is published before the poll, which would drop it unpublished.
                     let trivial_state =
-                        undefined_step_state(definition, &state, trivial, options, solver);
+                        match undefined_step_state(definition, &state, trivial, options, solver) {
+                            Ok(trivial_state) => trivial_state,
+                            Err(stop) => publish_stop!(stop.into_cause()),
+                        };
                     finish_if_interrupted!();
                     let Some(trivial_state) = trivial_state else {
                         continue;
@@ -1119,7 +1127,18 @@ fn leaf_is_nonempty(
     pattern.term.visit_symbols(&mut |symbol| {
         constructors_only &= symbol.attributes.head_role() == HeadRole::FreeConstructor;
     });
-    constructors_only && Instance::shown(definition, pattern, &[], solver).is_some()
+    constructors_only
+        && match Instance::shown(definition, pattern, &[], solver) {
+            Ok(instance) => instance.is_some(),
+            // Certification only refines the leaf's decided `Stuck` outcome into a refutation,
+            // and an uncertified `Stuck` leaf is sound. A stop of a request or a solver prelude
+            // stays raised, and the proof polls for it after the refinement
+            // (`forgone_refinement_stop`); a step deadline belongs to the step, which is over.
+            Err(stop) => {
+                stop.forgo_refinement();
+                false
+            }
+        }
 }
 
 /// Condition (a) of [`stuck_leaf`] for a state the search stopped without rewriting it. The
@@ -1501,7 +1520,20 @@ fn apply_claim(
             && !subject_knowledge.contains(condition)
     });
     if !conditions.is_empty() {
-        match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions) {
+        let validity =
+            match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions) {
+                Ok(validity) => validity,
+                // No answer exists, so the claim's coverage is not decided; the stop reaches the
+                // proof through the application's simplification-failure payload.
+                Err(stop) => {
+                    return ClaimApplication::Indeterminate(
+                        ClaimIndeterminateReason::Simplification(SimplificationError::from_stop(
+                            stop,
+                        )),
+                    );
+                }
+            };
+        match validity {
             Ok(validity) => match validity {
                 Validity::Valid => conditions.clear(),
                 Validity::Refuted | Validity::InconsistentGroundTruth => {
@@ -1632,7 +1664,9 @@ fn remainder_is_unsatisfiable(
     let mut constraints = subject_knowledge.to_vec();
     extend_unique(&mut constraints, simplified);
     Ok(matches!(
-        solver.is_sat(&constraints, &Substitution::new()),
+        solver
+            .is_sat(&constraints, &Substitution::new())
+            .map_err(SimplificationError::from_stop)?,
         Ok(Satisfiability::Unsat)
     ))
 }
@@ -1834,9 +1868,9 @@ fn finish_explored(
 /// Poll, after a decided leaf was refined (normalised by [`externalise_leaf`], certified by
 /// [`stuck_leaf`]), for a stop that refinement may have forgone. The refinement keeps the leaf's
 /// outcome when the request is cancelled (or the solver prelude fails, which raises the same
-/// signal), and a solver query it made may have answered unknown for that reason. The signal
-/// stays raised, so this poll observes it; a cancellation arriving after the refinement is also
-/// observed, which only names a stop the result may not depend on.
+/// signal), including when a solver query it made returned that stop. The signal stays raised,
+/// so this poll observes it; a cancellation arriving after the refinement is also observed,
+/// which only names a stop the result may not depend on.
 fn forgone_refinement_stop() -> Option<StopCause> {
     cancellation_requested().then_some(StopCause::Cancelled)
 }
@@ -1900,7 +1934,8 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
 /// sub-cases, and it is empty whenever they cover the rule's applicability, for example when an
 /// `ensures ?X >Int 0` always has a witness. An empty set holds no instance of the claim, so it
 /// is dropped rather than reported as a vacuous path; a set not shown empty (satisfiable or
-/// undecided) is kept.
+/// undecided) is kept. A stop of the emptiness query is returned: keeping the set would report
+/// an undefined step from a missing answer.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "Predicate is syntax; only the listed variants are special here"
@@ -1911,7 +1946,7 @@ fn undefined_step_state(
     trivial: TrivialApplication,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> Option<ProofState> {
+) -> Stoppable<Option<ProofState>> {
     let mut pattern = trivial.before;
     match trivial.undefined {
         crate::rule::Predicate::And(conjuncts) => {
@@ -1921,7 +1956,7 @@ fn undefined_step_state(
         predicate => extend_unique(&mut pattern.constraints, vec![predicate]),
     }
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return None;
+        return Ok(None);
     }
     // A failed simplification only loses precision: the unsimplified constraints are kept.
     if let Ok(constraints) = simplify_predicates_with_solver(
@@ -1935,8 +1970,8 @@ fn undefined_step_state(
     }
     let mut undefined = state.clone();
     undefined.pattern = pattern;
-    if state_is_bottom(&undefined, solver) {
-        return None;
+    if state_is_bottom(&undefined, solver)? {
+        return Ok(None);
     }
     for simplification in &trivial.remainder_simplifications {
         undefined.trace.extend(
@@ -1959,15 +1994,17 @@ fn undefined_step_state(
         label: trivial.label,
         unique_id: trivial.rule_id,
     });
-    Some(undefined)
+    Ok(Some(undefined))
 }
 
-fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> bool {
-    predicates_truth(&state.pattern.constraints) == Truth::False
+/// Whether the state's constraints are shown unsatisfiable. A stop of the solver's query is
+/// returned, never read as "not bottom", which would keep the state from a missing answer.
+fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> Stoppable<bool> {
+    Ok(predicates_truth(&state.pattern.constraints) == Truth::False
         || matches!(
-            solver.is_sat(&state.pattern.constraints, &Substitution::new()),
+            solver.is_sat(&state.pattern.constraints, &Substitution::new())?,
             Ok(Satisfiability::Unsat)
-        )
+        ))
 }
 
 /// Kore accepts a bottom initial claim, but rejects bottom successors unless vacuity is allowed.
@@ -2084,9 +2121,9 @@ mod tests {
             &self,
             _predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
             thread::sleep(Duration::from_millis(5));
-            Ok(Satisfiability::Sat)
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -2094,9 +2131,9 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
+        ) -> Stoppable<Result<Validity, SmtError>> {
             thread::sleep(Duration::from_millis(5));
-            Ok(Validity::Contingent)
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -2111,8 +2148,8 @@ mod tests {
             &self,
             _predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            self.satisfiability.clone()
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(self.satisfiability.clone())
         }
 
         fn check_predicates(
@@ -2120,8 +2157,8 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
-            self.validity.clone()
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(self.validity.clone())
         }
     }
 
@@ -2132,12 +2169,12 @@ mod tests {
             &self,
             predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Ok(if predicates.is_empty() {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(if predicates.is_empty() {
                 Satisfiability::Sat
             } else {
                 Satisfiability::Unsat
-            })
+            }))
         }
 
         fn check_predicates(
@@ -2145,8 +2182,8 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(Validity::Contingent)
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -2283,7 +2320,7 @@ mod tests {
         ));
         assert_eq!(
             solver.is_sat(&constraints, &Substitution::new()),
-            Ok(Satisfiability::Sat),
+            Ok(Ok(Satisfiability::Sat)),
             "the remainder must admit Y = 0: {:#?}",
             remainder.pattern.constraints
         );
@@ -3175,8 +3212,8 @@ mod tests {
             &self,
             _predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Ok(Satisfiability::Sat)
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -3184,11 +3221,11 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(match checked {
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(match checked {
                 [crate::rule::Predicate::Equals(..)] => Validity::Refuted,
                 _ => Validity::Contingent,
-            })
+            }))
         }
     }
 
@@ -4622,8 +4659,9 @@ mod tests {
         assert_eq!(bounded.status, ProofStatus::DepthBound);
     }
 
-    /// Cancels the request at its first query and, as a solver interrupted by the cancellation
-    /// does, answers that query and every later one as unknown.
+    /// Cancels the request at its first query and polls for a stop before answering, as a
+    /// solver polls before each attempt, so under the cancelled request that query and every
+    /// later one return the cancellation's stop.
     struct CancellingSolver(crate::cancellation::CancellationToken);
 
     impl SmtSolver for CancellingSolver {
@@ -4631,9 +4669,10 @@ mod tests {
             &self,
             _predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
             self.0.cancel();
-            Ok(Satisfiability::Unknown("request cancelled".into()))
+            crate::stop::check()?;
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -4641,9 +4680,10 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
+        ) -> Stoppable<Result<Validity, SmtError>> {
             self.0.cancel();
-            Ok(Validity::Unknown("request cancelled".into()))
+            crate::stop::check()?;
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -4684,8 +4724,9 @@ mod tests {
     }
 
     /// Answers every query as satisfiable or contingent until its `at`-th query, where it cancels
-    /// the request and, as a solver interrupted by the cancellation does, answers that query and
-    /// every later one as unknown. Counts the queries it was asked.
+    /// the request; it polls for a stop before answering, as a solver polls before each attempt,
+    /// so under the cancelled request that query and every later one return the cancellation's
+    /// stop. Counts the queries it was asked.
     struct CancelAtQuery {
         token: crate::cancellation::CancellationToken,
         at: usize,
@@ -4701,8 +4742,8 @@ mod tests {
             }
         }
 
-        /// Counts this query; whether it is answered as unknown because the request is cancelled.
-        fn cancelled(&self) -> bool {
+        /// Counts this query, cancelling the request from the `at`-th on, and polls for a stop.
+        fn poll(&self) -> Stoppable<()> {
             let query = self
                 .queries
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -4710,7 +4751,7 @@ mod tests {
             if query >= self.at {
                 self.token.cancel();
             }
-            query >= self.at
+            crate::stop::check()
         }
     }
 
@@ -4719,12 +4760,9 @@ mod tests {
             &self,
             _predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Ok(if self.cancelled() {
-                Satisfiability::Unknown("request cancelled".into())
-            } else {
-                Satisfiability::Sat
-            })
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            self.poll()?;
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -4732,12 +4770,9 @@ mod tests {
             _known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(if self.cancelled() {
-                Validity::Unknown("request cancelled".into())
-            } else {
-                Validity::Contingent
-            })
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            self.poll()?;
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -4928,9 +4963,10 @@ mod tests {
         );
     }
 
-    /// Cancels the request at a query that mentions `gtInt` and, as a solver interrupted by the
-    /// cancellation does, answers it and every later query as unknown; answers every other query
-    /// as satisfiable or contingent. Counts the `gtInt` queries.
+    /// Cancels the request at a query that mentions `gtInt` and polls for a stop before answering,
+    /// as a solver polls before each attempt, so under the cancelled request that query and every
+    /// later one return the cancellation's stop; answers every other query as satisfiable or
+    /// contingent. Counts the `gtInt` queries.
     struct CancelOnCondition {
         token: crate::cancellation::CancellationToken,
         cancels: bool,
@@ -4938,7 +4974,7 @@ mod tests {
     }
 
     impl CancelOnCondition {
-        fn cancelled(&self, predicates: &[&[crate::rule::Predicate]]) -> bool {
+        fn poll(&self, predicates: &[&[crate::rule::Predicate]]) -> Stoppable<()> {
             if format!("{predicates:?}").contains("gtInt") {
                 self.condition_queries
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -4946,7 +4982,7 @@ mod tests {
                     self.token.cancel();
                 }
             }
-            self.token.is_cancelled()
+            crate::stop::check()
         }
     }
 
@@ -4955,12 +4991,9 @@ mod tests {
             &self,
             predicates: &[crate::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
-            Ok(if self.cancelled(&[predicates]) {
-                Satisfiability::Unknown("request cancelled".into())
-            } else {
-                Satisfiability::Sat
-            })
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            self.poll(&[predicates])?;
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -4968,12 +5001,9 @@ mod tests {
             known: &[crate::rule::Predicate],
             _substitution: &Substitution,
             checked: &[crate::rule::Predicate],
-        ) -> Result<Validity, SmtError> {
-            Ok(if self.cancelled(&[known, checked]) {
-                Validity::Unknown("request cancelled".into())
-            } else {
-                Validity::Contingent
-            })
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            self.poll(&[known, checked])?;
+            Ok(Ok(Validity::Contingent))
         }
     }
 
@@ -5941,8 +5971,8 @@ mod tests {
                 &self,
                 _predicates: &[crate::rule::Predicate],
                 _substitution: &Substitution,
-            ) -> Result<Satisfiability, SmtError> {
-                Ok(Satisfiability::Sat)
+            ) -> Stoppable<Result<Satisfiability, SmtError>> {
+                Ok(Ok(Satisfiability::Sat))
             }
 
             fn check_predicates(
@@ -5950,11 +5980,11 @@ mod tests {
                 _known: &[crate::rule::Predicate],
                 _substitution: &Substitution,
                 checked: &[crate::rule::Predicate],
-            ) -> Result<Validity, SmtError> {
-                Ok(match checked {
+            ) -> Stoppable<Result<Validity, SmtError>> {
+                Ok(Ok(match checked {
                     [crate::rule::Predicate::Equals(..)] => Validity::Refuted,
                     _ => Validity::Unknown("undecided".into()),
-                })
+                }))
             }
         }
         let refuted = RefutesTheObligation;

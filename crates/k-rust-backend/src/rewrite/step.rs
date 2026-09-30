@@ -50,6 +50,7 @@ use crate::{
         simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver},
+    stop::Stoppable,
     substitution::Substitution,
     transition::ExecutionIoState,
 };
@@ -183,7 +184,15 @@ fn apply_priority_group(
         if violates_finite_constructor_domain(definition, &predicates) {
             Ok(Satisfiability::Unsat)
         } else {
-            solver.is_sat(&predicates, &Substitution::new())
+            match solver.is_sat(&predicates, &Substitution::new()) {
+                Ok(satisfiability) => satisfiability,
+                // No answer exists for the remainder, so no successor set of the group does.
+                Err(stop) => {
+                    return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(
+                        SimplificationError::from_stop(stop),
+                    ));
+                }
+            }
         }
     };
     if !matches!(
@@ -601,17 +610,23 @@ pub(super) struct SequentialDeterminism {
 }
 
 impl SequentialDeterminism {
-    fn may_overlap(left: &[Predicate], right: &[Predicate], solver: &dyn SmtSolver) -> bool {
+    /// Whether the two sub-cases are not shown disjoint. A stop is no answer, so it is returned
+    /// rather than read as a possible overlap.
+    fn may_overlap(
+        left: &[Predicate],
+        right: &[Predicate],
+        solver: &dyn SmtSolver,
+    ) -> Stoppable<bool> {
         let mut query = left.to_vec();
         extend_unique(&mut query, right.iter().cloned());
-        match predicates_truth(&query) {
+        Ok(match predicates_truth(&query) {
             Truth::False => false,
             Truth::True => true,
             Truth::Unknown => !matches!(
-                solver.is_sat(&query, &Substitution::new()),
+                solver.is_sat(&query, &Substitution::new())?,
                 Ok(Satisfiability::Unsat)
             ),
-        }
+        })
     }
 
     /// The sub-cases of `group` that have a successor, each the constraints of `subject` and the
@@ -631,6 +646,10 @@ impl SequentialDeterminism {
 
     /// Record the attempt of `rule` (priority `priority`) on `remaining`, the subject minus the
     /// sub-cases covered earlier in the step. `pattern` is the whole subject.
+    ///
+    /// `Err` is a stop observed while deciding whether a successor was dropped, spelled as the
+    /// step's simplification failure: the tracker's answer would rest on a missing one, so the
+    /// step ends with the stop instead.
     #[allow(clippy::too_many_arguments)]
     fn record(
         &mut self,
@@ -643,9 +662,9 @@ impl SequentialDeterminism {
         fresh_counter: u64,
         simplification_options: SimplificationOptions,
         solver: &dyn SmtSolver,
-    ) {
+    ) -> Result<(), SimplificationError> {
         if self.dropped {
-            return;
+            return Ok(());
         }
         // The rule may also cover a configuration an earlier rule of its priority covered, where
         // the step did not feed it. Try it on the whole subject, on a copy of the fresh-name
@@ -663,18 +682,24 @@ impl SequentialDeterminism {
                 None,
             ) {
                 RuleAttempt::NotApplicable => {}
+                RuleAttempt::Simplification(error @ SimplificationError::Stopped(_)) => {
+                    return Err(error);
+                }
                 RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_) => {
                     self.dropped = true;
-                    return;
+                    return Ok(());
                 }
                 RuleAttempt::Unified { groups } => {
                     for group in &groups {
                         for case in Self::sub_cases(pattern, group) {
-                            if self.covered.iter().any(|(earlier, covered)| {
-                                *earlier == priority && Self::may_overlap(covered, &case, solver)
-                            }) {
-                                self.dropped = true;
-                                return;
+                            for (earlier, covered) in &self.covered {
+                                if *earlier == priority
+                                    && Self::may_overlap(covered, &case, solver)
+                                        .map_err(SimplificationError::from_stop)?
+                                {
+                                    self.dropped = true;
+                                    return Ok(());
+                                }
                             }
                         }
                     }
@@ -682,28 +707,30 @@ impl SequentialDeterminism {
             }
         }
         let RuleAttempt::Unified { groups } = attempt else {
-            return;
+            return Ok(());
         };
         let [group] = groups.as_slice() else {
             self.dropped = true;
-            return;
+            return Ok(());
         };
         if !rule_has_one_successor(rule) {
             self.dropped = true;
-            return;
+            return Ok(());
         }
         let cases = Self::sub_cases(remaining, group);
         for (position, case) in cases.iter().enumerate() {
-            if cases[..position]
-                .iter()
-                .any(|earlier| Self::may_overlap(earlier, case, solver))
-            {
-                self.dropped = true;
-                return;
+            for earlier in &cases[..position] {
+                if Self::may_overlap(earlier, case, solver)
+                    .map_err(SimplificationError::from_stop)?
+                {
+                    self.dropped = true;
+                    return Ok(());
+                }
             }
         }
         self.covered
             .extend(cases.into_iter().map(|case| (priority, case)));
+        Ok(())
     }
 }
 
@@ -851,7 +878,7 @@ pub(super) fn rewrite_step_any(
             // Nothing is left to feed the later rules; the tracker still asks whether they
             // cover a configuration an earlier rule took.
             if let Some(determinism) = determinism.as_deref_mut() {
-                determinism.record(
+                if let Err(error) = determinism.record(
                     definition,
                     rule,
                     priority,
@@ -861,7 +888,12 @@ pub(super) fn rewrite_step_any(
                     *fresh_counter,
                     simplification_options,
                     solver,
-                );
+                ) {
+                    return RewriteResult::Simplification {
+                        pattern: pattern.clone(),
+                        error,
+                    };
+                }
                 continue;
             }
             break;
@@ -876,8 +908,8 @@ pub(super) fn rewrite_step_any(
             false,
             io,
         );
-        if let Some(determinism) = determinism.as_deref_mut() {
-            determinism.record(
+        if let Some(determinism) = determinism.as_deref_mut()
+            && let Err(error) = determinism.record(
                 definition,
                 rule,
                 priority,
@@ -887,7 +919,12 @@ pub(super) fn rewrite_step_any(
                 *fresh_counter,
                 simplification_options,
                 solver,
-            );
+            )
+        {
+            return RewriteResult::Simplification {
+                pattern: pattern.clone(),
+                error,
+            };
         }
         match attempt {
             RuleAttempt::NotApplicable => {}
@@ -1033,7 +1070,16 @@ pub(super) fn rewrite_step_any(
     {
         Ok(Satisfiability::Unsat)
     } else {
-        solver.is_sat(&remaining.constraints, &Substitution::new())
+        match solver.is_sat(&remaining.constraints, &Substitution::new()) {
+            Ok(satisfiability) => satisfiability,
+            // No answer exists for the remainder, so the step decided no successor set.
+            Err(stop) => {
+                return RewriteResult::Simplification {
+                    pattern: pattern.clone(),
+                    error: SimplificationError::from_stop(stop),
+                };
+            }
+        }
     };
     if !matches!(
         remainder_result,

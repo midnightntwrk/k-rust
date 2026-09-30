@@ -441,10 +441,6 @@ pub enum SmtFailureOutput<K = Value> {
     },
     /// The query needed an SMT solver, but this build has none.
     Unavailable,
-    InconsistentPrelude,
-    UnknownPrelude {
-        reason: String,
-    },
     Unknown {
         reason: String,
     },
@@ -1280,8 +1276,6 @@ fn smt_failure_output<K: WireKore>(
             error: translation_failure_output(error, result_sort)?,
         },
         SmtError::Unavailable => SmtFailureOutput::Unavailable,
-        SmtError::InconsistentPrelude => SmtFailureOutput::InconsistentPrelude,
-        SmtError::UnknownPrelude(reason) => SmtFailureOutput::UnknownPrelude { reason },
         SmtError::Unknown(reason) => SmtFailureOutput::Unknown { reason },
         SmtError::InconsistentGroundTruth => SmtFailureOutput::InconsistentGroundTruth,
         SmtError::MissingModel => SmtFailureOutput::MissingModel,
@@ -1704,6 +1698,8 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
 #[cfg(test)]
 #[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
+    use k_rust_backend::stop::Stoppable;
+
     use super::*;
 
     #[test]
@@ -2105,9 +2101,9 @@ mod tests {
             &self,
             _predicates: &[k_rust_backend::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
             self.0.cancel();
-            Ok(Satisfiability::Sat)
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -2115,9 +2111,9 @@ mod tests {
             _known: &[k_rust_backend::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[k_rust_backend::rule::Predicate],
-        ) -> Result<k_rust_backend::smt::Validity, SmtError> {
+        ) -> Stoppable<Result<k_rust_backend::smt::Validity, SmtError>> {
             self.0.cancel();
-            Ok(k_rust_backend::smt::Validity::Contingent)
+            Ok(Ok(k_rust_backend::smt::Validity::Contingent))
         }
     }
 
@@ -2186,8 +2182,9 @@ mod tests {
         assert_eq!(incomplete[0]["kind"], "cancelled", "{response:#}");
     }
 
-    /// Cancels the request during its first query and, as a solver interrupted by the
-    /// cancellation does, answers that query and every later one as unknown.
+    /// Cancels the request during its first query and polls for a stop before answering, as a
+    /// solver polls before each attempt, so under the cancelled request that query and every
+    /// later one return the cancellation's stop.
     struct CancelledSolver(k_rust_backend::cancellation::CancellationToken);
 
     impl k_rust_backend::smt::SmtSolver for CancelledSolver {
@@ -2195,9 +2192,10 @@ mod tests {
             &self,
             _predicates: &[k_rust_backend::rule::Predicate],
             _substitution: &Substitution,
-        ) -> Result<Satisfiability, SmtError> {
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
             self.0.cancel();
-            Ok(Satisfiability::Unknown("request cancelled".into()))
+            k_rust_backend::stop::check()?;
+            Ok(Ok(Satisfiability::Sat))
         }
 
         fn check_predicates(
@@ -2205,11 +2203,10 @@ mod tests {
             _known: &[k_rust_backend::rule::Predicate],
             _substitution: &Substitution,
             _checked: &[k_rust_backend::rule::Predicate],
-        ) -> Result<k_rust_backend::smt::Validity, SmtError> {
+        ) -> Stoppable<Result<k_rust_backend::smt::Validity, SmtError>> {
             self.0.cancel();
-            Ok(k_rust_backend::smt::Validity::Unknown(
-                "request cancelled".into(),
-            ))
+            k_rust_backend::stop::check()?;
+            Ok(Ok(k_rust_backend::smt::Validity::Contingent))
         }
     }
 

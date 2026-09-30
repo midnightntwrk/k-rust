@@ -7,6 +7,7 @@ use k_rust_backend::{
     definition::BackendDefinition,
     rule::Predicate,
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
+    stop::{self, Stoppable},
     substitution::Substitution,
     term::Term,
 };
@@ -34,6 +35,9 @@ pub struct ScriptedSolver {
     pub transcript: RefCell<Vec<ScriptedQuery>>,
     /// Zero-based query index and token to cancel after recording that query.
     pub cancel_at: Option<(usize, CancellationToken)>,
+    /// Whether each query polls for a stop after it is recorded, as a solver polls before each
+    /// attempt: a cancellation raised by this query or an earlier one is then its answer.
+    pub polls: bool,
 }
 
 impl ScriptedSolver {
@@ -46,12 +50,24 @@ impl ScriptedSolver {
             validity: RefCell::new(validity.into_iter().collect()),
             transcript: RefCell::default(),
             cancel_at: None,
+            polls: false,
         }
     }
 
     pub fn cancelling_at(mut self, query_index: usize, token: CancellationToken) -> Self {
         self.cancel_at = Some((query_index, token));
         self
+    }
+
+    /// Poll for a stop after recording each query, so that a cancellation the query raises is
+    /// observed by the solver itself rather than by a later poll.
+    pub fn polling(mut self) -> Self {
+        self.polls = true;
+        self
+    }
+
+    fn poll(&self) -> Stoppable<()> {
+        if self.polls { stop::check() } else { Ok(()) }
     }
 
     fn record(&self, query: ScriptedQuery) {
@@ -71,17 +87,18 @@ impl SmtSolver for ScriptedSolver {
         &self,
         predicates: &[Predicate],
         substitution: &Substitution,
-    ) -> Result<Satisfiability, SmtError> {
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
         self.record(ScriptedQuery::IsSat {
             predicates: predicates.to_vec(),
             substitution: substitution.clone(),
         });
-        self.answers.borrow_mut().pop_front().unwrap_or_else(|| {
+        self.poll()?;
+        Ok(self.answers.borrow_mut().pop_front().unwrap_or_else(|| {
             panic!(
                 "ScriptedSolver exhausted satisfiability answers after transcript {:#?}",
                 self.transcript.borrow()
             )
-        })
+        }))
     }
 
     fn check_predicates(
@@ -89,18 +106,19 @@ impl SmtSolver for ScriptedSolver {
         known: &[Predicate],
         substitution: &Substitution,
         checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
+    ) -> Stoppable<Result<Validity, SmtError>> {
         self.record(ScriptedQuery::CheckPredicates {
             known: known.to_vec(),
             substitution: substitution.clone(),
             checked: checked.to_vec(),
         });
-        self.validity.borrow_mut().pop_front().unwrap_or_else(|| {
+        self.poll()?;
+        Ok(self.validity.borrow_mut().pop_front().unwrap_or_else(|| {
             panic!(
                 "ScriptedSolver exhausted validity answers after transcript {:#?}",
                 self.transcript.borrow()
             )
-        })
+        }))
     }
 }
 

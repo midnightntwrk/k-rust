@@ -13,6 +13,7 @@ use k_rust_backend::{
     rule::Predicate,
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::{NoSolver, SmtError, SmtSolver, Validity},
+    stop::Stoppable,
     substitution::Substitution,
     term::Term,
 };
@@ -129,7 +130,7 @@ impl SmtSolver for FixedValiditySolver {
         &self,
         _predicates: &[Predicate],
         _substitution: &Substitution,
-    ) -> Result<k_rust_backend::smt::Satisfiability, SmtError> {
+    ) -> Stoppable<Result<k_rust_backend::smt::Satisfiability, SmtError>> {
         unreachable!()
     }
 
@@ -138,8 +139,8 @@ impl SmtSolver for FixedValiditySolver {
         _known: &[Predicate],
         _substitution: &Substitution,
         _checked: &[Predicate],
-    ) -> Result<Validity, SmtError> {
-        Ok(self.0.clone())
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        Ok(Ok(self.0.clone()))
     }
 }
 

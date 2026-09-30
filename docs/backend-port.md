@@ -191,6 +191,7 @@ Consumers may match the Rust enum exhaustively.
 An `indeterminate` execution leaf carries `cause`, the structured reason the step stopped, with the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
 Other leaves omit `cause`; `detail` remains legacy human-readable context.
 The reachable causes are `surviving-macro-or-alias` (preprocessing left an executable symbol), `match` (unsupported unification remainder), `instantiation` (unbound rule variable), `requires` (undecided rule condition with no solver), `smt` (an undecided rule query), and `remainder` (an undecided priority-group remainder).
+An undecided query is one the solver answered `unknown` within its own timeout and retries; a query that stopped (the request was cancelled, the step deadline passed, or the solver's prelude failed) has no answer, and the step publishes the stop instead of either cause.
 `SearchFailureOutput::solver_unavailable()` is true for `requires`, and for `smt`, `smt-predicate`, or a `remainder` satisfiability error whose SMT failure is `unavailable`.
 It says this step needed a solver absent from the build; it does not promise that a solver-enabled build decides the path, and a `match` cause may depend on an earlier equation left unevaluated without a solver.
 When a `Trivial` halt names its responsible rule, `ExecutionLeaf.rule_id` and `rule_label` expose the same compiled id and optional label as the rule catalog (`ruleId` and `ruleLabel` in JSON).

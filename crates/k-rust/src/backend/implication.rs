@@ -8,11 +8,13 @@ use k_rust_backend::{
     definition::DefinitionError,
     externalize,
     implication::{
-        Bindings, ImplicationCondition, ImplicationRequestError, ImplicationStatus,
-        ImplicationVerdict, Side, SpecialConsequent, bottom_antecedent,
+        Bindings, ImplicationCondition, ImplicationError, ImplicationRequestError,
+        ImplicationStatus, ImplicationVerdict, Side, SpecialConsequent, bottom_antecedent,
         check_implication_with_existentials_complete, check_negated_consequent,
         grade_bottom_consequent, special_consequent, validate_request,
     },
+    simplify::SimplificationError,
+    stop::Stop,
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind},
 };
@@ -100,6 +102,8 @@ impl Backend {
                 Some(SpecialConsequent::Top) => ImplicationVerdict::Valid(Bindings::default()),
                 Some(SpecialConsequent::Bottom) => {
                     grade_bottom_consequent(definition, &antecedent_pattern, solver)
+                        .map_err(stopped_check)
+                        .map_err(error("could not check implication"))?
                 }
                 Some(SpecialConsequent::Not) => check_negated_consequent(
                     definition,
@@ -109,6 +113,8 @@ impl Backend {
                     &sort_variables,
                     solver,
                 )
+                .map_err(stopped_check)
+                .map_err(error("could not check implication"))?
                 .map_err(error("could not internalize implication consequent"))?,
                 None => {
                     let (consequent_pattern, consequent_existentials) = definition
@@ -135,6 +141,12 @@ impl Backend {
             Ok((verdict, result_sort))
         })
     }
+}
+
+/// A stop of a check of a special consequent, spelled as the complete check spells a stop in its
+/// error, so that every check reports a stop with one text (until CBC-04-T9 types it).
+fn stopped_check(stop: Stop) -> ImplicationError {
+    ImplicationError::Simplification(SimplificationError::Stopped(stop.into_cause()))
 }
 
 /// Render the CLI implication contract while the surface retains only file and stdout handling.
