@@ -17,21 +17,18 @@ use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
-use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_steps};
+use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_steps};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
 use kink_native::feasibility::BackendRelations;
-use kink_native::observation::DomainEventSpec;
 use kink_native::step_events::{ObservationDecider, StepEventSpec, StepObservation};
-use kink_native::{
-    ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition, equivalent_compilation,
-};
+use kink_native::{NativeValidator, ValidatedDefinition, equivalent_compilation};
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
-    Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventPresence,
-    EventVocabulary, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate, evaluate_with,
+    Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary,
+    ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome, PatternPlan,
+    PayloadClause, SearchPolicy, SymbolSorts, evaluate, evaluate_with,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -43,114 +40,6 @@ const BUDGET: ExecutionBudget = ExecutionBudget {
 
 fn counter_validator() -> NativeValidator {
     NativeValidator::bind(support::load("counter.k"), CompileOptions::default())
-}
-
-#[test]
-fn observed_rule_merged_with_unobserved_author_is_unknown() {
-    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-    let observed = kink_patch::SentenceRef::new("UNLABELLED", 0);
-    let unobserved = kink_patch::SentenceRef::new("UNLABELLED", 2);
-    let mut replacement = validator.baseline().sentence(&unobserved).unwrap().clone();
-    *replacement.attributes_mut() = validator
-        .baseline()
-        .sentence(&observed)
-        .unwrap()
-        .attributes()
-        .clone();
-    let patch = Patch::new(vec![Edit::ReplaceSentence {
-        at: observed.clone(),
-        replacement,
-    }])
-    .unwrap();
-    let baseline = validator.compile_baseline().unwrap();
-    let mutant = validator
-        .validate(&patch)
-        .expect("equal-rule mutant compiles");
-    let rules = [ObservedRule {
-        rule: observed.clone(),
-        emit_rule_applied: true,
-        domain_events: Vec::new(),
-    }];
-    let vocabulary = vocabulary(&[("rule:UNLABELLED:0", &[])]);
-    let plan = single_atom(&vocabulary, "rule:UNLABELLED:0", None);
-    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
-    let baseline_run = legacy_run(
-        &validator,
-        &baseline,
-        "UNLABELLED",
-        &rules,
-        &vocabulary,
-        &state,
-        BUDGET,
-    );
-    assert_eq!(
-        outcome(&baseline_run, &plan).outcome,
-        PatternOutcome::NoMatch
-    );
-    let mutant_run = legacy_run(
-        &validator,
-        &mutant,
-        "UNLABELLED",
-        &rules,
-        &vocabulary,
-        &state,
-        BUDGET,
-    );
-    let result = outcome(&mutant_run, &plan);
-    assert_eq!(result.outcome, PatternOutcome::Unknown);
-    assert!(result.witnesses.is_empty());
-    let [path] = mutant_run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert!(matches!(&path.events[0].presence, EventPresence::Undecided));
-}
-
-#[test]
-fn two_equal_observed_rules_with_same_spec_attribute_normally() {
-    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-    let observed = kink_patch::SentenceRef::new("UNLABELLED", 0);
-    let other = kink_patch::SentenceRef::new("UNLABELLED", 2);
-    let mut replacement = validator.baseline().sentence(&other).unwrap().clone();
-    *replacement.attributes_mut() = validator
-        .baseline()
-        .sentence(&observed)
-        .unwrap()
-        .attributes()
-        .clone();
-    let side = validator
-        .validate(
-            &Patch::new(vec![Edit::ReplaceSentence {
-                at: observed.clone(),
-                replacement,
-            }])
-            .unwrap(),
-        )
-        .unwrap();
-    let rules = [observed, other].map(|rule| ObservedRule {
-        rule,
-        emit_rule_applied: false,
-        domain_events: vec![DomainEventSpec {
-            constructor: "fired".into(),
-            payload: Vec::new(),
-        }],
-    });
-    let vocabulary = vocabulary(&[("fired", &[])]);
-    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
-    let execution = legacy_run(
-        &validator,
-        &side,
-        "UNLABELLED",
-        &rules,
-        &vocabulary,
-        &state,
-        BUDGET,
-    );
-    let result = outcome(&execution, &single_atom(&vocabulary, "fired", None));
-    assert_eq!(result.outcome, PatternOutcome::Match);
-    let [path] = execution.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert!(matches!(path.events[0].presence, EventPresence::Certain));
 }
 
 fn z() -> Pattern {
@@ -188,94 +77,6 @@ fn symbol_sorts(side: &ValidatedDefinition) -> SymbolSorts {
     SymbolSorts::from_definition(
         &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
     )
-}
-
-fn position(validator: &NativeValidator, label: &str) -> (String, k_rust::definition::Location) {
-    let at = support::rule(validator.baseline(), label);
-    let attrs = validator
-        .baseline()
-        .sentence(&at)
-        .expect("rule")
-        .attributes();
-    (
-        attrs.source().expect("source").to_owned(),
-        attrs.location().expect("location"),
-    )
-}
-
-fn rule_applied(label: &str) -> ObservedRule {
-    let fixture = if label.starts_with("UNDECIDED.") {
-        "undecided.k"
-    } else if label.starts_with("ND.") {
-        "nd.k"
-    } else {
-        "counter.k"
-    };
-    let baseline = support::load(fixture);
-    ObservedRule {
-        rule: support::rule(&baseline, label),
-        emit_rule_applied: true,
-        domain_events: Vec::new(),
-    }
-}
-
-#[test]
-fn mutated_unlabelled_rule_is_observed_on_both_sides() {
-    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
-    let at = TermRef::new(rule.clone(), [0, 1]);
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
-        expected: validator.baseline().term(&at).expect("right side").clone(),
-        at,
-        replacement: Term::apply("c", vec![]),
-    }])
-    .expect("patch");
-    let baseline = validator.compile_baseline().expect("baseline");
-    let mutant = validator.validate(&patch).expect("mutant");
-    assert!(!equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
-    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
-    for side in [&baseline, &mutant] {
-        let manifest = validator
-            .observation_manifest(
-                side,
-                &[ObservedRule {
-                    rule: rule.clone(),
-                    emit_rule_applied: true,
-                    domain_events: Vec::new(),
-                }],
-            )
-            .expect("manifest");
-        let mut backend = Backend::new(
-            &side.artifacts().definition_kore,
-            "UNLABELLED",
-            BackendOptions::default(),
-        )
-        .expect("backend");
-        let execution = ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
-            .execute(&mut backend, &state, BUDGET)
-            .expect("observed execute");
-        assert!(execution.leaves().iter().any(|leaf| leaf.branch.events.iter().any(|event| matches!(event, kink_native::observation::NativeEvent::RuleApplied(applied) if applied.rule == rule))));
-    }
-}
-
-#[test]
-fn deleted_unlabelled_rule_is_left_out() {
-    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
-    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
-    let deleted = validator
-        .validate(&Patch::new(vec![Edit::DeleteSentence { at: rule.clone() }]).expect("patch"))
-        .expect("mutant");
-    let manifest = validator
-        .observation_manifest(
-            &deleted,
-            &[ObservedRule {
-                rule,
-                emit_rule_applied: true,
-                domain_events: Vec::new(),
-            }],
-        )
-        .expect("manifest");
-    assert!(manifest.rules().next().is_none());
 }
 
 #[test]
@@ -360,52 +161,6 @@ struct Run {
     initial_state: Pattern,
 }
 
-fn legacy_run(
-    validator: &NativeValidator,
-    side: &ValidatedDefinition,
-    module: &str,
-    rules: &[ObservedRule],
-    vocabulary: &EventVocabulary,
-    state: &Pattern,
-    budget: ExecutionBudget,
-) -> Run {
-    let manifest = validator
-        .observation_manifest(side, rules)
-        .expect("manifest installs");
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        module,
-        BackendOptions::default(),
-    )
-    .expect("backend");
-    let execution = ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
-        .execute(&mut backend, state, budget)
-        .expect("execution adapts");
-    let sorts = symbol_sorts(side);
-    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
-    let bridged = paths_from_execution(
-        &execution,
-        &BridgeContext {
-            test_id: "t",
-            classify: &normal,
-            sorts: &sorts,
-        },
-    )
-    .expect("execution bridges");
-    Run {
-        baseline_backend: None,
-        initial_state: state.clone(),
-        execution,
-        bridged,
-        context: EvaluationContext {
-            test_id: "t".to_owned(),
-            bounds: budget.bounds(),
-            vocabulary: vocabulary.clone(),
-            symbol_sorts: sorts,
-        },
-    }
-}
-
 fn run(
     validator: &NativeValidator,
     side: &ValidatedDefinition,
@@ -421,7 +176,7 @@ fn run(
         BackendOptions::default(),
     )
     .expect("backend");
-    let execution = ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+    let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_steps(&mut backend, state, budget)
         .expect("execution adapts")
         .expect("step run");
@@ -628,16 +383,6 @@ fn observed_counter_and_fallback_mutant_match_the_same_transition() {
     }])
     .expect("one edit");
     let mutant = validator.validate(&patch).expect("the mutant compiles");
-    assert_ne!(
-        baseline.rule_identity(
-            &position(&validator, "COUNTER.branch").0,
-            position(&validator, "COUNTER.branch").1
-        ),
-        mutant.rule_identity(
-            &position(&validator, "COUNTER.branch").0,
-            position(&validator, "COUNTER.branch").1
-        )
-    );
     let specs = vec![step_support::counter(true).remove(1)];
     let vocabulary = vocabulary(&[("branchTaken", &[])]);
     let plan = single_atom(&vocabulary, "branchTaken", None);
@@ -866,58 +611,6 @@ fn nonterminating_execution_is_timeout() {
     assert_eq!(run.bridged.collection.stop, CollectionStop::TimeLimit);
     let result = outcome(&run, &single_atom(&vocabulary, "spin", None));
     assert_eq!(result.outcome, PatternOutcome::Unknown);
-}
-
-/// Critique C7: a mutant side omits an observed position only when the patch deleted
-/// its baseline rule; a position outside the authored baseline is a declaration error.
-#[test]
-fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
-    let validator = counter_validator();
-    let baseline = validator.compile_baseline().expect("counter.k compiles");
-    let deleted = validator
-        .validate(
-            &Patch::new(vec![Edit::DeleteSentence {
-                at: support::rule(validator.baseline(), "COUNTER.fallback"),
-            }])
-            .expect("one edit"),
-        )
-        .expect("the mutant without fallback compiles");
-    let rules = [
-        rule_applied("COUNTER.branch"),
-        rule_applied("COUNTER.fallback"),
-    ];
-    let labels = |side: &ValidatedDefinition| {
-        validator
-            .observation_manifest(side, &rules)
-            .expect("manifest")
-            .rules()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        labels(&baseline),
-        [
-            support::rule(validator.baseline(), "COUNTER.branch"),
-            support::rule(validator.baseline(), "COUNTER.fallback")
-        ]
-    );
-    assert_eq!(
-        labels(&deleted),
-        [support::rule(validator.baseline(), "COUNTER.branch")]
-    );
-    assert_eq!(
-        validator.observation_manifest(
-            &baseline,
-            &[ObservedRule {
-                rule: kink_patch::SentenceRef::new("COUNTER", 999),
-                emit_rule_applied: true,
-                domain_events: Vec::new()
-            }]
-        ),
-        Err(ManifestFailure::UnknownRule(kink_patch::SentenceRef::new(
-            "COUNTER", 999
-        )))
-    );
 }
 
 /// The side of `undecided.k` on which the rule `label` applies: its `requires false` is

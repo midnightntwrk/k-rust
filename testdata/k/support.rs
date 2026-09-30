@@ -115,14 +115,6 @@ pub fn int(value: i64) -> Pattern {
     }
 }
 
-/// The path through the layout built by `initial_state`: generatedTop -> <k> ->
-/// kseq -> inj -> the program term, followed by `rest`.
-pub fn k_head(rest: &[u32]) -> Vec<u32> {
-    let mut path = vec![0, 0, 0, 0];
-    path.extend_from_slice(rest);
-    path
-}
-
 /// The initial configuration `<generatedTop>(<k>(program ~> .K), <generatedCounter>(0))`
 /// of a definition whose only declared cell is `<k>`, for a `program` of KORE sort `sort`.
 /// Built by hand for these tests' fixed configuration shape.

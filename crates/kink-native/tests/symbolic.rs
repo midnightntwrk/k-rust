@@ -53,7 +53,7 @@ fn backend(kore: &str, module: &str) -> Backend {
 }
 
 fn adapter() -> ExecutionAdapter {
-    ExecutionAdapter::without_manifest(PROFILE)
+    ExecutionAdapter::with_profile(PROFILE)
 }
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -1552,7 +1552,7 @@ fn vacuous_initial_state_is_a_discarded_path() {
     assert_eq!(report["paths"], serde_json::json!([]));
     assert_eq!(
         report["discarded"],
-        serde_json::json!([{ "key": "root", "halt": "vacuous", "reason": "vacuous" }])
+        serde_json::json!([{ "key": "leaf:0", "halt": "vacuous", "reason": "vacuous" }])
     );
 }
 

@@ -242,7 +242,7 @@ fn campaign_runs_in_the_build_solver_profile() {
         } else {
             SolverProfile::NoZ3
         };
-        let adapter = ExecutionAdapter::without_manifest(other);
+        let adapter = ExecutionAdapter::with_profile(other);
         let z = app("z", vec![]);
         let initial_state = state(app("addr", vec![z.clone()]), app("addr", vec![z]));
         assert_eq!(

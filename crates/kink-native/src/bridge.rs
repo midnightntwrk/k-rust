@@ -30,9 +30,7 @@
 //! under `any` a step follows one collection candidate per rule, so another candidate may give an
 //! instance of the leaf a defined successor (k-rust KK-73 made `any` relative to the whole
 //! priority, which leaves only that difference).
-//! A `Trivial` leaf's key is its committed transitions followed by `undefined@N`, where `N`
-//! counts the earlier `Trivial` leaves after the same transitions, since one step can leave
-//! several undefined sub-cases.
+//! Each state-slot path has a `leaf:<ordinal>` key in raw response order.
 //!
 //! An `Indeterminate` leaf whose step needed an SMT solver that the build lacks
 //! (`SearchFailureOutput::solver_unavailable` of its cause) is `SolverUnknown`; any other
@@ -43,7 +41,7 @@
 //! ([`LeafFeasibility::Unsat`]). An undecided `Trivial` leaf is `SolverUnknown`, like an
 //! undecided stuck leaf. A diagnosed leaf is never discarded.
 
-use k_rust::backend::{EffectOutput, SearchFailureOutput};
+use k_rust::backend::SearchFailureOutput;
 use k_rust::kore::{
     ast::{Pattern, Sort},
     codec,
@@ -55,7 +53,7 @@ use kink_pattern::{
 
 use crate::execution::{AdaptedExecution, HaltClass, SteppedExecution};
 use crate::feasibility::LeafFeasibility;
-use crate::observation::{AdaptedBranch, DomainPayload, NativeEvent};
+use crate::observation::AdaptedBranch;
 use crate::step_events::{ObservationDecider, StepObservation, StepPresence};
 
 /// What the bridge needs besides the adapted response.
@@ -84,9 +82,6 @@ pub struct BridgedPaths {
 pub enum BridgeFailure {
     NoLeaves,
     ContractViolation(HaltClass),
-    /// A domain event carries an effect payload, which is not a KORE term.
-    UnsupportedPayload,
-    UndecodablePayload(String),
     UndecodableState(String),
     UndecidedStateSort,
     /// Two different branches have one identity, so they would share a path key.
@@ -292,102 +287,11 @@ impl SplitState {
     }
 }
 
-/// `rule@target` of each transition joined by `/`, or `root` for the initial state.
-fn branch_key(branch: &AdaptedBranch) -> String {
-    if branch.identity.is_empty() {
-        "root".to_owned()
-    } else {
-        branch
-            .identity
-            .iter()
-            .map(|id| format!("{}@{}", id.rule, id.target))
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-}
-
-/// The path key of each leaf, in leaf order: its branch key, and for a `Trivial` leaf also
-/// `undefined@N`, where `N` counts the earlier `Trivial` leaves with the same branch key. A
-/// trivial leaf commits no transition, so it shares its branch with its step's other undefined
-/// sub-cases.
+/// The path key of each leaf in response order, independent of its derivation.
 #[must_use]
 pub fn leaf_keys(leaves: &[crate::execution::AdaptedLeaf]) -> Vec<String> {
-    let mut seen = std::collections::BTreeMap::<String, usize>::new();
-    leaves
-        .iter()
-        .map(|leaf| {
-            let key = branch_key(&leaf.branch);
-            if leaf.halt != HaltClass::Trivial {
-                return key;
-            }
-            let ordinal = seen.entry(key.clone()).or_default();
-            let undefined = format!("undefined@{ordinal}");
-            *ordinal += 1;
-            if leaf.branch.identity.is_empty() {
-                undefined
-            } else {
-                format!("{key}/{undefined}")
-            }
-        })
-        .collect()
-}
-
-fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
-    branch
-        .events
-        .iter()
-        .map(|event| {
-            let (index, step, emission_ordinal, constructor, payload, presence) = match event {
-                NativeEvent::RuleApplied(event) => (
-                    event.event_ordinal,
-                    event.transition_ordinal,
-                    event.emission_ordinal,
-                    event.label.as_ref().map_or_else(
-                        || format!("rule:{}:{}", event.rule.module, event.rule.index),
-                        |label| format!("rule:{label}"),
-                    ),
-                    Vec::new(),
-                    EventPresence::Certain,
-                ),
-                NativeEvent::Domain(event) => (
-                    event.event_ordinal,
-                    event.transition_ordinal,
-                    event.emission_ordinal,
-                    event.constructor.clone(),
-                    event
-                        .payload
-                        .iter()
-                        .map(|payload| match payload {
-                            DomainPayload::Term(value) => {
-                                codec::from_value(value).map_err(|error| {
-                                    BridgeFailure::UndecodablePayload(error.to_string())
-                                })
-                            }
-                            DomainPayload::Effect(EffectOutput::UserLog { .. }) => {
-                                Err(BridgeFailure::UnsupportedPayload)
-                            }
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                    EventPresence::Certain,
-                ),
-                NativeEvent::UnknownAttribution(event) => (
-                    event.event_ordinal,
-                    event.transition_ordinal,
-                    event.emission_ordinal,
-                    event.constructor.clone(),
-                    Vec::new(),
-                    EventPresence::Undecided,
-                ),
-            };
-            Ok(Event {
-                index,
-                constructor,
-                payload,
-                presence,
-                step: widen(step),
-                emission_ordinal: widen(emission_ordinal),
-            })
-        })
+    (0..leaves.len())
+        .map(|ordinal| format!("leaf:{ordinal}"))
         .collect()
 }
 
@@ -429,8 +333,7 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
     }
 }
 
-/// Paths under construction, keyed by branch identity. An exact repeat of a branch with the
-/// same stop is one path; two different branches with one key are a failure.
+/// State-slot paths under construction, keyed by the raw leaf ordinal.
 struct PathSet<'a> {
     context: &'a BridgeContext<'a>,
     entries: Vec<(String, AdaptedBranch, PathInput)>,
@@ -535,7 +438,7 @@ impl<'a> PathSet<'a> {
             stop,
             execution_stop: execution_stop(stop),
             execution_terminal,
-            events: events(branch)?,
+            events: Vec::new(),
             path_predicate,
             equivalences: Vec::new(),
             inequalities: Vec::new(),
@@ -814,7 +717,6 @@ mod tests {
     use serde_json::Value;
 
     use crate::execution::{AdaptedLeaf, ExecutionBudget};
-    use crate::observation::DomainEvent;
 
     use HaltClass as H;
     use LeafFeasibility::{Syntactic as F, Unknown as U};
@@ -971,27 +873,16 @@ mod tests {
         }
     }
 
-    /// A branch of one transition that emitted one `fired` event.
+    /// A branch with one committed transition and no declaration events.
     fn branch(marker: usize, state: &str) -> AdaptedBranch {
-        let transition = TransitionIdOutput {
-            rule: format!("rule-{marker}"),
-            target: format!("target-{marker}"),
-        };
         AdaptedBranch {
-            identity: vec![transition.clone()],
+            identity: vec![TransitionIdOutput {
+                rule: format!("rule-{marker}"),
+                target: format!("target-{marker}"),
+            }],
             state: kore(state),
             depth: 1,
             trace: Vec::new(),
-            events: vec![NativeEvent::Domain(DomainEvent {
-                event_ordinal: 0,
-                transition_ordinal: 0,
-                emission_ordinal: 0,
-                constructor: "fired".to_owned(),
-                transition,
-                rule: kink_patch::SentenceRef::new("M", 0),
-                payload: Vec::new(),
-            })],
-            rollbacks: Vec::new(),
         }
     }
 
@@ -1001,10 +892,20 @@ mod tests {
         occurrence(bridged, "never")
     }
 
-    /// Evaluates a plan whose only event is the `fired` event of every [`branch`]: the
-    /// outcome is `Match` exactly when a path carrying it has a real prefix.
+    /// Supplies a scripted event to every bridged path to test real-prefix evidence.
     fn presence(bridged: &BridgedPaths) -> PatternOutcome {
-        occurrence(bridged, "fired")
+        let mut bridged = bridged.clone();
+        for path in &mut bridged.paths {
+            path.events.push(Event {
+                index: 0,
+                constructor: "fired".into(),
+                payload: Vec::new(),
+                presence: EventPresence::Certain,
+                step: 0,
+                emission_ordinal: 0,
+            });
+        }
+        occurrence(&bridged, "fired")
     }
 
     fn occurrence(bridged: &BridgedPaths, constructor: &str) -> PatternOutcome {
@@ -1212,12 +1113,7 @@ mod tests {
             let [path] = bridged.paths.as_slice() else {
                 panic!("{id}: one path");
             };
-            let key = if halt == H::Trivial {
-                "rule-0@target-0/undefined@0"
-            } else {
-                "rule-0@target-0"
-            };
-            assert_eq!(path.path_key.as_deref(), Some(key), "{id}");
+            assert_eq!(path.path_key.as_deref(), Some("leaf:0"), "{id}");
             assert_eq!(bridged.collection.empty_search_decision, None, "{id}");
             match expected {
                 Complete(kind, term) => {
@@ -1459,7 +1355,7 @@ mod tests {
     }
 
     /// A trivial leaf commits no transition, so the undefined sub-cases of one step share their
-    /// branch. Each gets its own `undefined@N` key and path; the step's other leaves keep theirs.
+    /// branch. Each gets its own leaf ordinal and path.
     #[test]
     fn undefined_sub_cases_of_one_step_are_distinct_paths() {
         let sorts = sorts();
@@ -1473,14 +1369,7 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
         };
-        assert_eq!(
-            leaf_keys(&execution.leaves),
-            [
-                "rule-0@target-0/undefined@0",
-                "rule-0@target-0/undefined@1",
-                "rule-0@target-0",
-            ]
-        );
+        assert_eq!(leaf_keys(&execution.leaves), ["leaf:0", "leaf:1", "leaf:2"]);
         let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
         assert_eq!(
             bridged
@@ -1493,7 +1382,7 @@ mod tests {
         assert_eq!(bridged.collection.stop, CollectionStop::SearchExhausted);
         let mut root = trivial(GROUND);
         root.branch.identity.clear();
-        assert_eq!(leaf_keys(&[root]), ["undefined@0"]);
+        assert_eq!(leaf_keys(&[root]), ["leaf:0"]);
     }
 
     /// Only a `Trivial` halt shows an undefined step; a classifier that says so of a stuck term
@@ -1518,7 +1407,7 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_identity_of_different_branches_is_rejected() {
+    fn a_shared_identity_of_different_branches_has_distinct_leaf_keys() {
         let sorts = sorts();
         let execution = AdaptedExecution {
             leaves: vec![
@@ -1546,11 +1435,13 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
         };
-        assert_eq!(
-            paths_from_execution(&execution, &bridge_context(&sorts)),
-            Err(BridgeFailure::DuplicatePathIdentity(
-                "rule-0@target-0".to_owned()
-            ))
+        let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+        assert_eq!(bridged.paths.len(), 2);
+        assert_eq!(bridged.paths[0].path_key.as_deref(), Some("leaf:0"));
+        assert_eq!(bridged.paths[1].path_key.as_deref(), Some("leaf:1"));
+        assert_ne!(
+            bridged.paths[0].execution_terminal,
+            bridged.paths[1].execution_terminal
         );
     }
 }

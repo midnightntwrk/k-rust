@@ -111,7 +111,7 @@ fn run_steps(side: &ValidatedDefinition, module: &str, state: &Pattern) -> Stepp
         BackendOptions::default(),
     )
     .expect("backend");
-    ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+    ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_steps(&mut backend, state, BUDGET)
         .expect("execution")
         .expect("step run")
@@ -1638,7 +1638,7 @@ mod position_rows {
                 },
             )
             .expect("backend");
-            let adapter = ExecutionAdapter::without_manifest(SolverProfile::BUILD);
+            let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
             for (row, program) in programs {
                 let state = support::initial_state(program, "SortProg");
                 let execution = adapter

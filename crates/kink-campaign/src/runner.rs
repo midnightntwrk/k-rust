@@ -835,7 +835,7 @@ struct Runtime {
 impl Runtime {
     /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
     fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
-        let adapter = ExecutionAdapter::without_manifest(SolverProfile::BUILD);
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
@@ -1270,8 +1270,7 @@ impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
             | ExecutionAdapterFailure::InvalidState(_)
             | ExecutionAdapterFailure::Backend(_)
             | ExecutionAdapterFailure::ContractViolation(_)
-            | ExecutionAdapterFailure::UninhabitedVariable(_)
-            | ExecutionAdapterFailure::Observation(_) => Self::Infrastructure,
+            | ExecutionAdapterFailure::UninhabitedVariable(_) => Self::Infrastructure,
         }
     }
 }
@@ -1281,8 +1280,6 @@ impl From<&BridgeFailure> for ExecutionFailureKind {
         match failure {
             BridgeFailure::NoLeaves
             | BridgeFailure::ContractViolation(_)
-            | BridgeFailure::UnsupportedPayload
-            | BridgeFailure::UndecodablePayload(_)
             | BridgeFailure::UndecodableState(_)
             | BridgeFailure::UndecidedStateSort
             | BridgeFailure::DuplicatePathIdentity(_)

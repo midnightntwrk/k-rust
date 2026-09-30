@@ -2210,7 +2210,7 @@ fn audit_ks_as6_remainder_restriction_is_not_killed() {
     });
 }
 
-/// AS7: duplicate state-path identities fail each mutant test with Infrastructure until SO-07. Claim withdrawal, moved content and alpha renaming preserve the declared values.
+/// AS7: duplicate rule identities leave pattern slots Unknown; the ground final state kills. Claim withdrawal, moved content and alpha renaming preserve the declared values.
 #[test]
 fn audit_ks_as7_anchoring_fails_closed() {
     with_stack(|| {
@@ -2238,12 +2238,12 @@ fn audit_ks_as7_anchoring_fails_closed() {
         .expect("campaign");
         let mutant = &run.mutants[0];
         assert_eq!(mutant.plan.mutant_failure, None);
-        assert_eq!(mutant.report.status, MutantStatus::Error);
-        assert!(
-            mutant.plan.tests.iter().all(|test| test.run
-                == TestRun::Failed(kink_campaign::ExecutionFailureKind::Infrastructure))
+        assert_eq!(mutant.report.status, MutantStatus::Killed);
+        assert_eq!(
+            outcomes(&run),
+            vec![vec![D, U, U, U], vec![U; 4], vec![U; 4], vec![U; 4]]
         );
-        assert!(mutant.report.killing_test_ids.is_empty());
+        assert_eq!(mutant.report.killing_test_ids, ["ground-shared"]);
         assert!(mutant.certificate_checks.is_empty());
         let side = fixture.validator.validate(&patch).expect("mutant");
         let mut backend = k_rust::backend::Backend::new(
@@ -2252,7 +2252,7 @@ fn audit_ks_as7_anchoring_fails_closed() {
             k_rust::backend::BackendOptions::default(),
         )
         .expect("backend");
-        let adapter = kink_native::execution::ExecutionAdapter::without_manifest(
+        let adapter = kink_native::execution::ExecutionAdapter::with_profile(
             kink_native::execution::SolverProfile::BUILD,
         );
         let execution = adapter
@@ -2261,16 +2261,25 @@ fn audit_ks_as7_anchoring_fails_closed() {
         let parsed = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
             .expect("KORE");
         let sorts = kink_pattern::SymbolSorts::from_definition(&parsed);
+        let bridged = kink_native::bridge::paths_from_execution(
+            &execution,
+            &kink_native::bridge::BridgeContext {
+                test_id: "ground-shared",
+                classify: &normal,
+                sorts: &sorts,
+            },
+        )
+        .expect("leaf ordinal paths");
+        assert!(bridged.paths.iter().all(|path| path.events.is_empty()));
+        assert_eq!(bridged.paths.len(), execution.leaves().len());
+        for (ordinal, path) in bridged.paths.iter().enumerate() {
+            assert_eq!(path.path_key, Some(format!("leaf:{ordinal}")));
+        }
         assert!(matches!(
-            kink_native::bridge::paths_from_execution(
-                &execution,
-                &kink_native::bridge::BridgeContext {
-                    test_id: "ground-shared",
-                    classify: &normal,
-                    sorts: &sorts
-                }
-            ),
-            Err(kink_native::bridge::BridgeFailure::DuplicatePathIdentity(_))
+            adapter
+                .execute_steps(&mut backend, &fixture.tests[0].initial_state, BUDGET)
+                .expect("execution"),
+            Err(kink_native::execution::StepRunFailure::AmbiguousRule(_))
         ));
 
         // (b)
@@ -4318,7 +4327,7 @@ fn pattern_paths(
         BackendOptions::default(),
     )
     .expect("side backend");
-    let execution = ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+    let execution = ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute_steps(&mut backend, initial, BUDGET)
         .expect("execution")
         .expect("stepped run");

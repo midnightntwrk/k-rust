@@ -31,7 +31,6 @@ impl ReportError {
             ExecutionAdapterFailure::Backend(_) => "Backend",
             ExecutionAdapterFailure::ContractViolation(_) => "ContractViolation",
             ExecutionAdapterFailure::UninhabitedVariable(_) => "UninhabitedVariable",
-            ExecutionAdapterFailure::Observation(_) => "Observation",
         };
         Self {
             stage: "adapter",
@@ -44,8 +43,6 @@ impl ReportError {
         let kind = match failure {
             BridgeFailure::NoLeaves => "NoLeaves",
             BridgeFailure::ContractViolation(_) => "ContractViolation",
-            BridgeFailure::UnsupportedPayload => "UnsupportedPayload",
-            BridgeFailure::UndecodablePayload(_) => "UndecodablePayload",
             BridgeFailure::UndecodableState(_) => "UndecodableState",
             BridgeFailure::UndecidedStateSort => "UndecidedStateSort",
             BridgeFailure::DuplicatePathIdentity(_) => "DuplicatePathIdentity",
@@ -229,7 +226,7 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
 /// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`;
 /// version 4 adds the path `cause`, the k-rust `SearchFailure` of an indeterminate leaf (null
 /// otherwise); version 5 adds the stop `"undefined-step"` of a `Trivial` leaf, whose `terminal` is
-/// its pre-step term, and the `undefined@N` suffix of its key (`bridge::leaf_keys`); version 6
+/// its pre-step term; paths now use raw leaf ordinals (`bridge::leaf_keys`). Version 6
 /// adds the path `undefined_rule`, the compiled `id` and qualified `label` of the rule whose
 /// application is the undefined step of a `Trivial` leaf (null for every other path, and for a
 /// `Trivial` leaf k-rust names no rule for).
@@ -399,8 +396,6 @@ mod tests {
                 state: term(&state),
                 depth: 1,
                 trace: Vec::new(),
-                events: Vec::new(),
-                rollbacks: Vec::new(),
             },
             feasibility: LeafFeasibility::Syntactic,
             cause: None,
@@ -420,7 +415,7 @@ mod tests {
         let path = PathInput {
             test_id: "t".to_owned(),
             path_ordinal: 0,
-            path_key: Some("r@t".to_owned()),
+            path_key: Some("leaf:0".to_owned()),
             complete: true,
             stop: PathStop::Terminal,
             execution_stop: ExecutionStop::Terminal,
@@ -435,7 +430,7 @@ mod tests {
         };
         let witness = Witness {
             path_ordinal: 0,
-            path_key: Some("r@t".to_owned()),
+            path_key: Some("leaf:0".to_owned()),
             arm_ordinal: 1,
             event_indices: vec![0],
             events: vec![event],
@@ -766,8 +761,8 @@ mod tests {
         assert_eq!(
             report["discarded"],
             json!([
-                { "key": "root", "halt": "vacuous", "reason": "vacuous" },
-                { "key": "r@u", "halt": "stuck", "reason": "unsat" },
+                { "key": "leaf:0", "halt": "vacuous", "reason": "vacuous" },
+                { "key": "leaf:1", "halt": "stuck", "reason": "unsat" },
             ])
         );
     }

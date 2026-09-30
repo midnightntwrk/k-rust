@@ -47,6 +47,7 @@ sources = ["k-rust-agent-requests.toml KRUST-UP-001", "upstream-issues.toml KRUS
 
 [[request]]
 id = "claim-observation"
+# No longer needed by kink: SO-07 replaces rule-attached observations with step events.
 title = "Proof claim observation remains unavailable"
 kind = "missing-feature"
 status = "partial"
@@ -135,6 +136,7 @@ sources = ["k-in-k2 k-rust migration design, section 8 risk 7"]
 
 [[request]]
 id = "rewrite-rule-classification"
+# No longer needed by kink: SO-07 deletes observation rule selection.
 title = "Public rule classification and diagnostic evaluation events"
 kind = "missing-feature"
 status = "fixed"

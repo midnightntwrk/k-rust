@@ -57,7 +57,6 @@
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::{Backend, BackendError};
 use k_rust::kore::ast::{Pattern, Sort as KoreSort, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
@@ -532,12 +531,12 @@ fn pairs_decompose_freely<'t>(pairs: impl IntoIterator<Item = &'t (Term, Term)>)
         .all(|(left, right)| decomposes_freely(left) && decomposes_freely(right))
 }
 
-/// `feasible` and `relate` for payloads of one execution, decided by the backend definition's
-/// unifier and solver (see the module documentation).
+/// `feasible` and `relate` for pattern observations on both sides of a mutant pair, decided by
+/// the baseline definition's unifier and solver (see the module documentation).
 ///
-/// The paths must come from [`crate::bridge::paths_from_execution`] over an execution of
-/// `initial_state` on the same definition. Only terms whose variables are element variables of
-/// `initial_state` are compared: those names mean one value along the whole path. A variable
+/// The paths must come from [`crate::bridge::paths_from_steps`] over executions of
+/// `initial_state` whose signatures match the baseline. Only terms whose variables are element
+/// variables of `initial_state` are compared: those names mean one value along the whole path. A variable
 /// introduced during execution is not, because k-rust renames a rule's existential variables
 /// apart only from the current state, so one name can stand for two values on one path; a
 /// definition whose rewrite rules have existential variables therefore leaves every comparison
@@ -548,32 +547,9 @@ pub struct BackendRelations<'a> {
     inhabitation: Inhabitation,
     /// The initial-state element variables, when they are stable and all inhabited.
     variables: Option<BTreeSet<Variable>>,
-    interpreted_only: bool,
 }
 
 impl<'a> BackendRelations<'a> {
-    fn proves_clash(&self, failure: &UnificationFailure) -> bool {
-        if self.interpreted_only {
-            proves_shared_clash(self.definition, failure)
-        } else {
-            proves_clash(failure)
-        }
-    }
-    #[must_use]
-    pub fn new(
-        definition: &'a BackendDefinition,
-        solver: &'a dyn SmtSolver,
-        initial_state: &Pattern,
-    ) -> Self {
-        let existentials = definition
-            .rewrite_theory
-            .values()
-            .flat_map(|priorities| priorities.values())
-            .flatten()
-            .any(|rule| !rule.existentials.is_empty());
-        Self::build(definition, solver, initial_state, existentials, false)
-    }
-
     /// Relations for pattern observations on both sides of a mutant pair. The caller supplies
     /// the pair's existential flag; only interpreted predicates may reach the solver.
     #[must_use]
@@ -582,16 +558,6 @@ impl<'a> BackendRelations<'a> {
         solver: &'a dyn SmtSolver,
         initial_state: &Pattern,
         existentials: bool,
-    ) -> Self {
-        Self::build(definition, solver, initial_state, existentials, true)
-    }
-
-    fn build(
-        definition: &'a BackendDefinition,
-        solver: &'a dyn SmtSolver,
-        initial_state: &Pattern,
-        existentials: bool,
-        interpreted_only: bool,
     ) -> Self {
         let inhabitation = Inhabitation::of(definition);
         let variables = initial_state
@@ -619,7 +585,6 @@ impl<'a> BackendRelations<'a> {
             solver,
             inhabitation,
             variables,
-            interpreted_only,
         }
     }
 
@@ -709,10 +674,9 @@ impl<'a> BackendRelations<'a> {
                 Feasibility::Unknown
             };
         }
-        if self.interpreted_only
-            && !query
-                .iter()
-                .all(|predicate| shared_predicate_interpreted(self.definition, predicate))
+        if !query
+            .iter()
+            .all(|predicate| shared_predicate_interpreted(self.definition, predicate))
         {
             return Feasibility::Unknown;
         }
@@ -745,19 +709,18 @@ impl RelationDecider for BackendRelations<'_> {
         left: &Pattern,
         right: &Pattern,
     ) -> RelationDecision {
-        if self.interpreted_only
-            && (contains_non_strict_injection(self.definition, left)
-                || contains_non_strict_injection(self.definition, right)
-                || contains_non_strict_injection(self.definition, &path.path_predicate)
-                || contains_untrusted_domain_value(self.definition, left)
-                || contains_untrusted_domain_value(self.definition, right)
-                || contains_untrusted_domain_value(self.definition, &path.path_predicate)
-                || assumed.iter().any(|relation| {
-                    contains_non_strict_injection(self.definition, &relation.left)
-                        || contains_non_strict_injection(self.definition, &relation.right)
-                        || contains_untrusted_domain_value(self.definition, &relation.left)
-                        || contains_untrusted_domain_value(self.definition, &relation.right)
-                }))
+        if contains_non_strict_injection(self.definition, left)
+            || contains_non_strict_injection(self.definition, right)
+            || contains_non_strict_injection(self.definition, &path.path_predicate)
+            || contains_untrusted_domain_value(self.definition, left)
+            || contains_untrusted_domain_value(self.definition, right)
+            || contains_untrusted_domain_value(self.definition, &path.path_predicate)
+            || assumed.iter().any(|relation| {
+                contains_non_strict_injection(self.definition, &relation.left)
+                    || contains_non_strict_injection(self.definition, &relation.right)
+                    || contains_untrusted_domain_value(self.definition, &relation.left)
+                    || contains_untrusted_domain_value(self.definition, &relation.right)
+            })
         {
             return RelationDecision::Indeterminate;
         }
@@ -791,7 +754,9 @@ impl RelationDecider for BackendRelations<'_> {
         }
         pairs.push((left, right));
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
-            UnificationResult::Bottom(failure) if self.proves_clash(&failure) => {
+            UnificationResult::Bottom(failure)
+                if proves_shared_clash(self.definition, &failure) =>
+            {
                 RelationDecision::Unequal
             }
             UnificationResult::Unified(joint) if joint.constraints.is_empty() => {
@@ -821,15 +786,14 @@ impl RelationDecider for BackendRelations<'_> {
     /// (see the module documentation): `Sat` for an empty query or an exact solver `Sat`,
     /// `Unsat` for a solver `Unsat`, else `Unknown`.
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
-        if self.interpreted_only
-            && (contains_non_strict_injection(self.definition, &path.path_predicate)
-                || contains_untrusted_domain_value(self.definition, &path.path_predicate)
-                || assumptions.iter().any(|relation| {
-                    contains_non_strict_injection(self.definition, &relation.left)
-                        || contains_non_strict_injection(self.definition, &relation.right)
-                        || contains_untrusted_domain_value(self.definition, &relation.left)
-                        || contains_untrusted_domain_value(self.definition, &relation.right)
-                }))
+        if contains_non_strict_injection(self.definition, &path.path_predicate)
+            || contains_untrusted_domain_value(self.definition, &path.path_predicate)
+            || assumptions.iter().any(|relation| {
+                contains_non_strict_injection(self.definition, &relation.left)
+                    || contains_non_strict_injection(self.definition, &relation.right)
+                    || contains_untrusted_domain_value(self.definition, &relation.left)
+                    || contains_untrusted_domain_value(self.definition, &relation.right)
+            })
         {
             return Feasibility::Unknown;
         }
@@ -846,7 +810,11 @@ impl RelationDecider for BackendRelations<'_> {
             return Feasibility::Unknown;
         }
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
-            UnificationResult::Bottom(failure) if self.proves_clash(&failure) => Feasibility::Unsat,
+            UnificationResult::Bottom(failure)
+                if proves_shared_clash(self.definition, &failure) =>
+            {
+                Feasibility::Unsat
+            }
             UnificationResult::Unified(solved) => self.decide(path, solved),
             UnificationResult::Bottom(_) | UnificationResult::Unsupported { .. } => {
                 Feasibility::Unknown
@@ -855,26 +823,10 @@ impl RelationDecider for BackendRelations<'_> {
     }
 }
 
-/// Runs `operation` with the [`BackendRelations`] of `backend`'s default module and solver for
-/// executions of `initial_state`.
-pub fn with_backend_relations<T>(
-    backend: &mut Backend,
-    initial_state: &Pattern,
-    operation: impl FnOnce(&BackendRelations<'_>) -> T,
-) -> Result<T, BackendError> {
-    backend.with_solver(None, |definition, solver| {
-        Ok(operation(&BackendRelations::new(
-            definition,
-            solver,
-            initial_state,
-        )))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k_rust::backend::BackendOptions;
+    use k_rust::backend::{Backend, BackendError, BackendOptions};
     use k_rust::kompile::CompileOptions;
     use k_rust::kore::{codec, parser::parse_definition};
     use k_rust_backend::smt::{SmtError, Validity};
@@ -1223,14 +1175,18 @@ mod tests {
             ),
         ];
         let state = symmem_state();
-        let answers = with_backend_relations(&mut symmem, &state, |relations| {
-            rows.iter()
-                .map(|(id, assumed, left, right, _)| {
-                    (*id, relations.relate(&real, assumed, left, right))
-                })
-                .collect::<Vec<_>>()
-        })
-        .expect("relations");
+        let answers = symmem
+            .with_solver(None, |definition, solver| {
+                let relations = BackendRelations::shared(definition, solver, &state, false);
+                Ok::<_, BackendError>(
+                    rows.iter()
+                        .map(|(id, assumed, left, right, _)| {
+                            (*id, relations.relate(&real, assumed, left, right))
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .expect("relations");
         for ((id, answer), (.., expected)) in answers.into_iter().zip(&rows) {
             assert_eq!(&answer, expected, "{id}");
         }
@@ -1294,12 +1250,18 @@ mod tests {
             ),
         ];
         let state = symmem_state();
-        let answers = with_backend_relations(&mut symmem, &state, |relations| {
-            rows.iter()
-                .map(|(id, path, assumptions, _)| (*id, relations.feasible(path, assumptions)))
-                .collect::<Vec<_>>()
-        })
-        .expect("relations");
+        let answers = symmem
+            .with_solver(None, |definition, solver| {
+                let relations = BackendRelations::shared(definition, solver, &state, false);
+                Ok::<_, BackendError>(
+                    rows.iter()
+                        .map(|(id, path, assumptions, _)| {
+                            (*id, relations.feasible(path, assumptions))
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .expect("relations");
         for ((id, answer), (.., expected)) in answers.into_iter().zip(&rows) {
             assert_eq!(answer, *expected, "{id}");
         }
@@ -1319,7 +1281,7 @@ mod tests {
                     .name
                     .to_string();
                 let one_plus_one = support::app(&plus, vec![support::int(1), support::int(1)]);
-                let relations = BackendRelations::new(definition, solver, &state);
+                let relations = BackendRelations::shared(definition, solver, &state, false);
                 let real = path(PathStop::Terminal, top());
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &one_plus_one, &support::int(2)),
@@ -1417,8 +1379,8 @@ mod tests {
                     answer: answer.clone(),
                     queries: std::cell::RefCell::default(),
                 };
-                let feasible =
-                    BackendRelations::new(definition, &solver, state).feasible(path, assumptions);
+                let feasible = BackendRelations::shared(definition, &solver, state, false)
+                    .feasible(path, assumptions);
                 let asked = solver.queries.into_inner();
                 let expected_queries = query.iter().cloned().collect::<Vec<_>>();
                 if feasible != *expected || asked != expected_queries {
@@ -1683,12 +1645,13 @@ mod tests {
                     answer: Ok(Satisfiability::Unsat),
                     queries: std::cell::RefCell::default(),
                 };
-                let answer = BackendRelations::new(definition, &solver, &symmem_state()).relate(
-                    &path(PathStop::Terminal, top()),
-                    &[],
-                    &addr(x.clone()),
-                    &addr(y.clone()),
-                );
+                let answer = BackendRelations::shared(definition, &solver, &symmem_state(), false)
+                    .relate(
+                        &path(PathStop::Terminal, top()),
+                        &[],
+                        &addr(x.clone()),
+                        &addr(y.clone()),
+                    );
                 Ok::<_, BackendError>((answer, solver.queries.into_inner().len()))
             })
             .expect("definition");
@@ -1895,7 +1858,7 @@ mod tests {
         let both = |value: Pattern| support::app("Lblboth", vec![value]);
         let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
         let solver = Scripted(Err(SmtError::Unavailable));
-        let relations = BackendRelations::new(&definition, &solver, &state);
+        let relations = BackendRelations::shared(&definition, &solver, &state, false);
         let real = path(PathStop::Terminal, top_of("SortNat"));
         assert_eq!(
             [
@@ -1953,7 +1916,7 @@ mod tests {
                     .existentials
                     .insert(Variable::new("Ex#Fresh", Sort::simple("SortNat")));
                 rule.rule = std::sync::Arc::new(changed);
-                let relations = BackendRelations::new(&definition, solver, &state);
+                let relations = BackendRelations::shared(&definition, solver, &state, true);
                 Ok::<_, BackendError>([
                     relations.relate(&real, &[], &addr(x.clone()), &addr(x.clone())),
                     relations.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),

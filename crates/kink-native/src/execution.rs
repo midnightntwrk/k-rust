@@ -29,9 +29,7 @@ use kink_pattern::ExecutionBounds;
 
 use crate::execution_difference::{NotProvedReason, StateSequence, StateSequences};
 use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
-use crate::observation::{
-    AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
-};
+use crate::observation::AdaptedBranch;
 
 /// The closed halt reasons of an execution leaf.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -342,13 +340,6 @@ pub enum ExecutionAdapterFailure {
     /// A free element variable of the initial state has a sort with no value shown by the
     /// definition, so the state may have no instance.
     UninhabitedVariable(k_rust::kore::ast::Variable),
-    Observation(ObservationFailure),
-}
-
-impl From<ObservationFailure> for ExecutionAdapterFailure {
-    fn from(value: ObservationFailure) -> Self {
-        Self::Observation(value)
-    }
 }
 
 /// The bounded PathSet request. Strategy `all` is what makes the leaves the whole path set: every
@@ -376,43 +367,24 @@ fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest 
     }
 }
 
-/// Observed execution for one installed manifest, in one expected solver profile.
+/// Event-free and stepped execution in one expected solver profile.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionAdapter {
-    manifest: InstalledObservationManifest,
     profile: SolverProfile,
 }
 
 impl ExecutionAdapter {
-    /// An adapter that observes no rule in its ordinary execution.
+    /// An adapter that expects `profile`.
     #[must_use]
-    pub fn without_manifest(profile: SolverProfile) -> Self {
-        Self::with_profile(
-            InstalledObservationManifest::install_with_authors(Vec::new(), BTreeMap::new())
-                .expect("empty observation manifest"),
-            profile,
-        )
-    }
-
-    /// An adapter that expects the qualified no-Z3 profile.
-    #[must_use]
-    pub const fn new(manifest: InstalledObservationManifest) -> Self {
-        Self::with_profile(manifest, SolverProfile::NoZ3)
+    pub const fn new(profile: SolverProfile) -> Self {
+        Self::with_profile(profile)
     }
 
     /// An adapter that expects `profile`; a backend of the other profile is
     /// [`ExecutionAdapterFailure::SolverProfileMismatch`].
     #[must_use]
-    pub const fn with_profile(
-        manifest: InstalledObservationManifest,
-        profile: SolverProfile,
-    ) -> Self {
-        Self { manifest, profile }
-    }
-
-    #[must_use]
-    pub const fn manifest(&self) -> &InstalledObservationManifest {
-        &self.manifest
+    pub const fn with_profile(profile: SolverProfile) -> Self {
+        Self { profile }
     }
 
     /// The solver profile this adapter accepts.
@@ -451,7 +423,7 @@ impl ExecutionAdapter {
             execute_with_watchdog(backend, encoded, budget, |backend, request| {
                 backend.execute_observed(ObservedRequest {
                     request,
-                    rules: Some(self.manifest.backend_rule_ids()),
+                    rules: Some(Vec::new()),
                 })
             })?;
         let feasibility = if timed_out {
@@ -469,13 +441,7 @@ impl ExecutionAdapter {
                 )
             })?
         };
-        Self::adapt(
-            result,
-            timed_out,
-            &budget,
-            feasibility,
-            Some(&self.manifest),
-        )
+        Self::adapt(result, timed_out, &budget, feasibility)
     }
 
     /// Execute once with every rewrite transition observed, retaining the states of each step.
@@ -515,7 +481,7 @@ impl ExecutionAdapter {
                 leaf.observations.clear();
             }
             return Ok(Ok(SteppedExecution {
-                adapted: Self::adapt(result, true, &budget, feasibility, None)?,
+                adapted: Self::adapt(result, true, &budget, feasibility)?,
                 states: Vec::new(),
             }));
         }
@@ -537,155 +503,13 @@ impl ExecutionAdapter {
                     .collect(),
             )
         })?;
-        // The adapter must not interpret these observations through its rule manifest.
+        // Step observations are consumed only by the configuration sequence.
         let mut result = result;
         for leaf in &mut result.leaves {
             leaf.observations.clear();
         }
-        let adapted = Self::adapt(result, false, &budget, feasibility, None)?;
+        let adapted = Self::adapt(result, false, &budget, feasibility)?;
         Ok(Ok(SteppedExecution { adapted, states }))
-    }
-
-    /// Runs the same PathSet request with every rewrite rule observed, yielding Rewrite positions.
-    /// The facade contract (`k-rust` `backend/mod.rs:630-640`) guarantees that an observation
-    /// filter changes neither leaves nor their order. An explicit rewrite allow-list avoids
-    /// observe-all: it emits one Evaluation event per equation, simplification, and builtin,
-    /// each cloning the whole state. Filtered Remainder entries are not reported and add no
-    /// position. Every failure is a NotProvedReason, never a kill.
-    pub fn state_sequences(
-        &self,
-        backend: &mut Backend,
-        state: &Pattern,
-        budget: ExecutionBudget,
-        expected: &[Vec<TransitionIdOutput>],
-    ) -> Result<StateSequences, NotProvedReason> {
-        self.check_profile(backend)
-            .map_err(|_| NotProvedReason::Backend)?;
-        let ids = with_definition(backend, |definition| {
-            Ok(definition
-                .rewrite_theory
-                .values()
-                .flat_map(|priorities| priorities.values())
-                .flatten()
-                .map(|rule| rule.rule.attributes.unique_id.clone())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>())
-        })
-        .map_err(|_| NotProvedReason::Backend)?;
-        let encoded = codec::to_value(state).map_err(|_| NotProvedReason::Backend)?;
-        let (result, timed_out) =
-            execute_with_watchdog(backend, encoded, budget, |backend, request| {
-                backend.execute_observed(ObservedRequest {
-                    request,
-                    rules: Some(ids.clone()),
-                })
-            })
-            .map_err(|_| NotProvedReason::Backend)?;
-        if timed_out {
-            return Err(NotProvedReason::Timeout);
-        }
-        if result.leaves.len() != expected.len() {
-            return Err(NotProvedReason::BranchMismatch);
-        }
-        let feasibility = backend
-            .with_solver(None, |definition, solver| {
-                let inhabitation = Inhabitation::of(definition);
-                Ok::<_, ExecutionAdapterFailure>(
-                    result
-                        .leaves
-                        .iter()
-                        .map(|leaf| {
-                            leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .map_err(|_| NotProvedReason::Backend)?;
-        let mut leaves = Vec::with_capacity(result.leaves.len());
-        for (index, (leaf, feasibility)) in result.leaves.into_iter().zip(feasibility).enumerate() {
-            let halt = HaltClass::from_output(leaf.reason);
-            if !halt.adapter_admits(&budget) {
-                return Err(NotProvedReason::Backend);
-            }
-            if leaf.branch != expected[index] {
-                return Err(NotProvedReason::BranchMismatch);
-            }
-            let mut reported = Vec::new();
-            let mut states = Vec::new();
-            for event in leaf.observations {
-                match event {
-                    ObservationEventOutput::Transition {
-                        id, class, before, ..
-                    } => match class {
-                        TransitionClassOutput::Rewrite => {
-                            reported.push(id);
-                            states.push(
-                                codec::from_value(&before).map_err(|_| NotProvedReason::Backend)?,
-                            );
-                        }
-                        TransitionClassOutput::Remainder | TransitionClassOutput::Claim => {
-                            return Err(NotProvedReason::Unobservable);
-                        }
-                    },
-                    ObservationEventOutput::Evaluation { .. }
-                    | ObservationEventOutput::Uncommitted { .. } => {}
-                }
-            }
-            if leaf
-                .branch
-                .iter()
-                .filter(|id| !id.rule.starts_with("remainder:"))
-                .cloned()
-                .collect::<Vec<_>>()
-                != reported
-            {
-                return Err(NotProvedReason::Unobservable);
-            }
-            states.push(codec::from_value(&leaf.state).map_err(|_| NotProvedReason::Backend)?);
-            leaves.push(StateSequence {
-                halt,
-                states,
-                feasibility,
-            });
-        }
-        Ok(StateSequences { leaves })
-    }
-
-    /// The branch identity of every leaf of the observed PathSet run of `state`, in leaf order,
-    /// from an observed run that selects no rule: it emits no event, and its identities do not
-    /// depend on which rules the manifest observes.
-    pub fn branch_identities(
-        &self,
-        backend: &mut Backend,
-        state: &Pattern,
-        budget: ExecutionBudget,
-    ) -> Result<Vec<Vec<TransitionIdOutput>>, ExecutionAdapterFailure> {
-        self.check_profile(backend)?;
-        let encoded = codec::to_value(state)
-            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
-        let (result, _) = execute_with_watchdog(backend, encoded, budget, |backend, request| {
-            backend.execute_observed(ObservedRequest {
-                request,
-                rules: Some(Vec::new()),
-            })
-        })?;
-        result
-            .leaves
-            .into_iter()
-            .map(|leaf| {
-                let halt = HaltClass::from_output(leaf.reason);
-                if !halt.adapter_admits(&budget) {
-                    return Err(ExecutionAdapterFailure::ContractViolation(halt));
-                }
-                if !leaf.observations.is_empty() {
-                    return Err(ExecutionAdapterFailure::Backend(
-                        "an observed run that selects no rule emitted events".to_owned(),
-                    ));
-                }
-                Ok(leaf.branch)
-            })
-            .collect()
     }
 
     /// Executes the same PathSet request without observation rules.
@@ -735,7 +559,6 @@ impl ExecutionAdapter {
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
-        manifest: Option<&InstalledObservationManifest>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
@@ -761,14 +584,12 @@ impl ExecutionAdapter {
                     remainder_diagnostics: leaf
                         .remainder
                         .map_or_else(Vec::new, |remainder| remainder.diagnostics),
-                    branch: adapt_branch(
-                        manifest,
-                        leaf.branch,
-                        leaf.state,
-                        leaf.depth,
-                        leaf.trace,
-                        leaf.observations,
-                    )?,
+                    branch: AdaptedBranch {
+                        identity: leaf.branch,
+                        state: leaf.state,
+                        depth: leaf.depth,
+                        trace: leaf.trace,
+                    },
                 })
             })
             .collect::<Result<Vec<_>, ExecutionAdapterFailure>>()?;
@@ -1001,14 +822,7 @@ mod tests {
             BackendOptions::default(),
         )
         .expect("backend");
-        let adapter = ExecutionAdapter::with_profile(
-            InstalledObservationManifest::install_with_authors(
-                Vec::new(),
-                std::collections::BTreeMap::new(),
-            )
-            .expect("empty manifest"),
-            SolverProfile::BUILD,
-        );
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
         let variable = Variable {
             kind: VariableKind::Element,
             name: "VarE".to_owned(),
@@ -1056,13 +870,6 @@ mod tests {
         )
         .expect("backend");
         assert_eq!(SolverProfile::of(&backend), build);
-        let manifest = || {
-            InstalledObservationManifest::install_with_authors(
-                Vec::new(),
-                std::collections::BTreeMap::new(),
-            )
-            .expect("empty manifest")
-        };
         let state = Pattern::Application {
             symbol: k_rust::kore::ast::Symbol {
                 name: "Lbla".to_owned(),
@@ -1077,11 +884,11 @@ mod tests {
             max_breadth: None,
         };
         assert_eq!(
-            ExecutionAdapter::new(manifest()).profile(),
+            ExecutionAdapter::new(SolverProfile::NoZ3).profile(),
             SolverProfile::NoZ3
         );
         for profile in [SolverProfile::NoZ3, SolverProfile::Z3] {
-            let adapter = ExecutionAdapter::with_profile(manifest(), profile);
+            let adapter = ExecutionAdapter::with_profile(profile);
             assert_eq!(adapter.profile(), profile);
             let observed = adapter.execute(&mut backend, &state, budget);
             let unobserved = adapter.execute_unobserved(&mut backend, &state, budget);

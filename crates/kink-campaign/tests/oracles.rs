@@ -23,7 +23,6 @@ use kink_campaign::{
 use kink_native::MutantRejection;
 use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
 use kink_native::execution::{ExecutionAdapterFailure, HaltClass};
-use kink_native::observation::ObservationFailure;
 use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, Withdrawal, apply};
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, Evaluation, EvaluationContext,
@@ -874,8 +873,7 @@ fn exhaustive_adapter_failure(failure: &ExecutionAdapterFailure) {
         | ExecutionAdapterFailure::InvalidState(_)
         | ExecutionAdapterFailure::Backend(_)
         | ExecutionAdapterFailure::ContractViolation(_)
-        | ExecutionAdapterFailure::UninhabitedVariable(_)
-        | ExecutionAdapterFailure::Observation(_) => {}
+        | ExecutionAdapterFailure::UninhabitedVariable(_) => {}
     }
 }
 
@@ -883,8 +881,6 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
     match failure {
         BridgeFailure::NoLeaves
         | BridgeFailure::ContractViolation(_)
-        | BridgeFailure::UnsupportedPayload
-        | BridgeFailure::UndecodablePayload(_)
         | BridgeFailure::UndecodableState(_)
         | BridgeFailure::UndecidedStateSort
         | BridgeFailure::DuplicatePathIdentity(_)
@@ -994,7 +990,6 @@ fn runner_mapping_is_exhaustive() {
             name: "VarX".to_owned(),
             sort: kore_sort("SortEmpty"),
         }),
-        ExecutionAdapterFailure::Observation(ObservationFailure::MissingInstallation),
     ];
     for failure in &adapter {
         exhaustive_adapter_failure(failure);
@@ -1007,8 +1002,6 @@ fn runner_mapping_is_exhaustive() {
     let bridge = [
         BridgeFailure::NoLeaves,
         BridgeFailure::ContractViolation(H::CutPoint),
-        BridgeFailure::UnsupportedPayload,
-        BridgeFailure::UndecodablePayload(String::new()),
         BridgeFailure::UndecodableState(String::new()),
         BridgeFailure::UndecidedStateSort,
         BridgeFailure::DuplicatePathIdentity("root".to_owned()),

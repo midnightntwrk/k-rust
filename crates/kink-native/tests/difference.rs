@@ -19,8 +19,7 @@ use kink_native::execution_difference::{
     StateSequence, StateSequences, certify_difference, definition_facts,
 };
 use kink_native::feasibility::LeafFeasibility;
-use kink_native::observation::{DomainEventSpec, PayloadSource};
-use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
+use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{Baseline, Edit, InsertPosition, Patch, TermRef};
 
 use DifferenceCertificate::{NotProved, Proved};
@@ -68,60 +67,16 @@ impl Fixture {
     }
 }
 
-/// The campaign observation of symmem (`write`, `load`, `free`) or guardedmem (`write`,
-/// `load`, `loadNeg`), with the pre-state payload paths of the campaign fixtures (copied from
-/// tests/validator.rs).
-fn memory_observation(baseline: &Baseline, module: &str) -> Vec<ObservedRule> {
-    let (rules, address): (&[(&str, &str, usize)], &[u32]) = if module == "SYMMEM" {
-        (
-            &[
-                ("write", "memoryWrite", 2),
-                ("load", "memoryLoad", 2),
-                ("free", "memoryFree", 1),
-            ],
-            &[0, 0],
-        )
-    } else {
-        (
-            &[
-                ("write", "memoryWrite", 2),
-                ("load", "memoryLoad", 2),
-                ("loadNeg", "memoryLoad", 2),
-            ],
-            &[0, 0, 0],
-        )
-    };
-    rules
-        .iter()
-        .map(|(label, constructor, arity)| ObservedRule {
-            rule: support::rule(baseline, &format!("{module}.{label}")),
-            emit_rule_applied: false,
-            domain_events: vec![DomainEventSpec {
-                constructor: (*constructor).into(),
-                payload: [support::k_head(address), support::k_head(&[0, 1])]
-                    .into_iter()
-                    .take(*arity)
-                    .map(PayloadSource::BeforeTerm)
-                    .collect(),
-            }],
-        })
-        .collect()
-}
-
-/// One compiled side: its adapter over the fixture's observation and its backend.
+/// One compiled side: its event-free adapter and backend.
 struct Side {
     adapter: ExecutionAdapter,
     backend: Backend,
 }
 
 impl Side {
-    fn new(fixture: Fixture, validator: &NativeValidator, side: &ValidatedDefinition) -> Self {
-        let rules = memory_observation(validator.baseline(), fixture.module());
-        let manifest = validator
-            .observation_manifest(side, &rules)
-            .expect("manifest");
+    fn new(fixture: Fixture, side: &ValidatedDefinition) -> Self {
         Self {
-            adapter: ExecutionAdapter::with_profile(manifest, PROFILE),
+            adapter: ExecutionAdapter::with_profile(PROFILE),
             backend: Backend::new(
                 &side.artifacts().definition_kore,
                 fixture.module(),
@@ -134,7 +89,6 @@ impl Side {
     fn baseline(fixture: Fixture, validator: &NativeValidator) -> Self {
         Self::new(
             fixture,
-            validator,
             &validator.compile_baseline().expect("baseline compiles"),
         )
     }
@@ -142,7 +96,6 @@ impl Side {
     fn mutant(fixture: Fixture, validator: &NativeValidator, patch: &Patch) -> Self {
         Self::new(
             fixture,
-            validator,
             &validator.validate(patch).expect("mutant compiles"),
         )
     }
@@ -151,12 +104,9 @@ impl Side {
     fn unobserved(file: &str) -> Self {
         let validator = NativeValidator::bind(support::load(file), CompileOptions::default());
         let side = validator.compile_baseline().expect("baseline compiles");
-        let manifest = validator
-            .observation_manifest(&side, &[])
-            .expect("manifest");
         let module = file.strip_suffix(".k").expect("a .k file").to_uppercase();
         Self {
-            adapter: ExecutionAdapter::with_profile(manifest, PROFILE),
+            adapter: ExecutionAdapter::with_profile(PROFILE),
             backend: Backend::new(&side.artifacts().definition_kore, &module, BACKEND_OPTIONS)
                 .expect("backend"),
         }
@@ -166,20 +116,14 @@ impl Side {
         definition_facts(&mut self.backend).expect("facts")
     }
 
-    /// The sequences of `state`, with `expected` from an `execute` of this side first.
+    /// The certificate sequences from one stepped run of `state`.
     fn sequences(&mut self, state: &Pattern) -> StateSequences {
-        let execution = self
-            .adapter
-            .execute(&mut self.backend, state, BUDGET)
-            .expect("primary run");
-        let expected = execution
-            .leaves()
-            .iter()
-            .map(|leaf| leaf.branch.identity.clone())
-            .collect::<Vec<_>>();
         self.adapter
-            .state_sequences(&mut self.backend, state, BUDGET, &expected)
+            .execute_steps(&mut self.backend, state, BUDGET)
             .expect("sequence run")
+            .expect("step run")
+            .certificate_sequences()
+            .expect("certificate sequences")
     }
 }
 

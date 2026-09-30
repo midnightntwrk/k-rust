@@ -542,7 +542,7 @@ fn symbolic_choose_baseline_requires_a_decided_branch() {
         let mut backend =
             Backend::from_definition(definition, "COUNTER", BackendOptions::default())
                 .expect("backend");
-        let stepped = ExecutionAdapter::without_manifest(SolverProfile::BUILD)
+        let stepped = ExecutionAdapter::with_profile(SolverProfile::BUILD)
             .execute_steps(&mut backend, &tests[0].initial_state, BUDGET)
             .expect("execution")
             .expect("steps");
