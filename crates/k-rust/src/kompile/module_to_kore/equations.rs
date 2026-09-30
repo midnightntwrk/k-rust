@@ -34,6 +34,7 @@
 //! Rule, claim, macro, equation, and owise emission.
 //! Complexity: O(R(inject + convert)), plus one O(R) competitor scan per module with an owise equation and O(m) same-signature competitors per owise equation; `KompileOwiseCompetitorScans` counts the scanned rules and the visited competitors.
 
+use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
 use k_rust_kore::measure::{self, Counter};
 
@@ -44,6 +45,8 @@ pub(super) struct RuleEmissionContext<'a, 'definition> {
     pub converter: &'a TermConverter<'definition, 'definition>,
     pub module_rules: &'a [Sentence],
     pub default_reachability: Option<ReachabilityMode>,
+    /// The claims of every production of `productions`; the equation-head check reads them.
+    pub roles: &'a SymbolRoles,
 }
 
 pub(super) fn emit_rule_or_claim(
@@ -59,6 +62,7 @@ pub(super) fn emit_rule_or_claim(
         converter,
         module_rules,
         default_reachability,
+        roles,
     } = context;
     let injected = injector.inject_sentence(sentence)?;
     let (body, requires, ensures, attributes) = match &injected {
@@ -92,6 +96,21 @@ pub(super) fn emit_rule_or_claim(
         });
     }
     if let Some(equation) = equation {
+        if cfg!(debug_assertions)
+            && !claim
+            && !attributes.has(AttributeKey::Simplification)
+            && let Some(production) = equation.production
+        {
+            roles.debug_assert_heads_equation(
+                production,
+                equation.label,
+                if attributes.has(AttributeKey::Anywhere) {
+                    EmittedEquation::Anywhere
+                } else {
+                    EmittedEquation::Function
+                },
+            );
+        }
         return emit_equation(
             equation,
             left,
@@ -113,6 +132,18 @@ pub(super) fn emit_rule_or_claim(
             return Err(ModuleToKoreError::EquationExistentials {
                 variables: existential_names(right, ensures),
             });
+        }
+        // Resolving the head is work the macro axiom does not need, so it runs only when the
+        // check does, and a head that does not resolve to one production skips the check.
+        if cfg!(debug_assertions) {
+            let application = peel_alias(left);
+            if let Term::Apply { label, .. } = application.unannotated()
+                && !label.is(WellKnownSymbol::Inj)
+                && let Ok(production) =
+                    resolve_equation_production_id(application, label, productions)
+            {
+                roles.debug_assert_heads_equation(production, label, EmittedEquation::Macro);
+            }
         }
         return emit_macro_axiom(left, right, attributes, valued, injector, converter);
     }
@@ -235,6 +266,9 @@ struct EquationInfo<'a> {
     argument_sorts: Vec<Sort>,
     result_sort: Sort,
     direct: bool,
+    /// The production the head resolves to; `None` for a sort injection, which no production
+    /// of the module declares.
+    production: Option<ProductionId>,
 }
 
 fn equation_info<'a>(
@@ -275,9 +309,11 @@ fn equation_info<'a>(
             argument_sorts: vec![from.clone()],
             result_sort: to.clone(),
             direct: simplification,
+            production: None,
         }));
     }
-    let production = resolve_equation_production(application, label, productions)?;
+    let production_id = resolve_equation_production_id(application, label, productions)?;
+    let production = productions.production(production_id);
     let Sentence::Production {
         parameters,
         sort,
@@ -324,6 +360,7 @@ fn equation_info<'a>(
         argument_sorts,
         result_sort: substitute_equation_sort(sort, &substitution),
         direct: simplification,
+        production: Some(production_id),
     }))
 }
 
@@ -332,6 +369,18 @@ pub(super) fn resolve_equation_production<'a>(
     label: &Label,
     productions: &'a ProductionCatalog<'a>,
 ) -> Result<&'a Sentence, ModuleToKoreError> {
+    resolve_equation_production_id(application, label, productions)
+        .map(|id| productions.production(id))
+}
+
+/// The production of `productions` that the equation head `application`, labelled `label`,
+/// resolves to: the production identity the term carries, which must be labelled `label`, or
+/// else the only production of the label head.
+pub(super) fn resolve_equation_production_id(
+    application: &Term,
+    label: &Label,
+    productions: &ProductionCatalog<'_>,
+) -> Result<ProductionId, ModuleToKoreError> {
     if let Some(identity) = application
         .metadata()
         .and_then(|metadata| metadata.production)
@@ -352,14 +401,14 @@ pub(super) fn resolve_equation_production<'a>(
                 message: format!("its label does not match {:?}", label.name),
             });
         }
-        return Ok(production);
+        return Ok(production_id);
     }
     let candidates = productions.productions_for(&LabelHead::from(label));
     match candidates {
         [] => Err(ModuleToKoreError::MissingEquationProduction {
             label: label.name.clone(),
         }),
-        [id] => Ok(productions.production(*id)),
+        [id] => Ok(*id),
         candidates => Err(ModuleToKoreError::AmbiguousEquationProduction {
             label: label.name.clone(),
             productions: candidates.len(),

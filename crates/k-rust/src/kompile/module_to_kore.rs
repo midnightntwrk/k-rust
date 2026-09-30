@@ -838,6 +838,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         converter: &converter,
         module_rules: &module_rules,
         default_reachability,
+        roles: &roles,
     };
     let mut emitted_sources = Vec::new();
     // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_competitors` holds the module's owise competitors once an owise equation has scanned for them; each rule is emitted once.

@@ -31,6 +31,7 @@ use crate::definition::{
     AttributeKey, LabelHead, OverloadOrder, ProductionCatalog, ProductionId, RuleCatalog, Sentence,
     match_rule_label,
 };
+use crate::kast::Label;
 
 /// The equations other sentences of the module make a production head, read under the label
 /// its declaration is made under: its own label, or the `bracketLabel` of an unlabelled bracket.
@@ -543,6 +544,59 @@ impl SymbolRoles {
     /// The claims of production `id`.
     pub(super) fn claims(&self, id: ProductionId) -> SymbolClaims {
         self.claims[id.0]
+    }
+
+    /// Checks, in debug builds, that production `id` (labelled `label`) makes no distinctness
+    /// claim, given that rule emission is about to emit an `equation` headed by it.
+    ///
+    /// An emitted non-lemma equation or macro axiom headed by a symbol evaluates or rewrites its
+    /// applications, so they are not free values (I3, no `constructor`), and whether it
+    /// identifies two applications with different arguments or an application with one of
+    /// another symbol is undecidable in general (I1, no `injective`; I2, no no-confusion axioms).
+    /// The claims read the module's rule catalog by label head; rule emission decides per rule,
+    /// from the production the rule's left-hand side resolves to, that it emits an equation. The
+    /// two derivations are independent, so a disagreement is a kind of equation the
+    /// classification misses.
+    ///
+    /// # Panics
+    ///
+    /// With `debug_assertions` on, when the claims of `id` are not [`Freeness::None`].
+    pub(super) fn debug_assert_heads_equation(
+        &self,
+        id: ProductionId,
+        label: &Label,
+        equation: EmittedEquation,
+    ) {
+        debug_assert!(
+            self.claims(id).freeness() == Freeness::None,
+            "production `{label}` ({id:?}) heads an emitted {} but its claims state {:?}; \
+             I1-I3: a production that heads an emitted non-lemma equation or macro axiom makes \
+             no distinctness claim (Freeness::None)",
+            equation.describe(),
+            self.claims(id).freeness(),
+        );
+    }
+}
+
+/// The kind of sentence rule emission emits for a rule whose left-hand side a production heads.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EmittedEquation {
+    /// An equation of a `function` production that is neither a claim nor a `simplification`
+    /// lemma.
+    Function,
+    /// An `anywhere` equation that is neither a claim nor a `simplification` lemma.
+    Anywhere,
+    /// A macro axiom, from a macro-like rule.
+    Macro,
+}
+
+impl EmittedEquation {
+    fn describe(self) -> &'static str {
+        match self {
+            Self::Function => "function equation",
+            Self::Anywhere => "`anywhere` equation",
+            Self::Macro => "macro axiom",
+        }
     }
 }
 
@@ -1080,5 +1134,54 @@ mod tests {
         );
         assert!(!claims["strLit"].no_confusion());
         assert_eq!(claims["wrap"].freeness(), Freeness::Constructor);
+    }
+
+    /// The claims of one production, as the check reads them.
+    fn roles_with(freeness: Freeness) -> SymbolRoles {
+        SymbolRoles {
+            claims: vec![SymbolClaims::generator(freeness, true, false)],
+        }
+    }
+
+    /// A production with no distinctness claim may head every kind of emitted equation.
+    #[test]
+    fn a_production_without_distinctness_claims_heads_every_emitted_equation() {
+        let roles = roles_with(Freeness::None);
+        for equation in [
+            EmittedEquation::Function,
+            EmittedEquation::Anywhere,
+            EmittedEquation::Macro,
+        ] {
+            roles.debug_assert_heads_equation(ProductionId(0), &Label::new("plain"), equation);
+        }
+    }
+
+    /// 58ad83fc: a base production heading a macro-like rule was declared `constructor`, with
+    /// no-confusion axioms, although the macro axiom `plain(X) = done(X)` evaluates it.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "heads an emitted macro axiom but its claims state Constructor")]
+    fn a_constructor_heading_a_macro_axiom_fails_the_check() {
+        roles_with(Freeness::Constructor).debug_assert_heads_equation(
+            ProductionId(0),
+            &Label::new("plain"),
+            EmittedEquation::Macro,
+        );
+    }
+
+    /// 1ab34aad: a production heading an `anywhere` rule was still declared `injective` (the
+    /// state `let injective = base_constructor;`), although the equation may identify two of its
+    /// applications with different arguments.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(
+        expected = "heads an emitted `anywhere` equation but its claims state Injective"
+    )]
+    fn an_injective_production_heading_an_anywhere_equation_fails_the_check() {
+        roles_with(Freeness::Injective).debug_assert_heads_equation(
+            ProductionId(0),
+            &Label::new("wrap"),
+            EmittedEquation::Anywhere,
+        );
     }
 }
