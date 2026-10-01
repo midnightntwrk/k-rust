@@ -1754,6 +1754,51 @@ mod tests {
         )
     }
 
+    /// VI preserves the free ExW0 in W = 1 and exists Ex#W!0. W = 2 (Unsat).
+    /// The pre-VI binder spelling ExW0 captures W in the second equality (Solver).
+    /// Without Z3 both constrained states have Unknown feasibility.
+    #[test]
+    fn decoded_binders_do_not_capture() {
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        let rows = guarded
+            .with_solver(None, |definition, solver| {
+                let inhabitation = Inhabitation::of(definition);
+                let w = support::var("ExW0", "SortInt");
+                let binder = externalize::external_variable_name("Ex#W!0");
+                let mut rows = Vec::new();
+                for name in [&binder, "ExW0"] {
+                    let Pattern::Variable(variable) = &support::var(name, "SortInt") else {
+                        unreachable!()
+                    };
+                    let state = constrained(
+                        constrained(
+                            guarded_state(w.clone()),
+                            equals("SortInt", w.clone(), support::int(1)),
+                        ),
+                        Pattern::Exists {
+                            sort: top_sort(),
+                            variable: Box::new(variable.clone()),
+                            body: Box::new(equals("SortInt", w.clone(), support::int(2))),
+                        },
+                    );
+                    rows.push(leaf_feasibility(
+                        definition,
+                        solver,
+                        &inhabitation,
+                        &codec::to_value(&state).expect("decoded state encodes"),
+                    ));
+                }
+                Ok::<_, BackendError>(rows)
+            })
+            .expect("binder rows");
+        let expected = if cfg!(feature = "z3") {
+            vec![LeafFeasibility::Unsat, LeafFeasibility::Solver]
+        } else {
+            vec![LeafFeasibility::Unknown; 2]
+        };
+        assert_eq!(rows, expected);
+    }
+
     /// Leaf feasibility uses the solver's `Unsat` always and its `Sat` only for an exactly
     /// translated predicate over a constructor term; `NoSolver` adds nothing.
     #[test]

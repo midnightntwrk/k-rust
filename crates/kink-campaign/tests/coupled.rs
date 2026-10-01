@@ -3611,6 +3611,133 @@ fn audit_ei_conflated_names_leave_the_state_slot_refused() {
     });
 }
 
+/// VI-05: the alpha-equivalent `go` rule renames `I` to `K` after eight or nine burns.
+/// Each narrowing retains a binding that makes leaf feasibility Unknown, so both ground
+/// tests are refused in both profiles. With the binding-elimination counterfactual this
+/// was Killed at nine burns before VI and is Survived under VI
+/// (variable-identity/prototype/own-best/elim.log). A future SE-T01 packet must re-pin
+/// this test and must never make either burn count Killed.
+#[test]
+fn audit_vi_fresh_counter_collision_is_not_killed() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("conflate3.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let patch =
+            Patch::new(vec![renamed(baseline, "CONFLATE3.go", &[0], "I", "K")]).expect("patch");
+        let generation = fixed(baseline, &[("CONFLATE3.go", &[0])], "rename", &patch);
+        for burns in [8usize, 9] {
+            let mut operations = vec![app("new1", vec![])];
+            operations.extend((0..burns).map(|_| app("burnNew", vec![])));
+            operations.push(app("new2", vec![]));
+            let program = ei_program(operations, app("done", vec![]));
+            assert!(program.free_variables().is_empty());
+            let tests = [case("collide", program, &[whole_term()])];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "CONFLATE3",
+                observation: &[],
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            };
+            assert_eq!(
+                run_campaign(&campaign, &generation, ScheduleMode::Full)
+                    .expect_err("incomplete ground baseline")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed,
+                "burns {burns}"
+            );
+        }
+    });
+}
+
+/// VI-AT1: `EI-bM0-b1` decodes to the forged scope candidate `EI!M0!1`.
+/// The two-constructor baseline and existential mutant denote the same relation.
+/// Under Z3, narrowing the user-sort variable leaves both baseline leaves Unknown,
+/// so admission refuses the baseline; without Z3 it is refused as well.
+/// The campaign never returns a CampaignRun or kills the mutant.
+/// The direct certificate is pinned in name_identity.rs.
+#[test]
+fn audit_vi_scope_names_do_not_capture_stable_variables() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("scopeforge.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let x = so_var("X", "Ab");
+        let y = so_var("?Y", "Ab");
+        let patch = Patch::new(vec![
+            replaced(
+                baseline,
+                "SCOPEFORGE.startA",
+                &[0],
+                Term::Rewrite {
+                    left: Box::new(Term::apply("start", vec![x.clone()])),
+                    right: Box::new(Term::apply("pair", vec![x.clone(), y.clone()])),
+                },
+            ),
+            replaced(
+                baseline,
+                "SCOPEFORGE.startA",
+                &[2],
+                Term::apply("_=/=K_", vec![y, x]),
+            ),
+            Edit::DeleteSentence {
+                at: support::rule(baseline, "SCOPEFORGE.startB"),
+            },
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("SCOPEFORGE.startA", &[0]), ("SCOPEFORGE.startB", &[0])],
+            "scope-forgery",
+            &patch,
+        );
+        let observation = [StepEventSpec {
+            constructor: "startPair".into(),
+            pre: support::k_config(
+                app("start", vec![support::var("X", "SortAb")]),
+                "SortProg",
+                "R",
+                "C",
+            ),
+            post: Some(support::k_config(
+                app(
+                    "pair",
+                    vec![support::var("Y", "SortAb"), support::var("Z", "SortAb")],
+                ),
+                "SortPair",
+                "R",
+                "C2",
+            )),
+            payload: vec!["Y".into()],
+        }];
+        let vocabulary = StepObservation::vocabulary_of(&observation).expect("vocabulary");
+        let tests = [case(
+            "scope-forgery",
+            support::initial_state(
+                app("start", vec![support::var("EI-bM0-b1", "SortAb")]),
+                "SortProg",
+            ),
+            &[binds(&vocabulary, "startPair", 0, "A", "SortAb", true)],
+        )];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "SCOPEFORGE",
+            observation: &observation,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        assert_eq!(
+            run_campaign(&campaign, &generation, ScheduleMode::Full)
+                .expect_err("undecided narrowing refuses the baseline in both profiles")
+                .kind(),
+            CampaignFailureKind::BaselineOracleFailed,
+        );
+    });
+}
+
 // ---------------------------------------------------------------- State-observation coverage and granularity audits
 
 fn so_var(name: &str, sort: &str) -> Term {
