@@ -146,7 +146,7 @@ krs_check() { # ID PACKAGE-DIR PACKAGE
   low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_WRAPPER="$OUT/lower-shim/collector" \
     KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
     CARGO_TARGET_DIR="$OUT/target-krs" CARGO_BUILD_JOBS=4 \
-    "$KRS_BIN" check --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
+    "$KRS_BIN" check --message-format=json --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
     >"$dir/stdout" 2>"$dir/stderr"
   record_exit "$dir" $?
   set -e
