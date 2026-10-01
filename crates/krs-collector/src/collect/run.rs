@@ -29,7 +29,8 @@ use super::{PackageContext, collect_host_descriptors_with_builtins_timed, source
 ///
 /// # Errors
 ///
-/// Returns collection, serialization, stdout, or sidecar-write failures.
+/// Returns collection, serialization, stdout, or measurement-sidecar write failures.
+/// Diagnostic-sidecar write failures must be reported on stderr without replacing the collection failure.
 pub fn run_collector<I>(
     contexts: Vec<PackageContext>,
     descriptors: impl FnOnce() -> I,
@@ -72,12 +73,27 @@ where
         let bytes = serde_json::to_vec(&source::take_read_set())?;
         std::fs::write(path, bytes)?;
     }
-    if let Err(RunError::Collection(error)) = &result
-        && let Some(path) = std::env::var_os(COLLECTOR_DIAGNOSTIC_ENV)
-    {
-        write_diagnostic(error, &PathBuf::from(path))?;
-    }
+    let result = match std::env::var_os(COLLECTOR_DIAGNOSTIC_ENV) {
+        Some(path) => with_diagnostic_sidecar(result, &PathBuf::from(path)),
+        None => result,
+    };
     result.map_err(Into::into)
+}
+
+fn with_diagnostic_sidecar(
+    result: Result<(), RunError>,
+    path: &std::path::Path,
+) -> Result<(), RunError> {
+    if let Err(RunError::Collection(error)) = &result
+        && let Err(secondary) = write_diagnostic(error, path)
+    {
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "could not write collection diagnostic sidecar {}: {secondary}",
+            path.display(),
+        );
+    }
+    result
 }
 
 fn write_diagnostic(error: &CollectionError, path: &std::path::Path) -> Result<(), RunError> {
@@ -181,6 +197,26 @@ mod tests {
     use crate::CollectionErrorKind;
     use krs_diagnostic::envelope::DiagnosticEnvelope;
     use krs_ir::{PackageId, Sha256Digest, SourceFileId, SourceRange};
+
+    #[test]
+    fn sidecar_failure_preserves_the_collection_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = SourceFileId::new(
+            PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let error =
+            CollectionError::new(CollectionErrorKind::SourceSyntax, "original syntax error")
+                .with_source_range(SourceRange::new(file, 7, 16).unwrap());
+        let result =
+            with_diagnostic_sidecar(Err(RunError::Collection(error.clone())), directory.path());
+        let Err(RunError::Collection(retained)) = result else {
+            panic!("sidecar failure replaced the collection error");
+        };
+        assert_eq!(retained, error);
+    }
 
     #[test]
     fn failure_sidecar_round_trip_requires_an_exact_location() {
