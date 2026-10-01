@@ -43,9 +43,11 @@ use crate::kast::{Sort, SortRole};
 /// the sentences declare or position them, and the plan tables decide what each role receives.
 pub(in crate::inner) struct SortUniverse {
     members: BTreeMap<Sort, SortRole>,
-    /// `(alias, target)` of every visible sort synonym, in visible order. A synonym is another
-    /// spelling of its target, not a sort of its own, so it is not a member; its casts are
-    /// generated from here.
+    /// `(alias, target)` of every visible sort synonym whose target is a sort of the grammar (a
+    /// member or a nullary kernel sort), in visible order. A synonym is another spelling of its
+    /// target, not a sort of its own, so it is not a member; its casts are generated from here.
+    /// A synonym whose target is not a sort of the grammar (declared nowhere visible and given no
+    /// position, or a shape with a free parameter) names no sort of it and is left out.
     synonyms: Vec<(Sort, Sort)>,
 }
 
@@ -57,7 +59,7 @@ impl SortUniverse {
             .values()
             .flatten()
             .collect::<BTreeSet<_>>();
-        let members = visible
+        let members: BTreeMap<Sort, SortRole> = visible
             .iter()
             .flat_map(|sentence| unbound_sorts(sentence))
             .filter(|sort| sort.parameters.is_empty() || instances.contains(sort))
@@ -66,6 +68,7 @@ impl SortUniverse {
         let synonyms = visible
             .iter()
             .filter_map(|sentence| synonym(sentence))
+            .filter(|(_, target)| is_grammar_sort(&members, target))
             .collect();
         Self { members, synonyms }
     }
@@ -88,8 +91,9 @@ impl SortUniverse {
             })
     }
 
-    /// The casts of every visible synonym, in visible order: written with the alias, typed by
-    /// the target.
+    /// The casts of every visible synonym whose target is a sort of the grammar, in visible order:
+    /// written with the alias, typed by the target. A synonym whose target is not a sort of the
+    /// grammar has no casts: they would be typed by a sort no production derives or accepts.
     pub(in crate::inner) fn synonym_casts(&self) -> impl Iterator<Item = CastTarget> + '_ {
         self.synonyms.iter().map(|(alias, target)| CastTarget {
             cast: alias.clone(),
@@ -98,7 +102,8 @@ impl SortUniverse {
         })
     }
 
-    /// Whether `sort` is a member or a synonym alias: a sort a generated production may mention.
+    /// Whether `sort` is a member or the alias of a synonym whose target is a sort of the grammar:
+    /// a sort a generated production may mention.
     #[cfg_attr(
         not(test),
         expect(
@@ -143,6 +148,21 @@ fn unbound_sorts(sentence: &Sentence) -> Vec<&Sort> {
         | Sentence::Claim { .. }
         | Sentence::Configuration { .. }
         | Sentence::Bubble { .. } => Vec::new(),
+    }
+}
+
+/// Whether `sort` is a sort of the grammar whose universe has `members`: a member, or a nullary
+/// kernel sort, which every grammar has. A synonym whose target is neither spells no sort of the
+/// grammar.
+fn is_grammar_sort(members: &BTreeMap<Sort, SortRole>, sort: &Sort) -> bool {
+    if members.contains_key(sort) {
+        return true;
+    }
+    match sort.role() {
+        SortRole::Kernel(_) => sort.parameters.is_empty(),
+        SortRole::RigidVariable | SortRole::Scaffolding | SortRole::Nat | SortRole::Defined => {
+            false
+        }
     }
 }
 
@@ -726,9 +746,59 @@ mod tests {
         assert_eq!(casts[0].label(), &Sort::new("Rat"));
         assert_eq!(casts[0].outer_inner(), &Sort::new("K"));
         assert!(universe.member(&Sort::new("Wad")).is_none());
-        assert!(universe.admits(&Sort::new("Wad")));
-        assert!(universe.admits(&Sort::new("Rat")));
-        assert!(!universe.admits(&Sort::new("Int")));
+        #[cfg(debug_assertions)]
+        {
+            assert!(universe.admits(&Sort::new("Wad")));
+            assert!(universe.admits(&Sort::new("Rat")));
+            assert!(!universe.admits(&Sort::new("Int")));
+        }
+    }
+
+    /// A synonym whose target the view neither declares nor positions names no sort of the
+    /// grammar: it has no casts, and its alias is not a sort a generated production may mention.
+    /// Nor does a synonym of a shape with a free parameter (`syntax {W} Word = MInt{W}`), which
+    /// is never a member.
+    #[test]
+    fn a_synonym_of_no_sort_of_the_grammar_has_no_casts() {
+        let synonym = |alias: &str, target: Sort| Sentence::SortSynonym {
+            new_sort: Sort::new(alias),
+            old_sort: target,
+            attributes: Attributes::default(),
+        };
+        let sentences = [
+            synonym("New", Sort::new("Old")),
+            syntax_sort(mint("8")),
+            synonym("Word", mint("W")),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        assert_eq!(universe.synonym_casts().count(), 0);
+        #[cfg(debug_assertions)]
+        for alias in ["New", "Word", "Old"] {
+            assert!(!universe.admits(&Sort::new(alias)), "{alias}");
+        }
+    }
+
+    /// Control: a synonym of a nullary kernel sort, which every grammar has, keeps its casts.
+    #[test]
+    fn a_synonym_of_a_kernel_sort_has_casts() {
+        let sentences = [Sentence::SortSynonym {
+            new_sort: Sort::new("Item"),
+            old_sort: KernelSort::KItem.sort(),
+            attributes: Attributes::default(),
+        }];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        let casts = universe.synonym_casts().collect::<Vec<_>>();
+        assert_eq!(casts.len(), 1);
+        assert_eq!(casts[0].cast(), &Sort::new("Item"));
+        assert_eq!(casts[0].label(), &KernelSort::KItem.sort());
+        #[cfg(debug_assertions)]
+        assert!(universe.admits(&Sort::new("Item")));
     }
 
     #[test]
