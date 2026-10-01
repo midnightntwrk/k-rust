@@ -48,7 +48,11 @@ enum Query {
         reference: String,
         module: String,
         module_path: Vec<String>,
+        k_namespace: String,
+        replaced_k_tail_cells: Vec<String>,
+        preserved_map_remainder_cells: Vec<String>,
     },
+    AbsoluteStrings {},
     Files {},
     Modules {},
     SemanticModules {},
@@ -149,6 +153,50 @@ impl TermPattern {
 fn read<T: DeserializeOwned + Send>(directory: &Path, name: &str) -> Result<T, Box<dyn Error>> {
     Ok(krs_ir::json::from_slice(&fs::read(directory.join(name))?)?)
 }
+fn absolute_strings(directory: &Path) -> QueryResult {
+    let mut rows = Vec::new();
+    for artifact in [
+        krs_compiler::DESCRIPTOR_ARTIFACT,
+        krs_compiler::SEMANTIC_ARTIFACT,
+        krs_compiler::DEFINITION_IR_ARTIFACT,
+        krs_compiler::SYMBOLS_ARTIFACT,
+        krs_compiler::SOURCES_ARTIFACT,
+    ] {
+        let bytes = match fs::read(directory.join(artifact)) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let value: Value = serde_json::from_slice(&bytes)?;
+        collect_absolute_strings(artifact, &value, &mut rows);
+    }
+    Ok(json!({"rows": rows}))
+}
+
+fn absolute_string_row(artifact: &str, value: &str, rows: &mut Vec<Value>) {
+    if krs_ir::DisplayPath::is_absolute_spelling(value) || value.starts_with('/') {
+        rows.push(json!({"artifact": artifact, "value": value}));
+    }
+}
+
+fn collect_absolute_strings(artifact: &str, value: &Value, rows: &mut Vec<Value>) {
+    match value {
+        Value::String(value) => absolute_string_row(artifact, value, rows),
+        Value::Array(values) => {
+            for child in values {
+                collect_absolute_strings(artifact, child, rows);
+            }
+        }
+        Value::Object(object) => {
+            for (key, child) in object {
+                absolute_string_row(artifact, key, rows);
+                collect_absolute_strings(artifact, child, rows);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn encoded<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).expect("IR values serialize")
 }
@@ -317,8 +365,19 @@ impl<'a> Context<'a> {
                     } => self.hooks.get(id),
                     _ => None,
                 };
-                let mut row = json!({"module":module,"label":label,"symbol":symbol,"operation":operation,"hook":hook,
-                    "result_sort":self.sort(term.sort()),"argument_sorts":arguments.iter().map(|t| self.sort(t.sort())).collect::<Vec<_>>()});
+                let argument_sorts = arguments
+                    .iter()
+                    .map(|term| self.sort(term.sort()))
+                    .collect::<Vec<_>>();
+                let mut row = json!({
+                    "module": module,
+                    "label": label,
+                    "symbol": symbol,
+                    "operation": operation,
+                    "hook": hook,
+                    "result_sort": self.sort(term.sort()),
+                    "argument_sorts": argument_sorts,
+                });
                 if filter(&row) {
                     if include_arguments {
                         row["arguments"] =
@@ -374,8 +433,23 @@ fn rule_body(context: &Context<'_>, body: &DefinitionRuleBody) -> Value {
     match body {
         DefinitionRuleBody::Term(term) => context.term(term),
         DefinitionRuleBody::Configuration(body) => {
-            json!({"kind":"configuration_rewrite","clauses":body.clauses().iter().map(|clause|
-        json!({"cell":context.cells[clause.cell()],"from":context.term(clause.before()),"to":match clause.after(){CellPost::Preserve=>context.term(clause.before()),CellPost::Replace{term}=>context.term(term)},"frame":frame_fact(clause.frame())})).collect::<Vec<_>>() })
+            let clauses = body
+                .clauses()
+                .iter()
+                .map(|clause| {
+                    let after = match clause.after() {
+                        CellPost::Preserve => clause.before(),
+                        CellPost::Replace { term } => term,
+                    };
+                    json!({
+                        "cell": context.cells[clause.cell()],
+                        "from": context.term(clause.before()),
+                        "to": context.term(after),
+                        "frame": frame_fact(clause.frame()),
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({"kind": "configuration_rewrite", "clauses": clauses})
         }
     }
 }
@@ -422,8 +496,26 @@ fn productions(
                         _ => None,
                     })
                     .collect::<Vec<_>>();
-                let items=p.items().iter().map(|item| match item.kind(){GrammarProductionItemKind::NonTerminal{field,sort}=>json!({"item_kind":"non_terminal","field":field,"sort":context.sort(sort)}),kind=>encoded(kind)}).collect::<Vec<_>>();
-                rows.push(json!({"module":module.id(),"sort":sort,"symbol":symbol,"terminals":terminals,"items":items,"attributes":p.attributes()}));
+                let items = p
+                    .items()
+                    .iter()
+                    .map(|item| match item.kind() {
+                        GrammarProductionItemKind::NonTerminal { field, sort } => json!({
+                            "item_kind": "non_terminal",
+                            "field": field,
+                            "sort": context.sort(sort),
+                        }),
+                        kind => encoded(kind),
+                    })
+                    .collect::<Vec<_>>();
+                rows.push(json!({
+                    "module": module.id(),
+                    "sort": sort,
+                    "symbol": symbol,
+                    "terminals": terminals,
+                    "items": items,
+                    "attributes": p.attributes(),
+                }));
             }
         }
     }
@@ -575,7 +667,45 @@ fn vocabulary(definition: &DefinitionIr, context: &Context<'_>) -> Value {
         .flat_map(|p| p["terminals"].as_array().unwrap())
         .map(|t| t.as_str().unwrap().to_owned())
         .collect::<BTreeSet<_>>();
-    json!({"sorts":sorts,"production_symbols":symbols,"terminals":terminals,"rule_labels":labels,"imports":imports,"cells":cells,"subsorts":subsorts,"applied_operations":operations(definition,context,&|_|true,false)})
+    json!({
+        "sorts": sorts,
+        "production_symbols": symbols,
+        "terminals": terminals,
+        "rule_labels": labels,
+        "imports": imports,
+        "cells": cells,
+        "subsorts": subsorts,
+        "applied_operations": operations(definition, context, &|_| true, false),
+    })
+}
+
+fn source_file_fact(range: &krs_ir::SourceRange) -> Value {
+    json!({
+        "k_namespace": range.file.package().k_namespace(),
+        "cargo_name": range.file.package().cargo_name(),
+        "package_relative_path": range.file.package_relative_path(),
+        "content_sha256": range.file.content_sha256(),
+    })
+}
+
+fn source_fact(row: &krs_compiler::SourceMapEntry) -> Value {
+    let mut fact = encoded(row);
+    let mut authored = Vec::new();
+    let mut ranged = Vec::new();
+    for frame in row.origin().frames() {
+        if let OriginFrame::Ranged { kind, range, .. } = frame {
+            let file = source_file_fact(range);
+            if *kind == RangedOriginKind::Authored {
+                authored.push(file.clone());
+            }
+            let mut file = file;
+            file["frame_kind"] = encoded(kind);
+            ranged.push(file);
+        }
+    }
+    fact["authored"] = json!(authored);
+    fact["ranged"] = json!(ranged);
+    fact
 }
 
 /// Dispatches an independent artifact-query session request.
@@ -594,15 +724,17 @@ pub fn dispatch(request: &Value) -> QueryResult {
     )
 }
 
-/// Answers one closed query using the version-checked artifact readers.
+/// Answers one closed artifact query; modeled projections use version-checked readers.
 ///
 /// # Errors
 ///
-/// Returns an error for unknown fields, invalid artifacts, unsupported schemas, or unreadable required files.
+/// Returns an error for unknown fields, invalid artifacts, unsupported schemas,
+/// or unreadable required files.
 #[allow(clippy::too_many_lines)]
 pub fn query(directory: &Path, request: &Value) -> QueryResult {
     let query: Query = serde_json::from_value(request.clone())?;
     match query {
+        Query::AbsoluteStrings {} => absolute_strings(directory),
         Query::DescriptorDetails {
             module_path,
             item_name,
@@ -635,9 +767,20 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             reference,
             module,
             module_path,
-        } => {
-            projections::replacement_parity(Path::new(&reference), directory, &module, &module_path)
-        }
+            k_namespace,
+            replaced_k_tail_cells,
+            preserved_map_remainder_cells,
+        } => projections::replacement_parity(
+            Path::new(&reference),
+            directory,
+            &module,
+            &module_path,
+            &k_namespace,
+            &projections::FrameNormalization {
+                replaced_k_tail_cells: &replaced_k_tail_cells,
+                preserved_map_remainder_cells: &preserved_map_remainder_cells,
+            },
+        ),
         Query::Descriptors {
             descriptor_kind,
             item_kind,
@@ -663,16 +806,31 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                 {
                     *kinds.entry(kind.to_owned()).or_default() += 1;
                     *items.entry(item.clone()).or_default() += 1;
-                    rows.push(json!({"id":d.id,"descriptor_kind":kind,"item_kind":item,"cargo_name":d.id.package().cargo_name()}));
+                    rows.push(json!({
+                        "id": d.id,
+                        "descriptor_kind": kind,
+                        "item_kind": item,
+                        "cargo_name": d.id.package().cargo_name(),
+                    }));
                 }
             }
             Ok(json!({"counts":{"descriptor_kind":kinds,"item_kind":items},"rows":rows}))
         }
         Query::SemanticModules {} => {
             let theory: SemanticTheory = read(directory, krs_compiler::SEMANTIC_ARTIFACT)?;
-            Ok(
-                json!({"rows":theory.modules().iter().map(|m|json!({"name":m.id(),"production_count":m.productions().len(),"rule_count":m.rules().len(),"has_configuration":m.configuration().is_some()})).collect::<Vec<_>>()}),
-            )
+            let rows = theory
+                .modules()
+                .iter()
+                .map(|module| {
+                    json!({
+                        "name": module.id(),
+                        "production_count": module.productions().len(),
+                        "rule_count": module.rules().len(),
+                        "has_configuration": module.configuration().is_some(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"rows": rows}))
         }
         Query::Symbols {
             emitted_name,
@@ -680,9 +838,25 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             symbol_kind,
         } => {
             let map: SymbolMap = read(directory, krs_compiler::SYMBOLS_ARTIFACT)?;
-            Ok(
-                json!({"rows":map.entries().iter().filter(|row|{let kind=match row.identity(){MappedIdentity::Module(_)=>"module",MappedIdentity::Symbol(_)=>"symbol",MappedIdentity::Label(_)=>"label",MappedIdentity::ContextAlias(_)=>"context_alias"};accepts(emitted_name.as_deref(),row.emitted_name())&&accepts(identity_kind.as_deref(),kind)&&symbol_kind.as_ref().is_none_or(|kind|row.symbol_kind().is_some_and(|value|enum_name(&value)==*kind))}).collect::<Vec<_>>()}),
-            )
+            let rows = map
+                .entries()
+                .iter()
+                .filter(|row| {
+                    let kind = match row.identity() {
+                        MappedIdentity::Module(_) => "module",
+                        MappedIdentity::Symbol(_) => "symbol",
+                        MappedIdentity::Label(_) => "label",
+                        MappedIdentity::ContextAlias(_) => "context_alias",
+                    };
+                    accepts(emitted_name.as_deref(), row.emitted_name())
+                        && accepts(identity_kind.as_deref(), kind)
+                        && symbol_kind.as_ref().is_none_or(|kind| {
+                            row.symbol_kind()
+                                .is_some_and(|value| enum_name(&value) == *kind)
+                        })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"rows": rows}))
         }
         Query::Sources {
             key,
@@ -690,7 +864,19 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             artifact,
         } => {
             let map: SourceMap = read(directory, krs_compiler::SOURCES_ARTIFACT)?;
-            let rows=map.entries().iter().filter(|r|accepts(key.as_deref(),r.key().as_str())&&accepts(node_kind.as_deref(),&enum_name(&r.node_kind()))&&artifact.as_ref().is_none_or(|a|r.generated().is_some_and(|g|g.artifact()==a))).map(|row|{let mut fact=encoded(row);fact["authored"]=json!(row.origin().frames().iter().filter_map(|f|match f{OriginFrame::Ranged{kind:RangedOriginKind::Authored,range,..}=>Some(json!({"k_namespace":range.file.package().k_namespace(),"cargo_name":range.file.package().cargo_name(),"package_relative_path":range.file.package_relative_path(),"content_sha256":range.file.content_sha256()})),_=>None}).collect::<Vec<_>>());fact["ranged"]=json!(row.origin().frames().iter().filter_map(|f|match f{OriginFrame::Ranged{kind,range,..}=>Some(json!({"frame_kind":kind,"k_namespace":range.file.package().k_namespace(),"cargo_name":range.file.package().cargo_name(),"package_relative_path":range.file.package_relative_path(),"content_sha256":range.file.content_sha256()})),OriginFrame::Transformation{..}=>None}).collect::<Vec<_>>());fact}).collect::<Vec<_>>();
+            let rows = map
+                .entries()
+                .iter()
+                .filter(|row| {
+                    accepts(key.as_deref(), row.key().as_str())
+                        && accepts(node_kind.as_deref(), &enum_name(&row.node_kind()))
+                        && artifact.as_ref().is_none_or(|artifact| {
+                            row.generated()
+                                .is_some_and(|range| range.artifact() == artifact)
+                        })
+                })
+                .map(source_fact)
+                .collect::<Vec<_>>();
             Ok(json!({"rows":rows}))
         }
         query => {
@@ -698,7 +884,14 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             let context = Context::new(&definition);
             match query {
                 Query::Files {} => {
-                    let has_claims=definition.modules().iter().flat_map(krs_ir::DefinitionModule::sentences).any(|s|matches!(s,DefinitionSentence::Rule(r) if r.kind()==SentenceKind::Claim));
+                    let has_claims = definition
+                        .modules()
+                        .iter()
+                        .flat_map(krs_ir::DefinitionModule::sentences)
+                        .any(|sentence| {
+                            matches!(sentence,
+                            DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim)
+                        });
                     let mut actual = fs::read_dir(directory)?
                         .map(|entry| {
                             entry.map(|entry| entry.file_name().to_string_lossy().into_owned())
@@ -707,13 +900,26 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     actual.sort();
                     let owned = fs::read(directory.join(krs_compiler::ARTIFACT_MARKER_FILE))
                         .is_ok_and(|bytes| bytes == krs_compiler::ARTIFACT_MARKER.as_bytes());
-                    Ok(
-                        json!({"expected":krs_compiler::emitted_artifact_names(has_claims),"actual":actual,"owned":owned,"has_claims":has_claims}),
-                    )
+                    Ok(json!({
+                        "expected": krs_compiler::emitted_artifact_names(has_claims),
+                        "actual": actual,
+                        "owned": owned,
+                        "has_claims": has_claims,
+                    }))
                 }
-                Query::Modules {} => Ok(
-                    json!({"main_module":definition.main_module(),"rows":definition.modules().iter().map(|m|json!({"name":m.id(),"imports":definition_module_imports(m)})).collect::<Vec<_>>()}),
-                ),
+                Query::Modules {} => {
+                    let rows = definition
+                        .modules()
+                        .iter()
+                        .map(|module| {
+                            json!({
+                                "name": module.id(),
+                                "imports": definition_module_imports(module),
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    Ok(json!({"main_module": definition.main_module(), "rows": rows}))
+                }
                 Query::Sentences {
                     module,
                     sentence_kind: kind,
@@ -753,7 +959,23 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                             if let DefinitionSentence::Configuration(c) = s {
                                 initializer_rows(&context, c.initializer(), &mut initializers);
                             }
-                            rows.push(json!({"module":m.id(),"kind":sentence_kind(s),"label":name,"rule_kind":rule_kind,"source_map_key":s.origin().key(),"generated":range,"body":body,"initializers":initializers,"associativity":match s{DefinitionSentence::Associativity(a)=>Some(a.associativity()),_=>None}}));
+                            let associativity = match s {
+                                DefinitionSentence::Associativity(value) => {
+                                    Some(value.associativity())
+                                }
+                                _ => None,
+                            };
+                            rows.push(json!({
+                                "module": m.id(),
+                                "kind": sentence_kind(s),
+                                "label": name,
+                                "rule_kind": rule_kind,
+                                "source_map_key": s.origin().key(),
+                                "generated": range,
+                                "body": body,
+                                "initializers": initializers,
+                                "associativity": associativity,
+                            }));
                         }
                     }
                     rows.sort_by(|a, b| {
@@ -771,9 +993,16 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     module,
                     sort,
                     symbol,
-                } => Ok(
-                    json!({"rows":productions(&definition,&context,module.as_deref(),sort.as_deref(),symbol.as_deref())}),
-                ),
+                } => {
+                    let rows = productions(
+                        &definition,
+                        &context,
+                        module.as_deref(),
+                        sort.as_deref(),
+                        symbol.as_deref(),
+                    );
+                    Ok(json!({"rows": rows}))
+                }
                 Query::Vocabulary {} => Ok(vocabulary(&definition, &context)),
                 Query::Applications {
                     operation,
@@ -820,17 +1049,28 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
 
 fn definition_shape(definition: &DefinitionIr) -> Value {
     let mut value = encoded(definition);
-    value["modules"] = json!(definition.modules().iter().map(|module| {
-        let mut row = encoded(module);
-        row["sentences"] = json!(module.sentences().iter().map(|sentence| {
+    value["modules"] =
+        json!(
+            definition
+                .modules()
+                .iter()
+                .map(|module| {
+                    let mut row = encoded(module);
+                    row["sentences"] =
+                        json!(module.sentences().iter().map(|sentence| {
             if let DefinitionSentence::Rule(rule) = sentence {
-                json!({"sentence_kind":"rule", "sentence":{"kind":rule.kind(), "label":rule.label()}})
+                json!({
+                    "sentence_kind": "rule",
+                    "sentence": {"kind": rule.kind(), "label": rule.label()},
+                })
             } else {
                 encoded(sentence)
             }
         }).collect::<Vec<_>>());
-        row
-    }).collect::<Vec<_>>());
+                    row
+                })
+                .collect::<Vec<_>>()
+        );
     strip_provenance(&mut value);
     value
 }
@@ -1289,7 +1529,8 @@ mod tests {
                 .unwrap();
         let origin = testing::authored_in(package(), "src/lib.rs", digest, 7, 12);
         let entry = json!({"key":"exact.token","node_kind":"term","origin":origin,"generated":{
-            "artifact":"spec.k","start_byte":6,"end_byte":11,"start_line":1,"start_column":7,"end_line":1,"end_column":12,
+            "artifact": "spec.k", "start_byte": 6, "end_byte": 11,
+            "start_line": 1, "start_column": 7, "end_line": 1, "end_column": 12,
         }});
         let write = |entries: Vec<Value>| {
             fs::write(
@@ -1299,7 +1540,10 @@ mod tests {
             .unwrap();
         };
         write(vec![entry.clone()]);
-        let request = json!({"kind":"source_token","authored":authored,"package_relative_path":"src/lib.rs","token":"Exact","artifact":"spec.k"});
+        let request = json!({
+            "kind": "source_token", "authored": authored,
+            "package_relative_path": "src/lib.rs", "token": "Exact", "artifact": "spec.k",
+        });
         let result = query(dir.path(), &request).unwrap();
         assert_eq!(result["authored_range"]["start_byte"], 7);
         assert_eq!(result["generated"]["start_byte"], 6);
@@ -1324,11 +1568,55 @@ mod tests {
         assert!(query(dir.path(), &request).is_err());
     }
 
+    fn replacement_request(reference: &Path) -> Value {
+        json!({
+            "kind": "replacement_parity",
+            "reference": reference,
+            "module": "KRS-FOO-BAR",
+            "module_path": ["syntax"],
+            "k_namespace": "KRS-FOO-BAR",
+            "replaced_k_tail_cells": ["k"],
+            "preserved_map_remainder_cells": ["env"],
+        })
+    }
+
+    #[test]
+    fn replacement_package_namespace_is_independent_of_the_emitted_module() {
+        let left = artifacts();
+        let right = artifacts();
+        for (directory, cargo_name) in
+            [(&left, "authored-package"), (&right, "replacement-package")]
+        {
+            let bundle: DescriptorBundle =
+                read(directory.path(), krs_compiler::DESCRIPTOR_ARTIFACT).unwrap();
+            let mut descriptor = bundle.descriptors[0].clone();
+            descriptor.id = testing::item_in(
+                testing::package("PACKAGE-NAMESPACE", cargo_name),
+                "syntax",
+                "Obj",
+                ItemKind::Sort,
+            );
+            fs::write(
+                directory.path().join(krs_compiler::DESCRIPTOR_ARTIFACT),
+                DescriptorBundle::new(vec![descriptor])
+                    .to_canonical_json()
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+        let mut request = replacement_request(left.path());
+        assert!(query(right.path(), &request).is_err());
+        request["k_namespace"] = json!("PACKAGE-NAMESPACE");
+        assert!(query(right.path(), &request).is_ok());
+        request.as_object_mut().unwrap().remove("k_namespace");
+        assert!(query(right.path(), &request).is_err());
+    }
+
     #[test]
     fn replacement_projection_preserves_sentence_multiplicity_and_changes() {
         let left = artifacts();
         let right = artifacts();
-        let request = json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]});
+        let request = replacement_request(left.path());
         let facts = query(right.path(), &request).unwrap();
         assert_eq!(facts["non_rule_counts"], json!({"sort":1}));
         assert_eq!(facts["non_rule_count"], 1);
@@ -1426,7 +1714,7 @@ mod tests {
             )
             .unwrap();
         }
-        let request = json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]});
+        let request = replacement_request(left.path());
         let result = query(right.path(), &request).unwrap();
         assert_eq!(result["subsort_count"], 2);
         assert_eq!(result["non_rule_counts"], json!({"grammar":2}));
@@ -1453,7 +1741,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn replacement_frame_normalization_is_limited_to_the_old_transport_shapes() {
+    fn replacement_normalizes_only_declared_replaced_k_tails_and_preserved_map_remainders() {
         let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
         let definition = lowered.definition();
         let mut context = Context::new(definition);
@@ -1517,7 +1805,14 @@ mod tests {
             ),
         };
         let input = make(tail(), replace());
-        let normalized = encoded(&projections::frame_normalized(&input, &context).unwrap());
+        let replaced_k_tail_cells = ["k".to_owned()];
+        let preserved_map_remainder_cells = ["env".to_owned()];
+        let frames = projections::FrameNormalization {
+            replaced_k_tail_cells: &replaced_k_tail_cells,
+            preserved_map_remainder_cells: &preserved_map_remainder_cells,
+        };
+        let normalized =
+            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
         assert!(
             normalized["sentence"]["body"]["clauses"][0]["frame"]
                 .get("binding")
@@ -1537,10 +1832,10 @@ mod tests {
             *rule = sentence;
             fs::write(dir.path().join("definition-ir.json"), value.to_string()).unwrap();
         }
-        assert!(query(right.path(), &json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]})).is_ok());
+        assert!(query(right.path(), &replacement_request(left.path())).is_ok());
         let preserved = make(tail(), CellPost::Preserve);
         assert_eq!(
-            projections::frame_normalized(&preserved, &context).unwrap(),
+            projections::frame_normalized(&preserved, &context, &frames).unwrap(),
             preserved
         );
         context.cells.insert(cell, "env");
@@ -1549,21 +1844,34 @@ mod tests {
             binding: Some(SemanticId::new("tail").unwrap()),
         };
         let preserved = make(map(), CellPost::Preserve);
-        assert!(encoded(&projections::frame_normalized(&preserved,&context).unwrap())["sentence"]["body"]["clauses"][0]["frame"].get("binding").is_none());
+        let normalized =
+            encoded(&projections::frame_normalized(&preserved, &context, &frames).unwrap());
+        assert!(
+            normalized["sentence"]["body"]["clauses"][0]["frame"]
+                .get("binding")
+                .is_none()
+        );
         let replaced = make(map(), replace());
         assert_eq!(
-            projections::frame_normalized(&replaced, &context).unwrap(),
+            projections::frame_normalized(&replaced, &context, &frames).unwrap(),
             replaced
         );
         context.cells.insert(cell, "other");
         assert_eq!(
-            projections::frame_normalized(&input, &context).unwrap(),
+            projections::frame_normalized(&input, &context, &frames).unwrap(),
             input
         );
+        let replaced_k_tail_cells = ["other".to_owned()];
+        let frames = projections::FrameNormalization {
+            replaced_k_tail_cells: &replaced_k_tail_cells,
+            preserved_map_remainder_cells: &[],
+        };
+        let normalized =
+            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
+        assert_eq!(normalized["sentence"]["variables"], json!([]));
     }
 
-    #[test]
-    fn head_rule_walkthrough_projects_typed_named_and_positional_arguments() {
+    fn head_rule_artifacts() -> krs_test_support::TempDir {
         use krs_ir::{
             DescriptorApplicationRef, DescriptorApplicationReference, DescriptorHeadRule,
             DescriptorHeadRuleBinding, DescriptorHeadRuleResult, DescriptorTerm,
@@ -1647,11 +1955,23 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
+        dir
+    }
+
+    #[test]
+    fn head_rule_walkthrough_projects_typed_named_and_positional_arguments() {
+        let dir = head_rule_artifacts();
         let request = json!({"kind":"head_rule_walkthrough","item_name":"eval_add"});
         let value = query(dir.path(), &request).unwrap();
         assert_eq!(
             value,
-            json!({"id":"eval_add","kind":"head_rule","sentence_kind":"transition","label":"eval-add","configuration":"Machine","cell":"k","bindings":["lhs","rhs"],"subject":{"application":"Add","arguments":["lhs","rhs"]},"result":{"application":"builtin:int_add","arguments":["lhs","rhs"]}})
+            json!({
+                "id": "eval_add", "kind": "head_rule", "sentence_kind": "transition",
+                "label": "eval-add", "configuration": "Machine", "cell": "k",
+                "bindings": ["lhs", "rhs"],
+                "subject": {"application": "Add", "arguments": ["lhs", "rhs"]},
+                "result": {"application": "builtin:int_add", "arguments": ["lhs", "rhs"]},
+            })
         );
         assert!(
             query(
@@ -1765,6 +2085,62 @@ mod tests {
     }
 
     #[test]
+    fn absolute_strings_scans_present_json_values_and_keys_without_model_validation() {
+        let directory = krs_test_support::temp_dir();
+        let artifacts = [
+            krs_compiler::DESCRIPTOR_ARTIFACT,
+            krs_compiler::SEMANTIC_ARTIFACT,
+            krs_compiler::DEFINITION_IR_ARTIFACT,
+            krs_compiler::SYMBOLS_ARTIFACT,
+            krs_compiler::SOURCES_ARTIFACT,
+        ];
+        let mut expected = Vec::new();
+        for artifact in artifacts {
+            fs::write(
+                directory.path().join(artifact),
+                serde_json::to_vec(&json!({
+                    "/absolute/key": ["/posix/path", {"nested": "C:\\host\\file"}],
+                    "other": ["file:///host/file", "\\host\\file", "src/lib.rs", "C:relative"],
+                    "scalars": [null, true, 42],
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            for value in [
+                "/absolute/key",
+                "/posix/path",
+                "C:\\host\\file",
+                "file:///host/file",
+                "\\host\\file",
+            ] {
+                expected.push(json!({"artifact": artifact, "value": value}));
+            }
+        }
+        fs::write(directory.path().join("unrelated.json"), br#"["/ignored"]"#).unwrap();
+        let request = json!({"kind": "absolute_strings"});
+        assert_eq!(
+            query(directory.path(), &request).unwrap()["rows"],
+            json!(expected)
+        );
+        for artifact in artifacts {
+            fs::remove_file(directory.path().join(artifact)).unwrap();
+        }
+        assert_eq!(
+            query(directory.path(), &request).unwrap(),
+            json!({"rows": []})
+        );
+        fs::write(directory.path().join(artifacts[0]), b"invalid json").unwrap();
+        assert!(query(directory.path(), &request).is_err());
+        assert!(
+            query(
+                directory.path(),
+                &json!({"kind": "absolute_strings", "extra": true})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn queries_reject_unknown_fields_and_read_only_required_files() {
         let directory = artifacts();
         for q in [
@@ -1790,7 +2166,10 @@ mod tests {
             json!({"symbol":"wrappingRange","arguments":[{"token":"1"},{"token":"0"}]}),
         )
         .unwrap();
-        assert!(p.matches(&json!({"kind":"application","symbol":"wrappingRange","arguments":[{"kind":"token","token":"1"},{"kind":"token","token":"0"}]})));
+        assert!(p.matches(&json!({
+            "kind": "application", "symbol": "wrappingRange",
+            "arguments": [{"kind": "token", "token": "1"}, {"kind": "token", "token": "0"}],
+        })));
         assert!(
             !p.matches(
                 &json!({"symbol":"wrappingRange","arguments":[{"token":"0"},{"token":"1"}]})

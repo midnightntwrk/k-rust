@@ -42,7 +42,7 @@ fn normalize(
                 if public {
                     object.retain(|key, _| key == "k_namespace");
                 } else if namespace.is_some_and(|n| object["k_namespace"] == n) {
-                    object.insert("cargo_name".into(), json!("normalized-imp-package"));
+                    object.insert("cargo_name".into(), json!("normalized-replacement-package"));
                     object.insert("cargo_version".into(), json!("0.0.0"));
                     object.insert("cargo_source".into(), json!("workspace"));
                 }
@@ -151,7 +151,8 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     Ok(json!({
         "id":descriptor.id.item_name(), "kind":"head_rule", "sentence_kind":rule.sentence_kind,
         "label":rule.label.as_ref().ok_or("walkthrough requires a label")?.name,
-        "configuration":rule.configuration.item_name(), "cell":rule.computation_cell.cell.field.as_str(),
+        "configuration":rule.configuration.item_name(),
+        "cell":rule.computation_cell.cell.field.as_str(),
         "bindings":rule.bindings.iter().map(|b|b.name.as_str()).collect::<Vec<_>>(),
         "subject":{"application":id.item_name(),"arguments":fields},
         "result":{"application":format!("builtin:{}",enum_name(operation)),"arguments":args},
@@ -160,8 +161,17 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
 
 pub(super) fn symbol_projection(directory: &Path, names: &[String]) -> QueryResult {
     let map: SymbolMap = read(directory, krs_compiler::SYMBOLS_ARTIFACT)?;
-    let mut rows = map.entries().iter().filter(|e| names.iter().any(|n|n == e.emitted_name()))
-        .map(|e|json!({"identity":e.identity(),"emitted_name":e.emitted_name(),"symbol_kind":e.symbol_kind()}))
+    let mut rows = map
+        .entries()
+        .iter()
+        .filter(|e| names.iter().any(|n| n == e.emitted_name()))
+        .map(|entry| {
+            json!({
+                "identity": entry.identity(),
+                "emitted_name": entry.emitted_name(),
+                "symbol_kind": entry.symbol_kind(),
+            })
+        })
         .collect::<Vec<_>>();
     rows.sort_by_key(Value::to_string);
     let mut source_keys = map
@@ -307,9 +317,12 @@ fn non_rules(
     }
     descriptors.sort_by_key(Value::to_string);
     declarations.sort_by_key(Value::to_string);
-    Ok(
-        json!({"descriptors":descriptors,"declarations":declarations,"counts":counts,"subsort_count":relations.len()}),
-    )
+    Ok(json!({
+        "descriptors": descriptors,
+        "declarations": declarations,
+        "counts": counts,
+        "subsort_count": relations.len(),
+    }))
 }
 
 fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> QueryResult {
@@ -338,11 +351,17 @@ fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> Que
     Ok(json!(rules))
 }
 
-/// Remove precisely the bound suffixes recognized by the previous comparison:
-/// replaced <k> K tails and preserved <env> Map remainders.
+pub(super) struct FrameNormalization<'a> {
+    pub(super) replaced_k_tail_cells: &'a [String],
+    pub(super) preserved_map_remainder_cells: &'a [String],
+}
+
+/// Remove bindings of replaced K-sequence tails in the declared K cells.
+/// Remove bindings of preserved Map remainders in the declared map cells.
 pub(super) fn frame_normalized(
     sentence: &DefinitionSentence,
     cells: &super::Context<'_>,
+    frames: &FrameNormalization<'_>,
 ) -> Result<DefinitionSentence, Box<dyn std::error::Error>> {
     let DefinitionSentence::Rule(rule) = sentence else {
         return Ok(sentence.clone());
@@ -353,24 +372,35 @@ pub(super) fn frame_normalized(
     let mut value = encoded(sentence);
     let mut removed = Vec::new();
     for (i, clause) in body.clauses().iter().enumerate() {
-        let ((
-            "k",
-            CellContentFrame::KSequenceTail {
-                binding: Some(binding),
-                ..
-            },
-            CellPost::Replace { .. },
-        )
-        | (
-            "env",
-            CellContentFrame::MapRemainder {
-                binding: Some(binding),
-                ..
-            },
-            CellPost::Preserve,
-        )) = (cells.cells[clause.cell()], clause.frame(), clause.after())
-        else {
-            continue;
+        let cell_name = cells.cells[clause.cell()];
+        let binding = match (clause.frame(), clause.after()) {
+            (
+                CellContentFrame::KSequenceTail {
+                    binding: Some(binding),
+                    ..
+                },
+                CellPost::Replace { .. },
+            ) if frames
+                .replaced_k_tail_cells
+                .iter()
+                .any(|name| name == cell_name) =>
+            {
+                binding
+            }
+            (
+                CellContentFrame::MapRemainder {
+                    binding: Some(binding),
+                    ..
+                },
+                CellPost::Preserve,
+            ) if frames
+                .preserved_map_remainder_cells
+                .iter()
+                .any(|name| name == cell_name) =>
+            {
+                binding
+            }
+            _ => continue,
         };
         removed.push(binding.as_str());
         value["sentence"]["body"]["clauses"][i]["frame"]
@@ -389,6 +419,7 @@ pub(super) fn frame_normalized(
 fn sentence_multiset(
     definition: &DefinitionIr,
     name: &str,
+    frames: &FrameNormalization<'_>,
 ) -> Result<BTreeMap<String, usize>, Box<dyn std::error::Error>> {
     let context = super::Context::new(definition);
     let mut value = encoded(definition);
@@ -398,7 +429,7 @@ fn sentence_multiset(
                 module
                     .sentences()
                     .iter()
-                    .map(|s| frame_normalized(s, &context))
+                    .map(|s| frame_normalized(s, &context, frames))
                     .collect::<Result<Vec<_>, _>>()?
             );
         }
@@ -428,12 +459,14 @@ pub(super) fn replacement_parity(
     replacement: &Path,
     module: &str,
     path: &[String],
+    k_namespace: &str,
+    frames: &FrameNormalization<'_>,
 ) -> QueryResult {
     let reference_bundle: DescriptorBundle = read(reference, krs_compiler::DESCRIPTOR_ARTIFACT)?;
     let replacement_bundle: DescriptorBundle =
         read(replacement, krs_compiler::DESCRIPTOR_ARTIFACT)?;
-    let left = non_rules(&reference_bundle, path, true, module)?;
-    let right = non_rules(&replacement_bundle, path, false, module)?;
+    let left = non_rules(&reference_bundle, path, true, k_namespace)?;
+    let right = non_rules(&replacement_bundle, path, false, k_namespace)?;
     if left != right {
         return Err("normalized non-rule descriptors or declaration metadata differ".into());
     }
@@ -441,16 +474,19 @@ pub(super) fn replacement_parity(
     let replacement_rules = rule_transport(&replacement_bundle, path, false)?;
     let left_definition: DefinitionIr = read(reference, krs_compiler::DEFINITION_IR_ARTIFACT)?;
     let right_definition: DefinitionIr = read(replacement, krs_compiler::DEFINITION_IR_ARTIFACT)?;
-    let left_sentences = sentence_multiset(&left_definition, module)?;
-    let right_sentences = sentence_multiset(&right_definition, module)?;
+    let left_sentences = sentence_multiset(&left_definition, module, frames)?;
+    let right_sentences = sentence_multiset(&right_definition, module, frames)?;
     for (sentence, count) in &right_sentences {
         if left_sentences.get(sentence).copied().unwrap_or(0) < *count {
             return Err(format!("replacement sentence multiset differs: {sentence}").into());
         }
     }
-    Ok(
-        json!({"non_rule_counts":right["counts"],"non_rule_count":right["descriptors"].as_array().unwrap().len(),
-        "subsort_count":right["subsort_count"],"reference_rules":reference_rules,"replacement_rules":replacement_rules,
-        "sentence_count":right_sentences.values().sum::<usize>()}),
-    )
+    Ok(json!({
+        "non_rule_counts": right["counts"],
+        "non_rule_count": right["descriptors"].as_array().unwrap().len(),
+        "subsort_count": right["subsort_count"],
+        "reference_rules": reference_rules,
+        "replacement_rules": replacement_rules,
+        "sentence_count": right_sentences.values().sum::<usize>(),
+    }))
 }

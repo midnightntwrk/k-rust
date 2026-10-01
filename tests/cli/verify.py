@@ -119,6 +119,9 @@ def verify_k_artifacts(directory: Path, forbidden_paths: list[Path], gate: Path)
         files = session.ir_query(directory, {"kind": "files"})
         if files["actual"] != files["expected"] or not files["owned"] or files["has_claims"]:
             raise GateError(f"unexpected emit-k artifact set: {files}")
+        absolute_strings = session.ir_query(directory, {"kind": "absolute_strings"})["rows"]
+        if absolute_strings:
+            raise GateError(f"emitted JSON artifacts contain absolute strings: {absolute_strings}")
         modules = session.ir_query(directory, {"kind": "modules"})
         if modules["main_module"] != expected["main_module"]:
             raise GateError(f"unexpected main module: {modules}")
@@ -176,7 +179,7 @@ def positive_run(binary: Path, workspace: Path, results: Results, gate: Path) ->
             raise ValueError(compact(emit))
         artifacts = verify_k_artifacts(emitted, [ROOT, workspace, language, target], gate)
         results.add(f"{workspace.name}_emit_k", "PASS", "exact owned canonical K artifact set")
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, GateError) as error:
         results.add(f"{workspace.name}_emit_k", "FAIL", str(error))
         return None
 

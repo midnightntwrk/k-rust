@@ -50,6 +50,10 @@
 //! Symbol and source inputs use the version-checked [`krs_compiler::SymbolMap`] and [`krs_compiler::SourceMap`] readers.
 //! Unknown query kinds and fields are errors.
 //! All filters are optional exact matches; omitted filters select all rows.
+//! `kind: "absolute_strings"` returns `{rows}` with `{artifact,value}` for every absolute string in each present emitted JSON artifact.
+//! It scans descriptor-bundle.json, semantic-ir.json, definition-ir.json, symbols.json, and sources.json as generic JSON, including object keys, object values, and array elements.
+//! A string is absolute when [`krs_ir::DisplayPath::is_absolute_spelling`] returns true or it starts with `/`; missing artifacts are skipped and malformed JSON is an error.
+//! This lexical hygiene query does not interpret modeled artifact data.
 //! `kind: "files"` returns `{expected,actual,owned,has_claims}`.
 //! `expected` is the lexical file set from [`krs_compiler::emitted_artifact_names`], including `spec.k` exactly when Definition IR contains claims.
 //! `actual` lists directory entries in lexical order and `owned` requires the exact compiler-owned marker bytes.
@@ -87,10 +91,11 @@
 //! It returns exactly one `{authored_range,generated}` whose authored file digest, relative path, and nonempty UTF-8 token match and whose generated interval is nonempty and in bounds.
 //! Exact authored content selects a typed source-map view before generated-to-authored lookup uses [`krs_cli::translate_k_frontend_diagnostic`].
 //! A surrounding condition may share the generated interval but cannot match the narrower authored token; multiple exact-token matches are errors.
-//! `kind: "replacement_parity"` requires `reference` (an artifact directory), emitted `module`, and descriptor `module_path`.
+//! `kind: "replacement_parity"` requires `reference` (an artifact directory), emitted `module`, descriptor `module_path`, package `k_namespace`, `replaced_k_tail_cells`, and `preserved_map_remainder_cells`.
 //! The queried directory is the configuration-rule replacement and the reference directory is the head-rule authority.
-//! Non-rule descriptors and declarations must agree after removing descriptor provenance, normalizing the selected namespace's Cargo identity, and naming subsorts by sorted typed relations.
-//! It normalizes only replaced `k` cell K-tail bindings and preserved `env` cell Map-remainder bindings to unbound frames; the rebuilt Definition IR must validate.
+//! Non-rule descriptors and declarations must agree after removing descriptor provenance, normalizing the `k_namespace` package's Cargo identity, and naming subsorts by sorted typed relations.
+//! `k_namespace` is independent of the emitted K `module` whose sentences are compared.
+//! It normalizes bindings of replaced K-sequence tails in `replaced_k_tail_cells` and bindings of preserved Map remainders in `preserved_map_remainder_cells` to unbound frames; the rebuilt Definition IR must validate.
 //! All other rules, terms, attributes, and grammar remain exact through the canonical compiler printer.
 //! Every replacement import and non-claim sentence must occur in the reference multiset with at least the same multiplicity.
 //! It returns `{non_rule_counts,non_rule_count,subsort_count,reference_rules,replacement_rules,sentence_count}`; rule maps retain exact Rust-item-to-K-label transport for transitions.

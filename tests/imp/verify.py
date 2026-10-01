@@ -54,6 +54,8 @@ REFERENCE_MODULE = "KRS-IMP-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
+REPLACED_K_TAIL_CELLS = ["k"]
+PRESERVED_MAP_REMAINDER_CELLS = ["env"]
 
 
 def require_exact_summary(
@@ -69,6 +71,9 @@ def _verify_replacement_parity(authored: Path, replacement: Path, gate: Path, en
     facts = krs_gate.ir_query(gate, replacement, {
         "kind": "replacement_parity", "reference": os.fspath(authored),
         "module": MODULE, "module_path": ["imp"],
+        "k_namespace": MODULE,
+        "replaced_k_tail_cells": REPLACED_K_TAIL_CELLS,
+        "preserved_map_remainder_cells": PRESERVED_MAP_REMAINDER_CELLS,
     }, environment=environment)
     expected = load_json(HERE / "replacement-parity.json")
     if facts != expected:
