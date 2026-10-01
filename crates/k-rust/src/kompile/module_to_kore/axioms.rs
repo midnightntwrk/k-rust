@@ -153,7 +153,9 @@ fn no_confusion_axioms(
         Sentence::Production { sort, .. } => SortHead::from(sort),
         _ => unreachable!("production catalogs contain productions"),
     };
-    // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a disjointness axiom, so each unordered pair is emitted once; this scan of `productions.productions()` runs once per no-confusion `id`, O(n^2) in the catalog size.
+    // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a
+    // disjointness axiom, so each unordered pair is emitted once; this scan of
+    // `productions.productions()` runs once per no-confusion `id`, O(n^2) in the catalog size.
     for (other_id, other_production) in productions.productions() {
         if other_id == id
             || !roles.claims(other_id).no_confusion()

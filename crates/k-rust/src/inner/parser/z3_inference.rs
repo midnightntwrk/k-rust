@@ -1,7 +1,13 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::packed_term_constraint", "Encoding::less_than_eq", "Encoding::solver_for", "Encoding::domain_solver", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base",
+//!     "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort",
+//!     "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::packed_term_constraint",
+//!     "Encoding::less_than_eq", "Encoding::solver_for", "Encoding::domain_solver",
+//!     "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters",
+//!     "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators",
+//!     "Encoding::read_model", "or_all"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]

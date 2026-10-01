@@ -1,7 +1,8 @@
 //! ```toml algorithm
 //! id = "parser.programs.parse"
 //! name = "user-program parsing with a cached grammar"
-//! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance", "ProgramParser::present", "ProgramParser::parse_for_presentation", "parse_program"]
+//! sites = ["ProgramParser::parse", "ProgramParser::parse_with_provenance",
+//!     "ProgramParser::present", "ProgramParser::parse_for_presentation", "parse_program"]
 //! variable = "g = grammar construction work; p = parse work"
 //! counters = ["ParserGrammarBuilds", "ParserParseAttempts"]
 //! produces = [{ type = "k_rust::inner::ParsedProgram", role = "parsed program" }]
@@ -129,7 +130,8 @@ impl std::error::Error for ProgramParseError {}
 /// # }
 /// ```
 ///
-/// [`MacroExpansionDefinition::expand_program`]: crate::kompile::MacroExpansionDefinition::expand_program
+/// [`MacroExpansionDefinition::expand_program`]:
+///     crate::kompile::MacroExpansionDefinition::expand_program
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[must_use]
 pub struct ParsedProgram(Term);

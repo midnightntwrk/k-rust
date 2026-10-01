@@ -870,7 +870,8 @@ fn simplify_rule_predicates(
 /// A stop is matched first and propagates; the fallback matches failures only (`Unwind::Fail`).
 /// A failure is a fact about simplifying this condition (the budget is a bound the simplifier
 /// chose, a hook or a solver query that cannot be evaluated is a limit of the backend), and a
-/// weaker condition is a fit answer to it; a cancelled request, a passed deadline, a failed solver prelude, or an exhausted stack says
+/// weaker condition is a fit answer to it; a cancelled request, a passed deadline, a failed solver
+/// prelude, or an exhausted stack says
 /// nothing about the condition, and deciding the unsimplified predicates would leave the equation
 /// blocked and report a silent `Stuck` one level up, a wrong answer in place of the stop.
 ///

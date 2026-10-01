@@ -4,7 +4,8 @@
 //! and without the freeness of its constructors, so a predicate those decide has an answer the
 //! solver cannot see: `start = done` over two distinct constructors is false by the
 //! definition, while the solver, reading both as uninterpreted constants, finds them equal in
-//! some model of its approximate translation. A model query therefore decides the predicate with the definition
+//! some model of its approximate translation. A model query therefore decides the predicate with
+//! the definition
 //! first and asks the solver only for a valuation of the residual the simplifier left undecided.
 //! [`model_of`] is that query, and [`ModelQuery`], the only argument
 //! [`SmtSolver::get_model`] takes, is built by nothing else.
@@ -34,16 +35,19 @@ use crate::{
 /// and neither does building a query outside this module, whose fields are private:
 ///
 /// ```compile_fail,E0451
-/// # use k_rust_backend::{model::ModelQuery, rule::Predicate, smt::SmtSolver, substitution::Substitution};
+/// # use k_rust_backend::{model::ModelQuery, rule::Predicate, smt::SmtSolver,
+/// # substitution::Substitution};
 /// # fn ask(solver: &dyn SmtSolver, predicate: Predicate) {
-/// let _ = solver.get_model(&ModelQuery { predicates: &[predicate], substitution: &Substitution::new() });
+/// let _ = solver.get_model(&ModelQuery { predicates: &[predicate], substitution:
+/// &Substitution::new() });
 /// # }
 /// ```
 ///
 /// nor through the constructor solver tests use, which exists only in this crate's test build:
 ///
 /// ```compile_fail,E0599
-/// # use k_rust_backend::{model::ModelQuery, rule::Predicate, smt::SmtSolver, substitution::Substitution};
+/// # use k_rust_backend::{model::ModelQuery, rule::Predicate, smt::SmtSolver,
+/// # substitution::Substitution};
 /// # fn ask(solver: &dyn SmtSolver, predicate: Predicate) {
 /// let _ = solver.get_model(&ModelQuery::for_solver_tests(&[predicate], &Substitution::new()));
 /// # }
@@ -52,7 +56,8 @@ use crate::{
 /// The query goes through [`model_of`], which decides the predicate with the definition first:
 ///
 /// ```
-/// # use k_rust_backend::{definition::BackendDefinition, model::model_of, rule::Predicate, smt::SmtSolver};
+/// # use k_rust_backend::{definition::BackendDefinition, model::model_of, rule::Predicate,
+/// # smt::SmtSolver};
 /// # fn ask(definition: &BackendDefinition, solver: &dyn SmtSolver, predicate: Predicate) {
 /// let _ = model_of(definition, &predicate, solver);
 /// # }

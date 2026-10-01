@@ -43,14 +43,22 @@
 //!
 //! [[cost]]
 //! mode = "result-set search"
-//! bound = "O(m) matches, each followed by one predicate simplification and at most one is_sat, plus O(k) comparisons per retained match, plus the selected rewrite-search strategy; a match whose subject or target has a term that is not ceil_free also computes the subject's pattern_knowledge (condition_definedness of its constraints and ceil_term of its term) and condition_definedness of the instantiated target constraints, and the knowledge members not among the subject's constraints join the simplification and the is_sat query, while a ceil_free subject and target cost one stored-attribute read per term"
+//! bound = """\
+//! O(m) matches, each followed by one predicate simplification and at most one is_sat, plus \
+//! O(k) comparisons per retained match, plus the selected rewrite-search strategy; a match \
+//! whose subject or target has a term that is not ceil_free also computes the subject's \
+//! pattern_knowledge (condition_definedness of its constraints and ceil_term of its term) and \
+//! condition_definedness of the instantiated target constraints, and the knowledge members not \
+//! among the subject's constraints join the simplification and the is_sat query, while a \
+//! ceil_free subject and target cost one stored-attribute read per term"""
 //! ```
 //!
 //! ```toml algorithm
 //! id = "backend.substitution.extract_output"
 //! name = "output-restricted substitution extraction"
 //! sites = ["normalize_match_condition"]
-//! variable = "c = constraints; t = term size; f = the subject's knowledge facts decided with the condition"
+//! variable = """\
+//! c = constraints; t = term size; f = the subject's knowledge facts decided with the condition"""
 //! counters = []
 //! no_counter = "output-restricted extraction has no dedicated counter"
 //! span = "per call"
@@ -58,7 +66,12 @@
 //!
 //! [[cost]]
 //! mode = "search result normalization"
-//! bound = "O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of the value and O((c + f) x t) membership comparisons per obligation it yields, and, when f > 0, O(f x t) per solved binding to eliminate it from the facts (a binding from the subject's own constraints) or to move the facts it rewrites into the constraints (any other binding, which also reads the variable sets of the c constraints)"
+//! bound = """\
+//! O(c^2 x t), plus for each solved binding whose value is not ceil_free one ceil_term walk of \
+//! the value and O((c + f) x t) membership comparisons per obligation it yields, and, when f > \
+//! 0, O(f x t) per solved binding to eliminate it from the facts (a binding from the subject's \
+//! own constraints) or to move the facts it rewrites into the constraints (any other binding, \
+//! which also reads the variable sets of the c constraints)"""
 //! ```
 //!
 //! Breadth-first search over configurations with `(depth, pattern, is_rewritable)`
@@ -343,7 +356,8 @@ pub enum SearchEnd<E> {
 /// ```
 /// use k_rust_backend::{search::{SearchEnd, SearchResult}, stop::StopCause};
 ///
-/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end: SearchEnd::Stopped(StopCause::Cancelled) };
+/// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end:
+/// SearchEnd::Stopped(StopCause::Cancelled) };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -671,7 +685,8 @@ fn search_graph_collecting(
     let mut expanded: HashSet<(u64, Pattern, bool)> = HashSet::new();
 
     let mut pending = VecDeque::with_capacity(initial.len());
-    // Invariant: `pending` holds, in input order, the initial states without a surviving macro or alias symbol, and `incomplete` one entry per other initial state.
+    // Invariant: `pending` holds, in input order, the initial states without a surviving macro or
+    // alias symbol, and `incomplete` one entry per other initial state.
     for pattern in initial {
         let work = SearchWorkState {
             state: SearchState {

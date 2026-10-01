@@ -1226,7 +1226,8 @@ fn remainder_output<K: WireKore>(
     })
 }
 
-/// The wire candidates and remainder a halt reason reports, each absent when the reason reports none.
+/// The wire candidates and remainder a halt reason reports, each absent when the reason reports
+/// none.
 type ExecutionCandidates<K> = (
     Option<Vec<ExecutionCandidateOutput<K>>>,
     Option<ExecutionRemainderOutput<K>>,

@@ -17,7 +17,8 @@
 //! ```toml algorithm
 //! id = "rpc.json.encode"
 //! name = "JSON-RPC response encoding"
-//! sites = ["encode_kore_source", "encode_kore_source_raw", "encode_substitution_source", "RpcValue::to_json_string"]
+//! sites = ["encode_kore_source", "encode_kore_source_raw", "encode_substitution_source",
+//!     "RpcValue::to_json_string"]
 //! variable = "N = expanded KORE pattern nodes; B = response bytes"
 //! counters = ["RpcJsonNodesWritten", "RpcJsonDistinctNodes", "RpcJsonBytesWritten"]
 //! span = "per call"
@@ -1440,7 +1441,8 @@ fn simplified_not_consequent_response_syntax(
 }
 
 /// The verdict of an implication check, or its fault. A stop is not a failure of the check: the
-/// request's work stopped, so it is the request's fault ([`stopped_request`]); only a failure of the
+/// request's work stopped, so it is the request's fault ([`stopped_request`]); only a failure of
+/// the
 /// check itself is an implication-check error ([`implication_backend_fault`]).
 fn implication_check_result(
     checked: Stoppable<Result<ImplicationVerdict, ImplicationError>>,
@@ -2173,8 +2175,8 @@ mod session {
                     #[cfg(feature = "measure")]
                     let _default = tracing::dispatcher::set_default(&dispatch);
                     for (message, control) in receiver {
-                        // A request that was cancelled before it runs (its session ended while it was
-                        // queued, or while this worker waited for another connection's request)
+                        // A request that was cancelled before it runs (its session ended while it
+                        // was queued, or while this worker waited for another connection's request)
                         // is not run.
                         let response = if control.is_cancelled() {
                             None

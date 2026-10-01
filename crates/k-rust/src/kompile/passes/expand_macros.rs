@@ -170,13 +170,17 @@ pub(crate) fn expand_macros_pass(
     }
 }
 
-/// Every label applied in the body of an smt-lemma rule has an SMT interpretation (an smt-hook or smtlib attribute); defined only on alias- and macro-free bodies, so it runs on expanded sentences.
+/// Every label applied in the body of an smt-lemma rule has an SMT interpretation (an smt-hook or
+/// smtlib attribute); defined only on alias- and macro-free bodies, so it runs on expanded
+/// sentences.
 fn check_smt_lemmas(
     sentences: &[&Sentence],
     productions: &ProductionCatalog<'_>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    // Invariant: `diagnostics` holds an error for every label application in the `smt-lemma` rules before `sentence` none of whose productions carries `smt-hook` or `smtlib`; each iteration consumes one entry of `sentences`.
+    // Invariant: `diagnostics` holds an error for every label application in the `smt-lemma` rules
+    // before `sentence` none of whose productions carries `smt-hook` or `smtlib`; each iteration
+    // consumes one entry of `sentences`.
     for sentence in sentences {
         let Sentence::Rule {
             body, attributes, ..

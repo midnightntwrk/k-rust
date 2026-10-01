@@ -330,7 +330,10 @@ fn check_pattern_value(
     }
 }
 
-// Invariant: `bound` holds the variables bound at the positions already visited and `unsupported_existentials` counts the rejected `?X` occurrences among them, and each recursive call, directly or through `visit_free`, receives a strict subterm of `term`, so the size of `term` bounds the calls.
+// Invariant: `bound` holds the variables bound at the positions already visited and
+// `unsupported_existentials` counts the rejected `?X` occurrences among them, and each recursive
+// call, directly or through `visit_free`, receives a strict subterm of `term`, so the size of
+// `term` bounds the calls.
 fn gather_variables(
     term: &Term,
     position: TermPosition,
@@ -558,7 +561,10 @@ fn is_free(
         }
 }
 
-// Invariant: `report` has received, in walk order, every variable occurrence visited so far that is free at its position (`is_free`) in the scope enclosing it, a local function's own scope included, and each recursive call receives a strict subterm of `term`, so the size of `term` bounds the calls.
+// Invariant: `report` has received, in walk order, every variable occurrence visited so far that is
+// free at its position (`is_free`) in the scope enclosing it, a local function's own scope
+// included, and each recursive call receives a strict subterm of `term`, so the size of `term`
+// bounds the calls.
 fn visit_free<'t>(
     term: &'t Term,
     position: TermPosition,

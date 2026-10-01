@@ -60,6 +60,7 @@ impl Grammar {
             PartialOrder::new(self.subsort_relations.iter().cloned()).ok()
         });
         let order = order.as_ref();
+        let bottom = KernelSort::KBott.sort();
         for production in self
             .productions
             .iter()
@@ -88,7 +89,6 @@ impl Grammar {
             let Some(order) = order else {
                 continue;
             };
-            let bottom = KernelSort::KBott.sort();
             for operand in declared_operands(production) {
                 assert!(
                     !order.less_than_eq(operand, &bottom),

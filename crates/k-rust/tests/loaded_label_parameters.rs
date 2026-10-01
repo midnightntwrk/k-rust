@@ -566,8 +566,8 @@ mod native {
     /// through a projection (`wrap({X}:>Num)` is `wrap{Num}` of `project:Num`), as in K source. A
     /// parameter occurring in neither an argument nor the result (`size`'s `S`) is universally
     /// quantified in every sentence that uses it. A written parameter is rejected on each entry
-    /// path: a structured load, a `LoadedDefinition` rebuilt with `with_definition`, and the typing view. The `MInt{8}`
-    /// rule needs native Z3 sort inference to parse.
+    /// path: a structured load, a `LoadedDefinition` rebuilt with `with_definition`, and the typing
+    /// view. The `MInt{8}` rule needs native Z3 sort inference to parse.
     #[test]
     fn a_written_label_parameter_is_rejected_and_the_solved_instance_is_emitted() {
         let backend = CompilationBackend::Rust;

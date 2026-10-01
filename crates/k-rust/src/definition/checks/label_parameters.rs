@@ -1,4 +1,5 @@
-//! This definition check traverses the terms of rule-like sentences once, linearly, and records no dedicated counter.
+//! This definition check traverses the terms of rule-like sentences once, linearly, and records no
+//! dedicated counter.
 //!
 //! Rejection of sort parameters written on the labels of rule-like sentences.
 //!

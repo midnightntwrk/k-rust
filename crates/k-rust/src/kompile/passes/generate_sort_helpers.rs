@@ -2,7 +2,10 @@
 //! id = "kompile.sort_helpers.generate"
 //! name = "generation of sort predicates, projections, and helper rules"
 //! sites = ["generate_sort_predicate_syntax", "regenerate_sort_predicate_syntax", "generate_sort_projections"]
-//! variable = "M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions declared locally, summed over modules; F = distinct result sorts of the productions that get a named field projection"
+//! variable = """\
+//! M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions \
+//! declared locally, summed over modules; F = distinct result sorts of the productions that get \
+//! a named field projection"""
 //! counters = []
 //! no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
@@ -18,7 +21,10 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! The field projections of a production are total only when it is the sole no-junk alternative of its sort; that judgement derives the alternatives of the sort from the main module once per sort (one scan of its productions and one of its sorts, O(V + S log S)), and only for the F sorts of productions with a named field.
+//! The field projections of a production are total only when it is the sole no-junk alternative of
+//! its sort; that judgement derives the alternatives of the sort from the main module once per sort
+//! (one scan of its productions and one of its sorts, O(V + S log S)), and only for the F sorts of
+//! productions with a named field.
 //!
 //! The predicate-rule step (`generate_sort_predicate_rules_pass` in `finalize.rs`) forces each module's subsort view and emits the `true` rule of a predicate only when its sort is placeable at `K`; that check scans the sort's supersorts in the closure, O(S log S).
 //!
@@ -96,7 +102,9 @@ fn generate_sort_predicate_syntax_from_resolved(
         }
         // A sort has a predicate exactly when its role says so; the rule grammar offers `isS(_)`
         // from the same predicate, so a rule can mention exactly the predicates declared here.
-        // Invariant: `generated` holds the optional `Bool` token sort and the sort predicate production of every sort of `sorts.local_sorts()` before `sort` whose role has a sort predicate; each iteration consumes one sort.
+        // Invariant: `generated` holds the optional `Bool` token sort and the sort predicate
+        // production of every sort of `sorts.local_sorts()` before `sort` whose role has a sort
+        // predicate; each iteration consumes one sort.
         for sort in sorts
             .local_sorts()
             .iter()
@@ -242,7 +250,9 @@ pub(crate) fn generate_sort_projections_pass(
         let mut generated = Vec::new();
         // A sort has a projection exactly when its role says so; the rule grammar offers
         // `project:S(_)` from the same predicate.
-        // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` whose role has a sort projection and whose projection label is not in `defined_labels`; each iteration consumes one sort.
+        // Invariant: `generated` holds the projection production and rule of every sort of
+        // `sorts.all_sorts()` before `sort` whose role has a sort projection and whose projection
+        // label is not in `defined_labels`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
             if !sort.role().has_sort_projection() {
                 continue;

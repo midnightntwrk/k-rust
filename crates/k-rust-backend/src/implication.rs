@@ -1,7 +1,10 @@
 //! ```toml algorithm
 //! id = "backend.implication.check"
 //! name = "subsumption by matching, witness elimination, and validity checking"
-//! sites = ["check_established", "check_implication", "check_implication_with_existentials", "check_implication_with_existentials_and_options", "check_implication_with_existentials_complete", "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
+//! sites = ["check_established", "check_implication", "check_implication_with_existentials",
+//!     "check_implication_with_existentials_and_options",
+//!     "check_implication_with_existentials_complete",
+//!     "check_disjunctive_implication_with_existentials", "eliminate_existential_witnesses"]
 //! variable = "r = antecedent simplification rounds; c = consequents"
 //! counters = ["SmtQueries"]
 //! span = "per problem"
@@ -12,7 +15,10 @@
 //!
 //! [[cost]]
 //! mode = "one consequent (check_established)"
-//! bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only when the complete policy grades a failing part, grade_outside)"
+//! bound = """\
+//! O(r) matching problems and antecedent simplifications, then one discharge with one \
+//! check_predicates (up to three solver subqueries) and up to three is_sat queries (the third \
+//! only when the complete policy grades a failing part, grade_outside)"""
 //!
 //! [[cost]]
 //! mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -610,7 +616,8 @@ impl MatchReport {
 ///     smt::Validity,
 /// };
 ///
-/// fn grade(coverage: CoverageCondition, validity: Validity, refuted: ObligationRefuted) -> Coverage {
+/// fn grade(coverage: CoverageCondition, validity: Validity, refuted: ObligationRefuted) ->
+/// Coverage {
 ///     match validity {
 ///         Validity::Unknown(_) => Coverage::PartialCoverage { coverage, refuted },
 ///         _ => Coverage::Undecided,

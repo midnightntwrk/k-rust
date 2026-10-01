@@ -157,7 +157,8 @@ pub enum Admission {
 /// ```compile_fail
 /// # #![deny(unused_must_use)]
 /// # use k_rust_backend::definition::{BackendDefinition, DefinitionError};
-/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(), DefinitionError> {
+/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(),
+/// # DefinitionError> {
 /// d.verify_standalone_pattern(p, &[])?;
 /// # Ok(()) }
 /// ```
@@ -165,7 +166,8 @@ pub enum Admission {
 /// ```
 /// # #![deny(unused_must_use)]
 /// # use k_rust_backend::definition::{BackendDefinition, DefinitionError};
-/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(), DefinitionError> {
+/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(),
+/// # DefinitionError> {
 /// let _admitted = d.verify_standalone_pattern(p, &[])?;
 /// # Ok(()) }
 /// ```

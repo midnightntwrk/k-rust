@@ -362,7 +362,12 @@ fn finalize_general_unification(
                 freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
             let mut all_constraints = constraints.to_vec();
             extend_unique(&mut all_constraints, solution.constraints);
-            #[expect(clippy::disallowed_methods, reason = "unifier constraints; collection_unification_definedness of the same substitution is conjoined next")]
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "unifier constraints; \
+                          collection_unification_definedness of the same substitution is \
+                          conjoined next"
+            )]
             let mut constraints = substitute_predicates(&all_constraints, &substitution);
             extend_unique(
                 &mut constraints,

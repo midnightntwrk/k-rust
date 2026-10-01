@@ -406,7 +406,8 @@ impl Z3Solver {
             solver.from_string(query.base());
             match measured_check(&solver) {
                 SatResult::Sat => {
-                    // confirm_answer returns its argument unchanged; only the prelude check matters here.
+                    // confirm_answer returns its argument unchanged; only the prelude check matters
+                    // here.
                     let _: Satisfiability = self.confirm_answer(Satisfiability::Sat)?;
                     let Some(mappings) = query.model_mappings() else {
                         return Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())));

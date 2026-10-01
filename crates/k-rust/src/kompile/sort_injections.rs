@@ -120,7 +120,8 @@ impl SortInjectionError {
     }
 
     /// The public shape of a sentence rejected by
-    /// [`reject_label_parameters_in_definition`](crate::definition::checks::reject_label_parameters_in_definition).
+    /// [`reject_label_parameters_in_definition`](
+    ///     crate::definition::checks::reject_label_parameters_in_definition).
     pub(crate) fn sentence_label_parameters(error: SentenceLabelParameterError) -> Self {
         Self::Sentence {
             module: error.module,

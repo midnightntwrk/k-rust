@@ -495,7 +495,12 @@ impl SymbolRoles {
         let heads = LabelHeads::of(productions, rules);
         // Each greater, mapped to conditions (a) and (b) of `OverloadPosition::Greater`.
         let mut greaters = BTreeMap::<ProductionId, (bool, bool)>::new();
-        // Invariant: `greaters` maps every greater of a lesser visited so far to whether every visited lesser below it is locally injective (a) and whether, for every visited lesser below it, no other member of that lesser's set {lesser} ∪ greaters has its result sort head (b); `relations_from` is transitively closed, so a production above a greater `g` is a greater of each lesser of `g` and one pass covers every relation and chain, O(O² log O).
+        // Invariant: `greaters` maps every greater of a lesser visited so far to whether every
+        // visited lesser below it is locally injective (a) and whether, for every visited lesser
+        // below it, no other member of that lesser's set {lesser} ∪ greaters has its result sort
+        // head (b); `relations_from` is transitively closed, so a production above a greater `g` is
+        // a greater of each lesser of `g` and one pass covers every relation and chain, O(O² log
+        // O).
         for lesser in overloads.order().elements() {
             let Some(above) = overloads.order().relations_from(lesser) else {
                 continue;

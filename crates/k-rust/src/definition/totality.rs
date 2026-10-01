@@ -1,4 +1,5 @@
-//! This definition-layer module holds no algorithm; every function in it is constant time and has no dedicated counter.
+//! This definition-layer module holds no algorithm; every function in it is constant time and has
+//! no dedicated counter.
 //!
 //! The typed writer of `total` on a compiler-generated function production.
 //!

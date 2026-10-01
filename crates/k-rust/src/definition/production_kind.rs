@@ -272,7 +272,9 @@ pub(crate) fn is_builtin_label(label: &str) -> bool {
 /// Bind the sort parameters `parameters` occurring in `pattern` so that `pattern` becomes
 /// `concrete`, extending `substitution`; `None` when no binding consistent with `substitution`
 /// does.
-// Invariant: each call matches one node of `pattern` against `concrete` and recurses only into their `parameters`, so the finite `pattern` bounds the calls; `substitution` binds every element of `parameters` met so far to one concrete sort.
+// Invariant: each call matches one node of `pattern` against `concrete` and recurses only into
+// their `parameters`, so the finite `pattern` bounds the calls; `substitution` binds every element
+// of `parameters` met so far to one concrete sort.
 pub(crate) fn match_sort_parameters(
     pattern: &Sort,
     concrete: &Sort,
@@ -322,7 +324,8 @@ enum Alternative {
 /// The productions of the sort contribute their [`ProductionKind::no_junk`] alternatives in
 /// catalog order, with a single `\top` at the position of the first token production however many
 /// token productions the sort has, since each of them contributes the same alternative. The
-/// injections of the strict subsorts along subsort axioms follow ([`injected_subsorts`]), and a sort whose own declaration carries `token` but
+/// injections of the strict subsorts along subsort axioms follow ([`injected_subsorts`]), and a
+/// sort whose own declaration carries `token` but
 /// that has no token production ends with `\top`.
 #[derive(Debug)]
 pub(crate) struct SortGenerators {
@@ -345,7 +348,11 @@ impl SortGenerators {
     ) -> Self {
         let head = SortHead::from(sort);
         let mut alternatives = Vec::new();
-        // Invariant: `alternatives` holds, in catalog order, the generator of every production of `head` before this one whose kind is a generator and whose result sort instantiates to `sort`, plus one domain-values alternative at the position of the first earlier production whose kind contributes domain values; this scan runs once per sort, O(|productions|).
+        // Invariant: `alternatives` holds, in catalog order, the generator of every production of
+        // `head` before this one whose kind is a generator and whose result sort instantiates to
+        // `sort`, plus one domain-values alternative at the position of the first earlier
+        // production whose kind contributes domain values; this scan runs once per sort,
+        // O(|productions|).
         for (id, production) in productions.productions() {
             let Sentence::Production {
                 parameters,

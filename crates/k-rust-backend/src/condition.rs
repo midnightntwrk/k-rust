@@ -198,7 +198,8 @@ impl InstantiatedCondition {
     /// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and a
     /// failure of the first attempt take the general path: the obligations are stated and the
     /// condition is simplified under `known`. A stop of the first attempt ends the condition with
-    /// the stop, on the outer layer: the attempt has no answer, and the general path would answer in
+    /// the stop, on the outer layer: the attempt has no answer, and the general path would answer
+    /// in
     /// its place. The diagnostics of a discarded attempt are dropped, since the general path redoes
     /// and reports its work.
     pub(crate) fn simplify(
@@ -381,7 +382,8 @@ impl MatchedEquation {
     /// `decide(obligations)` simplifies the obligations and decides them, returning the verdict
     /// with the obligations as simplified. With no obligation the instance is defined as it
     /// stands and `decide` is not called. A satisfied verdict discharges the obligations, a
-    /// refuted one makes a bound term empty under the path condition ([`DecidedEquation::Refuted`]),
+    /// refuted one makes a bound term empty under the path condition
+    /// ([`DecidedEquation::Refuted`]),
     /// and an undecided one leaves the simplified obligations open, carried by the result.
     pub(crate) fn decide(
         self,

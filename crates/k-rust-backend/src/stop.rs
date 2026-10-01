@@ -646,32 +646,13 @@ mod tests {
         let inner = CancellationToken::new();
         outer.cancel();
 
-        assert_eq!(
-            crate::stop::check().map_err(crate::stop::Stop::into_cause),
-            Ok(())
-        );
+        assert_eq!(polled(), None);
         outer.scope(|| {
-            assert!(
-                crate::stop::check()
-                    .map_err(crate::stop::Stop::into_cause)
-                    .is_err()
-            );
-            inner.scope(|| {
-                assert_eq!(
-                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
-                    Ok(())
-                )
-            });
-            assert!(
-                crate::stop::check()
-                    .map_err(crate::stop::Stop::into_cause)
-                    .is_err()
-            );
+            assert!(polled().is_some());
+            inner.scope(|| assert_eq!(polled(), None));
+            assert!(polled().is_some());
         });
-        assert_eq!(
-            crate::stop::check().map_err(crate::stop::Stop::into_cause),
-            Ok(())
-        );
+        assert_eq!(polled(), None);
     }
 
     #[test]
@@ -689,42 +670,18 @@ mod tests {
         let operation = PreludeSignal::default();
         outer.scope(|| {
             with_prelude_signal(&operation, || {
-                assert_eq!(
-                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
-                    Ok(())
-                );
+                assert_eq!(polled(), None);
                 operation.raise(PreludeFailure::Inconsistent);
-                assert!(
-                    crate::stop::check()
-                        .map_err(crate::stop::Stop::into_cause)
-                        .is_err()
-                );
+                assert!(polled().is_some());
                 assert!(!outer.is_cancelled());
             });
-            assert_eq!(
-                crate::stop::check().map_err(crate::stop::Stop::into_cause),
-                Ok(())
-            );
+            assert_eq!(polled(), None);
             let next = PreludeSignal::default();
-            with_prelude_signal(&next, || {
-                assert_eq!(
-                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
-                    Ok(())
-                )
-            });
+            with_prelude_signal(&next, || assert_eq!(polled(), None));
             outer.cancel();
-            with_prelude_signal(&next, || {
-                assert!(
-                    crate::stop::check()
-                        .map_err(crate::stop::Stop::into_cause)
-                        .is_err()
-                )
-            });
+            with_prelude_signal(&next, || assert!(polled().is_some()));
         });
-        assert_eq!(
-            crate::stop::check().map_err(crate::stop::Stop::into_cause),
-            Ok(())
-        );
+        assert_eq!(polled(), None);
     }
 
     /// The cause `check` reports, published so that no stop is dropped armed.

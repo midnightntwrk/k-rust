@@ -264,7 +264,8 @@ pub enum CellIndex {
     Overloaded,
     /// A production with `anywhere` equations that is not a declared function and is in no
     /// `symbol-overload` relation. The rewrite matcher reads it as written, fixed
-    /// (`matching::matcher_root_policy`), and refutes it against a different rigid head, except against another non-constructor
+    /// (`matching::matcher_root_policy`), and refutes it against a different rigid head, except
+    /// against another non-constructor
     /// head under injections from unrelated sorts that may overlap, which it defers; so it
     /// covers `Overloaded` too. Only a rule's key uses it: a subject's `anywhere` head, which
     /// its equations may still rewrite, is `Anything` (`subject_index`). A function that is
