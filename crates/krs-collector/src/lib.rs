@@ -14,4 +14,4 @@ pub use collect::{
     collect_host_descriptors_with_builtins_timed, run_collector,
 };
 pub use error::{CollectionError, CollectionErrorKind};
-pub use facade::FacadeAliases;
+pub use facade::{FacadeAliases, package_facade_aliases};

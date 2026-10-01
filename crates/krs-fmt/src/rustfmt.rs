@@ -4,8 +4,8 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 
 use krs_ir::LineIndex;
+use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind};
 use proc_macro2::{Span, TokenStream, TokenTree};
-use syn::visit::Visit;
 
 use crate::rules::{self, TrailingCommentStyle};
 use crate::{Edition, FormatError, FormatErrorKind};
@@ -27,62 +27,7 @@ struct BodyRange {
     end: usize,
 }
 
-struct RuleBodyVisitor<'source> {
-    source: &'source str,
-    line_index: &'source LineIndex,
-    ranges: Vec<BodyRange>,
-    error: Option<FormatError>,
-}
-
-impl<'ast> Visit<'ast> for RuleBodyVisitor<'_> {
-    fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
-        if self.error.is_some() {
-            return;
-        }
-        if invocation
-            .path
-            .segments
-            .last()
-            .is_none_or(|segment| segment.ident != "rules")
-        {
-            syn::visit::visit_macro(self, invocation);
-            return;
-        }
-        if !matches!(invocation.delimiter, syn::MacroDelimiter::Brace(_)) {
-            self.error = Some(FormatError::new(
-                FormatErrorKind::NonBraceRules,
-                "`k::rules!` must use braces so `krs fmt` can enforce its block layout",
-            ));
-            return;
-        }
-        // `syn::parse_file` strips a shebang before assigning span byte ranges.
-        let open = invocation.delimiter.span().open().end();
-        let close = invocation.delimiter.span().close().start();
-        let range = (|| {
-            let start = self
-                .line_index
-                .line_column_to_byte(open)
-                .map_err(span_index_error)?;
-            let end = self
-                .line_index
-                .line_column_to_byte(close)
-                .map_err(span_index_error)?;
-            self.source.get(start..end).ok_or_else(|| {
-                FormatError::new(
-                    FormatErrorKind::RustSyntax,
-                    "a `rules!` body span escaped its source",
-                )
-            })?;
-            Ok((start, end))
-        })();
-        match range {
-            Ok((start, end)) => self.ranges.push(BodyRange { start, end }),
-            Err(error) => self.error = Some(error),
-        }
-    }
-}
-
-fn find_rule_bodies(source: &str) -> Result<Vec<BodyRange>, FormatError> {
+fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>, FormatError> {
     let syntax = syn::parse_file(source).map_err(|error| {
         FormatError::new(
             FormatErrorKind::RustSyntax,
@@ -90,22 +35,48 @@ fn find_rule_bodies(source: &str) -> Result<Vec<BodyRange>, FormatError> {
         )
     })?;
     let line_index = LineIndex::new(source);
-    let mut visitor = RuleBodyVisitor {
-        source,
-        line_index: &line_index,
-        ranges: Vec::new(),
-        error: None,
-    };
-    visitor.visit_file(&syntax);
-    if let Some(error) = visitor.error {
-        return Err(error);
+    let mut ranges = Vec::new();
+    for invocation in surface::invocations(&syntax, facade) {
+        let InvocationKind::Function {
+            entry: FunctionMacro::Rules,
+            delimiter: Some(delimiter),
+            ..
+        } = invocation.kind
+        else {
+            continue;
+        };
+        if !matches!(delimiter, syn::MacroDelimiter::Brace(_)) {
+            return Err(FormatError::new(
+                FormatErrorKind::NonBraceRules,
+                "KRS `rules!` must use braces so `krs fmt` can enforce its block layout",
+            ));
+        }
+        // `syn::parse_file` strips a shebang before assigning span byte ranges.
+        let open = delimiter.span().open().end();
+        let close = delimiter.span().close().start();
+        let start = line_index
+            .line_column_to_byte(open)
+            .map_err(span_index_error)?;
+        let end = line_index
+            .line_column_to_byte(close)
+            .map_err(span_index_error)?;
+        source.get(start..end).ok_or_else(|| {
+            FormatError::new(
+                FormatErrorKind::RustSyntax,
+                "a `rules!` body span escaped its source",
+            )
+        })?;
+        ranges.push(BodyRange { start, end });
     }
-    visitor.ranges.sort_by_key(|range| range.start);
-    Ok(visitor.ranges)
+    ranges.sort_by_key(|range| range.start);
+    Ok(ranges)
 }
 
-pub(crate) fn elide_rule_bodies(source: &str) -> Result<ElidedSource, FormatError> {
-    let ranges = find_rule_bodies(source)?;
+pub(crate) fn elide_rule_bodies(
+    source: &str,
+    facade: &FacadeScope,
+) -> Result<ElidedSource, FormatError> {
+    let ranges = find_rule_bodies(source, facade)?;
     let mut output = source.to_owned();
     let mut bodies = ranges
         .iter()
@@ -138,8 +109,9 @@ pub(crate) fn splice_rule_bodies(
     source: &str,
     bodies: &[RuleBody],
     trailing_comments: TrailingCommentStyle,
+    facade: &FacadeScope,
 ) -> Result<String, FormatError> {
-    let ranges = find_rule_bodies(source)?;
+    let ranges = find_rule_bodies(source, facade)?;
     if ranges.len() != bodies.len() {
         return Err(FormatError::new(
             FormatErrorKind::Rustfmt,
@@ -245,9 +217,13 @@ pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<St
     })
 }
 
-pub(crate) fn validate_token_payload(before: &str, after: &str) -> Result<(), FormatError> {
-    let before_ranges = find_rule_bodies(before)?;
-    let after_ranges = find_rule_bodies(after)?;
+pub(crate) fn validate_token_payload(
+    before: &str,
+    after: &str,
+    facade: &FacadeScope,
+) -> Result<(), FormatError> {
+    let before_ranges = find_rule_bodies(before, facade)?;
+    let after_ranges = find_rule_bodies(after, facade)?;
     if before_ranges.len() != after_ranges.len() {
         return Err(FormatError::new(
             FormatErrorKind::TokenPayloadChanged,
@@ -363,10 +339,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn syntax_rule_bodies_include_attributed_items_and_exclude_raw_tokens() {
+        let source = r"k::rules! { item }
+mod nested { k::rules! { module } }
+fn f() {
+    k::rules! { statement }
+    let _ = k::rules! { expression };
+    let k::rules! { pattern }: k::rules! { ty } = value;
+}
+#[k::function(k::rules!(opaque_argument))]
+fn attributed() { k::rules! { attributed_body } }
+#[k::unknown]
+fn invalid_attribute() { k::rules! { invalid_attribute_body } }
+#[other = k::rules! { attribute_expression }]
+k::rules! { attributed_macro }
+impl S { k::rules! { impl_item } }
+trait T { k::rules! { trait_item } }
+other! { k::rules!(opaque_other) }
+k::id!(k::rules![opaque_krs]);
+";
+        let facade = FacadeScope::new(crate::FormatOptions::default().facade_aliases);
+        let ranges = find_rule_bodies(source, &facade).unwrap();
+        let bodies = ranges
+            .iter()
+            .map(|range| source[range.start..range.end].trim())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bodies,
+            [
+                "item",
+                "module",
+                "statement",
+                "expression",
+                "pattern",
+                "ty",
+                "attributed_body",
+                "invalid_attribute_body",
+                "attribute_expression",
+                "attributed_macro",
+                "impl_item",
+                "trait_item",
+            ]
+        );
+    }
+
+    #[test]
+    fn module_aliases_and_shadowing_select_only_krs_bodies() {
+        let source = r"extern crate k as host;
+host::rules! { root }
+mod nested {
+    use k as lang;
+    lang::rules! { renamed }
+    mod shadowed {
+        use other as k;
+        k::rules!(opaque_shadowed);
+    }
+}
+lang::rules!(opaque_outside);
+";
+        let facade = FacadeScope::new(crate::FormatOptions::default().facade_aliases);
+        let ranges = find_rule_bodies(source, &facade).unwrap();
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| source[range.start..range.end].trim())
+                .collect::<Vec<_>>(),
+            ["root", "renamed"]
+        );
+    }
+
+    #[test]
     fn byte_ranges_follow_each_parsed_source_string() {
         let source =
             "#!/usr/bin/env rustx\nfn f() { let s = \"🦀\"; k::rules! { for Expr; one: A => A; } }";
-        let bodies = find_rule_bodies(source).unwrap();
+        let facade = FacadeScope::new(crate::FormatOptions::default().facade_aliases);
+        let bodies = find_rule_bodies(source, &facade).unwrap();
         assert_eq!(bodies.len(), 1);
         assert_eq!(
             &source[bodies[0].start..bodies[0].end],

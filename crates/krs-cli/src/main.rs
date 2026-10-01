@@ -27,6 +27,7 @@ Commands:
   expand                    Render the selected Rust reference surface
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts
+  fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
 
 Options:
   --manifest-path PATH       Cargo manifest (default: Cargo.toml)
@@ -41,7 +42,7 @@ Options:
   --counters FILE            Write krs-counters/1 work counters as JSON
   --message-format human|json Diagnostic output (default: human)
   --no-reuse                 Run the collector and compiler even on an unchanged input
-  --stdin                    Format stdin and write the result to stdout
+  --stdin                    Format stdin with facade alias k and write the result to stdout
   --edition YEAR             Rust edition for --stdin (default: 2024)
   --check                    Report files that are not canonically formatted
   --trailing-comments STYLE  aligned or gutter (default: aligned)
@@ -493,7 +494,8 @@ fn execute_format(request: &FormatRequest) -> Result<bool, String> {
         io::stdin()
             .read_to_string(&mut source)
             .map_err(|error| format!("cannot read stdin: {error}"))?;
-        let output = krs_fmt::format_source(&source, options).map_err(|error| error.to_string())?;
+        let output =
+            krs_fmt::format_source(&source, &options).map_err(|error| error.to_string())?;
         if request.check {
             if output != source {
                 eprint!(
@@ -517,8 +519,9 @@ fn execute_format(request: &FormatRequest) -> Result<bool, String> {
     for input in &files {
         match krs_fmt::format_file(
             &input.path,
-            FormatOptions {
+            &FormatOptions {
                 edition: input.edition,
+                facade_aliases: input.facade_aliases.clone(),
                 ..options
             },
         ) {

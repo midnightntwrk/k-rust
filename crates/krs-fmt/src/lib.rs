@@ -1,17 +1,21 @@
 //! Canonical formatting for Rust files containing KRS macro DSL bodies.
 //!
-//! Rustfmt owns ordinary Rust layout. KRS rule bodies are elided before that
-//! subprocess runs, formatted through the shared `krs-syntax` parser, and
-//! spliced back at the invocation's Rustfmt-selected indentation.
+//! Rustfmt owns ordinary Rust layout.
+//! KRS `rules!` bodies reached through Rust syntax are selected by [`krs_syntax::surface::invocations`] under the configured facade aliases and the file's module bindings.
+//! These bodies are elided before Rustfmt runs, formatted through the shared `krs-syntax` parser, and spliced back at the invocation's Rustfmt-selected indentation.
+//! Other macros and calls inside raw macro tokens remain under Rustfmt's formatting policy.
+//! The default facade alias is `k`; callers with package metadata must supply that package's aliases in [`FormatOptions::facade_aliases`].
 
 mod rules;
 mod rustfmt;
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use krs_syntax::surface::FacadeScope;
 pub use rules::TrailingCommentStyle;
 
 /// Rust language edition passed to Rustfmt.
@@ -54,10 +58,14 @@ impl FromStr for Edition {
 }
 
 /// Formatter policy shared by file, stdin, editor, and CI entry points.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FormatOptions {
     /// Rust language edition for the input.
     pub edition: Edition,
+    /// Unraw package facade names used to resolve KRS macros, defaulting to exactly `{"k"}`.
+    /// File and inline-module `use` and `extern crate` bindings refine these names.
+    /// An empty set disables KRS rule formatting.
+    pub facade_aliases: BTreeSet<String>,
     /// Layout policy for trailing comments on aligned single-cell clauses.
     pub trailing_comments: TrailingCommentStyle,
     /// Run and compose with the installed Rustfmt executable.
@@ -72,6 +80,7 @@ impl Default for FormatOptions {
     fn default() -> Self {
         Self {
             edition: Edition::default(),
+            facade_aliases: BTreeSet::from(["k".to_owned()]),
             trailing_comments: TrailingCommentStyle::AlignedColumn,
             rustfmt: true,
             check_idempotence: true,
@@ -99,7 +108,7 @@ pub enum FormatErrorKind {
     RustSyntax,
     /// A KRS DSL body did not parse under `krs-syntax`.
     DslSyntax,
-    /// A `rules!` invocation used parentheses or brackets.
+    /// A KRS `rules!` invocation reached through Rust syntax used parentheses or brackets.
     NonBraceRules,
     /// Rustfmt could not be started or rejected the elided source.
     Rustfmt,
@@ -158,7 +167,7 @@ impl Error for FormatError {}
 /// # Errors
 ///
 /// Returns a typed parse, Rustfmt, payload, idempotence, or fixpoint failure.
-pub fn format_source(source: &str, options: FormatOptions) -> Result<String, FormatError> {
+pub fn format_source(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
     format_source_in(source, options, Path::new("."))
 }
 
@@ -169,11 +178,12 @@ pub fn format_source(source: &str, options: FormatOptions) -> Result<String, For
 /// Returns a typed parse, Rustfmt, payload, idempotence, or fixpoint failure.
 pub fn format_source_in(
     source: &str,
-    options: FormatOptions,
+    options: &FormatOptions,
     directory: &Path,
 ) -> Result<String, FormatError> {
-    let output = format_source_once(source, options, directory)?;
-    rustfmt::validate_token_payload(source, &output)?;
+    let facade = FacadeScope::new(options.facade_aliases.clone());
+    let output = format_source_once(source, options, directory, &facade)?;
+    rustfmt::validate_token_payload(source, &output, &facade)?;
     rustfmt::validate_comment_payload(source, &output)?;
     syn::parse_file(&output).map_err(|error| {
         FormatError::new(
@@ -182,7 +192,7 @@ pub fn format_source_in(
         )
     })?;
     if options.check_idempotence {
-        let repeated = format_source_once(&output, options, directory)?;
+        let repeated = format_source_once(&output, options, directory, &facade)?;
         if repeated != output {
             return Err(FormatError::new(
                 FormatErrorKind::NonIdempotent,
@@ -204,16 +214,17 @@ pub fn format_source_in(
 
 fn format_source_once(
     source: &str,
-    options: FormatOptions,
+    options: &FormatOptions,
     directory: &Path,
+    facade: &FacadeScope,
 ) -> Result<String, FormatError> {
-    let elided = rustfmt::elide_rule_bodies(source)?;
+    let elided = rustfmt::elide_rule_bodies(source, facade)?;
     let rust = if options.rustfmt {
         rustfmt::run(&elided.source, options.edition, directory)?
     } else {
         elided.source
     };
-    rustfmt::splice_rule_bodies(&rust, &elided.bodies, options.trailing_comments)
+    rustfmt::splice_rule_bodies(&rust, &elided.bodies, options.trailing_comments, facade)
 }
 
 /// Formats one file without writing it.
@@ -221,7 +232,7 @@ fn format_source_once(
 /// # Errors
 ///
 /// Returns an I/O or source-formatting failure.
-pub fn format_file(path: &Path, options: FormatOptions) -> Result<FormattedFile, FormatError> {
+pub fn format_file(path: &Path, options: &FormatOptions) -> Result<FormattedFile, FormatError> {
     let source = std::fs::read_to_string(path).map_err(|error| {
         FormatError::new(
             FormatErrorKind::Io,
@@ -261,6 +272,90 @@ mod tests {
     use super::*;
 
     #[test]
+    fn non_krs_rules_remain_under_rustfmt_policy() {
+        let source = r"use other::rules;
+other::rules! { arbitrary   syntax /* opaque */ }
+other::rules!(a,b);
+other::rules![a,b];
+rules! { arbitrary   syntax /* imported */ }
+rules!(a,b);
+";
+        let direct = rustfmt::run(source, Edition::default(), Path::new(".")).unwrap();
+        assert!(direct.contains(" arbitrary   syntax /* opaque */ "));
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(output, direct);
+    }
+
+    #[test]
+    fn krs_rules_are_formatted_beside_non_krs_rules() {
+        let source = r"other::rules! { arbitrary   syntax /* opaque */ }
+k::rules! { for Expr; one:A(value)=>value; }
+";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        expect_test::expect![[r"other::rules! { arbitrary   syntax /* opaque */ }
+k::rules! {
+    for Expr;
+    one: A(value) => value;
+}
+"]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    fn file_import_renames_the_facade() {
+        let source = "use k as lang;\nlang::rules! { for Expr; one:A(value)=>value; }\n";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        expect_test::expect![[r"use k as lang;
+lang::rules! {
+    for Expr;
+    one: A(value) => value;
+}
+"]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    fn options_select_exactly_the_configured_facades() {
+        let source = r"language::rules! { for Expr; one:A(value)=>value; }
+k::rules! { arbitrary   syntax /* opaque */ }
+k::rules!(a,b);
+";
+        let options = FormatOptions {
+            facade_aliases: BTreeSet::from(["language".to_owned()]),
+            ..FormatOptions::default()
+        };
+        let output = format_source(source, &options).unwrap();
+        expect_test::expect![[r"language::rules! {
+    for Expr;
+    one: A(value) => value;
+}
+k::rules! { arbitrary   syntax /* opaque */ }
+k::rules!(a, b);
+"]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    fn only_krs_syntax_calls_require_braces() {
+        for source in [
+            "k::rules!(for Expr; one: A => A;);",
+            "k::rules![for Expr; one: A => A;];",
+            "use k as lang; lang::rules!(for Expr; one: A => A;);",
+            "#[k::function] fn f() { k::rules![for Expr; one: A => A;]; }",
+        ] {
+            let error = format_source(source, &FormatOptions::default()).unwrap_err();
+            assert_eq!(error.kind(), FormatErrorKind::NonBraceRules, "{source}");
+        }
+        let source = "k::rules!(a,b);\n";
+        let options = FormatOptions {
+            facade_aliases: BTreeSet::new(),
+            ..FormatOptions::default()
+        };
+        let output = format_source(source, &options).unwrap();
+        assert_eq!(output, "k::rules!(a, b);\n");
+    }
+
+    #[test]
     fn source_uses_selected_rust_edition() {
         let source = "use std::{u8, u16};\n";
         let edition_2021 = FormatOptions {
@@ -268,11 +363,11 @@ mod tests {
             ..FormatOptions::default()
         };
         assert_eq!(
-            format_source(source, edition_2021).expect("format 2021 source"),
+            format_source(source, &edition_2021).expect("format 2021 source"),
             "use std::{u16, u8};\n"
         );
         assert_eq!(
-            format_source(source, FormatOptions::default()).expect("format 2024 source"),
+            format_source(source, &FormatOptions::default()).expect("format 2024 source"),
             source
         );
     }
@@ -294,7 +389,7 @@ mod tests {
             ),
         ];
         for (name, source) in corpus {
-            let output = format_source(source, FormatOptions::default())
+            let output = format_source(source, &FormatOptions::default())
                 .unwrap_or_else(|error| panic!("format {name}: {error}"));
             assert_eq!(output, source, "{name} is not a formatter fixed point");
         }
@@ -313,7 +408,7 @@ mod tests {
     }
 }
 ";
-        let output = format_source(source, FormatOptions::default()).expect("format host Rust");
+        let output = format_source(source, &FormatOptions::default()).expect("format host Rust");
         assert!(output.contains("fn definition(first: i32, second: i32)"));
         assert!(output.contains("one: A(value) => value;"));
     }
@@ -335,8 +430,8 @@ mod tests {
             check_rustfmt_fixpoint: false,
             ..FormatOptions::default()
         };
-        let before = format_source(source, options).expect("format original labels");
-        let after = format_source(&renamed, options).expect("format renamed label");
+        let before = format_source(source, &options).expect("format original labels");
+        let after = format_source(&renamed, &options).expect("format renamed label");
         expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
@@ -376,9 +471,9 @@ mod tests {
             check_rustfmt_fixpoint: false,
             ..FormatOptions::default()
         };
-        let aligned = format_source(source, options).expect("aligned comments");
+        let aligned = format_source(source, &options).expect("aligned comments");
         options.trailing_comments = TrailingCommentStyle::FixedGutter;
-        let gutter = format_source(source, options).expect("gutter comments");
+        let gutter = format_source(source, &options).expect("gutter comments");
         expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
@@ -422,7 +517,7 @@ mod tests {
             check_rustfmt_fixpoint: false,
             ..FormatOptions::default()
         };
-        let output = format_source(source, options).expect("comments survive formatting");
+        let output = format_source(source, &options).expect("comments survive formatting");
         let before = output.find("// before").expect("leading comment");
         let interior = output.find("// interior").expect("interior comment");
         let clause = output.find("one: A(value)").expect("formatted clause");
@@ -445,7 +540,7 @@ mod tests {
             check_rustfmt_fixpoint: false,
             ..FormatOptions::default()
         };
-        let error = format_source(source, options).expect_err("block comment must fail");
+        let error = format_source(source, &options).expect_err("block comment must fail");
         assert_eq!(error.kind(), FormatErrorKind::DslSyntax);
         let start = source.find("/* forbidden */").expect("comment start");
         assert!(error.detail().contains(&format!(
@@ -478,7 +573,7 @@ mod tests {
             let marker = format!("// KRS-FMT-UUID-{index:04}");
             let mut injected = source.to_owned();
             injected.insert_str(offset, &format!(" {marker}\n"));
-            let output = format_source(&injected, options)
+            let output = format_source(&injected, &options)
                 .unwrap_or_else(|error| panic!("UUID injection at byte {offset} failed: {error}"));
             assert_eq!(output.matches(&marker).count(), 1, "byte {offset}");
         }

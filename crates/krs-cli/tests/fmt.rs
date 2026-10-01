@@ -61,7 +61,7 @@ fn file_formatting_uses_rustfmt_config_in_the_file_directory() {
     fs::write(&source, "fn example() { let value = 1; }\n").unwrap();
     let formatted = format_file(
         &source,
-        FormatOptions {
+        &FormatOptions {
             edition: Edition::E2021,
             ..FormatOptions::default()
         },

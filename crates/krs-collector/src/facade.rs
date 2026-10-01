@@ -33,6 +33,18 @@ use crate::{CollectionError, CollectionErrorKind};
 /// The Cargo package name of the KRS facade.
 const FACADE_PACKAGE: &str = "krs";
 
+/// The names under which the authored sources of the package whose manifest is `manifest` name the facade,
+/// before file and inline-module bindings:
+/// each normal or dev-dependency on the facade package under its dependency name with `-` spelled `_`,
+/// following workspace inheritance, and `crate` within the facade package itself.
+///
+/// # Errors
+///
+/// Returns a collection error when the manifest or its workspace root cannot be read or parsed.
+pub fn package_facade_aliases(manifest: &Path) -> Result<BTreeSet<String>, CollectionError> {
+    FacadeAliases::from_manifest(manifest).map(|facade| facade.aliases)
+}
+
 /// The names under which one package's authored sources name the facade.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FacadeAliases {

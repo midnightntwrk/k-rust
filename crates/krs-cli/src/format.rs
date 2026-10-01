@@ -6,7 +6,7 @@ use syn::ext::IdentExt as _;
 
 use crate::metadata::{CargoMetadata, MetadataPackage};
 
-/// One Rust file and its Cargo-selected edition.
+/// One Rust file and its Cargo-selected edition and facade aliases.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FormatInput {
     /// Rust source path:
@@ -15,6 +15,9 @@ pub struct FormatInput {
     pub path: PathBuf,
     /// Edition selected by the owning Cargo target or package.
     pub edition: Edition,
+    /// Names under which the owning Cargo package can invoke the `krs` facade.
+    /// A package with no facade dependency has no aliases, unless it is the facade itself.
+    pub facade_aliases: BTreeSet<String>,
 }
 
 /// Discovers Rust files from workspace targets or explicit paths.
@@ -39,6 +42,8 @@ pub struct FormatInput {
 /// Without paths, only the targets that reach a file count,
 /// so a file reached through `#[path]` from outside the source directory of every such target
 /// takes the edition of the first target, in Cargo's order, that reached it.
+/// Each file takes its facade aliases from its owning package's Cargo metadata dependencies.
+/// Dependency kinds and target predicates do not restrict the alias set.
 ///
 /// # Errors
 ///
@@ -67,38 +72,7 @@ pub fn discover_format_inputs(
         .transpose()?;
 
     if paths.is_empty() {
-        let mut selected = BTreeMap::new();
-        for package in packages.values() {
-            for target in &package.targets {
-                let Some(source) = &target.src_path else {
-                    continue;
-                };
-                let source = canonical(Path::new(source))?;
-                let root = source.parent().ok_or_else(|| {
-                    format!("target source has no parent: `{}`", source.display())
-                })?;
-                let edition = target_edition(package, target.edition.as_deref())?;
-                let mut files = BTreeSet::new();
-                module_files(&source, &mut files)?;
-                for file in files {
-                    // A more specific containing target source directory selects the edition.
-                    // Equal or no containing directories use Cargo's target order.
-                    let specificity = if file.starts_with(root) {
-                        root.components().count()
-                    } else {
-                        0
-                    };
-                    let entry = selected.entry(file).or_insert((specificity, edition));
-                    if specificity > entry.0 {
-                        *entry = (specificity, edition);
-                    }
-                }
-            }
-        }
-        return Ok(selected
-            .into_iter()
-            .map(|(path, (_, edition))| FormatInput { path, edition })
-            .collect());
+        return workspace_inputs(&packages);
     }
 
     // Ownership is resolved on canonical paths; files keep the caller's spelling.
@@ -109,7 +83,7 @@ pub fn discover_format_inputs(
             if root.extension().is_none_or(|extension| extension != "rs") {
                 return Err(format!("`{}` is not a Rust source file", path.display()));
             }
-            let Some(edition) = explicit_edition(&root, &packages)? else {
+            let Some((edition, facade_aliases)) = explicit_settings(&root, &packages)? else {
                 return Err(format!(
                     "`{}` is not owned by a workspace package; pass --manifest-path of the workspace that owns it",
                     path.display()
@@ -118,6 +92,7 @@ pub fn discover_format_inputs(
             files.entry(root).or_insert(FormatInput {
                 path: path.clone(),
                 edition,
+                facade_aliases,
             });
             continue;
         }
@@ -127,7 +102,7 @@ pub fn discover_format_inputs(
         let mut owned = 0_usize;
         for file in found {
             // Files of no workspace member, such as a virtual workspace root's fixtures, are not inputs.
-            let Some(edition) = explicit_edition(&file, &packages)? else {
+            let Some((edition, facade_aliases)) = explicit_settings(&file, &packages)? else {
                 continue;
             };
             owned += 1;
@@ -138,6 +113,7 @@ pub fn discover_format_inputs(
             files.entry(file).or_insert(FormatInput {
                 path: spelled,
                 edition,
+                facade_aliases,
             });
         }
         if owned == 0 {
@@ -150,16 +126,58 @@ pub fn discover_format_inputs(
     Ok(files.into_values().collect())
 }
 
-/// Returns the edition of the workspace member owning `file`,
-/// taken from the member target whose source directory most specifically contains it.
-fn explicit_edition(
+fn workspace_inputs(
+    packages: &BTreeMap<PathBuf, &MetadataPackage>,
+) -> Result<Vec<FormatInput>, String> {
+    let mut selected = BTreeMap::new();
+    for package in packages.values() {
+        for target in &package.targets {
+            let Some(source) = &target.src_path else {
+                continue;
+            };
+            let source = canonical(Path::new(source))?;
+            let root = source
+                .parent()
+                .ok_or_else(|| format!("target source has no parent: `{}`", source.display()))?;
+            let edition = target_edition(package, target.edition.as_deref())?;
+            let mut files = BTreeSet::new();
+            module_files(&source, &mut files)?;
+            for file in files {
+                // A more specific containing target source directory selects the edition.
+                // Equal or no containing directories use Cargo's target order.
+                let specificity = if file.starts_with(root) {
+                    root.components().count()
+                } else {
+                    0
+                };
+                let facade_aliases =
+                    facade_aliases(owning_package(&file, packages).unwrap_or(package))?;
+                let entry =
+                    selected
+                        .entry(file)
+                        .or_insert((specificity, edition, facade_aliases.clone()));
+                if specificity > entry.0 {
+                    *entry = (specificity, edition, facade_aliases);
+                }
+            }
+        }
+    }
+    Ok(selected
+        .into_iter()
+        .map(|(path, (_, edition, facade_aliases))| FormatInput {
+            path,
+            edition,
+            facade_aliases,
+        })
+        .collect())
+}
+
+/// Returns the facade aliases and the most specific target's edition of the owning workspace member.
+fn explicit_settings(
     file: &Path,
     packages: &BTreeMap<PathBuf, &MetadataPackage>,
-) -> Result<Option<Edition>, String> {
-    let Some(package) = nearest_manifest_root(file)
-        .as_ref()
-        .and_then(|root| packages.get(root))
-    else {
+) -> Result<Option<(Edition, BTreeSet<String>)>, String> {
+    let Some(package) = owning_package(file, packages) else {
         return Ok(None);
     };
     let mut edition = target_edition(package, None)?;
@@ -177,7 +195,22 @@ fn explicit_edition(
             edition = target_edition(package, target.edition.as_deref())?;
         }
     }
-    Ok(Some(edition))
+    Ok(Some((edition, facade_aliases(package)?)))
+}
+
+/// The facade aliases of `package` under the collector's manifest rule.
+fn facade_aliases(package: &MetadataPackage) -> Result<BTreeSet<String>, String> {
+    krs_collector::package_facade_aliases(Path::new(&package.manifest_path))
+        .map_err(|error| error.to_string())
+}
+
+fn owning_package<'a>(
+    file: &Path,
+    packages: &BTreeMap<PathBuf, &'a MetadataPackage>,
+) -> Option<&'a MetadataPackage> {
+    nearest_manifest_root(file)
+        .as_ref()
+        .and_then(|root| packages.get(root).copied())
 }
 
 fn load_metadata(manifest_path: Option<&Path>) -> Result<CargoMetadata, String> {
@@ -466,6 +499,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn discovered_and_explicit_files_use_workspace_inherited_facade_aliases() {
+        let temporary = temp_dir();
+        let root = temporary.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            concat!(
+                "[workspace]\nmembers = [\"facade\", \"definition\"]\nresolver = \"3\"\n",
+                "[workspace.dependencies]\nlang = { package = \"krs\", path = \"facade\" }\n",
+            ),
+        )
+        .unwrap();
+        for (directory, name, dependency) in [
+            ("facade", "krs", ""),
+            (
+                "definition",
+                "definition",
+                "[dependencies]\nlang.workspace = true\n",
+            ),
+        ] {
+            fs::create_dir_all(root.join(directory).join("src")).unwrap();
+            fs::write(
+                root.join(directory).join("Cargo.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n{dependency}"
+                ),
+            )
+            .unwrap();
+            fs::write(root.join(directory).join("src/lib.rs"), "\n").unwrap();
+        }
+        let manifest = root.join("Cargo.toml");
+        let inputs = discover_format_inputs(Some(&manifest), &[]).unwrap();
+        for (directory, alias) in [("facade", "crate"), ("definition", "lang")] {
+            let path = root.join(directory).join("src/lib.rs");
+            let selected = inputs.iter().find(|input| input.path == path).unwrap();
+            assert_eq!(selected.facade_aliases, BTreeSet::from([alias.to_owned()]));
+            assert_eq!(
+                discover_format_inputs(Some(&manifest), &[path]).unwrap(),
+                vec![selected.clone()]
+            );
+        }
+    }
+
+    #[test]
     fn target_walk_uses_editions_and_excludes_nested_crates() {
         let temporary = temp_dir();
         let root = temporary.path();
@@ -506,6 +582,7 @@ mod tests {
             expected
         );
         assert!(files.iter().all(|file| file.edition == Edition::E2021));
+        assert!(files.iter().all(|file| file.facade_aliases.is_empty()));
 
         let explicit = discover_format_inputs(
             Some(&root.join("Cargo.toml")),
@@ -514,6 +591,7 @@ mod tests {
         .unwrap();
         assert_eq!(explicit[0].path, root.join("src/build/mod.rs"));
         assert_eq!(explicit[0].edition, Edition::E2021);
+        assert!(explicit[0].facade_aliases.is_empty());
         let error = discover_format_inputs(
             Some(&root.join("Cargo.toml")),
             &[root.join("tests/fixtures/nested/src/lib.rs")],
@@ -695,10 +773,12 @@ mod tests {
             FormatInput {
                 path: root.join("crates/first/src/lib.rs"),
                 edition: Edition::E2021,
+                facade_aliases: BTreeSet::new(),
             },
             FormatInput {
                 path: root.join("crates/second/src/lib.rs"),
                 edition: Edition::E2024,
+                facade_aliases: BTreeSet::new(),
             },
         ];
 
