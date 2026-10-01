@@ -15,6 +15,13 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
+//!
+//! `#let P = E #in B` is lowered exactly as `#fun(P => B)(E)`: the generated function's equation
+//! is `P => B`, and `E` is the argument of its application, evaluated in the enclosing term and
+//! outside the scope of `P`, so a variable of `E` is never bound by `P`. The definition check
+//! places the arguments of every local function by this lowering
+//! (`definition::checks::term_position`), and the closure variables of a generated function come
+//! from that same walk (`closure_variables`).
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{
@@ -24,6 +31,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::definition::checks::{FreeVariable, local_function_free_variables};
 use crate::definition::production_kind::{ProductionKind, Totality};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition};
@@ -780,206 +788,26 @@ impl ClosureVariable {
     }
 }
 
-fn closure_variables(term: &Term) -> Vec<ClosureVariable> {
-    // Java's closure pass is rewrite-aware: every variable occurring in an LHS anywhere in
-    // the body (including nested local-function patterns) is bound.  A flat walk over the RHS
-    // would otherwise mistake an inner lambda's parameter for an outer closure variable.
-    // RewriteAwareVisitor starts a body with isLHS and isRHS both set, so a body without a
-    // rewrite (the pattern of a K-matching predicate) binds every variable it mentions.
-    let mut bound = BTreeSet::new();
-    collect_lhs_variables(term, true, &mut bound);
-    let mut result = Vec::new();
+/// The closure variables of the local function whose equation is `body`: the variables its body
+/// reads from the term enclosing it, once each in the order of their first occurrence, with the
+/// sort of the innermost semantic cast around that occurrence or else its own sort.
+///
+/// They come from the walk the definition check applies to the same construct
+/// (`definition::checks::local_function_free_variables`), so the variables a generated equation
+/// leaves to the enclosing term are exactly those the check requires that term to bind: a
+/// pattern binds in its own body only, a nested local function is a scope of its own, the
+/// matching pattern of `:=K` and `:/=K` binds its own variables, and an anonymous variable is
+/// read from outside only where it is not also matched.
+fn closure_variables(body: &Term) -> Vec<ClosureVariable> {
     let mut seen = BTreeSet::new();
-    collect_rhs_variables(term, None, Position::BODY, &mut |variable| {
-        if variable.name != "THIS_CONFIGURATION"
-            && !variable.name.starts_with('?')
-            && !bound.contains(&variable.name)
-            && seen.insert(variable.name.clone())
-        {
-            result.push(variable);
-        }
-    });
-    result
-}
-
-// Invariant: `bound` holds every non-anonymous variable visited so far with `in_lhs` set, which holds on rewrite left sides and on the first argument of `Fun3` and `Let` applications; each call recurses into the immediate subterms of `term`.
-fn collect_lhs_variables(term: &Term, in_lhs: bool, bound: &mut BTreeSet<String>) {
-    match term.unannotated() {
-        Term::Variable { name, .. } if in_lhs && !is_anonymous(name) => {
-            bound.insert(name.clone());
-        }
-        Term::Variable { .. } => {}
-        Term::Apply { label, arguments }
-            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
-                && arguments.len() == 1 =>
-        {
-            collect_lhs_variables(&arguments[0], in_lhs, bound);
-        }
-        Term::Rewrite { left, right } => {
-            collect_lhs_variables(left, true, bound);
-            collect_lhs_variables(right, false, bound);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Fun3) && arguments.len() >= 3 =>
-        {
-            collect_lhs_variables(&arguments[0], true, bound);
-            collect_lhs_variables(&arguments[1], false, bound);
-            collect_lhs_variables(&arguments[2], in_lhs, bound);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Let) && arguments.len() >= 3 =>
-        {
-            collect_lhs_variables(&arguments[0], true, bound);
-            collect_lhs_variables(&arguments[1], in_lhs, bound);
-            collect_lhs_variables(&arguments[2], false, bound);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
-        {
-            collect_lhs_variables(&arguments[0], false, bound);
-            collect_lhs_variables(&arguments[1], in_lhs, bound);
-        }
-        Term::As { pattern, alias } => {
-            collect_lhs_variables(pattern, in_lhs, bound);
-            collect_lhs_variables(alias, in_lhs, bound);
-        }
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => {
-            for item in items {
-                collect_lhs_variables(item, in_lhs, bound);
-            }
-        }
-        Term::InjectedLabel(_) | Term::Token { .. } => {}
-        Term::Annotated { .. } => unreachable!(),
-    }
-}
-
-/// The rewrite-aware position of `ComputeUnboundVariables`: `lhs`/`rhs` follow
-/// `RewriteAwareVisitor` (both set outside any rewrite, one of them inside) and `matching_lhs`
-/// is its `isInKLhs`, set for the left child of `:=K` and `:/=K` because a matching pattern
-/// binds its own variables (the generated predicate rule matches them) instead of closing over
-/// them.
-#[derive(Clone, Copy)]
-struct Position {
-    lhs: bool,
-    rhs: bool,
-    matching_lhs: bool,
-}
-
-impl Position {
-    const BODY: Self = Self {
-        lhs: true,
-        rhs: true,
-        matching_lhs: false,
-    };
-
-    fn left(self) -> Self {
-        Self {
-            lhs: true,
-            rhs: false,
-            ..self
-        }
-    }
-
-    fn right(self) -> Self {
-        Self {
-            lhs: false,
-            rhs: true,
-            ..self
-        }
-    }
-
-    fn matching_pattern(self) -> Self {
-        Self {
-            matching_lhs: true,
-            ..self
-        }
-    }
-
-    /// `ComputeUnboundVariables.apply(KVariable)`: a variable in RHS position outside a matching
-    /// pattern is unbound unless it is an anonymous variable that is also in LHS position.
-    fn reports(self, name: &str) -> bool {
-        self.rhs && !self.matching_lhs && !(is_anonymous(name) && self.lhs)
-    }
-}
-
-// Invariant: `visitor` has received every variable visited so far for which `position.reports` holds, with the sort of its nearest enclosing semantic cast when there is one; each call recurses into the immediate subterms of `term`, updating `position` at rewrites and at `Fun3`, `Fun2`, `Let`, and equality applications.
-fn collect_rhs_variables(
-    term: &Term,
-    context: Option<&Sort>,
-    position: Position,
-    visitor: &mut impl FnMut(ClosureVariable),
-) {
-    let term = term.unannotated();
-    // A unary semantic cast sets the context sort for its argument. It is tested before the
-    // `match` because binding the cast's sort text in a match guard needs `if let` guards, which
-    // the declared minimum Rust version does not have. Only `Apply` arms could also take such a
-    // term, and the cast was already tested before every one of them, so behaviour is unchanged.
-    if let Term::Apply { label, arguments } = term
-        && let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
-        && arguments.len() == 1
-    {
-        // The cast's sort text is kept as a sort name, as before this vocabulary existed.
-        let sort = Sort::new(sort_text);
-        collect_rhs_variables(&arguments[0], Some(&sort), position, visitor);
-        return;
-    }
-    match term {
-        Term::Variable { name, sort } if position.reports(name) => visitor(ClosureVariable {
-            name: name.clone(),
-            sort: context.cloned().or_else(|| sort.clone()),
-        }),
-        Term::Variable { .. } => {}
-        Term::Rewrite { left, right } => {
-            collect_rhs_variables(left, context, position.left(), visitor);
-            collect_rhs_variables(right, context, position.right(), visitor);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Fun3) && arguments.len() >= 3 =>
-        {
-            collect_rhs_variables(&arguments[0], context, position.left(), visitor);
-            collect_rhs_variables(&arguments[1], context, position.right(), visitor);
-            collect_rhs_variables(&arguments[2], context, position, visitor);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Let) && arguments.len() >= 3 =>
-        {
-            collect_rhs_variables(&arguments[0], context, position.left(), visitor);
-            collect_rhs_variables(&arguments[1], context, position, visitor);
-            collect_rhs_variables(&arguments[2], context, position.right(), visitor);
-        }
-        Term::Apply { label, arguments }
-            if label.is(InternalLabel::Fun2) && arguments.len() >= 2 =>
-        {
-            collect_rhs_variables(&arguments[0], context, position.right(), visitor);
-            collect_rhs_variables(&arguments[1], context, position, visitor);
-        }
-        Term::Apply { label, arguments }
-            if [InternalLabel::KEqualsK, InternalLabel::KNotEqualsK]
-                .iter()
-                .any(|internal| label.is(*internal))
-                && arguments.len() == 2 =>
-        {
-            collect_rhs_variables(&arguments[0], context, position.matching_pattern(), visitor);
-            collect_rhs_variables(&arguments[1], context, position, visitor);
-        }
-        Term::As { pattern, alias } => {
-            collect_rhs_variables(pattern, context, position, visitor);
-            collect_rhs_variables(alias, context, position, visitor);
-        }
-        Term::Sequence(items)
-        | Term::Apply {
-            arguments: items, ..
-        } => {
-            for item in items {
-                collect_rhs_variables(item, context, position, visitor);
-            }
-        }
-        Term::InjectedLabel(_) | Term::Token { .. } => {}
-        Term::Annotated { .. } => unreachable!(),
-    }
+    local_function_free_variables(body)
+        .into_iter()
+        .filter(|variable| seen.insert(variable.name))
+        .map(|FreeVariable { name, sort, cast }| ClosureVariable {
+            name: name.to_owned(),
+            sort: cast.map(Sort::new).or_else(|| sort.cloned()),
+        })
+        .collect()
 }
 
 fn lambda_production(

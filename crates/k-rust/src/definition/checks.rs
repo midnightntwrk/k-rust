@@ -69,6 +69,7 @@ pub use rhs_variables::{
 };
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 pub(crate) use rhs_variables::{CheckedRoot, right_hand_side_binding};
+pub(crate) use rhs_variables::{FreeVariable, local_function_free_variables};
 pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
