@@ -11,11 +11,14 @@ description = "Native KRS gate protocol and compiler"
 k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
 krs-cli = { path = "../krs-cli" }
 krs-compiler = { path = "../krs-compiler" }
+krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust" }
+quote.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+syn.workspace = true
 
 [dev-dependencies]
 krs-ir = { path = "../krs-ir", features = ["test-support"] }

@@ -629,12 +629,15 @@ dependencies = [
  "k-rust",
  "krs-cli",
  "krs-compiler",
+ "krs-expand",
  "krs-ir",
  "krs-k-rust",
  "krs-test-support",
+ "quote",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "syn 2.0.119",
 ]
 
 [[package]]

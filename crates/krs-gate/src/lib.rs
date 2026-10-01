@@ -20,7 +20,7 @@
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
 //! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
-//! `kore.digest`, `ir.query`, and the `kast.*` operations may precede it.
+//! `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations may precede it.
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -44,6 +44,16 @@
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
 //! It canonicalizes source paths and compiler-generated variable names and returns `sha256` of the pretty-printed KORE definition.
+//! `registration.table` operates independently of a loaded definition and requires string `source`, `display_file`, `crate_name`, and `facade_alias` fields.
+//! Unknown request fields are errors.
+//! `source` names an authored crate-root file that must be readable as UTF-8; `display_file` must equal the file spelling rustc reports through `Span::file()`, which determines factory names.
+//! `crate_name` is the library crate name at the start of `module_path!()`, and `facade_alias` is the dependency name through which authored code names the KRS facade.
+//! It calls [`krs_expand::whole_file::expand_file`] with whole-file selection, module path `[crate_name]`, facade path `::<facade_alias>`, and `display_file` as the generated-file map label.
+//! Expansion failures return an error message listing every diagnostic's code and message.
+//! Its result contains `table`, the exact text [`krs_expand::whole_file::registration_table`] appends to that expansion, `requests_framework` (boolean), and `registrations` in expansion order.
+//! Each registration contains `module_path` (string array starting with the crate name), `factory` (string), and `cfg` (array of Rust attribute strings).
+//! The table preserves cfg attributes and uses the expansion's facade path rendered as tokens with spaces removed.
+//! The operation fails unless the generated file ends with exactly that table.
 //! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below.
 //! It operates independently of a loaded definition and reads only the artifacts required by the selected query.
 //! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir::SemanticTheory`], and [`krs_ir::DefinitionIr`].
@@ -168,7 +178,7 @@
 //! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
 //!
 //! A failure while handling a valid operation, including a pattern parse or backend error, produces an error response and leaves the session open.
-//! After a failed load, `kore.digest`, `ir.query`, and the `kast.*` operations can still succeed in that session.
+//! After a failed load, `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations can still succeed in that session.
 //! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
 /// Compile Definition IR into native KORE.
@@ -188,5 +198,7 @@ pub mod kore_digest;
 pub mod pattern;
 /// Split and classify parsed proof artifacts.
 pub mod proof;
+/// Render explicit registration tables through whole-file expansion.
+pub mod registration;
 /// Serve requests against one loaded native definition.
 pub mod session;

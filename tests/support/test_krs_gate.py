@@ -113,6 +113,27 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(executed["fields"], {"pattern": "opaque pattern", "trace": True, "max_depth": 3})
         self.assertEqual(proved["fields"], {"claim": "opaque claim"})
 
+    def test_registration_table_needs_no_definition_load_and_forwards_identity(self) -> None:
+        source = Path("src/lib.rs")
+        display_file = "/absolute/copy/src/lib.rs"
+        with krs_gate.Session(self.binary) as session:
+            result = session.registration_table(source, display_file, "lesson", "k")
+        self.assertEqual(result["operation"], "registration.table")
+        self.assertEqual(result["request_id"], "1")
+        self.assertEqual(result["fields"], {
+            "source": "src/lib.rs", "display_file": display_file,
+            "crate_name": "lesson", "facade_alias": "k",
+        })
+        self.assertEqual(
+            krs_gate.registration_table(self.binary, source, display_file, "lesson", "k"),
+            result,
+        )
+        with self.assertRaisesRegex(GateError, "bad request"):
+            krs_gate.registration_table(
+                self.binary, source, display_file, "lesson", "k",
+                environment={"KRS_TEST_GATE_MODE": "error"},
+            )
+
     def test_concurrent_requests_keep_matching_responses(self) -> None:
         with krs_gate.Session(self.binary) as session:
             with ThreadPoolExecutor(max_workers=8) as executor:

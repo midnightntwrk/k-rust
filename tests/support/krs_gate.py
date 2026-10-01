@@ -96,6 +96,16 @@ def ir_query(
         return session.ir_query(artifacts, query)
 
 
+def registration_table(
+    krs_gate: Path, source: Path, display_file: str, crate_name: str, facade_alias: str, *,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Expand authored crate-root registrations in one unloaded session."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return session.registration_table(source, display_file, crate_name, facade_alias)
+
+
 def ir_queries(
     krs_gate: Path, artifacts: Path, queries: list[Mapping[str, Any]], *,
     environment: Mapping[str, str] | None = None,
@@ -256,6 +266,16 @@ class Session:
         """Read a closed typed artifact projection without loading a definition."""
 
         return self.request("ir.query", artifacts=os.fspath(artifacts), query=dict(query))
+
+    def registration_table(
+        self, source: Path, display_file: str, crate_name: str, facade_alias: str,
+    ) -> dict[str, Any]:
+        """Return the product's registration table and cfg-carrying factory list."""
+
+        return self.request(
+            "registration.table", source=os.fspath(source), display_file=display_file,
+            crate_name=crate_name, facade_alias=facade_alias,
+        )
 
     def configure(self, variables: Mapping[str, str]) -> dict[str, Any]:
         """Parse surface configuration variables and return their KORE pattern."""

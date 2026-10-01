@@ -2,8 +2,9 @@
 """Native parity gate for explicit descriptor registration.
 
 An inventory-mode census of a copy of `tests/tour-minimal` lists every
-registered descriptor factory, and a generated crate-root registration table is
-appended to that copy. Inventory-mode collection of the copy (configuration A,
+registered descriptor factory, and the product's `krs-expand` renderer through
+`krs-gate` supplies the crate-root registration table appended to that copy.
+Inventory-mode collection of the copy (configuration A,
 default `krs` features) and explicit-mode collection of the same copy with
 `default-features = false` (configuration B) must produce byte-identical
 canonical descriptor bundles.
@@ -16,6 +17,7 @@ crate is compiled from.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -39,9 +41,9 @@ DEFINITION = "main"
 BUNDLE = "descriptor-bundle.json"
 FACADE_DEPENDENCY = 'k = { package = "krs", path = "../../crates/krs" }'
 HIDDEN_CONSTRUCTOR = """
-// Gate-local cfg check: this constructor must be absent from both bundles.
-#[cfg(any())]
+// The product table must carry this constructor under cfg; both bundles must omit it.
 #[k::constructor(sort = ObjectTerm, syntax = "hidden")]
+#[cfg(any())]
 pub struct Hidden;
 """
 CENSUS_MAIN = """\
@@ -119,6 +121,7 @@ def cargo_metadata(manifest: Path, environment: dict[str, str]) -> dict[str, Any
     output = run(
         [
             executable("cargo"),
+            "+stable",
             "metadata",
             "--format-version",
             "1",
@@ -170,6 +173,7 @@ def take_census(
     output = run(
         [
             executable("cargo"),
+            "+stable",
             "run",
             "--quiet",
             "--offline",
@@ -195,54 +199,53 @@ def take_census(
     return {"registrations": registrations, "framework_requests": framework_requests}
 
 
-def generate_table(
-    census: dict[str, Any], lesson: Path, crate_root: str, facade: str
-) -> str:
-    """Renders the crate-root registration table for one census.
+def registration_path(registration: dict[str, Any], crate_root: str) -> str:
+    return "::".join([crate_root, *registration["module_path"][1:], registration["factory"]])
 
-    `krs_tour_minimal::x` becomes `crate::x`. A factory in a module is private
-    to that module and unreachable from the crate root, so it is rejected.
-    """
 
-    manifest_dir = os.fspath(lesson.resolve())
-    prefix = f"{crate_root}::"
-    paths = []
-    for registration in census["registrations"]:
-        if os.fspath(Path(registration["manifest_dir"]).resolve()) != manifest_dir:
+def verify_registration_census(
+    product: dict[str, Any], census: dict[str, Any], lesson: Path, crate_root: str
+) -> None:
+    """Requires the product registrations and framework request to match inventory."""
+
+    manifest_dir = lesson.resolve()
+    inventory_paths = sorted(
+        registration["path"]
+        for registration in census["registrations"]
+        if Path(registration["manifest_dir"]).resolve() == manifest_dir
+    )
+    rust_paths = sorted(
+        registration_path(registration, crate_root)
+        for registration in product["registrations"]
+        if not registration["cfg"]
+    )
+    if rust_paths != inventory_paths:
+        rust = Counter(rust_paths)
+        inventory = Counter(inventory_paths)
+        raise GateError(
+            "product registrations differ from the copy's census: "
+            f"missing from product={sorted((inventory - rust).elements())}, "
+            f"absent from census={sorted((rust - inventory).elements())}"
+        )
+    census_paths = {registration["path"] for registration in census["registrations"]}
+    for registration in product["registrations"]:
+        cfg = registration["cfg"]
+        if not cfg:
             continue
-        path = registration["path"]
-        if not path.startswith(prefix):
-            raise GateError(f"census path {path!r} is outside crate root {crate_root}")
-        relative = path[len(prefix) :]
-        if "::" in relative:
-            raise GateError(
-                f"census factory {path!r} is in a module; explicit tables reach only root factories"
-            )
-        paths.append(f"crate::{relative}")
-    if not paths:
-        raise GateError("the census has no registrations from the lesson crate")
+        path = registration_path(registration, crate_root)
+        if ["".join(attribute.split()) for attribute in cfg] != ["#[cfg(any())]"]:
+            raise GateError(f"product registration {path} has unsupported cfg {cfg!r}")
+        if path in census_paths:
+            raise GateError(f"cfg-disabled product registration {path} appears in the census")
     requests_framework = any(
-        os.fspath(Path(directory).resolve()) == manifest_dir
+        Path(directory).resolve() == manifest_dir
         for directory in census["framework_requests"]
     )
-    lines = [
-        "",
-        "// @generated by tests/explicit-registration/verify.py from an inventory census.",
-        "#[doc(hidden)]",
-        f"pub static __KRS_REGISTRATIONS: {facade}::__private::RegistrationTable =",
-        f"    {facade}::__private::RegistrationTable {{",
-        '        manifest_dir: env!("CARGO_MANIFEST_DIR"),',
-        f"        requests_framework: {'true' if requests_framework else 'false'},",
-        "        register: __krs_register_descriptors,",
-        "    };",
-        "",
-        "#[doc(hidden)]",
-        f"fn __krs_register_descriptors(registrar: &mut {facade}::__private::Registrar) {{",
-        *(f"    registrar.factory({path});" for path in sorted(paths)),
-        "}",
-        "",
-    ]
-    return "\n".join(lines)
+    if product["requests_framework"] != requests_framework:
+        raise GateError(
+            "product framework request differs from the copy's census: "
+            f"product={product['requests_framework']}, census={requests_framework}"
+        )
 
 
 def append_table(copy: Path, table: str) -> None:
@@ -301,16 +304,22 @@ def parity(
     name: str,
     extra_source: str,
     environment: dict[str, str],
+    gate: Path,
 ) -> dict[str, Any]:
-    """Runs census, table generation, and both collections for one fixture variant."""
+    """Runs census, product table rendering, and both collections for one fixture variant."""
 
     root = workspace / name
     root.mkdir()
     copy = copy_fixture(root / "lesson", extra_source=extra_source)
     crate_root, facade = fixture_identity(copy, environment)
     census = take_census(copy, root, environment)
-    table = generate_table(census, copy, crate_root, facade)
     source = copy / "src" / "lib.rs"
+    product = krs_gate.registration_table(
+        gate, source, os.fspath(source.resolve()), crate_root, facade,
+        environment=environment,
+    )
+    verify_registration_census(product, census, copy, crate_root)
+    table = product["table"]
     authored = source.read_bytes()
     append_table(copy, table)
     inventory_bundle, explicit_bundle = collect_both(
@@ -327,6 +336,7 @@ def parity(
         "copy": copy,
         "authored": authored,
         "census": census,
+        "registrations": product["registrations"],
         "table": table,
         "bundle": inventory_bundle,
         "source": source.read_bytes(),
@@ -361,7 +371,12 @@ def verify_sensitivity(
     """
 
     lines = base["table"].splitlines(keepends=True)
-    factories = [index for index, line in enumerate(lines) if "registrar.factory(" in line]
+    factories = [
+        index for index, line in enumerate(lines)
+        if line.lstrip().startswith("registrar.factory(")
+    ]
+    if not factories:
+        raise GateError("the product table has no unconditional factory line to remove")
     # The rule descriptor is referenced by no other descriptor, so omitting it
     # still collects successfully and exercises byte comparison itself.
     rules = [index for index in factories if "head_rule_descriptor" in lines[index]]
@@ -432,10 +447,8 @@ def main() -> int:
         verify_rejects_inventory(binary, workspace, environment)
         print("PASS planning: explicit mode rejects an active `inventory` feature")
 
-        base = parity(binary, workspace, "base", "", environment)
-        count = sum(
-            1 for line in base["table"].splitlines() if "registrar.factory(" in line
-        )
+        base = parity(binary, workspace, "base", "", environment, gate)
+        count = len(base["registrations"])
         print(
             f"PASS parity: explicit and inventory bundles are byte-identical "
             f"({len(base['bundle'])} bytes, sha256 {sha256_bytes(base['bundle'])}, {count} table entries)"
@@ -449,12 +462,28 @@ def main() -> int:
         removed, effect = verify_sensitivity(binary, base, environment, gate)
         print(f"PASS sensitivity: removing `{removed}` breaks parity ({effect})")
 
-        hidden = parity(binary, workspace, "cfg", HIDDEN_CONSTRUCTOR, environment)
-        if any("Hidden" in item["path"] for item in hidden["census"]["registrations"]):
-            raise GateError("the cfg-disabled constructor was registered")
-        if descriptor_ids(hidden["root"] / "out" / "inventory", gate, environment) != descriptor_ids(base["root"] / "out" / "inventory", gate, environment):
-            raise GateError("the cfg-disabled constructor changed the descriptor set")
-        print("PASS cfg: a cfg-disabled constructor is absent from both bundles")
+        hidden = parity(binary, workspace, "cfg", HIDDEN_CONSTRUCTOR, environment, gate)
+        hidden_registrations = [
+            registration for registration in hidden["registrations"]
+            if ["".join(attribute.split()) for attribute in registration["cfg"]] == ["#[cfg(any())]"]
+        ]
+        constructors = [
+            registration for registration in hidden_registrations
+            if registration["factory"].startswith("__krs_constructor_descriptor_")
+        ]
+        if len(constructors) != 1:
+            raise GateError("the product registration list must carry the Hidden constructor under #[cfg(any())]")
+        table_lines = {line.strip() for line in hidden["table"].splitlines()}
+        for registration in hidden_registrations:
+            path = registration_path(registration, "crate")
+            cfg_prefix = " ".join(registration["cfg"])
+            if f"{cfg_prefix} registrar.factory({path});" not in table_lines:
+                raise GateError(f"the product table does not carry the cfg-prefixed factory {path}")
+        base_ids = descriptor_ids(base["root"] / "out" / "inventory", gate, environment)
+        for mode in ("inventory", "explicit"):
+            if descriptor_ids(hidden["root"] / "out" / mode, gate, environment) != base_ids:
+                raise GateError(f"the cfg-disabled constructor changed the {mode} descriptor set")
+        print("PASS cfg: the product table carries a cfg-disabled constructor absent from both bundles")
 
         if arguments.evidence is not None:
             evidence = arguments.evidence

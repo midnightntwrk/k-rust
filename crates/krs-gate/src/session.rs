@@ -187,6 +187,7 @@ impl Session {
                 | "kore.read"
                 | "kore.digest"
                 | "ir.query"
+                | "registration.table"
                 | "kast.normalize"
                 | "kast.project"
                 | "kast.frontier"
@@ -202,6 +203,7 @@ impl Session {
                 "definition.load"
                     | "kore.digest"
                     | "ir.query"
+                    | "registration.table"
                     | "kast.normalize"
                     | "kast.project"
                     | "kast.frontier"
@@ -225,6 +227,7 @@ impl Session {
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
             "ir.query" => crate::ir_query::dispatch(request),
+            "registration.table" => crate::registration::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
                 crate::kast::dispatch(operation, request).map_err(Into::into)
             }
