@@ -186,12 +186,26 @@ impl Session {
                 | "prove"
                 | "kore.read"
                 | "kore.digest"
+                | "kast.normalize"
+                | "kast.project"
+                | "kast.frontier"
+                | "kast.inspect"
                 | "observe"
                 | "expect"
         ) {
             return Err(format!("unsupported operation `{operation}`").into());
         }
-        if self.backend.is_none() && !matches!(operation, "definition.load" | "kore.digest") {
+        if self.backend.is_none()
+            && !matches!(
+                operation,
+                "definition.load"
+                    | "kore.digest"
+                    | "kast.normalize"
+                    | "kast.project"
+                    | "kast.frontier"
+                    | "kast.inspect"
+            )
+        {
             return Err(format!("operation `{operation}` before definition.load").into());
         }
         if self.load_attempted && operation == "definition.load" {
@@ -208,6 +222,9 @@ impl Session {
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
+            "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
+                crate::kast::dispatch(operation, request).map_err(Into::into)
+            }
             "observe" => self.observe(request),
             "expect" => self.expect(request),
             _ => unreachable!("validated operation"),
@@ -405,7 +422,11 @@ impl Session {
 pub fn serve<R: BufRead, W: Write>(input: R, mut output: W) -> Result<(), Box<dyn Error>> {
     let mut session = Session::new();
     for line in input.lines() {
-        let request: Value = serde_json::from_str(&line?)?;
+        let line = line?;
+        let mut decoder = serde_json::Deserializer::from_str(&line);
+        decoder.disable_recursion_limit();
+        let request = Value::deserialize(&mut decoder)?;
+        decoder.end()?;
         let response = session.dispatch(&request)?;
         serde_json::to_writer(&mut output, &response)?;
         output.write_all(b"\n")?;

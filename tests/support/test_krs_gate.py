@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import tempfile
@@ -97,6 +98,31 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(configured["fields"], {"variables": {"PGM": "run"}})
         self.assertEqual(executed["fields"], {"pattern": "opaque pattern", "trace": True, "max_depth": 3})
         self.assertEqual(proved["fields"], {"claim": "opaque claim"})
+
+    def test_concurrent_requests_keep_matching_responses(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(lambda index: session.request("echo", index=index), range(32)))
+        self.assertEqual([result["fields"]["index"] for result in results], list(range(32)))
+        self.assertEqual({result["request_id"] for result in results}, {str(index) for index in range(1, 33)})
+
+    def test_kast_methods_forward_opaque_inputs_and_policy(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            normalized = session.kast_normalize("behavior", text="opaque", allow_prefix=True, policy={"labels": []})
+            projected = session.kast_project({"path": "left"}, {"path": "right"}, {}, {})
+            frontier = session.kast_frontier("proof", {"opaque": True}, returncode=0, stderr="")
+            inspected = session.kast_inspect("module_facts", path=Path("definition.json"), name="MAIN")
+        self.assertEqual(normalized["fields"], {
+            "variant": "behavior", "text": "opaque", "allow_prefix": True, "policy": {"labels": []},
+        })
+        self.assertEqual(projected["fields"], {
+            "reference": {"path": "left"}, "actual": {"path": "right"},
+            "reference_policy": {}, "actual_policy": {}, "compatible_sentence_pairs": [],
+        })
+        self.assertEqual(frontier["fields"], {"action": "proof", "value": {"opaque": True}, "returncode": 0, "stderr": ""})
+        self.assertEqual(inspected["fields"], {"action": "module_facts", "path": "definition.json", "name": "MAIN"})
+        with self.assertRaisesRegex(GateError, "exactly one"):
+            session.kast_normalize("behavior", text="opaque", path=Path("definition.json"))
 
     def test_error_response_reports_request_id_and_message(self) -> None:
         with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "error"}) as session:

@@ -1,7 +1,7 @@
 """Client for the native gate's compile command and JSON session protocol.
 
 This module owns the Python side of the protocol.
-Callers supply opaque KORE text and consume the gate's JSON results.
+Callers supply opaque KORE or KAST text and consume the gate's JSON results.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def digest(
 
 
 class Session:
-    """Exchange one request and one response at a time with a gate session."""
+    """Exchange requests with a gate session, serializing concurrent callers."""
 
     def __init__(self, krs_gate: Path, *, environment: Mapping[str, str] | None = None) -> None:
         self._krs_gate = krs_gate
@@ -96,6 +96,7 @@ class Session:
         self._stderr: Any = None
         self._next_id = 1
         self._reported_exit = False
+        self._request_lock = threading.Lock()
 
     def __enter__(self) -> Session:
         if self._process is not None:
@@ -153,9 +154,14 @@ class Session:
     def request(self, operation: str, *, timeout: float = REQUEST_TIMEOUT_SECONDS, **fields: Any) -> Any:
         """Send one operation and return its result, or raise ``GateError``.
 
+        Concurrent callers hold one lock across the complete write and read.
         A request that has no response within ``timeout`` seconds kills the session's process group.
         """
 
+        with self._request_lock:
+            return self._request(operation, timeout=timeout, **fields)
+
+    def _request(self, operation: str, *, timeout: float, **fields: Any) -> Any:
         child = self._process
         if child is None or child.stdin is None or child.stdout is None:
             raise GateError("gate session is not open")
@@ -278,3 +284,55 @@ class Session:
         """Prove an opaque KORE claim and return the serialized result."""
 
         return self.request("prove", claim=claim)
+
+    @staticmethod
+    def _kast_input(value: Any = None, *, text: str | None = None, path: Path | None = None) -> dict[str, Any]:
+        fields = {"value": value, "text": text, "path": os.fspath(path) if path is not None else None}
+        selected = {key: child for key, child in fields.items() if child is not None}
+        if len(selected) != 1:
+            raise GateError("KAST input requires exactly one of value, text, or path")
+        return selected
+
+    def kast_normalize(
+        self, variant: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
+        policy: Mapping[str, Any] | None = None, **options: Any,
+    ) -> Any:
+        """Normalize opaque evidence under an explicit Rust policy variant."""
+
+        return self.request(
+            "kast.normalize", variant=variant, policy=dict(policy or {}),
+            **self._kast_input(value, text=text, path=path), **options,
+        )
+
+    def kast_project(
+        self, reference: Mapping[str, Any], actual: Mapping[str, Any],
+        reference_policy: Mapping[str, Any], actual_policy: Mapping[str, Any], *,
+        compatible_sentence_pairs: list[Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Compare definition descriptors under the pin's two projection policies."""
+
+        return self.request(
+            "kast.project", reference=dict(reference), actual=dict(actual),
+            reference_policy=dict(reference_policy), actual_policy=dict(actual_policy),
+            compatible_sentence_pairs=compatible_sentence_pairs or [],
+        )
+
+    def kast_frontier(
+        self, action: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
+        **fields: Any,
+    ) -> Any:
+        """Return a proof classification and frontier, or a normalized search set."""
+
+        return self.request(
+            "kast.frontier", action=action, **self._kast_input(value, text=text, path=path), **fields,
+        )
+
+    def kast_inspect(
+        self, action: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
+        **options: Any,
+    ) -> Any:
+        """Return generic term observations or module structure facts."""
+
+        return self.request(
+            "kast.inspect", action=action, **self._kast_input(value, text=text, path=path), **options,
+        )

@@ -20,7 +20,7 @@
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
 //! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
-//! `kore.digest` may precede it.
+//! `kore.digest` and the `kast.*` operations may precede it.
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -44,6 +44,53 @@
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
 //! It canonicalizes source paths and compiler-generated variable names and returns `sha256` of the pretty-printed KORE definition.
+//! `kast.normalize`, `kast.project`, `kast.frontier`, and `kast.inspect` operate independently of a loaded definition.
+//! Each KAST input must supply exactly one of `text` (inline KAST JSON), `path` (a UTF-8 KAST JSON file), or `value` (an inline node or envelope).
+//! Text and path inputs must carry exactly the `format`, `version`, and `term` envelope fields, with format `KAST` and version [`k_rust::kast::json::VERSION`].
+//! `allow_prefix: true` permits text preceding the first `{`; callers must enable this only for tool output that permits leading statistics.
+//! Terms use [`k_rust::kast::json::from_str`] and definitions use [`k_rust::definition::json::from_str`].
+//! Every read must equal the corresponding writer output as a JSON value; unknown or changed fields are errors.
+//! The exact `badsentence` sentinel is retained outside the typed definition with its original sentence position.
+//! `KFlatModuleList` retains its wrapper outside the typed reader and reads all its modules as a typed definition.
+//! Normalization transforms typed terms, sentences, modules, definitions, and rebuilt attributes before serialization.
+//! Attribute payloads remain JSON values; modeled nodes in payloads pass through the typed reader and normalizer.
+//! Canonical list sorting and projection grouping occur after serialization.
+//! `kast.normalize` requires `variant` and accepts a closed `policy` object.
+//! `behavior` requires exactly `label_map`, `sort_map`, `identity_labels`, and `identity_sorts` in its policy and returns a normalized bare term.
+//! `proof_result` accepts the same name tables plus `known_attributes`, `metadata_attributes`, and `constraint_labels`, and returns a normalized KAST term envelope.
+//! `proof_claim` accepts that proof policy and requires `label`; it selects exactly one matching claim, rejects priority, and returns a `KRS-IMP-CLAIM` version 1 envelope.
+//! `static_proof` requires an empty policy, concrete variable sorts, and a term without rewrites; it returns a normalized KAST term envelope.
+//! `static_claim` requires an empty policy and `label`; it requires exactly one claim in a `KFlatModuleList` and requires that claim's label to match.
+//! It returns the normalized module-list envelope with sorted imports and sentences.
+//! `normalized_definition` requires an empty policy and a definition; it preserves variable names, removes location metadata, sorts modules and their imports and sentences, and returns a KAST definition envelope.
+//! Name policies must map each name or include it in the corresponding identity set.
+//! Removable metadata attributes must be known wherever attribute validation applies.
+//! `kast.project` requires `reference` and `actual` input descriptors, `reference_policy`, and `actual_policy`, and accepts `compatible_sentence_pairs`.
+//! Projection policies accept the source pin's module and sentence origins, name tables, attribute tables, import tables, closed prefixes, redundant declarations, joined terminals, and exact ignored and supplemental sentence digest counts.
+//! Policy objects must not contain unknown fields; compared and supplemental modules must be disjoint.
+//! Each compatibility pair must provide `origin`, `reference_sha256`, `actual_sha256`, and a positive `count`, with an exact witness on each side.
+//! Comparison returns `{baseline_sha256,actual_sha256,sentence_count}`; mismatched layouts or sentence multisets are errors.
+//! `kast.frontier` requires one normalized term input and defaults to `action: "proof"`.
+//! `proof` requires `returncode` and `stderr`, and returns `{root,status,frontier}`.
+//! It flattens `#Or`, flattens each branch's `#And`, separates constraints from states, and returns sorted canonical branch strings.
+//! `constraint_labels` may override the default constraint-label set.
+//! Branch multiplicity is retained; `#Top` and `#Bottom` have empty frontiers.
+//! Status is `proved` only for exit 0 with `#Top`, `failed` only for exit 1 with `#Bottom`, and `incomplete` only for exit 1 with another root and the stalled-configuration diagnostic.
+//! Other terminations are errors.
+//! `action: "search_set"` flattens `#Or` and returns sorted distinct canonical term strings.
+//! `kast.inspect` requires `action` and one KAST input.
+//! `envelope` returns the losslessly read KAST envelope.
+//! An optional closed validation `policy` with `labels`, `label_prefixes`, `label_contains`, `parameterized_sorts`, and `variables` restricts term inputs to the configured vocabulary.
+//! `abstract_term` requires a `label_map` and returns a nested label/token array.
+//! `module_facts` accepts a definition or module list.
+//! With `name`, it requires exactly one matching module and returns `{counts,sentences}`; without `name`, it returns a map from each module name to those facts.
+//! Each sentence fact contains `node`, `label`, `klabel`, sorted `attribute_keys`, and the canonical sentence `sha256` for structure and identity comparisons.
+//! `final_environment` returns concrete Id-to-Int/Bool token strings from a generated top configuration with an empty K cell and an environment Map, rejecting duplicate keys.
+//! `if_complete: true` returns null when a concrete final environment cannot be extracted.
+//! `search_frontier` unwraps exactly `#Equals(Result, frontier)` and returns the frontier term.
+//! `k_head` requires `head` and returns whether the first item of the configuration's K sequence is an application with that label.
+//! Every KAST operation accepts `representation`, defaulting to `value`.
+//! `canonical` returns compact JSON text with sorted Unicode keys and Python-compatible escaping; `sha256` returns its lowercase UTF-8 SHA-256 digest; `all` returns `{value,canonical,sha256}`.
 //! `observe` requires a retained `state` name and an array of `cells` names.
 //! Its result maps each name to `kore`, the canonical content KORE text, and `size`, the element count for collection content or null otherwise.
 //! Each named cell must occur exactly once in the state.
@@ -58,13 +105,15 @@
 //! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
 //!
 //! A failure while handling a valid operation, including a pattern parse or backend error, produces an error response and leaves the session open.
-//! After a failed load, only `kore.digest` can succeed in that session.
+//! After a failed load, `kore.digest` and the `kast.*` operations can still succeed in that session.
 //! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
 /// Compile Definition IR into native KORE.
 pub mod compile;
 /// Assemble surface configuration variables through the native frontend.
 pub mod configuration;
+/// Read and normalize KAST oracle evidence.
+pub mod kast;
 mod kore_attributes;
 /// Compare parsed reference and native KORE definitions.
 pub mod kore_compare;
