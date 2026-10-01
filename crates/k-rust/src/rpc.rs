@@ -17,7 +17,7 @@
 //! ```toml algorithm
 //! id = "rpc.json.encode"
 //! name = "JSON-RPC response encoding"
-//! sites = ["encode_kore_source", "encode_kore_source_raw", "encode_substitution_source", "RpcValue::to_string"]
+//! sites = ["encode_kore_source", "encode_kore_source_raw", "encode_substitution_source", "RpcValue::to_json"]
 //! variable = "N = expanded KORE pattern nodes; B = response bytes"
 //! counters = ["RpcJsonNodesWritten", "RpcJsonDistinctNodes", "RpcJsonBytesWritten"]
 //! span = "per call"
@@ -202,10 +202,10 @@ impl RpcValue {
 
     #[cfg(test)]
     fn into_value(self) -> Value {
-        serde_json::from_str(&self.to_string()).unwrap()
+        serde_json::from_str(&self.to_json()).unwrap()
     }
 
-    fn to_string(&self) -> String {
+    fn to_json(&self) -> String {
         enum Task<'a> {
             Value(&'a RpcValue),
             Text(&'static [u8]),
@@ -593,7 +593,7 @@ impl RpcService {
         response.map(|response| {
             #[cfg(feature = "measure")]
             let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
-            response.to_string()
+            response.to_json()
         })
     }
 
@@ -2265,7 +2265,7 @@ fn is_standalone_cancel(message: &Value) -> bool {
 
 fn cancellation_response(message: &Value) -> Option<String> {
     let response = match message {
-        Value::Object(request) => cancellation_error_for_request(&request),
+        Value::Object(request) => cancellation_error_for_request(request),
         Value::Array(requests) => {
             let responses = requests
                 .iter()
