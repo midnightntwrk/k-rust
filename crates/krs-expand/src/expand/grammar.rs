@@ -187,7 +187,7 @@ pub(super) fn grammar_macro_descriptor(
             "Cargo and Rust macro context form a valid grammar identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, &[])),
+        payload: quote!(#facade::__krs_host_payload(#wire, #facade::__KrsSlots::default())),
         cfg: quote!(::core::default::Default::default()),
         attributes: TokenStream::new(),
         provenance: quote!(#provenance),

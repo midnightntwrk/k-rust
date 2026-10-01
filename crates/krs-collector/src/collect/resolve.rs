@@ -1,20 +1,13 @@
 //! Resolution of host descriptor payloads against the declared items of the selected packages.
 
 use std::any::TypeId;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use krs_ir::{
-    ConstructorDescriptor, ConstructorFieldDescriptor, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorPayload, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
-    GrammarDescriptor, HostApplicationIdentity, HostBuiltinRegistry, HostDescriptorPayload,
-    HostGrammarDescriptor, HostItemId, HostProductionAttribute, HostProductionItem,
-    HostProductionOwner, HostSortReference, HostStructuredRuleDescriptor, HostTerm,
-    HostTermArgument, HostTypeReference, ItemKind, ProtocolCellContent,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
-    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, SortDescriptor, StableItemId,
-    StructuredRuleDescriptor,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorSortRef,
+    DescriptorSortReference, DescriptorStage, HostApplicationIdentity, HostBuiltinRegistry,
+    HostDescriptorPayload, HostItemId, HostSortReference, HostStage, HostTypeReference, ItemKind,
+    RefMap, StableItemId,
 };
 
 use super::PendingDescriptor;
@@ -365,28 +358,95 @@ fn resolve_head_rule_target<'a>(
     })
 }
 
-fn resolve_head_rule_extras(
-    rule: &krs_ir::HostHeadRule,
-    selection: &HeadRuleSelection<'_>,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<Vec<krs_ir::DescriptorHeadRuleExtra>, CollectionError> {
-    let resolve_cell = |cell: &krs_ir::HostHeadRuleCellReference| {
+struct Resolver<'a> {
+    declarations: &'a HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    cell_fields: &'a HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
+    context_aliases: &'a HashMap<HostItemId, StableItemId>,
+    builtins: Option<&'a HostBuiltinRegistry>,
+    head_targets: &'a [HeadRuleTarget],
+    head_selection: Option<HeadRuleSelection<'a>>,
+    allow_builtin_application: bool,
+}
+
+impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
+    type Error = CollectionError;
+
+    fn sort(
+        &mut self,
+        reference: HostSortReference,
+    ) -> Result<DescriptorSortReference, Self::Error> {
+        resolve_sort_reference(&reference, self.declarations, self.builtins)
+    }
+
+    fn application(
+        &mut self,
+        reference: krs_ir::HostApplicationReference,
+    ) -> Result<DescriptorApplicationReference, Self::Error> {
+        resolve_application_reference(
+            &reference,
+            self.declarations,
+            self.builtins,
+            self.allow_builtin_application,
+        )
+    }
+
+    fn nominal(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
+        resolve_nominal_reference(&reference, ItemKind::Cell, self.declarations)
+    }
+
+    fn context_alias(
+        &mut self,
+        reference: krs_ir::HostContextAliasReference,
+    ) -> Result<krs_ir::DescriptorContextAliasReference, Self::Error> {
+        Ok(krs_ir::DescriptorContextAliasReference {
+            key: reference.key,
+            alias: self.item(reference.alias)?,
+        })
+    }
+
+    fn configuration(
+        &mut self,
+        reference: krs_ir::HostConfigurationReference,
+    ) -> Result<krs_ir::DescriptorConfigurationReference, Self::Error> {
+        if let Some(selection) = &self.head_selection {
+            return Ok(krs_ir::DescriptorConfigurationReference {
+                key: reference.key,
+                configuration: selection.target.configuration.clone(),
+            });
+        }
+        resolve_configuration_reference(&reference, self.declarations)
+    }
+
+    fn cell(
+        &mut self,
+        reference: krs_ir::HostCellReference,
+    ) -> Result<krs_ir::DescriptorCellReference, Self::Error> {
+        resolve_cell_reference(&reference, self.cell_fields)
+    }
+
+    fn head_rule_cell(
+        &mut self,
+        reference: krs_ir::HostHeadRuleCellReference,
+    ) -> Result<krs_ir::DescriptorCellReference, Self::Error> {
+        let selection = self
+            .head_selection
+            .as_ref()
+            .expect("head-rule cell resolution requires a selected configuration");
         let matches = selection
             .target
             .cells
             .iter()
-            .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
+            .filter(|candidate| candidate.names.iter().any(|name| name == &reference.name))
             .collect::<Vec<_>>();
         let [resolved] = matches.as_slice() else {
             let detail = match matches.len() {
                 0 => format!(
                     "readable rule extra names no fixed leaf cell `{}`",
-                    cell.name
+                    reference.name
                 ),
                 count => format!(
                     "readable rule extra cell name `{}` is ambiguous across {count} fixed leaf cells",
-                    cell.name
+                    reference.name
                 ),
             };
             return Err(CollectionError::new(
@@ -399,117 +459,89 @@ fn resolve_head_rule_extras(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
                     "readable rule extra may not mention computation cell `{}`",
-                    cell.name
+                    reference.name
                 ),
             ));
         }
         Ok(krs_ir::DescriptorCellReference {
-            key: cell.key.clone(),
+            key: reference.key,
             cell: resolved.identity.clone(),
         })
-    };
-    rule.extras
-        .iter()
-        .map(|extra| {
-            Ok(match extra {
-                krs_ir::ProtocolHeadRuleExtra::HaveMap {
-                    cell,
-                    key,
-                    value_binding,
-                } => krs_ir::ProtocolHeadRuleExtra::HaveMap {
-                    cell: resolve_cell(cell)?,
-                    key: resolve_term(key, declarations, builtins)?,
-                    value_binding: value_binding.clone(),
-                },
-                krs_ir::ProtocolHeadRuleExtra::UpdateMap {
-                    cell,
-                    base_binding,
-                    update,
-                } => krs_ir::ProtocolHeadRuleExtra::UpdateMap {
-                    cell: resolve_cell(cell)?,
-                    base_binding: base_binding.clone(),
-                    update: resolve_term(update, declarations, builtins)?,
-                },
-                krs_ir::ProtocolHeadRuleExtra::RewriteCell {
-                    cell,
-                    result_key,
-                    before,
-                    after,
-                } => krs_ir::ProtocolHeadRuleExtra::RewriteCell {
-                    cell: resolve_cell(cell)?,
-                    result_key: result_key.clone(),
-                    before: resolve_term(before, declarations, builtins)?,
-                    after: resolve_term(after, declarations, builtins)?,
-                },
+    }
+
+    fn item(&mut self, reference: HostItemId) -> Result<StableItemId, Self::Error> {
+        self.context_aliases
+            .get(&reference)
+            .cloned()
+            .ok_or_else(|| {
+                CollectionError::new(
+                    CollectionErrorKind::UnresolvedTypeReference,
+                    format!("unknown context alias `{}`", reference.item_name()),
+                )
             })
-        })
-        .collect::<Result<Vec<_>, CollectionError>>()
+    }
+
+    fn cell_declaration(
+        &mut self,
+        reference: krs_ir::HostCellDeclarationReference,
+    ) -> Result<krs_ir::DescriptorCellDeclarationReference, Self::Error> {
+        resolve_cell_declaration_reference(&reference, self.declarations)
+    }
+
+    fn initializer_owner(
+        &mut self,
+        reference: krs_ir::HostTypeKey,
+    ) -> Result<StableItemId, Self::Error> {
+        resolve_declared_identity(
+            HostApplicationIdentity::Nominal(reference.resolve()),
+            "Self",
+            ItemKind::Configuration,
+            self.declarations,
+        )
+    }
+
+    fn parent(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
+        resolve_nominal_reference(&reference, ItemKind::Sort, self.declarations)
+    }
+
+    fn constructor_sort(
+        &mut self,
+        reference: HostSortReference,
+    ) -> Result<DescriptorSortRef, Self::Error> {
+        Ok(self.sort(reference)?.sort)
+    }
+
+    fn constructor_field_sort(
+        &mut self,
+        reference: HostTypeReference,
+    ) -> Result<Option<DescriptorSortRef>, Self::Error> {
+        resolve_constructor_field_sort(&reference, self.declarations, self.builtins).map(Some)
+    }
 }
 
 fn resolve_head_rule(
-    rule: &krs_ir::HostHeadRule,
-    targets: &[HeadRuleTarget],
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
+    rule: krs_ir::HostHeadRule,
+    map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
-    let selection = resolve_head_rule_target(rule, targets, declarations)?;
-    let extras = resolve_head_rule_extras(rule, &selection, declarations, builtins)?;
-    let result = match &rule.result {
-        krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            krs_ir::ProtocolHeadRuleResult::Replace(resolve_term(term, declarations, builtins)?)
-        }
-        krs_ir::ProtocolHeadRuleResult::Splice(items) => krs_ir::ProtocolHeadRuleResult::Splice(
-            items
-                .iter()
-                .map(|term| resolve_term(term, declarations, builtins))
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        krs_ir::ProtocolHeadRuleResult::Erase => krs_ir::ProtocolHeadRuleResult::Erase,
+    map.head_selection = Some(resolve_head_rule_target(
+        &rule,
+        map.head_targets,
+        map.declarations,
+    )?);
+    let rule = rule.try_map_refs(map)?;
+    let selection = map
+        .head_selection
+        .take()
+        .expect("head-rule completion requires a selected configuration");
+    let computation_cell = krs_ir::DescriptorCellReference {
+        key: rule.pattern_key.clone(),
+        cell: selection.computation.identity.clone(),
     };
-    Ok(krs_ir::DescriptorHeadRule {
-        sentence_kind: rule.sentence_kind,
-        label: rule.label.clone(),
-        priority: rule.priority.clone(),
-        pattern_key: rule.pattern_key.clone(),
-        result_key: rule.result_key.clone(),
-        head_sort: rule
-            .head_sort
-            .as_ref()
-            .map(|sort| resolve_sort_reference(sort, declarations, builtins))
-            .transpose()?,
-        configuration: selection.target.configuration.clone(),
-        computation_cell: krs_ir::DescriptorCellReference {
-            key: rule.pattern_key.clone(),
-            cell: selection.computation.identity.clone(),
-        },
-        bindings: rule
-            .bindings
-            .iter()
-            .map(|binding| {
-                Ok(krs_ir::ProtocolHeadRuleBinding {
-                    name: binding.name.clone(),
-                    refinement: binding
-                        .refinement
-                        .as_ref()
-                        .map(|sort| resolve_sort_reference(sort, declarations, builtins))
-                        .transpose()?,
-                })
-            })
-            .collect::<Result<Vec<_>, CollectionError>>()?,
-        subject: resolve_term(&rule.subject, declarations, builtins)?,
-        result,
-        requires: rule
-            .requires
-            .as_ref()
-            .map(|condition| {
-                Ok(krs_ir::DescriptorRuleCondition {
-                    key: condition.key.clone(),
-                    term: resolve_term(&condition.term, declarations, builtins)?,
-                })
-            })
-            .transpose()?,
-        extras,
-    })
+    Ok(krs_ir::DescriptorHeadRule::from_selected(
+        rule,
+        selection.target.configuration.clone(),
+        computation_cell,
+    ))
 }
 
 pub(super) fn resolve_payload(
@@ -520,108 +552,18 @@ pub(super) fn resolve_payload(
     builtins: Option<&HostBuiltinRegistry>,
     head_targets: &[HeadRuleTarget],
 ) -> Result<DescriptorPayload, CollectionError> {
-    match payload {
-        HostDescriptorPayload::Sort(sort) => {
-            let parents = sort
-                .parents
-                .iter()
-                .map(|parent| resolve_nominal_reference(parent, ItemKind::Sort, declarations))
-                .collect::<Result<BTreeSet<_>, _>>()?;
-            Ok(DescriptorPayload::Sort(SortDescriptor { parents }))
-        }
-        HostDescriptorPayload::Constructor(constructor) => {
-            Ok(DescriptorPayload::Constructor(ConstructorDescriptor {
-                sort: resolve_sort_reference(&constructor.sort, declarations, builtins)?.sort,
-                fields: constructor
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstructorFieldDescriptor {
-                            name: field.name.clone(),
-                            sort: Some(resolve_constructor_field_sort(
-                                &field.sort,
-                                declarations,
-                                builtins,
-                            )?),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, CollectionError>>()?,
-            }))
-        }
-        HostDescriptorPayload::Grammar(grammar) => Ok(DescriptorPayload::Grammar(Box::new(
-            resolve_grammar(grammar, declarations, context_aliases, builtins)?,
-        ))),
-        HostDescriptorPayload::StructuredRule(rule) => Ok(DescriptorPayload::StructuredRule(
-            Box::new(resolve_structured_rule(rule, declarations, builtins)?),
-        )),
-        HostDescriptorPayload::FixedConfiguration(configuration) => {
-            Ok(DescriptorPayload::FixedConfiguration(Box::new(
-                resolve_fixed_configuration(configuration, declarations, cell_fields, builtins)?,
-            )))
-        }
-        HostDescriptorPayload::Cell(declaration) => Ok(DescriptorPayload::Cell(Box::new(
-            resolve_cell_declaration(declaration, declarations, cell_fields, builtins)?,
-        ))),
-        HostDescriptorPayload::ConfigurationRule(rule) => {
-            Ok(DescriptorPayload::ConfigurationRule(Box::new(
-                resolve_configuration_rule(rule, declarations, cell_fields, builtins)?,
-            )))
-        }
-        HostDescriptorPayload::HeadRule(rule) => Ok(DescriptorPayload::HeadRule(Box::new(
-            resolve_head_rule(rule, head_targets, declarations, builtins)?,
-        ))),
-        HostDescriptorPayload::ContextAlias(alias) => {
-            Ok(DescriptorPayload::ContextAlias(Box::new(
-                resolve_context_alias(alias, declarations, cell_fields, builtins)?,
-            )))
-        }
-    }
-}
-
-fn resolve_context_alias(
-    alias: &krs_ir::HostContextAlias,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorContextAlias, CollectionError> {
-    Ok(krs_ir::DescriptorContextAlias {
-        declaration_key: alias.declaration_key.clone(),
-        name_key: alias.name_key.clone(),
-        name: alias.name.clone(),
-        here_key: alias.here_key.clone(),
-        here: alias.here.clone(),
-        pattern_key: alias.pattern_key.clone(),
-        configuration: resolve_configuration_reference(&alias.configuration, declarations)?,
-        bindings: alias
-            .bindings
-            .iter()
-            .map(|binding| {
-                Ok(krs_ir::ProtocolContextAliasBinding {
-                    name: binding.name.clone(),
-                    kind: match &binding.kind {
-                        krs_ir::ProtocolContextAliasBindingKind::Here => {
-                            krs_ir::ProtocolContextAliasBindingKind::Here
-                        }
-                        krs_ir::ProtocolContextAliasBindingKind::Term { sort } => {
-                            krs_ir::ProtocolContextAliasBindingKind::Term {
-                                sort: resolve_sort_reference(sort, declarations, builtins)?,
-                            }
-                        }
-                        krs_ir::ProtocolContextAliasBindingKind::KSequenceFrame => {
-                            krs_ir::ProtocolContextAliasBindingKind::KSequenceFrame
-                        }
-                        krs_ir::ProtocolContextAliasBindingKind::MapFrame => {
-                            krs_ir::ProtocolContextAliasBindingKind::MapFrame
-                        }
-                        krs_ir::ProtocolContextAliasBindingKind::ConfigurationFrame => {
-                            krs_ir::ProtocolContextAliasBindingKind::ConfigurationFrame
-                        }
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, CollectionError>>()?,
-        pattern: resolve_rule_cells(&alias.pattern, declarations, cell_fields, builtins)?,
-    })
+    let mut map = Resolver {
+        declarations,
+        cell_fields,
+        context_aliases,
+        builtins,
+        head_targets,
+        head_selection: None,
+        allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
+    };
+    payload
+        .clone()
+        .try_map_refs(&mut map, &mut resolve_head_rule)
 }
 
 fn resolve_cell_reference(
@@ -659,226 +601,6 @@ fn resolve_cell_declaration_reference(
     })
 }
 
-fn resolve_cell_declaration(
-    declaration: &krs_ir::HostCellDeclaration,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorCellDeclaration, CollectionError> {
-    Ok(krs_ir::ProtocolCellDeclaration {
-        key: declaration.key.clone(),
-        fields: declaration
-            .fields
-            .iter()
-            .map(|field| {
-                let content = match &field.content {
-                    ProtocolCellContent::Leaf {
-                        wrapper_key,
-                        wrapper,
-                        sort,
-                        arguments,
-                    } => ProtocolCellContent::Leaf {
-                        wrapper_key: wrapper_key.clone(),
-                        wrapper: *wrapper,
-                        sort: resolve_sort_reference(sort, declarations, builtins)?,
-                        arguments: arguments
-                            .iter()
-                            .map(|argument| {
-                                resolve_sort_reference(argument, declarations, builtins)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?,
-                    },
-                    ProtocolCellContent::Nested { declaration } => ProtocolCellContent::Nested {
-                        declaration: resolve_cell_declaration_reference(declaration, declarations)?,
-                    },
-                };
-                Ok(krs_ir::ProtocolCellField {
-                    reference: resolve_cell_reference(&field.reference, cell_fields)?,
-                    rust_field: field.rust_field.clone(),
-                    emitted_name: field.emitted_name.clone(),
-                    color: field.color.clone(),
-                    multiplicity: field.multiplicity.clone(),
-                    cell_type: field.cell_type.clone(),
-                    content,
-                })
-            })
-            .collect::<Result<Vec<_>, CollectionError>>()?,
-    })
-}
-
-fn resolve_fixed_configuration(
-    configuration: &krs_ir::HostFixedConfiguration,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorFixedConfiguration, CollectionError> {
-    let declaration = resolve_cell_declaration(
-        &configuration.declaration,
-        declarations,
-        cell_fields,
-        builtins,
-    )?;
-    let owner = resolve_declared_identity(
-        HostApplicationIdentity::Nominal(configuration.initializer.owner.resolve()),
-        "Self",
-        ItemKind::Configuration,
-        declarations,
-    )?;
-    let variables = configuration
-        .initializer
-        .variables
-        .iter()
-        .map(|variable| {
-            Ok(krs_ir::ProtocolConfigurationVariable {
-                binding_key: variable.binding_key.clone(),
-                binding: variable.binding.clone(),
-                external_name_key: variable.external_name_key.clone(),
-                external_name: variable.external_name.clone(),
-                sort: resolve_sort_reference(&variable.sort, declarations, builtins)?,
-                main_key: variable.main_key.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, CollectionError>>()?;
-    let cells = configuration
-        .initializer
-        .cells
-        .iter()
-        .map(|cell| resolve_initializer_cell(cell, declarations, cell_fields, builtins))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(krs_ir::DescriptorFixedConfiguration {
-        root: configuration.root.clone(),
-        declaration,
-        initializer: krs_ir::ProtocolConfigurationInitializer {
-            key: configuration.initializer.key.clone(),
-            owner_key: configuration.initializer.owner_key.clone(),
-            owner,
-            variables,
-            body_key: configuration.initializer.body_key.clone(),
-            cells,
-        },
-    })
-}
-
-fn resolve_initializer_cell(
-    cell: &krs_ir::HostInitializerCell,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorInitializerCell, CollectionError> {
-    let content = match &cell.content {
-        ProtocolInitializerCellContent::Leaf {
-            constructor_key,
-            wrapper,
-            value,
-        } => ProtocolInitializerCellContent::Leaf {
-            constructor_key: constructor_key.clone(),
-            wrapper: *wrapper,
-            value: resolve_initializer_state(value, declarations, builtins)?,
-        },
-        ProtocolInitializerCellContent::Nested {
-            declaration,
-            children,
-        } => ProtocolInitializerCellContent::Nested {
-            declaration: resolve_cell_declaration_reference(declaration, declarations)?,
-            children: children
-                .iter()
-                .map(|child| resolve_initializer_cell(child, declarations, cell_fields, builtins))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-    };
-    Ok(krs_ir::ProtocolInitializerCell {
-        key: cell.key.clone(),
-        field: resolve_cell_reference(&cell.field, cell_fields)?,
-        content,
-    })
-}
-
-fn resolve_initializer_term(
-    term: &krs_ir::ProtocolInitializerTerm<HostTerm>,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::ProtocolInitializerTerm<DescriptorTerm>, CollectionError> {
-    Ok(krs_ir::ProtocolInitializerTerm {
-        key: term.key.clone(),
-        term: resolve_term(&term.term, declarations, builtins)?,
-    })
-}
-
-fn resolve_initializer_state(
-    state: &krs_ir::HostInitializerStateTerm,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorInitializerStateTerm, CollectionError> {
-    Ok(match state {
-        ProtocolInitializerStateTerm::Term(term) => ProtocolInitializerStateTerm::Term(
-            resolve_initializer_term(term, declarations, builtins)?,
-        ),
-        ProtocolInitializerStateTerm::KSequence(sequence) => {
-            ProtocolInitializerStateTerm::KSequence(krs_ir::ProtocolKSequence {
-                payload_key: sequence.payload_key.clone(),
-                dot_k_key: sequence.dot_k_key.clone(),
-                notation: sequence.notation,
-                items: sequence
-                    .items
-                    .iter()
-                    .map(|item| {
-                        Ok(krs_ir::ProtocolKSequenceItem {
-                            key: item.key.clone(),
-                            value: resolve_initializer_term(&item.value, declarations, builtins)?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, CollectionError>>()?,
-            })
-        }
-        ProtocolInitializerStateTerm::Map(map) => {
-            ProtocolInitializerStateTerm::Map(krs_ir::ProtocolMap {
-                payload_key: map.payload_key.clone(),
-                body: resolve_initializer_map_body(&map.body, declarations, builtins)?,
-            })
-        }
-    })
-}
-
-fn resolve_initializer_map_body(
-    body: &krs_ir::ProtocolMapBody<HostTerm>,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::ProtocolMapBody<DescriptorTerm>, CollectionError> {
-    Ok(match body {
-        ProtocolMapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
-            explicit_dot: *explicit_dot,
-        },
-        ProtocolMapBody::Items { items } => ProtocolMapBody::Items {
-            items: items
-                .iter()
-                .map(|item| {
-                    Ok(krs_ir::ProtocolMapItem {
-                        key_key: item.key_key.clone(),
-                        key: resolve_initializer_term(&item.key, declarations, builtins)?,
-                        value_key: item.value_key.clone(),
-                        value: resolve_initializer_term(&item.value, declarations, builtins)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?,
-        },
-        ProtocolMapBody::Update {
-            base_key,
-            base,
-            key_key,
-            key,
-            value_key,
-            value,
-        } => ProtocolMapBody::Update {
-            base_key: base_key.clone(),
-            base: resolve_initializer_term(base, declarations, builtins)?,
-            key_key: key_key.clone(),
-            key: resolve_initializer_term(key, declarations, builtins)?,
-            value_key: value_key.clone(),
-            value: resolve_initializer_term(value, declarations, builtins)?,
-        },
-    })
-}
-
 fn resolve_configuration_reference(
     reference: &krs_ir::HostConfigurationReference,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -891,216 +613,6 @@ fn resolve_configuration_reference(
             declarations,
         )?,
     })
-}
-
-fn resolve_rule_frame(frame: &ProtocolRuleFrame) -> ProtocolRuleFrame {
-    frame.clone()
-}
-
-fn resolve_rule_state(
-    state: &krs_ir::ProtocolRuleStateTerm<HostTerm>,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::ProtocolRuleStateTerm<DescriptorTerm>, CollectionError> {
-    Ok(match state {
-        ProtocolRuleStateTerm::Term(term) => {
-            ProtocolRuleStateTerm::Term(resolve_term(term, declarations, builtins)?)
-        }
-        ProtocolRuleStateTerm::KSequence(sequence) => {
-            ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-                payload_key: sequence.payload_key.clone(),
-                dot_k_key: sequence.dot_k_key.clone(),
-                notation: sequence.notation,
-                items: sequence
-                    .items
-                    .iter()
-                    .map(|item| {
-                        Ok(krs_ir::ProtocolRuleKSequenceItem {
-                            key: item.key.clone(),
-                            value: resolve_term(&item.value, declarations, builtins)?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, CollectionError>>()?,
-                tail: resolve_rule_frame(&sequence.tail),
-            })
-        }
-        ProtocolRuleStateTerm::Map(map) => ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
-            payload_key: map.payload_key.clone(),
-            body: resolve_rule_map_body(&map.body, declarations, builtins)?,
-        }),
-    })
-}
-
-fn resolve_rule_map_body(
-    body: &krs_ir::ProtocolRuleMapBody<HostTerm>,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::ProtocolRuleMapBody<DescriptorTerm>, CollectionError> {
-    Ok(match body {
-        ProtocolRuleMapBody::Empty { explicit_dot } => ProtocolRuleMapBody::Empty {
-            explicit_dot: *explicit_dot,
-        },
-        ProtocolRuleMapBody::Items { items, remainder } => ProtocolRuleMapBody::Items {
-            items: items
-                .iter()
-                .map(|item| {
-                    Ok(krs_ir::ProtocolRuleMapItem {
-                        key_key: item.key_key.clone(),
-                        key: resolve_term(&item.key, declarations, builtins)?,
-                        value_key: item.value_key.clone(),
-                        value: resolve_term(&item.value, declarations, builtins)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?,
-            remainder: resolve_rule_frame(remainder),
-        },
-        ProtocolRuleMapBody::Update {
-            base_key,
-            base,
-            key_key,
-            key,
-            value_key,
-            value,
-        } => ProtocolRuleMapBody::Update {
-            base_key: base_key.clone(),
-            base: resolve_term(base, declarations, builtins)?,
-            key_key: key_key.clone(),
-            key: resolve_term(key, declarations, builtins)?,
-            value_key: value_key.clone(),
-            value: resolve_term(value, declarations, builtins)?,
-        },
-    })
-}
-
-fn resolve_rule_cells(
-    cells: &krs_ir::HostRuleCells,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorRuleCells, CollectionError> {
-    Ok(krs_ir::ProtocolRuleCells {
-        key: cells.key.clone(),
-        cells: cells
-            .cells
-            .iter()
-            .map(|cell| {
-                Ok(krs_ir::ProtocolRuleCell {
-                    field: resolve_cell_reference(&cell.field, cell_fields)?,
-                    wrapper_key: cell.wrapper_key.clone(),
-                    wrapper: cell.wrapper,
-                    value: resolve_rule_state(&cell.value, declarations, builtins)?,
-                })
-            })
-            .collect::<Result<Vec<_>, CollectionError>>()?,
-        remainder: resolve_rule_frame(&cells.remainder),
-    })
-}
-
-fn resolve_configuration_rule(
-    rule: &krs_ir::HostConfigurationRule,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorConfigurationRule, CollectionError> {
-    Ok(krs_ir::DescriptorConfigurationRule {
-        sentence_kind: rule.sentence_kind,
-        label: rule.label.clone(),
-        priority: rule.priority.clone(),
-        requires: rule
-            .requires
-            .as_ref()
-            .map(|condition| {
-                Ok(krs_ir::DescriptorRuleCondition {
-                    key: condition.key.clone(),
-                    term: resolve_term(&condition.term, declarations, builtins)?,
-                })
-            })
-            .transpose()?,
-        claim: rule
-            .claim
-            .as_ref()
-            .map(|claim| {
-                Ok(krs_ir::DescriptorClaim {
-                    declaration_key: claim.declaration_key.clone(),
-                    modality_key: claim.modality_key.clone(),
-                    modality: claim.modality,
-                    circularity_key: claim.circularity_key.clone(),
-                    universals: resolve_claim_binders(&claim.universals, declarations, builtins)?,
-                    existentials: resolve_claim_binders(
-                        &claim.existentials,
-                        declarations,
-                        builtins,
-                    )?,
-                    ensures: claim
-                        .ensures
-                        .as_ref()
-                        .map(|condition| {
-                            Ok(krs_ir::DescriptorRuleCondition {
-                                key: condition.key.clone(),
-                                term: resolve_term(&condition.term, declarations, builtins)?,
-                            })
-                        })
-                        .transpose()?,
-                    or_bool_keys: claim.or_bool_keys.clone(),
-                })
-            })
-            .transpose()?,
-        pattern_key: rule.pattern_key.clone(),
-        subject_configuration: resolve_configuration_reference(
-            &rule.subject_configuration,
-            declarations,
-        )?,
-        result_key: rule.result_key.clone(),
-        result_configuration: resolve_configuration_reference(
-            &rule.result_configuration,
-            declarations,
-        )?,
-        bindings: rule
-            .bindings
-            .iter()
-            .map(|binding| {
-                Ok(krs_ir::ProtocolRuleBinding {
-                    name: binding.name.clone(),
-                    kind: match &binding.kind {
-                        krs_ir::ProtocolRuleBindingKind::Term { sort } => {
-                            krs_ir::ProtocolRuleBindingKind::Term {
-                                sort: resolve_sort_reference(sort, declarations, builtins)?,
-                            }
-                        }
-                        krs_ir::ProtocolRuleBindingKind::KSequenceFrame => {
-                            krs_ir::ProtocolRuleBindingKind::KSequenceFrame
-                        }
-                        krs_ir::ProtocolRuleBindingKind::MapFrame => {
-                            krs_ir::ProtocolRuleBindingKind::MapFrame
-                        }
-                        krs_ir::ProtocolRuleBindingKind::ConfigurationFrame => {
-                            krs_ir::ProtocolRuleBindingKind::ConfigurationFrame
-                        }
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, CollectionError>>()?,
-        subject: resolve_rule_cells(&rule.subject, declarations, cell_fields, builtins)?,
-        result: resolve_rule_cells(&rule.result, declarations, cell_fields, builtins)?,
-    })
-}
-
-fn resolve_claim_binders(
-    binders: &[krs_ir::HostClaimBinder],
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<Vec<krs_ir::DescriptorClaimBinder>, CollectionError> {
-    binders
-        .iter()
-        .map(|binder| {
-            Ok(krs_ir::DescriptorClaimBinder {
-                declaration_key: binder.declaration_key.clone(),
-                name_key: binder.name_key.clone(),
-                name: binder.name.clone(),
-                sort: resolve_sort_reference(&binder.sort, declarations, builtins)?,
-            })
-        })
-        .collect()
 }
 
 fn resolve_nominal_reference(
@@ -1269,342 +781,6 @@ fn resolve_application_reference(
     Ok(DescriptorApplicationReference {
         key: reference.key.clone(),
         application,
-    })
-}
-
-fn resolve_grammar_owner(
-    owner: &HostProductionOwner,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<DescriptorProductionOwner, CollectionError> {
-    Ok(match owner {
-        HostProductionOwner::Constructor { constructor } => {
-            DescriptorProductionOwner::Constructor {
-                constructor: resolve_application_reference(
-                    constructor,
-                    declarations,
-                    builtins,
-                    false,
-                )?,
-            }
-        }
-        HostProductionOwner::TokenSort { sort } => DescriptorProductionOwner::TokenSort {
-            sort: resolve_sort_reference(sort, declarations, builtins)?,
-        },
-        HostProductionOwner::BracketSort { sort } => DescriptorProductionOwner::BracketSort {
-            sort: resolve_sort_reference(sort, declarations, builtins)?,
-        },
-    })
-}
-
-fn resolve_grammar_items(
-    items: &[HostProductionItem],
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<Vec<DescriptorProductionItem>, CollectionError> {
-    items
-        .iter()
-        .map(|item| {
-            Ok(match item {
-                HostProductionItem::Terminal { key, text } => DescriptorProductionItem::Terminal {
-                    key: key.clone(),
-                    text: text.clone(),
-                },
-                HostProductionItem::NonTerminal {
-                    key,
-                    field_key,
-                    declaration_key,
-                    field,
-                    sort,
-                } => DescriptorProductionItem::NonTerminal {
-                    key: key.clone(),
-                    field_key: field_key.clone(),
-                    declaration_key: declaration_key.clone(),
-                    field: field.clone(),
-                    sort: Box::new(resolve_sort_reference(sort, declarations, builtins)?),
-                },
-                HostProductionItem::RegexTerminal {
-                    key,
-                    precede_regex,
-                    regex,
-                    follow_regex,
-                } => DescriptorProductionItem::RegexTerminal {
-                    key: key.clone(),
-                    precede_regex: precede_regex.clone(),
-                    regex: regex.clone(),
-                    follow_regex: follow_regex.clone(),
-                },
-            })
-        })
-        .collect::<Result<Vec<_>, CollectionError>>()
-}
-
-fn resolve_grammar_attributes(
-    attributes: &[HostProductionAttribute],
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    context_aliases: &HashMap<HostItemId, StableItemId>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<Vec<DescriptorProductionAttribute>, CollectionError> {
-    attributes
-        .iter()
-        .map(|attribute| {
-            resolve_grammar_attribute(attribute, declarations, context_aliases, builtins)
-        })
-        .collect::<Result<Vec<_>, CollectionError>>()
-}
-
-fn resolve_grammar_attribute(
-    attribute: &HostProductionAttribute,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    context_aliases: &HashMap<HostItemId, StableItemId>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<DescriptorProductionAttribute, CollectionError> {
-    Ok(match attribute {
-        HostProductionAttribute::Documentation { key, text } => {
-            DescriptorProductionAttribute::Documentation {
-                key: key.clone(),
-                text: text.clone(),
-            }
-        }
-        HostProductionAttribute::Function { key } => {
-            DescriptorProductionAttribute::Function { key: key.clone() }
-        }
-        HostProductionAttribute::Total { key } => {
-            DescriptorProductionAttribute::Total { key: key.clone() }
-        }
-        HostProductionAttribute::Hook { key, operation } => DescriptorProductionAttribute::Hook {
-            key: key.clone(),
-            operation: *operation,
-        },
-        HostProductionAttribute::Alias { key } => {
-            DescriptorProductionAttribute::Alias { key: key.clone() }
-        }
-        HostProductionAttribute::Token {
-            key,
-            lexical_precedence,
-        } => DescriptorProductionAttribute::Token {
-            key: key.clone(),
-            lexical_precedence: lexical_precedence.clone(),
-        },
-        HostProductionAttribute::Group { reference } => DescriptorProductionAttribute::Group {
-            reference: reference.clone(),
-        },
-        HostProductionAttribute::Bracket { key } => {
-            DescriptorProductionAttribute::Bracket { key: key.clone() }
-        }
-        HostProductionAttribute::Avoid { key } => {
-            DescriptorProductionAttribute::Avoid { key: key.clone() }
-        }
-        HostProductionAttribute::Format { key, fragments } => {
-            DescriptorProductionAttribute::Format {
-                key: key.clone(),
-                fragments: fragments.clone(),
-            }
-        }
-        HostProductionAttribute::Strictness {
-            key,
-            kind,
-            using,
-            fields,
-            result_sort,
-        } => DescriptorProductionAttribute::Strictness {
-            key: key.clone(),
-            kind: *kind,
-            using: using
-                .as_ref()
-                .map(|using| {
-                    let alias = context_aliases.get(&using.alias).cloned().ok_or_else(|| {
-                        CollectionError::new(
-                            CollectionErrorKind::UnresolvedTypeReference,
-                            format!("unknown context alias `{}`", using.alias.item_name()),
-                        )
-                    })?;
-                    Ok(krs_ir::DescriptorContextAliasReference {
-                        key: using.key.clone(),
-                        alias,
-                    })
-                })
-                .transpose()?,
-            fields: fields.clone(),
-            result_sort: Box::new(resolve_sort_reference(result_sort, declarations, builtins)?),
-        },
-    })
-}
-
-fn resolve_grammar(
-    grammar: &HostGrammarDescriptor,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    context_aliases: &HashMap<HostItemId, StableItemId>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<GrammarDescriptor, CollectionError> {
-    Ok(match grammar {
-        HostGrammarDescriptor::Production(production) => {
-            let owner = resolve_grammar_owner(&production.owner, declarations, builtins)?;
-            let items = resolve_grammar_items(&production.items, declarations, builtins)?;
-            let attributes = resolve_grammar_attributes(
-                &production.attributes,
-                declarations,
-                context_aliases,
-                builtins,
-            )?;
-            GrammarDescriptor::Production(DescriptorProduction {
-                key: production.key.clone(),
-                template_key: production.template_key.clone(),
-                owner,
-                result_sort: resolve_sort_reference(
-                    &production.result_sort,
-                    declarations,
-                    builtins,
-                )?,
-                items,
-                attributes,
-            })
-        }
-        HostGrammarDescriptor::Subsort {
-            key,
-            subsort,
-            supersort,
-        } => GrammarDescriptor::Subsort {
-            key: key.clone(),
-            subsort: resolve_sort_reference(subsort, declarations, builtins)?,
-            supersort: resolve_sort_reference(supersort, declarations, builtins)?,
-        },
-        HostGrammarDescriptor::Precedence { key, chains } => GrammarDescriptor::Precedence {
-            key: key.clone(),
-            chains: chains.clone(),
-        },
-        HostGrammarDescriptor::Associativity { key, sentences } => {
-            GrammarDescriptor::Associativity {
-                key: key.clone(),
-                sentences: sentences.clone(),
-            }
-        }
-    })
-}
-
-fn resolve_structured_rule(
-    rule: &HostStructuredRuleDescriptor,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<StructuredRuleDescriptor, CollectionError> {
-    Ok(StructuredRuleDescriptor {
-        sentence_kind: rule.sentence_kind,
-        label: rule.label.clone(),
-        requires: rule
-            .requires
-            .as_ref()
-            .map(|condition| {
-                Ok(krs_ir::DescriptorRuleCondition {
-                    key: condition.key.clone(),
-                    term: resolve_term(&condition.term, declarations, builtins)?,
-                })
-            })
-            .transpose()?,
-        priority: rule.priority.clone(),
-        simplification: rule.simplification.clone(),
-        pattern_key: rule.pattern_key.clone(),
-        result_key: rule.result_key.clone(),
-        subject_sort: resolve_sort_reference(&rule.subject_sort, declarations, builtins)?,
-        result_sort: resolve_sort_reference(&rule.result_sort, declarations, builtins)?,
-        bindings: rule.bindings.clone(),
-        subject: resolve_term(&rule.subject, declarations, builtins)?,
-        result: resolve_term(&rule.result, declarations, builtins)?,
-    })
-}
-
-fn resolve_term(
-    term: &HostTerm,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<DescriptorTerm, CollectionError> {
-    Ok(match term {
-        HostTerm::Variable {
-            key,
-            path_key,
-            name,
-        } => DescriptorTerm::Variable {
-            key: key.clone(),
-            path_key: path_key.clone(),
-            name: name.clone(),
-        },
-        HostTerm::Application {
-            head_class,
-            reference,
-            path_key,
-            arguments,
-        } => DescriptorTerm::Application {
-            head_class: *head_class,
-            reference: resolve_application_reference(reference, declarations, builtins, true)?,
-            path_key: path_key.clone(),
-            arguments: arguments
-                .iter()
-                .map(|argument| {
-                    Ok(match argument {
-                        HostTermArgument::Positional { value } => {
-                            DescriptorTermArgument::Positional {
-                                value: Box::new(resolve_term(value, declarations, builtins)?),
-                            }
-                        }
-                        HostTermArgument::Named { key, field, value } => {
-                            DescriptorTermArgument::Named {
-                                key: key.clone(),
-                                field: field.clone(),
-                                value: Box::new(resolve_term(value, declarations, builtins)?),
-                            }
-                        }
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?,
-        },
-        HostTerm::Literal { key, literal } => DescriptorTerm::Literal {
-            key: key.clone(),
-            literal: literal.clone(),
-        },
-        HostTerm::Wildcard { key } => DescriptorTerm::Wildcard { key: key.clone() },
-        HostTerm::BuiltinToken { key, sort, value } => DescriptorTerm::BuiltinToken {
-            key: key.clone(),
-            sort: *sort,
-            value: value.clone(),
-        },
-        HostTerm::Anonymous {
-            key,
-            sort,
-            spelling,
-        } => DescriptorTerm::Anonymous {
-            key: key.clone(),
-            sort: resolve_sort_reference(sort, declarations, builtins)?,
-            spelling: spelling.clone(),
-        },
-        HostTerm::OrBool { key, arguments } => DescriptorTerm::OrBool {
-            key: key.clone(),
-            arguments: arguments
-                .iter()
-                .map(|argument| resolve_term(argument, declarations, builtins))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        HostTerm::Cell {
-            key,
-            declaration,
-            fields,
-        } => DescriptorTerm::Cell {
-            key: key.clone(),
-            declaration: resolve_declared_identity(
-                HostApplicationIdentity::Nominal(declaration.key.resolve()),
-                &declaration.authored_path,
-                ItemKind::Cell,
-                declarations,
-            )?,
-            fields: fields
-                .iter()
-                .map(|field| {
-                    Ok(krs_ir::DescriptorCellTermField {
-                        key: field.key.clone(),
-                        field: field.field.clone(),
-                        value: Box::new(resolve_term(&field.value, declarations, builtins)?),
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?,
-        },
     })
 }
 
@@ -1796,6 +972,273 @@ mod tests {
             "enum:Boolean",
         )
         .unwrap()
+    }
+
+    fn unresolved_sort(path: &str) -> HostSortReference {
+        HostSortReference {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
+            target: HostTypeReference {
+                key: HostTypeKey(other_boolean_key),
+                authored_path: path.to_owned(),
+            },
+        }
+    }
+
+    fn unresolved_term(path: &str) -> krs_ir::HostTerm {
+        krs_ir::HostTerm::Anonymous {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::RulePattern, 0),
+            sort: unresolved_sort(path),
+            spelling: "_".to_owned(),
+        }
+    }
+
+    fn payload_error(
+        payload: &HostDescriptorPayload,
+        targets: &[HeadRuleTarget],
+    ) -> CollectionError {
+        resolve_payload(
+            payload,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            targets,
+        )
+        .unwrap_err()
+    }
+
+    fn assert_sort_error(error: &CollectionError, path: &str) {
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedTypeReference);
+        assert_eq!(
+            error.detail(),
+            format!(
+                "Rust path `{path}` resolves to neither a selected sort nor a registered builtin sort"
+            )
+        );
+    }
+
+    #[test]
+    fn production_resolves_items_and_attributes_before_result_sort() {
+        let registry = registry();
+        let owner_sort = HostSortReference {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
+            target: HostTypeReference {
+                key: HostTypeKey(marker_key::<SortInt>),
+                authored_path: "Int".to_owned(),
+            },
+        };
+        let mut production = krs_ir::HostProduction {
+            key: owner_sort.key.clone(),
+            template_key: None,
+            owner: krs_ir::HostProductionOwner::TokenSort { sort: owner_sort },
+            result_sort: unresolved_sort("Result"),
+            items: vec![krs_ir::HostProductionItem::NonTerminal {
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 1),
+                field_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 2),
+                declaration_key: None,
+                field: krs_ir::ProductionFieldId::new("value").unwrap(),
+                sort: Box::new(unresolved_sort("Item")),
+            }],
+            attributes: vec![krs_ir::HostProductionAttribute::Strictness {
+                key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 3),
+                kind: krs_ir::StrictnessKind::Strict,
+                using: None,
+                fields: Vec::new(),
+                result_sort: Box::new(unresolved_sort("Attribute")),
+            }],
+        };
+        for path in ["Item", "Attribute", "Result"] {
+            let error = resolve_payload(
+                &HostDescriptorPayload::Grammar(Box::new(
+                    krs_ir::HostGrammarDescriptor::Production(production.clone()),
+                )),
+                &HashMap::new(),
+                &HashMap::new(),
+                &HashMap::new(),
+                Some(&registry),
+                &[],
+            )
+            .unwrap_err();
+            assert_sort_error(&error, path);
+            if path == "Item" {
+                production.items.clear();
+            } else {
+                production.attributes.clear();
+            }
+        }
+    }
+
+    #[test]
+    fn production_owner_rejects_builtin_term_operations() {
+        let registry = registry();
+        let production = krs_ir::HostProduction {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 0),
+            template_key: None,
+            owner: krs_ir::HostProductionOwner::Constructor {
+                constructor: HostApplicationReference {
+                    key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleType, 1),
+                    target: HostApplicationTarget::Nominal(HostTypeReference {
+                        key: HostTypeKey(marker_key::<Op0>),
+                        authored_path: "Add".to_owned(),
+                    }),
+                },
+            },
+            result_sort: unresolved_sort("Result"),
+            items: Vec::new(),
+            attributes: Vec::new(),
+        };
+        let error = resolve_payload(
+            &HostDescriptorPayload::Grammar(Box::new(krs_ir::HostGrammarDescriptor::Production(
+                production,
+            ))),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            Some(&registry),
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedTypeReference);
+        assert_eq!(
+            error.detail(),
+            "Rust path `Add` does not resolve to a selected constructor declaration"
+        );
+    }
+
+    fn unresolved_cell() -> krs_ir::HostCellReference {
+        krs_ir::HostCellReference {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 0),
+            cell: krs_ir::HostCellIdentity {
+                owner: HostTypeKey(boolean_key),
+                field: HostTypeKey(false_key),
+            },
+        }
+    }
+
+    #[test]
+    fn cell_declaration_resolves_content_before_field_identity() {
+        let field = krs_ir::HostCellField {
+            reference: unresolved_cell(),
+            rust_field: "value".to_owned(),
+            emitted_name: None,
+            color: None,
+            multiplicity: None,
+            cell_type: None,
+            content: krs_ir::ProtocolCellContent::Leaf {
+                wrapper_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 1),
+                wrapper: krs_ir::CellWrapper::Cell,
+                sort: unresolved_sort("Content"),
+                arguments: Vec::new(),
+            },
+        };
+        let payload = HostDescriptorPayload::Cell(Box::new(krs_ir::HostCellDeclaration {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 2),
+            fields: vec![field],
+        }));
+        assert_sort_error(&payload_error(&payload, &[]), "Content");
+    }
+
+    #[test]
+    fn initializer_resolves_content_before_field_identity() {
+        let cell = krs_ir::HostInitializerCell {
+            key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 0),
+            field: unresolved_cell(),
+            content: krs_ir::ProtocolInitializerCellContent::Leaf {
+                constructor_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 1),
+                wrapper: krs_ir::CellWrapper::Cell,
+                value: krs_ir::ProtocolInitializerStateTerm::Term(
+                    krs_ir::ProtocolInitializerTerm {
+                        key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 2),
+                        term: unresolved_term("Content"),
+                    },
+                ),
+            },
+        };
+        let declarations = HashMap::new();
+        let fields = HashMap::new();
+        let aliases = HashMap::new();
+        let mut map = Resolver {
+            declarations: &declarations,
+            cell_fields: &fields,
+            context_aliases: &aliases,
+            builtins: None,
+            head_targets: &[],
+            head_selection: None,
+            allow_builtin_application: true,
+        };
+        let error = cell
+            .try_map_refs(
+                &mut map,
+                &mut |reference, map| map.cell(reference),
+                &mut |reference, map| map.cell_declaration(reference),
+                &mut |state, map| state.try_map_refs(map, &mut |term, map| term.try_map_refs(map)),
+            )
+            .unwrap_err();
+        assert_sort_error(&error, "Content");
+    }
+
+    #[test]
+    fn head_rule_resolves_target_extras_and_result_before_header_sort() {
+        let key = ProvenanceKey::new(krs_ir::ProvenanceRole::RulePattern, 0);
+        let mut rule = krs_ir::HostHeadRule {
+            sentence_kind: krs_ir::SentenceKind::Transition,
+            label: None,
+            priority: None,
+            pattern_key: key.clone(),
+            result_key: key.clone(),
+            head_sort: Some(unresolved_sort("Header")),
+            configuration: None,
+            computation_cell_name: None,
+            bindings: Vec::new(),
+            subject: unresolved_term("Subject"),
+            result: krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term("Result")),
+            requires: None,
+            extras: vec![krs_ir::ProtocolHeadRuleExtra::HaveMap {
+                cell: krs_ir::HostHeadRuleCellReference {
+                    key,
+                    name: "missing".to_owned(),
+                },
+                key: unresolved_term("Extra"),
+                value_binding: "value".to_owned(),
+            }],
+        };
+        let identity = krs_ir::DescriptorCellIdentity {
+            owner: StableItemId::new(
+                PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+                ["model"],
+                "State",
+                ItemKind::Configuration,
+                "configuration",
+            )
+            .unwrap(),
+            field: "k".to_owned(),
+        };
+        let target = HeadRuleTarget {
+            configuration: identity.owner.clone(),
+            cells: vec![HeadRuleCellTarget {
+                identity,
+                names: vec!["k".to_owned()],
+                wrapper: krs_ir::CellWrapper::KCell,
+            }],
+        };
+        let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
+        let error = payload_error(&payload(rule.clone()), &[]);
+        assert_eq!(error.kind(), CollectionErrorKind::InvalidConfiguration);
+        assert_eq!(
+            error.detail(),
+            "head-anchored rules require one fixed configuration, but none was collected"
+        );
+        let targets = [target];
+        let error = payload_error(&payload(rule.clone()), &targets);
+        assert_eq!(error.kind(), CollectionErrorKind::InvalidConfiguration);
+        assert_eq!(
+            error.detail(),
+            "readable rule extra names no fixed leaf cell `missing`"
+        );
+        rule.extras.clear();
+        assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Result");
+        rule.result = krs_ir::ProtocolHeadRuleResult::Erase;
+        assert_sort_error(&payload_error(&payload(rule), &targets), "Header");
     }
 
     #[test]

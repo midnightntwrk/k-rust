@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use krs_ir::bytes_token;
 use krs_ir::wire::{
-    WireApplicationReference, WireCellTermField, WireSortReference, WireTerm, WireTermArgument,
-    WireTypeReference,
+    ItemSlot, TargetSlot, TypeSlot, WireApplicationReference, WireCellTermField, WireSortReference,
+    WireTerm, WireTermArgument, WireTypeReference,
 };
 use krs_ir::{
     BuiltinSort, DescriptorApplicationHeadClass, DescriptorLiteral, ProductionFieldId,
@@ -25,62 +25,18 @@ use super::tokens::{
 /// Resolved expressions retained by a factory's static host wire.
 pub(super) struct WireSlots {
     facade: Path,
+    types: SlotTable,
+    items: SlotTable,
+    targets: SlotTable,
+}
+
+#[derive(Default)]
+struct SlotTable {
     expressions: Vec<TokenStream>,
     indices: HashMap<String, usize>,
 }
 
-impl WireSlots {
-    pub(super) fn new(facade: &Path) -> Self {
-        Self {
-            facade: facade.clone(),
-            expressions: Vec::new(),
-            indices: HashMap::new(),
-        }
-    }
-
-    #[allow(clippy::needless_pass_by_value)] // Factory call sites naturally build owned token streams.
-    pub(super) fn type_slot(&mut self, expression: TokenStream) -> usize {
-        let facade = &self.facade;
-        self.insert(
-            format!("type:{expression}"),
-            quote!(#facade::__KrsSlot::Type(#expression)),
-        )
-    }
-
-    pub(super) fn item_slot(&mut self, expression: &TokenStream) -> usize {
-        let facade = &self.facade;
-        self.insert(
-            format!("item:{expression}"),
-            quote!(#facade::__KrsSlot::Item(#expression)),
-        )
-    }
-
-    fn variant_slot(&mut self, owner: &TokenStream, marker: &TokenStream) -> usize {
-        let facade = &self.facade;
-        self.insert(
-            format!("variant:{owner}:{marker}"),
-            quote!(#facade::__KrsSlot::Variant { owner: #owner, marker: #marker }),
-        )
-    }
-
-    pub(super) fn variant_slot_for_grammar(
-        &mut self,
-        owner: &TokenStream,
-        marker: &TokenStream,
-    ) -> usize {
-        self.variant_slot(owner, marker)
-    }
-
-    fn target_slot_unique(&mut self, expression: &TokenStream) -> usize {
-        // A lexical witness must remain at every authored occurrence: equal
-        // printed tokens may infer different Rust types in different contexts.
-        let index = self.expressions.len();
-        let facade = &self.facade;
-        self.expressions
-            .push(quote!(#facade::__KrsSlot::Target(#expression)));
-        index
-    }
-
+impl SlotTable {
     fn insert(&mut self, key: String, expression: TokenStream) -> usize {
         if let Some(index) = self.indices.get(&key) {
             return *index;
@@ -90,10 +46,73 @@ impl WireSlots {
         self.indices.insert(key, index);
         index
     }
+}
+
+impl WireSlots {
+    pub(super) fn new(facade: &Path) -> Self {
+        Self {
+            facade: facade.clone(),
+            types: SlotTable::default(),
+            items: SlotTable::default(),
+            targets: SlotTable::default(),
+        }
+    }
+
+    pub(super) fn type_slot(&mut self, expression: TokenStream) -> TypeSlot {
+        TypeSlot(self.types.insert(expression.to_string(), expression))
+    }
+
+    pub(super) fn item_slot(&mut self, expression: &TokenStream) -> ItemSlot {
+        ItemSlot(
+            self.items
+                .insert(expression.to_string(), expression.clone()),
+        )
+    }
+
+    pub(super) fn nominal_target_slot(&mut self, expression: &TokenStream) -> TargetSlot {
+        let facade = &self.facade;
+        TargetSlot(self.targets.insert(
+            format!("nominal:{expression}"),
+            quote!(#facade::__KrsTargetSlot::Nominal(#expression)),
+        ))
+    }
+
+    fn variant_slot(&mut self, owner: &TokenStream, marker: &TokenStream) -> TargetSlot {
+        let facade = &self.facade;
+        TargetSlot(self.targets.insert(
+            format!("variant:{owner}:{marker}"),
+            quote!(#facade::__KrsTargetSlot::Variant { owner: #owner, marker: #marker }),
+        ))
+    }
+
+    pub(super) fn variant_slot_for_grammar(
+        &mut self,
+        owner: &TokenStream,
+        marker: &TokenStream,
+    ) -> TargetSlot {
+        self.variant_slot(owner, marker)
+    }
+
+    fn target_slot_unique(&mut self, expression: &TokenStream) -> TargetSlot {
+        // A lexical witness must remain at every authored occurrence: equal printed tokens may infer different Rust types in different contexts.
+        let index = self.targets.expressions.len();
+        let facade = &self.facade;
+        self.targets
+            .expressions
+            .push(quote!(#facade::__KrsTargetSlot::Target(#expression)));
+        TargetSlot(index)
+    }
 
     pub(super) fn tokens(&self) -> TokenStream {
-        let values = &self.expressions;
-        quote!(&[#(#values),*])
+        let facade = &self.facade;
+        let types = &self.types.expressions;
+        let items = &self.items.expressions;
+        let targets = &self.targets.expressions;
+        quote!(#facade::__KrsSlots {
+            types: &[#(#types),*],
+            items: &[#(#items),*],
+            targets: &[#(#targets),*],
+        })
     }
 }
 
@@ -778,7 +797,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         authored: &Path,
         slots: &mut WireSlots,
-    ) -> syn::Result<usize> {
+    ) -> syn::Result<TargetSlot> {
         let (owner, variant) = if authored.leading_colon.is_none()
             && authored.segments.len() == 1
             && let Some(imported_owner) = self.enum_glob
@@ -825,7 +844,7 @@ impl<'a> TermBuilder<'a> {
             let marker_key = quote!(#facade::HostTypeKey(#owner::#marker));
             slots.variant_slot(&owner_key, &marker_key)
         } else {
-            slots.type_slot(owner_key)
+            slots.nominal_target_slot(&owner_key)
         })
     }
 

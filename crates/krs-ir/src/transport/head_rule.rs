@@ -144,6 +144,7 @@ stage_shape! {
         /// Explicit non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
     }
+    map_order: [extras, result, sentence_kind, label, priority, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, subject, requires];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -191,6 +192,10 @@ stage_shape! {
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Explicit resolved non-computation-cell reads and writes.
         pub extras: Vec<ProtocolHeadRuleExtra<S::HeadRuleCell, Term<S>>> => [vec protocol head_rule_cell nested],
+    }
+    descriptor_from: HeadRule<DescriptorStage> {
+        configuration: crate::StableItemId,
+        computation_cell: DescriptorCellReference,
     }
 }
 
@@ -545,7 +550,7 @@ mod tests {
         WireSortReference {
             key: ProvenanceKey::new(ProvenanceRole::RuleType, 0),
             target: WireTypeReference {
-                slot: 1,
+                slot: crate::wire::TypeSlot(1),
                 authored_path: "Value".to_owned(),
             },
         }
@@ -572,7 +577,7 @@ mod tests {
             configuration: Some(WireConfigurationReference {
                 key: key.clone(),
                 configuration: WireTypeReference {
-                    slot: 2,
+                    slot: crate::wire::TypeSlot(2),
                     authored_path: "State".to_owned(),
                 },
             }),
@@ -604,13 +609,13 @@ mod tests {
         assert_eq!(
             map.calls,
             [
+                "head_rule_cell",
+                "sort",
+                "sort",
+                "sort",
                 "sort",
                 "configuration",
                 "sort",
-                "sort",
-                "sort",
-                "sort",
-                "head_rule_cell",
                 "sort",
                 "sort"
             ]
@@ -623,7 +628,17 @@ mod tests {
             rule.try_map_refs(&mut failing).unwrap_err(),
             "configuration"
         );
-        assert_eq!(failing.calls, ["sort", "configuration"]);
+        assert_eq!(
+            failing.calls,
+            [
+                "head_rule_cell",
+                "sort",
+                "sort",
+                "sort",
+                "sort",
+                "configuration"
+            ]
+        );
     }
 
     fn descriptor_sort() -> DescriptorSortReference {

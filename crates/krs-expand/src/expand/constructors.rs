@@ -761,7 +761,7 @@ fn constructor_grammar(
     {
         attributes.push(strict_attribute);
     }
-    let owner_slot = slots.type_slot(quote!(#facade::HostTypeKey(#declared_key)));
+    let owner_slot = slots.nominal_target_slot(&quote!(#facade::HostTypeKey(#declared_key)));
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
             key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),

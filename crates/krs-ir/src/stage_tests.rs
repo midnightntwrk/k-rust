@@ -267,12 +267,12 @@ fn configuration_declaration_traversal_maps_fields_and_generic_arguments() {
     assert_mapping!(
         value.fields[0].clone(),
         [map_cell, map_sort, map_cell_declaration],
-        ["cell", "sort", "sort", "sort"]
+        ["sort", "sort", "sort", "cell"]
     );
     assert_mapping!(
         value,
         [map_field],
-        ["cell", "sort", "sort", "sort", "cell", "cell_declaration"]
+        ["sort", "sort", "sort", "cell", "cell_declaration", "cell"]
     );
     assert_mapping!(variable(), [map_sort], ["sort"]);
 }
@@ -364,12 +364,12 @@ fn recursive_initializer_and_fixed_configuration_traversals_short_circuit() {
     assert_mapping!(
         initializer_cell(0),
         [map_cell, map_cell_declaration, map_initializer_state],
-        ["cell", "sort"]
+        ["sort", "cell"]
     );
     assert_mapping!(
         initializer().cells[0].content.clone(),
         [map_cell, map_cell_declaration, map_initializer_state],
-        ["cell_declaration", "cell", "sort"]
+        ["cell_declaration", "sort", "cell"]
     );
     assert_mapping!(
         initializer(),
@@ -377,28 +377,28 @@ fn recursive_initializer_and_fixed_configuration_traversals_short_circuit() {
         [
             "initializer_owner",
             "sort",
-            "cell",
             "cell_declaration",
+            "sort",
             "cell",
-            "sort"
+            "cell"
         ]
     );
     assert_mapping!(
         fixed_configuration(),
         [],
         [
-            "cell",
             "sort",
             "sort",
             "sort",
             "cell",
             "cell_declaration",
+            "cell",
             "initializer_owner",
             "sort",
-            "cell",
             "cell_declaration",
+            "sort",
             "cell",
-            "sort"
+            "cell"
         ]
     );
 }
@@ -789,24 +789,24 @@ fn configuration_payload_traversal_maps_references_and_propagates_errors() {
         DescriptorPayload::FixedConfiguration(Box::new(fixed_configuration())),
         [map_head],
         [
-            "cell",
             "sort",
             "sort",
             "sort",
             "cell",
             "cell_declaration",
+            "cell",
             "initializer_owner",
             "sort",
-            "cell",
             "cell_declaration",
+            "sort",
             "cell",
-            "sort"
+            "cell"
         ]
     );
     assert_mapping!(
         DescriptorPayload::Cell(Box::new(declaration())),
         [map_head],
-        ["cell", "sort", "sort", "sort", "cell", "cell_declaration"]
+        ["sort", "sort", "sort", "cell", "cell_declaration", "cell"]
     );
     assert_mapping!(
         DescriptorPayload::ConfigurationRule(Box::new(configuration_rule())),

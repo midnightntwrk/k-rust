@@ -670,6 +670,9 @@ fn registry() -> Registry {
     trace!(SymbolKind: SymbolKind);
     trace!(TimingsDocument: TimingsDocument);
     trace!(TransformationOriginKind: TransformationOriginKind);
+    trace!(TypeSlot: TypeSlot);
+    trace!(ItemSlot: ItemSlot);
+    trace!(TargetSlot: TargetSlot);
     trace!(WireApplicationReference: WireApplicationReference);
     trace!(WireConfigurationReference: WireConfigurationReference);
     trace!(WireConstructorDescriptor: WireConstructorDescriptor);

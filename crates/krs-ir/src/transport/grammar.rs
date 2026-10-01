@@ -904,6 +904,7 @@ stage_shape! {
         /// Classified metadata only.
         pub attributes: Vec<ProductionAttribute<S>> => [vec nested],
     }
+    map_order: [key, template_key, owner, items, attributes, result_sort];
 }
 
 /// Descriptor-stage form of [`Production`].
@@ -2894,7 +2895,7 @@ mod traversal_tests {
 
     fn nominal() -> WireTypeReference {
         WireTypeReference {
-            slot: 3,
+            slot: crate::wire::TypeSlot(3),
             authored_path: "State".to_owned(),
         }
     }
@@ -2909,7 +2910,7 @@ mod traversal_tests {
     fn application() -> WireApplicationReference {
         WireApplicationReference {
             key: key(2),
-            target: 5,
+            target: crate::wire::TargetSlot(5),
             authored_path: "Add".to_owned(),
         }
     }
@@ -2945,7 +2946,7 @@ mod traversal_tests {
             kind: StrictnessKind::SeqStrict,
             using: Some(WireContextAliasReference {
                 key: key(9),
-                slot: 7,
+                slot: crate::wire::ItemSlot(7),
             }),
             fields: vec![DescriptorFieldReference {
                 key: key(10),
@@ -3179,10 +3180,10 @@ mod traversal_tests {
     }
 
     #[test]
-    fn production_maps_owner_result_items_and_attributes() {
+    fn production_maps_owner_items_attributes_and_result() {
         assert_traversal!(
             production(),
-            ["application", "sort", "sort", "context_alias", "sort"],
+            ["application", "sort", "context_alias", "sort", "sort"],
             "context_alias"
         );
     }
@@ -3192,7 +3193,7 @@ mod traversal_tests {
         let production = StageGrammarDescriptor::<WireStage>::Production(production());
         assert_traversal!(
             production,
-            ["application", "sort", "sort", "context_alias", "sort"],
+            ["application", "sort", "context_alias", "sort", "sort"],
             "context_alias"
         );
         let subsort = StageGrammarDescriptor::<WireStage>::Subsort {

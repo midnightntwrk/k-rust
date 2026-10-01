@@ -57,10 +57,10 @@ impl Stage for WireStage {
     type Nominal = crate::wire::WireTypeReference;
     type ContextAlias = crate::wire::WireContextAliasReference;
     type Configuration = crate::wire::WireConfigurationReference;
-    type Cell = crate::wire::WireHeadRuleCellReference;
+    type Cell = std::convert::Infallible;
     type HeadRuleCell = crate::wire::WireHeadRuleCellReference;
-    type Item = usize;
-    type CellDeclaration = crate::wire::WireTypeReference;
+    type Item = crate::wire::ItemSlot;
+    type CellDeclaration = std::convert::Infallible;
     type InitializerOwner = crate::wire::WireTypeReference;
     type Parent = crate::wire::WireTypeReference;
     type Parents = Vec<Self::Parent>;
@@ -255,21 +255,27 @@ macro_rules! stage_shape {
 
     ($(#[$attr:meta])* pub struct $name:ident<$s:ident: Stage> {
         $($(#[$field_attr:meta])* pub $field:ident: $ty:ty => [$($mapping:tt)+]),* $(,)?
-    }) => {
+    } $(map_order: [$($ordered:ident),* $(,)?];)? $(host_shape: $host:path;)?
+      $(descriptor_from: $source:ty { $($selected:ident: $selected_ty:ty),* $(,)? })?) => {
         $(#[$attr])* pub struct $name<$s: $crate::Stage> {
             $($(#[$field_attr])* pub $field: $ty),*
         }
         $crate::stage::descriptor_shape_traits! { struct $name { $($field),* } }
         impl<$s: $crate::Stage> $name<$s> {
-            /// Resolves every reference in declaration order.
+            /// Resolves every reference in the shape's traversal order.
             /// # Errors
             /// Returns the first reference-resolution error.
             pub fn try_map_refs<To: $crate::Stage, M: $crate::RefMap<$s, To>>(
                 self, map: &mut M,
             ) -> Result<$name<To>, M::Error> {
-                Ok($name { $($field: stage_shape!(@map [$($mapping)+] (self.$field) map)),* })
+                stage_shape!(@map_fields self map
+                    { $($field => [$($mapping)+]),* } $([$($ordered),*])?);
+                Ok($name { $($field),* })
             }
         }
+        stage_shape!(@host_conversion $name { $($field => [$($mapping)+]),* } $($host)?);
+        stage_shape!(@descriptor_completion $name { $($field),* }
+            $($source { $($selected: $selected_ty),* })?);
     };
     ($(#[$attr:meta])* pub enum $name:ident<$s:ident: Stage> {
         $($(#[$variant_attr:meta])* $variant:ident
@@ -295,6 +301,44 @@ macro_rules! stage_shape {
                         $({ $($field: stage_shape!(@map [$($mapping)+] $field map)),* })?),* })
             }
         }
+    };
+    (@descriptor_completion $name:ident { $($field:ident),* }
+        $source:ty { $($selected:ident: $selected_ty:ty),* }) => {
+        impl $name<$crate::DescriptorStage> {
+            /// Completes an authored descriptor with selected reference identities.
+            #[must_use]
+            pub fn from_selected(value: $source, $($selected: $selected_ty),*) -> Self {
+                macro_rules! completed_field {
+                    $(($selected) => { $selected };)*
+                    $(($field) => { value.$field };)*
+                }
+                Self { $($field: completed_field!($field)),* }
+            }
+        }
+    };
+    (@descriptor_completion $name:ident { $($field:ident),* }) => {};
+    (@host_conversion $name:ident { $($field:ident => [$($mapping:tt)+]),* } $host:path) => {
+        impl From<$name<$crate::HostStage>> for $host {
+            fn from(value: $name<$crate::HostStage>) -> Self {
+                Self { $($field: stage_shape!(@host_field [$($mapping)+] (value.$field))),* }
+            }
+        }
+    };
+    (@host_conversion $name:ident { $($fields:tt)* }) => {};
+    (@host_field [vec $($inner:tt)+] $value:expr) => {
+        $value.into_iter().map(|value| stage_shape!(@host_field [$($inner)+] value)).collect()
+    };
+    (@host_field [nested] $value:expr) => { $value.into() };
+    (@host_field [$mapping:ident] $value:expr) => { $value };
+    (@map_fields $source:ident $map:ident { $($field:ident => [$($mapping:tt)+]),* }) => {
+        $(let $field = stage_shape!(@map [$($mapping)+] ($source.$field) $map);)*
+    };
+    (@map_fields $source:ident $map:ident { $($field:ident => [$($mapping:tt)+]),* }
+        [$($ordered:ident),*]) => {
+        macro_rules! map_field {
+            $(($field) => { stage_shape!(@map [$($mapping)+] ($source.$field) $map) };)*
+        }
+        $(let $ordered = map_field!($ordered);)*
     };
     (@map [keep] $value:expr, $map:ident) => { $value };
     (@map [keep] $value:tt $map:ident) => { $value };
@@ -423,16 +467,18 @@ pub(crate) use descriptor_shape_traits;
 macro_rules! protocol_shape {
     ($(#[$attr:meta])* pub struct $name:ident<$($from:ident => $mapping:ident => $to:ident),+> {
         $($(#[$field_attr:meta])* pub $field:ident: $ty:ty => [$($field_map:tt)+]),* $(,)?
-    }) => {
+    } $(map_order: [$($ordered:ident),* $(,)?];)?) => {
         $(#[$attr])* pub struct $name<$($from),+> { $($(#[$field_attr])* pub $field: $ty),* }
         impl<$($from),+> $name<$($from),+> {
-            /// Maps reference-bearing parameters in declaration order.
+            /// Maps reference-bearing parameters in the shape's traversal order.
             /// # Errors
             /// Returns the first error from a supplied mapping function.
             pub fn try_map_refs<$($to),+, E, Context>(self, context: &mut Context,
                 $($mapping: &mut impl FnMut($from, &mut Context) -> Result<$to, E>),+
             ) -> Result<$name<$($to),+>, E> {
-                Ok($name { $($field: protocol_shape!(@map [$($field_map)+] (self.$field) context)),* })
+                protocol_shape!(@map_fields self context
+                    { $($field => [$($field_map)+]),* } $([$($ordered),*])?);
+                Ok($name { $($field),* })
             }
         }
     };
@@ -457,6 +503,16 @@ macro_rules! protocol_shape {
                         $({ $($field: protocol_shape!(@map [$($field_map)+] $field context)),* })?),* })
             }
         }
+    };
+    (@map_fields $source:ident $context:ident { $($field:ident => [$($mapping:tt)+]),* }) => {
+        $(let $field = protocol_shape!(@map [$($mapping)+] ($source.$field) $context);)*
+    };
+    (@map_fields $source:ident $context:ident { $($field:ident => [$($mapping:tt)+]),* }
+        [$($ordered:ident),*]) => {
+        macro_rules! map_field {
+            $(($field) => { protocol_shape!(@map [$($mapping)+] ($source.$field) $context) };)*
+        }
+        $(let $ordered = map_field!($ordered);)*
     };
     (@map [keep] $value:tt $context:ident) => { $value };
     (@map [box $($inner:tt)+] $value:tt $context:ident) => { Box::new(protocol_shape!(@map [$($inner)+] (*$value) $context)) };

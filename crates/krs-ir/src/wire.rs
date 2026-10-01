@@ -12,10 +12,25 @@ use crate::{
     ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey,
 };
 
+/// Index into the static host type-key table.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TypeSlot(pub usize);
+
+/// Index into the static host item-identity table.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ItemSlot(pub usize);
+
+/// Index into the static host application-target table.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TargetSlot(pub usize);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireTypeReference {
-    pub slot: usize,
+    pub slot: TypeSlot,
     pub authored_path: String,
 }
 
@@ -37,7 +52,7 @@ pub struct WireConfigurationReference {
 #[serde(deny_unknown_fields)]
 pub struct WireApplicationReference {
     pub key: ProvenanceKey,
-    pub target: usize,
+    pub target: TargetSlot,
     pub authored_path: String,
 }
 
@@ -73,6 +88,7 @@ stage_shape! {
         /// Declared sort reference.
         pub sort: S::Nominal => [nominal],
     }
+    host_shape: crate::HostConstructorFieldDescriptor;
 }
 
 /// Static wire-stage constructor transport.
@@ -95,6 +111,7 @@ stage_shape! {
         /// Constructor fields in authored order.
         pub fields: Vec<StaticConstructorField<S>> => [vec nested],
     }
+    host_shape: crate::HostConstructorDescriptor;
 }
 
 /// Static wire-stage constructor transport.
@@ -104,7 +121,7 @@ pub type WireConstructorDescriptor = StaticConstructor<WireStage>;
 #[serde(deny_unknown_fields)]
 pub struct WireContextAliasReference {
     pub key: ProvenanceKey,
-    pub slot: usize,
+    pub slot: ItemSlot,
 }
 
 /// Static wire-stage form of [`ProductionItem`].
@@ -169,7 +186,7 @@ mod tests {
             head_class: DescriptorApplicationHeadClass::BareReference,
             reference: WireApplicationReference {
                 key: ProvenanceKey::new(ProvenanceRole::RuleLeftReference, 2),
-                target: 3,
+                target: super::TargetSlot(3),
                 authored_path: "Op::Gt".to_owned(),
             },
             path_key: ProvenanceKey::new(ProvenanceRole::RuleLeftPath, 4),
@@ -192,7 +209,7 @@ mod tests {
         super::WireSortReference {
             key: key(),
             target: super::WireTypeReference {
-                slot: 0,
+                slot: super::TypeSlot(0),
                 authored_path: "Value".to_owned(),
             },
         }
@@ -211,7 +228,7 @@ mod tests {
         let field = super::WireConstructorFieldDescriptor {
             name: "value".to_owned(),
             sort: super::WireTypeReference {
-                slot: 1,
+                slot: super::TypeSlot(1),
                 authored_path: "Int".to_owned(),
             },
         };

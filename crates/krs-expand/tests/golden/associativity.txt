@@ -15,7 +15,7 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"associativity\",\"grammar\":{\"key\":{\"role\":\"associativity_declaration\",\"ordinal\":0},\"sentences\":[{\"key\":{\"role\":\"associativity_sentence\",\"ordinal\":0},\"associativity\":\"left\",\"groups\":[{\"key\":{\"role\":\"associativity_group_reference\",\"ordinal\":0},\"group\":\"pair\"}]},{\"key\":{\"role\":\"associativity_sentence\",\"ordinal\":1},\"associativity\":\"non_associative\",\"groups\":[{\"key\":{\"role\":\"associativity_group_reference\",\"ordinal\":1},\"group\":\"atoms\"}]}]}}}",
-            &[],
+            ::k::__KrsSlots::default(),
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

@@ -74,7 +74,11 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0},\"template_key\":null,\"owner\":{\"production_owner\":\"bracket_sort\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}},\"result_sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":0},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"bracket_value_reference\",\"ordinal\":0},\"declaration_key\":null,\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":2},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"bracket\",\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0}}]}}}",
-            &[::k::__KrsSlot::Type(::k::HostTypeKey(__krs_sort_type_565187d54f4138cb))],
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_type_565187d54f4138cb)],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -184,18 +188,18 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Id\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}}}}}",
-            &[
-                ::k::__KrsSlot::Type(
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(
                         __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229,
                     ),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(
                         __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229,
                     ),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -368,18 +372,18 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableValue\"}}}}}",
-            &[
-                ::k::__KrsSlot::Type(
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(
                         __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
                     ),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(
                         __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
                     ),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -458,18 +462,18 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Bool\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableValue\"}}}}}",
-            &[
-                ::k::__KrsSlot::Type(
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(
                         __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
                     ),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(
                         __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529,
                     ),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -854,18 +858,18 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Int\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Diamond\"}}}}}",
-            &[
-                ::k::__KrsSlot::Type(
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(
                         __krs_subsort_super_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429,
                     ),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(
                         __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429,
                     ),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

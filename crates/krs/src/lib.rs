@@ -1773,4 +1773,4 @@ mod tests {
 mod wire;
 
 #[doc(hidden)]
-pub use wire::{__KrsSlot, __krs_host_payload};
+pub use wire::{__KrsSlots, __KrsTargetSlot, __krs_host_payload};

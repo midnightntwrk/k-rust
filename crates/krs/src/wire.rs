@@ -1,28 +1,24 @@
 //! Runtime substitution of indexed, static host payloads.
 
+use std::convert::Infallible;
+
 use krs_ir::wire::{
-    WireApplicationReference, WireCellTermField, WireConfigurationReference,
-    WireConstructorDescriptor, WireContextAliasReference, WireGrammarDescriptor, WireHeadRule,
-    WireHeadRuleExtra, WireHeadRuleResult, WirePayload, WireProduction, WireProductionAttribute,
-    WireProductionItem, WireProductionOwner, WireRuleCondition, WireSortReference,
-    WireStructuredRule, WireTerm, WireTermArgument, WireTypeReference,
+    ItemSlot, WireApplicationReference, WireConfigurationReference, WireContextAliasReference,
+    WireHeadRuleCellReference, WirePayload, WireSortReference, WireTypeReference,
 };
 use krs_ir::{
-    HostApplicationReference, HostApplicationTarget, HostCellTermField, HostConfigurationReference,
-    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostContextAliasReference,
-    HostDescriptorPayload, HostEnumVariantReference, HostGrammarDescriptor, HostHeadRule,
-    HostHeadRuleCellReference, HostHeadRuleExtra, HostHeadRuleResult, HostItemId, HostProduction,
-    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
-    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypeKey,
-    HostTypeReference, ProtocolHeadRuleBinding,
+    HostApplicationReference, HostApplicationTarget, HostCellDeclarationReference,
+    HostCellReference, HostConfigurationReference, HostContextAliasReference,
+    HostDescriptorPayload, HostEnumVariantReference, HostHeadRuleCellReference, HostItemId,
+    HostSortReference, HostStage, HostTypeKey, HostTypeReference, RefMap, WireStage,
 };
 
-/// Rust-resolved value inserted into an indexed descriptor payload.
+/// Rust-resolved application identity inserted into a static descriptor payload.
 #[doc(hidden)]
 #[derive(Clone, Debug)]
-pub enum __KrsSlot {
-    /// Build-local Rust type identity.
-    Type(HostTypeKey),
+pub enum __KrsTargetSlot {
+    /// Build-local nominal Rust type identity.
+    Nominal(HostTypeKey),
     /// Exact owner and generated marker for a Rust enum variant.
     Variant {
         owner: HostTypeKey,
@@ -30,8 +26,18 @@ pub enum __KrsSlot {
     },
     /// Application identity, including an inferred readable-rule head.
     Target(HostApplicationTarget),
-    /// Macro-context identity for a referenced context alias.
-    Item(HostItemId),
+}
+
+/// Independently indexed Rust-resolved references for a static descriptor payload.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct __KrsSlots<'a> {
+    /// Build-local Rust type identities.
+    pub types: &'a [HostTypeKey],
+    /// Macro-context identities for referenced items.
+    pub items: &'a [HostItemId],
+    /// Application identities.
+    pub targets: &'a [__KrsTargetSlot],
 }
 
 /// Decode one static rule payload and insert the factory's Rust-resolved slots.
@@ -39,39 +45,34 @@ pub enum __KrsSlot {
 #[inline(never)]
 #[track_caller]
 #[must_use]
-pub fn __krs_host_payload(wire: &str, slots: &[__KrsSlot]) -> HostDescriptorPayload {
+pub fn __krs_host_payload(wire: &str, slots: __KrsSlots<'_>) -> HostDescriptorPayload {
     let payload: WirePayload = krs_ir::json::from_slice(wire.as_bytes())
         .unwrap_or_else(|error| panic!("KRS generated rule wire is malformed: {error}"));
-    let decoder = Decoder { slots };
+    let payload = payload.try_map_refs(&mut Decoder { slots }).unwrap();
     match payload {
-        WirePayload::StructuredRule(rule) => {
-            HostDescriptorPayload::StructuredRule(Box::new(decoder.structured(*rule)))
+        krs_ir::wire::StaticPayload::StructuredRule(rule) => {
+            HostDescriptorPayload::StructuredRule(rule)
         }
-        WirePayload::HeadRule(rule) => {
-            HostDescriptorPayload::HeadRule(Box::new(decoder.head(*rule)))
+        krs_ir::wire::StaticPayload::HeadRule(rule) => HostDescriptorPayload::HeadRule(rule),
+        krs_ir::wire::StaticPayload::Constructor(constructor) => {
+            HostDescriptorPayload::Constructor(constructor.into())
         }
-        WirePayload::Constructor(constructor) => {
-            HostDescriptorPayload::Constructor(decoder.constructor(constructor))
-        }
-        WirePayload::Grammar(grammar) => {
-            HostDescriptorPayload::Grammar(Box::new(decoder.grammar(*grammar)))
-        }
+        krs_ir::wire::StaticPayload::Grammar(grammar) => HostDescriptorPayload::Grammar(grammar),
     }
 }
 
 struct Decoder<'a> {
-    slots: &'a [__KrsSlot],
+    slots: __KrsSlots<'a>,
 }
 
 impl Decoder<'_> {
     fn type_reference(&self, wire: WireTypeReference) -> HostTypeReference {
-        let key = match self.slots.get(wire.slot) {
-            Some(__KrsSlot::Type(key)) => *key,
-            _ => panic!(
+        let key = *self.slots.types.get(wire.slot.0).unwrap_or_else(|| {
+            panic!(
                 "KRS generated rule wire has an invalid type slot {}",
-                wire.slot
-            ),
-        };
+                wire.slot.0
+            )
+        });
         HostTypeReference {
             key,
             authored_path: wire.authored_path,
@@ -79,13 +80,18 @@ impl Decoder<'_> {
     }
 
     fn target(&self, wire: WireApplicationReference) -> HostApplicationReference {
-        let target = match self.slots.get(wire.target) {
-            Some(__KrsSlot::Target(target)) => target.clone(),
-            Some(__KrsSlot::Type(key)) => HostApplicationTarget::Nominal(HostTypeReference {
+        let target = match self.slots.targets.get(wire.target.0).unwrap_or_else(|| {
+            panic!(
+                "KRS generated rule wire has an invalid target slot {}",
+                wire.target.0
+            )
+        }) {
+            __KrsTargetSlot::Target(target) => target.clone(),
+            __KrsTargetSlot::Nominal(key) => HostApplicationTarget::Nominal(HostTypeReference {
                 key: *key,
                 authored_path: wire.authored_path.clone(),
             }),
-            Some(__KrsSlot::Variant { owner, marker }) => {
+            __KrsTargetSlot::Variant { owner, marker } => {
                 let (owner_path, _) = wire.authored_path.rsplit_once("::").unwrap_or_else(|| {
                     panic!("KRS generated rule wire has an unqualified enum variant path")
                 });
@@ -101,10 +107,6 @@ impl Decoder<'_> {
                     .expect("KRS generated rule wire has an invalid enum variant path"),
                 )
             }
-            _ => panic!(
-                "KRS generated rule wire has an invalid target slot {}",
-                wire.target
-            ),
         };
         assert!(
             target.authored_path() == wire.authored_path
@@ -119,362 +121,110 @@ impl Decoder<'_> {
             target,
         }
     }
+}
 
-    fn sort(&self, wire: WireSortReference) -> HostSortReference {
-        HostSortReference {
+impl RefMap<WireStage, HostStage> for Decoder<'_> {
+    type Error = Infallible;
+
+    fn sort(&mut self, wire: WireSortReference) -> Result<HostSortReference, Self::Error> {
+        Ok(HostSortReference {
             key: wire.key,
             target: self.type_reference(wire.target),
-        }
+        })
     }
 
-    fn constructor(&self, wire: WireConstructorDescriptor) -> HostConstructorDescriptor {
-        HostConstructorDescriptor {
-            sort: self.sort(wire.sort),
-            fields: wire
-                .fields
-                .into_iter()
-                .map(|field| HostConstructorFieldDescriptor {
-                    name: field.name,
-                    sort: self.type_reference(field.sort),
-                })
-                .collect(),
-        }
+    fn application(
+        &mut self,
+        wire: WireApplicationReference,
+    ) -> Result<HostApplicationReference, Self::Error> {
+        Ok(self.target(wire))
     }
 
-    fn grammar(&self, wire: WireGrammarDescriptor) -> HostGrammarDescriptor {
-        match wire {
-            WireGrammarDescriptor::Production(production) => {
-                HostGrammarDescriptor::Production(self.production(production))
-            }
-            WireGrammarDescriptor::Subsort {
-                key,
-                subsort,
-                supersort,
-            } => HostGrammarDescriptor::Subsort {
-                key,
-                subsort: self.sort(subsort),
-                supersort: self.sort(supersort),
-            },
-            WireGrammarDescriptor::Precedence { key, chains } => {
-                HostGrammarDescriptor::Precedence { key, chains }
-            }
-            WireGrammarDescriptor::Associativity { key, sentences } => {
-                HostGrammarDescriptor::Associativity { key, sentences }
-            }
-        }
+    fn nominal(&mut self, wire: WireTypeReference) -> Result<HostTypeReference, Self::Error> {
+        Ok(self.type_reference(wire))
     }
 
-    fn production(&self, wire: WireProduction) -> HostProduction {
-        HostProduction {
+    fn context_alias(
+        &mut self,
+        wire: WireContextAliasReference,
+    ) -> Result<HostContextAliasReference, Self::Error> {
+        Ok(HostContextAliasReference {
             key: wire.key,
-            template_key: wire.template_key,
-            owner: match wire.owner {
-                WireProductionOwner::Constructor { constructor } => {
-                    HostProductionOwner::Constructor {
-                        constructor: self.target(constructor),
-                    }
-                }
-                WireProductionOwner::TokenSort { sort } => HostProductionOwner::TokenSort {
-                    sort: self.sort(sort),
-                },
-                WireProductionOwner::BracketSort { sort } => HostProductionOwner::BracketSort {
-                    sort: self.sort(sort),
-                },
-            },
-            result_sort: self.sort(wire.result_sort),
-            items: wire
-                .items
-                .into_iter()
-                .map(|item| self.production_item(item))
-                .collect(),
-            attributes: wire
-                .attributes
-                .into_iter()
-                .map(|attribute| self.production_attribute(attribute))
-                .collect(),
-        }
+            alias: self.item(wire.slot)?,
+        })
     }
 
-    fn production_item(&self, wire: WireProductionItem) -> HostProductionItem {
-        match wire {
-            WireProductionItem::Terminal { key, text } => {
-                HostProductionItem::Terminal { key, text }
-            }
-            WireProductionItem::NonTerminal {
-                key,
-                field_key,
-                declaration_key,
-                field,
-                sort,
-            } => HostProductionItem::NonTerminal {
-                key,
-                field_key,
-                declaration_key,
-                field,
-                sort: Box::new(self.sort(*sort)),
-            },
-            WireProductionItem::RegexTerminal {
-                key,
-                precede_regex,
-                regex,
-                follow_regex,
-            } => HostProductionItem::RegexTerminal {
-                key,
-                precede_regex,
-                regex,
-                follow_regex,
-            },
-        }
-    }
-
-    fn production_attribute(&self, wire: WireProductionAttribute) -> HostProductionAttribute {
-        match wire {
-            WireProductionAttribute::Documentation { key, text } => {
-                HostProductionAttribute::Documentation { key, text }
-            }
-            WireProductionAttribute::Function { key } => HostProductionAttribute::Function { key },
-            WireProductionAttribute::Total { key } => HostProductionAttribute::Total { key },
-            WireProductionAttribute::Hook { key, operation } => {
-                HostProductionAttribute::Hook { key, operation }
-            }
-            WireProductionAttribute::Alias { key } => HostProductionAttribute::Alias { key },
-            WireProductionAttribute::Token {
-                key,
-                lexical_precedence,
-            } => HostProductionAttribute::Token {
-                key,
-                lexical_precedence,
-            },
-            WireProductionAttribute::Group { reference } => {
-                HostProductionAttribute::Group { reference }
-            }
-            WireProductionAttribute::Bracket { key } => HostProductionAttribute::Bracket { key },
-            WireProductionAttribute::Avoid { key } => HostProductionAttribute::Avoid { key },
-            WireProductionAttribute::Format { key, fragments } => {
-                HostProductionAttribute::Format { key, fragments }
-            }
-            WireProductionAttribute::Strictness {
-                key,
-                kind,
-                using,
-                fields,
-                result_sort,
-            } => HostProductionAttribute::Strictness {
-                key,
-                kind,
-                using: using.map(|reference| self.context_alias(reference)),
-                fields,
-                result_sort: Box::new(self.sort(*result_sort)),
-            },
-        }
-    }
-
-    fn context_alias(&self, wire: WireContextAliasReference) -> HostContextAliasReference {
-        let alias = match self.slots.get(wire.slot) {
-            Some(__KrsSlot::Item(item)) => item.clone(),
-            _ => panic!("KRS generated wire has an invalid item slot {}", wire.slot),
-        };
-        HostContextAliasReference {
-            key: wire.key,
-            alias,
-        }
-    }
-
-    fn configuration(&self, wire: WireConfigurationReference) -> HostConfigurationReference {
-        HostConfigurationReference {
+    fn configuration(
+        &mut self,
+        wire: WireConfigurationReference,
+    ) -> Result<HostConfigurationReference, Self::Error> {
+        Ok(HostConfigurationReference {
             key: wire.key,
             configuration: self.type_reference(wire.configuration),
-        }
+        })
     }
 
-    fn condition(&self, wire: WireRuleCondition) -> HostRuleCondition {
-        HostRuleCondition {
+    fn cell(&mut self, wire: Infallible) -> Result<HostCellReference, Self::Error> {
+        match wire {}
+    }
+
+    fn head_rule_cell(
+        &mut self,
+        wire: WireHeadRuleCellReference,
+    ) -> Result<HostHeadRuleCellReference, Self::Error> {
+        Ok(HostHeadRuleCellReference {
             key: wire.key,
-            term: self.term(wire.term),
-        }
+            name: wire.name,
+        })
     }
 
-    fn term(&self, wire: WireTerm) -> HostTerm {
-        match wire {
-            WireTerm::Variable {
-                key,
-                path_key,
-                name,
-            } => HostTerm::Variable {
-                key,
-                path_key,
-                name,
-            },
-            WireTerm::Application {
-                head_class,
-                reference,
-                path_key,
-                arguments,
-            } => HostTerm::Application {
-                head_class,
-                reference: self.target(reference),
-                path_key,
-                arguments: arguments
-                    .into_iter()
-                    .map(|argument| match argument {
-                        WireTermArgument::Positional { value } => HostTermArgument::Positional {
-                            value: Box::new(self.term(*value)),
-                        },
-                        WireTermArgument::Named { key, field, value } => HostTermArgument::Named {
-                            key,
-                            field,
-                            value: Box::new(self.term(*value)),
-                        },
-                    })
-                    .collect(),
-            },
-            WireTerm::Literal { key, literal } => HostTerm::Literal { key, literal },
-            WireTerm::Wildcard { key } => HostTerm::Wildcard { key },
-            WireTerm::BuiltinToken { key, sort, value } => {
-                HostTerm::BuiltinToken { key, sort, value }
-            }
-            WireTerm::Anonymous {
-                key,
-                sort,
-                spelling,
-            } => HostTerm::Anonymous {
-                key,
-                sort: self.sort(sort),
-                spelling,
-            },
-            WireTerm::OrBool { key, arguments } => HostTerm::OrBool {
-                key,
-                arguments: arguments.into_iter().map(|term| self.term(term)).collect(),
-            },
-            WireTerm::Cell {
-                key,
-                declaration,
-                fields,
-            } => HostTerm::Cell {
-                key,
-                declaration: self.type_reference(declaration),
-                fields: fields
-                    .into_iter()
-                    .map(
-                        |WireCellTermField { key, field, value }| HostCellTermField {
-                            key,
-                            field,
-                            value: Box::new(self.term(*value)),
-                        },
-                    )
-                    .collect(),
-            },
-        }
+    fn item(&mut self, slot: ItemSlot) -> Result<HostItemId, Self::Error> {
+        Ok(self
+            .slots
+            .items
+            .get(slot.0)
+            .unwrap_or_else(|| panic!("KRS generated wire has an invalid item slot {}", slot.0))
+            .clone())
     }
 
-    fn structured(&self, rule: WireStructuredRule) -> HostStructuredRuleDescriptor {
-        HostStructuredRuleDescriptor {
-            sentence_kind: rule.sentence_kind,
-            label: rule.label,
-            requires: rule.requires.map(|condition| self.condition(condition)),
-            priority: rule.priority,
-            simplification: rule.simplification,
-            pattern_key: rule.pattern_key,
-            result_key: rule.result_key,
-            subject_sort: self.sort(rule.subject_sort),
-            result_sort: self.sort(rule.result_sort),
-            bindings: rule.bindings,
-            subject: self.term(rule.subject),
-            result: self.term(rule.result),
-        }
+    fn cell_declaration(
+        &mut self,
+        wire: Infallible,
+    ) -> Result<HostCellDeclarationReference, Self::Error> {
+        match wire {}
     }
 
-    fn head(&self, rule: WireHeadRule) -> HostHeadRule {
-        HostHeadRule {
-            sentence_kind: rule.sentence_kind,
-            label: rule.label,
-            priority: rule.priority,
-            pattern_key: rule.pattern_key,
-            result_key: rule.result_key,
-            head_sort: rule.head_sort.map(|sort| self.sort(sort)),
-            configuration: rule.configuration.map(|config| self.configuration(config)),
-            computation_cell_name: rule.computation_cell_name,
-            bindings: rule
-                .bindings
-                .into_iter()
-                .map(|binding| ProtocolHeadRuleBinding {
-                    name: binding.name,
-                    refinement: binding.refinement.map(|sort| self.sort(sort)),
-                })
-                .collect(),
-            subject: self.term(rule.subject),
-            result: self.head_result(rule.result),
-            requires: rule.requires.map(|condition| self.condition(condition)),
-            extras: rule
-                .extras
-                .into_iter()
-                .map(|extra| self.head_extra(extra))
-                .collect(),
-        }
+    fn initializer_owner(&mut self, wire: WireTypeReference) -> Result<HostTypeKey, Self::Error> {
+        Ok(self.type_reference(wire).key)
     }
 
-    fn head_result(&self, result: WireHeadRuleResult) -> HostHeadRuleResult {
-        match result {
-            WireHeadRuleResult::Replace(term) => HostHeadRuleResult::Replace(self.term(term)),
-            WireHeadRuleResult::Splice(terms) => {
-                HostHeadRuleResult::Splice(terms.into_iter().map(|term| self.term(term)).collect())
-            }
-            WireHeadRuleResult::Erase => HostHeadRuleResult::Erase,
-        }
+    fn parent(&mut self, wire: WireTypeReference) -> Result<HostTypeReference, Self::Error> {
+        self.nominal(wire)
     }
 
-    fn head_extra(&self, extra: WireHeadRuleExtra) -> HostHeadRuleExtra {
-        match extra {
-            WireHeadRuleExtra::HaveMap {
-                cell,
-                key,
-                value_binding,
-            } => HostHeadRuleExtra::HaveMap {
-                cell: HostHeadRuleCellReference {
-                    key: cell.key,
-                    name: cell.name,
-                },
-                key: self.term(key),
-                value_binding,
-            },
-            WireHeadRuleExtra::UpdateMap {
-                cell,
-                base_binding,
-                update,
-            } => HostHeadRuleExtra::UpdateMap {
-                cell: HostHeadRuleCellReference {
-                    key: cell.key,
-                    name: cell.name,
-                },
-                base_binding,
-                update: self.term(update),
-            },
-            WireHeadRuleExtra::RewriteCell {
-                cell,
-                result_key,
-                before,
-                after,
-            } => HostHeadRuleExtra::RewriteCell {
-                cell: HostHeadRuleCellReference {
-                    key: cell.key,
-                    name: cell.name,
-                },
-                result_key,
-                before: self.term(before),
-                after: self.term(after),
-            },
-        }
+    fn constructor_sort(
+        &mut self,
+        wire: WireSortReference,
+    ) -> Result<HostSortReference, Self::Error> {
+        self.sort(wire)
+    }
+
+    fn constructor_field_sort(
+        &mut self,
+        wire: WireTypeReference,
+    ) -> Result<HostTypeReference, Self::Error> {
+        self.nominal(wire)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{__KrsSlot, __krs_host_payload, Decoder};
+    use super::{__KrsSlots, __KrsTargetSlot, __krs_host_payload, Decoder};
     use krs_ir::wire::{
-        WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
-        WireContextAliasReference, WireGrammarDescriptor, WireHeadRule, WirePayload,
-        WireProduction, WireProductionAttribute, WireProductionItem, WireProductionOwner,
-        WireSortReference, WireStructuredRule, WireTerm, WireTypeReference,
+        ItemSlot, TargetSlot, TypeSlot, WireApplicationReference, WireConstructorDescriptor,
+        WireConstructorFieldDescriptor, WireContextAliasReference, WireGrammarDescriptor,
+        WireHeadRule, WirePayload, WireProduction, WireProductionAttribute, WireProductionItem,
+        WireProductionOwner, WireSortReference, WireStructuredRule, WireTerm, WireTypeReference,
     };
     use krs_ir::{
         DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorLiteral,
@@ -503,33 +253,43 @@ mod tests {
     #[test]
     fn application_slots_reconstruct_diagnostic_paths() {
         let decoder = Decoder {
-            slots: &[
-                __KrsSlot::Type(HostTypeKey(type_id)),
-                __KrsSlot::Variant {
-                    owner: HostTypeKey(type_id),
-                    marker: HostTypeKey(marker_id),
-                },
-            ],
+            slots: __KrsSlots {
+                targets: &[
+                    __KrsTargetSlot::Nominal(HostTypeKey(type_id)),
+                    __KrsTargetSlot::Variant {
+                        owner: HostTypeKey(type_id),
+                        marker: HostTypeKey(marker_id),
+                    },
+                ],
+                ..__KrsSlots::default()
+            },
         };
         let nominal = decoder.target(WireApplicationReference {
             key: key(ProvenanceRole::TermApplicationHead),
-            target: 0,
+            target: TargetSlot(0),
             authored_path: "int :: add".to_owned(),
         });
         assert_eq!(nominal.target.authored_path(), "int :: add");
         let variant = decoder.target(WireApplicationReference {
             key: key(ProvenanceRole::TermApplicationHead),
-            target: 1,
+            target: TargetSlot(1),
             authored_path: "Op :: Gt".to_owned(),
         });
         assert_eq!(variant.target.authored_path(), "Op :: Gt");
+    }
+
+    fn type_slots() -> __KrsSlots<'static> {
+        __KrsSlots {
+            types: &[HostTypeKey(type_id)],
+            ..__KrsSlots::default()
+        }
     }
 
     fn wire_sort() -> WireSortReference {
         WireSortReference {
             key: key(ProvenanceRole::SortDeclaration),
             target: WireTypeReference {
-                slot: 0,
+                slot: TypeSlot(0),
                 authored_path: "u64".to_owned(),
             },
         }
@@ -559,7 +319,7 @@ mod tests {
         }
     }
 
-    fn decode(wire: &WirePayload, slots: &[__KrsSlot]) -> HostDescriptorPayload {
+    fn decode(wire: &WirePayload, slots: __KrsSlots<'_>) -> HostDescriptorPayload {
         let encoded = serde_json::to_string(&wire).unwrap();
         let parsed: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
         assert_eq!(serde_json::to_string(&parsed).unwrap(), encoded);
@@ -573,12 +333,12 @@ mod tests {
             fields: vec![WireConstructorFieldDescriptor {
                 name: "value".to_owned(),
                 sort: WireTypeReference {
-                    slot: 0,
+                    slot: TypeSlot(0),
                     authored_path: "u64".to_owned(),
                 },
             }],
         });
-        let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
             sort: host_sort(),
             fields: vec![HostConstructorFieldDescriptor {
@@ -607,7 +367,7 @@ mod tests {
                 key: key(ProvenanceRole::AssociativityDeclaration),
                 sentences: vec![sentence.clone()],
             })),
-            &[],
+            __KrsSlots::default(),
         );
         let expected =
             HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Associativity {
@@ -634,7 +394,7 @@ mod tests {
                 }],
             },
         )));
-        let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
                 key: key(ProvenanceRole::ConstructorDeclaration),
@@ -667,7 +427,7 @@ mod tests {
                 key: key(ProvenanceRole::PrecedenceDeclaration),
                 chains: vec![chain.clone()],
             })),
-            &[],
+            __KrsSlots::default(),
         );
         let expected =
             HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Precedence {
@@ -682,7 +442,7 @@ mod tests {
                 subsort: wire_sort(),
                 supersort: wire_sort(),
             })),
-            &[__KrsSlot::Type(HostTypeKey(type_id))],
+            type_slots(),
         );
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Subsort {
             key: key(ProvenanceRole::SubsortDeclaration),
@@ -710,7 +470,7 @@ mod tests {
                     kind: StrictnessKind::Strict,
                     using: Some(WireContextAliasReference {
                         key: key(ProvenanceRole::AliasProduction),
-                        slot: 1,
+                        slot: ItemSlot(0),
                     }),
                     fields: vec![],
                     result_sort: Box::new(wire_sort()),
@@ -719,10 +479,11 @@ mod tests {
         )));
         let actual = decode(
             &wire,
-            &[
-                __KrsSlot::Type(HostTypeKey(type_id)),
-                __KrsSlot::Item(alias.clone()),
-            ],
+            __KrsSlots {
+                types: &[HostTypeKey(type_id)],
+                items: std::slice::from_ref(&alias),
+                targets: &[],
+            },
         );
         let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
             HostProduction {
@@ -766,7 +527,7 @@ mod tests {
         assert!(encoded.contains("\"slot\":0,\"authored_path\":\"u64\""));
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
         assert_eq!(serde_json::to_string(&decoded).unwrap(), encoded);
-        let actual = __krs_host_payload(&encoded, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let actual = __krs_host_payload(&encoded, type_slots());
         let expected =
             HostDescriptorPayload::StructuredRule(Box::new(HostStructuredRuleDescriptor {
                 sentence_kind: SentenceKind::Equation,
@@ -805,7 +566,7 @@ mod tests {
         let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
         assert_eq!(serde_json::to_string(&decoded).unwrap(), encoded);
-        let actual = __krs_host_payload(&encoded, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let actual = __krs_host_payload(&encoded, type_slots());
         let expected = HostDescriptorPayload::HeadRule(Box::new(HostHeadRule {
             sentence_kind: SentenceKind::Transition,
             label: None,
@@ -825,8 +586,41 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "KRS generated rule wire has an invalid type slot 0")]
+    fn out_of_range_type_slot_panics() {
+        let wire = WirePayload::Constructor(WireConstructorDescriptor {
+            sort: wire_sort(),
+            fields: vec![],
+        });
+        let _ = decode(&wire, __KrsSlots::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "KRS generated rule wire has an invalid target slot 2")]
+    fn out_of_range_target_slot_panics() {
+        let decoder = Decoder {
+            slots: __KrsSlots::default(),
+        };
+        let _ = decoder.target(WireApplicationReference {
+            key: key(ProvenanceRole::TermApplicationHead),
+            target: TargetSlot(2),
+            authored_path: "Op".to_owned(),
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "KRS generated wire has an invalid item slot 3")]
+    fn out_of_range_item_slot_panics() {
+        let mut decoder = Decoder {
+            slots: __KrsSlots::default(),
+        };
+        let _ =
+            krs_ir::RefMap::<krs_ir::WireStage, krs_ir::HostStage>::item(&mut decoder, ItemSlot(3));
+    }
+
+    #[test]
     #[should_panic(expected = "KRS generated rule wire is malformed")]
     fn malformed_wire_panics() {
-        let _ = __krs_host_payload("{", &[]);
+        let _ = __krs_host_payload("{", __KrsSlots::default());
     }
 }

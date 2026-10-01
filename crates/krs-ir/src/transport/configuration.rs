@@ -195,6 +195,7 @@ protocol_shape! {
         /// Typed leaf or nested content.
         pub content: ProtocolCellContent<S, N> => [nested sort_map nominal_map],
     }
+    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type];
 }
 
 /// Stable fixed-cell field.
@@ -449,6 +450,7 @@ protocol_shape! {
         /// Leaf or nested content.
         pub content: ProtocolInitializerCellContent<I, N, T> => [nested cell_map nominal_map term_map],
     }
+    map_order: [content, key, field];
 }
 
 /// Stable initializer cell.

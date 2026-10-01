@@ -15,7 +15,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"precedence\",\"grammar\":{\"key\":{\"role\":\"precedence_declaration\",\"ordinal\":0},\"chains\":[{\"key\":{\"role\":\"precedence_chain\",\"ordinal\":0},\"groups\":[{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":0},\"group\":\"pair\"},{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":1},\"group\":\"atoms\"}]}]}}}",
-            &[],
+            ::k::__KrsSlots::default(),
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

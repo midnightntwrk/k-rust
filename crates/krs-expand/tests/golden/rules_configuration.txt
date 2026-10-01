@@ -39,14 +39,14 @@ fn __krs_head_rule_descriptor_5791209628653036() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"var\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":null,\"configuration\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"configuration\":{\"slot\":0,\"authored_path\":\"ReadableRuleMachine\"}},\"computation_cell_name\":\"computation\",\"bindings\":[{\"name\":\"name\",\"refinement\":{\"key\":{\"role\":\"rule_binding_type\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Id\"}}},{\"name\":\"value\"}],\"subject\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"name\":\"name\"},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"name\":\"value\"}},\"requires\":null,\"extras\":[{\"extra_kind\":\"have_map\",\"cell\":{\"key\":{\"role\":\"rule_left_cells_field\",\"ordinal\":0},\"name\":\"env\"},\"key\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"name\"},\"value_binding\":\"value\"}]}}",
-            &[
-                ::k::__KrsSlot::Type(
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(__krs_head_rule_sort_5791209628653036),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_head_rule_refinement_5791209628653036_0),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -295,22 +295,27 @@ fn __krs_head_rule_descriptor_93feca0579a6c320() -> ::k::HostDescriptor {
             .expect("Cargo and Rust macro context form a valid host identity"),
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
-            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"assign\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":null,\"configuration\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"configuration\":{\"slot\":0,\"authored_path\":\"ReadableRuleMachine\"}},\"computation_cell_name\":\"computation\",\"bindings\":[{\"name\":\"name\"},{\"name\":\"value\",\"refinement\":{\"key\":{\"role\":\"rule_binding_type\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Value\"}}},{\"name\":\"e\"}],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":2,\"authored_path\":\"StmtSyntax::Assign\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"name\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":2},\"name\":\"value\"}}]},\"result\":{\"head_result_kind\":\"erase\"},\"requires\":null,\"extras\":[{\"extra_kind\":\"update_map\",\"cell\":{\"key\":{\"role\":\"rule_right_cells_field\",\"ordinal\":0},\"name\":\"env\"},\"base_binding\":\"e\",\"update\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":3,\"authored_path\":\"set\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"e\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"name\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":3},\"name\":\"value\"}}]}}]}}",
-            &[
-                ::k::__KrsSlot::Type(
+            "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"assign\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":null,\"configuration\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"configuration\":{\"slot\":0,\"authored_path\":\"ReadableRuleMachine\"}},\"computation_cell_name\":\"computation\",\"bindings\":[{\"name\":\"name\"},{\"name\":\"value\",\"refinement\":{\"key\":{\"role\":\"rule_binding_type\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Value\"}}},{\"name\":\"e\"}],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":0,\"authored_path\":\"StmtSyntax::Assign\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"name\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":2},\"name\":\"value\"}}]},\"result\":{\"head_result_kind\":\"erase\"},\"requires\":null,\"extras\":[{\"extra_kind\":\"update_map\",\"cell\":{\"key\":{\"role\":\"rule_right_cells_field\",\"ordinal\":0},\"name\":\"env\"},\"base_binding\":\"e\",\"update\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"set\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"e\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"name\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":2},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":3},\"name\":\"value\"}}]}}]}}",
+            ::k::__KrsSlots {
+                types: &[
                     ::k::HostTypeKey(__krs_head_rule_sort_93feca0579a6c320),
-                ),
-                ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_head_rule_refinement_93feca0579a6c320_0),
-                ),
-                ::k::__KrsSlot::Variant {
-                    owner: ::k::HostTypeKey(__krs_rule_application_93feca0579a6c320_0),
-                    marker: ::k::HostTypeKey(StmtSyntax::__krs_variant_type_id_Assign),
-                },
-                ::k::__KrsSlot::Type(
-                    ::k::HostTypeKey(__krs_rule_application_93feca0579a6c320_1),
-                ),
-            ],
+                ],
+                items: &[],
+                targets: &[
+                    ::k::__KrsTargetSlot::Variant {
+                        owner: ::k::HostTypeKey(
+                            __krs_rule_application_93feca0579a6c320_0,
+                        ),
+                        marker: ::k::HostTypeKey(
+                            StmtSyntax::__krs_variant_type_id_Assign,
+                        ),
+                    },
+                    ::k::__KrsTargetSlot::Nominal(
+                        ::k::HostTypeKey(__krs_rule_application_93feca0579a6c320_1),
+                    ),
+                ],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

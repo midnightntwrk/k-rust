@@ -410,7 +410,7 @@ impl Sample for WireApplicationReference {
     fn samples() -> Vec<Self> {
         vec![Self {
             key: sample::<ProvenanceKey>(),
-            target: sample::<usize>(),
+            target: TargetSlot(sample::<usize>()),
             authored_path: sample::<String>(),
         }]
     }
@@ -443,7 +443,7 @@ impl Sample for WireContextAliasReference {
     fn samples() -> Vec<Self> {
         vec![Self {
             key: sample::<ProvenanceKey>(),
-            slot: sample::<usize>(),
+            slot: ItemSlot(sample::<usize>()),
         }]
     }
 }
@@ -466,7 +466,7 @@ impl Sample for WireSortReference {
 impl Sample for WireTypeReference {
     fn samples() -> Vec<Self> {
         vec![Self {
-            slot: sample::<usize>(),
+            slot: TypeSlot(sample::<usize>()),
             authored_path: sample::<String>(),
         }]
     }
