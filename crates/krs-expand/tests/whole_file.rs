@@ -402,6 +402,21 @@ fn attribute_expressions_on_item_macros_expand_with_their_macro() {
 }
 
 #[test]
+fn facade_attributes_on_item_macros_expand_before_the_macro() {
+    let sort = expand("#[k::sort]\nk::sorts! { A; }\n").unwrap_err();
+    assert_eq!(sort[0].message, "expected `trait`");
+    assert_eq!(sort[0].authored, Some(br(11, 12)));
+
+    let unknown = expand("#[k::unknown]\nk::sorts! { A; }\n").unwrap_err();
+    assert_eq!(unknown[0].code, whole_file::NOT_AN_ATTRIBUTE_MACRO);
+    assert_eq!(unknown[0].authored, Some(br(2, 12)));
+
+    let derive_first = expand("#[derive(Clone)]\n#[k::sort]\nk::sorts! { A; }\n").unwrap_err();
+    assert_eq!(derive_first[0].code, whole_file::ATTRIBUTE_ORDER);
+    assert_eq!(derive_first[0].authored, Some(br(17, 27)));
+}
+
+#[test]
 fn raw_krs_attribute_arguments_are_not_expanded() {
     let source = "other! { #[k::sort(k::anonymous!())] trait T {} }
 ";
