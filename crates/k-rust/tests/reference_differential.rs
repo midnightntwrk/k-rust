@@ -527,6 +527,11 @@ fn emitted_kore_matches_the_reference_frontend() {
     let actual = parse_definition(&actual_source).unwrap();
     let (removed, owise) = normalize_unsupported_sort_predicates(&mut reference);
     println!("unsupported sort-predicate axioms normalized: {removed} true, {owise} owise");
+    let withheld_predicates = normalize_withheld_sort_predicates(&mut reference, &actual);
+    println!(
+        "constantly false sort predicates of sorts without K terms dropped (N35): \
+         {withheld_predicates}"
+    );
     let withheld = normalize_withheld_injective(&mut reference, &actual);
     println!("injective withheld from equation-headed symbols (N33): {withheld}");
     let dropped = normalize_withheld_overload_no_confusion(&mut reference, &actual);
@@ -832,24 +837,7 @@ fn withheld_overload_no_confusion_normalizer_drops_only_axioms_the_port_withhold
 /// Remove only sort-predicate equations whose injected argument has no declared embedding into
 /// `KItem`, along with that equation's one negated applicability disjunct in its owise companion.
 fn normalize_unsupported_sort_predicates(definition: &mut Definition) -> (usize, usize) {
-    let supported = definition
-        .modules
-        .iter()
-        .flat_map(|module| &module.sentences)
-        .filter_map(|sentence| match sentence {
-            Sentence::Axiom { attributes, .. } => attributes.0.iter().find_map(|attribute| {
-                let Pattern::Application { symbol, arguments } = attribute else {
-                    return None;
-                };
-                (symbol.name == "subsort"
-                    && arguments.is_empty()
-                    && symbol.sort_parameters.len() == 2
-                    && symbol.sort_parameters[1] == kore_sort("SortKItem"))
-                .then(|| symbol.sort_parameters[0].clone())
-            }),
-            _ => None,
-        })
-        .collect::<BTreeSet<_>>();
+    let supported = kitem_subsorts(definition);
     let mut removed = 0;
     let mut rewritten = 0;
     for module in &mut definition.modules {
@@ -883,6 +871,28 @@ fn normalize_unsupported_sort_predicates(definition: &mut Definition) -> (usize,
         }
     }
     (removed, rewritten)
+}
+
+/// The sorts `S` of every `subsort{S, SortKItem}` axiom: the sorts whose values are K items.
+fn kitem_subsorts(definition: &Definition) -> BTreeSet<Sort> {
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom { attributes, .. } => attributes.0.iter().find_map(|attribute| {
+                let Pattern::Application { symbol, arguments } = attribute else {
+                    return None;
+                };
+                (symbol.name == "subsort"
+                    && arguments.is_empty()
+                    && symbol.sort_parameters.len() == 2
+                    && symbol.sort_parameters[1] == kore_sort("SortKItem"))
+                .then(|| symbol.sort_parameters[0].clone())
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 fn kore_sort(name: &str) -> Sort {
@@ -1150,6 +1160,308 @@ fn sort_predicate_normalizer_requires_a_missing_subsort_axiom() {
         injected_predicate_argument(&at_k).map(|(sort, _, _)| sort),
         Some(kore_sort("SortFoo"))
     );
+}
+
+/// N35: on the reference side, drop the sort predicate `isS` of a sort `S` without K terms, only
+/// when the port declares no symbol of that name and the reference defines it as constantly false
+/// and mentions it nowhere else. Returns the number of predicates dropped.
+///
+/// `isS(T)` tests whether the K term `T` is a term of `S`. Without a `subsort{S, SortKItem}`
+/// axiom no K item is a value of `S`, so the predicate is false on every argument: N32 has already
+/// removed its ill-sorted true equation and the matching owise disjunct, which leaves the
+/// unconditional owise equation `isS(X:SortK) = false`. A total function symbol that only its
+/// declaration, its functional axiom and that equation mention constrains nothing else in the
+/// theory, so removing all three changes the meaning of no pattern that does not mention it. The
+/// port generates sort predicates only for sorts of K terms
+/// (docs/compatibility.md#sorts-of-compiled-terms). A port that declares the symbol, a reference
+/// that embeds `S` in `KItem`, a remaining true equation, any other owise condition, and any other
+/// mention of the symbol leave the reference untouched, so a predicate the port declares, or one
+/// the reference uses, stays compared.
+fn normalize_withheld_sort_predicates(reference: &mut Definition, actual: &Definition) -> usize {
+    let port_symbols = actual
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration { symbol, .. } => Some(symbol.name.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let sentences = || {
+        reference
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+    };
+    let declared_sorts = sentences()
+        .filter_map(|sentence| match sentence {
+            Sentence::SortDeclaration {
+                name, parameters, ..
+            } if parameters.is_empty() => Some(kore_sort(name)),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let embedded = kitem_subsorts(reference);
+    let mut withheld = sentences()
+        .filter_map(sort_predicate_declaration)
+        .filter(|(name, sort)| {
+            !port_symbols.contains(name)
+                && declared_sorts.contains(sort)
+                && !embedded.contains(sort)
+        })
+        .map(|(name, _)| name.to_owned())
+        .collect::<BTreeSet<_>>();
+    for sentence in sentences() {
+        withheld.retain(|name| {
+            !sentence_mentions_symbol(sentence, name)
+                || constant_false_predicate_sentence(sentence, name)
+        });
+    }
+    for module in &mut reference.modules {
+        module.sentences.retain(|sentence| {
+            !withheld
+                .iter()
+                .any(|name| sentence_mentions_symbol(sentence, name))
+        });
+    }
+    withheld.len()
+}
+
+/// N35: the name of a sort-predicate declaration `LblisS{}(SortK{}) : SortBool{}` and the sort
+/// `SortS{}` its name tests.
+fn sort_predicate_declaration(sentence: &Sentence) -> Option<(&str, Sort)> {
+    let Sentence::SymbolDeclaration {
+        symbol,
+        argument_sorts,
+        result_sort,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let sort_name = symbol.name.strip_prefix("Lblis")?;
+    (symbol.sort_parameters.is_empty()
+        && argument_sorts.as_slice() == [kore_sort("SortK")]
+        && *result_sort == kore_sort("SortBool"))
+    .then(|| (symbol.name.as_str(), kore_sort(&format!("Sort{sort_name}"))))
+}
+
+/// N35: whether the sentence declares, applies, or names in an attribute the symbol `name`.
+fn sentence_mentions_symbol(sentence: &Sentence, name: &str) -> bool {
+    let symbols = BTreeSet::from([name.to_owned()]);
+    let mentions = |pattern: &Pattern| pattern_mentions_any_symbol(pattern, &symbols);
+    let (patterns, attributes): (Vec<&Pattern>, &Attributes) = match sentence {
+        Sentence::Import { attributes, .. } | Sentence::SortDeclaration { attributes, .. } => {
+            (Vec::new(), attributes)
+        }
+        Sentence::SymbolDeclaration {
+            symbol, attributes, ..
+        } => {
+            if symbol.name == name {
+                return true;
+            }
+            (Vec::new(), attributes)
+        }
+        Sentence::AliasDeclaration {
+            alias,
+            left,
+            right,
+            attributes,
+            ..
+        } => {
+            if alias.name == name {
+                return true;
+            }
+            (vec![left.as_ref(), right.as_ref()], attributes)
+        }
+        Sentence::Axiom {
+            pattern,
+            attributes,
+            ..
+        }
+        | Sentence::Claim {
+            pattern,
+            attributes,
+            ..
+        } => (vec![pattern.as_ref()], attributes),
+    };
+    patterns.into_iter().any(mentions) || attributes.0.iter().any(mentions)
+}
+
+/// N35: whether the sentence is one of the three sentences of a constantly false sort predicate
+/// `name`: its declaration, its functional axiom `\exists V. V = name(K0:SortK)`, or its owise
+/// equation `name(X:SortK) = false` whose only condition is the unconstrained match of `X` (the
+/// negated applicability disjunction is `\bottom`, as N32 leaves it once no true equation remains).
+fn constant_false_predicate_sentence(sentence: &Sentence, name: &str) -> bool {
+    let has = |attributes: &Attributes, attribute: &str| {
+        attributes.0.iter().any(|candidate| {
+            matches!(candidate, Pattern::Application { symbol, arguments }
+                if symbol.name == attribute && arguments.is_empty())
+        })
+    };
+    let (pattern, attributes) = match sentence {
+        Sentence::SymbolDeclaration { .. } => {
+            return sort_predicate_declaration(sentence).is_some_and(|(symbol, _)| symbol == name);
+        }
+        Sentence::Axiom {
+            pattern,
+            attributes,
+            ..
+        } => (pattern.as_ref(), attributes),
+        _ => return false,
+    };
+    if has(attributes, "functional") {
+        let Pattern::Exists { variable, body, .. } = pattern else {
+            return false;
+        };
+        let Pattern::Equals {
+            operand_sort,
+            left,
+            right,
+            ..
+        } = body.as_ref()
+        else {
+            return false;
+        };
+        let Pattern::Application { symbol, arguments } = right.as_ref() else {
+            return false;
+        };
+        return **operand_sort == kore_sort("SortBool")
+            && variable.sort == kore_sort("SortBool")
+            && matches!(left.as_ref(), Pattern::Variable(value) if value == variable.as_ref())
+            && symbol.name == name
+            && symbol.sort_parameters.is_empty()
+            && matches!(arguments.as_slice(), [Pattern::Variable(argument)]
+                if argument.sort == kore_sort("SortK"));
+    }
+    if !has(attributes, "owise") {
+        return false;
+    }
+    let Some((predicate, argument, condition)) = sort_predicate_equation(pattern, "false") else {
+        return false;
+    };
+    let Pattern::And { arguments, .. } = condition else {
+        return false;
+    };
+    let [
+        Pattern::Not {
+            argument: negated, ..
+        },
+        rest,
+    ] = arguments.as_slice()
+    else {
+        return false;
+    };
+    predicate == name
+        && matches!(negated.as_ref(), Pattern::Bottom { .. })
+        && matches!(single_predicate_match(rest, argument), Some(Pattern::Variable(any))
+            if any.sort == kore_sort("SortK"))
+}
+
+#[test]
+fn withheld_sort_predicate_normalizer_drops_only_unused_constantly_false_predicates() {
+    // `#Layout` has no `subsort{Sort'Hash'Layout{}, SortKItem{}}` axiom unless `extra` adds one;
+    // `Foo` is a sort of K items with an ordinary predicate.
+    let definition = |layout_predicate: bool, extra: &str| {
+        let layout = if layout_predicate {
+            r#"symbol Lblis'Hash'Layout{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
+              axiom{R} \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, Lblis'Hash'Layout{}(K0:SortK{}))) [functional{}()]
+              axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(
+                    \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{Sort'Hash'Layout{}, SortKItem{}}(VarL:Sort'Hash'Layout{}), dotk{}())),
+                    \top{R}())),
+                \equals{SortBool{}, R}(Lblis'Hash'Layout{}(X0:SortK{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
+              axiom{R} \implies{R}(
+                \and{R}(\not{R}(\or{R}(
+                    \exists{R}(Gen:Sort'Hash'Layout{}, \and{R}(\top{R}(), \and{R}(
+                        \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{Sort'Hash'Layout{}, SortKItem{}}(Gen:Sort'Hash'Layout{}), dotk{}())),
+                        \top{R}()))),
+                    \bottom{R}())),
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))),
+                \equals{SortBool{}, R}(Lblis'Hash'Layout{}(X0:SortK{}), \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}()))) [owise{}()]"#
+        } else {
+            ""
+        };
+        parse_definition(&format!(
+            r"[] module TEST
+              sort SortK{{}} []
+              sort SortKItem{{}} []
+              sort SortBool{{}} []
+              sort Sort'Hash'Layout{{}} []
+              sort SortFoo{{}} []
+              symbol LblisFoo{{}}(SortK{{}}) : SortBool{{}} [function{{}}(), functional{{}}(), total{{}}()]
+              axiom{{R}} \exists{{R}}(Val:SortBool{{}}, \equals{{SortBool{{}}, R}}(Val:SortBool{{}}, LblisFoo{{}}(K0:SortK{{}}))) [functional{{}}()]
+              axiom{{R}} \exists{{R}}(Val:SortKItem{{}}, \equals{{SortKItem{{}}, R}}(Val:SortKItem{{}}, inj{{SortFoo{{}}, SortKItem{{}}}}(From:SortFoo{{}}))) [subsort{{SortFoo{{}}, SortKItem{{}}}}()]
+              {layout}
+              {extra}
+            endmodule []"
+        ))
+        .unwrap()
+    };
+    // The comparison applies N32 first, which leaves the owise equation unconditional.
+    let normalized = |reference: &mut Definition, port: &Definition| {
+        normalize_unsupported_sort_predicates(reference);
+        normalize_withheld_sort_predicates(reference, port)
+    };
+
+    let port = definition(false, "");
+    let mut reference = definition(true, "");
+    assert_eq!(normalized(&mut reference, &port), 1);
+    assert_eq!(
+        reference, port,
+        "the declaration, the functional axiom and the owise equation go; isFoo stays"
+    );
+
+    // A syntax definition declares the predicate without axioms.
+    let syntax = |layout_predicate: bool| {
+        parse_definition(&format!(
+            r"[] module TEST
+              sort SortK{{}} []
+              sort SortBool{{}} []
+              sort Sort'Hash'Layout{{}} []
+              {}
+            endmodule []",
+            if layout_predicate {
+                r"symbol Lblis'Hash'Layout{}(SortK{}) : SortBool{} [function{}()]"
+            } else {
+                ""
+            }
+        ))
+        .unwrap()
+    };
+    let mut reference = syntax(true);
+    assert_eq!(
+        normalize_withheld_sort_predicates(&mut reference, &syntax(false)),
+        1
+    );
+    assert_eq!(reference, syntax(false));
+
+    // Every control leaves the reference as N32 left it.
+    let embedding = r"axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{Sort'Hash'Layout{}, SortKItem{}}(From:Sort'Hash'Layout{}))) [subsort{Sort'Hash'Layout{}, SortKItem{}}()]";
+    let used = r#"axiom{R} \equals{SortBool{}, R}(Lblis'Hash'Layout{}(X:SortK{}), \dv{SortBool{}}("false")) []"#;
+    for (port, extra, control) in [
+        (definition(true, ""), "", "the port declares the predicate"),
+        (
+            definition(false, embedding),
+            embedding,
+            "the reference embeds #Layout in KItem",
+        ),
+        (
+            definition(false, used),
+            used,
+            "another axiom uses the predicate",
+        ),
+    ] {
+        let mut reference = definition(true, extra);
+        normalize_unsupported_sort_predicates(&mut reference);
+        let original = reference.clone();
+        assert_eq!(
+            normalize_withheld_sort_predicates(&mut reference, &port),
+            0,
+            "{control}"
+        );
+        assert_eq!(reference, original, "{control}");
+    }
 }
 
 #[test]

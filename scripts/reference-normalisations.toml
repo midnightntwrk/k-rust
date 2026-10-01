@@ -369,6 +369,7 @@ anchor_helpers = [
   "injected_predicate_argument",
   "unsupported_sort_predicate_axiom",
   "owise_unsupported_disjunct",
+  "kitem_subsorts",
 ]
 rule = "On the reference side only, drop a generated sort-predicate true equation whose sole match places X:S at K through inj{S,KItem} in a one-element K sequence (or inj{S,K}), only when the KORE definition has no subsort{S,KItem} axiom. In its matching owise false equation, replace the negation of exactly that existential match disjoined with bottom by the negation of bottom; retain every other condition and sentence. A declared subsort{S,KItem} leaves both equations untouched."
 justification = "A predicate takes a K argument, so isS(X:S) => true is well-sorted only if S is placeable there. Without an axiom embedding S in KItem, the injected match cannot denote a K term; its true equation is ill-sorted and its negated owise disjunct has no witness. See docs/compatibility.md#sorts-of-compiled-terms."
@@ -389,3 +390,17 @@ anchor_symbol = "normalize_withheld_overload_no_confusion"
 anchor_helpers = ["overload_greater", "constructor_family_symbols", "is_application_over_variables"]
 rule = "On the reference side only, drop the `constructor{}()` axioms of the injectivity shape `\\implies(\\and(g(X..), g(Y..)), g(..))` and of the pairwise no-confusion shape `\\not(\\and(P(X..), Q(Y..)))` that mention an overload-greater `g` (the first symbol of a `symbol-overload` attribute), only when the port declares `g` with `anywhere` and states no axiom of either shape for it. The no-junk axiom and every axiom that does not mention such a `g` stay compared. The comparison prints the number of axioms dropped."
 justification = "An overload-greater `g` heads the equations `g(inj(x)) = inj(l(x))` for every production `l` below it. Its injectivity axiom holds only when every such `l` is locally injective (not a function, not assoc/comm/idem, heading no anywhere or macro-like equation); otherwise two applications of `g` with different arguments reach one value through `l`. Its disjointness axioms hold only when no production related to it in the overload order has its result sort head; otherwise an overload equation equates an application of `g` with an application of a same-sort production (`asNumber(inj(x)) = asInt(x)` against `\\not(asInt(X) ∧ asNumber(Y))`, which instantiated at `Y := inj(X)` denies the functional `asInt(X)`), or two greaters of one sort that share a lesser both equal `inj(l(x))`. The port withholds exactly those axioms, which are false in every model of the emitted equations. See docs/compatibility.md#anywhere-rules."
+
+[[normalisation]]
+id = "N35"
+gate = "compile semantic and syntax KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_withheld_sort_predicates"
+anchor_symbol = "normalize_withheld_sort_predicates"
+anchor_helpers = [
+  "kitem_subsorts",
+  "sort_predicate_declaration",
+  "sentence_mentions_symbol",
+  "constant_false_predicate_sentence",
+]
+rule = "On the reference side only, after N32, drop a sort predicate `LblisS{}(SortK{}) : SortBool{}` together with its functional axiom and its owise equation `LblisS(X:SortK) = false`, only when the port declares no symbol of that name, the reference declares the sort `SortS` and has no `subsort{SortS, SortKItem}` axiom, the owise equation's negated applicability disjunction is `\\bottom` and its match leaves `X` unconstrained, and no other sentence or attribute mentions the symbol. The comparison prints the number of predicates dropped. A predicate the port declares, a sort embedded in `KItem`, a remaining true equation, and any other mention leave the reference untouched."
+justification = "`isS(T)` tests whether a K term is a term of `S`; without an embedding of `S` in `KItem` no K term is, so the predicate is false on every argument (N32 removes its ill-sorted true equation). The port generates sort predicates only for sorts of K terms: a numeral, a `#`-prefixed parser sort such as a user-declared `#Layout` token sort, and the kernel sorts of the term syntax and of the cell structure have none. A total function symbol that only its declaration, its functional axiom and its constant equation mention constrains nothing else in the theory, so its absence changes the meaning of no pattern that does not mention it. See docs/compatibility.md#sorts-of-compiled-terms."
