@@ -82,28 +82,31 @@ impl FacadeAliases {
         }
         Ok(Self { aliases })
     }
+
+    /// The package's facade scope before file and inline-module bindings.
+    #[must_use]
+    pub fn scope(&self) -> FacadeScope {
+        FacadeScope::new(self.aliases.clone())
+    }
 }
 
 /// Resolves the attributes of one module of an authored source file.
 #[derive(Clone, Debug)]
-pub struct AttributeResolver<'a> {
+pub(crate) struct AttributeResolver<'a> {
     facade: FacadeScope,
     display_file: &'a str,
 }
 
 impl<'a> AttributeResolver<'a> {
-    /// Creates a resolver using the package aliases and a diagnostic display filename.
-    #[must_use]
-    pub fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
+    pub(crate) fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
         Self {
-            facade: FacadeScope::new(facade.aliases.clone()),
+            facade: facade.scope(),
             display_file,
         }
     }
 
     /// The resolver for a file or inline module whose items are `items`.
-    #[must_use]
-    pub fn scoped(&self, items: &[syn::Item]) -> Self {
+    pub(crate) fn scoped(&self, items: &[syn::Item]) -> Self {
         Self {
             facade: self.facade.scoped(items),
             display_file: self.display_file,
@@ -136,15 +139,6 @@ impl<'a> AttributeResolver<'a> {
     /// Whether `attribute` invokes the attribute entry point `entry`.
     pub(crate) fn invokes(&self, attribute: &Attribute, entry: AttributeMacro) -> bool {
         self.facade.resolve(attribute.path()) == Some(Entry::Attribute(entry))
-    }
-
-    /// Returns the function macro entry point invoked by a path under a facade alias.
-    #[must_use]
-    pub fn resolve_macro(&self, path: &syn::Path) -> Option<FunctionMacro> {
-        match self.facade.resolve(path) {
-            Some(Entry::Function(entry)) => Some(entry),
-            _ => None,
-        }
     }
 
     /// Checks every authored attribute and item-level macro in a module,
@@ -208,8 +202,8 @@ impl<'a> AttributeResolver<'a> {
     }
 
     fn resolves_attribute(&self, path: &syn::Path, name: &str) -> bool {
-        self.facade_member(path).as_deref() == Some(name)
-            && (self.resolve(path).is_some() || is_helper(name))
+        self.facade.facade_member(path).as_deref() == Some(name)
+            && (self.facade.resolve(path).is_some() || is_helper(name))
     }
 
     fn check_macro(&self, invocation: &syn::Macro) -> Result<(), CollectionError> {
@@ -220,7 +214,9 @@ impl<'a> AttributeResolver<'a> {
         let Some(entry) = FunctionMacro::from_name(&name) else {
             return Ok(());
         };
-        if entry.name().starts_with("__") || self.resolve_macro(&invocation.path) == Some(entry) {
+        if entry.name().starts_with("__")
+            || self.facade.resolve(&invocation.path) == Some(Entry::Function(entry))
+        {
             return Ok(());
         }
         let start =
@@ -243,20 +239,6 @@ impl<'a> AttributeResolver<'a> {
             ),
         )
         .with_span(invocation.path.span()))
-    }
-}
-
-impl Resolve for AttributeResolver<'_> {
-    fn facade_member(&self, path: &syn::Path) -> Option<String> {
-        self.facade.facade_member(path)
-    }
-
-    fn resolve(&self, path: &syn::Path) -> Option<Entry> {
-        self.facade.resolve(path)
-    }
-
-    fn scoped(&self, items: &[syn::Item]) -> Box<dyn Resolve> {
-        Box::new(self.facade.scoped(items))
     }
 }
 

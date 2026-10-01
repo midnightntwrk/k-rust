@@ -16,14 +16,14 @@ use krs_ir::{
     ProvenanceRole, RangedOriginKind, SemanticRule, SemanticSortRef, SemanticTheory, SetOperation,
     Sha256Digest, SourceFileId, StableItemId,
 };
-use krs_syntax::surface::FunctionMacro;
+use krs_syntax::surface::{self, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
-use krs_collector::{AttributeResolver, CollectionError, FacadeAliases};
+use krs_collector::{CollectionError, FacadeAliases};
 
 /// Expands the one authored Rust module that defines a package's
 /// descriptors.
@@ -160,7 +160,27 @@ pub fn expand_reference_source(
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
     let facade =
         FacadeAliases::from_manifest(facade_manifest).map_err(ReferenceExpansionError::Facade)?;
-    let resolver = AttributeResolver::new(&facade, "reference source").scoped(&file.items);
+    let item_indices = file
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| (std::ptr::from_ref(item), index))
+        .collect::<BTreeMap<_, _>>();
+    let macro_entries = surface::invocations(&file, &facade.scope())
+        .into_iter()
+        .filter_map(|invocation| {
+            if !matches!(&invocation.scope, Scope::Module(modules) if modules.is_empty()) {
+                return None;
+            }
+            let item @ syn::Item::Macro(_) = invocation.owned_item()? else {
+                return None;
+            };
+            let InvocationKind::Function { entry, .. } = invocation.kind else {
+                return None;
+            };
+            Some((item_indices[&std::ptr::from_ref(item)], entry))
+        })
+        .collect::<BTreeMap<_, _>>();
     let semantic_rules = semantic
         .modules()
         .iter()
@@ -170,7 +190,7 @@ pub fn expand_reference_source(
     let mut rendered_names = BTreeSet::new();
     let mut needs_map_macro = false;
     let mut items = Vec::new();
-    for mut item in std::mem::take(&mut file.items) {
+    for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
         if let syn::Item::Use(item_use) = &mut item {
             item_use
                 .attrs
@@ -192,14 +212,15 @@ pub fn expand_reference_source(
             items.extend(trailing_enum_grammar);
             continue;
         };
+        let entry = macro_entries.get(&index);
         if matches!(
-            resolver.resolve_macro(&invocation.mac.path),
+            entry,
             Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
         ) {
             items.extend(materialize_readable_sorts(invocation)?);
             continue;
         }
-        if resolver.resolve_macro(&invocation.mac.path) != Some(FunctionMacro::Rules) {
+        if entry != Some(&FunctionMacro::Rules) {
             items.push(item);
             items.extend(trailing_enum_grammar);
             continue;

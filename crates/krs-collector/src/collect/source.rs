@@ -112,10 +112,11 @@ pub(super) fn load_source_document(
     resolver
         .check_items(&syntax.items)
         .map_err(|error| error.with_source_file(&file))?;
-    validate_dsl_trivia(&syntax, &text, &line_index, &resolver)
+    let discovered = krs_syntax::surface::invocations(&syntax, &context.facade.scope());
+    validate_dsl_trivia(&discovered, &text, &line_index)
         .map_err(|error| error.with_source_file(&file))?;
     let mut invocations = Vec::new();
-    collect_invocations(&syntax.items, &resolver, &mut invocations)
+    collect_invocations(&syntax, &discovered, &resolver, &mut invocations)
         .map_err(|error| error.with_source_file(&file))?;
     Ok(SourceDocument {
         line_index,

@@ -1,10 +1,12 @@
-//! Reparsing of authored KRS attribute invocations and comparison with host payloads.
+//! Reparsing of shared authored KRS invocations and comparison with host payloads.
 
 use krs_syntax::KrsSyntax;
 use std::collections::BTreeMap;
 
 use krs_ir::{HostDescriptorPayload, ProvenanceKey, RustVisibility, StableItemId};
-use krs_syntax::surface::{AttributeMacro, FunctionMacro, path_text};
+use krs_syntax::surface::{
+    AttributeMacro, FunctionMacro, Invocation, InvocationKind, Scope, path_text,
+};
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
@@ -45,7 +47,28 @@ enum ParsedInvocationPayload {
 }
 
 pub(super) fn collect_invocations(
+    syntax: &syn::File,
+    invocations: &[Invocation<'_>],
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    let by_item = invocations
+        .iter()
+        .filter(|invocation| matches!(invocation.scope, Scope::Module(_)))
+        .filter_map(|invocation| {
+            invocation
+                .owned_item()
+                .map(|item| (std::ptr::from_ref(item), invocation))
+        })
+        .collect::<BTreeMap<_, _>>();
+    collect_module_items(&syntax.items, &by_item, resolver, output)
+}
+
+/// Walks module items in source order for per-item reparsing and checks.
+/// Which item macros invoke KRS and their entries must come from the shared discovery list.
+fn collect_module_items(
     items: &[Item],
+    invocations: &BTreeMap<*const Item, &Invocation<'_>>,
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
@@ -59,23 +82,25 @@ pub(super) fn collect_invocations(
         {
             resolver.check(attrs)?;
         }
+        let invocation = invocations.get(&std::ptr::from_ref(item));
         match item {
-            Item::Trait(item_trait) => collect_trait_invocations(item_trait, resolver, output)?,
-            Item::Struct(item_struct) => collect_struct_invocations(item_struct, resolver, output)?,
-            Item::Enum(item_enum)
-                if item_enum
-                    .attrs
-                    .iter()
-                    .any(|attribute| resolver.invokes(attribute, AttributeMacro::Constructors)) =>
-            {
-                collect_enum_invocations(item_enum, resolver, output)?;
+            Item::Trait(item) => collect_trait_invocations(item, resolver, output)?,
+            Item::Struct(item) => collect_struct_invocations(item, resolver, output)?,
+            Item::Enum(item) if invocation.is_some() => {
+                collect_enum_invocations(item, resolver, output)?;
             }
-            Item::Fn(item_fn) => collect_fn_invocations(item_fn, resolver, output)?,
-            Item::Impl(item_impl) => collect_impl_invocations(item_impl, resolver, output)?,
-            Item::Macro(_) => collect_macro_invocations(item, resolver, output)?,
+            Item::Fn(item) => collect_fn_invocations(item, resolver, output)?,
+            Item::Impl(item) => collect_impl_invocations(item, resolver, output)?,
+            Item::Macro(item) => {
+                if let Some(invocation) = invocation
+                    && let InvocationKind::Function { entry, .. } = &invocation.kind
+                {
+                    collect_macro_invocations(item, *entry, output)?;
+                }
+            }
             Item::Mod(module) => {
                 if let Some((_, nested)) = &module.content {
-                    collect_invocations(nested, resolver, output)?;
+                    collect_module_items(nested, invocations, resolver, output)?;
                 }
             }
             _ => {}
@@ -432,11 +457,13 @@ fn collect_enum_invocations(
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let invoking = item_enum
+    let Some(invoking) = item_enum
         .attrs
         .iter()
         .find(|attribute| resolver.invokes(attribute, AttributeMacro::Constructors))
-        .expect("the match guard found a constructors attribute");
+    else {
+        return Ok(());
+    };
     let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attribute_tokens(invoking)?)
         .map_err(source_syntax)?;
     let mut reparsed = item_enum.clone();
@@ -758,27 +785,18 @@ fn collect_impl_invocations(
 }
 
 fn collect_macro_invocations(
-    item: &Item,
-    resolver: &AttributeResolver<'_>,
+    item_macro: &syn::ItemMacro,
+    entry: FunctionMacro,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    match item {
-        Item::Macro(item_macro)
-            if resolver.resolve_macro(&item_macro.mac.path) == Some(FunctionMacro::Rules) =>
-        {
+    match entry {
+        FunctionMacro::Rules => {
             collect_rules_macro(item_macro, output)?;
         }
-        Item::Macro(item_macro)
-            if matches!(
-                resolver.resolve_macro(&item_macro.mac.path),
-                Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
-            ) =>
-        {
+        FunctionMacro::Sorts | FunctionMacro::FrameworkSorts => {
             collect_sorts_macro(item_macro, output)?;
         }
-        Item::Macro(item_macro)
-            if resolver.resolve_macro(&item_macro.mac.path) == Some(FunctionMacro::Precedence) =>
-        {
+        FunctionMacro::Precedence => {
             let declaration =
                 krs_syntax::PrecedenceDeclaration::parse_tokens(item_macro.mac.tokens.clone())
                     .map_err(source_syntax)?;
@@ -789,10 +807,7 @@ fn collect_macro_invocations(
                 ParsedInvocationPayload::Declaration,
             )?);
         }
-        Item::Macro(item_macro)
-            if resolver.resolve_macro(&item_macro.mac.path)
-                == Some(FunctionMacro::Associativity) =>
-        {
+        FunctionMacro::Associativity => {
             let declaration =
                 krs_syntax::AssociativityDeclaration::parse_tokens(item_macro.mac.tokens.clone())
                     .map_err(source_syntax)?;
@@ -1266,7 +1281,8 @@ mod tests {
             }
         };
         let mut invocations = Vec::new();
-        collect_invocations(&source.items, &resolver, &mut invocations).unwrap();
+        let discovered = krs_syntax::surface::invocations(&source, &facade.scope());
+        collect_invocations(&source, &discovered, &resolver, &mut invocations).unwrap();
         assert_eq!(
             invocations
                 .iter()
@@ -1280,5 +1296,63 @@ mod tests {
                 ("sort_declaration", "KResult")
             ],
         );
+    }
+
+    #[test]
+    fn plain_impl_initializers_follow_inline_module_source_order() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let source = syn::parse_file(
+            r"crate::sorts! { Before; }
+mod nested {
+    use crate as local;
+    impl State {
+        #[local::init]
+        fn init(pgm: Pgm) -> Self { Self { k: local::k![pgm] } }
+    }
+    local::sorts! { Inside; }
+}
+crate::sorts! { After; }
+",
+        )
+        .unwrap();
+        let discovered = krs_syntax::surface::invocations(&source, &facade.scope());
+        let mut invocations = Vec::new();
+        collect_invocations(&source, &discovered, &resolver, &mut invocations).unwrap();
+        assert_eq!(
+            invocations
+                .iter()
+                .map(|invocation| (
+                    invocation.primary.role().as_str(),
+                    invocation.item_name.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("sort_declaration", "Before"),
+                ("initializer_declaration", "init"),
+                ("sort_declaration", "Inside"),
+                ("sort_declaration", "After"),
+            ],
+        );
+    }
+
+    #[test]
+    fn declaration_checks_precede_later_selected_invocation_errors() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let source = syn::parse_file(
+            r"#[other::sort]
+trait Plain {}
+crate::rules! { invalid }
+",
+        )
+        .unwrap();
+        let discovered = krs_syntax::surface::invocations(&source, &facade.scope());
+        let error =
+            collect_invocations(&source, &discovered, &resolver, &mut Vec::new()).unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedAttribute);
+        assert!(error.detail().contains("other::sort"));
     }
 }

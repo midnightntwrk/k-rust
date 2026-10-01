@@ -3,80 +3,51 @@
 use krs_syntax::{
     parse_cells_expression_source_with_trivia, parse_cells_pattern_source_with_trivia,
     parse_map_expression_source_with_trivia, parse_map_pattern_source_with_trivia,
-    parse_rule_block_source_with_trivia, surface::FunctionMacro,
+    parse_rule_block_source_with_trivia,
+    surface::{FunctionMacro, Invocation, InvocationKind},
 };
-use syn::visit::Visit;
 
 use super::invocation::source_syntax_at;
 use super::provenance::line_index_error;
-use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
 use krs_ir::LineIndex;
 
-struct DslTriviaVisitor<'source, 'file> {
-    source: &'source str,
-    line_index: &'source LineIndex,
-    resolver: AttributeResolver<'file>,
-    error: Option<CollectionError>,
-}
-
-impl<'ast> Visit<'ast> for DslTriviaVisitor<'_, '_> {
-    fn visit_file(&mut self, file: &'ast syn::File) {
-        self.resolver = self.resolver.scoped(&file.items);
-        syn::visit::visit_file(self, file);
-    }
-
-    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
-        let parent = self.resolver.clone();
-        if let Some((_, items)) = &module.content {
-            self.resolver = self.resolver.scoped(items);
-        }
-        syn::visit::visit_item_mod(self, module);
-        self.resolver = parent;
-    }
-
-    fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
-        if self.error.is_some() {
-            return;
-        }
-        let result = match self.resolver.resolve_macro(&invocation.path) {
-            Some(FunctionMacro::Rules) => {
-                macro_body_source(self.source, self.line_index, invocation).and_then(|body| {
-                    parse_rule_block_source_with_trivia(body.source)
-                        .map(|_| ())
-                        .map_err(|error| source_syntax_at(error, body.byte_offset))
-                })
-            }
-            Some(FunctionMacro::Cells) => {
-                macro_body_source(self.source, self.line_index, invocation)
-                    .and_then(validate_cells_trivia)
-            }
-            Some(FunctionMacro::Map) => macro_body_source(self.source, self.line_index, invocation)
-                .and_then(validate_map_trivia),
-            _ => Ok(()),
-        };
-        if let Err(error) = result {
-            self.error = Some(error);
-            return;
-        }
-        syn::visit::visit_macro(self, invocation);
-    }
-}
-
+/// Validates the DSL bodies reached through Rust syntax in source order and reports the first error.
+/// Opaque token calls carry no syntax delimiter and are not checked.
 pub(super) fn validate_dsl_trivia(
-    syntax: &syn::File,
+    invocations: &[Invocation<'_>],
     source: &str,
     line_index: &LineIndex,
-    resolver: &AttributeResolver<'_>,
 ) -> Result<(), CollectionError> {
-    let mut visitor = DslTriviaVisitor {
-        source,
-        line_index,
-        resolver: resolver.clone(),
-        error: None,
-    };
-    visitor.visit_file(syntax);
-    visitor.error.map_or(Ok(()), Err)
+    let mut bodies = invocations
+        .iter()
+        .filter_map(|invocation| match &invocation.kind {
+            InvocationKind::Function {
+                entry,
+                delimiter: Some(delimiter),
+                ..
+            } => Some((invocation.call_site.start(), *entry, *delimiter)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    bodies.sort_by_key(|(start, _, _)| (start.line, start.column));
+    for (_, entry, delimiter) in bodies {
+        match entry {
+            FunctionMacro::Rules => {
+                let body = macro_body_source(source, line_index, delimiter)?;
+                parse_rule_block_source_with_trivia(body.source)
+                    .map_err(|error| source_syntax_at(error, body.byte_offset))?;
+            }
+            FunctionMacro::Cells => {
+                validate_cells_trivia(macro_body_source(source, line_index, delimiter)?)?;
+            }
+            FunctionMacro::Map => {
+                validate_map_trivia(macro_body_source(source, line_index, delimiter)?)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -138,10 +109,10 @@ fn validate_map_trivia(body: MacroBody<'_>) -> Result<(), CollectionError> {
 fn macro_body_source<'source>(
     source: &'source str,
     line_index: &LineIndex,
-    invocation: &syn::Macro,
+    delimiter: &syn::MacroDelimiter,
 ) -> Result<MacroBody<'source>, CollectionError> {
-    let start = invocation.delimiter.span().open().end();
-    let end = invocation.delimiter.span().close().start();
+    let start = delimiter.span().open().end();
+    let end = delimiter.span().close().start();
     let start = line_index
         .line_column_to_byte(start)
         .map_err(line_index_error)?;
@@ -160,4 +131,88 @@ fn macro_body_source<'source>(
                 "a DSL macro delimiter span is outside the exact authored source",
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_dsl_trivia;
+    use krs_ir::LineIndex;
+    use krs_syntax::surface::{self, FacadeScope};
+    use std::collections::BTreeSet;
+
+    fn validate(source: &str) -> Result<(), crate::CollectionError> {
+        let syntax = syn::parse_file(source).unwrap();
+        let scope = FacadeScope::new(BTreeSet::from(["k".to_owned()]));
+        validate_dsl_trivia(
+            &surface::invocations(&syntax, &scope),
+            source,
+            &LineIndex::new(source),
+        )
+    }
+
+    #[test]
+    fn macro_tokens_and_attribute_arguments_are_not_trivia_checked() {
+        validate(
+            r"other! { k::rules! { invalid /* opaque */ } }
+k::id!(k::rules! { invalid /* opaque */ });
+#[k::function(k::rules! { invalid /* argument */ })]
+fn fixture() {}
+",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn attributed_rust_bodies_report_the_first_exact_comment_range() {
+        let source = r"#[k::function]
+fn first() { let _ = k::cells! { k: KCell(value /* first */, ..tail), ..state }; }
+fn second() { let _ = k::map! { name /* second */ -> value, rest @ .. }; }
+";
+        let error = validate(source).unwrap_err();
+        let start = source.find("/* first */").unwrap();
+        let end = start + "/* first */".len();
+        assert!(error.detail().contains(&format!("bytes {start}..{end}")));
+        assert!(error.detail().contains("cells!"));
+    }
+
+    #[test]
+    fn invalid_facade_attributes_do_not_hide_rust_body_trivia() {
+        for attributes in [
+            "#[derive(Clone)] #[k::function]",
+            "#[k::unknown]",
+            "#[k::rules]",
+            "#[k::function = \"wrong\"]",
+        ] {
+            let source = format!(
+                "{attributes}\nfn fixture() {{ let _ = k::cells! {{ k: KCell(value /* body */, ..tail), ..state }}; }}"
+            );
+            let error = validate(&source).unwrap_err();
+            let start = source.find("/* body */").unwrap();
+            let end = start + "/* body */".len();
+            assert!(error.detail().contains(&format!("bytes {start}..{end}")));
+        }
+    }
+
+    #[test]
+    fn inline_module_aliases_apply_to_nested_rust_macros() {
+        let source = r"mod nested {
+    use k as local;
+    fn fixture() { let _ = local::map! { name /* local */ -> value, rest @ .. }; }
+}
+";
+        let error = validate(source).unwrap_err();
+        assert!(error.detail().contains("map!"));
+    }
+
+    #[test]
+    fn name_value_attribute_expressions_precede_item_macro_trivia() {
+        let source = r"#[other = k::cells! { k: KCell(value /* attribute */, ..tail), ..state }]
+k::rules! { invalid /* body */ }
+";
+        let error = validate(source).unwrap_err();
+        let start = source.find("/* attribute */").unwrap();
+        let end = start + "/* attribute */".len();
+        assert!(error.detail().contains(&format!("bytes {start}..{end}")));
+        assert!(error.detail().contains("cells!"));
+    }
 }

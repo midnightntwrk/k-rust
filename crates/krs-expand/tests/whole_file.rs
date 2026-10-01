@@ -378,6 +378,30 @@ fn a_file_without_invocations_gets_an_empty_table() {
 }
 
 #[test]
+fn attribute_expressions_on_item_macros_expand_with_their_macro() {
+    for (source, kind, call_site) in [
+        (
+            "#[doc = k::anonymous!()]\nk::sorts! { A; }\n",
+            "sorts",
+            br(25, 41),
+        ),
+        (
+            "impl S {\n    #[doc = k::anonymous!()]\n    k::anonymous!();\n}\n",
+            "anonymous",
+            br(42, 57),
+        ),
+    ] {
+        let expansion = expand(source).expect("the item macro and its attribute expand");
+        let [invocation] = expansion.generated.map.invocations.as_slice() else {
+            panic!("only the item macro is outermost in {source:?}");
+        };
+        assert_eq!(invocation.kind, kind);
+        assert_eq!(invocation.call_site, call_site);
+        assert!(!expansion.generated.text.contains("k::anonymous!"));
+    }
+}
+
+#[test]
 fn raw_krs_attribute_arguments_are_not_expanded() {
     let source = "other! { #[k::sort(k::anonymous!())] trait T {} }
 ";

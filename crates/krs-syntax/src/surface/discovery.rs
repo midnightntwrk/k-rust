@@ -84,8 +84,27 @@ pub struct Invocation<'ast> {
     pub raw_tokens: bool,
 }
 
+impl<'ast> Invocation<'ast> {
+    /// The item whose own invocation this is:
+    /// the function-like call of an item macro, or the facade attribute of an item that is not a macro.
+    /// An item macro under a facade attribute is therefore classified by its own entry, not by the attribute.
+    #[must_use]
+    pub fn owned_item(&self) -> Option<&'ast Item> {
+        let InvocationNode::Item(item) = self.node else {
+            return None;
+        };
+        let owned = match item {
+            Item::Macro(_) => matches!(self.kind, InvocationKind::Function { .. }),
+            _ => matches!(self.kind, InvocationKind::Attribute(_)),
+        };
+        owned.then_some(item)
+    }
+}
+
 /// Finds every KRS invocation in `file`, resolving the file root and each inline module separately.
-/// Invalid attributed nodes are reported without walking their contents.
+/// Rust attribute expressions and descendants of invalid attributed nodes must be visited under every resolver.
+/// Descendants retain the attributed node's invocation index as their parent; consumers may select only outermost invocations.
+/// The attribute expressions of a function-like KRS item macro are its descendants, since its replaced span contains them.
 #[must_use]
 pub fn invocations<'ast>(file: &'ast syn::File, resolve: &dyn Resolve) -> Vec<Invocation<'ast>> {
     let mut discovery = Discovery {
@@ -147,10 +166,19 @@ impl<'ast> Discovery<'ast> {
         }
     }
 
-    fn visit_mac(&mut self, mac: &'ast Macro, node: InvocationNode<'ast>, replaced: Span) -> bool {
+    /// Records a function-like KRS macro before its attribute expressions and body,
+    /// which lie inside its replaced span and are therefore its descendants.
+    fn visit_mac(
+        &mut self,
+        attrs: &'ast [Attribute],
+        mac: &'ast Macro,
+        node: InvocationNode<'ast>,
+        replaced: Span,
+    ) {
         let Some(Entry::Function(entry)) = self.resolve.resolve(&mac.path) else {
+            self.visit_authored_attributes(attrs);
             self.scan_tokens(&mac.tokens, true);
-            return false;
+            return;
         };
         let index = self.record(Invocation {
             kind: InvocationKind::Function {
@@ -166,9 +194,9 @@ impl<'ast> Discovery<'ast> {
             raw_tokens: false,
         });
         let saved = self.parent.replace(index);
+        self.visit_authored_attributes(attrs);
         self.scan_tokens(&mac.tokens, false);
         self.parent = saved;
-        true
     }
 
     fn visit_attributes(
@@ -176,7 +204,7 @@ impl<'ast> Discovery<'ast> {
         attrs: &'ast [Attribute],
         node: InvocationNode<'ast>,
         replaced: Span,
-    ) -> Option<(usize, bool)> {
+    ) -> Option<usize> {
         let facade_index = attrs.iter().position(|attribute| {
             !is_inert(attribute.path()) && self.resolve.facade_member(attribute.path()).is_some()
         })?;
@@ -186,9 +214,6 @@ impl<'ast> Discovery<'ast> {
             .expect("a facade attribute is expandable");
         let attribute = &attrs[facade_index];
         let entry = self.resolve.resolve(attribute.path());
-        let valid = facade_index == first_expandable_index
-            && matches!(entry, Some(Entry::Attribute(_)))
-            && !matches!(attribute.meta, Meta::NameValue(_));
         let member = self
             .resolve
             .facade_member(attribute.path())
@@ -208,13 +233,19 @@ impl<'ast> Discovery<'ast> {
             parent: self.parent,
             raw_tokens: false,
         });
-        Some((index, valid))
+        Some(index)
     }
 
     fn nested(&mut self, visit: impl FnOnce(&mut Self)) {
         let saved = std::mem::replace(&mut self.scope, Scope::Nested);
         visit(self);
         self.scope = saved;
+    }
+
+    fn visit_authored_attributes(&mut self, attrs: &'ast [Attribute]) {
+        for attribute in attrs {
+            self.visit_attribute(attribute);
+        }
     }
 
     fn attributed(
@@ -225,10 +256,7 @@ impl<'ast> Discovery<'ast> {
         visit: impl FnOnce(&mut Self),
     ) {
         let saved = self.parent;
-        if let Some((index, valid)) = self.visit_attributes(attrs, node, span) {
-            if !valid {
-                return;
-            }
+        if let Some(index) = self.visit_attributes(attrs, node, span) {
             self.parent = Some(index);
             if let InvocationKind::Attribute(attribute) = &self.found[index].kind
                 && let Meta::List(list) = &attrs[attribute.facade_index].meta
@@ -247,11 +275,6 @@ impl<'ast> Visit<'ast> for Discovery<'ast> {
     }
 
     fn visit_item(&mut self, item: &'ast Item) {
-        if let Item::Macro(node) = item
-            && self.visit_mac(&node.mac, InvocationNode::Item(item), item.span())
-        {
-            return;
-        }
         let attrs = item_attributes(item).unwrap_or_default();
         self.attributed(
             attrs,
@@ -266,14 +289,24 @@ impl<'ast> Visit<'ast> for Discovery<'ast> {
                     if let Some((_, items)) = &module.content {
                         let scoped = this.resolve.scoped(items);
                         let saved_resolver = std::mem::replace(&mut this.resolve, scoped);
+                        this.visit_authored_attributes(&module.attrs);
                         for item in items {
                             this.visit_item(item);
                         }
                         this.resolve = saved_resolver;
+                    } else {
+                        this.visit_authored_attributes(&module.attrs);
                     }
                     this.scope = saved;
                 }
-                Item::Macro(_) => {}
+                Item::Macro(node) => {
+                    this.visit_mac(
+                        &node.attrs,
+                        &node.mac,
+                        InvocationNode::Item(item),
+                        item.span(),
+                    );
+                }
                 _ => this.nested(|this| visit::visit_item(this, item)),
             },
         );
@@ -285,9 +318,19 @@ impl<'ast> Visit<'ast> for Discovery<'ast> {
             ImplItem::Fn(item) => &item.attrs,
             ImplItem::Type(item) => &item.attrs,
             ImplItem::Macro(node) => {
-                if !self.visit_mac(&node.mac, InvocationNode::ImplItem(item), item.span()) {
-                    self.visit_attributes(&node.attrs, InvocationNode::ImplItem(item), item.span());
-                }
+                self.attributed(
+                    &node.attrs,
+                    InvocationNode::ImplItem(item),
+                    item.span(),
+                    |this| {
+                        this.visit_mac(
+                            &node.attrs,
+                            &node.mac,
+                            InvocationNode::ImplItem(item),
+                            item.span(),
+                        );
+                    },
+                );
                 return;
             }
             _ => return visit::visit_impl_item(self, item),
@@ -303,13 +346,19 @@ impl<'ast> Visit<'ast> for Discovery<'ast> {
             TraitItem::Fn(item) => &item.attrs,
             TraitItem::Type(item) => &item.attrs,
             TraitItem::Macro(node) => {
-                if !self.visit_mac(&node.mac, InvocationNode::TraitItem(item), item.span()) {
-                    self.visit_attributes(
-                        &node.attrs,
-                        InvocationNode::TraitItem(item),
-                        item.span(),
-                    );
-                }
+                self.attributed(
+                    &node.attrs,
+                    InvocationNode::TraitItem(item),
+                    item.span(),
+                    |this| {
+                        this.visit_mac(
+                            &node.attrs,
+                            &node.mac,
+                            InvocationNode::TraitItem(item),
+                            item.span(),
+                        );
+                    },
+                );
                 return;
             }
             _ => return visit::visit_trait_item(self, item),
@@ -325,7 +374,7 @@ impl<'ast> Visit<'ast> for Discovery<'ast> {
     }
 
     fn visit_macro(&mut self, mac: &'ast Macro) {
-        self.visit_mac(mac, InvocationNode::Macro(mac), mac.span());
+        self.visit_mac(&[], mac, InvocationNode::Macro(mac), mac.span());
     }
 
     fn visit_block(&mut self, block: &'ast syn::Block) {
@@ -397,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn attribute_order_and_invalid_nodes_stop_the_walk() {
+    fn attribute_order_and_invalid_nodes_preserve_descendants() {
         let file: syn::File = syn::parse_quote! {
             #[doc = "inert"]
             #[derive(Clone)]
@@ -410,7 +459,33 @@ mod tests {
             #[k::function = "wrong"]
             fn h() { k::id!(hidden); }
         };
-        let calls = invocations(&file, &AuthoredResolver::new("k"));
+        let authored = AuthoredResolver::new("k");
+        let generated =
+            crate::surface::GeneratedResolver::new("k", &syn::parse_quote!(::host::facade));
+        let facade = FacadeScope::new(BTreeSet::from(["k".to_owned()]));
+        for resolver in [&authored as &dyn Resolve, &generated, &facade] {
+            let calls = invocations(&file, resolver);
+            assert_eq!(calls.len(), 8);
+            assert_eq!(
+                calls.iter().map(|call| call.parent).collect::<Vec<_>>(),
+                [None, Some(0), None, Some(2), None, Some(4), None, Some(6)],
+            );
+            for index in [1, 3, 5, 7] {
+                assert!(matches!(
+                    calls[index].kind,
+                    InvocationKind::Function {
+                        entry: FunctionMacro::Id,
+                        delimiter: Some(_),
+                        ..
+                    }
+                ));
+                assert_eq!(calls[index].scope, Scope::Nested);
+            }
+        }
+        let calls = invocations(&file, &authored)
+            .into_iter()
+            .filter(|call| call.parent.is_none())
+            .collect::<Vec<_>>();
         assert_eq!(calls.len(), 4);
         let InvocationKind::Attribute(attribute) = &calls[0].kind else {
             panic!("attribute")
@@ -427,6 +502,89 @@ mod tests {
         };
         assert_eq!(attribute.entry, None);
         assert_eq!(attribute.member, "unknown");
+    }
+
+    #[test]
+    fn rust_attribute_expressions_on_krs_macros_are_their_descendants() {
+        let file: syn::File = syn::parse_quote! {
+            #[name = k::id!(item_attribute)]
+            k::id!(item_body);
+            impl S {
+                #[name = k::id!(impl_attribute)]
+                k::id!(impl_body);
+            }
+            trait T {
+                #[name = k::id!(trait_attribute)]
+                k::id!(trait_body);
+            }
+            #[name = k::id!(opaque_attribute)]
+            other!(k::id!(opaque_body));
+        };
+        let calls = invocations(&file, &AuthoredResolver::new("k"));
+        assert_eq!(calls.len(), 8);
+        assert_eq!(
+            calls.iter().map(|call| call.parent).collect::<Vec<_>>(),
+            [None, Some(0), None, Some(2), None, Some(4), None, None],
+        );
+        assert!(matches!(calls[0].node, InvocationNode::Item(_)));
+        assert!(matches!(calls[2].node, InvocationNode::ImplItem(_)));
+        assert!(matches!(calls[4].node, InvocationNode::TraitItem(_)));
+        assert_eq!(calls[0].scope, Scope::Module(Vec::new()));
+        for index in [1, 3, 5, 6] {
+            assert!(matches!(calls[index].node, InvocationNode::Macro(_)));
+            assert_eq!(calls[index].scope, Scope::Nested);
+            assert!(!calls[index].raw_tokens);
+        }
+        assert!(matches!(calls[7].node, InvocationNode::Tokens(_)));
+        assert!(calls[7].raw_tokens);
+    }
+
+    #[test]
+    fn an_item_macro_owns_its_call_and_not_its_facade_attribute() {
+        let file: syn::File = syn::parse_quote! {
+            #[k::sort]
+            k::rules! {}
+            #[k::rules]
+            other! {}
+            #[k::sort]
+            trait T {}
+        };
+        let calls = invocations(&file, &AuthoredResolver::new("k"));
+        assert_eq!(calls.len(), 4);
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.owned_item().map(std::ptr::from_ref))
+                .collect::<Vec<_>>(),
+            [
+                None,
+                Some(std::ptr::from_ref(&file.items[0])),
+                None,
+                Some(std::ptr::from_ref(&file.items[2])),
+            ],
+        );
+        assert_eq!(calls[1].parent, Some(0));
+    }
+
+    #[test]
+    fn invalid_macro_attributes_parent_syntax_and_opaque_descendants() {
+        let file: syn::File = syn::parse_quote! {
+            #[k::rules]
+            #[name = k::id!(attribute)]
+            other! { k::id!(opaque) }
+            #[k::function = k::id!(key_value)]
+            fn f() { k::id!(body); }
+        };
+        let calls = invocations(&file, &AuthoredResolver::new("k"));
+        assert_eq!(calls.len(), 6);
+        assert_eq!(
+            calls.iter().map(|call| call.parent).collect::<Vec<_>>(),
+            [None, Some(0), Some(0), None, Some(3), Some(3)],
+        );
+        assert!(matches!(calls[1].node, InvocationNode::Macro(_)));
+        assert!(matches!(calls[2].node, InvocationNode::Tokens(_)));
+        assert!(calls[2].raw_tokens);
+        assert!(matches!(calls[4].node, InvocationNode::Macro(_)));
     }
 
     #[test]
