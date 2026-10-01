@@ -1,5 +1,7 @@
 //! Term islands: `term!`, `k!`, `map!`, `cells!`, and `fragment!`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     MapBody, StateTerm, TermExpression, TermTree, parse_cells_expression,
@@ -12,7 +14,7 @@ use super::island_checks::{nested_state_island_import_checks, wrapper_type_check
 use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
-pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn term(input: TokenStream) -> crate::Result<TokenStream> {
     let term = krs_syntax::TermExpression::parse_tokens(input)?;
     let expression = term.expression();
     Ok(quote! {{
@@ -23,7 +25,7 @@ pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
     }})
 }
 
-pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let sequence = parse_k_sequence_expression(input)?;
     let expressions = sequence.items().iter().map(TermExpression::expression);
     let facade = env.facade_path()?;
@@ -35,7 +37,7 @@ pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<T
     }})
 }
 
-pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let map = parse_map_expression(input)?;
     let mut expressions = Vec::new();
     match map.body() {
@@ -59,7 +61,7 @@ pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result
     }})
 }
 
-pub(crate) fn cells(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn cells(input: TokenStream) -> crate::Result<TokenStream> {
     let island_import_checks = nested_state_island_import_checks(&input);
     let cells = parse_cells_expression(input)?;
     let mut expressions = Vec::new();
@@ -98,12 +100,13 @@ pub(crate) fn cells(input: TokenStream) -> syn::Result<TokenStream> {
 pub(crate) fn fragment(
     env: &dyn MacroEnvironment,
     input: &TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let facade = env.facade_path()?;
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
     let parsed = krs_syntax::TermExpression::parse_tokens(quote!(#facade::fragment![#input]))?;
     let TermTree::Cell(cell) = parsed.tree() else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::FRAGMENT_SHAPE,
             Span::call_site(),
             "fragment! requires `Parent { field: value, ... }`",
         ));

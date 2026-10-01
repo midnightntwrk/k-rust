@@ -649,7 +649,7 @@ fn invocation(tokens: TokenStream) -> Invocation {
     }
 }
 
-fn render(result: syn::Result<TokenStream>) -> String {
+fn render(result: krs_expand::Result<TokenStream>) -> String {
     match result {
         Ok(output) => {
             if let Ok(file) = syn::parse2::<syn::File>(output.clone()) {
@@ -660,15 +660,21 @@ fn render(result: syn::Result<TokenStream>) -> String {
                 text
             }
         }
-        Err(error) => error.into_iter().fold(String::new(), |mut text, error| {
-            let (start, end) = (error.span().start(), error.span().end());
-            let _ = writeln!(
-                text,
-                "error {}:{}-{}:{}: {error}",
-                start.line, start.column, end.line, end.column
-            );
-            text
-        }),
+        Err(error) => error
+            .into_diagnostics()
+            .fold(String::new(), |mut text, error| {
+                let span = match error.primary.location {
+                    krs_diagnostic::Location::Span(span) => span,
+                    _ => Span::call_site(),
+                };
+                let (start, end) = (span.start(), span.end());
+                let _ = writeln!(
+                    text,
+                    "error[{}] {}:{}-{}:{}: {}",
+                    error.code, start.line, start.column, end.line, end.column, error.message
+                );
+                text
+            }),
     }
 }
 

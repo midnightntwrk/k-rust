@@ -38,6 +38,7 @@
 //! `#[cfg]` before it), rustc would expand the other attribute first; this
 //! driver reports [`ATTRIBUTE_ORDER`] instead of emulating that order.
 
+use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic};
 use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
 use syn::spanned::Spanned;
@@ -54,60 +55,9 @@ use crate::sink::{
 /// `recursion_limit`.
 pub const RECURSION_LIMIT: usize = 128;
 
-/// The authored file does not lex or parse as a Rust file.
-pub const PARSE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PARSE;
-    CODE.as_str()
-};
-/// The authored file starts with a byte order mark or a shebang line, which
-/// rustc strips and the fallback lexer does not.
-pub const UNSUPPORTED_SOURCE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::UNSUPPORTED_SOURCE;
-    CODE.as_str()
-};
-/// A KRS attribute follows an attribute that rustc would expand first.
-pub const ATTRIBUTE_ORDER: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::ATTRIBUTE_ORDER;
-    CODE.as_str()
-};
-/// A KRS attribute has a `key = value` form, which rustc rejects for
-/// attribute macros.
-pub const ATTRIBUTE_FORM: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::ATTRIBUTE_FORM;
-    CODE.as_str()
-};
-/// The first expandable attribute names a facade item that is not a KRS
-/// attribute macro.
-pub const NOT_AN_ATTRIBUTE_MACRO: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::NOT_AN_ATTRIBUTE_MACRO;
-    CODE.as_str()
-};
-/// An expansion emitted a KRS attribute invocation, which this driver does
-/// not expand.
-pub const NESTED_ATTRIBUTE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::NESTED_ATTRIBUTE;
-    CODE.as_str()
-};
-/// Rescanned invocations nest deeper than [`RECURSION_LIMIT`].
-pub const RECURSION: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::RECURSION;
-    CODE.as_str()
-};
-/// A descriptor factory is defined where the crate-root registration table
-/// cannot name it.
-pub const REGISTRATION_SCOPE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::REGISTRATION_SCOPE;
-    CODE.as_str()
-};
-/// An explicitly selected invocation does not match a discovered one.
-pub const SELECTION: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::SELECTION;
-    CODE.as_str()
-};
-/// An expansion cannot be printed as text without changing its tokens.
-pub const PRINT: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PRINT;
-    CODE.as_str()
+pub use krs_diagnostic::codes::expand::{
+    ATTRIBUTE_FORM, ATTRIBUTE_ORDER, NESTED_ATTRIBUTE, NOT_AN_ATTRIBUTE_MACRO, PARSE, PRINT,
+    RECURSION, REGISTRATION_SCOPE, SELECTION, UNSUPPORTED_SOURCE,
 };
 
 /// Name of the crate-root registration table, which replaces `inventory`
@@ -201,9 +151,8 @@ pub struct Expansion {
 /// One expansion diagnostic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExpandDiagnostic {
-    /// `None` for a renderer diagnostic, which rustc reports through
-    /// `compile_error!` without a code; one of this module's codes otherwise.
-    pub code: Option<&'static str>,
+    /// The producer's registered diagnostic code.
+    pub code: Code,
     /// The message.
     pub message: String,
     /// [`MappingClass::ExactAuthored`] when `authored` is the exact span of
@@ -217,24 +166,64 @@ pub struct ExpandDiagnostic {
 }
 
 impl ExpandDiagnostic {
-    fn exact(code: &'static str, message: String, authored: ByteRange) -> Self {
+    /// Builds the whole-file view from a shared diagnostic and mapping context.
+    #[must_use]
+    pub fn from_diagnostic(
+        diagnostic: Diagnostic,
+        class: MappingClass,
+        authored: Option<ByteRange>,
+        invocation: Option<InvocationId>,
+    ) -> Self {
         Self {
-            code: Some(code),
-            message,
-            class: MappingClass::ExactAuthored,
-            authored: Some(authored),
-            invocation: None,
+            code: diagnostic.code,
+            message: diagnostic.message,
+            class,
+            authored,
+            invocation,
         }
     }
 
-    fn unmappable(code: &'static str, message: String) -> Self {
-        Self {
-            code: Some(code),
+    fn located(
+        code: Code,
+        message: String,
+        class: MappingClass,
+        authored: Option<ByteRange>,
+        invocation: Option<InvocationId>,
+    ) -> Self {
+        Self::from_diagnostic(
+            Diagnostic::error(
+                code,
+                message,
+                authored.map_or(Location::None, Location::Range),
+            ),
+            class,
+            authored,
+            invocation,
+        )
+    }
+
+    fn exact(code: Code, message: String, authored: ByteRange) -> Self {
+        Self::located(
+            code,
             message,
-            class: MappingClass::Unmappable,
-            authored: None,
-            invocation: None,
-        }
+            MappingClass::ExactAuthored,
+            Some(authored),
+            None,
+        )
+    }
+
+    fn unmappable(code: Code, message: String) -> Self {
+        Self::located(code, message, MappingClass::Unmappable, None, None)
+    }
+}
+
+impl ToDiagnostic for ExpandDiagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        Diagnostic::error(
+            self.code.clone(),
+            self.message.clone(),
+            self.authored.map_or(Location::None, Location::Range),
+        )
     }
 }
 
@@ -261,17 +250,17 @@ pub fn expand_file(request: &FileRequest<'_>) -> Result<FileExpansion, Vec<Expan
             .into_iter()
             .map(|error| {
                 let range = authored.byte_range(error.span());
-                ExpandDiagnostic {
-                    code: Some(PARSE),
-                    message: error.to_string(),
-                    class: if range.is_some() {
+                ExpandDiagnostic::located(
+                    PARSE,
+                    error.to_string(),
+                    if range.is_some() {
                         MappingClass::ExactAuthored
                     } else {
                         MappingClass::Unmappable
                     },
-                    authored: range,
-                    invocation: None,
-                }
+                    range,
+                    None,
+                )
             })
             .collect::<Vec<_>>()
     })?;
@@ -362,18 +351,18 @@ fn collect_registrations(
             let at_crate_root =
                 matches!((scope, depth), (Scope::Module(modules), 0) if modules.is_empty());
             if !at_crate_root {
-                diagnostics.push(ExpandDiagnostic {
-                    code: Some(REGISTRATION_SCOPE),
-                    message: format!(
+                diagnostics.push(ExpandDiagnostic::located(
+REGISTRATION_SCOPE,
+format!(
                         "descriptor factory `{factory}` is not defined at the crate root, so the crate-root registration table cannot name it"
                     ),
-                    class: MappingClass::InvocationLevel,
-                    authored: authored
+MappingClass::InvocationLevel,
+authored
                         .byte_range(span)
                         .filter(|range| !range.is_empty())
                         .or(Some(node.call_site)),
-                    invocation: Some(node.id),
-                });
+Some(node.id),
+));
                 continue;
             }
             registrations.push(Registration {
@@ -407,13 +396,13 @@ fn print(
         let splices = node.register(&mut generated, None);
         print_with_map(&node.output, authored, node.id, &splices, &mut generated).map_err(
             |error| {
-                vec![ExpandDiagnostic {
-                    code: Some(PRINT),
-                    message: error.to_string(),
-                    class: MappingClass::InvocationLevel,
-                    authored: Some(node.call_site),
-                    invocation: Some(node.id),
-                }]
+                vec![ExpandDiagnostic::located(
+                    PRINT,
+                    error.to_string(),
+                    MappingClass::InvocationLevel,
+                    Some(node.call_site),
+                    Some(node.id),
+                )]
             },
         )?;
         cursor = node.replaced.end();
@@ -797,18 +786,18 @@ fn select(
             .iter()
             .any(|found| found.entry.name() == selected.kind && found.replaced == selected.replaced)
         {
-            diagnostics.push(ExpandDiagnostic {
-                code: Some(SELECTION),
-                message: format!(
+            diagnostics.push(ExpandDiagnostic::located(
+                SELECTION,
+                format!(
                     "no outermost `{}` invocation replaces bytes {}..{}",
                     selected.kind,
                     selected.replaced.start(),
                     selected.replaced.end()
                 ),
-                class: MappingClass::Unmappable,
-                authored: None,
-                invocation: None,
-            });
+                MappingClass::Unmappable,
+                None,
+                None,
+            ));
         }
     }
     found
@@ -1021,15 +1010,15 @@ impl Expander<'_> {
                 .expect("an outermost call site is authored")
         });
         if call.depth > RECURSION_LIMIT {
-            self.diagnostics.push(ExpandDiagnostic {
-                code: Some(RECURSION),
-                message: format!(
+            self.diagnostics.push(ExpandDiagnostic::located(
+                RECURSION,
+                format!(
                     "KRS invocations nest deeper than the recursion limit of {RECURSION_LIMIT}"
                 ),
-                class: MappingClass::InvocationLevel,
-                authored: Some(call_site),
-                invocation: Some(id),
-            });
+                MappingClass::InvocationLevel,
+                Some(call_site),
+                Some(id),
+            ));
             return None;
         }
         self.env.set_call_site(call.call_site);
@@ -1042,22 +1031,23 @@ impl Expander<'_> {
         let output = match result {
             Ok(output) => output,
             Err(error) => {
-                for error in error {
-                    let authored = self
-                        .authored
-                        .byte_range(error.span())
-                        .filter(|range| !range.is_empty());
-                    self.diagnostics.push(ExpandDiagnostic {
-                        code: None,
-                        message: error.to_string(),
-                        class: if authored.is_some() {
+                for diagnostic in error.into_diagnostics() {
+                    let authored = match diagnostic.primary.location {
+                        Location::Span(span) => self.authored.byte_range(span),
+                        Location::Range(range) => Some(range),
+                        _ => None,
+                    }
+                    .filter(|range| !range.is_empty());
+                    self.diagnostics.push(ExpandDiagnostic::from_diagnostic(
+                        diagnostic,
+                        if authored.is_some() {
                             MappingClass::ExactAuthored
                         } else {
                             MappingClass::InvocationLevel
                         },
-                        authored: authored.or(Some(call_site)),
-                        invocation: Some(id),
-                    });
+                        authored.or(Some(call_site)),
+                        Some(id),
+                    ));
                 }
                 return None;
             }
@@ -1119,17 +1109,17 @@ impl Expander<'_> {
                 continue;
             }
             if let Some(entry) = attribute_call(&trees, index, self.alias, Some(self.facade)) {
-                self.diagnostics.push(ExpandDiagnostic {
-                    code: Some(NESTED_ATTRIBUTE),
-                    message: format!(
+                self.diagnostics.push(ExpandDiagnostic::located(
+NESTED_ATTRIBUTE,
+format!(
                         "the expansion contains a `#[{}::{}]` invocation, which the browser expander does not expand",
                         self.alias,
                         entry.name()
                     ),
-                    class: MappingClass::InvocationLevel,
-                    authored: Some(*call_site),
-                    invocation: Some(owner),
-                });
+MappingClass::InvocationLevel,
+Some(*call_site),
+Some(owner),
+));
             }
             if let TokenTree::Group(group) = &trees[index] {
                 path.push(index);

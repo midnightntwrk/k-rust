@@ -200,15 +200,18 @@ fn every_code_has_a_rejecting_and_an_accepted_fixture() {
             near_misses.insert(format!("krs::policy::{code}"));
         }
     }
-    // Request-level codes are exercised by `check_request` tests below.
+    // Request-level codes are exercised by the request and protocol tests below.
     for code in rules::CODES
         .iter()
-        .filter(|code| **code != rules::EDITABLE_FILE)
+        .filter(|code| **code != rules::EDITABLE_FILE && **code != protocol::PROTOCOL_ERROR)
     {
-        assert!(rejected.contains(*code), "no fixture rejecting {code}");
+        assert!(
+            rejected.contains(code.as_str()),
+            "no fixture rejecting {code}"
+        );
         if *code != rules::PARSE {
             assert!(
-                near_misses.contains(*code),
+                near_misses.contains(code.as_str()),
                 "no accepted near-miss fixture for {code}"
             );
         }
@@ -250,7 +253,7 @@ fn d007_is_rejected_at_the_external_derive_path() {
     let source = include_str!("fixtures/d007-external-proc-macro/source.rs");
     let diagnostics = check(source, "src/lib.rs", &LessonPolicy::single_file());
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code, "krs::policy::non-krs-proc-macro");
+    assert_eq!(diagnostics[0].code, rules::NON_KRS_PROC_MACRO);
     assert_eq!(
         diagnostics[0].authored,
         Some(krs_syntax::SourceRange::new(9, 25).unwrap())
@@ -349,10 +352,13 @@ fn json_protocol_reports_attribute_order_and_reserved_names() {
         observed,
         [
             (
-                rules::ATTRIBUTE_ORDER.to_owned(),
+                rules::ATTRIBUTE_ORDER.to_string(),
                 serde_json::json!([0, 16])
             ),
-            (rules::RESERVED_NAME.to_owned(), serde_json::json!([39, 48])),
+            (
+                rules::RESERVED_NAME.to_string(),
+                serde_json::json!([39, 48])
+            ),
         ]
     );
 }
@@ -457,9 +463,9 @@ fn reserved_krs_macros_entry_points_are_hidden_and_rejected() {
             "src/lib.rs",
             &LessonPolicy::single_file(),
         );
-        let codes: Vec<&str> = diagnostics
+        let codes: Vec<_> = diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.code)
+            .map(|diagnostic| diagnostic.code.clone())
             .collect();
         assert_eq!(codes, [rules::NON_KRS_PROC_MACRO], "{name}");
     }

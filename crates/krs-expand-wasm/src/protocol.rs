@@ -66,15 +66,14 @@
 //! `source_map` are present exactly then. A diagnostic is:
 //!
 //! ```json
-//! { "origin": "expander", "code": null, "severity": "error", "message": "expected identifier",
+//! { "origin": "expander", "code": "krs::syntax::rust-syntax", "severity": "error", "message": "expected identifier",
 //!   "class": "exact-authored", "file": "src/lib.rs", "authored": [19, 20], "invocation": 0,
 //!   "notes": [] }
 //! ```
 //!
-//! `origin` is `policy`, `expander`, or `protocol`. A renderer diagnostic
-//! has `code: null`, as rustc reports `compile_error!` output; the expander's
-//! own diagnostics use `krs::expand::*` codes and policy diagnostics
-//! `krs::policy::*`. `authored` is a UTF-8 byte range in the authored file:
+//! `origin` is `policy`, `expander`, or `protocol`.
+//! Every diagnostic has a registered code: renderer diagnostics use `krs::syntax::*` or `krs::expand::*`, whole-file and protocol diagnostics use `krs::expand::*`, and policy diagnostics use `krs::policy::*`.
+//! `authored` is a UTF-8 byte range in the authored file:
 //! the exact range for `exact-authored`, the invocation's call site for
 //! `invocation-level`, and `null` for `unmappable`.
 //!
@@ -94,6 +93,7 @@
 
 use std::collections::BTreeMap;
 
+use krs_diagnostic::{Code, Diagnostic as LocatedDiagnostic, Location, Severity, ToDiagnostic};
 use krs_expand::sink::{
     self, AuthoredFile, GeneratedSource, Invocation, InvocationId, Mapping, MappingClass, Segment,
     SourceMap,
@@ -106,11 +106,7 @@ use sha2::{Digest, Sha256};
 /// Protocol schema this module reads and writes.
 pub const SCHEMA: u32 = 1;
 
-/// The request is not a valid schema-1 request.
-pub const PROTOCOL_ERROR: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PROTOCOL_ERROR;
-    CODE.as_str()
-};
+pub use krs_diagnostic::codes::expand::PROTOCOL_ERROR;
 
 /// One expansion request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -225,10 +221,10 @@ pub struct Expanded {
 pub struct Diagnostic {
     /// `policy`, `expander`, or `protocol`.
     pub origin: &'static str,
-    /// Stable code, or `None` for a renderer diagnostic.
-    pub code: Option<String>,
-    /// Always `error`.
-    pub severity: &'static str,
+    /// Stable registered code.
+    pub code: Code,
+    /// The diagnostic severity.
+    pub severity: Severity,
     /// The message.
     pub message: String,
     /// Mapping class ([`krs_expand::sink::MappingClass::name`]).
@@ -421,46 +417,58 @@ impl SourceMapJson {
 }
 
 impl Diagnostic {
-    fn protocol(message: String) -> Self {
+    fn from_diagnostic(
+        diagnostic: LocatedDiagnostic,
+        origin: &'static str,
+        file: &str,
+        class: &'static str,
+        invocation: Option<usize>,
+    ) -> Self {
+        let authored = match diagnostic.primary.location {
+            Location::Range(range) | Location::File { range, .. } => Some(pair(&range)),
+            _ => None,
+        };
         Self {
-            origin: "protocol",
-            code: Some(PROTOCOL_ERROR.to_owned()),
-            severity: "error",
-            message,
-            class: MappingClass::Unmappable.name(),
-            file: String::new(),
-            authored: None,
-            invocation: None,
-            notes: Vec::new(),
-        }
-    }
-
-    fn policy(diagnostic: PolicyDiagnostic) -> Self {
-        Self {
-            origin: "policy",
-            code: Some(diagnostic.code.to_owned()),
-            severity: "error",
+            origin,
+            code: diagnostic.code,
+            severity: diagnostic.severity,
             message: diagnostic.message,
-            class: diagnostic.class,
-            file: diagnostic.file,
-            authored: diagnostic.authored.as_ref().map(pair),
-            invocation: None,
-            notes: Vec::new(),
-        }
-    }
-
-    fn expander(diagnostic: ExpandDiagnostic, file: &str) -> Self {
-        Self {
-            origin: "expander",
-            code: diagnostic.code.map(str::to_owned),
-            severity: "error",
-            message: diagnostic.message,
-            class: diagnostic.class.name(),
+            class,
             file: file.to_owned(),
-            authored: diagnostic.authored.as_ref().map(pair),
-            invocation: diagnostic.invocation.map(|invocation| invocation.0),
-            notes: Vec::new(),
+            authored,
+            invocation,
+            notes: diagnostic.notes,
         }
+    }
+
+    fn protocol(message: String) -> Self {
+        Self::from_diagnostic(
+            LocatedDiagnostic::error(PROTOCOL_ERROR, message, Location::None),
+            "protocol",
+            "",
+            MappingClass::Unmappable.name(),
+            None,
+        )
+    }
+
+    fn policy(diagnostic: &PolicyDiagnostic) -> Self {
+        Self::from_diagnostic(
+            diagnostic.to_diagnostic(),
+            "policy",
+            &diagnostic.file,
+            diagnostic.class,
+            None,
+        )
+    }
+
+    fn expander(diagnostic: &ExpandDiagnostic, file: &str) -> Self {
+        Self::from_diagnostic(
+            diagnostic.to_diagnostic(),
+            "expander",
+            file,
+            diagnostic.class.name(),
+            diagnostic.invocation.map(|invocation| invocation.0),
+        )
     }
 }
 
@@ -550,10 +558,7 @@ pub fn run(request_bytes: &[u8]) -> Response {
     )]);
     let policy = krs_lesson_policy::check_request(&files, &request.policy);
     if !policy.is_empty() {
-        return Response::failed(
-            policy.into_iter().map(Diagnostic::policy).collect(),
-            evidence,
-        );
+        return Response::failed(policy.iter().map(Diagnostic::policy).collect(), evidence);
     }
 
     let selection = match &request.mode {
@@ -587,7 +592,7 @@ pub fn run(request_bytes: &[u8]) -> Response {
         Err(diagnostics) => {
             return Response::failed(
                 diagnostics
-                    .into_iter()
+                    .iter()
                     .map(|diagnostic| Diagnostic::expander(diagnostic, &request.file.display_file))
                     .collect(),
                 evidence,

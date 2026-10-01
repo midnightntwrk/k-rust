@@ -71,8 +71,8 @@ impl MacroEnvironment for TestEnvironment<'_> {
         self.call_site.get()
     }
 
-    fn facade_path(&self) -> syn::Result<syn::Path> {
-        syn::parse_str("::k")
+    fn facade_path(&self) -> krs_expand::Result<syn::Path> {
+        syn::parse_str("::k").map_err(krs_expand::ExpandError::from)
     }
 }
 

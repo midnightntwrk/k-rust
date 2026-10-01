@@ -31,6 +31,7 @@
 //! | `krs::policy::krs-item-scope` | a KRS invocation inside an inline `mod` or in a file that is not the crate root; a KRS attribute invocation, or a KRS macro in item or statement position, inside a block that no KRS invocation consumes | the attribute, or the macro path through the closing delimiter |
 //! | `krs::policy::attribute-order` | an attribute in [`ORDER_SENSITIVE_ATTRIBUTES`] that precedes the first KRS attribute invocation on the same item, impl item, or trait item | the preceding attribute |
 //! | `krs::policy::reserved-name` | an item, associated item, foreign item, or `use` binding whose name, compared in ASCII lowercase, starts with [`RESERVED_NAME_PREFIX`] | the item's name, or the `use` subtree |
+//! | `krs::policy::protocol` | a malformed request or unsupported schema | none (request level) |
 //!
 //! `<dir>` is the directory that owns `display_file`'s child modules, joined
 //! with the enclosing inline modules: the file's directory for `lib.rs`,
@@ -119,100 +120,11 @@
 //! - Standard macros: [`STANDARD_MACROS`], bare or as `[::]core::<name>`,
 //!   `[::]std::<name>`, or `[::]alloc::<name>`.
 
-/// Rejects a request file outside `editable_files`.
-pub const EDITABLE_FILE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::EDITABLE_FILE;
-    CODE.as_str()
+pub use krs_diagnostic::codes::policy::{
+    ATTRIBUTE_ORDER, CFG, CODES, EDITABLE_FILE, ENV, EXTERN_CRATE, INCLUDE, KRS_IMPORT,
+    KRS_ITEM_SCOPE, MACRO_DEFINITION, NON_KRS_PROC_MACRO, OUT_OF_LINE_MODULE, PARSE,
+    PATH_ATTRIBUTE, RESERVED_FACADE_ITEM, RESERVED_NAME,
 };
-/// Rejects a file that does not parse.
-pub const PARSE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::PARSE;
-    CODE.as_str()
-};
-/// Rejects `mod name;` that resolves outside `editable_files`.
-pub const OUT_OF_LINE_MODULE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::OUT_OF_LINE_MODULE;
-    CODE.as_str()
-};
-/// Rejects `#[path]`.
-pub const PATH_ATTRIBUTE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::PATH_ATTRIBUTE;
-    CODE.as_str()
-};
-/// Rejects `extern crate`.
-pub const EXTERN_CRATE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::EXTERN_CRATE;
-    CODE.as_str()
-};
-/// Rejects `include!`, `include_str!`, and `include_bytes!`.
-pub const INCLUDE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::INCLUDE;
-    CODE.as_str()
-};
-/// Rejects `env!` and `option_env!`.
-pub const ENV: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::ENV;
-    CODE.as_str()
-};
-/// Rejects `macro_rules!` and `macro` definitions.
-pub const MACRO_DEFINITION: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::MACRO_DEFINITION;
-    CODE.as_str()
-};
-/// Rejects any procedural macro that is not a KRS facade macro.
-pub const NON_KRS_PROC_MACRO: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::NON_KRS_PROC_MACRO;
-    CODE.as_str()
-};
-/// Rejects KRS imports and unprefixed KRS names.
-pub const KRS_IMPORT: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::KRS_IMPORT;
-    CODE.as_str()
-};
-/// Rejects facade items whose name starts with `__`.
-pub const RESERVED_FACADE_ITEM: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::RESERVED_FACADE_ITEM;
-    CODE.as_str()
-};
-/// Rejects `#[cfg]` and `#[cfg_attr]`.
-pub const CFG: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::CFG;
-    CODE.as_str()
-};
-/// Rejects KRS invocations outside the crate root's module level.
-pub const KRS_ITEM_SCOPE: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::KRS_ITEM_SCOPE;
-    CODE.as_str()
-};
-/// Rejects an order-sensitive attribute before a KRS attribute.
-pub const ATTRIBUTE_ORDER: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::ATTRIBUTE_ORDER;
-    CODE.as_str()
-};
-/// Rejects an authored name in the generated-name namespace.
-pub const RESERVED_NAME: &str = {
-    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::RESERVED_NAME;
-    CODE.as_str()
-};
-
-/// Rule diagnostic codes, including the request-level editable-file rejection.
-pub const CODES: &[&str] = &[
-    EDITABLE_FILE,
-    PARSE,
-    OUT_OF_LINE_MODULE,
-    PATH_ATTRIBUTE,
-    EXTERN_CRATE,
-    INCLUDE,
-    ENV,
-    MACRO_DEFINITION,
-    NON_KRS_PROC_MACRO,
-    KRS_IMPORT,
-    RESERVED_FACADE_ITEM,
-    CFG,
-    KRS_ITEM_SCOPE,
-    ATTRIBUTE_ORDER,
-    RESERVED_NAME,
-];
 
 /// The inert attributes lessons may use: a subset of
 /// [`krs_syntax::surface::INERT_ATTRIBUTES`].

@@ -1,5 +1,7 @@
 //! Configuration initializers: `#[k::init]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
     WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
@@ -37,7 +39,7 @@ pub(crate) fn init(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let configuration_variable_main_role = ProvenanceRole::ConfigurationVariableMain;
     let configuration_variable_role = ProvenanceRole::ConfigurationVariable;
     let configuration_variable_name_role = ProvenanceRole::ConfigurationVariableName;
@@ -62,8 +64,13 @@ pub(crate) fn init(
     let mut builder = InitializerBuilder::new(&facade, nonce, &cfg, &bindings);
     let mut variables = Vec::new();
     for (index, variable) in initializer.variables().iter().enumerate() {
-        let ordinal = u32::try_from(index)
-            .map_err(|_| syn::Error::new(variable.binding().span(), "too many variables"))?;
+        let ordinal = u32::try_from(index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                variable.binding().span(),
+                "too many variables",
+            )
+        })?;
         let sort_path = call_site_path(variable.sort())?;
         let sort_type = variable.optional_term_sort().map_or_else(
             || quote!(#sort_path),
@@ -162,9 +169,10 @@ fn inject_inferred_initializer_wrappers(
     method: &mut syn::ImplItemFn,
     initializer: &krs_syntax::InitializerFunction,
     facade: &Path,
-) -> syn::Result<()> {
+) -> crate::Result<()> {
     let [syn::Stmt::Expr(syn::Expr::Struct(body), None)] = method.block.stmts.as_mut_slice() else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::INITIALIZER_BODY_SHAPE,
             method.block.span(),
             "a fixed initializer must contain exactly one struct expression",
         ));
@@ -176,14 +184,15 @@ fn inject_initializer_cell_list(
     body: &mut syn::ExprStruct,
     cells: &[FixedCellInitializer],
     facade: &Path,
-) -> syn::Result<()> {
+) -> crate::Result<()> {
     for cell in cells {
         let Some(field) = body
             .fields
             .iter_mut()
             .find(|field| matches!(&field.member, syn::Member::Named(name) if name == cell.name()))
         else {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::MISSING_CHECKED_FIELD,
                 cell.name().span(),
                 "initializer field disappeared during wrapper injection",
             ));
@@ -209,7 +218,8 @@ fn inject_initializer_cell_list(
             } => {}
             InitializerCellContent::Nested { children, .. } => {
                 let syn::Expr::Struct(nested) = &mut field.expr else {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::INITIALIZER_CELL_SHAPE,
                         field.expr.span(),
                         "a nested fixed-cell initializer must be a struct expression",
                     ));
@@ -221,7 +231,7 @@ fn inject_initializer_cell_list(
     Ok(())
 }
 
-fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> syn::Result<()> {
+fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {
     let macro_expression = match expression {
         syn::Expr::Macro(expression) => Some(expression),
         syn::Expr::Call(call) => call.args.first_mut().and_then(|argument| match argument {
@@ -284,7 +294,7 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         cells: &[FixedCellInitializer],
         owner: &TokenStream,
-    ) -> syn::Result<Vec<WireInitializerCell>> {
+    ) -> crate::Result<Vec<WireInitializerCell>> {
         let initializer_field_role = ProvenanceRole::InitializerField;
         let initializer_cell_constructor_role = ProvenanceRole::InitializerCellConstructor;
         let initializer_nested_constructor_role = ProvenanceRole::InitializerNestedConstructor;
@@ -314,7 +324,8 @@ impl<'a> InitializerBuilder<'a> {
                     ..
                 } => {
                     if *computation != matches!(value, StateTerm::KSequence(_)) {
-                        return Err(syn::Error::new(
+                        return Err(ExpandError::new(
+                            expand::CELL_STATE_FAMILY_MISMATCH,
                             constructor.span(),
                             "cell wrapper and initializer state family disagree",
                         ));
@@ -368,7 +379,7 @@ impl<'a> InitializerBuilder<'a> {
     fn expand_state(
         &mut self,
         state: &StateTerm,
-    ) -> syn::Result<ProtocolInitializerStateTerm<WireTerm>> {
+    ) -> crate::Result<ProtocolInitializerStateTerm<WireTerm>> {
         match state {
             StateTerm::Term(term) => {
                 let term = self.expand_term(term, None)?;
@@ -385,7 +396,7 @@ impl<'a> InitializerBuilder<'a> {
         }
     }
 
-    fn expand_k(&mut self, sequence: &KSequence) -> syn::Result<ProtocolKSequence<WireTerm>> {
+    fn expand_k(&mut self, sequence: &KSequence) -> crate::Result<ProtocolKSequence<WireTerm>> {
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
             Some(wire_key(ProvenanceRole::KSequencePayload, ordinal))
@@ -421,7 +432,7 @@ impl<'a> InitializerBuilder<'a> {
         })
     }
 
-    fn expand_map(&mut self, map: &MapExpression) -> syn::Result<ProtocolMap<WireTerm>> {
+    fn expand_map(&mut self, map: &MapExpression) -> crate::Result<ProtocolMap<WireTerm>> {
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
             Some(wire_key(ProvenanceRole::MapPayload, ordinal))
@@ -477,7 +488,7 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         term: &TermExpression,
         structural_key: Option<ProvenanceKey>,
-    ) -> syn::Result<ProtocolInitializerTerm<WireTerm>> {
+    ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
         let ordinal = take_counter(&mut self.counters.term)?;
         let key = wire_key(ProvenanceRole::InitializerTerm, ordinal);
         let structural = structural_key.unwrap_or_else(|| key.clone());
@@ -489,7 +500,7 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         tree: &TermTree,
         structural_key: ProvenanceKey,
-    ) -> syn::Result<WireTerm> {
+    ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
@@ -499,7 +510,8 @@ impl<'a> InitializerBuilder<'a> {
                     .application_wire_slot(application.head(), &mut self.slots)?;
                 let authored_path = self.terms.application_authored_path(application.head());
                 let TermArguments::Positional(values) = application.arguments() else {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::INITIALIZER_RECORD_ARGUMENTS,
                         application.head().span(),
                         "initializer terms cannot use named record arguments",
                     ));
@@ -512,7 +524,7 @@ impl<'a> InitializerBuilder<'a> {
                                 value: Box::new(value),
                             })
                     })
-                    .collect::<syn::Result<Vec<_>>>()?;
+                    .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::Application {
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
@@ -556,18 +568,21 @@ impl<'a> InitializerBuilder<'a> {
                     literal,
                 })
             }
-            TermTree::Wildcard(_) => Err(syn::Error::new(
+            TermTree::Wildcard(_) => Err(ExpandError::new(
+                expand::INITIALIZER_WILDCARD,
                 Span::call_site(),
                 "initializer terms cannot contain wildcards",
             )),
             TermTree::IdToken { .. }
             | TermTree::BytesToken { .. }
             | TermTree::Anonymous { .. }
-            | TermTree::OrBool { .. } => Err(syn::Error::new(
+            | TermTree::OrBool { .. } => Err(ExpandError::new(
+                expand::CLAIM_ONLY_TERM,
                 Span::call_site(),
                 "claim-only terms cannot occur in initializers",
             )),
-            TermTree::Cell(cell) => Err(syn::Error::new(
+            TermTree::Cell(cell) => Err(ExpandError::new(
+                expand::INITIALIZER_FRAGMENT,
                 cell.owner().span(),
                 "fragment! is not an initializer term; construct nested initializer cells directly",
             )),

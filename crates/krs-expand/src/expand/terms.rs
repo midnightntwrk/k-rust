@@ -1,5 +1,7 @@
 //! The symbolic term builder shared by rules, claims, and initializers.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use std::collections::HashMap;
 
 use krs_ir::bytes_token;
@@ -280,7 +282,7 @@ impl<'a> TermBuilder<'a> {
         tree: &TermTree,
         side: TermSide,
         slots: &mut WireSlots,
-    ) -> syn::Result<WireTerm> {
+    ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
                 let path_ordinal = take_counter(&mut self.counters.path)?;
@@ -382,7 +384,8 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Wildcard(_) => {
                 if !matches!(side, TermSide::Left) {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::RULE_RESULT_WILDCARD,
                         Span::call_site(),
                         "KRS rule results cannot contain wildcards",
                     ));
@@ -394,7 +397,8 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::IdToken { literal } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         literal.span(),
                         "id! is currently claim-only",
                     ));
@@ -409,7 +413,8 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::BytesToken { literal } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         literal.span(),
                         "bytes! is currently claim-only",
                     ));
@@ -422,13 +427,15 @@ impl<'a> TermBuilder<'a> {
                     value: bytes_token::encode(&literal.value()),
                 })
             }
-            TermTree::Anonymous { spelling, .. } => Err(syn::Error::new(
+            TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
+                expand::CLAIM_SUBJECT_ONLY_TERM,
                 spelling.span(),
                 "anonymous! is valid only in a claim subject",
             )),
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         Span::call_site(),
                         "or_bool! is currently claim-only",
                     ));
@@ -438,7 +445,7 @@ impl<'a> TermBuilder<'a> {
                 let arguments = arguments
                     .iter()
                     .map(|argument| self.expand_wire(argument, side, slots))
-                    .collect::<syn::Result<Vec<_>>>()?;
+                    .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::OrBool {
                     key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
                     arguments,
@@ -473,7 +480,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         authored: &Path,
         slots: &mut WireSlots,
-    ) -> syn::Result<WireTypeReference> {
+    ) -> crate::Result<WireTypeReference> {
         let generated = call_site_path(authored)?;
         let key_fn = format_ident!("__krs_rule_cell_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
@@ -501,7 +508,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         authored: &Path,
         slots: &mut WireSlots,
-    ) -> syn::Result<TargetSlot> {
+    ) -> crate::Result<TargetSlot> {
         let (owner, variant) = if authored.leading_colon.is_none()
             && authored.segments.len() == 1
             && let Some(imported_owner) = self.enum_glob

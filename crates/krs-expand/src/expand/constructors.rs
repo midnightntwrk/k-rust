@@ -1,5 +1,7 @@
 //! Single productions: `#[k::symbol]`, `#[k::constructor]`, `#[k::function]`, `#[k::token]`, and the orphan strictness helpers.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireConstructorDescriptor, WireConstructorFieldDescriptor, WireGrammarDescriptor, WirePayload,
     WireProduction, WireProductionAttribute, WireProductionItem, WireProductionOwner,
@@ -27,14 +29,15 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> crate::Result<TokenStream> {
     let symbol = krs_syntax::SymbolAttribute::parse_tokens(attributes)?;
     let mut item: Item = syn::parse2(item)?;
     let (attrs, span) = match &mut item {
         Item::Trait(item) => (&mut item.attrs, item.ident.span()),
         Item::Struct(item) => (&mut item.attrs, item.ident.span()),
         _ => {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::UNSUPPORTED_SYMBOL_ITEM,
                 item.span(),
                 "#[k::symbol] currently supports sort traits and constructor structs",
             ));
@@ -44,7 +47,11 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
         .iter()
         .any(|attribute| last_segment_entry(attribute.path()) == Some(AttributeMacro::Symbol))
     {
-        return Err(syn::Error::new(span, "duplicate #[k::symbol] attribute"));
+        return Err(ExpandError::new(
+            expand::DUPLICATE_SYMBOL,
+            span,
+            "duplicate #[k::symbol] attribute",
+        ));
     }
     let targets = attrs
         .iter()
@@ -58,7 +65,8 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     let [target] = targets.as_slice() else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::SYMBOL_ATTRIBUTE_ORDER,
             span,
             "#[k::symbol] must immediately precede exactly one #[k::sort] or #[k::constructor] declaration",
         ));
@@ -75,7 +83,7 @@ pub(crate) fn constructor(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
     constructor_like(env, attribute, item, None, None)
 }
@@ -84,7 +92,7 @@ pub(crate) fn function(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let function = krs_syntax::FunctionAttribute::parse_tokens(attributes)?;
     let totality_anchor = function
         .provenance()?
@@ -98,7 +106,7 @@ pub(crate) fn function(
         .expect("a parsed function retains its totality marker");
     let hook = function
         .hook()
-        .map(|path| -> syn::Result<(ProvenanceAnchor, krs_ir::HookOperation)> {
+        .map(|path| -> crate::Result<(ProvenanceAnchor, krs_ir::HookOperation)> {
             let segments = path
                 .segments
                 .iter()
@@ -133,7 +141,7 @@ pub(crate) fn function(
                     krs_ir::HookOperation::KryptoBn128Ate
                 }
                 _ => {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(expand::UNKNOWN_HOOK,
                         path.span(),
                         "unknown KRS hook; expected `krypto::keccak256_raw`, `krypto::sha256_raw`, `krypto::ripemd160_raw`, `krypto::ecdsa_recover`, `krypto::bn128_valid`, `krypto::bn128_add`, `krypto::bn128_mul`, `krypto::bn128_g2_valid`, or `krypto::bn128_ate`",
                     ));
@@ -166,7 +174,7 @@ fn constructor_like(
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
     hook: Option<(ProvenanceAnchor, krs_ir::HookOperation)>,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
     let mut raw_item: ItemStruct = syn::parse2(item)?;
@@ -175,7 +183,8 @@ fn constructor_like(
     let strictness = take_strictness_helpers(&mut raw_item.attrs)?;
     let alias = take_alias_helper(&mut raw_item.attrs)?;
     if functional && alias.is_some() {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::FUNCTION_ALIAS_CONFLICT,
             raw_item.ident.span(),
             "a function production cannot also be a static alias",
         ));
@@ -204,7 +213,8 @@ fn constructor_like(
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::ConstructorAvoid)
     {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::INVALID_AVOID_METADATA,
             declaration.name().span(),
             "`avoid = false` is not metadata; omit the argument instead",
         ));
@@ -391,12 +401,13 @@ fn constructor_like(
     })
 }
 
-pub(super) fn reject_unexpanded_symbol(attributes: &[Attribute]) -> syn::Result<()> {
+pub(super) fn reject_unexpanded_symbol(attributes: &[Attribute]) -> crate::Result<()> {
     if let Some(attribute) = attributes
         .iter()
         .find(|attribute| last_segment_entry(attribute.path()) == Some(AttributeMacro::Symbol))
     {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::SYMBOL_ATTRIBUTE_ORDER,
             attribute.span(),
             "#[k::symbol] must appear before the symbol-bearing KRS declaration attribute",
         ));
@@ -406,7 +417,7 @@ pub(super) fn reject_unexpanded_symbol(attributes: &[Attribute]) -> syn::Result<
 
 pub(super) fn take_explicit_symbol_helper(
     attributes: &mut Vec<Attribute>,
-) -> syn::Result<Option<krs_syntax::SymbolAttribute>> {
+) -> crate::Result<Option<krs_syntax::SymbolAttribute>> {
     let mut symbol = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -416,7 +427,8 @@ pub(super) fn take_explicit_symbol_helper(
                 "__krs_explicit_symbol",
             )?)?;
             if symbol.replace(parsed).is_some() {
-                return Err(syn::Error::new(
+                return Err(ExpandError::new(
+                    expand::DUPLICATE_SYMBOL,
                     attribute.span(),
                     "duplicate explicit stable-symbol helper",
                 ));
@@ -431,7 +443,7 @@ pub(super) fn take_explicit_symbol_helper(
 
 fn take_strictness_helpers(
     attributes: &mut Vec<Attribute>,
-) -> syn::Result<Option<StrictnessAttribute>> {
+) -> crate::Result<Option<StrictnessAttribute>> {
     let mut strictness = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -447,7 +459,8 @@ fn take_strictness_helpers(
         };
         if let Some(parsed) = parsed {
             if strictness.is_some() {
-                return Err(syn::Error::new(
+                return Err(ExpandError::new(
+                    expand::DUPLICATE_STRICTNESS,
                     attribute.span(),
                     "a constructor may declare only one `strict` or `seqstrict` strategy",
                 ));
@@ -461,7 +474,7 @@ fn take_strictness_helpers(
     Ok(strictness)
 }
 
-fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<ProvenanceAnchor>> {
+fn take_alias_helper(attributes: &mut Vec<Attribute>) -> crate::Result<Option<ProvenanceAnchor>> {
     let mut alias = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -470,7 +483,8 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
                 Meta::Path(_) => TokenStream::new(),
                 Meta::List(list) => list.tokens.clone(),
                 Meta::NameValue(_) => {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::ALIAS_MARKER_FORM,
                         attribute.span(),
                         "`alias` must use marker syntax",
                     ));
@@ -478,7 +492,8 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
             };
             krs_syntax::AliasAttribute::parse_tokens(tokens)?;
             if alias.is_some() {
-                return Err(syn::Error::new(
+                return Err(ExpandError::new(
+                    expand::DUPLICATE_ALIAS,
                     attribute.span(),
                     "a constructor may declare `alias` only once",
                 ));
@@ -505,7 +520,7 @@ pub(crate) fn orphan_strictness(
     entry: AttributeMacro,
     attributes: TokenStream,
     _item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let name = entry.name();
     match entry {
         AttributeMacro::Strict => {
@@ -516,7 +531,8 @@ pub(crate) fn orphan_strictness(
         }
         _ => unreachable!(),
     }
-    Err(syn::Error::new(
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
         Span::call_site(),
         format!("`#[k::{name}]` is a constructor helper; place `#[k::constructor(...)]` before it"),
     ))
@@ -527,7 +543,7 @@ pub(crate) fn token(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let token_lexical_precedence_role = ProvenanceRole::TokenLexicalPrecedence;
     let token_declaration_role = ProvenanceRole::TokenDeclaration;
     let token_regex_role = ProvenanceRole::TokenRegex;
@@ -665,7 +681,7 @@ fn constructor_grammar(
     total: bool,
     hook: Option<&krs_ir::HookOperation>,
     alias: bool,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
     let function_hook_role = ProvenanceRole::FunctionHook;
     let alias_production_role = ProvenanceRole::AliasProduction;
@@ -798,6 +814,7 @@ fn constructor_grammar(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn constructor_production_wire_items(
     facade: &Path,
     template: Option<&krs_syntax::SyntaxTemplate>,
@@ -805,13 +822,18 @@ fn constructor_production_wire_items(
     fields: &[krs_syntax::ConstructorField],
     nonce: u64,
     slots: &mut WireSlots,
-) -> syn::Result<Vec<WireProductionItem>> {
+) -> crate::Result<Vec<WireProductionItem>> {
     let mut items = Vec::new();
     if let Some(template) = template {
         let mut field_ordinal = 0_u32;
         for (item_index, item) in template.items().iter().enumerate() {
-            let item_ordinal = u32::try_from(item_index)
-                .map_err(|_| syn::Error::new(name.span(), "too many production items"))?;
+            let item_ordinal = u32::try_from(item_index).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    name.span(),
+                    "too many production items",
+                )
+            })?;
             let key = wire_key(ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(WireProductionItem::Terminal {
@@ -823,10 +845,19 @@ fn constructor_production_wire_items(
                         .iter()
                         .position(|field| field.name() == field_name)
                         .ok_or_else(|| {
-                            syn::Error::new(name.span(), "checked template field disappeared")
+                            ExpandError::new(
+                                expand::MISSING_CHECKED_FIELD,
+                                name.span(),
+                                "checked template field disappeared",
+                            )
                         })?;
-                    let declaration_ordinal = u32::try_from(declaration_index)
-                        .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
+                    let declaration_ordinal = u32::try_from(declaration_index).map_err(|_| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            name.span(),
+                            "too many constructor fields",
+                        )
+                    })?;
                     let sort_key =
                         format_ident!("__krs_constructor_field_{nonce:016x}_{declaration_index}");
                     let sort_spelling = fields[declaration_index].term_sort().sort_token_text();
@@ -852,9 +883,13 @@ fn constructor_production_wire_items(
                             .expect("Rust field identifiers are valid production fields"),
                         sort: Box::new(sort),
                     });
-                    field_ordinal = field_ordinal
-                        .checked_add(1)
-                        .ok_or_else(|| syn::Error::new(name.span(), "too many fields"))?;
+                    field_ordinal = field_ordinal.checked_add(1).ok_or_else(|| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            name.span(),
+                            "too many fields",
+                        )
+                    })?;
                 }
             }
         }
@@ -865,8 +900,13 @@ fn constructor_production_wire_items(
             text: name.to_string(),
         });
         for (index, field) in fields.iter().enumerate() {
-            let ordinal = u32::try_from(index)
-                .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
+            let ordinal = u32::try_from(index).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    name.span(),
+                    "too many constructor fields",
+                )
+            })?;
             let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
             let sort_spelling = field.term_sort().sort_token_text();

@@ -1,5 +1,7 @@
 //! Whole-configuration reachability claims: `#[k::claim]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireClaim, WireClaimBinder, WireConfigurationReference, WireConfigurationRule, WirePayload,
     WireRuleCondition, WireTypeReference,
@@ -29,7 +31,7 @@ pub(crate) fn claim(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ClaimAttribute::parse_tokens(attributes)?;
     configuration_claim(env, item, &attribute)
 }
@@ -39,7 +41,7 @@ fn configuration_claim(
     env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::ClaimAttribute,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let claim = krs_syntax::StateClaimItem::parse_tokens(item)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
@@ -123,11 +125,20 @@ fn configuration_claim(
     }
     let mut existential_metadata = Vec::new();
     for (index, binder) in claim.existentials().iter().enumerate() {
-        let ordinal = u32::try_from(index)
-            .map_err(|_| syn::Error::new(binder.name().span(), "too many existential binders"))?;
-        let binder_ordinal = term_ordinal
-            .checked_add(ordinal)
-            .ok_or_else(|| syn::Error::new(binder.name().span(), "too many claim binders"))?;
+        let ordinal = u32::try_from(index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                binder.name().span(),
+                "too many existential binders",
+            )
+        })?;
+        let binder_ordinal = term_ordinal.checked_add(ordinal).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                binder.name().span(),
+                "too many claim binders",
+            )
+        })?;
         let path = call_site_path(binder.sort())?;
         let key_fn = format_ident!("__krs_claim_existential_sort_{nonce:016x}_{ordinal}");
         key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });

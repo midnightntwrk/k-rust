@@ -166,6 +166,7 @@ dependencies = [
 name = "krs-macros"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-expand",
  "krs-ir",
  "krs-syntax",

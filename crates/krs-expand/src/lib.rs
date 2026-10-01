@@ -12,6 +12,7 @@
 
 pub mod browser_env;
 mod environment;
+mod error;
 mod expand;
 mod islands;
 mod provenance;
@@ -23,6 +24,7 @@ use proc_macro2::TokenStream;
 
 pub use browser_env::BrowserEnvironment;
 pub use environment::{MacroEnvironment, SourcePosition};
+pub use error::{ExpandError, Result};
 
 /// Expands one attribute-macro invocation.
 ///
@@ -39,7 +41,7 @@ pub fn expand_attribute(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> Result<TokenStream> {
     match entry {
         AttributeMacro::Sort => expand::sort(env, attributes, item),
         AttributeMacro::Symbol => expand::symbol(attributes, item),
@@ -81,7 +83,7 @@ pub fn expand_function(
     entry: FunctionMacro,
     env: &dyn MacroEnvironment,
     input: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> Result<TokenStream> {
     match entry {
         FunctionMacro::Sorts => expand::sorts(env, input),
         FunctionMacro::FrameworkSorts => expand::framework_sorts(env, input),

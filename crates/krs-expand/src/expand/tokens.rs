@@ -1,5 +1,7 @@
 //! Token helpers shared by every entry point.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::{KSequence, MapExpression, ProvenanceRole, TermLiteral};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -7,17 +9,17 @@ use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Meta, Path};
 
-pub(super) fn sequence_has_role(sequence: &KSequence, role: ProvenanceRole) -> syn::Result<bool> {
+pub(super) fn sequence_has_role(sequence: &KSequence, role: ProvenanceRole) -> crate::Result<bool> {
     sequence
         .provenance()
         .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(syn::Error::from)
+        .map_err(ExpandError::from)
 }
 
-pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> syn::Result<bool> {
+pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> crate::Result<bool> {
     map.provenance()
         .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(syn::Error::from)
+        .map_err(ExpandError::from)
 }
 
 pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
@@ -29,11 +31,15 @@ pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
     }
 }
 
-pub(super) fn take_counter(counter: &mut u32) -> syn::Result<u32> {
+pub(super) fn take_counter(counter: &mut u32) -> crate::Result<u32> {
     let value = *counter;
-    *counter = counter
-        .checked_add(1)
-        .ok_or_else(|| syn::Error::new(Span::call_site(), "too many term nodes"))?;
+    *counter = counter.checked_add(1).ok_or_else(|| {
+        ExpandError::new(
+            expand::DESCRIPTOR_CAPACITY,
+            Span::call_site(),
+            "too many term nodes",
+        )
+    })?;
     Ok(value)
 }
 
@@ -82,9 +88,10 @@ pub(super) fn variant_marker_function(variant: &Ident) -> Ident {
     format_ident!("__krs_variant_type_id_{}", variant)
 }
 
-pub(super) fn helper_tokens(attribute: &Attribute, name: &str) -> syn::Result<TokenStream> {
+pub(super) fn helper_tokens(attribute: &Attribute, name: &str) -> crate::Result<TokenStream> {
     let Meta::List(list) = &attribute.meta else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::HELPER_PAYLOAD_FORM,
             attribute.span(),
             format!("`{name}` requires a parenthesized payload"),
         ));
@@ -96,15 +103,15 @@ pub(super) fn spelling(tokens: &impl ToTokens) -> String {
     tokens.to_token_stream().to_string()
 }
 
-pub(super) fn call_site_path(path: &Path) -> syn::Result<Path> {
-    syn::parse_str(&path.to_token_stream().to_string())
+pub(super) fn call_site_path(path: &Path) -> crate::Result<Path> {
+    syn::parse_str(&path.to_token_stream().to_string()).map_err(ExpandError::from)
 }
 
-pub(super) fn call_site_ident(ident: &Ident) -> syn::Result<Ident> {
-    syn::parse_str(&ident.to_string())
+pub(super) fn call_site_ident(ident: &Ident) -> crate::Result<Ident> {
+    syn::parse_str(&ident.to_string()).map_err(ExpandError::from)
 }
 
-pub(super) fn call_site_cfg_attributes(attributes: &[Attribute]) -> syn::Result<Vec<Attribute>> {
+pub(super) fn call_site_cfg_attributes(attributes: &[Attribute]) -> crate::Result<Vec<Attribute>> {
     let mut parsed = Vec::new();
     for attribute in attributes
         .iter()
@@ -113,7 +120,8 @@ pub(super) fn call_site_cfg_attributes(attributes: &[Attribute]) -> syn::Result<
         let mut attributes =
             Attribute::parse_outer.parse_str(&attribute.to_token_stream().to_string())?;
         if attributes.len() != 1 {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::CFG_REPRODUCTION,
                 attribute.span(),
                 "KRS could not reproduce this cfg attribute",
             ));

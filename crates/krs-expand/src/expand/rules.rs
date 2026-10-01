@@ -1,5 +1,7 @@
 //! Function-form sentences: `#[k::rule]`, `#[k::equation]`, `#[k::simplification]`, `#[k::alias]`, `#[k::priority]`, and orphan rule helpers.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WirePayload, WireRuleCondition, WireSortReference, WireStructuredRule, WireTypeReference,
 };
@@ -27,7 +29,7 @@ pub(crate) fn rule(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
     let is_cells_rule = parsed.sig.inputs.last().is_some_and(|argument| {
@@ -61,7 +63,7 @@ pub(crate) fn equation(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     krs_syntax::EquationAttribute::parse_tokens(attributes)?;
     let attribute = krs_syntax::RuleAttribute::default();
     ordinary_rule(
@@ -78,7 +80,7 @@ pub(crate) fn simplification(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::SimplificationAttribute::parse_tokens(attributes)?;
     ordinary_rule(
         env,
@@ -94,7 +96,7 @@ pub(crate) fn alias(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     krs_syntax::AliasAttribute::parse_tokens(attributes)?;
     if syn::parse2::<ItemFn>(item.clone()).is_ok() {
         return ordinary_rule(
@@ -106,7 +108,8 @@ pub(crate) fn alias(
             None,
         );
     }
-    Err(syn::Error::new(
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
         Span::call_site(),
         "`#[k::alias]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
     ))
@@ -116,7 +119,7 @@ pub(crate) fn priority(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let priority = krs_syntax::PriorityAttribute::parse_tokens(attributes)?;
     let mut function: ItemFn = syn::parse2(item)?;
     let Some(index) = function
@@ -124,7 +127,8 @@ pub(crate) fn priority(
         .iter()
         .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Equation))
     else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::ORPHAN_HELPER,
             Span::call_site(),
             "`#[k::priority]` is an equation helper; place it immediately before `#[k::equation]`",
         ));
@@ -147,7 +151,7 @@ fn ordinary_rule(
     sentence_kind: krs_ir::SentenceKind,
     priority: Option<&krs_syntax::PriorityAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let rule = krs_syntax::RuleItem::parse_tokens(item)?;
     expand_ordinary_rule(
         env,
@@ -171,7 +175,7 @@ fn expand_ordinary_rule(
     simplification: Option<&krs_syntax::SimplificationAttribute>,
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let rule_requires_role = ProvenanceRole::RuleRequires;
     let equation_priority_role = ProvenanceRole::EquationPriority;
     let simplification_priority_role = ProvenanceRole::SimplificationPriority;
@@ -388,7 +392,7 @@ pub(crate) fn orphan_rule_helper(
     entry: AttributeMacro,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let name = entry.name();
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
@@ -416,7 +420,8 @@ pub(crate) fn orphan_rule_helper(
             };
         }
     }
-    Err(syn::Error::new(
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
         Span::call_site(),
         if matches!(entry, AttributeMacro::Exists | AttributeMacro::Ensures) {
             format!("`#[k::{name}]` is a claim helper; place `#[k::claim(...)]` before it")

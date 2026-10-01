@@ -82,7 +82,7 @@ impl MacroEnvironment for BrowserEnvironment<'_> {
         self.call_site.get()
     }
 
-    fn facade_path(&self) -> syn::Result<Path> {
+    fn facade_path(&self) -> crate::Result<Path> {
         Ok(self.facade.clone())
     }
 }

@@ -1,5 +1,7 @@
 //! Enum production families: `#[k::constructors]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
 use std::collections::BTreeMap;
 
@@ -36,7 +38,7 @@ pub(crate) fn constructors(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attributes)?;
     let item: ItemEnum = syn::parse2(item)?;
@@ -89,7 +91,8 @@ pub(crate) fn constructors(
         });
         let selector = rule_application_selector(variant.name());
         if let Some(previous) = rule_application_selectors.insert(selector, variant.name()) {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::ENUM_VARIANT_COLLISION,
                 variant.name().span(),
                 format!(
                     "enum variants `{previous}` and `{}` collide in readable rule resolution",
@@ -276,6 +279,7 @@ fn enum_precedence_group_name(
     declaration.precedence_groups()[ordinal].emitted_name(declaration.sort_name(), ordinal)
 }
 
+#[allow(clippy::too_many_lines)]
 fn expand_enum_family_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
@@ -284,7 +288,7 @@ fn expand_enum_family_grammar(
     enum_name: &str,
     cfg: &[Attribute],
     fallback: TokenRange,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
     let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
     let precedence_chain_role = ProvenanceRole::PrecedenceChain;
@@ -302,8 +306,13 @@ fn expand_enum_family_grammar(
         let mut groups = Vec::new();
         for (ordinal, _) in declaration.precedence_groups().iter().enumerate() {
             let group = enum_precedence_group_name(declaration, ordinal);
-            let ordinal = u32::try_from(ordinal)
-                .map_err(|_| syn::Error::new(declaration.sort_name().span(), "too many groups"))?;
+            let ordinal = u32::try_from(ordinal).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    declaration.sort_name().span(),
+                    "too many groups",
+                )
+            })?;
             groups.push(DescriptorGroupReference {
                 key: wire_key(precedence_group_reference_role, ordinal),
                 group: ProductionGroupId::new(group)
@@ -349,8 +358,13 @@ fn expand_enum_family_grammar(
                 SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
                 SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
             };
-            let ordinal = u32::try_from(sentence_ordinal)
-                .map_err(|_| syn::Error::new(group.range().first(), "too many groups"))?;
+            let ordinal = u32::try_from(sentence_ordinal).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    group.range().first(),
+                    "too many groups",
+                )
+            })?;
             sentences.push(DescriptorAssociativitySentence {
                 key: wire_key(associativity_sentence_role, ordinal),
                 associativity,
@@ -391,7 +405,7 @@ fn expand_enum_variant(
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let alias_production_role = ProvenanceRole::AliasProduction;
     let constructor_syntax_role = ProvenanceRole::ConstructorSyntax;
     let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
@@ -407,7 +421,8 @@ fn expand_enum_variant(
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::ConstructorAvoid)
     {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::INVALID_AVOID_METADATA,
             variant.name().span(),
             "`avoid = false` is not metadata; omit the argument instead",
         ));
@@ -590,20 +605,26 @@ fn expand_enum_variant(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn enum_variant_production_wire_items(
     facade: &Path,
     variant: &krs_syntax::EnumConstructorVariant,
     nonce: u64,
     variant_index: usize,
     slots: &mut WireSlots,
-) -> syn::Result<Vec<krs_ir::wire::WireProductionItem>> {
+) -> crate::Result<Vec<krs_ir::wire::WireProductionItem>> {
     use krs_ir::wire::WireProductionItem as Item;
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
         let mut field_ordinal = 0_u32;
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
-            let ordinal = u32::try_from(item_index)
-                .map_err(|_| syn::Error::new(variant.name().span(), "too many production items"))?;
+            let ordinal = u32::try_from(item_index).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    variant.name().span(),
+                    "too many production items",
+                )
+            })?;
             let key = wire_key(ProvenanceRole::ConstructorSyntaxItem, ordinal);
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(Item::Terminal {
@@ -616,10 +637,19 @@ fn enum_variant_production_wire_items(
                         .iter()
                         .position(|field| field.name() == name)
                         .ok_or_else(|| {
-                            syn::Error::new(variant.name().span(), "checked field disappeared")
+                            ExpandError::new(
+                                expand::MISSING_CHECKED_FIELD,
+                                variant.name().span(),
+                                "checked field disappeared",
+                            )
                         })?;
-                    let declaration_ordinal = u32::try_from(declaration_index)
-                        .map_err(|_| syn::Error::new(variant.name().span(), "too many fields"))?;
+                    let declaration_ordinal = u32::try_from(declaration_index).map_err(|_| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            variant.name().span(),
+                            "too many fields",
+                        )
+                    })?;
                     let sort_key = format_ident!(
                         "__krs_enum_field_{nonce:016x}_{variant_index}_{declaration_index}"
                     );
@@ -645,9 +675,13 @@ fn enum_variant_production_wire_items(
                             &field.term_sort().sort_token_text(),
                         )),
                     });
-                    field_ordinal = field_ordinal
-                        .checked_add(1)
-                        .ok_or_else(|| syn::Error::new(variant.name().span(), "too many fields"))?;
+                    field_ordinal = field_ordinal.checked_add(1).ok_or_else(|| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            variant.name().span(),
+                            "too many fields",
+                        )
+                    })?;
                 }
             }
         }
@@ -657,8 +691,13 @@ fn enum_variant_production_wire_items(
             text: variant.name().to_string(),
         });
         for (field_index, field) in variant.fields().iter().enumerate() {
-            let ordinal = u32::try_from(field_index)
-                .map_err(|_| syn::Error::new(variant.name().span(), "too many fields"))?;
+            let ordinal = u32::try_from(field_index).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    variant.name().span(),
+                    "too many fields",
+                )
+            })?;
             let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key =
                 format_ident!("__krs_enum_field_{nonce:016x}_{variant_index}_{field_index}");

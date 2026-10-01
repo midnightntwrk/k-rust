@@ -4,11 +4,13 @@
 //! tokens. Expansion only checks the literal form and emits a panicking
 //! placeholder expression.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use proc_macro2::TokenStream;
 use quote::quote;
 
 /// Compiler-owned concrete builtin Id token island.
-pub(crate) fn id(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn id(input: TokenStream) -> crate::Result<TokenStream> {
     let literal: syn::LitStr = syn::parse2(input)?;
     let value = literal.value();
     if !value.strip_prefix('$').is_some_and(|tail| {
@@ -17,7 +19,8 @@ pub(crate) fn id(input: TokenStream) -> syn::Result<TokenStream> {
                 .chars()
                 .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
     }) {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::INVALID_ID_TOKEN,
             literal.span(),
             "invalid builtin `Id` token",
         ));
@@ -26,7 +29,7 @@ pub(crate) fn id(input: TokenStream) -> syn::Result<TokenStream> {
 }
 
 /// Compiler-owned concrete builtin Bytes token island.
-pub(crate) fn bytes(input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn bytes(input: TokenStream) -> crate::Result<TokenStream> {
     let _literal: syn::LitByteStr = syn::parse2(input)?;
     Ok(quote!(::core::panic!("bytes! has no runtime value")))
 }

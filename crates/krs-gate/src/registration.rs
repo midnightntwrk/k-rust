@@ -52,13 +52,7 @@ pub fn dispatch(request: &Value) -> Result<Value, Box<dyn Error>> {
     .map_err(|diagnostics| {
         diagnostics
             .iter()
-            .map(|diagnostic| {
-                format!(
-                    "{}: {}",
-                    diagnostic.code.unwrap_or("uncoded"),
-                    diagnostic.message
-                )
-            })
+            .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
             .collect::<Vec<_>>()
             .join("\n")
     })?;
@@ -154,8 +148,8 @@ pub trait Hidden {}
         std::fs::write(&source, "mod inner { k::sorts! { A; B; } }").unwrap();
         let response = Session::new().dispatch(&request(&source)).unwrap();
         let message = response["error"]["message"].as_str().unwrap();
-        assert!(message.contains(REGISTRATION_SCOPE));
-        assert_eq!(message.matches(REGISTRATION_SCOPE).count(), 2);
+        assert!(message.contains(REGISTRATION_SCOPE.as_str()));
+        assert_eq!(message.matches(REGISTRATION_SCOPE.as_str()).count(), 2);
         assert!(message.contains("not defined at the crate root"));
     }
 

@@ -1,5 +1,7 @@
 //! Readable rule blocks: `rules!`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ProvenanceRole, TokenRange};
 use proc_macro2::TokenStream;
@@ -15,7 +17,7 @@ use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance_static;
 
 /// Expands a readable block into independent ordinary rule declarations.
-pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let block = krs_syntax::RuleBlock::parse_tokens(input)?;
     let enum_owner = block.imports().first().map(krs_syntax::RuleImport::owner);
     let enum_variant = block
@@ -54,7 +56,7 @@ fn expand_head_rule(
     enum_owner: Option<&Path>,
     enum_variant: Option<&Ident>,
     configuration_owned: bool,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
     let rule_right_cells_field_role = ProvenanceRole::RuleRightCellsField;
     let rule_requires_role = ProvenanceRole::RuleRequires;
@@ -95,8 +97,13 @@ fn expand_head_rule(
             .enumerate()
             .find(|(_, narrowing)| narrowing.binding().unraw() == binding.unraw())
         {
-            let ordinal = u32::try_from(ordinal)
-                .map_err(|_| syn::Error::new(binding.span(), "too many rule refinements"))?;
+            let ordinal = u32::try_from(ordinal).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    binding.span(),
+                    "too many rule refinements",
+                )
+            })?;
             let key_fn = format_ident!("__krs_head_rule_refinement_{nonce:016x}_{ordinal}");
             // Keep the authored narrowing path visible to language tooling.
             let path = narrowing.sort();
@@ -138,9 +145,13 @@ fn expand_head_rule(
                 let value_binding = value.unraw().to_string();
                 let key = builder.expand_wire(key.tree(), TermSide::Left, &mut slots)?;
                 let ordinal = have_ordinal;
-                have_ordinal = have_ordinal
-                    .checked_add(1)
-                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell reads",
+                    )
+                })?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
                         key: rule_left_cells_field_role.key(ordinal),
@@ -155,9 +166,13 @@ fn expand_head_rule(
             } => {
                 let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
                 let ordinal = have_ordinal;
-                have_ordinal = have_ordinal
-                    .checked_add(1)
-                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell reads",
+                    )
+                })?;
                 rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
             }
             krs_syntax::RuleExtra::UpdateMap { .. } => {}
@@ -189,7 +204,11 @@ fn expand_head_rule(
                 let update = builder.expand_wire(update.tree(), TermSide::Right, &mut slots)?;
                 let ordinal = update_ordinal;
                 update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(cell.span(), "too many readable cell updates")
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell updates",
+                    )
                 })?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
@@ -207,7 +226,11 @@ fn expand_head_rule(
                 let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
                 let right_ordinal = update_ordinal;
                 update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(cell.span(), "too many readable cell updates")
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        cell.span(),
+                        "too many readable cell updates",
+                    )
                 })?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
@@ -263,7 +286,8 @@ fn expand_head_rule(
     let parameter_type = rule.parameter().term_sort.ty();
     let (head_sort, configuration, computation_cell_name) = if configuration_owned {
         let computation_cell = clause.computation_cell().ok_or_else(|| {
-            syn::Error::new(
+            ExpandError::new(
+                expand::MISSING_COMPUTATION_CELL,
                 rule.item().sig.ident.span(),
                 "a configuration-owned rule is missing its computation-cell field",
             )

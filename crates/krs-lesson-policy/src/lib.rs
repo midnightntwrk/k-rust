@@ -16,6 +16,7 @@
 //! `wasm32-unknown-unknown` module whose JSON protocol is described in
 //! [`protocol`].
 
+use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic};
 use krs_syntax::SourceRange as ByteRange;
 use std::collections::BTreeMap;
 
@@ -62,7 +63,7 @@ impl LessonPolicy {
 pub struct PolicyDiagnostic {
     /// Stable diagnostic code, one of [`rules::CODES`] such as
     /// `krs::policy::non-krs-proc-macro`.
-    pub code: &'static str,
+    pub code: Code,
     /// Human-readable explanation.
     pub message: String,
     /// The package-relative file the diagnostic concerns.
@@ -76,29 +77,43 @@ pub struct PolicyDiagnostic {
 }
 
 impl PolicyDiagnostic {
-    pub(crate) fn authored(
-        code: &'static str,
-        message: String,
-        file: &str,
-        range: ByteRange,
-    ) -> Self {
+    fn from_diagnostic(diagnostic: Diagnostic, file: &str) -> Self {
+        let authored = match diagnostic.primary.location {
+            Location::Range(range) | Location::File { range, .. } => Some(range),
+            _ => None,
+        };
         Self {
-            code,
-            message,
+            code: diagnostic.code,
+            message: diagnostic.message,
             file: file.to_owned(),
-            authored: Some(range),
-            class: CLASS_EXACT_AUTHORED,
+            authored,
+            class: if authored.is_some() {
+                CLASS_EXACT_AUTHORED
+            } else {
+                CLASS_UNMAPPABLE
+            },
         }
     }
 
-    pub(crate) fn request_level(code: &'static str, message: String, file: &str) -> Self {
-        Self {
-            code,
-            message,
-            file: file.to_owned(),
-            authored: None,
-            class: CLASS_UNMAPPABLE,
-        }
+    pub(crate) fn authored(code: Code, message: String, file: &str, range: ByteRange) -> Self {
+        Self::from_diagnostic(
+            Diagnostic::error(code, message, Location::Range(range)),
+            file,
+        )
+    }
+
+    pub(crate) fn request_level(code: Code, message: String, file: &str) -> Self {
+        Self::from_diagnostic(Diagnostic::error(code, message, Location::None), file)
+    }
+}
+
+impl ToDiagnostic for PolicyDiagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        Diagnostic::error(
+            self.code.clone(),
+            self.message.clone(),
+            self.authored.map_or(Location::None, Location::Range),
+        )
     }
 }
 

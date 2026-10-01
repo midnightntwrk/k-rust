@@ -51,7 +51,7 @@ pub trait MacroEnvironment {
     ///
     /// Returns the invocation's diagnostic when the host cannot name the
     /// facade, such as a crate without a direct `krs` dependency.
-    fn facade_path(&self) -> syn::Result<Path>;
+    fn facade_path(&self) -> crate::Result<Path>;
 }
 
 /// A host-independent environment for unit tests: a configured display file
@@ -95,7 +95,7 @@ impl MacroEnvironment for FixedEnvironment {
         None
     }
 
-    fn facade_path(&self) -> syn::Result<Path> {
+    fn facade_path(&self) -> crate::Result<Path> {
         Ok(self.facade.clone())
     }
 }

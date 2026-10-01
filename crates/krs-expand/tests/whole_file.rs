@@ -267,7 +267,7 @@ fn invalid_sorts_block_reports_the_exact_token() {
         assert_eq!(
             diagnostics,
             [ExpandDiagnostic {
-                code: None,
+                code: krs_diagnostic::codes::syntax::RUST_SYNTAX,
                 message: "expected identifier".to_owned(),
                 class: MappingClass::ExactAuthored,
                 authored: Some(br(24, 25)),
@@ -299,7 +299,7 @@ fn selection_expands_only_the_listed_invocation() {
         }]),
     )
     .expect_err("a mismatched selection fails");
-    assert_eq!(missing[0].code, Some(whole_file::SELECTION));
+    assert_eq!(missing[0].code, whole_file::SELECTION);
 }
 
 #[test]
@@ -321,20 +321,17 @@ fn invocations_inside_standard_macros_are_expanded() {
 fn attribute_order_and_form_are_checked() {
     let derive_first = "#[derive(Clone)]\n#[k::configuration]\npub struct M {}\n";
     let diagnostics = expand(derive_first).unwrap_err();
-    assert_eq!(diagnostics[0].code, Some(whole_file::ATTRIBUTE_ORDER));
+    assert_eq!(diagnostics[0].code, whole_file::ATTRIBUTE_ORDER);
     assert_eq!(diagnostics[0].authored, Some(br(17, 36)));
 
     let helper_first = "#[k::precedence((A))]\n#[k::constructors(sort = S)]\npub enum E { A() }\n";
     let diagnostics = expand(helper_first).unwrap_err();
-    assert_eq!(
-        diagnostics[0].code,
-        Some(whole_file::NOT_AN_ATTRIBUTE_MACRO)
-    );
+    assert_eq!(diagnostics[0].code, whole_file::NOT_AN_ATTRIBUTE_MACRO);
     assert_eq!(diagnostics[0].authored, Some(br(2, 15)));
 
     let key_value = "#[k::configuration = 1]\npub struct M {}\n";
     let diagnostics = expand(key_value).unwrap_err();
-    assert_eq!(diagnostics[0].code, Some(whole_file::ATTRIBUTE_FORM));
+    assert_eq!(diagnostics[0].code, whole_file::ATTRIBUTE_FORM);
 
     let doc_first =
         "/// Docs.\n#[k::configuration]\npub struct M {\n    #[k::cell]\n    pub k: u8,\n}\n";
@@ -350,7 +347,7 @@ fn factories_outside_the_crate_root_are_rejected() {
     assert!(
         diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.code == Some(whole_file::REGISTRATION_SCOPE))
+            .all(|diagnostic| diagnostic.code == whole_file::REGISTRATION_SCOPE)
     );
     assert!(!diagnostics.is_empty());
 }
@@ -362,7 +359,7 @@ fn byte_order_marks_and_shebangs_are_rejected() {
         "#!/usr/bin/env run\nfn main() {}\n",
     ] {
         let diagnostics = expand(source).unwrap_err();
-        assert_eq!(diagnostics[0].code, Some(whole_file::UNSUPPORTED_SOURCE));
+        assert_eq!(diagnostics[0].code, whole_file::UNSUPPORTED_SOURCE);
     }
     assert!(expand("#![allow(dead_code)]\nfn main() {}\n").is_ok());
 }

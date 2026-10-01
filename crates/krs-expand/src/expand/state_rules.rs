@@ -1,5 +1,7 @@
 //! Whole-configuration rules and named contexts: cells-form `#[k::rule]` and `#[k::context_alias]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellIdentity, WireCellReference, WireCellTermField,
@@ -43,7 +45,7 @@ pub(crate) fn context_alias(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ContextAliasAttribute::parse_tokens(attributes)?;
     let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
@@ -94,7 +96,11 @@ pub(crate) fn context_alias(
                     let sort_spelling = sort.sort_token_text();
                     let ordinal = term_ordinal;
                     term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
-                        syn::Error::new(binding.name().span(), "too many context bindings")
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            binding.name().span(),
+                            "too many context bindings",
+                        )
                     })?;
                     ProtocolContextAliasBindingKind::Term {
                         sort: wire_sort_reference(
@@ -202,7 +208,7 @@ pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let rule = krs_syntax::StateRuleItem::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let mut anchors = rule.provenance()?;
@@ -248,7 +254,11 @@ pub(super) fn configuration_rule(
                 let authored = sort.sort_token_text();
                 let ordinal = term_ordinal;
                 term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(binding.name().span(), "too many term bindings")
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        binding.name().span(),
+                        "too many term bindings",
+                    )
                 })?;
                 ProtocolRuleBindingKind::Term {
                     sort: wire_sort_reference(
@@ -485,7 +495,7 @@ impl<'a> StateRuleBuilder<'a> {
         cells: &krs_syntax::CellsExpression,
         owner: &Path,
         slots: &mut WireSlots,
-    ) -> syn::Result<WireRuleCells> {
+    ) -> crate::Result<WireRuleCells> {
         let facade = self.facade;
         let mut output = Vec::new();
         for entry in cells.entries() {
@@ -501,7 +511,8 @@ impl<'a> StateRuleBuilder<'a> {
                 .iter()
                 .any(|segment| segment.ident == "KCell");
             if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
-                return Err(syn::Error::new(
+                return Err(ExpandError::new(
+                    expand::CELL_STATE_FAMILY_MISMATCH,
                     entry.wrapper().span(),
                     "cell wrapper and rule state family disagree",
                 ));
@@ -539,7 +550,7 @@ impl<'a> StateRuleBuilder<'a> {
         &mut self,
         state: &StateTerm,
         slots: &mut WireSlots,
-    ) -> syn::Result<ProtocolRuleStateTerm<WireTerm>> {
+    ) -> crate::Result<ProtocolRuleStateTerm<WireTerm>> {
         match state {
             StateTerm::Term(term) => Ok(ProtocolRuleStateTerm::Term(
                 self.expand_term(term.tree(), slots)?,
@@ -555,7 +566,7 @@ impl<'a> StateRuleBuilder<'a> {
         &mut self,
         sequence: &KSequence,
         slots: &mut WireSlots,
-    ) -> syn::Result<ProtocolRuleKSequence<WireTerm>> {
+    ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
             Some(self.key(RuleRole::KSequencePayload, ordinal))
@@ -599,7 +610,7 @@ impl<'a> StateRuleBuilder<'a> {
         &mut self,
         map: &MapExpression,
         slots: &mut WireSlots,
-    ) -> syn::Result<ProtocolRuleMap<WireTerm>> {
+    ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
             Some(self.key(RuleRole::MapPayload, ordinal))
@@ -648,7 +659,7 @@ impl<'a> StateRuleBuilder<'a> {
         &mut self,
         frame: &StateMacroRemainder,
         role: RuleRole,
-    ) -> syn::Result<ProtocolRuleFrame> {
+    ) -> crate::Result<ProtocolRuleFrame> {
         let side_role = self.side_role(role);
         let counter = match role {
             RuleRole::CellsRemainder => &mut self.counters.remainder,
@@ -682,7 +693,7 @@ impl<'a> StateRuleBuilder<'a> {
     }
 
     #[allow(clippy::too_many_lines)] // Exhaustive transport for the closed structured-term grammar.
-    fn expand_term(&mut self, tree: &TermTree, slots: &mut WireSlots) -> syn::Result<WireTerm> {
+    fn expand_term(&mut self, tree: &TermTree, slots: &mut WireSlots) -> crate::Result<WireTerm> {
         let facade = self.facade;
         match tree {
             TermTree::Application(application) => {
@@ -756,7 +767,8 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::Wildcard(_) => {
                 if matches!(self.side, RuleSide::Right) {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::RULE_RESULT_WILDCARD,
                         Span::call_site(),
                         "rule results cannot contain wildcards",
                     ));
@@ -768,7 +780,8 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::IdToken { literal } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         literal.span(),
                         "id! is currently claim-only",
                     ));
@@ -782,7 +795,8 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::BytesToken { literal } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         literal.span(),
                         "bytes! is currently claim-only",
                     ));
@@ -799,7 +813,8 @@ impl<'a> StateRuleBuilder<'a> {
                 spelling: display_literal,
             } => {
                 if !self.claim || matches!(self.side, RuleSide::Right) {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_SUBJECT_ONLY_TERM,
                         display_literal.span(),
                         "anonymous! is allowed only in claim subjects",
                     ));
@@ -828,7 +843,8 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::OrBool { arguments, .. } => {
                 if !self.claim {
-                    return Err(syn::Error::new(
+                    return Err(ExpandError::new(
+                        expand::CLAIM_ONLY_TERM,
                         Span::call_site(),
                         "or_bool! is currently claim-only",
                     ));

@@ -1,5 +1,7 @@
 //! Sort declarations: `#[k::sort]`, `sorts!`, the facade's framework sort block, `#[k::bracket]`, and `#[k::subsort]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,7 +29,7 @@ pub(crate) fn sort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::SortAttribute::parse_tokens(attributes)?;
     let mut item: ItemTrait = syn::parse2(item)?;
     reject_unexpanded_symbol(&item.attrs)?;
@@ -36,7 +38,8 @@ pub(crate) fn sort(
     let declaration = krs_syntax::SortDeclaration::parse_tokens(item.to_token_stream())?;
     let facade = env.facade_path()?;
     if attribute.is_reference() && attribute.parents().len() != declaration.parents().len() {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::SORT_PARENT_MISMATCH,
             declaration.item().ident.span(),
             "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
         ));
@@ -50,8 +53,13 @@ pub(crate) fn sort(
             semantic_sort_range,
         )];
         for (ordinal, parent) in attribute.parents().iter().enumerate() {
-            let ordinal = u32::try_from(ordinal)
-                .map_err(|_| syn::Error::new(parent.span(), "too many sort parents"))?;
+            let ordinal = u32::try_from(ordinal).map_err(|_| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    parent.span(),
+                    "too many sort parents",
+                )
+            })?;
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::SortParent,
                 ordinal,
@@ -187,7 +195,7 @@ pub(crate) fn sort(
 /// generated Rust supertrait graph. The pair set is deduplicated so diamonds
 /// produce exactly one Rust impl for their shared ancestor; only the authored
 /// direct edge is registered as an object-language subsort descriptor.
-pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let declaration = krs_syntax::SortsDeclaration::parse_tokens(input)?;
     let facade = env.facade_path()?;
     let local_parents = declaration
@@ -218,14 +226,19 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Resu
                     if let Some(first_span) =
                         readable_memberships.insert(identity.item_name.clone(), member.span())
                     {
-                        let mut error = syn::Error::new(
+                        let mut error = ExpandError::new(
+                            expand::DUPLICATE_MEMBERSHIP_RELATION,
                             member.span(),
                             format!(
                                 "duplicate readable membership relation `{}`",
                                 identity.relation
                             ),
                         );
-                        error.combine(syn::Error::new(first_span, "first declared here"));
+                        error.combine(ExpandError::new(
+                            expand::DUPLICATE_MEMBERSHIP_RELATION,
+                            first_span,
+                            "first declared here",
+                        ));
                         return Err(error);
                     }
                     let mut supersorts = vec![membership.supersort().clone()];
@@ -269,12 +282,13 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Resu
 pub(crate) fn framework_sorts(
     env: &dyn MacroEnvironment,
     input: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let facade = env.facade_path()?;
     let expansion = sorts(env, input)?;
     let factories = registered_factories(&expansion);
     if factories.is_empty() {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::EMPTY_SORT_REGISTRATION,
             Span::call_site(),
             "framework sort block registered no descriptors",
         ));
@@ -355,12 +369,18 @@ fn expand_readable_sort(
     env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::SortsSort,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let anchors = declaration.provenance()?;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
-        .ok_or_else(|| syn::Error::new(declaration.name().span(), "empty sort declaration"))?;
+        .ok_or_else(|| {
+            ExpandError::new(
+                expand::EMPTY_SORT_DECLARATION,
+                declaration.name().span(),
+                "empty sort declaration",
+            )
+        })?;
     let provenance = host_provenance(env, facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "readable_sort", declaration.name(), fallback);
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
@@ -461,7 +481,7 @@ fn expand_readable_membership(
     declaration: &krs_syntax::SortsMembership,
     member: &Path,
     identity: &ReadableMembershipIdentity,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let anchors = declaration.member_provenance(member)?;
     let fallback = anchors[0].range();
@@ -578,7 +598,7 @@ fn rust_identifier_key(value: &str) -> String {
     lower_hex(value.as_bytes())
 }
 
-fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {
+fn readable_sort_marker_path(facade: &Path, path: &Path) -> crate::Result<Path> {
     if is_framework_sort_path(path) {
         let name = path
             .segments
@@ -591,7 +611,11 @@ fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {
     }
     let mut marker = call_site_path(path)?;
     let Some(last) = marker.segments.last_mut() else {
-        return Err(syn::Error::new(path.span(), "sort path must not be empty"));
+        return Err(ExpandError::new(
+            expand::EMPTY_SORT_PATH,
+            path.span(),
+            "sort path must not be empty",
+        ));
     };
     last.ident = format_ident!("{}Sort", last.ident, span = Span::call_site());
     Ok(marker)
@@ -599,7 +623,7 @@ fn readable_sort_marker_path(facade: &Path, path: &Path) -> syn::Result<Path> {
 
 fn take_bracket_helpers(
     attributes: &mut Vec<Attribute>,
-) -> syn::Result<Vec<krs_syntax::BracketAttribute>> {
+) -> crate::Result<Vec<krs_syntax::BracketAttribute>> {
     let mut brackets = Vec::new();
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -616,9 +640,10 @@ fn take_bracket_helpers(
     Ok(brackets)
 }
 
-pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> syn::Result<TokenStream> {
+pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> crate::Result<TokenStream> {
     krs_syntax::BracketAttribute::parse_tokens(attributes)?;
-    Err(syn::Error::new(
+    Err(ExpandError::new(
+        expand::ORPHAN_HELPER,
         Span::call_site(),
         "`#[k::bracket]` is a sort helper; place `#[k::sort]` before it",
     ))
@@ -629,7 +654,7 @@ pub(crate) fn subsort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let reference = (!attributes.is_empty())
         .then(|| krs_syntax::SubsortAttribute::parse_tokens(attributes))
@@ -763,7 +788,7 @@ fn expand_bracket_grammar(
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let mut anchors = bracket.provenance()?;
     anchors.push(ProvenanceAnchor::new(
         ProvenanceRole::SortDeclaration,
@@ -795,12 +820,18 @@ fn expand_bracket_grammar_parts(
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let bracket_declaration_role = ProvenanceRole::BracketDeclaration;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
-        .ok_or_else(|| syn::Error::new(bracket.template().literal().span(), "empty bracket"))?;
+        .ok_or_else(|| {
+            ExpandError::new(
+                expand::EMPTY_BRACKET,
+                bracket.template().literal().span(),
+                "empty bracket",
+            )
+        })?;
     let provenance = host_provenance(env, facade, fallback, anchors);
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
@@ -817,7 +848,8 @@ fn expand_bracket_grammar_parts(
     let mut value_ordinal = 0_u32;
     for (item_index, item) in bracket.template().items().iter().enumerate() {
         let ordinal = u32::try_from(item_index).map_err(|_| {
-            syn::Error::new(
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
                 bracket.template().literal().span(),
                 "too many bracket items",
             )
@@ -833,7 +865,8 @@ fn expand_bracket_grammar_parts(
             SyntaxTemplateItem::Field(_) => {
                 let field_key = wire_key(ProvenanceRole::BracketValueReference, value_ordinal);
                 value_ordinal = value_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
                         bracket.template().literal().span(),
                         "too many bracket values",
                     )

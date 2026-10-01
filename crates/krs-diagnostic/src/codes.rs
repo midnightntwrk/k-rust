@@ -20,6 +20,9 @@ macro_rules! register_codes {
                     #[doc = $summary]
                     pub const $name: crate::Code = crate::Code::registered($spelling);
                 )*
+
+                /// Every diagnostic code registered for this stage.
+                pub const CODES: &[crate::Code] = &[$($name,)*];
             }
         )*
 
@@ -84,7 +87,7 @@ register_codes! {
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
     }
-    /// Diagnostics from whole-file expansion and its protocol.
+    /// Diagnostics from KRS rendering, whole-file expansion, and their protocol.
     expand {
         PARSE: "krs::expand::parse" => "The authored file does not lex or parse as a Rust file.",
         UNSUPPORTED_SOURCE: "krs::expand::unsupported-source" => "The authored file starts with a byte order mark or a shebang line, which rustc strips and the fallback lexer does not.",
@@ -96,6 +99,44 @@ register_codes! {
         REGISTRATION_SCOPE: "krs::expand::registration-scope" => "A descriptor factory is defined where the crate-root registration table cannot name it.",
         SELECTION: "krs::expand::selection" => "An explicitly selected invocation does not match a discovered one.",
         PRINT: "krs::expand::print" => "An expansion cannot be printed as text without changing its tokens.",
+        DESCRIPTOR_CAPACITY: "krs::expand::descriptor-capacity" => "A descriptor count or ordinal exceeds its u32 representation.",
+        HELPER_PAYLOAD_FORM: "krs::expand::helper-payload-form" => "A helper attribute requires a parenthesized payload.",
+        CFG_REPRODUCTION: "krs::expand::cfg-reproduction" => "A cfg attribute could not be reproduced for generated tokens.",
+        MISSING_COMPUTATION_CELL: "krs::expand::missing-computation-cell" => "A configuration-owned rule has no computation-cell field.",
+        INITIALIZER_BODY_SHAPE: "krs::expand::initializer-body-shape" => "A fixed initializer does not contain exactly one struct expression.",
+        MISSING_CHECKED_FIELD: "krs::expand::missing-checked-field" => "A field accepted by syntax validation is absent during rendering.",
+        INITIALIZER_CELL_SHAPE: "krs::expand::initializer-cell-shape" => "A nested fixed-cell initializer is not a struct expression.",
+        CELL_STATE_FAMILY_MISMATCH: "krs::expand::cell-state-family-mismatch" => "A cell wrapper disagrees with the state family of its initializer or rule.",
+        INITIALIZER_RECORD_ARGUMENTS: "krs::expand::initializer-record-arguments" => "An initializer term uses named record arguments.",
+        INITIALIZER_WILDCARD: "krs::expand::initializer-wildcard" => "An initializer term contains a wildcard.",
+        CLAIM_ONLY_TERM: "krs::expand::claim-only-term" => "A claim-only term island occurs outside a claim.",
+        INITIALIZER_FRAGMENT: "krs::expand::initializer-fragment" => "An initializer term uses a fragment instead of constructing nested cells directly.",
+        EMPTY_GRAMMAR_DECLARATION: "krs::expand::empty-grammar-declaration" => "A precedence or associativity declaration contains no sentences.",
+        UNSUPPORTED_SYMBOL_ITEM: "krs::expand::unsupported-symbol-item" => "A stable-symbol attribute is attached to an unsupported item kind.",
+        DUPLICATE_SYMBOL: "krs::expand::duplicate-symbol" => "A declaration contains more than one explicit stable-symbol attribute.",
+        SYMBOL_ATTRIBUTE_ORDER: "krs::expand::symbol-attribute-order" => "A stable-symbol attribute does not immediately precede one symbol-bearing declaration attribute.",
+        UNKNOWN_HOOK: "krs::expand::unknown-hook" => "A hook path does not name a supported KRS hook operation.",
+        FUNCTION_ALIAS_CONFLICT: "krs::expand::function-alias-conflict" => "A function production is also declared as a static alias.",
+        INVALID_AVOID_METADATA: "krs::expand::invalid-avoid-metadata" => "An avoid argument explicitly supplies false instead of omitting the metadata.",
+        DUPLICATE_STRICTNESS: "krs::expand::duplicate-strictness" => "A constructor declares more than one strictness strategy.",
+        ALIAS_MARKER_FORM: "krs::expand::alias-marker-form" => "A constructor alias helper does not use marker syntax.",
+        DUPLICATE_ALIAS: "krs::expand::duplicate-alias" => "A constructor declares its alias helper more than once.",
+        ORPHAN_HELPER: "krs::expand::orphan-helper" => "A helper attribute is expanded without its required preceding declaration attribute.",
+        SORT_PARENT_MISMATCH: "krs::expand::sort-parent-mismatch" => "A reference sort lacks one semantic parent path per Rust marker supertrait.",
+        DUPLICATE_MEMBERSHIP_RELATION: "krs::expand::duplicate-membership-relation" => "A readable sort block declares a membership relation more than once.",
+        EMPTY_SORT_REGISTRATION: "krs::expand::empty-sort-registration" => "A framework sort block registers no descriptors.",
+        EMPTY_SORT_DECLARATION: "krs::expand::empty-sort-declaration" => "A sort declaration contains no descriptor-bearing tokens.",
+        EMPTY_SORT_PATH: "krs::expand::empty-sort-path" => "A sort reference contains no path segments.",
+        EMPTY_BRACKET: "krs::expand::empty-bracket" => "A bracket template contains no descriptor-bearing tokens.",
+        ENUM_VARIANT_COLLISION: "krs::expand::enum-variant-collision" => "Two enum variants have the same readable rule resolution name.",
+        RULE_RESULT_WILDCARD: "krs::expand::rule-result-wildcard" => "A rule result contains a wildcard.",
+        CLAIM_SUBJECT_ONLY_TERM: "krs::expand::claim-subject-only-term" => "An anonymous term occurrence appears outside a claim subject.",
+        CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
+        FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",
+        CONTEXT_ALIAS_RESULT_SORT: "krs::expand::context-alias-result-sort" => "A named context alias has a result sort other than the unambiguous `KResult` sort.",
+        UNDECLARED_STRICTNESS_FIELD: "krs::expand::undeclared-strictness-field" => "Strictness metadata names a field absent from the rendered declaration.",
+        INVALID_ID_TOKEN: "krs::expand::invalid-id-token" => "A builtin Id token is not a dollar-prefixed nonempty ASCII identifier.",
+        FACADE_DEPENDENCY: "krs::expand::facade-dependency" => "The invoking crate has no direct dependency on the KRS facade package.",
         PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
     }
     /// Diagnostics from the editable-surface lesson policy and its protocol.

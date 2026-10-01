@@ -203,10 +203,10 @@ describe("diagnostics", () => {
     ]);
   });
 
-  test("expander diagnostic (invalid sorts! probe) keeps 24..25 and code null", () => {
+  test("expander diagnostic (invalid sorts! probe) keeps 24..25 and its syntax code", () => {
     const response = JSON.parse(fixture("expander-invalid.response.json")) as ExpandResponse;
     const [d] = response.diagnostics.map(fromExpander);
-    expect(d).toMatchObject({ origin: "expander", code: null, class: "exact-authored", authored: { file: "src/lib.rs", start: 24, end: 25 } });
+    expect(d).toMatchObject({ origin: "expander", code: "krs::syntax::rust-syntax", class: "exact-authored", authored: { file: "src/lib.rs", start: 24, end: 25 } });
   });
 
   test("rustc diagnostics map through the recorded krs_expand_lookup responses; generated-only gets no authored range", () => {

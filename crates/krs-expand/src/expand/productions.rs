@@ -1,5 +1,7 @@
 //! Production metadata, documentation, and strictness tokens shared by single productions and enum families.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_syntax::{
     ProvenanceRole, StrictnessAttribute, StrictnessKind as SyntaxStrictnessKind,
     StructuredFormatFragment,
@@ -16,7 +18,7 @@ pub(super) fn strictness_key_function<'a>(
     fields: impl IntoIterator<Item = &'a Ident>,
     nonce: u64,
     cfg: &[Attribute],
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let Some(strictness) = strictness else {
         return Ok(TokenStream::new());
     };
@@ -38,7 +40,8 @@ pub(super) fn strictness_key_function<'a>(
             .last()
             .is_none_or(|segment| segment.ident != "KResult")
     {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::CONTEXT_ALIAS_RESULT_SORT,
             strictness.result_sort().span(),
             "a named context alias currently requires the unambiguous `KResult` result sort",
         ));
@@ -46,13 +49,19 @@ pub(super) fn strictness_key_function<'a>(
     for (index, field) in strictness.fields().iter().enumerate() {
         let name = field.to_string();
         if !available.iter().any(|available| available == &name) {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::UNDECLARED_STRICTNESS_FIELD,
                 field.span(),
                 "strictness field is not declared",
             ));
         }
-        u32::try_from(index)
-            .map_err(|_| syn::Error::new(field.span(), "too many strictness fields"))?;
+        u32::try_from(index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                field.span(),
+                "too many strictness fields",
+            )
+        })?;
     }
     Ok(quote! {
         #(#cfg)*
@@ -67,7 +76,7 @@ pub(super) fn constructor_metadata_wire(
     group: Option<String>,
     avoid: bool,
     format: Option<&krs_syntax::StructuredFormat>,
-) -> syn::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
+) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     use super::terms::wire_key;
     use krs_ir::wire::WireProductionAttribute as Attribute;
     use krs_ir::{
@@ -92,7 +101,11 @@ pub(super) fn constructor_metadata_wire(
         let mut fragments = Vec::new();
         for (index, fragment) in format.fragments().iter().enumerate() {
             let ordinal = u32::try_from(index).map_err(|_| {
-                syn::Error::new(format.literal().span(), "too many format fragments")
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    format.literal().span(),
+                    "too many format fragments",
+                )
             })?;
             let fragment = match fragment {
                 StructuredFormatFragment::Literal(text) => FormatFragment::Literal(text.to_owned()),
@@ -116,14 +129,18 @@ pub(super) fn constructor_metadata_wire(
 
 pub(super) fn production_documentation_wire(
     documentation: &[krs_syntax::ProductionDocumentation],
-) -> syn::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
+) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     use super::terms::wire_key;
     documentation
         .iter()
         .enumerate()
         .map(|(ordinal, documentation)| {
             let ordinal = u32::try_from(ordinal).map_err(|_| {
-                syn::Error::new(documentation.literal().span(), "too many rustdoc lines")
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    documentation.literal().span(),
+                    "too many rustdoc lines",
+                )
             })?;
             Ok(krs_ir::wire::WireProductionAttribute::Documentation {
                 key: wire_key(ProvenanceRole::ConstructorDocumentation, ordinal),

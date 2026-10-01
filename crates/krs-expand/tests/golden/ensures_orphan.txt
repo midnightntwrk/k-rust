@@ -1,1 +1,1 @@
-error 1:0-1:0: `#[k::ensures]` is a claim helper; place `#[k::claim(...)]` before it
+error[krs::expand::orphan-helper] 1:0-1:0: `#[k::ensures]` is a claim helper; place `#[k::claim(...)]` before it

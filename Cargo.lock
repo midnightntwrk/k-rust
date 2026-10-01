@@ -697,6 +697,7 @@ name = "krs-macros"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-diagnostic",
  "krs-expand",
  "krs-ir",
  "krs-syntax",

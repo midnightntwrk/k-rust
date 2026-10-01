@@ -96,7 +96,7 @@ export const SCENARIOS: Scenario[] = [
       outcome: "failure",
       stage: "expand",
       code: "expansion",
-      diagnostics: [{ origin: "expander", code: null, class: "exact-authored", authored: [24, 25] }],
+      diagnostics: [{ origin: "expander", code: "krs::syntax::rust-syntax", class: "exact-authored", authored: [24, 25] }],
     },
   },
   {

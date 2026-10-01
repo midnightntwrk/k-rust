@@ -155,7 +155,10 @@ fn lookup_maps_authored_generated_and_table_ranges() {
         serde_json::from_slice(&protocol::lookup_json(&serde_json::to_vec(&stale).unwrap()))
             .unwrap();
     assert_eq!(response["ok"], false);
-    assert_eq!(response["diagnostics"][0]["code"], protocol::PROTOCOL_ERROR);
+    assert_eq!(
+        response["diagnostics"][0]["code"],
+        protocol::PROTOCOL_ERROR.as_str()
+    );
 }
 
 #[test]
@@ -163,7 +166,7 @@ fn invalid_sorts_block_reports_expected_identifier() {
     let source = "k::sorts! { ObjectTerm: ; }\n";
     let expected = json!([{
         "origin": "expander",
-        "code": null,
+        "code": "krs::syntax::rust-syntax",
         "severity": "error",
         "message": "expected identifier",
         "class": "exact-authored",
@@ -278,6 +281,9 @@ fn inconsistent_requests_are_protocol_errors() {
         let (_, _, value) = run(&case);
         assert_eq!(value["ok"], false);
         assert_eq!(value["diagnostics"][0]["origin"], "protocol", "{case}");
-        assert_eq!(value["diagnostics"][0]["code"], protocol::PROTOCOL_ERROR);
+        assert_eq!(
+            value["diagnostics"][0]["code"],
+            protocol::PROTOCOL_ERROR.as_str()
+        );
     }
 }

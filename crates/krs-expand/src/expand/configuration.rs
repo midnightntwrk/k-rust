@@ -1,5 +1,7 @@
 //! Configuration declarations: `#[k::configuration]` and `#[k::cell]`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireCellDeclaration, WireCellDeclarationReference, WireCellField, WireCellIdentity,
     WireCellReference, WirePayload, WireSortReference, WireTypeReference,
@@ -26,7 +28,7 @@ pub(crate) fn configuration(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
@@ -117,7 +119,7 @@ pub(crate) fn cell(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     krs_syntax::CellAttributePayload::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
@@ -205,9 +207,10 @@ fn inject_inferred_cell_wrappers(
     item: &mut ItemStruct,
     declaration: &krs_syntax::ConfigurationDeclaration,
     facade: &Path,
-) -> syn::Result<()> {
+) -> crate::Result<()> {
     let syn::Fields::Named(fields) = &mut item.fields else {
-        return Err(syn::Error::new(
+        return Err(ExpandError::new(
+            expand::CONFIGURATION_SHAPE,
             item.fields.span(),
             "a fixed configuration must be a named-field struct",
         ));
@@ -217,7 +220,8 @@ fn inject_inferred_cell_wrappers(
             continue;
         };
         let Some(cell) = declaration.cells().iter().find(|cell| cell.name() == name) else {
-            return Err(syn::Error::new(
+            return Err(ExpandError::new(
+                expand::MISSING_CHECKED_FIELD,
                 name.span(),
                 "configuration field disappeared during wrapper injection",
             ));
@@ -258,13 +262,18 @@ fn configuration_fields(
     owner: &Ident,
     owner_key: &Ident,
     slots: &mut WireSlots,
-) -> syn::Result<(Vec<TokenStream>, Vec<WireCellField>)> {
+) -> crate::Result<(Vec<TokenStream>, Vec<WireCellField>)> {
     let mut helpers = Vec::new();
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
     for (index, field) in declaration.cells().iter().enumerate() {
-        let ordinal = u32::try_from(index)
-            .map_err(|_| syn::Error::new(field.name().span(), "too many fixed cells"))?;
+        let ordinal = u32::try_from(index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                field.name().span(),
+                "too many fixed cells",
+            )
+        })?;
         let marker = cell_marker_function(field.name());
         helpers.push(quote! {
             #[doc(hidden)]
@@ -342,7 +351,7 @@ fn configuration_content(
     ordinal: u32,
     argument_ordinal: &mut u32,
     assembly: &mut ConfigurationFieldContext<'_>,
-) -> syn::Result<krs_ir::wire::WireCellContent> {
+) -> crate::Result<krs_ir::wire::WireCellContent> {
     let ConfigurationFieldContext {
         facade,
         owner,
@@ -383,7 +392,11 @@ fn configuration_content(
                 });
                 let ordinal = *argument_ordinal;
                 *argument_ordinal = argument_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(argument.span(), "too many configuration sort arguments")
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        argument.span(),
+                        "too many configuration sort arguments",
+                    )
                 })?;
                 argument_references.push(WireSortReference {
                     key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),

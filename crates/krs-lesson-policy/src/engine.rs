@@ -4,6 +4,7 @@
 //! entry points, helpers, and inert attributes come from
 //! [`krs_syntax::surface`], and every KRS path is resolved by its resolver.
 
+use krs_diagnostic::Code;
 use krs_syntax::SourceRange as ByteRange;
 use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
@@ -73,7 +74,7 @@ pub(crate) fn check(
                 .as_ref()
                 .map(|range| (range.start(), range.end()))
         };
-        key(left).cmp(&key(right)).then(left.code.cmp(right.code))
+        key(left).cmp(&key(right)).then(left.code.cmp(&right.code))
     });
     diagnostics.dedup();
     diagnostics
@@ -189,7 +190,7 @@ impl<'ast> Checker<'_, 'ast> {
         self.range(first).cover(self.range(last))
     }
 
-    fn report(&mut self, code: &'static str, message: String, range: ByteRange) {
+    fn report(&mut self, code: Code, message: String, range: ByteRange) {
         self.diagnostics
             .push(PolicyDiagnostic::authored(code, message, self.file, range));
     }

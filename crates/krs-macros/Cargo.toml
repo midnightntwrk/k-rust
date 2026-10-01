@@ -10,6 +10,7 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 krs-syntax = { path = "../krs-syntax" }

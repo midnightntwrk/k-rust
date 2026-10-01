@@ -1,5 +1,7 @@
 //! Grammar ordering declarations: `precedence!` and `associativity!`.
 
+use crate::ExpandError;
+use krs_diagnostic::codes::expand;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
 use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
@@ -22,7 +24,7 @@ use crate::provenance::host_provenance;
 pub(crate) fn precedence(
     env: &dyn MacroEnvironment,
     input: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
     let precedence_chain_role = ProvenanceRole::PrecedenceChain;
     let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
@@ -32,7 +34,13 @@ pub(crate) fn precedence(
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
-        .ok_or_else(|| syn::Error::new(Span::call_site(), "empty precedence declaration"))?;
+        .ok_or_else(|| {
+            ExpandError::new(
+                expand::EMPTY_GRAMMAR_DECLARATION,
+                Span::call_site(),
+                "empty precedence declaration",
+            )
+        })?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(
         env,
@@ -52,15 +60,24 @@ pub(crate) fn precedence(
     let mut group_ordinal = 0_u32;
     let mut chains = Vec::new();
     for (chain_index, chain) in declaration.chains().iter().enumerate() {
-        let chain_ordinal = u32::try_from(chain_index)
-            .map_err(|_| syn::Error::new(Span::call_site(), "too many precedence chains"))?;
+        let chain_ordinal = u32::try_from(chain_index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                Span::call_site(),
+                "too many precedence chains",
+            )
+        })?;
         let mut groups = Vec::new();
         for group in chain.groups() {
             let name = group.to_string();
             let ordinal = group_ordinal;
-            group_ordinal = group_ordinal
-                .checked_add(1)
-                .ok_or_else(|| syn::Error::new(group.span(), "too many precedence groups"))?;
+            group_ordinal = group_ordinal.checked_add(1).ok_or_else(|| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    group.span(),
+                    "too many precedence groups",
+                )
+            })?;
             groups.push(DescriptorGroupReference {
                 key: wire_key(precedence_group_reference_role, ordinal),
                 group: ProductionGroupId::new(name)
@@ -90,7 +107,7 @@ pub(crate) fn precedence(
 pub(crate) fn associativity(
     env: &dyn MacroEnvironment,
     input: TokenStream,
-) -> syn::Result<TokenStream> {
+) -> crate::Result<TokenStream> {
     let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
     let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
     let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
@@ -100,7 +117,13 @@ pub(crate) fn associativity(
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
-        .ok_or_else(|| syn::Error::new(Span::call_site(), "empty associativity declaration"))?;
+        .ok_or_else(|| {
+            ExpandError::new(
+                expand::EMPTY_GRAMMAR_DECLARATION,
+                Span::call_site(),
+                "empty associativity declaration",
+            )
+        })?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(
         env,
@@ -120,8 +143,13 @@ pub(crate) fn associativity(
     let mut group_ordinal = 0_u32;
     let mut sentences = Vec::new();
     for (sentence_index, sentence) in declaration.sentences().iter().enumerate() {
-        let sentence_ordinal = u32::try_from(sentence_index)
-            .map_err(|_| syn::Error::new(Span::call_site(), "too many associativity sentences"))?;
+        let sentence_ordinal = u32::try_from(sentence_index).map_err(|_| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                Span::call_site(),
+                "too many associativity sentences",
+            )
+        })?;
         let associativity = match sentence.associativity() {
             SyntaxGroupAssociativity::Left => GroupAssociativity::Left,
             SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
@@ -131,9 +159,13 @@ pub(crate) fn associativity(
         for group in sentence.groups() {
             let name = group.to_string();
             let ordinal = group_ordinal;
-            group_ordinal = group_ordinal
-                .checked_add(1)
-                .ok_or_else(|| syn::Error::new(group.span(), "too many associativity groups"))?;
+            group_ordinal = group_ordinal.checked_add(1).ok_or_else(|| {
+                ExpandError::new(
+                    expand::DESCRIPTOR_CAPACITY,
+                    group.span(),
+                    "too many associativity groups",
+                )
+            })?;
             groups.push(DescriptorGroupReference {
                 key: wire_key(associativity_group_reference_role, ordinal),
                 group: ProductionGroupId::new(name)

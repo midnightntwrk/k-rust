@@ -70,7 +70,7 @@ export interface ExpandRequest {
 
 export interface ExpandDiagnosticJson {
   origin: "policy" | "expander" | "protocol";
-  code: string | null;
+  code: string;
   severity: string;
   message: string;
   class: "exact-authored" | "invocation-level" | "generated-only" | "unmappable";

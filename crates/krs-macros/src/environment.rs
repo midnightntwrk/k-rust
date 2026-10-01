@@ -38,14 +38,15 @@ impl MacroEnvironment for ProcMacroEnvironment {
         Some(Span::call_site())
     }
 
-    fn facade_path(&self) -> syn::Result<Path> {
+    fn facade_path(&self) -> krs_expand::Result<Path> {
         match crate_name("krs") {
             Ok(FoundCrate::Itself) => Ok(parse_quote!(crate)),
             Ok(FoundCrate::Name(name)) => {
                 let ident = Ident::new(&name, Span::call_site());
                 Ok(parse_quote!(::#ident))
             }
-            Err(error) => Err(syn::Error::new(
+            Err(error) => Err(krs_expand::ExpandError::new(
+                krs_diagnostic::codes::expand::FACADE_DEPENDENCY,
                 Span::call_site(),
                 format!(
                     "KRS macros require a direct dependency on the `krs` facade (dependency renames are supported): {error}"
