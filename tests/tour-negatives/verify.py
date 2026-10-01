@@ -34,6 +34,7 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
     result = run_failing(
         [
             executable("cargo"),
+            "+stable",
             "check",
             "--locked",
             "--offline",
