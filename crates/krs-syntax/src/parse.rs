@@ -8,7 +8,7 @@ use proc_macro2::{Span, TokenStream};
 use syn::parse::{ParseStream, Parser};
 use syn::{Attribute, Path};
 
-use crate::surface::path_text;
+use crate::path::path_text;
 use crate::{ProvenanceRole, SyntaxError, SyntaxErrorKind};
 
 /// An error from a parser that accepts both Rust and structured syntax failures.

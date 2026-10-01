@@ -10,13 +10,13 @@ use syn::{
 };
 
 use crate::ReferenceCandidate;
-use crate::attribute::is_plain_path;
 use crate::parse::{
     KrsSyntax, checked_ordinal, structured_args,
     unsupported_configuration_variable as unsupported_variable,
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
 };
+use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,

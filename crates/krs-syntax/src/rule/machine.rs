@@ -12,7 +12,7 @@ use super::block::{
 use super::condition::{RuleExtra, condition_token_range, parse_map_update};
 use super::item::RuleItem;
 use super::pattern::{RulePattern, parse_rule_pattern};
-use crate::attribute::is_plain_path;
+use crate::path::is_plain_path;
 use crate::{TermExpression, TermTree, TokenRange};
 
 #[derive(Clone)]

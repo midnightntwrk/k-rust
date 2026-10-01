@@ -2,7 +2,7 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::{GenericArgument, Path, PathArguments, TraitBoundModifier, Type, TypeParamBound};
 
-use crate::attribute::is_plain_path;
+use crate::path::is_plain_path;
 use crate::{SyntaxError, SyntaxErrorKind};
 
 /// A validated `Term<SortPath>` or `Term<dyn SortPath>` type reference.

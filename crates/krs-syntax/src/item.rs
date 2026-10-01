@@ -5,8 +5,8 @@ use syn::{
     TypeParamBound,
 };
 
-use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 

@@ -6,12 +6,12 @@ use syn::{
 };
 
 use crate::ReferenceCandidate;
-use crate::attribute::is_plain_path;
 use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{
     KrsSyntax, ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
     unsupported_rule_signature as signature_error,
 };
+use crate::path::is_plain_path;
 use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, take_requires_helper};
 use crate::term::push_record_field_anchors;

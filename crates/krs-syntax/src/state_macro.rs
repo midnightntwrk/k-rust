@@ -6,9 +6,8 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
-use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
-use crate::surface::path_text;
+use crate::path::{is_plain_path, path_text};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TokenRange,
 };

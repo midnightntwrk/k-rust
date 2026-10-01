@@ -5,12 +5,11 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Token, Type};
 
-use crate::attribute::is_plain_path;
 use crate::parse::{
     KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument,
     missing, structured, unknown,
 };
-use crate::surface::path_text;
+use crate::path::{is_plain_path, path_text};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One checked fragment of a nominal or bracket concrete-syntax template.

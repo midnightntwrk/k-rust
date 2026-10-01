@@ -13,10 +13,10 @@ use super::machine::parse_machine_clause;
 use super::pattern::{
     RuleTermCounters, RuleTermSide, append_rule_pattern_anchors, append_rule_term_anchors,
 };
-use crate::attribute::is_plain_path;
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
 };
+use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
 

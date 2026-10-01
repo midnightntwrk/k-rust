@@ -7,9 +7,8 @@ use syn::{
     LitByteStr, LitInt, LitStr, Member, Path, Token,
 };
 
-use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::surface::path_text;
+use crate::path::{is_plain_path, path_text};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// Syntactic shape at the root of an accepted term.

@@ -3,8 +3,8 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Member, Pat, PatIdent, PatMacro, Path};
 
-use crate::attribute::is_plain_path;
 use crate::parse::{checked_ordinal, unsupported_rule_pattern as unsupported_pattern};
+use crate::path::is_plain_path;
 use crate::term::{is_term_macro, unexpected_macro};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermApplication,

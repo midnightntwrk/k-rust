@@ -9,8 +9,8 @@ use syn::{
 };
 
 use crate::ReferenceCandidate;
-use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::path::is_plain_path;
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
     TokenRange,

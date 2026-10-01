@@ -14,6 +14,7 @@ mod initializer;
 mod item;
 pub mod keyword;
 pub mod parse;
+mod path;
 mod provenance;
 mod range;
 mod rule;

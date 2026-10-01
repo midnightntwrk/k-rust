@@ -6,10 +6,10 @@ use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 
 use super::machine::parse_expression_before_arrow;
 use super::pattern::{RulePattern, push_term_node_anchors, push_term_reference_candidates};
-use crate::attribute::is_plain_path;
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
 };
+use crate::path::is_plain_path;
 use crate::term::push_record_field_anchors;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
