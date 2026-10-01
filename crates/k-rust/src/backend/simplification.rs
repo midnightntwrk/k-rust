@@ -4,7 +4,7 @@
 use k_rust_backend::smt::ModelResult;
 use k_rust_backend::{
     definition::BackendDefinition,
-    definition::PatternOrPredicate,
+    definition::{Admission, PatternOrPredicate},
     externalize,
     simplify::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
@@ -18,7 +18,7 @@ use k_rust_backend::{
 use k_rust_backend::{rewrite::Pattern, rule::Predicate};
 use k_rust_kore::kore::ast::Pattern as KorePattern;
 
-use super::{Backend, BackendError, error};
+use super::{Backend, BackendError, admit, error};
 
 /// The error of an operation whose work stopped: the error `BackendError` gives the stop's
 /// cause, the one the operation boundary gives it too (`Backend::with_solver`), so an operation
@@ -89,14 +89,15 @@ pub fn model_predicate_with_solver(
 }
 
 impl Backend {
+    /// Simplify `syntax`, a pattern without sort variables, admitted as `admission` decides.
     pub fn simplify_kore(
         &mut self,
         module: Option<&str>,
         syntax: &KorePattern,
+        admission: Admission,
     ) -> Result<KorePattern, BackendError> {
         self.with_solver(module, |definition, solver| {
-            match definition
-                .admit_unverified(syntax, &[])
+            match admit(definition, syntax, &[], admission, "KORE pattern")?
                 .internalize_pattern_or_predicate()
                 .map_err(error("could not internalize KORE pattern"))?
             {
@@ -127,17 +128,20 @@ impl Backend {
         })
     }
 
+    /// Ask for a model of `syntax`, a predicate without sort variables, admitted as `admission`
+    /// decides.
     #[cfg(feature = "z3-inference")]
     pub fn model_for(
         &mut self,
         module: Option<&str>,
         syntax: &KorePattern,
+        admission: Admission,
     ) -> Result<(ModelResult, Option<Sort>), BackendError> {
         self.with_solver(module, |definition, solver| {
-            let Some((predicate, result_sort)) = definition
-                .admit_unverified(syntax, &[])
-                .internalize_model_predicate()
-                .map_err(error("could not internalize model predicate"))?
+            let Some((predicate, result_sort)) =
+                admit(definition, syntax, &[], admission, "model predicate")?
+                    .internalize_model_predicate()
+                    .map_err(error("could not internalize model predicate"))?
             else {
                 return Ok((ModelResult::Unknown("no predicate".into()), None));
             };
@@ -173,9 +177,44 @@ mod tests {
             .model_for(
                 None,
                 &parse_pattern(source).expect("model predicate should parse"),
+                Admission::Verified,
             )
             .expect("model query should succeed")
             .0
+    }
+
+    /// One variable name at two sorts: two occurrences of one ill-formed variable, which an
+    /// internalizer keying variables by name and sort would read as two variables.
+    const ONE_NAME_TWO_SORTS: &str = r#"\and{SortBool{}}(
+        \equals{SortInt{}, SortBool{}}(X:SortInt{}, \dv{SortInt{}}("1")),
+        \equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true")))"#;
+
+    #[test]
+    fn a_verified_admission_rejects_a_variable_at_two_sorts() {
+        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::default())
+            .expect("model definition should internalize");
+        let syntax = parse_pattern(ONE_NAME_TWO_SORTS).expect("predicate should parse");
+        let model = backend
+            .model_for(None, &syntax, Admission::Verified)
+            .expect_err("a verified model predicate has one sort per variable");
+        assert!(
+            model.0.starts_with("invalid model predicate: ")
+                && model.0.contains("Inconsistent free variable usage"),
+            "{model}"
+        );
+        let simplified = backend
+            .simplify_kore(None, &syntax, Admission::Verified)
+            .expect_err("a verified pattern has one sort per variable");
+        assert!(
+            simplified.0.starts_with("invalid KORE pattern: ")
+                && simplified.0.contains("Inconsistent free variable usage"),
+            "{simplified}"
+        );
+        assert!(
+            backend
+                .model_for(None, &syntax, Admission::Unverified)
+                .is_ok()
+        );
     }
 
     #[test]

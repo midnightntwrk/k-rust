@@ -22,7 +22,7 @@ use k_rust_backend::stop;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
-    definition::BackendDefinition,
+    definition::{Admission, Admitted, BackendDefinition},
     externalize,
     implication::ImplicationStatus,
     proof::{ProofOptions, ProofSearchOrder, ProofStatus},
@@ -41,7 +41,7 @@ use k_rust_backend::{
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::SmtSolver,
     stop::StopCause,
-    term::Sort,
+    term::{Name, Sort},
     transition::ObservationOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -1015,7 +1015,11 @@ impl Backend {
     pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
         let syntax = decode_pattern(request.state)?;
-        let output = self.simplify_kore(request.module_name.as_deref(), &syntax)?;
+        let output = self.simplify_kore(
+            request.module_name.as_deref(),
+            &syntax,
+            Admission::Unverified,
+        )?;
         encode_pattern(&output)
     }
 
@@ -1026,8 +1030,12 @@ impl Backend {
         validate_backend_schema_version(request.schema_version)?;
         let antecedent = decode_pattern(request.antecedent)?;
         let consequent = decode_pattern(request.consequent)?;
-        let (verdict, result_sort) =
-            self.implies_kore(request.module_name.as_deref(), &antecedent, &consequent)?;
+        let (verdict, result_sort) = self.implies_kore(
+            request.module_name.as_deref(),
+            &antecedent,
+            &consequent,
+            Admission::Unverified,
+        )?;
         Ok(ImplicationResult {
             schema_version: IMPLICATION_SCHEMA_VERSION,
             status: match verdict.status() {
@@ -1060,7 +1068,11 @@ impl Backend {
         #[cfg(feature = "z3-inference")]
         {
             let syntax = decode_pattern(request.state)?;
-            let (result, result_sort) = self.model_for(request.module_name.as_deref(), &syntax)?;
+            let (result, result_sort) = self.model_for(
+                request.module_name.as_deref(),
+                &syntax,
+                Admission::Unverified,
+            )?;
             match result {
                 ModelResult::Sat(substitution) => Ok(ModelResultOutput {
                     satisfiable: "sat".into(),
@@ -1412,6 +1424,25 @@ fn proof_status(status: ProofStatus) -> &'static str {
         ProofStatus::Indeterminate => "indeterminate",
         ProofStatus::DepthBound => "depth-bound",
         ProofStatus::BreadthBound => "breadth-bound",
+    }
+}
+
+/// Admit `pattern`, read from outside the definition, to internalization under `sort_variables`
+/// as `admission` decides. A `Verified` admission runs the standalone verifier under the same
+/// sort variables the witness carries to internalization, and reports its failure with the
+/// verifier's message, naming the input as `what`.
+fn admit<'a>(
+    definition: &'a BackendDefinition,
+    pattern: &'a KorePattern,
+    sort_variables: &'a [Name],
+    admission: Admission,
+    what: &str,
+) -> Result<Admitted<'a>, BackendError> {
+    match admission {
+        Admission::Verified => definition
+            .verify_standalone_pattern(pattern, sort_variables)
+            .map_err(|cause| BackendError(format!("invalid {what}: {cause}"))),
+        Admission::Unverified => Ok(definition.admit_unverified(pattern, sort_variables)),
     }
 }
 

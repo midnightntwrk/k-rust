@@ -4829,6 +4829,56 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn kore_match_disjunction_verifies_its_disjunction_file() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let disjunction = root.join("disjunction.kore");
+    let pattern = root.join("pattern.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+  sort SortS{} []
+  symbol a{}() : SortS{} [constructor{}()]
+  symbol wrap{}(SortInt{}) : SortS{} [constructor{}()]
+endmodule []
+"#,
+    )
+    .unwrap();
+    // One variable name at two sorts denotes one ill-formed variable, not two variables.
+    fs::write(
+        &disjunction,
+        r#"\or{SortS{}}(a{}(), \and{SortS{}}(wrap{}(X:SortInt{}),
+            \equals{SortBool{}, SortS{}}(X:SortBool{}, \dv{SortBool{}}("true"))))"#,
+    )
+    .unwrap();
+    fs::write(&pattern, "a{}()").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-match-disjunction",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--disjunction",
+            disjunction.to_str().unwrap(),
+            "--match",
+            pattern.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Inconsistent free variable usage: X:SortInt{} and X:SortBool{}."),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn modal_claim_fixture() -> (PathBuf, PathBuf, PathBuf) {
     let (root, definition) = fixture();
     let saved_proofs = root.join("proofs.kore");

@@ -5,7 +5,7 @@
 use std::{collections::BTreeSet, error::Error};
 
 use k_rust_backend::{
-    definition::DefinitionError,
+    definition::{Admission, DefinitionError},
     externalize,
     implication::{
         Bindings, ImplicationCondition, ImplicationError, ImplicationRequestError,
@@ -22,7 +22,7 @@ use k_rust_kore::kore::{
     json as kore_json,
 };
 
-use super::{Backend, BackendError, error, simplification::stopped_operation};
+use super::{Backend, BackendError, admit, error, simplification::stopped_operation};
 
 pub fn check(
     definition: &k_rust_backend::definition::BackendDefinition,
@@ -44,11 +44,16 @@ pub fn check(
 
 impl Backend {
     /// Validate, internalize, and check one implication through the selected module's cached solver.
+    ///
+    /// The sort variables of the two patterns are parameters of the implication, so each side is
+    /// admitted, as `admission` decides, under the sort variables of both: the context it is
+    /// internalized with.
     pub fn implies_kore(
         &mut self,
         module: Option<&str>,
         antecedent: &Pattern,
         consequent: &Pattern,
+        admission: Admission,
     ) -> Result<(ImplicationVerdict, Sort), BackendError> {
         self.with_solver(module, |definition, solver| {
             validate_request(definition, antecedent, consequent).map_err(|request_error| {
@@ -87,15 +92,27 @@ impl Backend {
                 .into_iter()
                 .map(Name::from)
                 .collect::<Vec<_>>();
+            let antecedent_admitted = admit(
+                definition,
+                antecedent,
+                &sort_variables,
+                admission,
+                "implication antecedent",
+            )?;
+            let consequent_admitted = admit(
+                definition,
+                consequent,
+                &sort_variables,
+                admission,
+                "implication consequent",
+            )?;
             if let Some(verdict) = bottom_antecedent(antecedent) {
-                let (_, result_sort) = definition
-                    .admit_unverified(antecedent, &sort_variables)
+                let (_, result_sort) = antecedent_admitted
                     .internalize_predicate()
                     .map_err(error("could not internalize implication antecedent"))?;
                 return Ok((verdict, result_sort));
             }
-            let (antecedent_pattern, antecedent_existentials) = definition
-                .admit_unverified(antecedent, &sort_variables)
+            let (antecedent_pattern, antecedent_existentials) = antecedent_admitted
                 .internalize_implication_pattern()
                 .map_err(error("could not internalize implication antecedent"))?;
             let result_sort = antecedent_pattern.term.sort();
@@ -109,14 +126,13 @@ impl Backend {
                     definition,
                     &antecedent_pattern,
                     &antecedent_existentials,
-                    definition.admit_unverified(consequent, &sort_variables),
+                    consequent_admitted,
                     solver,
                 )
                 .map_err(stopped_operation)?
                 .map_err(error("could not internalize implication consequent"))?,
                 None => {
-                    let (consequent_pattern, consequent_existentials) = definition
-                        .admit_unverified(consequent, &sort_variables)
+                    let (consequent_pattern, consequent_existentials) = consequent_admitted
                         .internalize_implication_pattern()
                         .map_err(error("could not internalize implication consequent"))?;
                     if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
@@ -253,4 +269,55 @@ pub fn condition_substitution(
         bindings.collect(),
         externalize::ConjunctionShape::LeftNested,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use k_rust_kore::kore::parser::parse_pattern;
+
+    use super::*;
+    use crate::backend::BackendOptions;
+
+    const DEFINITION: &str = r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+        endmodule []"#;
+
+    fn implies(
+        antecedent: &str,
+        consequent: &str,
+        admission: Admission,
+    ) -> Result<(ImplicationVerdict, Sort), BackendError> {
+        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default())
+            .expect("implication definition should internalize");
+        backend.implies_kore(
+            None,
+            &parse_pattern(antecedent).expect("antecedent should parse"),
+            &parse_pattern(consequent).expect("consequent should parse"),
+            admission,
+        )
+    }
+
+    #[test]
+    fn a_verified_schematic_implication_reads_its_sort_variables_as_parameters() {
+        let (verdict, _) = implies(r"\bottom{S}()", r"\top{S}()", Admission::Verified)
+            .expect("a schematic implication is well formed under its own sort variables");
+        assert_eq!(verdict.status(), ImplicationStatus::Valid);
+    }
+
+    #[test]
+    fn a_verified_consequent_has_one_sort_per_variable() {
+        let consequent = r#"\and{S}(
+            \equals{SortInt{}, S}(X:SortInt{}, \dv{SortInt{}}("1")),
+            \equals{SortBool{}, S}(X:SortBool{}, \dv{SortBool{}}("true")))"#;
+        let error = implies(r"\bottom{S}()", consequent, Admission::Verified)
+            .expect_err("one variable name at two sorts is not a well-formed consequent");
+        assert!(
+            error.0.starts_with("invalid implication consequent: ")
+                && error.0.contains("Inconsistent free variable usage"),
+            "{error}"
+        );
+        assert!(implies(r"\bottom{S}()", consequent, Admission::Unverified).is_ok());
+    }
 }

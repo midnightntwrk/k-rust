@@ -77,6 +77,7 @@ use k_rust::{
     timings::{PhaseTiming, PhaseTimings, TIMINGS_SCHEMA_VERSION},
 };
 use k_rust_backend::{
+    definition::Admission,
     externalize::{self, External},
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{ExecutionMode, Pattern},
@@ -2728,7 +2729,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
-    let output = backend.simplify_kore(None, &syntax)?;
+    let output = backend.simplify_kore(None, &syntax, Admission::Verified)?;
     write_kore_result(&output, options.output.as_deref())
 }
 
@@ -2752,7 +2753,7 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
-    let model = backend.model_for(None, &syntax)?;
+    let model = backend.model_for(None, &syntax, Admission::Verified)?;
     let output = model_output(model.0, model.1.as_ref())?;
     if let Some(path) = options.output {
         fs::write(path, output)?;
@@ -2829,8 +2830,12 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
     )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
     let consequent_syntax = load_kore_syntax(&options.consequent, "consequent")?;
-    let (verdict, result_sort) =
-        backend.implies_kore(None, &antecedent_syntax, &consequent_syntax)?;
+    let (verdict, result_sort) = backend.implies_kore(
+        None,
+        &antecedent_syntax,
+        &consequent_syntax,
+        Admission::Verified,
+    )?;
     let output = k_rust::backend::implication::cli_output(
         &antecedent_syntax,
         &consequent_syntax,
@@ -2889,8 +2894,8 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
     })?;
     let alternatives = backend.with_solver(None, |definition, _| {
         definition
-            .admit_unverified(&disjunction, &[])
-            .internalize_disjunction()
+            .verify_standalone_pattern(&disjunction, &[])
+            .and_then(|admitted| admitted.internalize_disjunction())
             .map_err(|error| BackendError(error.to_string()))
     })?;
     let matches = backend.match_patterns(None, &target, &alternatives)?;
