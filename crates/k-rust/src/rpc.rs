@@ -57,6 +57,7 @@ use k_rust_backend::{
         grade_bottom_consequent, special_consequent, validate_request,
     },
     matching::SortGraph,
+    model::model_of,
     rewrite::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, substitute_predicates,
@@ -881,10 +882,9 @@ impl RpcService {
                 else {
                     return Ok(json!({ "satisfiable": "Unknown" }));
                 };
-                match backend_simplification::model_predicate_with_solver(
-                    definition, &predicate, solver,
-                )
-                .map_err(|error| RpcFault::runtime(error.to_string(), None))?
+                match model_of(definition, &predicate, solver)
+                    .map_err(|stop| RpcFault::from(BackendError::from(stop.into_cause())))?
+                    .map_err(|failure| RpcFault::from(BackendError::from(failure)))?
                 {
                     ModelResult::Sat(substitution) => {
                         let mut result = json!({ "satisfiable": "Sat" });

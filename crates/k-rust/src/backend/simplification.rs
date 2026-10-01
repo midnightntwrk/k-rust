@@ -1,11 +1,10 @@
 //! Shared standalone simplification and model-generation orchestration.
 
-#[cfg(feature = "z3-inference")]
-use k_rust_backend::smt::ModelResult;
 use k_rust_backend::{
     definition::BackendDefinition,
     definition::{Admission, PatternOrPredicate},
     externalize,
+    model::ModelError,
     simplify::{
         SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
         simplify_pattern_with_solver,
@@ -15,6 +14,8 @@ use k_rust_backend::{
     substitution::Substitution,
     term::Sort,
 };
+#[cfg(feature = "z3-inference")]
+use k_rust_backend::{model::model_of, smt::ModelResult};
 use k_rust_backend::{rewrite::Pattern, rule::Predicate};
 use k_rust_kore::kore::ast::Pattern as KorePattern;
 
@@ -59,32 +60,15 @@ pub fn model_substitution(substitution: &Substitution, result_sort: &Sort) -> Op
     )
 }
 
-/// Decide a model predicate before asking SMT for a valuation of its residual.
-/// A predicate simplified to truth needs no bindings: every valuation satisfies it. Keep the complete residual,
-/// including any open `\ceil` obligations introduced by simplification, in the SMT query.
-#[cfg(feature = "z3-inference")]
-pub fn model_predicate_with_solver(
-    definition: &BackendDefinition,
-    predicate: &Predicate,
-    solver: &dyn SmtSolver,
-) -> Result<ModelResult, BackendError> {
-    let simplified = simplify_and_decide_predicate_with_solver(
-        definition,
-        predicate,
-        &[],
-        SimplificationOptions::unbounded(),
-        solver,
-    )
-    .map_err(stopped_operation)?
-    .map_err(error("could not simplify model predicate"))?;
-    match simplified {
-        Predicate::False => Ok(ModelResult::Unsat),
-        Predicate::True => Ok(ModelResult::Sat(Substitution::new())),
-        // A stopped query has no model.
-        residual => solver
-            .get_model(&[residual], &Substitution::new())
-            .map_err(stopped_operation)?
-            .map_err(error("could not obtain model")),
+/// A model query's failure as the `BackendError` CLI and host surfaces report: the simplifier's
+/// and the solver's failures each under their own context.
+impl From<ModelError> for BackendError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn from(failure: ModelError) -> Self {
+        match failure {
+            ModelError::Simplification(cause) => error("could not simplify model predicate")(cause),
+            ModelError::Solver(cause) => error("could not obtain model")(cause),
+        }
     }
 }
 
@@ -145,7 +129,9 @@ impl Backend {
             else {
                 return Ok((ModelResult::Unknown("no predicate".into()), None));
             };
-            let result = model_predicate_with_solver(definition, &predicate, solver)?;
+            let result = model_of(definition, &predicate, solver)
+                .map_err(stopped_operation)?
+                .map_err(BackendError::from)?;
             Ok((result, Some(result_sort)))
         })
     }
@@ -169,19 +155,6 @@ mod tests {
                 [function{}(), total{}(), smtlib{}("bitwise")]
             symbol partial{}(SortInt{}) : SortInt{} [function{}()]
         endmodule []"#;
-
-    fn model(source: &str) -> ModelResult {
-        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::default())
-            .expect("model definition should internalize");
-        backend
-            .model_for(
-                None,
-                &parse_pattern(source).expect("model predicate should parse"),
-                Admission::Verified,
-            )
-            .expect("model query should succeed")
-            .0
-    }
 
     /// One variable name at two sorts: two occurrences of one ill-formed variable, which an
     /// internalizer keying variables by name and sort would read as two variables.
@@ -218,42 +191,22 @@ mod tests {
     }
 
     #[test]
-    fn reflexive_configuration_has_an_empty_sat_model() {
+    fn a_model_failure_reports_the_failing_stage_and_its_cause() {
         assert_eq!(
-            model(r"\equals{SortState{}, SortBool{}}(start{}(), start{}())"),
-            ModelResult::Sat(Substitution::new())
+            BackendError::from(ModelError::Simplification(
+                SimplificationError::TopEquationOutsideConjunction {
+                    rule_id: "rule".into()
+                }
+            ))
+            .0,
+            r#"could not simplify model predicate: TopEquationOutsideConjunction { rule_id: "rule" }"#
         );
-    }
-
-    #[test]
-    fn distinct_constructor_configurations_have_no_model() {
         assert_eq!(
-            model(r"\equals{SortState{}, SortBool{}}(start{}(), done{}())"),
-            ModelResult::Unsat
+            BackendError::from(ModelError::Solver(
+                k_rust_backend::smt::SmtError::Unavailable
+            ))
+            .0,
+            "could not obtain model: Unavailable"
         );
-    }
-
-    #[test]
-    fn uninterpreted_residual_has_no_certified_model() {
-        assert!(matches!(
-            model(
-                r#"\equals{SortInt{}, SortBool{}}(
-                    bitwise{}(X:SortInt{}, \dv{SortInt{}}("1")),
-                    \dv{SortInt{}}("2"))"#
-            ),
-            ModelResult::Unknown(_)
-        ));
-    }
-
-    #[test]
-    fn an_open_definedness_obligation_remains_in_the_model_query() {
-        assert!(matches!(
-            model(
-                r"\and{SortBool{}}(
-                    \equals{SortState{}, SortBool{}}(start{}(), start{}()),
-                    \ceil{SortInt{}, SortBool{}}(partial{}(X:SortInt{})))"
-            ),
-            ModelResult::Unknown(_)
-        ));
     }
 }

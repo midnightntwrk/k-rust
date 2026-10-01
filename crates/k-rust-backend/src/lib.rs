@@ -16,6 +16,7 @@ pub mod diagnostic;
 pub mod externalize;
 pub mod implication;
 pub mod matching;
+pub mod model;
 pub mod proof;
 pub mod rewrite;
 pub mod rule;

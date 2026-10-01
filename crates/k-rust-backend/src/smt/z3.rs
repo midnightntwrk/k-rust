@@ -67,6 +67,7 @@ use super::{
     ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
 };
 use crate::{
+    model::ModelQuery,
     rule::Predicate,
     stop::{self, PreludeFailure, PreludeSignal, Stop, Stoppable},
     substitution::Substitution,
@@ -565,11 +566,8 @@ impl SmtSolver for Z3Solver {
         .map(Ok)
     }
 
-    fn get_model(
-        &self,
-        predicates: &[Predicate],
-        substitution: &Substitution,
-    ) -> Stoppable<Result<ModelResult, SmtError>> {
+    fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
+        let (predicates, substitution) = (query.predicates(), query.substitution());
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
@@ -738,9 +736,12 @@ mod tests {
             ),
             equals("7"),
         ];
-        let model = cause(solver.get_model(&constraints, &Substitution::new()))
-            .unwrap()
-            .unwrap();
+        let model = cause(solver.get_model(&ModelQuery::for_solver_tests(
+            &constraints,
+            &Substitution::new(),
+        )))
+        .unwrap()
+        .unwrap();
         assert_eq!(
             model,
             ModelResult::Sat(Substitution::from([(
@@ -763,15 +764,21 @@ mod tests {
             Term::domain_value(Sort::simple("SortInt"), "2"),
         );
         assert_eq!(
-            solver.get_model(&[predicate], &Substitution::new()),
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &[predicate],
+                &Substitution::new()
+            )),
             Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
         );
         assert_eq!(
-            solver.get_model(&[], &Substitution::from([(x(), bitwise.clone())])),
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &[],
+                &Substitution::from([(x(), bitwise.clone())])
+            )),
             Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
         );
         assert_eq!(
-            solver.get_model(
+            solver.get_model(&ModelQuery::for_solver_tests(
                 &[
                     Predicate::Equals(
                         bitwise.clone(),
@@ -780,7 +787,7 @@ mod tests {
                     Predicate::Equals(bitwise, Term::domain_value(Sort::simple("SortInt"), "2"),),
                 ],
                 &Substitution::new(),
-            ),
+            )),
             Ok(Ok(ModelResult::Unsat))
         );
     }
@@ -798,7 +805,10 @@ mod tests {
             )),
         );
         assert_eq!(
-            solver.get_model(&[predicate], &Substitution::new()),
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &[predicate],
+                &Substitution::new()
+            )),
             Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
         );
     }
@@ -1131,7 +1141,11 @@ mod tests {
                 cause(solver.check_predicates(&[], &Substitution::new(), &x_is_one())).map(|_| ())
             }),
             ("get_model", |solver| {
-                cause(solver.get_model(&x_is_one(), &Substitution::new())).map(|_| ())
+                cause(solver.get_model(&ModelQuery::for_solver_tests(
+                    &x_is_one(),
+                    &Substitution::new(),
+                )))
+                .map(|_| ())
             }),
         ]
     }
@@ -1239,10 +1253,12 @@ mod tests {
             ),
         ];
 
-        let ModelResult::Sat(model) = cause(solver.get_model(&predicates, &Substitution::new()))
-            .expect("the query should not stop")
-            .expect("model should be extracted")
-        else {
+        let ModelResult::Sat(model) = cause(solver.get_model(&ModelQuery::for_solver_tests(
+            &predicates,
+            &Substitution::new(),
+        )))
+        .expect("the query should not stop")
+        .expect("model should be extracted") else {
             panic!("constraints should be satisfiable")
         };
 
@@ -1265,14 +1281,14 @@ mod tests {
         let solver = Z3Solver::new(&definition).unwrap();
 
         assert_eq!(
-            solver.get_model(&[], &Substitution::new()),
+            solver.get_model(&ModelQuery::for_solver_tests(&[], &Substitution::new())),
             Ok(Ok(ModelResult::Sat(Substitution::new())))
         );
 
         let integer = Variable::new("X", Sort::simple("SortInt"));
         let integer_term = Term::variable(integer);
         assert_eq!(
-            solver.get_model(
+            solver.get_model(&ModelQuery::for_solver_tests(
                 &[
                     Predicate::Equals(
                         integer_term.clone(),
@@ -1284,17 +1300,17 @@ mod tests {
                     ),
                 ],
                 &Substitution::new(),
-            ),
+            )),
             Ok(Ok(ModelResult::Unsat))
         );
 
         let opaque = Variable::new("Y", Sort::simple("SortS"));
         let opaque_term = Term::variable(opaque.clone());
         assert_eq!(
-            solver.get_model(
+            solver.get_model(&ModelQuery::for_solver_tests(
                 &[Predicate::Equals(opaque_term.clone(), opaque_term)],
                 &Substitution::new(),
-            ),
+            )),
             Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
         );
     }
@@ -1709,7 +1725,10 @@ mod tests {
         );
 
         assert_eq!(
-            solver.get_model(&predicates, &Substitution::new()),
+            solver.get_model(&ModelQuery::for_solver_tests(
+                &predicates,
+                &Substitution::new()
+            )),
             Ok(Ok(ModelResult::Sat(Substitution::from([(
                 x(),
                 Term::domain_value(Sort::simple("SortInt"), "7")

@@ -12,6 +12,7 @@ use k_rust_kore::names::BuiltinSort;
 
 use crate::{
     definition::BackendDefinition,
+    model::ModelQuery,
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     stop::{PreludeSignal, Stoppable},
@@ -1041,13 +1042,13 @@ pub trait SmtSolver {
         checked: &[Predicate],
     ) -> Stoppable<Result<Validity, SmtError>>;
 
-    /// A `Sat` substitution must satisfy `predicates` and `substitution` in K.
-    /// An approximate SMT model is reported as `Unknown` instead.
-    fn get_model(
-        &self,
-        _predicates: &[Predicate],
-        _substitution: &Substitution,
-    ) -> Stoppable<Result<ModelResult, SmtError>> {
+    /// A model of `query`'s residual: a `Sat` substitution must satisfy its predicates and its
+    /// substitution in K. An approximate SMT model is reported as `Unknown` instead.
+    ///
+    /// Only [`model_of`](crate::model::model_of) builds a [`ModelQuery`], after the definition
+    /// has decided what it can of the predicate, so this is never asked about a predicate whose
+    /// answer depends on equations or constructor freeness the solver does not see.
+    fn get_model(&self, _query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
         Ok(Err(SmtError::Unavailable))
     }
 
