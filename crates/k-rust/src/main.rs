@@ -83,6 +83,7 @@ use k_rust_backend::{
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     smt::{ModelResult, Z3Options},
+    stop::{PreludeFailure, StopCause},
     term::Sort as BackendSort,
     transition::DescriptorTranscriptEntry,
 };
@@ -3274,14 +3275,48 @@ fn prepared_artifact_directory(path: &Path) -> PathBuf {
     }
 }
 
-fn kprove_solver_error(error: BackendError) -> io::Error {
-    io::Error::other(
-        if error.0 == "could not initialize Z3: InconsistentPrelude" {
+/// Why a claim's proof produced no result: the backend's error, or the stop of the proof's
+/// operation, carried as its cause.
+#[derive(Debug)]
+enum KproveSolverError {
+    Backend(BackendError),
+    Stopped(StopCause),
+}
+
+impl From<BackendError> for KproveSolverError {
+    fn from(error: BackendError) -> Self {
+        Self::Backend(error)
+    }
+}
+
+impl From<StopCause> for KproveSolverError {
+    fn from(cause: StopCause) -> Self {
+        Self::Stopped(cause)
+    }
+}
+
+#[deny(clippy::wildcard_enum_match_arm)]
+fn kprove_solver_error(error: KproveSolverError) -> io::Error {
+    io::Error::other(match error {
+        KproveSolverError::Backend(error) => error.to_string(),
+        KproveSolverError::Stopped(cause) => kprove_stop_message(cause),
+    })
+}
+
+/// The message of a proof whose operation stopped. An inconsistent prelude means the
+/// definition's axioms sent to the solver contradict each other, which `kprove` states in the
+/// definition's terms; every other cause is reported by its own text.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn kprove_stop_message(cause: StopCause) -> String {
+    match cause {
+        StopCause::SolverPrelude(PreludeFailure::Inconsistent) => {
             "the definitions sent to the solver are inconsistent".to_owned()
-        } else {
-            error.to_string()
-        },
-    )
+        }
+        StopCause::SolverPrelude(PreludeFailure::Unknown(_))
+        | StopCause::Cancelled
+        | StopCause::Deadline(_)
+        | StopCause::StackExhausted => cause.to_string(),
+    }
 }
 
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -3361,7 +3396,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         },
         smt_prelude,
     )
-    .map_err(kprove_solver_error)?;
+    .map_err(|error| kprove_solver_error(error.into()))?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     drop(setup_phase);
@@ -3418,7 +3453,11 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     proof_options,
                     solver,
                 )
-                .map_err(|error| BackendError(format!("could not prove claim: {error:?}")))
+                .map_err(|error| {
+                    KproveSolverError::Backend(BackendError(format!(
+                        "could not prove claim: {error:?}"
+                    )))
+                })
             })
             .map_err(kprove_solver_error)?;
         let seconds = started.elapsed().as_secs_f64();

@@ -20,11 +20,11 @@ use k_rust_kore::kore::ast::Pattern as KorePattern;
 
 use super::{Backend, BackendError, error};
 
-/// The error of an operation whose work stopped, with the stop's cause's text: the text the
-/// operation boundary reports a stop with (`Backend::run_with_solver`), so an operation reports
-/// a stop the same way wherever it was observed.
+/// The error of an operation whose work stopped: the error `BackendError` gives the stop's
+/// cause, the one the operation boundary gives it too (`Backend::with_solver`), so an operation
+/// reports a stop the same way wherever it was observed.
 pub(crate) fn stopped_operation(stop: Stop) -> BackendError {
-    BackendError(stop.into_cause().to_string())
+    BackendError::from(stop.into_cause())
 }
 
 /// Simplify `pattern`. As the simplifier's, the result has two layers: the outer `Err` is a

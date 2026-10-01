@@ -466,6 +466,25 @@ impl From<BackendError> for RpcFault {
     }
 }
 
+/// The fault of a request whose work stopped before producing its answer, for every method and
+/// for the operation boundary (`Backend::with_solver`): a cancelled request is the cancelled
+/// fault; an exhausted stack and a failed solver prelude are runtime errors with the cause's
+/// text. The stack fault ends this request only: the thread unwound to the request's entry, so
+/// the connection keeps serving. A step deadline is armed only by `execute`'s and proofs' steps,
+/// which publish it in-band ([`execute_stop_reason`]), so reaching a fault with one is a runtime
+/// error that names it.
+impl From<StopCause> for RpcFault {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn from(cause: StopCause) -> Self {
+        match cause {
+            StopCause::Cancelled => Self::cancelled(),
+            StopCause::StackExhausted | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
+                Self::runtime(cause.to_string(), None)
+            }
+        }
+    }
+}
+
 impl RpcService {
     #[cfg(test)]
     pub(super) fn new(session: BackendSession) -> Self {
@@ -574,9 +593,7 @@ impl RpcService {
     fn dispatch(&mut self, method: &str, params: Value) -> Result<RpcValue, RpcFault> {
         // A request stopped before it starts does not run. Once it runs, each method reports a
         // stop of its work as the stop's own fault, never by reinterpreting its result.
-        if let Err(stop) = stop::check() {
-            return Err(stop_fault(&stop.into_cause()));
-        }
+        stop::check().map_err(stopped_request)?;
         let requested_logs = params
             .get("haskell-logging")
             .and_then(Value::as_array)
@@ -1059,43 +1076,23 @@ impl RpcService {
     }
 }
 
-/// The request ran out of the native stack of the thread serving it. The error ends this request
-/// only: the thread unwound to the request's entry, so the connection keeps serving.
-fn stack_exhausted_fault(cause: &StopCause) -> RpcFault {
-    RpcFault::runtime(cause.to_string(), None)
-}
-
 /// The `execute` reason of a leaf whose state stopped. A passed step deadline is the `timeout`
 /// reason the protocol has for it; every other cause leaves the request without an answer, so it
-/// is the request's fault ([`stop_fault`]).
+/// is the request's fault (`From<StopCause> for RpcFault`).
 #[deny(clippy::wildcard_enum_match_arm)]
 fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
     match cause {
         StopCause::Deadline(_) => Ok("timeout"),
         StopCause::Cancelled | StopCause::StackExhausted | StopCause::SolverPrelude(_) => {
-            Err(stop_fault(cause))
+            Err(RpcFault::from(cause.clone()))
         }
     }
 }
 
-/// The fault of a request whose work stopped before producing its answer ([`stop_fault`]).
+/// The fault of a request whose work stopped before producing its answer
+/// (`From<StopCause> for RpcFault`).
 fn stopped_request(stop: Stop) -> RpcFault {
-    stop_fault(&stop.into_cause())
-}
-
-/// The fault of a request whose work stopped before producing its answer: a cancelled request,
-/// the stack exhaustion fault, and the runtime error of a failed solver prelude. A step deadline
-/// is armed only by `execute`'s and proofs' steps, which publish it in-band, so reaching a fault
-/// with one is a runtime error that names it.
-#[deny(clippy::wildcard_enum_match_arm)]
-fn stop_fault(cause: &StopCause) -> RpcFault {
-    match cause {
-        StopCause::Cancelled => RpcFault::cancelled(),
-        StopCause::StackExhausted => stack_exhausted_fault(cause),
-        StopCause::SolverPrelude(_) | StopCause::Deadline(_) => {
-            RpcFault::runtime(cause.to_string(), None)
-        }
-    }
+    RpcFault::from(stop.into_cause())
 }
 
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -1443,7 +1440,7 @@ fn simplified_not_consequent_response_syntax(
 }
 
 /// The verdict of an implication check, or its fault. A stop is not a failure of the check: the
-/// request's work stopped, so it is the request's fault ([`stop_fault`]); only a failure of the
+/// request's work stopped, so it is the request's fault ([`stopped_request`]); only a failure of the
 /// check itself is an implication-check error ([`implication_backend_fault`]).
 fn implication_check_result(
     checked: Stoppable<Result<ImplicationVerdict, ImplicationError>>,
@@ -2585,7 +2582,7 @@ mod tests {
     }
 
     /// A stop inside `implies` reaches it on the outer layer of the check's result and is the
-    /// request's fault, with the fault every method gives that cause (`stop_fault`); only a
+    /// request's fault, with the fault every method gives that cause (`From<StopCause>`); only a
     /// failure of the check itself is an implication-check error.
     #[test]
     fn a_stopped_implication_check_is_the_requests_fault() {
@@ -2598,7 +2595,7 @@ mod tests {
             (fault.code, fault.message.as_str()),
             (-32000, "Request cancelled")
         );
-        let fault = stop_fault(&StopCause::StackExhausted);
+        let fault = RpcFault::from(StopCause::StackExhausted);
         assert_eq!(
             (fault.code, fault.message.as_str()),
             (-32002, "Runtime error")
@@ -4299,10 +4296,8 @@ endmodule
 
         assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
-        assert!(
-            fault["error"]["data"]["error"]
-                .as_str()
-                .is_some_and(|error| error == "could not initialize Z3: InconsistentPrelude"),
+        assert_eq!(
+            fault["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
             "{fault:#}"
         );
         assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");
@@ -4349,6 +4344,140 @@ endmodule
                 "{response:#}"
             );
         }
+    }
+
+    /// The definition of `a_prelude_failure_dismissed_by_the_last_leafs_refinement_*`: two
+    /// `smt-lemma` equations give `f` two values, so the solver's prelude is inconsistent, and
+    /// no rule applies to `stuck`, so executing it decides a `Stuck` leaf at once.
+    const STUCK_UNDER_AN_INCONSISTENT_PRELUDE: &str = r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            sort SortS{} []
+            symbol stuck{}(SortInt{}) : SortS{} [constructor{}()]
+            symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("f")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+            ) [simplification{}(), smt-lemma{}(), label{}("f-is-one")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("2"), \top{SortInt{}}()))
+            ) [simplification{}(), smt-lemma{}(), label{}("f-is-two")]
+        endmodule []"#;
+
+    /// `stuck(X)` under `X >Int 0`, whose decided `Stuck` leaf is normalised with the solver.
+    const STUCK_UNDER_A_CONSTRAINT: &str = r#"\and{SortS{}}(
+        stuck{}(X:SortInt{}),
+        \equals{SortBool{}, SortS{}}(
+            gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+            \dv{SortBool{}}("true")
+        )
+    )"#;
+
+    /// An operation's result as `Backend::with_solver` hands it to a caller that acts on the
+    /// cause.
+    #[derive(Debug, PartialEq)]
+    enum OperationError {
+        Backend(String),
+        Stopped(StopCause),
+    }
+
+    impl From<BackendError> for OperationError {
+        fn from(error: BackendError) -> Self {
+            Self::Backend(error.0)
+        }
+    }
+
+    impl From<StopCause> for OperationError {
+        fn from(cause: StopCause) -> Self {
+            Self::Stopped(cause)
+        }
+    }
+
+    /// A prelude failure found while the decided leaf of an execution's last state is normalised
+    /// is a stop the normalisation dismisses: the leaf keeps `Stuck`, which holds without the
+    /// refinement, and no state is left whose poll would observe the raised prelude signal. The
+    /// operation boundary's exit poll still makes the failure the operation's result: the caller
+    /// receives `SolverPrelude(Inconsistent)` itself, and `execute` answers with the runtime
+    /// prelude fault. The control, `stuck(0)` without a constraint, asks the solver nothing: its
+    /// operation returns the `Stuck` leaf and `execute` answers `stuck`.
+    #[test]
+    fn a_prelude_failure_dismissed_by_the_last_leafs_refinement_is_the_operations_result() {
+        use k_rust_backend::stop::PreludeFailure;
+
+        let backend = || {
+            Backend::from_definition(
+                parse_definition(STUCK_UNDER_AN_INCONSISTENT_PRELUDE).unwrap(),
+                "MAIN",
+                BackendOptions::default(),
+            )
+            .expect("an unused SMT prelude does not affect initialization")
+        };
+        let execute_leaves = |state: &str| {
+            let state = parse_pattern(state).unwrap();
+            let mut leaves = None;
+            let operation = backend().with_solver(None, |definition, solver| {
+                let initial = definition
+                    .admit_unverified(&state, &[])
+                    .internalize_pattern()
+                    .map_err(|error| BackendError(format!("{error:?}")))?;
+                let result = backend_execution::run(
+                    definition,
+                    initial,
+                    ExecutionOptions {
+                        mode: ExecutionMode::All,
+                        branch_mode: ExecutionBranchMode::StopAtBranch,
+                        ..ExecutionOptions::default()
+                    },
+                    solver,
+                );
+                leaves = Some(
+                    result
+                        .leaves
+                        .into_iter()
+                        .map(|leaf| leaf.halt_reason)
+                        .collect::<Vec<_>>(),
+                );
+                Ok::<_, OperationError>(())
+            });
+            (operation, leaves.expect("the operation ran"))
+        };
+
+        assert_eq!(
+            execute_leaves(r#"stuck{}(\dv{SortInt{}}("0"))"#),
+            (Ok(()), vec![HaltReason::Stuck])
+        );
+        assert_eq!(
+            execute_leaves(STUCK_UNDER_A_CONSTRAINT),
+            (
+                Err(OperationError::Stopped(StopCause::SolverPrelude(
+                    PreludeFailure::Inconsistent
+                ))),
+                vec![HaltReason::Stuck]
+            )
+        );
+
+        let execute = |state: &str| {
+            let mut service = RpcService::with_backend(backend());
+            request(
+                &mut service,
+                1,
+                "execute",
+                json!({ "state": encode_kore(&parse_pattern(state).unwrap()).unwrap() }),
+            )
+        };
+        let control = execute(r#"stuck{}(\dv{SortInt{}}("0"))"#);
+        assert_eq!(control["result"]["reason"], "stuck", "{control:#}");
+        let fault = execute(STUCK_UNDER_A_CONSTRAINT);
+        assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
+        assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
+        assert_eq!(
+            fault["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
+            "{fault:#}"
+        );
     }
 
     #[test]

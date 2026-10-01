@@ -428,6 +428,22 @@ impl fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
+/// The error of an operation that stopped before producing its answer, for a caller whose
+/// error is text: the cause's own text, which names it (`Request cancelled`, the step's timeout,
+/// the exhausted stack, `could not initialize Z3: <failure>`). A caller that acts on the cause
+/// takes the [`StopCause`] itself through [`Backend::with_solver`]'s `From<StopCause>` bound.
+impl From<StopCause> for BackendError {
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn from(cause: StopCause) -> Self {
+        match cause {
+            StopCause::Cancelled
+            | StopCause::Deadline(_)
+            | StopCause::StackExhausted
+            | StopCause::SolverPrelude(_) => Self(cause.to_string()),
+        }
+    }
+}
+
 fn json_output_error(error: serde_json::Error) -> BackendError {
     BackendError(format!("could not serialize backend JSON: {error}"))
 }
@@ -533,7 +549,7 @@ impl Backend {
             #[cfg(feature = "z3-inference")]
             smt_prelude: _smt_prelude,
         };
-        backend.with_solver(None, |_, _| Ok(()))?;
+        backend.with_solver(None, |_, _| Ok::<_, BackendError>(()))?;
         Ok(backend)
     }
 
@@ -1154,13 +1170,19 @@ impl Backend {
         })
     }
 
+    /// Run `operation` on the definition of `module` with that definition's solver. With the
+    /// `z3-inference` feature the run is one operation (`k_rust_backend::stop::operation`): a
+    /// request stopped before it starts, or a solver whose prelude already failed, does not run
+    /// it, and a prelude failure found while it runs is its result even when `operation`
+    /// returned. Such a stop reaches the caller as its [`StopCause`], through `E`'s
+    /// `From<StopCause>`.
     pub fn with_solver<T, E>(
         &mut self,
         module: Option<&str>,
         operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
     ) -> Result<T, E>
     where
-        E: From<BackendError>,
+        E: From<BackendError> + From<StopCause>,
     {
         let definition = self
             .session
@@ -1177,7 +1199,7 @@ impl Backend {
         operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
     ) -> Result<T, E>
     where
-        E: From<BackendError>,
+        E: From<BackendError> + From<StopCause>,
     {
         let module = definition.main_module.to_string();
         if !self.solvers.contains_key(&module) {
@@ -1195,23 +1217,14 @@ impl Backend {
             self.solvers.insert(module.clone(), solver);
         }
         let solver = self.solvers.get(&module).expect("solver was inserted");
-        if let Some(failure) = solver.prelude_failure() {
-            return Err(E::from(BackendError(format!(
-                "could not initialize Z3: {failure}"
-            ))));
-        }
-        // The operation boundary: the solver's prelude signal is installed for the operation, a
-        // request stopped before it starts does not run, and a prelude failure found during it
-        // is its result. The stop is reported by its cause's text until the callers take it
-        // typed (CBC-04-T9); `SolverPrelude` displays `could not initialize Z3: <failure>`.
-        let result = stop::operation(solver, || operation(&definition, solver))
-            .map_err(|stop| E::from(BackendError(stop.into_cause().to_string())))?;
-        if let Some(failure) = solver.prelude_failure() {
-            return Err(E::from(BackendError(format!(
-                "could not initialize Z3: {failure}"
-            ))));
-        }
-        result
+        // The operation boundary. Its entry poll sees the prelude signal of a solver whose
+        // prelude an earlier operation found failed, and a request stopped before it starts, so
+        // neither runs; its exit poll sees a prelude failure found during this operation, also
+        // one whose stop a refinement dismissed, and that stop replaces `operation`'s value,
+        // since no answer of the solver means anything under a failed prelude. The caller
+        // receives the cause itself.
+        stop::operation(solver, || operation(&definition, solver))
+            .map_err(|stop| E::from(stop.into_cause()))?
     }
 
     #[cfg(not(feature = "z3-inference"))]
@@ -1221,7 +1234,7 @@ impl Backend {
         operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
     ) -> Result<T, E>
     where
-        E: From<BackendError>,
+        E: From<BackendError> + From<StopCause>,
     {
         let _ = self.options;
         operation(&definition, &NoSolver)
@@ -1342,7 +1355,7 @@ fn stopped_halt_reason(
             HaltReasonOutput::SimplificationError,
             Some(format!("{reason:?}")),
         )),
-        StopCause::SolverPrelude(_) => Err(BackendError(cause.to_string())),
+        StopCause::SolverPrelude(_) => Err(BackendError::from(cause.clone())),
     }
 }
 
