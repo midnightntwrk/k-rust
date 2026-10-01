@@ -26,7 +26,7 @@ fn compile(
 
 fn names(loaded: &LoadedDefinition) -> Vec<&str> {
     loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .map(|module| module.name.as_str())
@@ -35,8 +35,8 @@ fn names(loaded: &LoadedDefinition) -> Vec<&str> {
 
 fn has_rule(loaded: &LoadedDefinition, module: &str) -> bool {
     loaded
-        .resolved
-        .module(loaded.resolved.module_id(module).unwrap())
+        .resolved()
+        .module(loaded.resolved().module_id(module).unwrap())
         .local_sentences
         .iter()
         .any(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
@@ -59,11 +59,11 @@ fn malformed_unselected_bubble_is_omitted_but_selected_syntax_still_fails() {
     assert_eq!(names(&loaded), ["MAIN"]);
     assert!(has_rule(&loaded, "MAIN"));
     assert_eq!(
-        loaded.files[0].modules.len(),
+        loaded.files()[0].modules.len(),
         2,
         "source files are not trimmed"
     );
-    assert!(!loaded.source_table.is_empty());
+    assert!(!loaded.source_table().is_empty());
     let error = compile(source, Some("UNUSED"), &LoadOptions::default()).unwrap_err();
     let LoadError::RuleParsing(k_rust::inner::RuleError::Parse(error)) = error else {
         panic!("expected selected bubble parse failure, got {error:?}");
@@ -97,7 +97,7 @@ fn explicit_and_default_syntax_roots_are_retained_with_no_bubble_entries() {
     assert!(has_rule(&default, "MAIN-SYNTAX"));
     assert!(
         !default
-            .diagnostics
+            .diagnostics()
             .iter()
             .any(|d| d.code == DiagnosticCode::MissingSyntaxModule)
     );
@@ -143,7 +143,14 @@ fn pre_exclusion_import_closure_survives_a_removed_intermediate_module() {
     };
     let (loaded, _) = compile(source, Some("MAIN"), &options).unwrap();
     assert_eq!(names(&loaded), ["MAIN", "CHILD"]);
-    assert!(loaded.definition.main_module().unwrap().imports.is_empty());
+    assert!(
+        loaded
+            .definition()
+            .main_module()
+            .unwrap()
+            .imports
+            .is_empty()
+    );
     assert!(has_rule(&loaded, "CHILD"));
 }
 
@@ -200,19 +207,22 @@ fn missing_default_warning_is_emitted_once_and_obeys_policy() {
     };
     let (loaded, syntax) = compile(source, None, &options).unwrap();
     assert_eq!(syntax, "MAIN");
-    assert_eq!(loaded.diagnostics.len(), 1);
+    assert_eq!(loaded.diagnostics().len(), 1);
     assert_eq!(
-        loaded.diagnostics[0].code,
+        loaded.diagnostics()[0].code,
         DiagnosticCode::MissingSyntaxModule
     );
-    assert_eq!(loaded.diagnostics[0].source.as_deref(), Some("selection.k"));
+    assert_eq!(
+        loaded.diagnostics()[0].source.as_deref(),
+        Some("selection.k")
+    );
     let mut suppressed = options.clone();
     suppressed.diagnostics.level = WarningLevel::None;
     assert!(
         compile(source, None, &suppressed)
             .unwrap()
             .0
-            .diagnostics
+            .diagnostics()
             .is_empty()
     );
     let mut promoted = options;
@@ -250,7 +260,7 @@ fn default_configuration_is_retained_only_when_needed() {
     assert!(names(&fallback).contains(&"DEFAULT-CONFIGURATION"));
     assert!(
         fallback
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .imports
@@ -267,7 +277,7 @@ fn default_configuration_is_retained_only_when_needed() {
     assert!(!names(&loaded).contains(&"DEFAULT-CONFIGURATION"));
     assert!(
         loaded
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .imports
@@ -294,7 +304,7 @@ fn configuration_fallback_is_decided_after_backend_filtering() {
     assert!(names(&loaded).contains(&"DEFAULT-CONFIGURATION"));
     assert!(
         loaded
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .imports
@@ -332,7 +342,7 @@ fn distinct_proof_configuration_root_and_its_imports_are_retained() {
     )
     .unwrap();
     let config = fallback
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|m| m.name == "CONFIG")
@@ -345,7 +355,7 @@ fn distinct_proof_configuration_root_and_its_imports_are_retained() {
     );
     assert!(
         !fallback
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .imports
@@ -416,8 +426,8 @@ fn generic_prepared_and_structured_loading_keep_their_module_policy() {
     .unwrap();
     assert!(has_rule(&generic, "UNUSED"));
     let base = ProvenanceDefinition {
-        definition: generic.definition.clone(),
-        source_table: generic.source_table.clone(),
+        definition: generic.definition().clone(),
+        source_table: generic.source_table().clone(),
     };
     let prepared = load_with_prepared_base(
         ResolvedSource::new("proof.k", "module PROOF imports MAIN endmodule"),
@@ -431,7 +441,7 @@ fn generic_prepared_and_structured_loading_keep_their_module_policy() {
     .unwrap();
     assert!(has_rule(&prepared, "UNUSED"));
     let unused = prepared
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|module| module.name == "UNUSED")
@@ -446,10 +456,10 @@ fn generic_prepared_and_structured_loading_keep_their_module_policy() {
         .unwrap();
     let span = body.metadata().and_then(|metadata| metadata.span).unwrap();
     assert_eq!(
-        prepared.source_table.get(span.source).unwrap().logical,
+        prepared.source_table().get(span.source).unwrap().logical,
         "base.k"
     );
-    let range = prepared.source_table.raw_range(span).unwrap();
+    let range = prepared.source_table().raw_range(span).unwrap();
     assert_eq!(&source[range], "unused => unused");
     let structured = load_structured(
         lower(&parse("structured.k", source).unwrap(), "MAIN").unwrap(),
@@ -492,19 +502,19 @@ fn selected_modules_preserve_serialized_metadata_and_private_imports() {
         .retain(|module| module.name != "UNUSED");
     assert_eq!(
         k_rust::definition::json::to_provenance_string_pretty(
-            &selected.definition,
-            &selected.source_table
+            selected.definition(),
+            selected.source_table()
         )
         .unwrap(),
         k_rust::definition::json::to_provenance_string_pretty(
-            &generic.definition,
-            &generic.source_table
+            generic.definition(),
+            generic.source_table()
         )
         .unwrap(),
         "selected contents, catalog references, source spans, and serialized origin metadata must agree"
     );
-    assert!(!selected.definition.main_module().unwrap().imports[0].public);
-    assert_eq!(selected.source_table, generic.source_table);
+    assert!(!selected.definition().main_module().unwrap().imports[0].public);
+    assert_eq!(selected.source_table(), generic.source_table());
 }
 
 #[test]
@@ -552,13 +562,13 @@ fn markdown_selection_and_requires_resolution_precede_module_selection() {
     assert_eq!(names(&loaded), ["DEP", "MAIN"]);
     assert_eq!(
         loaded
-            .files
+            .files()
             .iter()
             .map(|file| file.source.as_str())
             .collect::<Vec<_>>(),
         ["dependency.md", "entry.md"]
     );
-    assert_eq!(loaded.files[0].modules.len(), 2);
-    assert_eq!(loaded.files[1].modules.len(), 1);
+    assert_eq!(loaded.files()[0].modules.len(), 2);
+    assert_eq!(loaded.files()[1].modules.len(), 1);
     assert!(has_rule(&loaded, "DEP"));
 }

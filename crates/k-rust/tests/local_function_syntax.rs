@@ -54,7 +54,7 @@ fn probe(rule: &str) -> String {
 /// Every rule of the main module as `body requires condition`.
 fn loaded_rules(loaded: &LoadedDefinition) -> Vec<String> {
     loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences

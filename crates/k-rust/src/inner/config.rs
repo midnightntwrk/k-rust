@@ -771,7 +771,7 @@ mod tests {
     fn main_configuration_grammar(source: &str) -> Grammar {
         let loaded =
             load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
-        let resolved = &loaded.resolved;
+        let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         configuration_grammar(resolved, module).expect("the configuration grammar builds")
     }
@@ -795,7 +795,7 @@ endmodule
 "#;
         let loaded =
             load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
-        let resolved = &loaded.resolved;
+        let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let mut visible = resolved.signature_sentences(module);
         add_implicit_ml_syntax(resolved, &mut visible);
@@ -907,7 +907,7 @@ endmodule
 "#;
         let loaded =
             load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"));
-        let resolved = &loaded.resolved;
+        let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let bar = Sort::new("Bar");
         // The shape under test: no sentence visible to MAIN declares Bar.

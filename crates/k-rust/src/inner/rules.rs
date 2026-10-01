@@ -1439,7 +1439,7 @@ module MAIN
 endmodule
 "#,
         );
-        let resolved = &loaded.resolved;
+        let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         let mut visible = resolved.signature_sentences(module);
         add_implicit_ml_syntax(resolved, &mut visible);
@@ -1484,7 +1484,7 @@ endmodule
 "#
             ));
             let main = loaded
-                .definition
+                .definition()
                 .modules
                 .iter()
                 .find(|module| module.name == "MAIN")
@@ -1512,7 +1512,7 @@ endmodule
     fn the_universe_of_a_view_with_the_injected_counter_cell_contains_int() {
         let loaded = load_with_prelude("module MAIN\nendmodule\n");
 
-        let (universe, declared) = rule_grammar_universe(&loaded.resolved, "BOOL-COMMON");
+        let (universe, declared) = rule_grammar_universe(loaded.resolved(), "BOOL-COMMON");
 
         let int = Sort::new("Int");
         assert!(
@@ -1543,7 +1543,7 @@ endmodule
 "#,
         );
 
-        let (universe, declared) = rule_grammar_universe(&loaded.resolved, "ARRAY-USER");
+        let (universe, declared) = rule_grammar_universe(loaded.resolved(), "ARRAY-USER");
 
         let list = Sort::new("List");
         assert!(

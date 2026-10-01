@@ -69,7 +69,7 @@ fn context() -> &'static Context {
             },
         )
         .expect("search-pattern fixture should load");
-        let parsing = definition_with_named_projections(&loaded.definition);
+        let parsing = definition_with_named_projections(loaded.definition());
         let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
             .expect("search-pattern fixture should compile");
         Context {

@@ -1891,11 +1891,11 @@ mod edited_loaded_rules {
 
     fn relinked(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
         LoadedDefinition {
-            files: base.files.clone(),
-            source_table: base.source_table.clone(),
+            files: base.files().to_vec(),
+            source_table: base.source_table().clone(),
             resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
             definition,
-            diagnostics: base.diagnostics.clone(),
+            diagnostics: base.diagnostics().to_vec(),
         }
     }
 
@@ -1928,7 +1928,7 @@ mod edited_loaded_rules {
         let mut outcomes = Vec::new();
         for backend in BACKENDS {
             let base = load(backend);
-            let mut definition = base.definition.clone();
+            let mut definition = base.definition().clone();
             let sentence = labelled(&mut definition, "COUNTER.increment");
             *at(sentence, path) = replacement.clone();
             let edited = sentence.clone();
@@ -2015,7 +2015,7 @@ mod edited_loaded_rules {
     #[test]
     fn a_counter_term_at_a_nat_argument_is_rejected() {
         let base = load(CompilationBackend::Rust);
-        let mut definition = base.definition.clone();
+        let mut definition = base.definition().clone();
         let left = at(labelled(&mut definition, "COUNTER.increment"), &[0, 0]).clone();
         assert_rejected(
             &[0, 1, 0],
@@ -2134,7 +2134,7 @@ mod cast_instances {
     /// the edited sentence.
     fn with_right_side(fixture: &Fixture, right: Term) -> (LoadedDefinition, Sentence) {
         let base = load(fixture);
-        let mut definition = base.definition.clone();
+        let mut definition = base.definition().clone();
         let module = definition
             .modules
             .iter_mut()
@@ -2162,11 +2162,11 @@ mod cast_instances {
         **slot = right;
         let edited = sentence.clone();
         let loaded = LoadedDefinition {
-            files: base.files.clone(),
-            source_table: base.source_table.clone(),
+            files: base.files().to_vec(),
+            source_table: base.source_table().clone(),
             resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
             definition,
-            diagnostics: base.diagnostics.clone(),
+            diagnostics: base.diagnostics().to_vec(),
         };
         (loaded, edited)
     }
@@ -2195,7 +2195,7 @@ mod cast_instances {
         // Without layout whitespace, so a pattern the printer breaks across lines is one string.
         let kore = compile_loaded_definition(&loaded, CompileOptions::default())
             .map(|artifacts| artifacts.definition_kore.split_whitespace().collect());
-        let typing = sentence_typing(&loaded.resolved, fixture.module, &edited);
+        let typing = sentence_typing(loaded.resolved(), fixture.module, &edited);
         (kore, typing)
     }
 
@@ -2405,7 +2405,7 @@ mod cast_instances {
     fn a_result_only_candidate_is_a_declared_instance_of_the_whole_result() {
         let (loaded, edited) =
             with_right_side(&NESTED_RESULT, cast("KItem", Term::apply("mkn", vec![])));
-        let typing = sentence_typing(&loaded.resolved, NESTED_RESULT.module, &edited)
+        let typing = sentence_typing(loaded.resolved(), NESTED_RESULT.module, &edited)
             .unwrap_or_else(|error| panic!("{error}"));
         let mint = |sort: Sort| Sort::with_parameters("MInt", vec![sort]);
         assert_eq!(

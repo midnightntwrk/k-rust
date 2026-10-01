@@ -400,9 +400,9 @@ fn collect_sentence_provenance(
     execution: &Definition,
     loaded: &LoadedDefinition,
 ) -> Result<BTreeMap<String, EmittedSentenceProvenance>, String> {
-    let mut kinds = loaded.source_table.input_sentence_kinds().clone();
+    let mut kinds = loaded.source_table().input_sentence_kinds().clone();
     kinds.extend(input_sentence_kinds(
-        &loaded.definition,
+        loaded.definition(),
         InputSpace::Compile,
     ));
     // Sort injection can replace a generated rule's receipt after the pass that created it.
@@ -738,11 +738,11 @@ fn transform_loaded_definition(
     // flagged resolution must at least describe the same modules, each with no more sentences
     // than the definition (the resolution keeps one of each class of equivalent sentences).
     debug_assert!(
-        !loaded.resolved.structured_input
-            || (loaded.resolved.modules().count() == loaded.definition.modules.len()
-                && loaded.definition.modules.iter().all(|module| {
-                    loaded.resolved.module_id(&module.name).is_some_and(|id| {
-                        loaded.resolved.module(id).local_sentences.len()
+        !loaded.resolved().structured_input
+            || (loaded.resolved().modules().count() == loaded.definition().modules.len()
+                && loaded.definition().modules.iter().all(|module| {
+                    loaded.resolved().module_id(&module.name).is_some_and(|id| {
+                        loaded.resolved().module(id).local_sentences.len()
                             <= module.local_sentences.len()
                     })
                 })),
@@ -750,25 +750,25 @@ fn transform_loaded_definition(
     );
     // A label parameter can only have been written by the caller; reject it before any pass
     // generates parameters of its own. One walk over the input terms, too cheap to time.
-    reject_label_parameters_in_definition(&loaded.definition).map_err(|error| {
+    reject_label_parameters_in_definition(loaded.definition()).map_err(|error| {
         CompileError::from_error(
             REJECT_LABEL_PARAMETERS,
             SortInjectionError::sentence_label_parameters(error),
         )
     })?;
     let stamped = || {
-        let mut definition = loaded.definition.clone();
+        let mut definition = loaded.definition().clone();
         stamp_input_addresses(
             &mut definition,
             InputSpace::Compile,
-            loaded.resolved.structured_input,
+            loaded.resolved().structured_input,
         );
         definition
     };
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
     let (definition, configuration_diagnostics, resolved) = if loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
@@ -797,7 +797,7 @@ fn transform_loaded_definition(
         let resolved = stage(
             timings,
             prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
-            || loaded.resolved.update(&loaded.definition, &definition),
+            || loaded.resolved().update(loaded.definition(), &definition),
         )?;
         (definition, Vec::new(), resolved)
     };
@@ -813,7 +813,7 @@ fn transform_loaded_definition(
                     ),
                 )
             })?);
-    let mut diagnostics = loaded.diagnostics.clone();
+    let mut diagnostics = loaded.diagnostics().to_vec();
     diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
     diagnostics.extend(checked);
     if diagnostics
@@ -1343,7 +1343,7 @@ mod tests {
         assert!(!backend.rewrite_theory.is_empty());
         assert_eq!(backend.reachability_claims.len(), 1);
         let input_claim = loaded
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .local_sentences

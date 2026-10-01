@@ -346,7 +346,7 @@ fn preserves_nested_term_spans_and_resolved_productions() {
     )
     .unwrap();
     let body = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -357,7 +357,7 @@ fn preserves_nested_term_spans_and_resolved_productions() {
         })
         .unwrap();
     let mut metadata = Vec::new();
-    metadata_summary(body, source, &loaded.source_table, &mut metadata);
+    metadata_summary(body, source, loaded.source_table(), &mut metadata);
 
     insta::with_settings!({
         description => format!("K definition:\n\n{source}"),
@@ -585,7 +585,7 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
     )
     .expect("the reduced Cgascap definition should load");
     let body = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1460,7 +1460,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
     )
     .unwrap();
     let bubbles = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1469,7 +1469,7 @@ fn loader_parses_rules_against_generated_rule_cells() {
         .count();
     assert_eq!(bubbles, 0);
     let rules = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1517,7 +1517,7 @@ fn reference_three_sibling_rule_cells_associate_left() {
     )
     .expect("reference cell-association fixture should load");
     let actual = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1575,7 +1575,7 @@ fn load_rewrite_on_the_variable_side_of_as()
 fn rewrite_on_the_variable_side_of_an_as_pattern_is_rejected_by_the_definition_checks() {
     let loaded = load_rewrite_on_the_variable_side_of_as()
         .expect("the z3 rule grammar parses a rewrite as the alias of an #as pattern");
-    let diagnostics = k_rust::definition::check_definition(&loaded.resolved)
+    let diagnostics = k_rust::definition::check_definition(loaded.resolved())
         .expect("definition checks run on the loaded definition");
     let placement = diagnostics
         .iter()
@@ -1612,7 +1612,7 @@ fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
     )
     .unwrap();
     let claims = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1654,7 +1654,7 @@ fn loader_parses_legacy_empty_k_before_cell_dots() {
     )
     .unwrap();
     let rules = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1703,7 +1703,7 @@ fn loader_parses_rewrites_between_bags_inside_collection_cells() {
     )
     .unwrap();
     let rules = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1756,7 +1756,7 @@ fn loader_parses_parenthesized_rewrites_between_bags_before_cell_dots() {
 
     assert!(
         loaded
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .local_sentences
@@ -1797,7 +1797,7 @@ fn loader_parses_parenthesized_cell_deletion_inside_collection_cells() {
     )
     .unwrap();
     let rules = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -1845,7 +1845,7 @@ fn loader_keeps_unparenthesized_cell_deletion_inside_collection_cell_scope() {
     )
     .unwrap();
     let body = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -3466,7 +3466,7 @@ fn the_standard_prelude_loads_to_the_same_definition_in_both_builds() {
                 .unwrap_or_else(|error| {
                     panic!("the prelude should load with {excluded} excluded: {error}")
                 });
-        let json = k_rust::definition::json::to_string_pretty(&loaded.definition).unwrap();
+        let json = k_rust::definition::json::to_string_pretty(loaded.definition()).unwrap();
         let digest = artifact_digest(&format!("standard-prelude-{excluded}.json"), &json);
         insta::with_settings!({
             description => format!(
@@ -3848,7 +3848,7 @@ fn sort_parameter_choice_erased_by_lowering_compiles() {
 #[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -3922,7 +3922,7 @@ fn declared_mint_instances_get_the_kitem_subsort_and_casts() {
 #[cfg(feature = "z3-inference")]
 fn rule_like_texts(loaded: &k_rust::outer::LoadedDefinition, name: &str) -> Vec<String> {
     loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -4280,7 +4280,7 @@ fn reference_nullary_function_with_a_parametric_instance_result_sort_parses_bare
             "`m32()_TEST_MInt`(.KList)=>#token(\"0p32\",\"MInt{32}\") requires #token(\"true\",\"Bool\")",
         ]
     );
-    let diagnostics = k_rust::definition::check_definition(&loaded.resolved)
+    let diagnostics = k_rust::definition::check_definition(loaded.resolved())
         .expect("definition checks run on the loaded definition");
     assert!(
         diagnostics.iter().all(|diagnostic| diagnostic.code
@@ -4433,7 +4433,7 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
         let loaded = load_with_prelude(&source, "counter-claim.k", "TEST")
             .expect("implicit rule-cell syntax must be available to proof claims");
         let body = loaded
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .local_sentences
@@ -4467,7 +4467,7 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
         });
         assert_eq!(shared, vec![None, None]);
         assert_eq!(rewrites, expected.len());
-        assert!(!loaded.definition.main_module().unwrap().local_sentences.iter().any(|s| {
+        assert!(!loaded.definition().main_module().unwrap().local_sentences.iter().any(|s| {
             matches!(&**s, Sentence::Production { sort, .. } if sort.name == "GeneratedCounterCell")
         }), "the implicit counter production is parse-only");
         let nested = source.replace("<c1> .K => ?C </c1>", "<c1> .K => ?C => ?D </c1>");
@@ -4712,7 +4712,7 @@ fn assert_stream_rules_snapshot(excluded: &str) {
         .iter()
         .flat_map(|name| {
             loaded
-                .definition
+                .definition()
                 .modules
                 .iter()
                 .find(|module| module.name == *name)
@@ -4724,7 +4724,7 @@ fn assert_stream_rules_snapshot(excluded: &str) {
         .collect::<Vec<_>>();
     for name in STREAMS {
         let module = loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .find(|module| module.name == name)

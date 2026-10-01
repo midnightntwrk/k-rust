@@ -50,7 +50,7 @@ endmodule
         let bison = load(true);
         let recursive = |loaded: &k_rust::outer::LoadedDefinition| {
             loaded
-                .definition
+                .definition()
                 .main_module()
                 .unwrap()
                 .local_sentences
@@ -159,27 +159,27 @@ fn loads_diamond_requires_dependency_first_and_resolves_global_tags() {
     )
     .unwrap();
 
-    let main = loaded.resolved.main_module_id();
+    let main = loaded.resolved().main_module_id();
     let summary = LoadSummary {
         files: loaded
-            .files
+            .files()
             .iter()
             .map(|file| file.source.clone())
             .collect(),
         flat_modules: loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .map(|module| module.name.clone())
             .collect(),
         dependency_order: loaded
-            .resolved
+            .resolved()
             .dependency_order()
             .iter()
-            .map(|id| loaded.resolved.module(*id).name.clone())
+            .map(|id| loaded.resolved().module(*id).name.clone())
             .collect(),
         main_priorities: loaded
-            .resolved
+            .resolved()
             .sentences(main)
             .into_iter()
             .filter_map(|sentence| match sentence {
@@ -229,7 +229,7 @@ fn canonical_source_identity_deduplicates_diamond_leaves() {
     assert_eq!(resolutions, 2);
     assert_eq!(
         loaded
-            .files
+            .files()
             .iter()
             .map(|file| file.source.as_str())
             .collect::<Vec<_>>(),
@@ -249,7 +249,7 @@ fn equivalent_duplicate_modules_accept_native_file_copies() {
 
     assert_eq!(
         loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .filter(|module| module.name == "SHARED")
@@ -258,12 +258,12 @@ fn equivalent_duplicate_modules_accept_native_file_copies() {
     );
     assert!(
         loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .any(|module| module.name == "SIBLING")
     );
-    assert_eq!(loaded.files.len(), 3);
+    assert_eq!(loaded.files().len(), 3);
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn equivalent_duplicate_modules_retain_sources_siblings_and_first_provenance() {
     .unwrap();
 
     let shared = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .filter(|module| module.name == "SHARED")
@@ -314,25 +314,25 @@ fn equivalent_duplicate_modules_retain_sources_siblings_and_first_provenance() {
     assert_eq!(shared[0].attributes.source(), Some("left/shared.k"));
     assert_eq!(
         shared[0].attributes.source_id(),
-        Some(loaded.files[0].source_id)
+        Some(loaded.files()[0].source_id)
     );
     assert!(
         loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .any(|module| module.name == "SIBLING")
     );
     assert_eq!(
         loaded
-            .files
+            .files()
             .iter()
             .map(|file| file.source.as_str())
             .collect::<Vec<_>>(),
         ["left/shared.k", "right/shared.k", "main.k"]
     );
-    assert_eq!(loaded.files[1].modules.len(), 2);
-    assert_eq!(loaded.source_table.iter().len(), 3);
+    assert_eq!(loaded.files()[1].modules.len(), 2);
+    assert_eq!(loaded.source_table().iter().len(), 3);
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn equivalent_duplicate_modules_follow_kil_sort_synonym_content() {
 
     assert_eq!(
         loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .filter(|module| module.name == "SHARED")
@@ -532,11 +532,11 @@ fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector(
         &combined,
     )
     .unwrap();
-    let declarations = prepared_module_declarations(&base.files, &base.definition);
+    let declarations = prepared_module_declarations(base.files(), base.definition());
     let provided = vec!["test.md".to_owned()];
     let prepared = k_rust::definition::json::ProvenanceDefinition {
-        definition: base.definition.clone(),
-        source_table: base.source_table.clone(),
+        definition: base.definition().clone(),
+        source_table: base.source_table().clone(),
     };
 
     let load_spec = |selector: &str| {
@@ -560,29 +560,29 @@ fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector(
 
     let same = load_spec("k|keep").unwrap();
     assert!(
-        same.definition
+        same.definition()
             .modules
             .iter()
             .any(|module| module.name == "TEST")
     );
     assert!(
-        same.definition
+        same.definition()
             .modules
             .iter()
             .any(|module| module.name == "SPEC")
     );
     // The base's term spans index its own table, so the loaded table extends it unchanged: the
     // re-read, byte-identical `test.md` keeps its identity and offset map, and `spec.md` follows.
-    let base_sources = base.source_table.iter().cloned().collect::<Vec<_>>();
-    let loaded_sources = same.source_table.iter().cloned().collect::<Vec<_>>();
+    let base_sources = base.source_table().iter().cloned().collect::<Vec<_>>();
+    let loaded_sources = same.source_table().iter().cloned().collect::<Vec<_>>();
     assert_eq!(loaded_sources[..base_sources.len()], base_sources[..]);
     assert_eq!(loaded_sources.len(), base_sources.len() + 1);
     assert_eq!(loaded_sources.last().unwrap().logical, "spec.md");
     for index in 0..base_sources.len() {
         let id = k_rust::provenance::SourceId(index);
         assert_eq!(
-            same.source_table.offset_map(id),
-            base.source_table.offset_map(id)
+            same.source_table().offset_map(id),
+            base.source_table().offset_map(id)
         );
     }
 
@@ -628,19 +628,19 @@ fn load_time_warnings_fail_the_load_under_warnings_to_errors() {
     };
 
     let normal = load_with_policy(DiagnosticPolicy::default()).unwrap();
-    assert!(normal.diagnostics.is_empty());
+    assert!(normal.diagnostics().is_empty());
 
     let all = load_with_policy(DiagnosticPolicy {
         level: WarningLevel::All,
         warnings_to_errors: false,
     })
     .unwrap();
-    assert_eq!(all.diagnostics.len(), 1);
-    assert_eq!(all.diagnostics[0].code, DiagnosticCode::MarkdownWarning);
-    assert_eq!(all.diagnostics[0].severity, Severity::Warning);
-    assert_eq!(all.diagnostics[0].source.as_deref(), Some("main.md"));
-    assert_eq!(all.diagnostics[0].location.unwrap().start_line, 1);
-    assert_eq!(all.diagnostics[0].location.unwrap().start_column, 4);
+    assert_eq!(all.diagnostics().len(), 1);
+    assert_eq!(all.diagnostics()[0].code, DiagnosticCode::MarkdownWarning);
+    assert_eq!(all.diagnostics()[0].severity, Severity::Warning);
+    assert_eq!(all.diagnostics()[0].source.as_deref(), Some("main.md"));
+    assert_eq!(all.diagnostics()[0].location.unwrap().start_line, 1);
+    assert_eq!(all.diagnostics()[0].location.unwrap().start_column, 4);
 
     let error = load_with_policy(DiagnosticPolicy {
         level: WarningLevel::All,
@@ -716,10 +716,10 @@ fn legacy_builtin_names_warn_and_rewrite() {
         .unwrap();
 
         assert_eq!(resolved_name.as_deref(), Some(current));
-        let [warning] = loaded.diagnostics.as_slice() else {
+        let [warning] = loaded.diagnostics() else {
             panic!(
                 "expected one legacy-requires warning, got {:#?}",
-                loaded.diagnostics
+                loaded.diagnostics()
             );
         };
         assert_eq!(warning.code, DiagnosticCode::FutureError);
@@ -767,17 +767,17 @@ fn relocation_preserves_logical_identity() {
     let first = load_at("/checkout/first");
     let second = load_at("/relocated/second");
 
-    assert_eq!(first.source_table, second.source_table);
-    assert_eq!(first.source_table.offset_map(SourceId(0)), None);
+    assert_eq!(first.source_table(), second.source_table());
+    assert_eq!(first.source_table().offset_map(SourceId(0)), None);
     assert_eq!(
-        first.source_table.raw_range(TermSpan {
+        first.source_table().raw_range(TermSpan {
             source: SourceId(0),
             start: 0,
             end: 6,
         }),
         Some(0..6),
     );
-    let identity = first.source_table.iter().next().unwrap();
+    let identity = first.source_table().iter().next().unwrap();
     assert_eq!(identity.logical, "src/main.k");
     assert_eq!(
         identity.resolve_under("/checkout/first"),
@@ -818,7 +818,7 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
     )
     .unwrap();
 
-    let flat_main = loaded.definition.main_module().unwrap();
+    let flat_main = loaded.definition().main_module().unwrap();
     let Sentence::Production { sort, items, .. } = &*flat_main.local_sentences[0] else {
         panic!("expected production")
     };
@@ -829,7 +829,7 @@ fn applies_imported_sort_synonyms_after_resolving_the_source_graph() {
             if sort == &k_rust::kast::Sort::new("Exp")
     ));
 
-    let resolved_main = loaded.resolved.main_module();
+    let resolved_main = loaded.resolved().main_module();
     let Sentence::Production { sort, .. } = &*resolved_main.local_sentences[0] else {
         panic!("expected production")
     };
@@ -849,7 +849,7 @@ fn parses_and_expands_configurations_with_visible_user_syntax() {
     let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
     let loaded = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
 
-    let sentences = &loaded.definition.main_module().unwrap().local_sentences;
+    let sentences = &loaded.definition().main_module().unwrap().local_sentences;
     assert!(
         !sentences
             .iter()
@@ -899,7 +899,7 @@ fn imports_the_default_configuration_and_map_module_implicitly() {
     .expect("implicit configuration should load");
 
     let main = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|module| module.name == "MAIN")
@@ -911,7 +911,7 @@ fn imports_the_default_configuration_and_map_module_implicitly() {
     );
 
     let default_configuration = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|module| module.name == "DEFAULT-CONFIGURATION")
@@ -959,7 +959,7 @@ fn imports_default_configuration_into_distinct_configuration_module() {
     .expect("implicit configuration should attach to the semantics module");
 
     let semantics = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|module| module.name == "SEMANTICS")
@@ -1043,7 +1043,7 @@ fn deduplicates_mutual_requires_cycles_dependency_first() {
 
     assert_eq!(
         loaded
-            .files
+            .files()
             .iter()
             .map(|file| file.source.as_str())
             .collect::<Vec<_>>(),
@@ -1173,7 +1173,7 @@ fn temporary_cell_sort_declarations_are_removed_after_expansion() {
     )
     .unwrap();
 
-    assert!(loaded.definition.modules.iter().all(|module| {
+    assert!(loaded.definition().modules.iter().all(|module| {
         module.local_sentences.iter().all(|sentence| {
             !matches!(&**sentence, Sentence::SyntaxSort { attributes, .. }
                 if attributes.get("temporary-cell-sort-decl").is_some())
@@ -1277,10 +1277,10 @@ fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extr
         },
     )
     .unwrap();
-    let declarations = prepared_module_declarations(&base.files, &base.definition);
+    let declarations = prepared_module_declarations(base.files(), base.definition());
     let prepared = k_rust::definition::json::ProvenanceDefinition {
-        definition: base.definition.clone(),
-        source_table: base.source_table.clone(),
+        definition: base.definition().clone(),
+        source_table: base.source_table().clone(),
     };
     let loaded = load_with_prepared_base(
         ResolvedSource::new("test.md", text),
@@ -1297,28 +1297,28 @@ fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extr
     .unwrap();
 
     let (base_source, base_text) =
-        rule_body_raw_text(&loaded.definition, &loaded.source_table, "TEST", text);
+        rule_body_raw_text(loaded.definition(), loaded.source_table(), "TEST", text);
     let (spec_source, spec_text) =
-        rule_body_raw_text(&loaded.definition, &loaded.source_table, "SPEC", text);
+        rule_body_raw_text(loaded.definition(), loaded.source_table(), "SPEC", text);
     assert_eq!(base_text, "b => a");
     assert_eq!(spec_text, "a => b");
     assert_ne!(base_source, spec_source);
     assert_eq!(
-        loaded.source_table.get(base_source),
-        loaded.source_table.get(spec_source)
+        loaded.source_table().get(base_source),
+        loaded.source_table().get(spec_source)
     );
     assert_eq!(
-        loaded.source_table.offset_map(base_source),
-        base.source_table.offset_map(base_source)
+        loaded.source_table().offset_map(base_source),
+        base.source_table().offset_map(base_source)
     );
 
     // The serialized form distinguishes the two extractions of one logical source.
     let encoded =
-        k_rust::definition::json::to_provenance_string(&loaded.definition, &loaded.source_table)
+        k_rust::definition::json::to_provenance_string(loaded.definition(), loaded.source_table())
             .unwrap();
     let decoded = k_rust::definition::json::from_provenance_str(&encoded).unwrap();
-    assert_eq!(decoded.source_table, loaded.source_table);
-    assert_eq!(decoded.definition, loaded.definition);
+    assert_eq!(&decoded.source_table, loaded.source_table());
+    assert_eq!(&decoded.definition, loaded.definition());
     assert_eq!(
         rule_body_raw_text(&decoded.definition, &decoded.source_table, "SPEC", text),
         (spec_source, "a => b")

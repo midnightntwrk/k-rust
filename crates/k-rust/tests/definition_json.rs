@@ -617,11 +617,11 @@ fn loaded_context_alias_preserves_later_rule_term_metadata() {
         },
     )
     .unwrap();
-    let encoded = json::to_provenance_string(&loaded.definition, &loaded.source_table).unwrap();
+    let encoded = json::to_provenance_string(loaded.definition(), loaded.source_table()).unwrap();
     let decoded = json::from_provenance_str(&encoded).unwrap();
-    assert_eq!(decoded.definition, loaded.definition);
-    assert_eq!(decoded.source_table, loaded.source_table);
-    let expected = &loaded.definition.main_module().unwrap().local_sentences;
+    assert_eq!(&decoded.definition, loaded.definition());
+    assert_eq!(&decoded.source_table, loaded.source_table());
+    let expected = &loaded.definition().main_module().unwrap().local_sentences;
     let actual = &decoded.definition.main_module().unwrap().local_sentences;
     let alias_index = expected
         .iter()

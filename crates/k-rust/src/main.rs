@@ -1867,38 +1867,37 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             .as_deref()
             .unwrap_or(&options.common.module)
     });
-    let (mut loaded, syntax_module, load_timings) =
-        if let Some(prepared) = &options.compiled_definition {
-            let (loaded, load_timings) = load_definition_against_prepared(
-                &options.common,
-                configuration_module.expect("--compiled-definition requires --for-proving"),
-                prepared,
-                options.bison_lists,
-            )?;
-            let syntax = resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
-            (loaded, syntax, load_timings)
-        } else {
-            let (loaded, syntax, load_timings) = load_definition_impl(
-                &options.common,
-                Some(options.backend),
-                configuration_module,
-                Some(options.syntax_module.as_deref()),
-                options.bison_lists,
-            )?;
-            (
-                loaded,
-                SyntaxModule {
-                    name: syntax.expect("fresh compilation selects syntax"),
-                    fallback_warning: None,
-                },
-                load_timings,
-            )
-        };
+    let (mut loaded, syntax_module, load_timings) = if let Some(prepared) =
+        &options.compiled_definition
+    {
+        let (loaded, load_timings) = load_definition_against_prepared(
+            &options.common,
+            configuration_module.expect("--compiled-definition requires --for-proving"),
+            prepared,
+            options.bison_lists,
+        )?;
+        let syntax = resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
+        (loaded, syntax, load_timings)
+    } else {
+        let (loaded, syntax, load_timings) = load_definition_impl(
+            &options.common,
+            Some(options.backend),
+            configuration_module,
+            Some(options.syntax_module.as_deref()),
+            options.bison_lists,
+        )?;
+        (
+            loaded,
+            SyntaxModule {
+                name: syntax.expect("fresh compilation selects syntax"),
+                fallback_warning: None,
+            },
+            load_timings,
+        )
+    };
     let builtin_source_prefixes = options.common.builtin_source_prefixes();
     if let Some(warning) = syntax_module.fallback_warning {
-        loaded
-            .diagnostics
-            .extend(options.common.diagnostics.apply(vec![warning]));
+        loaded.extend_diagnostics(options.common.diagnostics.apply(vec![warning]));
     }
     let (artifacts, compile_timings) = match compile_loaded_definition_timed(
         &loaded,
@@ -1942,7 +1941,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     {
         write_timings.time(emission_phase::GENERATE_BISON_PARSER, || {
             k_rust::bison::generate_program_parser(
-                &loaded.resolved,
+                loaded.resolved(),
                 &syntax_module.name,
                 start_sort,
                 &options.output_directory,
@@ -1965,7 +1964,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             } else {
                 // Fresh compilation already selected its modules before parsing. Keep that exact
                 // graph, including any distinct configuration root, in the parsed artifact.
-                let mut definition = loaded.definition.clone();
+                let mut definition = loaded.definition().clone();
                 definition.attributes.set(
                     AttributeKey::SyntaxModule,
                     serde_json::Value::String(syntax_module.name.clone()),
@@ -1983,7 +1982,7 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             if options.for_proving {
                 fs::write(
                     options.output_directory.join(PREPARED_DEFINITION),
-                    definition_json::to_provenance_string(&definition, &loaded.source_table)?,
+                    definition_json::to_provenance_string(&definition, loaded.source_table())?,
                 )?;
             }
         }
@@ -1994,12 +1993,12 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             } else {
                 (Vec::new(), Vec::new())
             };
-            sources.extend(loaded.files.iter().map(|file| file.source.clone()));
+            sources.extend(loaded.files().iter().map(|file| file.source.clone()));
             sources.sort();
             sources.dedup();
             modules.extend(prepared_module_declarations(
-                &loaded.files,
-                &loaded.definition,
+                loaded.files(),
+                loaded.definition(),
             ));
             modules.sort();
             modules.dedup();
@@ -2035,8 +2034,8 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 &options.output_directory,
                 &options.common.module,
                 &syntax_module.name,
-                &loaded.definition,
-                &loaded.source_table,
+                loaded.definition(),
+                loaded.source_table(),
                 &artifacts.execution_definition,
                 &artifacts.configuration_variables,
                 &artifacts.execution_rewrite_order,
@@ -2058,7 +2057,7 @@ fn parsed_definition_for_json(
     // Match DefinitionParsing.parseDefinitionAndResolveBubbles: retain the semantic and syntax
     // import closures, the frontend's always-present utility modules, and entry modules whose
     // visible sentences contained no bubbles before backend-tag filtering.
-    let main = loaded.resolved.main_module();
+    let main = loaded.resolved().main_module();
 
     let mut seeds = BTreeSet::from([
         main.name.clone(),
@@ -2069,7 +2068,7 @@ fn parsed_definition_for_json(
         WellKnownModule::Map.as_str().into(),
     ]);
     let source_modules = loaded
-        .files
+        .files()
         .iter()
         .flat_map(|file| &file.modules)
         .collect::<Vec<_>>();
@@ -2107,19 +2106,19 @@ fn parsed_definition_for_json(
 
     let mut retained = BTreeSet::new();
     for seed in seeds {
-        let Some(module) = loaded.resolved.module_id(&seed) else {
+        let Some(module) = loaded.resolved().module_id(&seed) else {
             continue;
         };
-        retained.insert(loaded.resolved.module(module).name.clone());
+        retained.insert(loaded.resolved().module(module).name.clone());
         retained.extend(
             loaded
-                .resolved
+                .resolved()
                 .transitive_imports(module)
                 .into_iter()
-                .map(|import| loaded.resolved.module(import).name.clone()),
+                .map(|import| loaded.resolved().module(import).name.clone()),
         );
     }
-    let mut definition = loaded.definition.clone();
+    let mut definition = loaded.definition().clone();
     definition
         .modules
         .retain(|module| retained.contains(&module.name));
@@ -2132,12 +2131,12 @@ fn parsed_definition_for_json(
 
 fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
     let loaded = load_definition(&options.common, Some(options.backend), None)?;
-    let mut diagnostics = loaded.diagnostics.clone();
+    let mut diagnostics = loaded.diagnostics().to_vec();
     diagnostics.extend(
         options
             .common
             .diagnostics
-            .apply(check_definition(&loaded.resolved)?),
+            .apply(check_definition(loaded.resolved())?),
     );
     emit_diagnostics(&diagnostics);
     if diagnostics
@@ -2160,7 +2159,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
             .ok_or("--gen-parser and --gen-glr-parser require an output path")?;
         let sort = parse_sort(options.sort.as_deref().expect("clap requires --sort"))?;
         return k_rust::bison::generate_parser(
-            &loaded.resolved,
+            loaded.resolved(),
             &options.common.module,
             &sort,
             output,
@@ -2172,7 +2171,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
         )
         .map_err(Into::into);
     }
-    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.common.module)?;
+    let parser = ProgramParser::from_resolved(loaded.resolved(), &options.common.module)?;
     if !options.batch_cases.is_empty() || !options.batch_reject_cases.is_empty() {
         if options.output != OutputFormat::Json {
             return Err("KAST batch mode requires --output json".into());
@@ -2319,11 +2318,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         let (mut loaded, _, load_timings) =
             load_definition_impl(common, Some(CompilationBackend::Rust), None, None, false)?;
         let syntax_module =
-            resolve_syntax_module(&loaded.resolved, options.syntax_module.as_deref())?;
+            resolve_syntax_module(loaded.resolved(), options.syntax_module.as_deref())?;
         if let Some(warning) = syntax_module.fallback_warning {
-            loaded
-                .diagnostics
-                .extend(common.diagnostics.apply(vec![warning]));
+            loaded.extend_diagnostics(common.diagnostics.apply(vec![warning]));
         }
         let builtin_source_prefixes = common.builtin_source_prefixes();
         let (artifacts, compile_timings) = match compile_loaded_definition_timed(
@@ -2345,7 +2342,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         KrunCompiledInput {
             main_module: common.module.clone(),
             syntax_module: syntax_module.name,
-            frontend_definition: loaded.definition,
+            frontend_definition: loaded.into_definition(),
             execution_definition: KrunExecutionDefinition::Built(artifacts.execution_definition),
             configuration_variables: artifacts.configuration_variables,
             execution_rewrite_order: artifacts.execution_rewrite_order,

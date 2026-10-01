@@ -150,7 +150,7 @@ fn rule_like_labels(definition: &Definition) -> Vec<(String, Label)> {
 fn source_loaded_rule_like_sentences_carry_no_label_parameter() {
     for backend in BACKENDS {
         let loaded = load_source(backend);
-        let labels = rule_like_labels(&loaded.definition);
+        let labels = rule_like_labels(loaded.definition());
         for name in ["wrap", "ite", "#Equals"] {
             assert!(
                 labels
@@ -225,7 +225,7 @@ fn every_rule_like_sentence_kind_loads_parametric_applications_without_parameter
     )
     .unwrap_or_else(|error| panic!("the kinds definition loads: {error}"))
     .0;
-    let mut definition = loaded.definition.clone();
+    let mut definition = loaded.definition().clone();
     let module = definition
         .modules
         .iter_mut()
@@ -257,7 +257,7 @@ fn every_rule_like_sentence_kind_loads_parametric_applications_without_parameter
     );
 
     let parsed = parse_rule_content(
-        &loaded.resolved,
+        loaded.resolved(),
         "KINDS",
         "f(X:Nat) => wrap(X)",
         Attributes::default(),
@@ -387,12 +387,12 @@ fn structured_parameters_the_parser_used_to_write_are_rejected() {
         let source = load_source(backend);
         let expected = compile(&source, backend);
         let round_trip = compile(
-            &load_structured_for(source.definition.clone(), backend),
+            &load_structured_for(source.definition().clone(), backend),
             backend,
         );
         assert!(round_trip == expected, "{backend}: structured round trip");
 
-        let mut structured = source.definition.clone();
+        let mut structured = source.definition().clone();
         let mut written = 0usize;
         for module in structured
             .modules
@@ -573,21 +573,22 @@ mod native {
             ("phantom", "size", &["Nat"][..], "Nat"),
         ] {
             let (edited, sentence) =
-                with_written_parameters(&source.definition, rule, name, parameters);
+                with_written_parameters(source.definition(), rule, name, parameters);
 
             assert_structured_load_rejects(edited.clone(), backend, "REJECT", name, &[rendered]);
 
             let hand_built = LoadedDefinition {
-                files: source.files.clone(),
-                source_table: source.source_table.clone(),
+                files: source.files().to_vec(),
+                source_table: source.source_table().clone(),
                 resolved: ResolvedDefinition::resolve(&edited).unwrap(),
                 definition: edited,
-                diagnostics: source.diagnostics.clone(),
+                diagnostics: source.diagnostics().to_vec(),
             };
             let error = try_compile(&hand_built, backend).expect_err(rule);
             assert_rejects_label_parameters(&error, name, rendered);
 
-            let error = sentence_typing(&hand_built.resolved, "REJECT", &sentence).expect_err(rule);
+            let error =
+                sentence_typing(hand_built.resolved(), "REJECT", &sentence).expect_err(rule);
             let SentenceTypingError::Sort {
                 error: SortInjectionError::LabelParameters { label, parameters },
                 ..

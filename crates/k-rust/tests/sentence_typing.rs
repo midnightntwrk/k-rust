@@ -63,9 +63,9 @@ fn labelled<'a>(definition: &'a Definition, label: &str) -> &'a Sentence {
 
 fn typing(loaded: &LoadedDefinition, label: &str) -> SentenceTyping {
     sentence_typing(
-        &loaded.resolved,
+        loaded.resolved(),
         "TYPED",
-        labelled(&loaded.definition, label),
+        labelled(loaded.definition(), label),
     )
     .unwrap_or_else(|error| panic!("{label}: {error}"))
 }
@@ -119,7 +119,7 @@ fn term_at<'a>(sentence: &'a mut Sentence, path: &[u32]) -> &'a mut Term {
 }
 
 fn edited(loaded: &LoadedDefinition, label: &str, path: &[u32], replacement: Term) -> Sentence {
-    let mut sentence = labelled(&loaded.definition, label).clone();
+    let mut sentence = labelled(loaded.definition(), label).clone();
     *term_at(&mut sentence, path) = replacement;
     sentence
 }
@@ -166,7 +166,7 @@ fn rewrite_sides_require_their_least_upper_bound() {
             sort: Sort::new("Bool"),
         },
     );
-    let typing = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap();
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(
         typing.branches.get(&vec![0]),
@@ -236,7 +236,7 @@ fn an_undetermined_variable_reports_no_sort() {
             sort: None,
         },
     );
-    let typing = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap();
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(at(&typing, &[0, 0, 0]), &sorted(None, Some("Nat")));
     assert!(!typing.variables.contains_key("Q"));
@@ -254,7 +254,7 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
             sort: Sort::new("Bool"),
         },
     );
-    let error = sentence_typing(&loaded.resolved, "TYPED", &ill_sorted).unwrap_err();
+    let error = sentence_typing(loaded.resolved(), "TYPED", &ill_sorted).unwrap_err();
     assert!(
         matches!(&error, SentenceTypingError::Sort { error: SortInjectionError::IllSortedTerm(mismatch), .. }
             if mismatch.found == Sort::new("Bool") && mismatch.required == Sort::new("Nat")),
@@ -274,7 +274,7 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
             }],
         ),
     );
-    let error = sentence_typing(&loaded.resolved, "TYPED", &incomparable).unwrap_err();
+    let error = sentence_typing(loaded.resolved(), "TYPED", &incomparable).unwrap_err();
     assert!(
         matches!(
             &error,
@@ -307,7 +307,7 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
             )),
         },
     );
-    let error = sentence_typing(&loaded.resolved, "TYPED", &conflicting).unwrap_err();
+    let error = sentence_typing(loaded.resolved(), "TYPED", &conflicting).unwrap_err();
     assert!(
         matches!(error, SentenceTypingError::SemanticCasts(_)),
         "{error}"
@@ -345,7 +345,7 @@ fn relinked(
     label: &str,
     sentence: Sentence,
 ) -> LoadedDefinition {
-    let mut definition = loaded.definition.clone();
+    let mut definition = loaded.definition().clone();
     let module = definition
         .modules
         .iter_mut()
@@ -358,11 +358,11 @@ fn relinked(
         .unwrap();
     *k_rust::definition::sentence_mut(slot) = sentence;
     LoadedDefinition {
-        files: loaded.files.clone(),
-        source_table: loaded.source_table.clone(),
+        files: loaded.files().to_vec(),
+        source_table: loaded.source_table().clone(),
         resolved: k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap(),
         definition,
-        diagnostics: loaded.diagnostics.clone(),
+        diagnostics: loaded.diagnostics().to_vec(),
     }
 }
 
@@ -475,7 +475,7 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
             as_pattern(Term::apply("z", vec![]), var("_B2", Some("Bool"))),
         ),
     );
-    let error = sentence_typing(&loaded.resolved, "TYPED", &ill_sorted).unwrap_err();
+    let error = sentence_typing(loaded.resolved(), "TYPED", &ill_sorted).unwrap_err();
     assert!(
         matches!(&error, SentenceTypingError::Sort { error: SortInjectionError::IllSortedTerm(mismatch), .. }
             if mismatch.found == Sort::new("Nat") && mismatch.required == Sort::new("Bool")),
@@ -485,10 +485,10 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
     assert!(compiled.is_err());
 
     // `#SemanticCastToKItem(counter(..) #as _C:Counter)` as the left side: both sides at KItem.
-    let mut sentence = labelled(&loaded.definition, "TYPED.increment").clone();
+    let mut sentence = labelled(loaded.definition(), "TYPED.increment").clone();
     let left = term_at(&mut sentence, &[0, 0]).clone();
     *term_at(&mut sentence, &[0, 0]) = cast("KItem", as_pattern(left, var("_C", Some("Counter"))));
-    let typing = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap();
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
     assert_eq!(
         at(&typing, &[0, 0, 0]),
         &sorted(Some("KItem"), Some("KItem"))
@@ -518,7 +518,7 @@ fn a_cast_as_pattern_places_both_sides_at_the_cast_sort() {
 #[test]
 fn a_nested_rewrite_is_typed_in_each_branch() {
     let loaded = load();
-    let mut sentence = labelled(&loaded.definition, "TYPED.increment").clone();
+    let mut sentence = labelled(loaded.definition(), "TYPED.increment").clone();
     *term_at(&mut sentence, &[0]) = Term::apply(
         "id",
         vec![rewrite(
@@ -529,7 +529,7 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
             },
         )],
     );
-    let typing = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap();
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(
         typing.branches.get(&vec![0]),
@@ -569,7 +569,7 @@ fn a_rewrite_nested_in_a_left_side_is_typed_as_a_rewrite() {
         &[0],
         Term::apply("s", vec![rewrite(rewrite(z(), truth), z())]),
     );
-    let error = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap_err();
+    let error = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap_err();
     assert!(matches!(error, SentenceTypingError::Sort { .. }), "{error}");
     let compiled = compiled_kore(&relinked(&loaded, "TYPED", "TYPED.increment", sentence));
     assert!(compiled.is_err());
@@ -592,7 +592,7 @@ fn sortless_rewrite_sides_take_the_position_requirement() {
             ],
         ),
     );
-    let typing = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap();
+    let typing = sentence_typing(loaded.resolved(), "TYPED", &sentence).unwrap();
 
     assert_eq!(at(&typing, &[0, 0, 0]), &sorted(None, Some("Nat")));
     assert_eq!(at(&typing, &[0, 0, 1]), &sorted(None, Some("Nat")));
@@ -603,7 +603,7 @@ fn sortless_rewrite_sides_take_the_position_requirement() {
 #[test]
 fn both_entry_points_agree() {
     let loaded = load();
-    let typer = SentenceTyper::new(&loaded.resolved, "TYPED").unwrap();
+    let typer = SentenceTyper::new(loaded.resolved(), "TYPED").unwrap();
     let sibling = edited(
         &loaded,
         "TYPED.increment",
@@ -614,7 +614,7 @@ fn both_entry_points_agree() {
         },
     );
     for sentence in loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|module| module.name == "TYPED")
@@ -627,7 +627,7 @@ fn both_entry_points_agree() {
     {
         assert_eq!(
             typer.typing(&sentence),
-            sentence_typing(&loaded.resolved, "TYPED", &sentence)
+            sentence_typing(loaded.resolved(), "TYPED", &sentence)
         );
     }
 }
@@ -647,10 +647,10 @@ fn kore_sort(sort: &Sort) -> Option<String> {
 /// not a placement, and is skipped.
 fn assert_view_injections_are_emitted(loaded: &LoadedDefinition, module: &str) -> usize {
     let kore = compiled_kore(loaded).unwrap_or_else(|error| panic!("{error}"));
-    let typer = SentenceTyper::new(&loaded.resolved, module).unwrap();
+    let typer = SentenceTyper::new(loaded.resolved(), module).unwrap();
     let mut checked = 0;
     let sentences = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .find(|candidate| candidate.name == module)
@@ -733,12 +733,12 @@ fn the_views_placements_are_the_emitted_injections() {
 /// keeps a sentence the compiler accepts.
 fn assert_view_agrees_with_compilation(loaded: &LoadedDefinition) -> usize {
     let mut checked = 0;
-    for module in &loaded.definition.modules {
+    for module in &loaded.definition().modules {
         for sentence in &module.local_sentences {
             if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
                 continue;
             }
-            let typing = sentence_typing(&loaded.resolved, &module.name, sentence)
+            let typing = sentence_typing(loaded.resolved(), &module.name, sentence)
                 .unwrap_or_else(|error| panic!("{}: {error}\n{sentence:?}", module.name));
             checked += typing.positions.len();
         }

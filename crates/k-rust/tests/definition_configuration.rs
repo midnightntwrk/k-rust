@@ -632,7 +632,7 @@ fn resolves_external_cells_against_dependency_first_generated_initializers() {
     )
     .unwrap();
     let modules = loaded
-        .definition
+        .definition()
         .modules
         .iter()
         .map(|module| {

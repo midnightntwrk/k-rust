@@ -48,7 +48,7 @@ fn compiled(source: &str, main_module: &str) -> Compiled {
     )
     .expect("definition should compile");
     Compiled {
-        frontend: loaded.definition,
+        frontend: loaded.into_definition(),
         execution: artifacts.execution_definition,
         variables: artifacts.configuration_variables,
     }

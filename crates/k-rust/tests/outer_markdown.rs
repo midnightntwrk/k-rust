@@ -77,7 +77,7 @@ fn loaded_rule_spans_resolve_to_raw_markdown_bytes() {
     )
     .unwrap();
     let body = loaded
-        .definition
+        .definition()
         .main_module()
         .unwrap()
         .local_sentences
@@ -92,7 +92,7 @@ fn loaded_rule_spans_resolve_to_raw_markdown_bytes() {
         .and_then(|metadata| metadata.span)
         .expect("the parsed rule body should retain its semantic span");
     let raw_range = loaded
-        .source_table
+        .source_table()
         .raw_range(span)
         .expect("the semantic span should resolve against raw Markdown");
     let extracted = extract_fenced_k_code(source, "k").unwrap();
@@ -251,7 +251,7 @@ fn loader_processes_markdown_requires_with_the_selected_tags() {
     )
     .unwrap();
 
-    assert!(loaded.resolved.module_id("MAIN").is_some());
-    assert!(loaded.resolved.module_id("BASE").is_some());
-    assert!(loaded.resolved.module_id("WRONG").is_none());
+    assert!(loaded.resolved().module_id("MAIN").is_some());
+    assert!(loaded.resolved().module_id("BASE").is_some());
+    assert!(loaded.resolved().module_id("WRONG").is_none());
 }

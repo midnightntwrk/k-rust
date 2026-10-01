@@ -5121,7 +5121,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("TEST loads: {error}"));
         let previous = INFERENCE_PROBLEMS.with(|problems| problems.replace(Some(Vec::new())));
         let parsed = crate::inner::rules::parse_rule_content(
-            &loaded.resolved,
+            loaded.resolved(),
             "TEST",
             "foo(_X) => #Exists Y . { ?_I #Equals Y }",
             crate::definition::Attributes::default(),

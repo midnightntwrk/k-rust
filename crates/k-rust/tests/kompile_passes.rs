@@ -58,7 +58,7 @@ fn parsed(source: &str) -> k_rust::definition::Definition {
         &mut resolver,
     )
     .unwrap()
-    .definition
+    .into_definition()
 }
 
 #[cfg(feature = "z3-inference")]
@@ -6797,7 +6797,7 @@ fn unchanged_rules_keep_their_own_origins_after_context_alias_removal() {
     .unwrap();
     let source_id = SourceId(
         loaded
-            .source_table
+            .source_table()
             .iter()
             .position(|candidate| candidate.logical == "main.k")
             .expect("the input source is registered"),
@@ -6895,7 +6895,7 @@ fn main_address(
     loaded: &k_rust::outer::LoadedDefinition,
     select: impl Fn(&Sentence) -> bool,
 ) -> InputAddress {
-    let main = loaded.definition.main_module().unwrap();
+    let main = loaded.definition().main_module().unwrap();
     let indices = main
         .local_sentences
         .iter()
@@ -7004,7 +7004,7 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
             for address in sentence.attributes().input_addresses() {
                 assert_eq!(address.input, InputSpace::Compile);
                 let input = loaded
-                    .definition
+                    .definition()
                     .modules
                     .iter()
                     .find(|candidate| candidate.name == address.module)
@@ -7060,7 +7060,7 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
 fn restored_compile_addresses_are_restamped_for_the_definition_being_compiled() {
     let source = "module MAIN\n  imports INT\n  syntax Exp ::= Int | a() | b()\n  rule a() => 1\n  rule b() => 2\nendmodule\n";
     let loaded = load_main_with_prelude(source);
-    let mut definition = with_compile_addresses(loaded.definition.clone());
+    let mut definition = with_compile_addresses(loaded.definition().clone());
     let main = definition
         .modules
         .iter_mut()
@@ -7075,19 +7075,19 @@ fn restored_compile_addresses_are_restamped_for_the_definition_being_compiled() 
     let (first, second) = (position(4), position(5));
     main.local_sentences.swap(first, second);
     let encoded =
-        k_rust::definition::json::to_provenance_string(&definition, &loaded.source_table).unwrap();
+        k_rust::definition::json::to_provenance_string(&definition, loaded.source_table()).unwrap();
     let restored = k_rust::definition::json::from_provenance_str(&encoded).unwrap();
     let resolved = ResolvedDefinition::resolve(&restored.definition).unwrap();
     let relinked = k_rust::outer::LoadedDefinition {
-        files: loaded.files.clone(),
+        files: loaded.files().to_vec(),
         source_table: restored.source_table,
         definition: restored.definition,
         resolved,
-        diagnostics: loaded.diagnostics.clone(),
+        diagnostics: loaded.diagnostics().to_vec(),
     };
     let stale = |line| {
         relinked
-            .definition
+            .definition()
             .main_module()
             .unwrap()
             .local_sentences

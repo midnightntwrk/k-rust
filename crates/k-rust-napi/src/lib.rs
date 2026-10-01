@@ -366,9 +366,9 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
     )
     .map_err(napi_error)?;
 
-    let mut diagnostics = loaded.diagnostics.clone();
+    let mut diagnostics = loaded.diagnostics().to_vec();
     diagnostics.extend(
-        DiagnosticPolicy::default().apply(check_definition(&loaded.resolved).map_err(napi_error)?),
+        DiagnosticPolicy::default().apply(check_definition(loaded.resolved()).map_err(napi_error)?),
     );
     if diagnostics
         .iter()
@@ -378,8 +378,8 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
     }
 
     let sort = parse_sort(&options.sort).map_err(napi_error)?;
-    let parser =
-        ProgramParser::from_resolved(&loaded.resolved, &options.module_name).map_err(napi_error)?;
+    let parser = ProgramParser::from_resolved(loaded.resolved(), &options.module_name)
+        .map_err(napi_error)?;
     let program = parser
         .parse_for_presentation(&sort, &options.program)
         .map_err(napi_error)?;

@@ -933,7 +933,7 @@ fn structured_json_internal_keys_remain_accepted() {
     let decoded = definition_json::from_str(&encoded).unwrap();
     let loaded = load_structured(decoded, &LoadOptions::default()).unwrap();
     assert!(
-        loaded.definition.modules[0]
+        loaded.definition().modules[0]
             .local_sentences
             .iter()
             .any(|sentence| sentence.attributes().get("userList").is_some())

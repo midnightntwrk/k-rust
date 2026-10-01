@@ -188,7 +188,7 @@ fn replacement_loaded(mut loaded: LoadedDefinition, right: Term) -> LoadedDefini
         )),
         right: Box::new(right),
     };
-    loaded.resolved = ResolvedDefinition::resolve(&loaded.definition).unwrap();
+    loaded.resolved = ResolvedDefinition::resolve(loaded.definition()).unwrap();
     loaded
 }
 
@@ -243,7 +243,7 @@ fn loaded_token_terms_require_a_domain_sort() {
         }
 
         let main = original
-            .definition
+            .definition()
             .modules
             .iter()
             .find(|module| module.name == "MAIN")

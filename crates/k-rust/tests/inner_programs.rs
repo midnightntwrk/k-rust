@@ -1025,7 +1025,7 @@ fn reference_named_field_projections_parse_in_programs() {
     )
     .expect("the definition loads with the prelude");
     let parser =
-        ProgramParser::new(&loaded.definition, "TEST").expect("program grammar should build");
+        ProgramParser::new(loaded.definition(), "TEST").expect("program grammar should build");
     let foo = parser
         .parse(&Sort::new("KItem"), "foo(test(5, 10, 15))")
         .expect("the foo projection is program syntax");

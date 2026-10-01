@@ -379,10 +379,10 @@ fn parse_program(options: &str) -> Result<String, String> {
     )
     .map_err(display_error)?;
 
-    let mut diagnostics = loaded.diagnostics.clone();
+    let mut diagnostics = loaded.diagnostics().to_vec();
     diagnostics.extend(
         DiagnosticPolicy::default()
-            .apply(check_definition(&loaded.resolved).map_err(display_error)?),
+            .apply(check_definition(loaded.resolved()).map_err(display_error)?),
     );
     if diagnostics
         .iter()
@@ -392,7 +392,7 @@ fn parse_program(options: &str) -> Result<String, String> {
     }
 
     let sort = parse_sort(&options.sort).map_err(display_error)?;
-    let parser = ProgramParser::from_resolved(&loaded.resolved, &options.module_name)
+    let parser = ProgramParser::from_resolved(loaded.resolved(), &options.module_name)
         .map_err(display_error)?;
     let program = parser
         .parse_for_presentation(&sort, &options.program)
@@ -742,7 +742,7 @@ endmodule"#,
 
         assert_eq!(
             loaded
-                .definition
+                .definition()
                 .modules
                 .iter()
                 .filter(|module| module.name == "SHARED")
@@ -750,7 +750,7 @@ endmodule"#,
             1
         );
         let siblings = loaded
-            .definition
+            .definition()
             .modules
             .iter()
             .filter(|module| module.name == "SIBLING")
@@ -762,7 +762,7 @@ endmodule"#,
         );
         assert_eq!(
             loaded
-                .files
+                .files()
                 .iter()
                 .map(|file| file.source.as_str())
                 .collect::<Vec<_>>(),

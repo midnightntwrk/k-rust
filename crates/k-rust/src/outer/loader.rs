@@ -298,6 +298,43 @@ pub struct LoadedDefinition {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl LoadedDefinition {
+    /// The parsed files in dependency-first `requires` order.
+    pub fn files(&self) -> &[SourceFile] {
+        &self.files
+    }
+
+    /// The source table for the loaded definition.
+    pub fn source_table(&self) -> &SourceTable {
+        &self.source_table
+    }
+
+    /// The definition compilation is defined on.
+    pub fn definition(&self) -> &Definition {
+        &self.definition
+    }
+
+    /// The resolution of the loaded definition.
+    pub fn resolved(&self) -> &ResolvedDefinition {
+        &self.resolved
+    }
+
+    /// The load-time diagnostics retained by the diagnostic policy.
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    /// Append load-time diagnostics; they do not bear on the definition's stage.
+    pub fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
+        self.diagnostics.extend(diagnostics)
+    }
+
+    /// Consume the loaded definition and return its definition.
+    pub fn into_definition(self) -> Definition {
+        self.definition
+    }
+}
+
 /// Identity of one authored module retained in a prepared definition.
 ///
 /// The source basename and outer location preserve K's declaration identity, while the digest is

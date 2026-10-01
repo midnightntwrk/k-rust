@@ -112,13 +112,13 @@ fn unsupported_existential_claim_names_its_structured_input_sentence() {
         vec![InputAddress::new(InputSpace::Structured, "MAIN", index)]
     );
 
-    let resolved = ResolvedDefinition::resolve(&loaded.definition).unwrap();
+    let resolved = ResolvedDefinition::resolve(loaded.definition()).unwrap();
     let compile_loaded = LoadedDefinition {
-        files: loaded.files.clone(),
-        source_table: loaded.source_table.clone(),
-        definition: loaded.definition.clone(),
+        files: loaded.files().to_vec(),
+        source_table: loaded.source_table().clone(),
+        definition: loaded.definition().clone(),
         resolved,
-        diagnostics: loaded.diagnostics.clone(),
+        diagnostics: loaded.diagnostics().to_vec(),
     };
     let error = compile_loaded_definition(
         &compile_loaded,
@@ -228,7 +228,7 @@ fn load_structured_compiles_an_authored_instrs_configuration() {
         )
         .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
 
-        assert!(loaded.definition.modules.iter().all(|module| {
+        assert!(loaded.definition().modules.iter().all(|module| {
             module.name != "DEFAULT-CONFIGURATION"
                 && module
                     .imports
@@ -412,7 +412,7 @@ fn rearranged_structured_input_is_addressed_in_the_compiled_definition() {
         },
     )
     .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
-    let mut rearranged = loaded.definition.clone();
+    let mut rearranged = loaded.definition().clone();
     let main = rearranged
         .modules
         .iter_mut()
@@ -440,11 +440,11 @@ fn rearranged_structured_input_is_addressed_in_the_compiled_definition() {
         .map(|index| InputAddress::new(InputSpace::Compile, "MAIN", u32::try_from(index).unwrap()));
     let resolved = ResolvedDefinition::resolve(&rearranged).unwrap();
     let relinked = LoadedDefinition {
-        files: loaded.files.clone(),
-        source_table: loaded.source_table.clone(),
+        files: loaded.files().to_vec(),
+        source_table: loaded.source_table().clone(),
         definition: rearranged,
         resolved,
-        diagnostics: loaded.diagnostics.clone(),
+        diagnostics: loaded.diagnostics().to_vec(),
     };
     let artifacts = compile_loaded_definition(&relinked, CompileOptions::default())
         .unwrap_or_else(|error| panic!("relinked compilation failed: {error:#?}"));
@@ -1380,7 +1380,7 @@ fn assert_labelled_bracket_is_syntax_only(loaded: &LoadedDefinition) {
         token: value.into(),
         sort: Sort::new("Int"),
     };
-    let parsed = k_rust::inner::ProgramParser::new(&loaded.definition, "MAIN")
+    let parsed = k_rust::inner::ProgramParser::new(loaded.definition(), "MAIN")
         .expect("program parser")
         .parse(&Sort::new("Exp"), "(1 + 2) * 3")
         .expect("the program parses");

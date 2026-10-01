@@ -82,11 +82,11 @@ fn fallback(definition: &mut Definition, body: Term) {
 
 fn relink(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
     LoadedDefinition {
-        files: base.files.clone(),
-        source_table: base.source_table.clone(),
+        files: base.files().to_vec(),
+        source_table: base.source_table().clone(),
         resolved: ResolvedDefinition::resolve(&definition).unwrap(),
         definition,
-        diagnostics: base.diagnostics.clone(),
+        diagnostics: base.diagnostics().to_vec(),
     }
 }
 
@@ -160,7 +160,7 @@ fn conflicting_variable_casts_fail_on_relink_and_structured_paths() {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
         let base = load(backend);
         for (name, body, expected) in &cases {
-            let mut definition = base.definition.clone();
+            let mut definition = base.definition().clone();
             fallback(&mut definition, body.clone());
             let sentence = labelled(&mut definition, "COUNTER.fallback").clone();
             for (path, loaded) in [
@@ -187,7 +187,7 @@ fn conflicting_variable_casts_fail_on_relink_and_structured_paths() {
 fn sortless_variable_at_different_position_sorts_reports_both_causes() {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
         let base = load(backend);
-        let mut definition = base.definition.clone();
+        let mut definition = base.definition().clone();
         fallback(
             &mut definition,
             rewrite(
@@ -228,7 +228,7 @@ fn consistent_annotations_and_bare_occurrences_compile() {
         let base = load(backend);
         compile(&base, backend).unwrap();
         for sort in [None, Some("Nat")] {
-            let mut definition = base.definition.clone();
+            let mut definition = base.definition().clone();
             fallback(
                 &mut definition,
                 rewrite(
@@ -243,7 +243,7 @@ fn consistent_annotations_and_bare_occurrences_compile() {
             compile(&relink(&base, definition), backend).unwrap();
             compile(&structured(backend, sentence), backend).unwrap();
         }
-        let mut definition = base.definition.clone();
+        let mut definition = base.definition().clone();
         fallback(
             &mut definition,
             rewrite(
@@ -281,7 +281,7 @@ fn standalone_resolution_treats_anonymous_occurrences_independently() {
         },
         attributes: Default::default(),
     };
-    resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence).unwrap();
+    resolve_semantic_casts_in_sentence(&subsorts(base.resolved(), "COUNTER"), sentence).unwrap();
 }
 
 #[test]
@@ -296,7 +296,7 @@ fn standalone_resolution_checks_body_and_conditions_together() {
         },
         attributes: Default::default(),
     };
-    let error = resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence)
+    let error = resolve_semantic_casts_in_sentence(&subsorts(base.resolved(), "COUNTER"), sentence)
         .unwrap_err();
     assert!(
         error
@@ -411,7 +411,8 @@ fn exists_binder_uses_the_bound_occurrences_narrower_sort() {
         attributes: Default::default(),
     };
     let resolved =
-        resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence).unwrap();
+        resolve_semantic_casts_in_sentence(&subsorts(base.resolved(), "COUNTER"), sentence)
+            .unwrap();
     let Sentence::Rule { body, .. } = resolved else {
         unreachable!()
     };
