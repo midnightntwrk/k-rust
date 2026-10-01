@@ -41,9 +41,11 @@ use std::{collections::BTreeSet, error::Error, fmt};
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::measure::{self, Algorithm};
 
+mod consequent;
 mod destination;
 mod evidence;
 
+use consequent::{ConsequentMatch, ConsequentObligations};
 use destination::Destination;
 pub(crate) use evidence::Instance;
 pub use evidence::{Counterexample, ObligationRefuted};
@@ -56,8 +58,8 @@ use crate::{
     fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
     matching::{
-        FailReason, MatchMode, MatchResult, SortError, expand_closed_map_implication_remainders,
-        is_collection_term, match_terms_in_definition, solve_collection_pairs_in_definition,
+        FailReason, MatchMode, MatchResult, SortError, is_collection_term,
+        match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::Predicate,
@@ -1056,13 +1058,8 @@ fn establish_disjunction(
                 MatchResult::Success(substitution) => (substitution, Vec::new()),
             };
             matched = true;
-            let obligations = implication_obligation_branches(
-                definition,
-                destination,
-                &substitution,
-                remainder,
-                &knowledge,
-            );
+            let obligations = ConsequentMatch::new(substitution, destination.existentials())
+                .obligation_branches(definition, destination, remainder, &knowledge);
             // A stop propagates before either fallback below sees the result: an obligation that
             // could not be prepared leaves the round open, but a stop is no answer to leave open.
             let obligations = match eliminate_and_quantify_obligation_branches(
@@ -1725,19 +1722,11 @@ fn discharge_consequent(
     } else {
         Origin::MatchRemainder
     };
-    let mut obligations = implication_obligation_branches(
-        definition,
-        destination,
-        &substitution,
-        remainder,
-        &knowledge,
-    );
+    let consequent_match = ConsequentMatch::new(substitution, destination.existentials());
+    let mut obligations =
+        consequent_match.obligation_branches(definition, destination, remainder, &knowledge);
     for branch in &mut obligations {
-        for predicate in &solved_constraints {
-            if !branch.contains(predicate) && !knowledge.contains(predicate) {
-                branch.push(predicate.clone());
-            }
-        }
+        branch.add_solved(&solved_constraints, &knowledge);
     }
     // A stop propagates before either fallback below sees the result: obligations that could
     // not be prepared establish nothing, but a stop is no answer to establish nothing from.
@@ -1755,7 +1744,7 @@ fn discharge_consequent(
         Err(_) => return Ok(Established::Unprepared),
     };
     let bindings = Bindings {
-        substitution,
+        substitution: consequent_match.into_reported(),
         witnesses: obligations.witnesses,
     };
     if obligations.predicates.is_empty() {
@@ -1888,7 +1877,7 @@ fn quantify_obligations(
 
 fn eliminate_and_quantify_obligation_branches(
     definition: &BackendDefinition,
-    branches: Vec<Vec<Predicate>>,
+    branches: Vec<ConsequentObligations>,
     existentials: &BTreeSet<Variable>,
     known: &[Predicate],
     options: SimplificationOptions,
@@ -1898,7 +1887,7 @@ fn eliminate_and_quantify_obligation_branches(
     for branch in branches {
         let mut obligations = eliminate_existential_witnesses(
             definition,
-            branch,
+            branch.into_predicates(),
             existentials,
             known,
             options,
@@ -2083,75 +2072,6 @@ fn solve_collection_remainder_pairs(
 
 fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bool {
     is_collection_term(left) && is_collection_term(right)
-}
-
-fn implication_obligation_branches(
-    definition: &BackendDefinition,
-    destination: &Destination,
-    substitution: &Substitution,
-    remainder: Vec<(crate::term::Term, crate::term::Term)>,
-    known: &[Predicate],
-) -> Vec<Vec<Predicate>> {
-    let branches = expand_closed_map_implication_remainders(substitution, &remainder)
-        .unwrap_or_else(|| vec![remainder]);
-    branches
-        .into_iter()
-        .map(|remainder| {
-            implication_obligations(
-                definition,
-                destination.pattern(),
-                destination.existentials(),
-                substitution,
-                remainder,
-                known,
-            )
-        })
-        .collect()
-}
-
-fn implication_obligations(
-    definition: &BackendDefinition,
-    consequent: &Pattern,
-    existentials: &BTreeSet<Variable>,
-    substitution: &Substitution,
-    remainder: Vec<(crate::term::Term, crate::term::Term)>,
-    known: &[Predicate],
-) -> Vec<Predicate> {
-    let mut obligations = Vec::new();
-    // A universal consequent variable denotes the same value on both sides of the implication,
-    // so a binding the match produced for it is an equation the antecedent must entail, not a
-    // witness the consequent may choose.
-    for (variable, value) in substitution.iter() {
-        if existentials.contains(variable) {
-            continue;
-        }
-        let predicate =
-            Predicate::Equals(crate::term::Term::variable(variable.clone()), value.clone());
-        if !obligations.contains(&predicate) {
-            obligations.push(predicate);
-        }
-    }
-    for (left, right) in remainder {
-        let predicate = remainder_obligation(
-            &substitute(&left, substitution),
-            &substitute(&right, substitution),
-        );
-        if !obligations.contains(&predicate) {
-            obligations.push(predicate);
-        }
-    }
-    // The consequent's constraints under the match are a condition on the antecedent's instances
-    // (I1): an atom over a term undefined on some of them is `⊥` there, so its definedness is
-    // stated before the condition is simplified or decided, except where `known` holds it.
-    for predicate in instantiate_constraints(&consequent.constraints, substitution)
-        .with_definedness(definition, known)
-    {
-        if !obligations.contains(&predicate) {
-            obligations.push(predicate);
-        }
-    }
-    obligations.retain(|predicate| !known.contains(predicate));
-    obligations
 }
 
 fn remainder_obligation(left: &crate::term::Term, right: &crate::term::Term) -> Predicate {
@@ -2811,28 +2731,38 @@ mod tests {
         let else_branch = term(&definition, "Z:SortInt{}");
         let inner_else_branch = term(&definition, "W:SortInt{}");
         let consequent = pattern(&definition, "X:SortInt{}");
-
-        let obligations = implication_obligations(
+        let destination = unstopped(Destination::prepare(
             &definition,
             &consequent,
+            &consequent,
             &BTreeSet::new(),
-            &Substitution::new(),
-            vec![(
-                subject.clone(),
-                term(
-                    &definition,
-                    concat!(
-                        "ite{}(B:SortBool{}, ",
-                        "ite{}(C:SortBool{}, Y:SortInt{}, W:SortInt{}), ",
-                        "Z:SortInt{})",
+            SimplificationOptions::default(),
+            &NoSolver,
+        ))
+        .expect("the destination should be prepared");
+
+        let branches = ConsequentMatch::new(Substitution::new(), destination.existentials())
+            .obligation_branches(
+                &definition,
+                &destination,
+                vec![(
+                    subject.clone(),
+                    term(
+                        &definition,
+                        concat!(
+                            "ite{}(B:SortBool{}, ",
+                            "ite{}(C:SortBool{}, Y:SortInt{}, W:SortInt{}), ",
+                            "Z:SortInt{})",
+                        ),
                     ),
-                ),
-            )],
-            &[],
-        );
+                )],
+                &[],
+            );
+        let [obligations] = <[_; 1]>::try_from(branches)
+            .unwrap_or_else(|branches| panic!("one branch, found {}", branches.len()));
 
         assert_eq!(
-            obligations,
+            obligations.into_predicates(),
             [Predicate::Or(vec![
                 Predicate::And(vec![
                     Predicate::Term(outer_condition.clone()),
