@@ -100,13 +100,17 @@ pub(super) fn check_proof_module_with_views(
     diagnostics
 }
 
-/// `Kompile.checkIsSortPredicates` over the module set of the parsed definition.
+/// Reports every declared `syntax Bool ::= "isS" "(" ... ")"` production whose label is a sort
+/// predicate compilation generates, which would give `isS` two definitions.
 ///
-/// The reference runs the check on the definition that
-/// `DefinitionParsing.parseDefinitionAndResolveBubbles` trims (and, for `kprove`, on the module
-/// set `Kompile.parseModules` hands to `ProofDefinitionBuilder.build`), not on every loaded
-/// module: a prelude module such as `RANGEMAP` that nothing in the main closure imports, and
-/// whose own import closure carries rules, never contributes a generated `is<Sort>` name.
+/// Compilation generates `isS` for every sort `S` whose role has a sort predicate
+/// (`SortRole::has_sort_predicate`): `K`, `KItem`, `KConfigVar`, `Bool` and every defined sort,
+/// a parametric one per instance (`isMInt{8}`, never `isMInt`). A declared `isS` for any other
+/// sort (a numeral, a `#` sort, `KList`) is the definition's own function and conflicts with
+/// nothing. The modules checked, and whose sorts contribute generated names, are those of the
+/// parsed definition (`parsed_definition_modules`), not every loaded module: a prelude module
+/// such as `RANGEMAP` that nothing in the main closure imports, and whose own import closure
+/// carries rules, is outside that set and contributes no generated `isS`.
 pub fn check_is_sort_predicates(
     definition: &ResolvedDefinition,
     options: &StructuralCheckOptions,
