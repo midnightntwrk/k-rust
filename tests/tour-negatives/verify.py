@@ -87,6 +87,9 @@ def check_overlap(binary: Path) -> None:
     )
     if "error[krs::analysis::overlapping-rule-heads]" not in human.stderr:
         raise GateError("default overlap diagnostic lacks the human error title")
+    source_path = (HERE / "src/lib.rs").relative_to(ROOT)
+    if f"--> {source_path}:" not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the cwd-relative source path")
     source_line = next(
         line for line in (HERE / "src/lib.rs").read_text(encoding="utf-8").splitlines()
         if "second_foo:" in line

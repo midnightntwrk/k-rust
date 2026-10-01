@@ -1,7 +1,7 @@
 //! Human diagnostic rendering with verified authored source revisions.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet};
 use krs_diagnostic::{Diagnostic, Location, Severity};
@@ -93,6 +93,7 @@ impl DiagnosticSources {
     ) -> String {
         let mut group = Group::with_title(level.primary_title(message).id(code));
         if let Some(range) = range {
+            let path = self.display_path(range);
             group = match self.source(range) {
                 Ok(source) => {
                     let index = LineIndex::new(&source);
@@ -101,15 +102,18 @@ impl DiagnosticSources {
                     match (index.byte_to_position(start), index.byte_to_position(end)) {
                         (Ok(_), Ok(_)) if start <= end => group.element(
                             Snippet::source(source)
-                                .path(range.file.package_relative_path())
+                                .path(path)
                                 .annotation(AnnotationKind::Primary.span(start..end)),
                         ),
-                        _ => {
-                            unavailable_source(group, range, "authored range is outside the source")
-                        }
+                        _ => unavailable_source(
+                            group,
+                            range,
+                            &path,
+                            "authored range is outside the source",
+                        ),
                     }
                 }
-                Err(reason) => unavailable_source(group, range, reason),
+                Err(reason) => unavailable_source(group, range, &path, reason),
             };
         }
         for note in notes {
@@ -136,6 +140,18 @@ impl DiagnosticSources {
         renderer.render(&[group])
     }
 
+    fn display_path(&self, range: &SourceRange) -> String {
+        let relative = Path::new(range.file.package_relative_path());
+        let Some(root) = self.packages.get(range.file.package()) else {
+            return relative.to_string_lossy().into_owned();
+        };
+        let path = root.join(relative);
+        let cwd = std::env::current_dir().ok();
+        path_from_cwd(&path, cwd.as_deref())
+            .to_string_lossy()
+            .into_owned()
+    }
+
     fn source(&self, range: &SourceRange) -> Result<String, &'static str> {
         let root = self
             .packages
@@ -151,6 +167,11 @@ impl DiagnosticSources {
     }
 }
 
+fn path_from_cwd<'a>(path: &'a Path, cwd: Option<&Path>) -> &'a Path {
+    cwd.and_then(|cwd| path.strip_prefix(cwd).ok())
+        .unwrap_or(path)
+}
+
 fn diagnostic_level(severity: Severity) -> Level<'static> {
     match severity {
         Severity::Error => Level::ERROR,
@@ -158,13 +179,16 @@ fn diagnostic_level(severity: Severity) -> Level<'static> {
     }
 }
 
-fn unavailable_source<'a>(group: Group<'a>, range: &SourceRange, reason: &'a str) -> Group<'a> {
+fn unavailable_source<'a>(
+    group: Group<'a>,
+    range: &SourceRange,
+    path: &str,
+    reason: &'a str,
+) -> Group<'a> {
     group
         .element(Origin::path(format!(
             "{} bytes {}..{}",
-            range.file.package_relative_path(),
-            range.start_byte,
-            range.end_byte,
+            path, range.start_byte, range.end_byte,
         )))
         .element(Level::NOTE.message(reason))
 }
@@ -180,7 +204,12 @@ mod tests {
     const SOURCE: &str = "enum Term {\n    Foo,\n}\n";
 
     fn fixture() -> (tempfile::TempDir, DiagnosticSources, DiagnosticEnvelope) {
-        let root = tempfile::tempdir().unwrap();
+        fixture_at(tempfile::tempdir().unwrap())
+    }
+
+    fn fixture_at(
+        root: tempfile::TempDir,
+    ) -> (tempfile::TempDir, DiagnosticSources, DiagnosticEnvelope) {
         std::fs::create_dir(root.path().join("src")).unwrap();
         std::fs::write(root.path().join("src/lib.rs"), SOURCE).unwrap();
         let package = PackageId::new("fixture", "fixture", "0.1.0", "workspace").unwrap();
@@ -203,33 +232,84 @@ mod tests {
         (root, sources, envelope)
     }
 
+    fn render_fixture(
+        root: &tempfile::TempDir,
+        sources: &DiagnosticSources,
+        envelope: &DiagnosticEnvelope,
+    ) -> String {
+        let rendered = sources.render_envelope(envelope, false);
+        let path = root.path().join("src/lib.rs");
+        let cwd = std::env::current_dir().unwrap();
+        let displayed = path.strip_prefix(&cwd).unwrap_or(&path);
+        assert!(rendered.contains(&format!("--> {}", displayed.display())));
+        rendered.replace(&*displayed.to_string_lossy(), "<package>/src/lib.rs")
+    }
+
+    #[test]
+    fn source_under_cwd_uses_cwd_relative_path() {
+        let cwd = std::env::current_dir().unwrap();
+        let (root, sources, envelope) = fixture_at(tempfile::tempdir_in(&cwd).unwrap());
+        let path = root.path().join("src/lib.rs");
+        let relative = path.strip_prefix(&cwd).unwrap();
+        let rendered = sources.render_envelope(&envelope, false);
+        assert!(rendered.contains(&format!("--> {}:2:5", relative.display())));
+        assert!(!rendered.contains(&path.to_string_lossy().into_owned()));
+    }
+
+    #[test]
+    fn unavailable_source_under_cwd_uses_cwd_relative_path() {
+        let cwd = std::env::current_dir().unwrap();
+        let (root, sources, envelope) = fixture_at(tempfile::tempdir_in(&cwd).unwrap());
+        let path = root.path().join("src/lib.rs");
+        std::fs::remove_file(&path).unwrap();
+        let relative = path.strip_prefix(&cwd).unwrap();
+        let rendered = sources.render_envelope(&envelope, false);
+        assert!(rendered.contains(&format!("--> {} bytes 16..19", relative.display())));
+        assert!(rendered.contains("source file is unavailable"));
+    }
+
+    #[test]
+    fn unavailable_cwd_keeps_absolute_path() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("src/lib.rs");
+        assert_eq!(path_from_cwd(&path, None), path);
+    }
+
+    #[test]
+    fn source_outside_cwd_keeps_absolute_path() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("src/lib.rs");
+        let cwd = root.path().join("another-package");
+        assert_eq!(path_from_cwd(&path, Some(&cwd)), path);
+    }
+
     #[test]
     fn located_error_with_notes() {
-        let (_root, sources, mut envelope) = fixture();
+        let (root, sources, mut envelope) = fixture();
         envelope.notes = vec!["first rule: first".into(), "second rule: second".into()];
         expect![[r"
             error[krs::analysis::overlapping-rule-heads]: rule heads overlap
-             --> src/lib.rs:2:5
+             --> <package>/src/lib.rs:2:5
               |
             2 |     Foo,
               |     ^^^
               |
               = note: first rule: first
               = note: second rule: second"]]
-        .assert_eq(&sources.render_envelope(&envelope, false));
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
     }
 
     #[test]
     fn located_warning() {
-        let (_root, sources, mut envelope) = fixture();
+        let (root, sources, mut envelope) = fixture();
         envelope.severity = DiagnosticSeverity::Warning;
         expect![[r"
             warning[krs::analysis::overlapping-rule-heads]: rule heads overlap
-             --> src/lib.rs:2:5
+             --> <package>/src/lib.rs:2:5
               |
             2 |     Foo,
               |     ^^^"]]
-        .assert_eq(&sources.render_envelope(&envelope, false));
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
     }
 
     #[test]
@@ -246,14 +326,14 @@ mod tests {
         std::fs::write(root.path().join("src/lib.rs"), "enum Term { Bar }\n").unwrap();
         expect![[r"
             error[krs::analysis::overlapping-rule-heads]: rule heads overlap
-             --> src/lib.rs bytes 16..19
+             --> <package>/src/lib.rs bytes 16..19
               = note: source changed since the diagnostic was produced"]]
-        .assert_eq(&sources.render_envelope(&envelope, false));
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
     }
 
     #[test]
     fn generated_range_note() {
-        let (_root, sources, mut envelope) = fixture();
+        let (root, sources, mut envelope) = fixture();
         envelope.generated_range = Some(DiagnosticGeneratedRange {
             artifact: "definition.k".into(),
             start_line: 7,
@@ -263,13 +343,13 @@ mod tests {
         });
         expect![[r"
             error[krs::analysis::overlapping-rule-heads]: rule heads overlap
-             --> src/lib.rs:2:5
+             --> <package>/src/lib.rs:2:5
               |
             2 |     Foo,
               |     ^^^
               |
               = note: generated definition.k:7:2..8:12"]]
-        .assert_eq(&sources.render_envelope(&envelope, false));
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
     }
 
     #[test]

@@ -310,6 +310,28 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
             f"krs {command} reports an authored Rust diagnostic from the collector build" if broken_ok else compact(broken),
         )
 
+    human = run(
+        Invocation(binary, broken_manifest, PACKAGE, "main").argv("check"),
+        cwd=workspace,
+        environment={
+            "CARGO_TARGET_DIR": str(workspace / "broken-target"),
+            "CARGO_NET_OFFLINE": "true",
+            "CARGO_TERM_COLOR": "never",
+        },
+        check=False,
+    )
+    expected_path = broken_source.relative_to(workspace)
+    human_ok = (
+        human.returncode != 0
+        and "error[krs::rust-expansion::uncoded-error]" in human.stderr
+        and f"--> {expected_path}:" in human.stderr
+    )
+    results.add(
+        "collector_build_failure_human_path",
+        "PASS" if human_ok else "FAIL",
+        "human diagnostic uses the source path relative to the CLI cwd" if human_ok else compact(human),
+    )
+
     safe_manifest = materialize(workspace / "safe-language")
     unsafe_output = workspace / "unsafe-output"
     unsafe_output.mkdir()
