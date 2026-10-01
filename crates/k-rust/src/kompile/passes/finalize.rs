@@ -8,6 +8,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Final definition-wide transformations before KORE emission.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeSet, convert::Infallible};
 
@@ -106,7 +107,15 @@ pub(crate) fn add_cool_like_attributes_pass(
                 Sentence::Rule { body, .. }
                 | Sentence::Context { body, .. }
                 | Sentence::ContextAlias { body, .. } => body,
-                _ => continue,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             };
             if contains_cool_like(project_left(body), &productions) {
                 match sentence {
@@ -115,7 +124,15 @@ pub(crate) fn add_cool_like_attributes_pass(
                     | Sentence::ContextAlias { attributes, .. } => {
                         attributes.mark(AttributeKey::CoolLike);
                     }
-                    _ => unreachable!(),
+                    Sentence::SyntaxSort { .. }
+                    | Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::Production { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+                    | Sentence::Claim { .. }
+                    | Sentence::Configuration { .. }
+                    | Sentence::Bubble { .. } => unreachable!(),
                 }
             }
         }
@@ -162,7 +179,18 @@ pub(crate) fn generate_sort_predicate_rules_pass(
                     .value(AttributeKey::Predicate)
                     .and_then(sort_from_json)
                     .map(|sort| (label.name.clone(), sort)),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<BTreeSet<_>>();
         let mut generated = Vec::new();
@@ -253,6 +281,10 @@ fn contains_cool_like(term: &Term, productions: &crate::definition::ProductionCa
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn starts_with_variable(term: &Term) -> bool {
     match project_left(term).unannotated() {
         Term::Variable { .. } => true,
@@ -261,6 +293,10 @@ fn starts_with_variable(term: &Term) -> bool {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn project_left(term: &Term) -> &Term {
     match term.unannotated() {
         Term::Rewrite { left, .. } => project_left(left),

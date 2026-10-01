@@ -15,6 +15,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, fmt, sync::Arc};
@@ -187,6 +188,10 @@ fn resolve_production(
             attributes,
         )]);
     };
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ProductionItem is syntax; only the listed variants are special here"
+    )]
     let nonterminals = items
         .iter()
         .filter_map(|item| match item {
@@ -618,7 +623,10 @@ fn attribute_text(attributes: &Attributes, key: AttributeKey) -> Option<String> 
     attributes.value(key).map(|value| match value {
         Value::String(value) => value.clone(),
         Value::Null => String::new(),
-        value => value.to_string(),
+        value @ Value::Bool(_)
+        | value @ Value::Number(_)
+        | value @ Value::Array(_)
+        | value @ Value::Object(_) => value.to_string(),
     })
 }
 

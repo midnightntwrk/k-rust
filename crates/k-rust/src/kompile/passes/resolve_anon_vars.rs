@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Give every anonymous variable occurrence a collision-free sentence-local name.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeSet, convert::Infallible};
 
@@ -63,7 +64,14 @@ fn resolve_anon_vars_in_sentence_mut(
         } => vec![body, requires, ensures],
         Sentence::Context { body, requires, .. }
         | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
-        _ => return generated,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return generated,
     };
     for root in roots {
         let taken = std::mem::replace(root, Term::Sequence(Vec::new()));

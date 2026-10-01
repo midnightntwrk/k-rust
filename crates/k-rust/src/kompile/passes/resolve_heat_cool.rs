@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Lower `heat` and `cool` attributes into explicit side conditions.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{fmt, mem};
 
@@ -105,7 +106,16 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             }
             let requires = match sentence {
                 Sentence::Rule { requires, .. } | Sentence::Context { requires, .. } => requires,
-                _ => continue,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             };
             let predicate = Term::apply(predicate_label, vec![Term::variable("HOLE")]);
             let condition = if heat {

@@ -15,6 +15,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Reuse LHS subterms that also occur on a rule RHS through `#as` aliases.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

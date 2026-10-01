@@ -15,6 +15,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Compile-time evaluation of pure Boolean, integer, and string hooks.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{cmp::Ordering, collections::BTreeMap, fmt, str::FromStr};
 
@@ -228,6 +229,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         {
             return Ok(None);
         }
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only the listed variants are special here"
+        )]
         let tokens = arguments
             .iter()
             .map(|argument| match argument.unannotated() {
@@ -408,19 +413,25 @@ enum Value {
 fn bool_value(value: &Value) -> Result<bool, String> {
     match value {
         Value::Bool(value) => Ok(*value),
-        _ => Err("constant-folding hook expected Bool".into()),
+        Value::Int(_) | Value::String(_) | Value::Float(_) => {
+            Err("constant-folding hook expected Bool".into())
+        }
     }
 }
 fn int_value(value: &Value) -> Result<BigInt, String> {
     match value {
         Value::Int(value) => Ok(value.clone()),
-        _ => Err("constant-folding hook expected Int".into()),
+        Value::Bool(_) | Value::String(_) | Value::Float(_) => {
+            Err("constant-folding hook expected Int".into())
+        }
     }
 }
 fn string_value(value: &Value) -> Result<&str, String> {
     match value {
         Value::String(value) => Ok(value),
-        _ => Err("constant-folding hook expected String or token".into()),
+        Value::Bool(_) | Value::Int(_) | Value::Float(_) => {
+            Err("constant-folding hook expected String or token".into())
+        }
     }
 }
 fn unary_bool(values: &[Value], f: impl FnOnce(bool) -> bool) -> Result<Value, String> {

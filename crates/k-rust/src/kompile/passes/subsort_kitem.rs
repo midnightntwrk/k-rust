@@ -8,6 +8,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Add backend subsort declarations from every user sort to `KItem`.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{fmt, sync::Arc};
 
@@ -264,6 +265,7 @@ fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::Injectable;
     use crate::definition::{

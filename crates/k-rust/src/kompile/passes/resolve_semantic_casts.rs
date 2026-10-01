@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Remove semantic-cast applications while retaining their inferred sorts.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -169,7 +170,15 @@ fn resolve_semantic_casts_in_sentence_mut(
             ..
         } => vec![body, requires, ensures],
         Sentence::Context { body, requires, .. } => vec![body, requires],
-        _ => return Ok(()),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return Ok(()),
     };
 
     let (casts, typed_variables, errors) = {
@@ -219,7 +228,14 @@ fn resolve_semantic_casts_in_sentence_mut(
         | Sentence::Claim { requires, .. }
         | Sentence::Context { requires, .. }
         | Sentence::ContextAlias { requires, .. } => requires,
-        _ => return Ok(()),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return Ok(()),
     };
     let prior = std::mem::replace(requires, bool_true());
     *requires = if is_true(&prior) {
@@ -370,7 +386,15 @@ pub(crate) fn semantic_cast_variable_sorts(
             ..
         } => vec![body, requires, ensures],
         Sentence::Context { body, requires, .. } => vec![body, requires],
-        _ => return Ok(BTreeMap::new()),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return Ok(BTreeMap::new()),
     };
     let (_, typed_variables, errors) = collect_cast_bounds(&roots, subsorts);
     if errors.is_empty() {
@@ -454,6 +478,10 @@ fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<Stri
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn attach_sort(term: Term, sort: Sort) -> Term {
     let metadata = term.metadata().cloned();
     match term.into_unannotated() {

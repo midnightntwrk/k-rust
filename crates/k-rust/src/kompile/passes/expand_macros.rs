@@ -25,6 +25,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Expand compile-time macro and alias rules by structural matching.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -421,7 +422,18 @@ fn macro_production_labels(definition: &Definition) -> BTreeSet<&str> {
             } if attributes.has_any(&AttributeKey::MACRO_LIKE) => {
                 Some(label.as_ref().map_or("", |label| label.name.as_str()))
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect()
 }
@@ -509,6 +521,10 @@ struct Expander<'view, 'definition> {
 }
 
 impl<'view, 'definition> Expander<'view, 'definition> {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn new(
         views: &'view DefinitionViews<'definition>,
         term_module: ModuleId,
@@ -601,7 +617,15 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             let fields: &[u32] = match &sentence {
                 Sentence::Rule { .. } | Sentence::Claim { .. } => &[0, 1, 2],
                 Sentence::Context { .. } => &[0, 1],
-                _ => return Ok(sentence),
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => return Ok(sentence),
             };
             let mut site = Site::new(sentence);
             self.expand_site(&mut site, fields)?;
@@ -639,7 +663,15 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                 requires: self.expand_term(requires, &BTreeSet::new())?,
                 attributes,
             }),
-            sentence => Ok(sentence),
+            sentence @ Sentence::SyntaxSort { .. }
+            | sentence @ Sentence::SortSynonym { .. }
+            | sentence @ Sentence::SyntaxLexical { .. }
+            | sentence @ Sentence::Production { .. }
+            | sentence @ Sentence::SyntaxAssociativity { .. }
+            | sentence @ Sentence::SyntaxPriority { .. }
+            | sentence @ Sentence::ContextAlias { .. }
+            | sentence @ Sentence::Configuration { .. }
+            | sentence @ Sentence::Bubble { .. } => Ok(sentence),
         }
     }
 
@@ -789,6 +821,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         path: &[u32],
         applied: &BTreeSet<usize>,
     ) -> Result<(), Diagnostic> {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only the listed variants are special here"
+        )]
         let children = match site.term(path).unannotated() {
             Term::Apply { arguments, .. } => arguments.len(),
             Term::Sequence(items) => items.len(),
@@ -853,6 +889,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         unchanged: bool,
     ) -> Result<(), Diagnostic> {
         let subject = site.term(path).clone();
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only the listed variants are special here"
+        )]
         let (rules, instance) = match subject.unannotated() {
             Term::Apply { label, .. } => {
                 let Some(rules) = self.macros.get(&LabelHead::from(label)).cloned() else {
@@ -917,6 +957,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         }
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn matches(
         &self,
         substitution: &mut BTreeMap<String, Term>,
@@ -1075,6 +1119,10 @@ impl Site {
     }
 
     /// The term at `path`, if the sentence has one there.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn get(&self, path: &[u32]) -> Option<&Term> {
         let mut term = *self.fields().get(*path.first()? as usize)?;
         for step in &path[1..] {
@@ -1105,7 +1153,15 @@ impl Site {
                 ..
             } => [body, requires, ensures],
             Sentence::Context { body, requires, .. } => [body, requires, requires],
-            _ => unreachable!("a site holds a rule, claim or context"),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => unreachable!("a site holds a rule, claim or context"),
         }
     }
 
@@ -1135,7 +1191,15 @@ impl Site {
             Sentence::Context { body, requires, .. } => {
                 [body, requires].into_iter().nth(path[0] as usize)
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         };
         let mut term = field.expect("a site path starts at one of its sentence's fields");
         for step in &path[1..] {
@@ -1165,7 +1229,17 @@ impl Site {
                     ensures: truth(),
                     attributes: attributes.clone(),
                 }),
-                sentence => typer.typing(sentence),
+                sentence @ Sentence::SyntaxSort { .. }
+                | sentence @ Sentence::SortSynonym { .. }
+                | sentence @ Sentence::SyntaxLexical { .. }
+                | sentence @ Sentence::Production { .. }
+                | sentence @ Sentence::SyntaxAssociativity { .. }
+                | sentence @ Sentence::SyntaxPriority { .. }
+                | sentence @ Sentence::ContextAlias { .. }
+                | sentence @ Sentence::Rule { .. }
+                | sentence @ Sentence::Claim { .. }
+                | sentence @ Sentence::Configuration { .. }
+                | sentence @ Sentence::Bubble { .. } => typer.typing(sentence),
             };
             self.typing = Some(typed.ok());
         }
@@ -1209,10 +1283,22 @@ fn erase_label_parameters(sentence: &mut Sentence) {
             ..
         } => [body, requires, ensures].into_iter().for_each(erase),
         Sentence::Context { body, requires, .. } => [body, requires].into_iter().for_each(erase),
-        _ => {}
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => {}
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn child(term: &Term, index: usize) -> &Term {
     match term.unannotated() {
         Term::Apply { arguments, .. } => &arguments[index],
@@ -1223,6 +1309,10 @@ fn child(term: &Term, index: usize) -> &Term {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn child_mut(term: &mut Term, index: usize) -> &mut Term {
     let mut term = term;
     while let Term::Annotated { term: inner, .. } = term {
@@ -1256,6 +1346,10 @@ fn production_parameters<'a>(
         return None;
     };
     (!parameters.is_empty()).then(|| {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is syntax; only the listed variants are special here"
+        )]
         let arguments = items
             .iter()
             .filter_map(|item| match item {
@@ -1337,6 +1431,10 @@ fn macro_rule(
         return None;
     };
     let left = rewrite_projection(body, false);
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let production_attributes = if attributes.has(AttributeKey::Simplification) {
         None
     } else {
@@ -1411,7 +1509,15 @@ fn sentence_roots(sentence: &Sentence) -> Vec<&Term> {
             ..
         } => vec![body, requires, ensures],
         Sentence::Context { body, requires, .. } => vec![body, requires],
-        _ => Vec::new(),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => Vec::new(),
     }
 }
 
@@ -1484,6 +1590,7 @@ fn located_at(mut diagnostic: Diagnostic, sentence: &Sentence) -> Diagnostic {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
     use crate::definition::ProductionItem;

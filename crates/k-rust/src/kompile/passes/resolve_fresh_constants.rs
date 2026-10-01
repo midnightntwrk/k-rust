@@ -18,6 +18,7 @@
 //! A claim that mentions a configuration cell and not the counter gets `<generatedCounter> _GenN => ?_GenM </generatedCounter>`.
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
@@ -289,7 +290,14 @@ fn transform_sentence(
                 attributes,
             })
         }
-        sentence => Ok(sentence),
+        sentence @ Sentence::SyntaxSort { .. }
+        | sentence @ Sentence::SortSynonym { .. }
+        | sentence @ Sentence::SyntaxLexical { .. }
+        | sentence @ Sentence::SyntaxAssociativity { .. }
+        | sentence @ Sentence::SyntaxPriority { .. }
+        | sentence @ Sentence::ContextAlias { .. }
+        | sentence @ Sentence::Configuration { .. }
+        | sentence @ Sentence::Bubble { .. } => Ok(sentence),
     }
 }
 
@@ -303,7 +311,18 @@ fn cell_labels_of(productions: &ProductionCatalog<'_>) -> BTreeSet<String> {
                 attributes,
                 ..
             } if attributes.has(AttributeKey::Cell) => Some(label.name.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect()
 }
@@ -580,6 +599,10 @@ fn fix_generated_top_format(sentence: &mut Sentence) {
     if label.name != GeneratedCell::Top.label() {
         return;
     }
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ProductionItem is syntax; only the listed variants are special here"
+    )]
     let positions = items
         .iter()
         .enumerate()
@@ -624,7 +647,18 @@ fn generated_top_configuration(
                 attributes,
                 ..
             } if attributes.has(AttributeKey::Cell) => Some((label, attributes)),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .ok_or_else(|| format!("No cell production found for root sort {root_sort}"))?;
     let cell_name = root
@@ -666,7 +700,18 @@ fn root_cell_sort(
             Sentence::Production {
                 sort, attributes, ..
             } if attributes.has(AttributeKey::Cell) => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let collections = productions
@@ -675,7 +720,18 @@ fn root_cell_sort(
             Sentence::Production {
                 sort, attributes, ..
             } if attributes.has(AttributeKey::CellCollection) => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let subsorts = definition
@@ -852,12 +908,26 @@ fn truth() -> Term {
 fn rule_body(sentence: &Sentence) -> &Term {
     match sentence {
         Sentence::Rule { body, .. } => body,
-        _ => unreachable!(),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!(),
     }
 }
 
 fn rewrite_left(term: &Term) -> Term {
     let metadata = term.metadata().cloned();
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let rebuilt = match term.unannotated() {
         Term::Rewrite { left, .. } => return rewrite_left(left),
         Term::Apply { label, arguments } => Term::Apply {
@@ -879,6 +949,10 @@ trait TermApply {
 }
 
 impl TermApply for Term {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn as_apply(&self) -> Option<(&Label, &[Term])> {
         match self.unannotated() {
             Term::Apply { label, arguments } => Some((label, arguments)),

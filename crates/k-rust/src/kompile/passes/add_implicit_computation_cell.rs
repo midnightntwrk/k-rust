@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Wrap cell-free semantic sentences in the declared computation cell.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::BTreeSet;
 
@@ -63,7 +64,17 @@ pub(crate) fn add_implicit_computation_cell_pass(
         .filter(|(_, production)| production.attributes().has(AttributeKey::Cell))
         .filter_map(|(_, production)| match production {
             Sentence::Production { sort, .. } => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let computation_cells = configuration_productions
@@ -77,7 +88,18 @@ pub(crate) fn add_implicit_computation_cell_pass(
             } if attributes.has(AttributeKey::Cell) && attributes.has(AttributeKey::Maincell) => {
                 Some((sort.clone(), label.clone()))
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     for module in &mut output.modules {
@@ -111,7 +133,15 @@ pub(crate) fn add_implicit_computation_cell_pass(
                 Sentence::Context {
                     body, attributes, ..
                 } => (body, false, attributes),
-                _ => continue,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             };
             if is_function(body, productions) {
                 continue;
@@ -155,6 +185,10 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let application = match term.unannotated() {
         Term::Apply { label, .. } => Some((term, label)),
         Term::Rewrite { left, .. } => match left.unannotated() {
@@ -236,6 +270,10 @@ fn is_cell(term: &Term, productions: &ProductionCatalog<'_>, cell_sorts: &BTreeS
 
 fn flatten_cells(term: &Term) -> Vec<&Term> {
     // Invariant: `output` holds, in left-to-right order, the non-`Cells` subterms reached so far through nested internal `Cells` applications; each call descends one level into the finite `term`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn flatten<'a>(term: &'a Term, output: &mut Vec<&'a Term>) {
         match term.unannotated() {
             Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {

@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Give matching-logic disjunctions explicit aliases.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::fmt;
 
@@ -68,7 +69,16 @@ pub(crate) fn guard_or_patterns_pass(
                     ..
                 } => vec![body, requires, ensures],
                 Sentence::Context { body, requires, .. } => vec![body, requires],
-                _ => continue,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             };
             for root in roots {
                 let taken = std::mem::replace(root, Term::Sequence(Vec::new()));

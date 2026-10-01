@@ -8,6 +8,7 @@
 //! Its cost is measured by the constant folding `--timings` phase; it bumps no counter.
 //!
 //! MPFR-backed implementation of K's `FLOAT` constant-folding hooks.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     cmp::Ordering,
@@ -536,6 +537,7 @@ fn validate_mpfr_format(format: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
 

@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Remove unit applications from associative collection terms before KORE emission.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::fmt;
 
@@ -94,7 +95,17 @@ fn transform(
             let attributes = match ids {
                 [id] => match productions.production(*id) {
                     Sentence::Production { attributes, .. } => Some(attributes),
-                    _ => unreachable!(),
+                    Sentence::SyntaxSort { .. }
+                    | Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+                    | Sentence::ContextAlias { .. }
+                    | Sentence::Context { .. }
+                    | Sentence::Rule { .. }
+                    | Sentence::Claim { .. }
+                    | Sentence::Configuration { .. }
+                    | Sentence::Bubble { .. } => unreachable!(),
                 },
                 _ => None,
             };
@@ -172,6 +183,10 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
 }
 
 // Invariant: `output` holds, in order, every non-unit operand reached so far from `terms` through nested applications of `label`; each iteration consumes one element of `terms`, and each recursive call descends into the `arguments` of one nested `label` application.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn flatten(label: &crate::kast::Label, unit: &str, terms: &[Term], output: &mut Vec<Term>) {
     for term in terms {
         match term.unannotated() {

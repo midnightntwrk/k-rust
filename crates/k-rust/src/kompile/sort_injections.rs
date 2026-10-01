@@ -383,6 +383,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     }
 
     /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
+    #[deny(clippy::wildcard_enum_match_arm)]
     pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
         self.reset_sort_parameters();
         match sentence {
@@ -418,7 +419,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     attributes: self.sentence_attributes(attributes),
                 })
             }
-            _ => Ok(sentence.clone()),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => Ok(sentence.clone()),
         }
     }
 

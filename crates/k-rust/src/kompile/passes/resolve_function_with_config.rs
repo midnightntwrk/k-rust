@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Thread the generated top-cell configuration through functions that inspect configuration.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -177,7 +178,14 @@ pub(crate) fn resolve_function_with_config_pass(
                         attributes: attributes.clone(),
                     }
                 }
-                _ => (**sentence).clone(),
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => (**sentence).clone(),
             };
             if let (Some(before), Some(after)) = (
                 production_identity(sentence),
@@ -255,7 +263,16 @@ pub(crate) fn resolve_config_var_pass(
                     ensures,
                     ..
                 } => (body, requires, ensures),
-                _ => continue,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             };
             if contains_rewrite(body)
                 && [body as &Term, requires as &Term, ensures as &Term]
@@ -374,6 +391,10 @@ fn resolve_with_config_body(
         return body;
     };
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let (function, right) = match function.unannotated() {
         Term::Rewrite { left, right } => ((**left).clone(), Some((**right).clone())),
         _ => (function.clone(), None),
@@ -482,6 +503,10 @@ fn transform_term(term: Term, with_config: &BTreeSet<LabelHead>) -> Term {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn is_configuration_argument(term: &Term) -> bool {
     match term.unannotated() {
         Term::Variable { name, .. } => name == CONFIGURATION_VARIABLE,
@@ -510,6 +535,10 @@ fn contains_rewrite(term: &Term) -> bool {
     found
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn rewrite_left(term: &Term) -> Term {
     match term.unannotated() {
         Term::Rewrite { left, .. } => rewrite_left(left),
@@ -526,6 +555,10 @@ fn rewrite_left(term: &Term) -> Term {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn rewrite_right(term: &Term) -> Term {
     match term.unannotated() {
         Term::Rewrite { right, .. } => rewrite_right(right),

@@ -14,6 +14,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Assign Java-compatible stable identifiers to rules and claims.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{collections::BTreeMap, convert::Infallible, fmt::Write};
 
@@ -84,7 +85,16 @@ pub(crate) fn number_sentence(sentence: &mut Sentence) {
         Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. } => {
             attributes.set(AttributeKey::UniqueId, Value::String(id));
         }
-        _ => unreachable!("guard selected a rule or claim"),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!("guard selected a rule or claim"),
     }
 }
 
@@ -113,7 +123,16 @@ pub(crate) fn unique_id_text(sentence: &Sentence, attributes: &Attributes) -> St
             "claim {body} requires {requires} ensures {ensures} {}",
             format_attributes(attributes)
         ),
-        _ => unreachable!("only rules and claims are numbered"),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!("only rules and claims are numbered"),
     }
 }
 
@@ -207,13 +226,17 @@ fn format_attributes(attributes: &Attributes) -> String {
             Value::String(value) if value.is_empty() => key.to_owned(),
             Value::String(value) => format!("{key}({value})"),
             Value::Null => key.to_owned(),
-            value => format!("{key}({value})"),
+            value @ Value::Bool(_)
+            | value @ Value::Number(_)
+            | value @ Value::Array(_)
+            | value @ Value::Object(_) => format!("{key}({value})"),
         })
         .collect::<Vec<_>>();
     format!("[{}]", values.join(", "))
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
     use crate::kast::{Label, Sort};

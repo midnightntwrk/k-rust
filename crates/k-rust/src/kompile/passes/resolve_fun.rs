@@ -22,6 +22,7 @@
 //! places the arguments of every local function by this lowering
 //! (`definition::checks::term_position`), and the closure variables of a generated function come
 //! from that same walk (`closure_variables`).
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{
@@ -103,7 +104,18 @@ pub(crate) fn resolve_fun_pass(
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
 
@@ -217,7 +229,15 @@ impl Resolver<'_, '_, '_> {
                 requires: self.transform(requires),
                 attributes,
             },
-            sentence => sentence,
+            sentence @ Sentence::SyntaxSort { .. }
+            | sentence @ Sentence::SortSynonym { .. }
+            | sentence @ Sentence::SyntaxLexical { .. }
+            | sentence @ Sentence::Production { .. }
+            | sentence @ Sentence::SyntaxAssociativity { .. }
+            | sentence @ Sentence::SyntaxPriority { .. }
+            | sentence @ Sentence::Claim { .. }
+            | sentence @ Sentence::Configuration { .. }
+            | sentence @ Sentence::Bubble { .. } => sentence,
         }
     }
 
@@ -299,6 +319,10 @@ impl Resolver<'_, '_, '_> {
         let hint1 = underlying_variable(&argument)
             .map(|(name, _)| name)
             .unwrap_or_default();
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is syntax; only the listed variants are special here"
+        )]
         let hint2 = match body.unannotated() {
             Term::Apply { label, .. } => label.name.clone(),
             _ => String::new(),
@@ -583,6 +607,10 @@ impl Resolver<'_, '_, '_> {
             let Sentence::Production { items, .. } = production else {
                 continue;
             };
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "ProductionItem is syntax; only the listed variants are special here"
+            )]
             let parameter_sorts = items.iter().filter_map(|item| match item {
                 ProductionItem::NonTerminal { sort, .. } => Some(sort),
                 _ => None,
@@ -732,6 +760,10 @@ impl Resolver<'_, '_, '_> {
         {
             return None;
         }
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is syntax; only the listed variants are special here"
+        )]
         let contents = items
             .iter()
             .filter_map(|item| match item {
@@ -846,6 +878,10 @@ fn lambda_production(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     match term.unannotated() {
         Term::Variable { name, sort } => Some((name.clone(), sort.clone())),
@@ -859,6 +895,10 @@ fn underlying_variable(term: &Term) -> Option<(String, Option<Sort>)> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn rewrite_left(term: &Term) -> Term {
     match term.unannotated() {
         Term::Rewrite { left, .. } => (**left).clone(),
@@ -875,6 +915,10 @@ fn rewrite_left(term: &Term) -> Term {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn rewrite_right(term: &Term) -> Term {
     match term.unannotated() {
         Term::Rewrite { right, .. } => rewrite_right(right),
@@ -972,6 +1016,10 @@ fn bool_token(value: bool) -> Term {
 
 /// A rule's configuration context, left-hand side and right-hand side when it is not a lemma and
 /// its body is a rewrite at the top, possibly under `[[ .. ]]`.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn defining_rule(sentence: &Sentence) -> Option<(Option<&Term>, &Term, &Term)> {
     let Sentence::Rule {
         body, attributes, ..
@@ -982,6 +1030,10 @@ fn defining_rule(sentence: &Sentence) -> Option<(Option<&Term>, &Term, &Term)> {
     if attributes.has(AttributeKey::Simplification) {
         return None;
     }
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let (context, equation) = match body.unannotated() {
         Term::Apply { label, arguments } if label.is(InternalLabel::WithConfig) => {
             match arguments.as_slice() {
@@ -1019,6 +1071,10 @@ fn rule_heads(definition: &Definition) -> BTreeMap<String, usize> {
 /// The name of the variable `argument` binds when it matches every value of `sort`: a variable
 /// of that sort or of no sort, possibly under a semantic cast to exactly `sort`, whose sort check
 /// holds for every value of `sort`.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn covering_variable<'a>(argument: &'a Term, sort: &Sort) -> Option<&'a str> {
     match argument.unannotated() {
         Term::Variable {

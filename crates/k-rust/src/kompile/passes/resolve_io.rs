@@ -15,6 +15,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{fmt, sync::Arc};
@@ -233,7 +234,17 @@ fn stream_productions(
 fn stream_name(sentence: &Sentence) -> Option<&str> {
     match sentence {
         Sentence::Production { attributes, .. } => attributes.string(AttributeKey::Stream),
-        _ => None,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
 }
 
@@ -299,6 +310,10 @@ fn replace_initializer(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn replace_initializer_body(
     body: Term,
     init_label: &str,
@@ -327,6 +342,10 @@ fn replace_initializer_body(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn replace_apply_arguments(term: Term, arguments: Vec<Term>) -> Term {
     match term {
         Term::Annotated { term, metadata } => {
@@ -377,7 +396,18 @@ fn stream_module_sentences(
             {
                 Some((**sentence).clone())
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect()
 }
@@ -463,7 +493,18 @@ fn stdin_unblock_template(
                     attributes.clone(),
                 ))
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<Vec<_>>();
     if templates.len() == 1 {
@@ -572,6 +613,10 @@ fn is_nullary_apply(term: &Term, name: &str) -> bool {
     matches!(term.unannotated(), Term::Apply { label, arguments } if label.name == name && arguments.is_empty())
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn instantiate_unblock(term: Term, user_cell: &Label, sort: &str, builtin_cell: &str) -> Term {
     match term {
         Term::Annotated { term, metadata } => {

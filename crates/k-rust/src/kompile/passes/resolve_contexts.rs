@@ -15,6 +15,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
@@ -85,7 +86,18 @@ pub(crate) fn resolve_contexts_pass(
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let sentence_labels = resolved
@@ -308,6 +320,10 @@ impl HeatScan<'_, '_> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn validate_context(body: &Term, attributes: &Attributes) -> Result<(), Vec<Diagnostic>> {
     let mut holes = BTreeSet::new();
     let mut rewrites = Vec::new();
@@ -345,6 +361,10 @@ fn validate_context(body: &Term, attributes: &Attributes) -> Result<(), Vec<Diag
     Ok(())
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn is_hole(term: &Term) -> bool {
     match term.unannotated() {
         Term::Variable { name, .. } => name == "HOLE",
@@ -423,6 +443,10 @@ fn freezer_hint(cooled: &Term, hole_position: usize) -> String {
         == Some(GeneratedLabel::SemanticCast {
             sort_text: BuiltinSort::K.k_name(),
         });
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let name = if is_k_cast {
         arguments
             .first()
@@ -547,6 +571,10 @@ fn insert_inner(term: Term, rewrite: &Term, productions: &ProductionCatalog<'_>)
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn rewrite_left(term: &Term) -> Term {
     match term {
         Term::Annotated { term, metadata } => match term.unannotated() {
@@ -567,6 +595,10 @@ fn rewrite_left(term: &Term) -> Term {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn strip_metadata(term: &Term) -> Term {
     match term.unannotated() {
         Term::Rewrite { left, right } => Term::Rewrite {

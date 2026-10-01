@@ -23,6 +23,7 @@
 //! The predicate-rule step (`generate_sort_predicate_rules_pass` in `finalize.rs`) forces each module's subsort view and emits the `true` rule of a predicate only when its sort is placeable at `K`; that check scans the sort's supersorts in the closure, O(S log S).
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -330,6 +331,10 @@ fn named_projections(
     if !ProductionKind::of(production).admits_field_projection() {
         return Vec::new();
     }
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ProductionItem is syntax; only the listed variants are special here"
+    )]
     let nonterminals = items
         .iter()
         .filter_map(|item| match item {
@@ -581,6 +586,7 @@ fn sort_json(sort: &Sort) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
     use crate::definition::FlatModule;

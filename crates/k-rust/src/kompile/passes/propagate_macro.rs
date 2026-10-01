@@ -2,6 +2,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Propagate production macro kinds onto their defining rules.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::definition::AttributeKey;
 use crate::{

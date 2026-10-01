@@ -19,6 +19,7 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Complete configuration abstractions into fixed-arity cell applications.
+#![deny(clippy::wildcard_enum_match_arm)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -227,7 +228,18 @@ impl CellModel {
                         attributes.clone(),
                     ))
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<Vec<_>>();
         if raw_cells.is_empty() {
@@ -265,7 +277,18 @@ impl CellModel {
                     label.clone(),
                     attributes.string(AttributeKey::Unit).map(Label::new),
                 )),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<Vec<_>>();
         let initializer_productions = productions
@@ -284,7 +307,18 @@ impl CellModel {
                         .iter()
                         .all(|item| !matches!(item, ProductionItem::NonTerminal { .. })),
                 )),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<Vec<_>>();
         let initializers = initializer_productions
@@ -306,6 +340,10 @@ impl CellModel {
                 return Err(format!("Too many productions for cell sort: {sort}"));
             }
             let mut children = Vec::new();
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "ProductionItem is syntax; only the listed variants are special here"
+            )]
             let nonterminals = items.iter().filter_map(|item| match item {
                 ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
                 _ => None,
@@ -362,6 +400,10 @@ impl CellModel {
                     }
                 }
             }
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "ProductionItem is syntax; only the listed variants are special here"
+            )]
             let leaf_sort = if children.is_empty() {
                 items.iter().find_map(|item| match item {
                     ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
@@ -453,7 +495,18 @@ impl CellModel {
                     sort,
                     ..
                 } if cell_sorts.contains(sort) => Some((LabelHead::from(label), sort.clone())),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect();
         for (_, production) in productions.productions() {
@@ -502,6 +555,10 @@ impl CellModel {
             .and_then(|sort| self.cells.get(sort))
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn sort_for_term(&self, term: &Term) -> Option<Sort> {
         match term.unannotated() {
             Term::Apply { label, .. } => self
@@ -643,7 +700,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     attributes,
                 })
             }
-            sentence => Ok(sentence),
+            sentence @ Sentence::SyntaxSort { .. }
+            | sentence @ Sentence::SortSynonym { .. }
+            | sentence @ Sentence::SyntaxLexical { .. }
+            | sentence @ Sentence::Production { .. }
+            | sentence @ Sentence::SyntaxAssociativity { .. }
+            | sentence @ Sentence::SyntaxPriority { .. }
+            | sentence @ Sentence::Configuration { .. }
+            | sentence @ Sentence::Bubble { .. } => Ok(sentence),
         }
     }
 
@@ -1056,6 +1120,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         Ok(with_metadata(rebuilt, metadata))
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn close_cell(&mut self, application: Term, cell: &Cell, on_rhs: bool) -> Result<Term, String> {
         let Term::Apply { label, arguments } = application else {
             unreachable!()
@@ -1074,6 +1142,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                     .map(|child| child.sort.clone())
                     .collect::<BTreeSet<_>>();
                 for item in &contents {
+                    #[expect(
+                        clippy::wildcard_enum_match_arm,
+                        reason = "Term is syntax; only the listed variants are special here"
+                    )]
                     let side = match item.unannotated() {
                         Term::Rewrite { left, right } => {
                             if side_right {
@@ -1411,6 +1483,10 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
         }
         // Invariant: `ordered` holds the children placed for the variables of `unknown` before `variable`; each variable without a fragment split scans `cell.children` once, O(|unknown| * |cell.children|).
         for variable in unknown {
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "Term is syntax; only the listed variants are special here"
+            )]
             let variable_name = match variable.unannotated() {
                 Term::Variable { name, .. } => name,
                 _ => unreachable!(),
@@ -1611,6 +1687,10 @@ fn collect_fragment_observations(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn collect_direct_fragment_variables(term: &Term, variables: &mut Vec<(String, Option<Sort>)>) {
     for item in flatten_cells(term) {
         match item.unannotated() {
@@ -1701,6 +1781,10 @@ fn is_empty_cell_bag(term: &Term) -> bool {
 }
 
 fn is_function(term: &Term, productions: &ProductionCatalog<'_>) -> bool {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     let label = match term.unannotated() {
         Term::Apply { label, .. } => Some(label),
         Term::Rewrite { left, .. } => match left.unannotated() {
@@ -1737,6 +1821,10 @@ fn incomplete_parts(arguments: &[Term]) -> Result<(bool, &Term, bool), String> {
     Ok((dot_value(left)?, body, dot_value(right)?))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
 fn dot_value(term: &Term) -> Result<bool, String> {
     match term.unannotated() {
         Term::Apply { label, arguments }
@@ -1773,6 +1861,10 @@ fn dot(open: bool) -> Term {
 }
 
 fn flatten_cells(term: &Term) -> Vec<&Term> {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only the listed variants are special here"
+    )]
     fn flatten<'a>(term: &'a Term, output: &mut Vec<&'a Term>) {
         match term.unannotated() {
             Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => {
