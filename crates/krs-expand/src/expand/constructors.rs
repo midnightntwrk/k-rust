@@ -16,7 +16,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::productions::strictness_key_function;
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
@@ -346,9 +346,7 @@ fn constructor_like(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Constructor),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(
@@ -607,9 +605,7 @@ pub(crate) fn token(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Sort),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid token-sort identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid token-sort identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
@@ -628,9 +624,7 @@ pub(crate) fn token(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!("token"),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid token-grammar identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid token-grammar identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
@@ -787,9 +781,7 @@ fn constructor_grammar(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!(#disambiguator),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid grammar identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid grammar identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),

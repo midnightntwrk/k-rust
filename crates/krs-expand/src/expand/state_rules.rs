@@ -27,7 +27,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
 use super::configuration::cell_marker_function;
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermRole, TermSide, WireSlots, wire_key, wire_sort_reference};
@@ -167,9 +167,7 @@ pub(crate) fn context_alias(
         name: quote!(#rust_name),
         item_kind: quote!(#facade::ItemKind::ContextAlias),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid context alias identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid context alias identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
@@ -365,9 +363,7 @@ pub(super) fn configuration_rule(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Rule),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),

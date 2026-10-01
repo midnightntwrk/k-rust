@@ -4,18 +4,13 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, Path};
 
-pub(super) enum IdentityCheck {
-    Expect(&'static str),
-    Unwrap,
-}
-
 pub(super) struct DescriptorFactory<'a> {
     pub facade: &'a Path,
     pub factory: &'a Ident,
     pub name: TokenStream,
     pub item_kind: TokenStream,
     pub disambiguator: TokenStream,
-    pub identity_check: IdentityCheck,
+    pub identity_label: &'static str,
     pub declared_type: TokenStream,
     pub payload: FactoryPayload,
     pub cfg: TokenStream,
@@ -32,7 +27,7 @@ impl DescriptorFactory<'_> {
             name,
             item_kind,
             disambiguator,
-            identity_check,
+            identity_label,
             declared_type,
             payload,
             cfg,
@@ -41,11 +36,6 @@ impl DescriptorFactory<'_> {
             prelude,
         } = self;
         let payload = payload.render(facade);
-        let (last_argument, check) = match identity_check {
-            IdentityCheck::Expect(label) => (quote!(#disambiguator,), quote!(.expect(#label))),
-            // The claim factory omits the trailing argument comma.
-            IdentityCheck::Unwrap => (quote!(#disambiguator), quote!(.unwrap())),
-        };
         quote! {
             #attributes
             #[doc(hidden)]
@@ -56,8 +46,8 @@ impl DescriptorFactory<'_> {
                     id: #facade::HostItemId::from_macro_context(
                         env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                         env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
-                        #item_kind, #last_argument
-                    )#check,
+                        #item_kind, #disambiguator,
+                    ).expect(#identity_label),
                     declared_type: #declared_type,
                     payload: #payload,
                     cfg: #cfg,

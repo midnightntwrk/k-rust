@@ -19,7 +19,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Ident, ItemEnum, Path};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::grammar::grammar_macro_descriptor;
 use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::strictness_key_function;
@@ -182,9 +182,7 @@ pub(crate) fn constructors(
             name: quote!(#enum_name),
             item_kind: quote!(#facade::ItemKind::Sort),
             disambiguator: quote!(""),
-            identity_check: IdentityCheck::Expect(
-                "Cargo and Rust macro context form a valid enum-sort identity",
-            ),
+            identity_label: "Cargo and Rust macro context form a valid enum-sort identity",
             declared_type: quote! {
                 ::core::option::Option::Some(
                     #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#enum_key)),
@@ -203,9 +201,7 @@ pub(crate) fn constructors(
             name: quote!(#membership_name),
             item_kind: quote!(#facade::ItemKind::Grammar),
             disambiguator: quote!("enum-membership"),
-            identity_check: IdentityCheck::Expect(
-                "Cargo and Rust macro context form a valid enum-membership identity",
-            ),
+            identity_label: "Cargo and Rust macro context form a valid enum-membership identity",
             declared_type: quote!(::core::option::Option::None),
             payload: FactoryPayload::wire(membership_wire, membership_slot_tokens),
             cfg: quote!(::core::default::Default::default()),
@@ -550,9 +546,7 @@ fn expand_enum_variant(
         name: quote!(#variant_name),
         item_kind: quote!(#facade::ItemKind::Constructor),
         disambiguator: quote!(#disambiguator),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid enum-variant identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid enum-variant identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::EnumVariant(
@@ -576,9 +570,7 @@ fn expand_enum_variant(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!(#disambiguator),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid variant-grammar identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid variant-grammar identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(grammar_wire, grammar_slot_tokens),
         cfg: quote!(::core::default::Default::default()),

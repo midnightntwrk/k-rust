@@ -3,7 +3,7 @@
 use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
@@ -146,9 +146,7 @@ pub(crate) fn sort(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Sort),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(
@@ -425,9 +423,7 @@ fn expand_readable_sort(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Sort),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
@@ -517,9 +513,7 @@ fn expand_readable_membership(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!("subsort"),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid subsort identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid subsort identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
@@ -728,9 +722,7 @@ pub(crate) fn subsort(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!("subsort"),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid subsort identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid subsort identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
@@ -880,9 +872,7 @@ fn expand_bracket_grammar_parts(
         name: quote!(#grammar_name),
         item_kind: quote!(#facade::ItemKind::Grammar),
         disambiguator: quote!(#disambiguator),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid bracket identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid bracket identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),

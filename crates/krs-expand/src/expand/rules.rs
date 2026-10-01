@@ -15,7 +15,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
@@ -342,9 +342,7 @@ fn expand_ordinary_rule(
         name: quote!(#name),
         item_kind: quote!(#item_kind),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote!(::core::option::Option::None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),

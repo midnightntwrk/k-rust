@@ -15,7 +15,7 @@ use krs_syntax::{
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
@@ -293,7 +293,7 @@ fn configuration_claim(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Claim),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Unwrap,
+        identity_label: "Cargo and Rust macro context form a valid claim identity",
         declared_type: quote!(None),
         payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(Default::default()),

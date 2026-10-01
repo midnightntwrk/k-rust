@@ -15,7 +15,7 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
-use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::terms::{WireSlots, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
@@ -71,9 +71,7 @@ pub(crate) fn configuration(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Configuration),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(
@@ -153,9 +151,7 @@ pub(crate) fn cell(
         name: quote!(#name),
         item_kind: quote!(#facade::ItemKind::Cell),
         disambiguator: quote!(""),
-        identity_check: IdentityCheck::Expect(
-            "Cargo and Rust macro context form a valid host identity",
-        ),
+        identity_label: "Cargo and Rust macro context form a valid host identity",
         declared_type: quote! {
             ::core::option::Option::Some(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
