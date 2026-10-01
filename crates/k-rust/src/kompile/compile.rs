@@ -87,7 +87,7 @@ impl CompilationBackend {
         }
     }
 
-    fn structural_check_options(
+    pub(crate) fn structural_check_options(
         self,
         mode: CheckMode,
         builtin_source_prefixes: Vec<String>,

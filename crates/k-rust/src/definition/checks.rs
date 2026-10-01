@@ -67,6 +67,8 @@ pub use regexes::check_regexes;
 pub use rhs_variables::{
     CheckMode, StructuralCheckBackend, StructuralCheckOptions, check_rhs_variables,
 };
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+pub(crate) use rhs_variables::{CheckedRoot, right_hand_side_binding};
 pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [

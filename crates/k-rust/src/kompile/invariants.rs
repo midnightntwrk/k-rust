@@ -14,6 +14,10 @@
 //!   K3, every `\exists` or `\forall` over a compiler-generated variable binds a variable that
 //!   occurs free in its body.
 //!
+//! - [`stage`] checks the output of every stage of the table-driven pipeline: R3, every
+//!   right-hand-side variable of a rule-like sentence stays bound by its left-hand side or
+//!   covered by an exemption once the pipeline input has that property.
+//!
 //! Gating: this module and every call site of a checker are compiled under
 //! `cfg(any(debug_assertions, feature = "kompile-invariant-checks"))`, so every debug build and
 //! `cargo test` run the checkers, a release build with the `kompile-invariant-checks` feature
@@ -25,3 +29,4 @@
 //! only the compile itself, and change no value that kompile returns.
 
 pub(crate) mod emitted;
+pub(crate) mod stage;

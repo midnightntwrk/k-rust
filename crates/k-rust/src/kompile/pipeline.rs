@@ -9,7 +9,7 @@
 
 use std::{convert::Infallible, fmt};
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 use k_rust_kore::measure;
 
 // Read only by the stage-boundary identity check, which exists in builds with debug assertions.
@@ -25,6 +25,8 @@ use crate::{
     kast::Term,
 };
 
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+use super::invariants::stage::StageChecks;
 use super::{CompileError, CompileOptions};
 use super::{passes, sort_injections};
 
@@ -198,6 +200,9 @@ display_error!(
 #[derive(Default)]
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
+    /// The stage-boundary invariant checks, which span the transform and emission runs.
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    pub checks: StageChecks,
 }
 
 struct Current {
@@ -294,9 +299,18 @@ impl Artifacts {
     pub(crate) const SEMANTIC_CASTS_RESOLVED: Self = Self(1 << 2);
     /// Macro kinds propagated from productions onto their rules.
     pub(crate) const MACRO_KINDS_PROPAGATED: Self = Self(1 << 3);
+    /// Every `#Configuration` on the right-hand side of a rule that is not macro-like is bound by
+    /// the rule's left-hand side.
+    pub(crate) const CONFIGURATION_VARIABLES_BOUND: Self = Self(1 << 4);
 
     pub(crate) const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    /// Whether every artifact of `other` is in `self`.
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    pub(crate) const fn contains(self, other: Self) -> bool {
+        other.missing_from(self).0 == 0
     }
 
     /// The artifacts of `self` that `available` lacks.
@@ -682,7 +696,9 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "resolve_config_var",
         resolve_config_var_stage,
         Provenance::Driver(GeneratingPass::ResolveFunctionWithConfig),
-        "generating"
+        "generating",
+        requires = Artifacts::NONE,
+        provides = Artifacts::CONFIGURATION_VARIABLES_BOUND
     ),
     stage!(
         "add cool-like attributes",
@@ -873,6 +889,8 @@ fn run_stages_seeded_current(
         || Current::new(start.clone()),
         |resolved| Current::with_resolved(start.clone(), resolved),
     );
+    #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+    measure::without_counting(|| state.checks.start(&current.definition, options));
     for stage in stages {
         let (output, next_resolved) = timings.time(stage.name, || {
             let input = PassInput::new(&current);
@@ -896,6 +914,8 @@ fn run_stages_seeded_current(
             };
             Ok((output, next_resolved))
         })?;
+        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+        measure::without_counting(|| state.checks.after(stage, &output, options));
         current = Current::new(output);
         if let Some(resolved) = next_resolved {
             let _ = current.resolved.set(resolved);
