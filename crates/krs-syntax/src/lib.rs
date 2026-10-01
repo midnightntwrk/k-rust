@@ -56,8 +56,9 @@ pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    RuleBlock, RuleClause, RuleCondition, RuleExtra, RuleHeadResult, RuleImport, RuleItem,
-    RuleNarrowing, RuleParameter, RulePattern, TermSort, parse_rule_block_source_with_trivia,
+    RuleBlock, RuleClause, RuleClauseLayout, RuleCondition, RuleExtra, RuleHeadResult, RuleImport,
+    RuleItem, RuleNarrowing, RuleParameter, RulePattern, TermSort,
+    parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

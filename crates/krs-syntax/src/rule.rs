@@ -364,6 +364,19 @@ impl RuleNarrowing {
     }
 }
 
+/// Authored component ranges of one readable rule clause.
+#[derive(Clone, Copy, Debug)]
+pub struct RuleClauseLayout {
+    /// The clause name identifier, excluding the following colon.
+    pub label: TokenRange,
+    /// The term pattern or complete brace-delimited subject record.
+    pub pattern: TokenRange,
+    /// The result expression or complete brace-delimited result record.
+    pub result: TokenRange,
+    /// The tokens after `where`, excluding the terminating semicolon.
+    pub conditions: Option<TokenRange>,
+}
+
 /// One named `pattern => result` clause in a readable rule block.
 #[derive(Clone, Debug)]
 pub struct RuleClause {
@@ -375,6 +388,7 @@ pub struct RuleClause {
     bindings: Vec<Ident>,
     computation_cell: Option<Ident>,
     source_range: TokenRange,
+    layout: RuleClauseLayout,
 }
 
 impl RuleClause {
@@ -425,6 +439,15 @@ impl RuleClause {
     #[must_use]
     pub const fn source_range(&self) -> TokenRange {
         self.source_range
+    }
+
+    /// Returns the authored label, pattern, result, and optional condition ranges.
+    ///
+    /// Record ranges include their braces.
+    /// Condition ranges exclude `where` and the terminating semicolon.
+    #[must_use]
+    pub const fn layout(&self) -> RuleClauseLayout {
+        self.layout
     }
 
     /// Returns the exact descriptor provenance for the completed head rule.
@@ -909,11 +932,18 @@ impl RuleBlock {
             input.parse::<Token![=>]>()?;
             let result: Expr = input.parse()?;
             let head_result = parse_head_result(result.clone())?;
+            let mut layout = RuleClauseLayout {
+                label: TokenRange::for_tokens(&name)?,
+                pattern: TokenRange::for_tokens(&pattern)?,
+                result: TokenRange::for_tokens(&result)?,
+                conditions: None,
+            };
 
             let mut narrowings = Vec::new();
             let mut extras = Vec::new();
             if input.peek(Token![where]) {
                 input.parse::<Token![where]>()?;
+                layout.conditions = Some(condition_token_range(input)?);
                 loop {
                     let first = input.call(Ident::parse_any)?;
                     match first.unraw().to_string().as_str() {
@@ -1021,6 +1051,7 @@ impl RuleBlock {
                 bindings,
                 computation_cell: None,
                 source_range: TokenRange::new(clause_start, semicolon.span),
+                layout,
             });
         }
         if clauses.is_empty() {
@@ -1205,13 +1236,22 @@ fn parse_machine_clause(
     configuration_type: &Type,
     clause_start: proc_macro2::Span,
 ) -> syn::Result<RuleClause> {
+    let pattern_record: TokenTree = input.fork().parse()?;
     let subject_cells = parse_machine_pattern_record(input)?;
     input.parse::<Token![=>]>()?;
+    let result_record: TokenTree = input.fork().parse()?;
     let result_cells = parse_machine_result_record(input)?;
+    let mut layout = RuleClauseLayout {
+        label: TokenRange::for_tokens(name)?,
+        pattern: TokenRange::for_tokens(&pattern_record)?,
+        result: TokenRange::for_tokens(&result_record)?,
+        conditions: None,
+    };
 
     let mut narrowings = Vec::new();
     if input.peek(Token![where]) {
         input.parse::<Token![where]>()?;
+        layout.conditions = Some(condition_token_range(input)?);
         loop {
             let binding = input.call(Ident::parse_any)?;
             input.parse::<Token![:]>()?;
@@ -1392,7 +1432,20 @@ fn parse_machine_clause(
         bindings,
         computation_cell: Some(computation_cell),
         source_range: TokenRange::new(clause_start, semicolon.span),
+        layout,
     })
+}
+
+fn condition_token_range(input: ParseStream<'_>) -> syn::Result<TokenRange> {
+    let fork = input.fork();
+    let mut tokens = TokenStream::new();
+    while !fork.is_empty() && !fork.peek(Token![;]) {
+        tokens.extend([fork.parse::<TokenTree>()?]);
+    }
+    if tokens.is_empty() {
+        return Err(input.error("expected a rule condition after `where`"));
+    }
+    Ok(TokenRange::for_tokens(&tokens)?)
 }
 
 fn parse_machine_update(cell: &Ident, base: &Ident, expression: &Expr) -> syn::Result<RuleExtra> {
@@ -2592,5 +2645,50 @@ fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
             TermExpression::parse_tokens(expression_macro.mac.tokens.clone())
         }
         expression => TermExpression::from_expression(expression.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RuleBlock, TokenRange};
+    use crate::KrsSyntax;
+
+    fn source_slice(source: &str, range: TokenRange) -> &str {
+        &source[range.first().byte_range().start..range.last().byte_range().end]
+    }
+
+    #[test]
+    fn clause_layout_ranges_preserve_authored_components() {
+        let source = "for Expr; step: Wrap(value) => int::add(value, 1)\n\
+                      where value: Int, update env = map::update(env, value, value);\n\
+                      bare: Wrap(other) => other;";
+        let block = RuleBlock::parse_source(source).unwrap();
+        let layout = block.clauses()[0].layout();
+        assert_eq!(source_slice(source, layout.label), "step");
+        assert_eq!(source_slice(source, layout.pattern), "Wrap(value)");
+        assert_eq!(source_slice(source, layout.result), "int::add(value, 1)");
+        assert_eq!(
+            source_slice(source, layout.conditions.unwrap()),
+            "value: Int, update env = map::update(env, value, value)"
+        );
+        assert!(block.clauses()[1].layout().conditions.is_none());
+
+        let source = "for Machine; step: { computation: [Wrap(value), ..], }\n\
+                      => { computation: [value, ..], } where value: Int;";
+        let block = RuleBlock::parse_source(source).unwrap();
+        let layout = block.clauses()[0].layout();
+        assert_eq!(source_slice(source, layout.label), "step");
+        assert_eq!(
+            source_slice(source, layout.pattern),
+            "{ computation: [Wrap(value), ..], }"
+        );
+        assert_eq!(
+            source_slice(source, layout.result),
+            "{ computation: [value, ..], }"
+        );
+        assert_eq!(
+            source_slice(source, layout.conditions.unwrap()),
+            "value: Int"
+        );
     }
 }
