@@ -246,6 +246,53 @@ pub mod right {
 }
 
 #[test]
+fn unresolved_parent_and_field_references_locate_their_own_tokens() {
+    let source = r#"#[k::sort]
+pub trait KItem {}
+
+#[k::sort]
+pub trait Expr: KItem + Missing {}
+
+#[k::constructor(sort = KItem, syntax = "foo({left}, {right})")]
+pub struct Foo { pub left: Term<dyn KItem>, pub right: Term<dyn Absent> }
+"#;
+    let package = TestPackage::new("reference_ranges", source);
+    let located = |descriptors: Vec<HostDescriptor>| {
+        let error =
+            collect_host_descriptors([package.context("ORG-REFERENCES")], descriptors).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            CollectionErrorKind::UnresolvedTypeReference,
+            "{error}"
+        );
+        let range = error.source_range().expect("located reference");
+        source[range.start_byte as usize..range.end_byte as usize].to_owned()
+    };
+
+    let parents = vec![
+        type_ref(kitem_type, "KItem"),
+        type_ref(other_type, "Missing"),
+    ];
+    assert_eq!(
+        located(vec![
+            package.sort("KItem", kitem_type, vec![]),
+            package.sort("Expr", expr_type, parents),
+        ]),
+        "Missing"
+    );
+
+    let mut constructor = package.constructor("Foo", foo_type, kitem_type);
+    let HostDescriptorPayload::Constructor(payload) = &mut constructor.payload else {
+        unreachable!("constructor fixture")
+    };
+    payload.fields[1].sort = type_ref(other_type, "Absent");
+    assert_eq!(
+        located(vec![package.sort("KItem", kitem_type, vec![]), constructor]),
+        "Absent"
+    );
+}
+
+#[test]
 fn changed_semantic_source_is_rejected_as_stale() {
     let package = TestPackage::new("changed", "#[k::sort]\npub trait Expr {}\n");
     let descriptor = package.sort("Expr", expr_type, vec![]);
