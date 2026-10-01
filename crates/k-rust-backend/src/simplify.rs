@@ -58,31 +58,36 @@ use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
-        InjectionEquality, MatchMode, MatchResult, match_collection_remainders_all_in_definition,
-        match_injection_equality, match_term_pairs_in_definition, match_terms_in_definition,
+        CollectionMatches, InjectionEquality, MatchFailed, MatchMode, MatchResult,
+        match_collection_remainders_all_in_definition, match_injection_equality,
+        match_term_pairs_in_definition, match_terms_in_definition,
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
         retain_substitution_predicates, violates_finite_constructor_domain,
     },
     rule::{
-        Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs, Theory,
-        applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
+        Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs, applicable_groups,
+        rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
-    term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
+    term::{
+        FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind,
+        head::NormalFormCertificate,
+    },
     transition::ExecutionEvaluationContext,
 };
 
 mod result;
-mod scan;
+pub(crate) mod scan;
 
 use result::{Accumulated, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
 use scan::{
-    EquationAttempt, GroupScan, IndeterminateEquation, TheoryScan, scan_group, scan_theory,
+    EquationAttempt, FunctionTheory, GroupScan, SimplificationTheory, TermTheory, TheoryScan,
+    scan_group, scan_term_theory,
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
@@ -1604,7 +1609,7 @@ fn apply_ceil_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Predicate>> {
+) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_ceil_equation(
             definition,
@@ -1618,26 +1623,27 @@ fn apply_ceil_equation(
     }
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
-            MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
+            MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable(())),
             MatchResult::Indeterminate {
                 substitution,
                 remainder,
-            } => {
-                let Some(matches) = match_collection_remainders_all_in_definition(
-                    MatchMode::Evaluate,
-                    definition,
-                    substitution,
-                    &remainder,
-                ) else {
+            } => match match_collection_remainders_all_in_definition(
+                MatchMode::Evaluate,
+                definition,
+                substitution,
+                &remainder,
+            ) {
+                CollectionMatches::Solutions(solutions) => solutions
+                    .into_iter()
+                    .next()
+                    .expect("collection solutions are never empty"),
+                CollectionMatches::NoSolution(_) => return Ok(EquationAttempt::NotApplicable(())),
+                CollectionMatches::Undecided => {
                     return Ok(EquationAttempt::Indeterminate(
                         ConditionIndeterminacy::ImplicationIndeterminate,
                     ));
-                };
-                let Some(substitution) = matches.into_iter().next() else {
-                    return Ok(EquationAttempt::NotApplicable);
-                };
-                substitution
-            }
+                }
+            },
             MatchResult::Success(substitution) => substitution,
         };
     if substitution
@@ -1645,7 +1651,7 @@ fn apply_ceil_equation(
         .any(|variable| !rule.lhs.attributes().variables.contains(variable))
         || check_concreteness(rule, &substitution).is_some()
     {
-        return Ok(EquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::NotApplicable(()));
     }
     if binds_element_variable_to_set_pattern(&substitution) {
         return Ok(EquationAttempt::Indeterminate(
@@ -1665,14 +1671,14 @@ fn apply_ceil_equation(
         solver,
     )? {
         EquationCondition::Satisfied(matched) => matched,
-        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable(())),
         EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
     };
 
     let RuleRhs::Predicates(rhs) = &rule.rhs else {
-        return Ok(EquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::NotApplicable(()));
     };
     // The subject `\ceil(f(t))` is strict in every term `t` bound to an element variable:
     // `\ceil(\bottom)` is `\bottom`. So `\ceil(f(t)) = \ceil(t) /\ q[t]` under the equation
@@ -1732,7 +1738,7 @@ fn apply_predicate_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Predicate>> {
+) -> SimplifyResult<EquationAttempt<Predicate, ()>> {
     if let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates) {
         return apply_predicate_equation(
             definition,
@@ -1751,10 +1757,10 @@ fn apply_predicate_equation(
     // move. For the `\top` and `\bottom` subjects left by condition evaluation, most subjects
     // here, the renaming finds no clash from the cached variable sets and builds nothing.
     if !same_connective(&rule.lhs, predicate) {
-        return Ok(EquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::NotApplicable(()));
     }
     let substitution = match match_predicate(definition, &rule.lhs, predicate) {
-        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable),
+        PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable(())),
         PredicateMatch::Indeterminate => {
             return Ok(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
@@ -1779,7 +1785,7 @@ fn apply_predicate_equation(
         solver,
     )? {
         EquationCondition::Satisfied(matched) => matched,
-        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable(())),
         EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
@@ -1830,7 +1836,7 @@ fn apply_predicate_equation(
         DecidedEquation::Refuted(substitution) => {
             let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
             if !obligated.is_subset(&strict) {
-                return Ok(EquationAttempt::NotApplicable);
+                return Ok(EquationAttempt::NotApplicable(()));
             }
             Ok(EquationAttempt::Applied(Predicate::False))
         }
@@ -2746,20 +2752,20 @@ fn matches_top_equation(
                     MatchResult::Indeterminate {
                         substitution,
                         remainder,
-                    } => {
-                        let Some(matches) = match_collection_remainders_all_in_definition(
-                            MatchMode::Evaluate,
-                            definition,
-                            substitution,
-                            &remainder,
-                        ) else {
+                    } => match match_collection_remainders_all_in_definition(
+                        MatchMode::Evaluate,
+                        definition,
+                        substitution,
+                        &remainder,
+                    ) {
+                        CollectionMatches::Solutions(solutions) => solutions
+                            .into_iter()
+                            .next()
+                            .expect("collection solutions are never empty"),
+                        CollectionMatches::NoSolution(_) | CollectionMatches::Undecided => {
                             continue;
-                        };
-                        let Some(substitution) = matches.into_iter().next() else {
-                            continue;
-                        };
-                        substitution
-                    }
+                        }
+                    },
                     MatchResult::Success(substitution) => substitution,
                 };
             if substitution
@@ -3061,9 +3067,8 @@ fn simplify_root(
             ));
         }
     };
-    let function_scan = match apply_theory(
+    let function_scan = match apply_theory::<FunctionTheory>(
         definition,
-        (definition.function_theory(), IndeterminateEquation::Block),
         term,
         known_predicates,
         options,
@@ -3080,12 +3085,8 @@ fn simplify_root(
         }
         scan => scan,
     };
-    let simplification_scan = match apply_theory(
+    let simplification_scan = match apply_theory::<SimplificationTheory>(
         definition,
-        (
-            definition.simplification_theory(),
-            IndeterminateEquation::Continue,
-        ),
         term,
         known_predicates,
         options,
@@ -3137,16 +3138,22 @@ fn simplify_root(
             });
         }
     }
-    // The fixed point is recorded only when both scans are `NotApplicable`: every equation
-    // offered the term failed to match it, which holds on every path (`Term::with_evaluated_cache`).
-    let equation_fixed_point = matches!(function_scan, TheoryScan::NotApplicable)
-        && matches!(simplification_scan, TheoryScan::NotApplicable);
-    let term =
-        if equation_fixed_point && builtin_supported && cacheable_equation_head(definition, term) {
-            term.with_evaluated_cache()
-        } else {
-            term.clone()
-        };
+    // The fixed point is recorded only when both scans are `NotApplicable`, in a definition
+    // whose equation selection reaches every term equation: every equation of the definition
+    // failed to match the term, which holds on every path (`Term::with_evaluated_cache`).
+    let term = if let TheoryScan::NotApplicable(function_scan) = function_scan
+        && let TheoryScan::NotApplicable(simplification_scan) = simplification_scan
+        && builtin_supported
+        && cacheable_equation_head(definition, term)
+        && let Some(selection) = definition.equation_selection_complete()
+    {
+        term.with_evaluated_cache(
+            definition,
+            NormalFormCertificate::new(selection, function_scan, simplification_scan),
+        )
+    } else {
+        term.clone()
+    };
     Ok((Simplification::irreducible(term), RootStep::Other, None))
 }
 
@@ -3211,8 +3218,9 @@ fn builtin_effect_result(
 /// Whether `term` is one of the normalized value-like equation heads whose fixed point can be
 /// retained in the term itself. Fully evaluated children exclude a closed parent whose child
 /// scan was blocked, and the empty variable set keeps a symbolic application out of the cache.
-/// The caller separately rejects a scan that set an equation aside for any reason other than a
-/// failed match (`TheoryScan::NotCacheable`, `TheoryScan::Blocked`).
+/// The caller separately needs a [`NormalFormCertificate`]: complete equation selection and two
+/// scans that ended in failed matches only (`TheoryScan::NotCacheable` and `TheoryScan::Blocked`
+/// give none).
 fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool {
     let TermKind::Application {
         symbol, arguments, ..
@@ -3226,20 +3234,17 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
             .all(|argument| argument.attributes().evaluated)
         && (symbol.attributes.head_role() == HeadRole::EquationHead
             || definition.overloads.is_overloaded(&symbol.name))
-        && definition.equation_selection_complete().is_some()
 }
 
-fn apply_theory(
+fn apply_theory<K: TermTheory>(
     definition: &BackendDefinition,
-    theory: (&Theory, IndeterminateEquation),
     term: &Term,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<TheoryScan> {
-    let (theory, indeterminate_equation) = theory;
-    scan_theory(theory, indeterminate_equation, term, |rule| {
+) -> SimplifyResult<TheoryScan<K>> {
+    scan_term_theory::<K>(definition, term, |rule| {
         apply_equation(
             definition,
             rule,
@@ -3320,7 +3325,7 @@ fn apply_equation(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification>> {
+) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
     if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_equation(
             definition,
@@ -3333,34 +3338,45 @@ fn apply_equation(
         );
     }
     measure::bump(Counter::SimplifyEquationAttempts);
-    let substitution =
-        match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
-            MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
-            MatchResult::Indeterminate {
-                substitution,
-                remainder,
-            } => {
-                let Some(matches) = match_collection_remainders_all_in_definition(
-                    MatchMode::Evaluate,
-                    definition,
-                    substitution.clone(),
-                    &remainder,
-                ) else {
+    let matched = match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term);
+    let substitution = match matched {
+        MatchResult::Failed(_) => {
+            let failed = matched
+                .refutation()
+                .expect("a failed match states its refutation");
+            return Ok(EquationAttempt::NotApplicable(failed));
+        }
+        MatchResult::Indeterminate {
+            substitution,
+            remainder,
+        } => {
+            let solutions = match match_collection_remainders_all_in_definition(
+                MatchMode::Evaluate,
+                definition,
+                substitution.clone(),
+                &remainder,
+            ) {
+                CollectionMatches::Solutions(solutions) => solutions,
+                CollectionMatches::NoSolution(failed) => {
+                    return Ok(EquationAttempt::NotApplicable(failed));
+                }
+                CollectionMatches::Undecided => {
                     return Ok(EquationAttempt::Indeterminate(
                         ConditionIndeterminacy::ImplicationIndeterminate,
                     ));
-                };
-                let Some(substitution) = matches.into_iter().next() else {
-                    return Ok(EquationAttempt::NotApplicable);
-                };
-                // K function equations are required to be functional. AC matching may expose
-                // several equivalent decompositions, so use the first substitution from the
-                // helper's stable sorted order rather than turning evaluation into execution
-                // branching.
-                substitution
-            }
-            MatchResult::Success(substitution) => substitution,
-        };
+                }
+            };
+            // K function equations are required to be functional. AC matching may expose
+            // several equivalent decompositions, so use the first substitution from the
+            // helper's stable sorted order rather than turning evaluation into execution
+            // branching.
+            solutions
+                .into_iter()
+                .next()
+                .expect("collection solutions are never empty")
+        }
+        MatchResult::Success(substitution) => substitution,
+    };
     // The left-hand side matched. The two checks below decide whether the evaluator uses the
     // equation here, not whether it holds, so a rejection is `Unused`, never `NotApplicable`.
     if substitution

@@ -38,8 +38,9 @@
 
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
-    definition::BackendDefinition,
+    definition::{BackendDefinition, SelectionComplete},
     instance_normal::{InstanceNormal, NormalArguments},
+    simplify::scan::{FunctionTheory, NoOfferedEquationMatched, SimplificationTheory},
 };
 
 /// How a left-hand side is read. A subject or operand has no reading: it is always read as the
@@ -187,6 +188,49 @@ impl NormalEvidence {
     #[must_use]
     pub(crate) fn instance_normal(_token: InstanceNormal) -> Self {
         Self(Source::InstanceNormal)
+    }
+}
+
+/// The simplifier's certificate that an application is a normal form on every path, the only
+/// argument that lets `Term::with_evaluated_cache` set the `evaluated` mark.
+///
+/// It is built from three statements, each minted where it is established:
+///
+/// - `SelectionComplete`: the definition's equation selection reaches every term equation that
+///   could match an application (`BackendDefinition::equation_selection_complete`);
+/// - `NoOfferedEquationMatched<FunctionTheory>` and
+///   `NoOfferedEquationMatched<SimplificationTheory>`: every function equation and every
+///   simplification equation that selection offers the application failed to match it
+///   (`simplify::scan::scan_term_theory`, one scan per theory).
+///
+/// Together they say that every term equation of the definition failed to match the application.
+/// A failed match reads no path condition, so the statement holds on every path. A caller
+/// outside the crate can name the type but not build a value:
+///
+/// ```compile_fail
+/// use k_rust_backend::term::head::NormalFormCertificate;
+/// fn certify(certificate: NormalFormCertificate) -> NormalFormCertificate {
+///     NormalFormCertificate(())
+/// }
+/// ```
+///
+/// ```
+/// use k_rust_backend::term::head::NormalFormCertificate;
+/// fn certify(certificate: NormalFormCertificate) -> NormalFormCertificate {
+///     certificate
+/// }
+/// ```
+#[derive(Debug)]
+pub struct NormalFormCertificate(());
+
+impl NormalFormCertificate {
+    #[must_use]
+    pub(crate) fn new(
+        _selection: SelectionComplete,
+        _function_scan: NoOfferedEquationMatched<FunctionTheory>,
+        _simplification_scan: NoOfferedEquationMatched<SimplificationTheory>,
+    ) -> Self {
+        Self(())
     }
 }
 
@@ -888,8 +932,8 @@ mod tests {
     fn each_oracle_fixes_an_equation_head_from_its_own_source() {
         let definition = definition();
         let plain = internal(&definition, "wrap{}(z{}())");
-        let marked = plain.with_evaluated_cache();
-        let redex = internal(&definition, "wrap{}(s{}(z{}()))").with_evaluated_cache();
+        let marked = plain.with_evaluated_mark_for_test();
+        let redex = internal(&definition, "wrap{}(s{}(z{}()))").with_evaluated_mark_for_test();
         let root = |term: &Term, normal: &mut dyn NormalForms| match classify_value(term, normal) {
             Head::Fixed(fixed) => Some(fixed.root()),
             Head::Open(open) => {
@@ -1237,7 +1281,9 @@ mod tests {
         let definition = definition();
         let plain = internal(&definition, "wrap{}(z{}())");
         assert!(!certified_ground_normal_form(&plain));
-        assert!(certified_ground_normal_form(&plain.with_evaluated_cache()));
+        assert!(certified_ground_normal_form(
+            &plain.with_evaluated_mark_for_test()
+        ));
         assert!(certified_ground_normal_form(&internal(
             &definition,
             "s{}(z{}())"
@@ -1277,7 +1323,7 @@ mod tests {
         );
         assert!(
             redex
-                .structurally_distinct_with(&normal.with_evaluated_cache(), &undecided)
+                .structurally_distinct_with(&normal.with_evaluated_mark_for_test(), &undecided)
                 .is_none(),
             "one side without the certificate decides nothing"
         );
@@ -1286,8 +1332,8 @@ mod tests {
         let deeper = internal(&definition, "wrap{}(s{}(s{}(z{}())))");
         assert!(
             deeper
-                .with_evaluated_cache()
-                .structurally_distinct_with(&normal.with_evaluated_cache(), &undecided)
+                .with_evaluated_mark_for_test()
+                .structurally_distinct_with(&normal.with_evaluated_mark_for_test(), &undecided)
                 .is_some()
         );
         let one = internal(&definition, "s{}(z{}())");
@@ -1442,8 +1488,8 @@ mod tests {
             apply(&c, vec![two.clone()]),
             apply(&d, vec![one.clone()]),
             apply(&wrap, vec![one.clone()]),
-            apply(&wrap, vec![one.clone()]).with_evaluated_cache(),
-            apply(&wrap, vec![two.clone()]).with_evaluated_cache(),
+            apply(&wrap, vec![one.clone()]).with_evaluated_mark_for_test(),
+            apply(&wrap, vec![two.clone()]).with_evaluated_mark_for_test(),
             Term::injection(sub.clone(), sort(), one.clone()),
             Term::injection(sub.clone(), sort(), two.clone()),
             Term::injection(Sort::simple("SortOther"), sort(), two.clone()),
@@ -1524,7 +1570,7 @@ mod tests {
             &symbol("m", 1, |symbol| symbol.attributes.macro_or_alias = true),
             vec![a.clone()],
         )
-        .with_evaluated_cache();
+        .with_evaluated_mark_for_test();
         assert!(predicate_structurally_distinct(&residual, &b, &undecided));
         assert!(
             residual

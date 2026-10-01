@@ -626,15 +626,15 @@ fn keeps_evaluate_mode_one_directional() {
         r#"mapConcat{}(mapItem{}(\dv{SortKey{}}("first"), \dv{SortValue{}}("first-value")), SUBJECTREST:SortMap{})"#,
     );
 
-    assert!(
+    assert!(matches!(
         match_collection_remainders_all_in_definition(
             MatchMode::Evaluate,
             &definition,
             Substitution::new(),
             &[(pattern, subject)],
-        )
-        .is_none()
-    );
+        ),
+        CollectionMatches::Undecided
+    ));
 }
 
 #[test]

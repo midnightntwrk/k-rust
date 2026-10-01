@@ -48,7 +48,7 @@ use crate::{
     unification::{UnificationResult, unify_term_pairs},
 };
 
-use super::{MatchMode, MatchResult, match_terms_with_context};
+use super::{MatchFailed, MatchMode, MatchResult, match_terms_with_context};
 /// One solution for a set of deferred collection pairs.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CollectionSolution {
@@ -1320,25 +1320,39 @@ impl SetCollectionProblem<'_> {
     }
 }
 
+/// The complete collection matches of the deferred pairs of an ordinary match.
+pub(crate) enum CollectionMatches {
+    /// Every solution, in the solver's stable sorted order; never empty.
+    Solutions(Vec<Substitution>),
+    /// The pairs have no solution: the match failed.
+    NoSolution(MatchFailed),
+    /// The solver could not decide the pairs.
+    Undecided,
+}
+
 /// Enumerate complete collection matches for every deferred pair from an ordinary match.
 ///
 /// A deferred Set or Map pair may have multiple AC solutions. Returning all substitutions keeps
 /// that branching policy outside the one-result [`MatchResult`] API and lets each consumer decide
 /// whether the solutions are execution branches or equivalent choices for a functional equation.
+/// An empty solution set is a failed match of the pattern, so it carries the [`MatchFailed`]
+/// token instead of an empty list.
 pub(crate) fn match_collection_remainders_all_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
     initial: Substitution,
     remainder: &[(Term, Term)],
-) -> Option<Vec<Substitution>> {
-    solve_collection_pairs_in_definition(mode, definition, initial, remainder, None).map(
-        |solutions| {
+) -> CollectionMatches {
+    match solve_collection_pairs_in_definition(mode, definition, initial, remainder, None) {
+        None => CollectionMatches::Undecided,
+        Some(solutions) if solutions.is_empty() => CollectionMatches::NoSolution(MatchFailed(())),
+        Some(solutions) => CollectionMatches::Solutions(
             solutions
                 .into_iter()
                 .map(|solution| solution.substitution)
-                .collect()
-        },
-    )
+                .collect(),
+        ),
+    }
 }
 
 #[derive(Clone)]

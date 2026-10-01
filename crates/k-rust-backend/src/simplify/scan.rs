@@ -1,9 +1,18 @@
 //! Equation scans: the outcome of one equation attempt, the scan of one priority group, and the
 //! priority loop over the groups a term theory offers a term.
+//!
+//! The loop is the only place that states "no equation offered this term matched it"
+//! ([`NoOfferedEquationMatched`]), the premise of the simplifier's normal-form certificate
+//! (`term::head::NormalFormCertificate`). It selects the groups itself, so the statement covers
+//! every group equation selection offers the term, and it states it only when every attempt of
+//! every group ended in a failed match of the equation's left-hand side
+//! ([`EquationAttempt::NotApplicable`] carrying a [`MatchFailed`]).
 
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
+    definition::BackendDefinition,
+    matching::MatchFailed,
     rule::{RewriteRule, Theory, applicable_groups, term_index},
     term::Term,
 };
@@ -16,7 +25,48 @@ pub(super) enum IndeterminateEquation {
     Continue,
 }
 
-pub(super) enum TheoryScan {
+/// One of the two term theories whose scans the evaluated mark rests on, as a type, so that a
+/// statement about one theory's scan cannot stand in for the other's.
+pub(super) trait TermTheory {
+    /// What an undecided equation does to the rest of the scan.
+    const INDETERMINATE_EQUATION: IndeterminateEquation;
+
+    /// The equations of the theory.
+    fn theory(definition: &BackendDefinition) -> &Theory;
+}
+
+/// The function equations: an undecided equation blocks the lower-priority groups, because
+/// function evaluation must keep the application rather than fall through to an `owise` or
+/// otherwise lower-priority equation.
+pub(crate) struct FunctionTheory;
+
+impl TermTheory for FunctionTheory {
+    const INDETERMINATE_EQUATION: IndeterminateEquation = IndeterminateEquation::Block;
+
+    fn theory(definition: &BackendDefinition) -> &Theory {
+        definition.function_theory()
+    }
+}
+
+/// The simplification equations: an undecided equation does not keep the lower-priority groups
+/// from applying.
+pub(crate) struct SimplificationTheory;
+
+impl TermTheory for SimplificationTheory {
+    const INDETERMINATE_EQUATION: IndeterminateEquation = IndeterminateEquation::Continue;
+
+    fn theory(definition: &BackendDefinition) -> &Theory {
+        definition.simplification_theory()
+    }
+}
+
+/// Every equation that selection offers a term in theory `K`, under the term's index and under
+/// a bare variable, failed to match it: its left-hand side has no instance in common with the
+/// term. Minted only by [`scan_term_theory`]; neither `Clone` nor `Copy`, so one scan yields
+/// one statement.
+pub(crate) struct NoOfferedEquationMatched<K>(PhantomData<K>);
+
+pub(super) enum TheoryScan<K> {
     /// The result of the equation that applied, and that equation.
     Applied(Simplification, Arc<RewriteRule>),
     Blocked,
@@ -24,24 +74,28 @@ pub(super) enum TheoryScan {
     /// match (see [`GroupScan::NotCacheable`]); the term is not a fixed point to record.
     NotCacheable,
     /// Every equation offered the term failed to match it.
-    NotApplicable,
+    NotApplicable(NoOfferedEquationMatched<K>),
 }
 
-/// The priority loop of a term theory: scan the groups `theory` offers `term` in priority order,
-/// trying each equation with `attempt`, until one applies or a group blocks the scan.
+/// The priority loop of term theory `K`: scan the groups equation selection offers `term` in
+/// priority order, trying each equation with `attempt`, until one applies or a group blocks the
+/// scan. The only mint of [`NoOfferedEquationMatched`]: it is returned when every attempt of
+/// every offered group ended `NotApplicable`, which for a term theory carries a [`MatchFailed`].
 ///
 /// ```toml algorithm-site
 /// id = "backend.simplify.term"
 /// role = "part"
-/// sites = ["scan_theory", "scan_group"]
+/// sites = ["scan_term_theory", "scan_group"]
 /// ```
-pub(super) fn scan_theory(
-    theory: &Theory,
-    indeterminate_equation: IndeterminateEquation,
+#[deny(clippy::wildcard_enum_match_arm)]
+pub(super) fn scan_term_theory<K: TermTheory>(
+    definition: &BackendDefinition,
     term: &Term,
-    mut attempt: impl FnMut(&Arc<RewriteRule>) -> SimplifyResult<EquationAttempt<Simplification>>,
-) -> SimplifyResult<TheoryScan> {
-    let groups = applicable_groups(theory, &term_index(term));
+    mut attempt: impl FnMut(
+        &Arc<RewriteRule>,
+    ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
+) -> SimplifyResult<TheoryScan<K>> {
+    let groups = applicable_groups(K::theory(definition), &term_index(term));
     let mut blocked = false;
     let mut not_cacheable = false;
     for rules in groups.values() {
@@ -50,14 +104,14 @@ pub(super) fn scan_theory(
                 EquationAttempt::Applied(result) => {
                     EquationAttempt::Applied((result, Arc::clone(rule)))
                 }
-                EquationAttempt::NotApplicable => EquationAttempt::NotApplicable,
+                EquationAttempt::NotApplicable(failed) => EquationAttempt::NotApplicable(failed),
                 EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
                 EquationAttempt::Unused => EquationAttempt::Unused,
                 EquationAttempt::Indeterminate(reason) => EquationAttempt::Indeterminate(reason),
             })
         })? {
             GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
-            GroupScan::Blocked if indeterminate_equation == IndeterminateEquation::Block => {
+            GroupScan::Blocked if K::INDETERMINATE_EQUATION == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
                 // through to an owise or otherwise lower-priority equation.
@@ -73,12 +127,18 @@ pub(super) fn scan_theory(
     } else if not_cacheable {
         TheoryScan::NotCacheable
     } else {
-        TheoryScan::NotApplicable
+        // Every group of `groups`, the whole of what selection offers `term` in `K`, ended
+        // `GroupScan::NotApplicable`: each of its attempts was `NotApplicable(MatchFailed)`.
+        TheoryScan::NotApplicable(NoOfferedEquationMatched(PhantomData))
     })
 }
 
-pub(super) enum EquationAttempt<T> {
-    NotApplicable,
+/// The outcome of one equation attempt. `N` is the evidence a `NotApplicable` attempt carries:
+/// [`MatchFailed`] for the term theories, whose scans the evaluated mark rests on, so that only
+/// a failed match of the left-hand side can be `NotApplicable` there; `()` for the ceil and
+/// predicate scans, which never feed the mark.
+pub(super) enum EquationAttempt<T, N> {
+    NotApplicable(N),
     /// The equation is inapplicable under the current path condition, but may apply if the same
     /// term is simplified under different assumptions. Unlike `Indeterminate`, this does not
     /// block lower-priority equations in the current scan.
@@ -102,12 +162,14 @@ pub(super) enum GroupScan<T> {
     /// answer may differ under another path condition, or an equation that matched was set aside,
     /// so the term must not be recorded as a fixed point.
     NotCacheable,
+    /// Every attempt of the group was `NotApplicable`.
     NotApplicable,
 }
 
-pub(super) fn scan_group<R, T>(
+#[deny(clippy::wildcard_enum_match_arm)]
+pub(super) fn scan_group<R, T, N>(
     rules: &[Arc<R>],
-    mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T>>,
+    mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T, N>>,
 ) -> SimplifyResult<GroupScan<T>> {
     let mut indeterminate = false;
     let mut not_cacheable = false;
@@ -116,7 +178,7 @@ pub(super) fn scan_group<R, T>(
             EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
             EquationAttempt::Indeterminate(_reason) => indeterminate = true,
             EquationAttempt::ContextDependent | EquationAttempt::Unused => not_cacheable = true,
-            EquationAttempt::NotApplicable => {}
+            EquationAttempt::NotApplicable(_evidence) => {}
         }
     }
     Ok(if indeterminate {

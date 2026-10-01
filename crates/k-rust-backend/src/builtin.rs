@@ -2060,7 +2060,7 @@ mod tests {
             apply(&assoc, vec![f_one.clone(), one.clone()]),
             apply(&assoc, vec![f_one.clone(), two.clone()]),
             apply(&wrap, vec![one.clone()]),
-            apply(&wrap, vec![one.clone()]).with_evaluated_cache(),
+            apply(&wrap, vec![one.clone()]).with_evaluated_mark_for_test(),
             Term::injection(sub.clone(), sort.clone(), f_one.clone()),
             Term::injection(sub.clone(), sort.clone(), two.clone()),
             Term::injection(Sort::simple("SortOther"), sort.clone(), f_two.clone()),

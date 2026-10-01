@@ -48,8 +48,9 @@
 mod collections;
 
 pub(crate) use collections::{
-    CollectionSolution, Narrowing, expand_closed_map_implication_remainders, is_collection_term,
-    match_collection_remainders_all_in_definition, solve_collection_pairs_in_definition,
+    CollectionMatches, CollectionSolution, Narrowing, expand_closed_map_implication_remainders,
+    is_collection_term, match_collection_remainders_all_in_definition,
+    solve_collection_pairs_in_definition,
 };
 // Named only by `src/tests/matching_oracle.rs`.
 #[cfg(test)]
@@ -98,6 +99,47 @@ pub enum MatchResult {
         remainder: Vec<(Term, Term)>,
     },
 }
+
+impl MatchResult {
+    /// The refutation this result states: `Some` exactly for [`MatchResult::Failed`], where no
+    /// instance of the subject is an instance of the pattern. A match that succeeded, or one
+    /// left open, refutes nothing:
+    ///
+    /// ```
+    /// use k_rust_backend::{matching::MatchResult, substitution::Substitution};
+    /// assert!(MatchResult::Success(Substitution::new()).refutation().is_none());
+    /// ```
+    #[must_use]
+    pub fn refutation(&self) -> Option<MatchFailed> {
+        match self {
+            Self::Failed(_) => Some(MatchFailed(())),
+            Self::Success(_) | Self::Indeterminate { .. } => None,
+        }
+    }
+}
+
+/// A token that the left-hand side of a pattern failed to match a subject: no instance of the
+/// subject is an instance of the pattern.
+///
+/// It is minted only from a failed match, by [`MatchResult::refutation`] or by the collection
+/// matcher when the deferred collection pairs of a match have no solution. A caller outside
+/// this module can name the type but not build a value:
+///
+/// ```compile_fail
+/// use k_rust_backend::matching::{MatchFailed, MatchResult};
+/// fn refute(r: &MatchResult) {
+///     let _: Option<MatchFailed> = Some(MatchFailed(()));
+/// }
+/// ```
+///
+/// ```
+/// use k_rust_backend::matching::{MatchFailed, MatchResult};
+/// fn refute(r: &MatchResult) {
+///     let _: Option<MatchFailed> = r.refutation();
+/// }
+/// ```
+#[derive(Debug)]
+pub struct MatchFailed(());
 
 /// Why no instance of a subject is an instance of a pattern.
 ///

@@ -9,8 +9,8 @@
 //! id = "representation.backend.term"
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
-//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
-//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it verifies strict (key, value) order or sorts and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
+//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it verifies strict (key, value) order or sorts and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache sets the bit only through marked_evaluated, which rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
@@ -995,16 +995,20 @@ impl Term {
     /// Construction deliberately leaves equation-headed applications unevaluated. The only
     /// caller is `simplify::simplify_root`, and the bit it sets on an application carries this
     /// invariant: the application is ground, its arguments carry the bit, and no equation of the
-    /// definition applies to it, on any path. It is set only when the function and
-    /// simplification scans both end `NotApplicable`. Such a scan tried every equation that
-    /// equation selection offers the head, or a bare variable, and each attempt was one of:
+    /// definition applies to it, on any path. The [`head::NormalFormCertificate`] it must pass
+    /// states the last part. It is built from complete equation selection
+    /// (`BackendDefinition::equation_selection_complete`) and from the function and
+    /// simplification scans (`simplify::scan::scan_term_theory`), each of which ended
+    /// `NotApplicable`: every equation selection offers the head, or a bare variable, was
+    /// tried, and each attempt was one of:
     ///
-    /// - a failed equation match (`MatchResult::Failed`); or
-    /// - a collection match that has no solution.
+    /// - a failed equation match (`MatchResult::refutation`); or
+    /// - a collection match that has no solution (`CollectionMatches::NoSolution`).
     ///
     /// Both are failed matches of the left-hand side against a ground term. They read no path
     /// condition, and a ground term is its only instance, so the equation applies to no instance.
-    /// An attempt that would weaken this is not `NotApplicable`, and it withholds the bit:
+    /// An attempt that would weaken this carries no failed match, so it cannot be
+    /// `NotApplicable` in a term-theory scan, and it withholds the certificate:
     ///
     /// - an undecided `requires` blocks the scan;
     /// - a `requires` refuted under the path condition is context dependent;
@@ -1016,12 +1020,45 @@ impl Term {
     /// Equations the selection does not offer fail to match the application, with two
     /// exceptions: a simplification axiom whose left-hand side is an `\and` of term patterns
     /// (filed in the predicate theory, so the term simplifier never tries it), and a term-theory
-    /// entry indexed `TermIndex::And`. A definition holding either gives no mark at all
-    /// (`BackendDefinition::equation_selection_complete`, checked by
-    /// `simplify_root` before it sets the bit). So "no offered equation matched" means "no
-    /// equation of the definition matched". A budget stop or an unsupported hook leaves a child
-    /// or the root unmarked. Structural distinctness reads the bit as "normal form".
-    pub(crate) fn with_evaluated_cache(&self) -> Self {
+    /// entry indexed `TermIndex::And`. A definition holding either gives no `SelectionComplete`
+    /// and so no certificate. So "no offered equation matched" means "no equation of the
+    /// definition matched". A budget stop or an unsupported hook leaves a child or the root
+    /// unmarked. Structural distinctness reads the bit as "normal form".
+    ///
+    /// The structural conditions (the term is a ground application of an equation head or an
+    /// overloaded symbol whose arguments carry the bit) are the caller's
+    /// (`simplify::cacheable_equation_head`) and are checked here in debug builds.
+    pub(crate) fn with_evaluated_cache(
+        &self,
+        definition: &crate::definition::BackendDefinition,
+        _certificate: head::NormalFormCertificate,
+    ) -> Self {
+        debug_assert!(
+            self.attributes().variables.is_empty(),
+            "the evaluated mark is certified only on a ground term"
+        );
+        debug_assert!(
+            matches!(
+                self.kind(),
+                TermKind::Application { symbol, arguments, .. }
+                    if (symbol.attributes.head_role() == HeadRole::EquationHead
+                        || definition.overloads.is_overloaded(&symbol.name))
+                        && arguments.iter().all(|argument| argument.attributes().evaluated)
+            ),
+            "the evaluated mark is certified only on an equation-head or overloaded application \
+             whose arguments carry the mark"
+        );
+        self.marked_evaluated()
+    }
+
+    /// Return this term with the `evaluated` bit set, without the simplifier's certificate: a
+    /// unit-test fixture, including marks the simplifier never sets, for the mark's readers.
+    #[cfg(test)]
+    pub(crate) fn with_evaluated_mark_for_test(&self) -> Self {
+        self.marked_evaluated()
+    }
+
+    fn marked_evaluated(&self) -> Self {
         if self.attributes().evaluated {
             return self.clone();
         }
