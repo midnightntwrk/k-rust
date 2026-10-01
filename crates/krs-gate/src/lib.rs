@@ -20,7 +20,7 @@
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
 //! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
-//! `kore.digest` and the `kast.*` operations may precede it.
+//! `kore.digest`, `ir.query`, and the `kast.*` operations may precede it.
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -44,6 +44,42 @@
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).
 //! It wraps [`k_rust::kore::parser::parse_definition`], shared generated-variable alpha normalization in [`kore_compare`], and [`k_rust::kore::printer::Printer`] through [`kore_digest`].
 //! It canonicalizes source paths and compiler-generated variable names and returns `sha256` of the pretty-printed KORE definition.
+//! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below.
+//! It operates independently of a loaded definition and reads only the artifacts required by the selected query.
+//! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir::SemanticTheory`], and [`krs_ir::DefinitionIr`].
+//! Symbol and source inputs use the version-checked [`krs_compiler::SymbolMap`] and [`krs_compiler::SourceMap`] readers.
+//! Unknown query kinds and fields are errors.
+//! All filters are optional exact matches; omitted filters select all rows.
+//! `kind: "files"` returns `{expected,actual,owned,has_claims}`.
+//! `expected` is the lexical file set from [`krs_compiler::emitted_artifact_names`], including `spec.k` exactly when Definition IR contains claims.
+//! `actual` lists directory entries in lexical order and `owned` requires the exact compiler-owned marker bytes.
+//! `kind: "modules"` returns `{main_module,rows}`; each row contains `name` and the exact authored and compiler-inferred emitted `imports`.
+//! `kind: "semantic_modules"` reads only Semantic IR and returns `{rows}` with `name`, `production_count`, `rule_count`, and `has_configuration`.
+//! `kind: "sentences"` accepts `module`, `sentence_kind`, and `label` filters and returns `{rows}` in generated artifact and byte order.
+//! Sentence rows contain `module`, `kind`, optional `label` and `rule_kind`, `source_map_key`, optional `generated`, `body`, and `initializers`.
+//! The sentence kinds are `syntax_sort`, `subsort`, `production`, `precedence`, `associativity`, `configuration`, `context_alias`, `rule`, and `claim`.
+//! Generated ranges contain `artifact`, inclusive `start_byte`, exclusive `end_byte`, and scalar line and column coordinates; clients may slice the artifact's UTF-8 bytes at these ranges.
+//! Ordinary rule bodies are provenance-free typed term facts; simultaneous bodies contain `kind: "configuration_rewrite"` and ordered `clauses` with `cell`, `from`, `to`, and `frame`.
+//! Configuration initializers contain ordered `{cell,term}` facts.
+//! Term facts contain `kind` and emitted `sort`, with `symbol` or closed `operation` for applications, `variable` for variables, `token` for tokens, `cell` for cells, ordered `arguments` for composites, and `from` and `to` for rewrites.
+//! `kind: "productions"` accepts `module`, `sort`, and `symbol` filters and returns `{rows}` sorted by module and symbol.
+//! Each production contains `module`, result `sort`, emitted `symbol`, literal `terminals`, typed `items` with emitted nonterminal sort names, and IR `attributes`.
+//! `kind: "vocabulary"` returns sorted sets `sorts`, `production_symbols`, `terminals`, `rule_labels`, and `imports`, plus `cells`, direct `subsorts`, and `applied_operations`.
+//! Cell rows contain `name`, leaf `sort` or null, and directly initializing `configuration_variable` or null.
+//! Subsort rows contain `sort` (the supersort) and `subsort`.
+//! Applied operation rows contain `module`, `label`, optional `symbol`, optional `operation`, optional `hook`, `result_sort`, and ordered `argument_sorts` from rule bodies, requirements, and claim ensures.
+//! Builtin and hook identities use their closed IR snake-case names; collection operations use `map.`, `list.`, and `set.` prefixes.
+//! `kind: "applications"` accepts `operation`, `symbol`, `result_sort`, `argument_sorts`, and `arguments` filters and returns `{rows}` with the operation fields above and ordered term-fact `arguments`.
+//! An argument pattern is a closed object with optional `kind`, `sort`, `symbol`, `operation`, `token`, `variable`, and recursive `arguments`.
+//! Every supplied field must match; omitted fields are wildcards, and supplied argument arrays must match exact arity and order.
+//! `kind: "descriptors"` accepts `descriptor_kind` and `item_kind` filters and returns `{counts,rows}`.
+//! Counts map the selected descriptor and item kinds to their multiplicities; rows contain typed `id`, `descriptor_kind`, `item_kind`, and `cargo_name`.
+//! `kind: "symbols"` accepts `emitted_name`, `identity_kind`, and `symbol_kind` filters and returns `{rows}` of typed symbol sidecar entries in their stored order.
+//! `kind: "sources"` accepts `key`, `node_kind`, and generated `artifact` filters and returns `{rows}` of typed source sidecar entries in their stored order.
+//! Source rows add `authored`, a flat array of `{k_namespace,cargo_name,package_relative_path,content_sha256}` for authored provenance frames.
+//! `kind: "definition_shape"` returns the typed Definition IR serialization with provenance omitted and each rule reduced to its kind and label identity.
+//! It preserves module, import, grammar, configuration, initializer, context-alias, sentence-kind, and label structure for readable-versus-expanded parity comparisons.
+//! Rule variables, bodies, conditions, and metadata do not participate because independently compiled expansion may introduce explicit tail bindings.
 //! `kast.normalize`, `kast.project`, `kast.frontier`, and `kast.inspect` operate independently of a loaded definition.
 //! Each KAST input must supply exactly one of `text` (inline KAST JSON), `path` (a UTF-8 KAST JSON file), or `value` (an inline node or envelope).
 //! Text and path inputs must carry exactly the `format`, `version`, and `term` envelope fields, with format `KAST` and version [`k_rust::kast::json::VERSION`].
@@ -105,13 +141,15 @@
 //! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
 //!
 //! A failure while handling a valid operation, including a pattern parse or backend error, produces an error response and leaves the session open.
-//! After a failed load, `kore.digest` and the `kast.*` operations can still succeed in that session.
+//! After a failed load, `kore.digest`, `ir.query`, and the `kast.*` operations can still succeed in that session.
 //! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
 /// Compile Definition IR into native KORE.
 pub mod compile;
 /// Assemble surface configuration variables through the native frontend.
 pub mod configuration;
+/// Query version-checked emitted artifact models.
+pub mod ir_query;
 /// Read and normalize KAST oracle evidence.
 pub mod kast;
 mod kore_attributes;

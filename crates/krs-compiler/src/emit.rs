@@ -18,10 +18,10 @@ use crate::sidecar::{GeneratedRanges, SidecarError};
 use crate::{LoweredDefinition, SourceMap, SymbolMap};
 
 /// Generated artifact holding the claim-free semantics.
-pub const DEFINITION_ARTIFACT: &str = "definition.k";
+pub use crate::artifacts::DEFINITION_ARTIFACT;
 
 /// Generated artifact holding the claims, present only when a claim exists.
-pub const SPEC_ARTIFACT: &str = "spec.k";
+pub use crate::artifacts::SPEC_ARTIFACT;
 
 /// Canonical K source and its deterministic shared sidecars.
 ///
@@ -385,13 +385,7 @@ fn emit_module<'a>(
     writer.push("module ");
     writer.push(module.id().as_str());
     writer.push("\n");
-    let mut imports = builtin_imports(module);
-    imports.extend(
-        module
-            .imports()
-            .iter()
-            .map(|import| import.as_str().to_owned()),
-    );
+    let imports = definition_module_imports(module);
     for import in &imports {
         writer.push("  imports ");
         writer.push(import);
@@ -504,6 +498,17 @@ impl BuiltinRequirements {
             }
         }
     }
+}
+
+/// Returns the exact authored and compiler-inferred imports emitted for a module.
+#[must_use]
+pub fn definition_module_imports(module: &DefinitionModule) -> BTreeSet<String> {
+    module
+        .imports()
+        .iter()
+        .map(|id| id.as_str().to_owned())
+        .chain(builtin_imports(module))
+        .collect()
 }
 
 fn builtin_imports(module: &DefinitionModule) -> BTreeSet<String> {

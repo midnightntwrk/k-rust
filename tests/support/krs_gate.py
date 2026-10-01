@@ -86,6 +86,26 @@ def digest(
         return session.digest(kore, semantics)
 
 
+def ir_query(
+    krs_gate: Path, artifacts: Path, query: Mapping[str, Any], *,
+    environment: Mapping[str, str] | None = None,
+) -> Any:
+    """Query emitted artifacts in one unloaded session."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return session.ir_query(artifacts, query)
+
+
+def ir_queries(
+    krs_gate: Path, artifacts: Path, queries: list[Mapping[str, Any]], *,
+    environment: Mapping[str, str] | None = None,
+) -> list[Any]:
+    """Query one artifact directory repeatedly in one unloaded session."""
+
+    with Session(krs_gate, environment=environment) as session:
+        return [session.ir_query(artifacts, query) for query in queries]
+
+
 class Session:
     """Exchange requests with a gate session, serializing concurrent callers."""
 
@@ -231,6 +251,11 @@ class Session:
                 f"differs from the compiled definition's {definition_kore_sha256}"
             )
         return loaded
+
+    def ir_query(self, artifacts: Path, query: Mapping[str, Any]) -> Any:
+        """Read a closed typed artifact projection without loading a definition."""
+
+        return self.request("ir.query", artifacts=os.fspath(artifacts), query=dict(query))
 
     def configure(self, variables: Mapping[str, str]) -> dict[str, Any]:
         """Parse surface configuration variables and return their KORE pattern."""

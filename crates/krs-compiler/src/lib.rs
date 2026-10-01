@@ -4,6 +4,7 @@
 //! This crate consumes the stable descriptor bundle
 //! and produces the Semantic IR, the Definition IR, and the emitted K.
 
+pub mod artifacts;
 mod emit;
 mod error;
 mod lowering;
@@ -14,7 +15,8 @@ mod sidecar;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
-pub use emit::{DEFINITION_ARTIFACT, EmitError, EmittedK, EmittedSpec, SPEC_ARTIFACT, emit_k};
+pub use artifacts::*;
+pub use emit::{EmitError, EmittedK, EmittedSpec, definition_module_imports, emit_k};
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use reference::{

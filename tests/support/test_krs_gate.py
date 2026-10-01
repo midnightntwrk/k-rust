@@ -83,6 +83,20 @@ class ClientTests(unittest.TestCase):
             "abc123",
         )
 
+    def test_ir_queries_need_no_definition_load_and_forward_opaque_queries(self) -> None:
+        query = {"kind": "sentences", "sentence_kind": "claim"}
+        with krs_gate.Session(self.binary) as session:
+            result = session.ir_query(Path("artifacts"), query)
+        self.assertEqual(result["operation"], "ir.query")
+        self.assertEqual(result["request_id"], "1")
+        self.assertEqual(result["fields"], {"artifacts": "artifacts", "query": query})
+        self.assertEqual(krs_gate.ir_query(self.binary, Path("artifacts"), query), result)
+        batch = krs_gate.ir_queries(self.binary, Path("artifacts"), [query, {"kind": "files"}])
+        self.assertEqual([item["request_id"] for item in batch], ["1", "2"])
+        self.assertEqual(batch[1]["fields"]["query"], {"kind": "files"})
+        with self.assertRaisesRegex(GateError, "bad request"):
+            krs_gate.ir_query(self.binary, Path("artifacts"), query, environment={"KRS_TEST_GATE_MODE": "error"})
+
     def test_session_exchanges_matching_ids_in_lockstep(self) -> None:
         with krs_gate.Session(self.binary) as session:
             loaded_ir = session.load(Path("definition-ir.json"), "MAIN")

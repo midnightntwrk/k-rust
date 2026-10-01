@@ -14,6 +14,18 @@ use serde::{Deserialize, Serialize};
 /// Version of the compiler-owned symbol/source sidecar encoding.
 const SIDECAR_SCHEMA_VERSION: u32 = 2;
 
+fn deserialize_schema_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let version = u32::deserialize(deserializer)?;
+    if version != SIDECAR_SCHEMA_VERSION {
+        return Err(serde::de::Error::custom(format!(
+            "unsupported compiler sidecar schema version {version}; expected {SIDECAR_SCHEMA_VERSION}"
+        )));
+    }
+    Ok(version)
+}
+
 /// A typed Definition IR identity mapped to generated source spelling.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "identity_kind", content = "identity", rename_all = "snake_case")]
@@ -80,6 +92,7 @@ impl SymbolMapEntry {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SymbolMap {
+    #[serde(deserialize_with = "deserialize_schema_version")]
     schema_version: u32,
     entries: Vec<SymbolMapEntry>,
 }
@@ -361,6 +374,7 @@ impl SourceMapEntry {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceMap {
+    #[serde(deserialize_with = "deserialize_schema_version")]
     schema_version: u32,
     entries: Vec<SourceMapEntry>,
 }
@@ -850,4 +864,21 @@ fn package_has_path_leak(package: &krs_ir::PackageId) -> bool {
     DisplayPath::is_absolute_spelling(package.k_namespace())
         || DisplayPath::is_absolute_spelling(package.cargo_name())
         || DisplayPath::is_absolute_spelling(package.cargo_version())
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_readers_require_the_current_version() {
+        for version in [0, 1, 3] {
+            let input = serde_json::json!({"schema_version": version, "entries": []});
+            assert!(serde_json::from_value::<SymbolMap>(input.clone()).is_err());
+            assert!(serde_json::from_value::<SourceMap>(input).is_err());
+        }
+        let valid = serde_json::json!({"schema_version": SIDECAR_SCHEMA_VERSION, "entries": []});
+        assert!(serde_json::from_value::<SymbolMap>(valid.clone()).is_ok());
+        assert!(serde_json::from_value::<SourceMap>(valid).is_ok());
+    }
 }

@@ -32,7 +32,10 @@ use std::process::{Command as ProcessCommand, Output};
 mod result_cache;
 use result_cache::ResultCache;
 
-const ARTIFACT_MARKER: &str = "KRS artifact directory schema 1; safe to update.\n";
+use krs_compiler::{
+    ARTIFACT_MARKER, ARTIFACT_MARKER_FILE, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT,
+    SEMANTIC_ARTIFACT, SOURCES_ARTIFACT, SYMBOLS_ARTIFACT, emitted_artifact_names,
+};
 
 /// Category of a production KRS command.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -630,23 +633,27 @@ fn emit(
                 sources,
             ))
         })?;
-    let mut artifacts = vec![
-        (
-            "descriptor-bundle.json".to_owned(),
-            descriptor_bundle.into_bytes(),
-        ),
-        ("semantic-ir.json".to_owned(), semantic_ir.into_bytes()),
-        ("definition-ir.json".to_owned(), definition_ir.into_bytes()),
-        (
-            DEFINITION_ARTIFACT.to_owned(),
-            emitted.source().as_bytes().to_vec(),
-        ),
-    ];
-    if let Some(spec) = emitted.spec() {
-        artifacts.push((SPEC_ARTIFACT.to_owned(), spec.source().as_bytes().to_vec()));
-    }
-    artifacts.push(("symbols.json".to_owned(), symbols.into_bytes()));
-    artifacts.push(("sources.json".to_owned(), sources.into_bytes()));
+    let artifacts = emitted_artifact_names(emitted.spec().is_some())
+        .into_iter()
+        .filter(|name| *name != ARTIFACT_MARKER_FILE)
+        .map(|name| {
+            let bytes = match name {
+                DESCRIPTOR_ARTIFACT => descriptor_bundle.as_bytes(),
+                SEMANTIC_ARTIFACT => semantic_ir.as_bytes(),
+                DEFINITION_IR_ARTIFACT => definition_ir.as_bytes(),
+                DEFINITION_ARTIFACT => emitted.source().as_bytes(),
+                SPEC_ARTIFACT => emitted
+                    .spec()
+                    .expect("claims artifact requires claims")
+                    .source()
+                    .as_bytes(),
+                SYMBOLS_ARTIFACT => symbols.as_bytes(),
+                SOURCES_ARTIFACT => sources.as_bytes(),
+                _ => unreachable!("known emitted artifact"),
+            };
+            (name.to_owned(), bytes.to_vec())
+        })
+        .collect::<Vec<_>>();
     measurement.timings.try_span("emit_k.write", |_| {
         prepare_output(output)?;
         for (name, bytes) in &artifacts {
@@ -781,7 +788,7 @@ fn prepare_output(path: &Path) -> Result<(), CommandError> {
             .next()
             .is_none();
         if !empty {
-            let marker = path.join(".krs-artifacts");
+            let marker = path.join(ARTIFACT_MARKER_FILE);
             let owned =
                 fs::read_to_string(&marker).is_ok_and(|contents| contents == ARTIFACT_MARKER);
             if !owned {
@@ -793,7 +800,7 @@ fn prepare_output(path: &Path) -> Result<(), CommandError> {
         path: path.to_path_buf(),
         source,
     })?;
-    write_output_if_different(path, ".krs-artifacts", ARTIFACT_MARKER.as_bytes())
+    write_output_if_different(path, ARTIFACT_MARKER_FILE, ARTIFACT_MARKER.as_bytes())
 }
 
 fn write_output_if_different(

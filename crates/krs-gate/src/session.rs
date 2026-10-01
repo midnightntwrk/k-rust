@@ -186,6 +186,7 @@ impl Session {
                 | "prove"
                 | "kore.read"
                 | "kore.digest"
+                | "ir.query"
                 | "kast.normalize"
                 | "kast.project"
                 | "kast.frontier"
@@ -200,6 +201,7 @@ impl Session {
                 operation,
                 "definition.load"
                     | "kore.digest"
+                    | "ir.query"
                     | "kast.normalize"
                     | "kast.project"
                     | "kast.frontier"
@@ -222,6 +224,7 @@ impl Session {
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
+            "ir.query" => crate::ir_query::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
                 crate::kast::dispatch(operation, request).map_err(Into::into)
             }
@@ -545,6 +548,21 @@ mod tests {
             .dispatch(&json!({"id": "valid", "operation": "search", "pattern": "left{}()"}))
             .unwrap();
         assert_eq!(response["result"]["states"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn artifact_queries_are_independent_and_failures_keep_the_session_open() {
+        let mut session = Session::new();
+        for query in [
+            json!({"id":"query","operation":"ir.query","artifacts":"missing","query":{"kind":"files"}}),
+            json!({"id":"missing-path","operation":"ir.query","query":{"kind":"files"}}),
+            json!({"id":"missing-query","operation":"ir.query","artifacts":"missing"}),
+        ] {
+            let response = session.dispatch(&query).unwrap();
+            assert_eq!(response["id"], query["id"]);
+            assert!(response.get("error").is_some());
+            assert!(!session.load_attempted);
+        }
     }
 
     #[test]
