@@ -11,6 +11,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shape};
+
 use crate::host::{HostTypeKey, HostTypeReference};
 use crate::transport::grammar::{
     DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
@@ -139,55 +141,60 @@ pub struct DescriptorCellType {
     pub value: String,
 }
 
-/// Leaf or nominally nested content of one fixed cell declaration field.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "content_kind",
-    rename_all = "snake_case",
-    deny_unknown_fields,
-    bound(
-        serialize = "S: Serialize, N: Serialize",
-        deserialize = "S: Deserialize<'de>, N: Deserialize<'de>"
-    )
-)]
-pub enum ProtocolCellContent<S, N> {
-    /// `Cell<T>` or `KCell<KSequence>` leaf.
-    Leaf {
-        /// Exact wrapper-path provenance.
-        wrapper_key: ProvenanceKey,
-        /// Typed wrapper meaning; path spelling is not semantic.
-        wrapper: CellWrapper,
-        /// Exact declared or builtin content sort.
-        sort: S,
-        /// Generic object-sort arguments retained for cell-pattern inference.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        arguments: Vec<S>,
-    },
-    /// Field whose type is another nominal `#[k::cell]` declaration.
-    Nested {
-        /// Typed reference to that declaration.
-        declaration: N,
-    },
+protocol_shape! {
+    /// Leaf or nominally nested content of one fixed cell declaration field.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(
+        tag = "content_kind",
+        rename_all = "snake_case",
+        deny_unknown_fields,
+        bound(
+            serialize = "S: Serialize, N: Serialize",
+            deserialize = "S: Deserialize<'de>, N: Deserialize<'de>"
+        )
+    )]
+    pub enum ProtocolCellContent<S => sort_map => S2, N => nominal_map => N2> {
+        /// `Cell<T>` or `KCell<KSequence>` leaf.
+        Leaf {
+            /// Exact wrapper-path provenance.
+            wrapper_key: ProvenanceKey => [keep],
+            /// Typed wrapper meaning; path spelling is not semantic.
+            wrapper: CellWrapper => [keep],
+            /// Exact declared or builtin content sort.
+            sort: S => [sort_map],
+            /// Generic object-sort arguments retained for cell-pattern inference.
+            #[serde(default, skip_serializing_if = "Vec::is_empty")]
+            arguments: Vec<S> => [vec sort_map],
+        },
+        /// Field whose type is another nominal `#[k::cell]` declaration.
+        Nested {
+            /// Typed reference to that declaration.
+            declaration: N => [nominal_map],
+        },
+    }
 }
 
-/// One ordered fixed-cell declaration field.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolCellField<I, S, N> {
-    /// Exact `configuration_field` provenance and nominal identity.
-    pub reference: I,
-    /// Stable Rust field name. This must agree with the stable identity.
-    pub rust_field: String,
-    /// Optional authored name override; absence emits `rust_field`.
-    pub emitted_name: Option<DescriptorCellName>,
-    /// Optional classified color.
-    pub color: Option<DescriptorCellColor>,
-    /// Optional repeated-cell multiplicity.
-    pub multiplicity: Option<DescriptorCellMultiplicity>,
-    /// Optional repeated-cell collection type.
-    pub cell_type: Option<DescriptorCellType>,
-    /// Typed leaf or nested content.
-    pub content: ProtocolCellContent<S, N>,
+protocol_shape! {
+    /// One ordered fixed-cell declaration field.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolCellField<I => cell_map => I2, S => sort_map => S2, N => nominal_map => N2> {
+        /// Exact `configuration_field` provenance and nominal identity.
+        pub reference: I => [cell_map],
+        /// Stable Rust field name.
+        /// This must agree with the stable identity.
+        pub rust_field: String => [keep],
+        /// Optional authored name override; absence emits `rust_field`.
+        pub emitted_name: Option<DescriptorCellName> => [keep],
+        /// Optional classified color.
+        pub color: Option<DescriptorCellColor> => [keep],
+        /// Optional repeated-cell multiplicity.
+        pub multiplicity: Option<DescriptorCellMultiplicity> => [keep],
+        /// Optional repeated-cell collection type.
+        pub cell_type: Option<DescriptorCellType> => [keep],
+        /// Typed leaf or nested content.
+        pub content: ProtocolCellContent<S, N> => [nested sort_map nominal_map],
+    }
 }
 
 /// Stable fixed-cell field.
@@ -201,14 +208,16 @@ pub type DescriptorCellField = ProtocolCellField<
 pub type HostCellField =
     ProtocolCellField<HostCellReference, HostSortReference, HostCellDeclarationReference>;
 
-/// Ordered fields owned by one configuration or nominal nested-cell item.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolCellDeclaration<F> {
-    /// Complete declaration-name provenance.
-    pub key: ProvenanceKey,
-    /// Nonempty fixed fields in authored order.
-    pub fields: Vec<F>,
+protocol_shape! {
+    /// Ordered fields owned by one configuration or nominal nested-cell item.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolCellDeclaration<F => field_map => F2> {
+        /// Complete declaration-name provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Nonempty fixed fields in authored order.
+        pub fields: Vec<F> => [vec field_map],
+    }
 }
 
 /// Stable field declaration used by a configuration descriptor.
@@ -238,22 +247,24 @@ pub enum DescriptorConfigurationRoot {
     },
 }
 
-/// One ordered external configuration variable.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolConfigurationVariable<S> {
-    /// Exact Rust binding provenance.
-    pub binding_key: ProvenanceKey,
-    /// Authored Rust binding name used by initializer terms.
-    pub binding: String,
-    /// Exact external-name literal provenance.
-    pub external_name_key: ProvenanceKey,
-    /// Nonempty external K variable name.
-    pub external_name: String,
-    /// Typed variable sort and exact type-path provenance.
-    pub sort: S,
-    /// Exact optional `main` marker provenance.
-    pub main_key: Option<ProvenanceKey>,
+protocol_shape! {
+    /// One ordered external configuration variable.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolConfigurationVariable<S => sort_map => S2> {
+        /// Exact Rust binding provenance.
+        pub binding_key: ProvenanceKey => [keep],
+        /// Authored Rust binding name used by initializer terms.
+        pub binding: String => [keep],
+        /// Exact external-name literal provenance.
+        pub external_name_key: ProvenanceKey => [keep],
+        /// Nonempty external K variable name.
+        pub external_name: String => [keep],
+        /// Typed variable sort and exact type-path provenance.
+        pub sort: S => [sort_map],
+        /// Exact optional `main` marker provenance.
+        pub main_key: Option<ProvenanceKey> => [keep],
+    }
 }
 
 /// Stable configuration-variable metadata.
@@ -274,109 +285,126 @@ pub enum DescriptorKSequenceNotation {
     DotK,
 }
 
-/// One ordinary structured term with its complete initializer-term anchor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolInitializerTerm<T> {
-    /// Exact complete-term provenance.
-    pub key: ProvenanceKey,
-    /// Structured term payload.
-    pub term: T,
+protocol_shape! {
+    /// One ordinary structured term with its complete initializer-term anchor.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolInitializerTerm<T => term_map => T2> {
+        /// Exact complete-term provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Structured term payload.
+        pub term: T => [term_map],
+    }
 }
 
-/// One K-sequence item and its structural item provenance.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolKSequenceItem<T> {
-    /// Exact K-item provenance.
-    pub key: ProvenanceKey,
-    /// Structured item term and complete-term provenance.
-    pub value: ProtocolInitializerTerm<T>,
+protocol_shape! {
+    /// One K-sequence item and its structural item provenance.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolKSequenceItem<T => term_map => T2> {
+        /// Exact K-item provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Structured item term and complete-term provenance.
+        pub value: ProtocolInitializerTerm<T> => [nested term_map],
+    }
 }
 
-/// Exact K sequence admitted by an initializer.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolKSequence<T> {
-    /// Complete payload provenance. Empty `k![]` alone has no inner endpoint.
-    pub payload_key: Option<ProvenanceKey>,
-    /// Exact `.K` provenance for standalone dot notation.
-    pub dot_k_key: Option<ProvenanceKey>,
-    /// Preserved parser classification.
-    pub notation: DescriptorKSequenceNotation,
-    /// Ordered sequence prefix; initializer sequences have no frame.
-    pub items: Vec<ProtocolKSequenceItem<T>>,
+protocol_shape! {
+    /// Exact K sequence admitted by an initializer.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolKSequence<T => term_map => T2> {
+        /// Complete payload provenance.
+        /// Empty `k![]` alone has no inner endpoint.
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Exact `.K` provenance for standalone dot notation.
+        pub dot_k_key: Option<ProvenanceKey> => [keep],
+        /// Preserved parser classification.
+        pub notation: DescriptorKSequenceNotation => [keep],
+        /// Ordered sequence prefix; initializer sequences have no frame.
+        pub items: Vec<ProtocolKSequenceItem<T>> => [vec nested term_map],
+    }
 }
 
-/// One exact map item.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolMapItem<T> {
-    /// Exact key-expression provenance.
-    pub key_key: ProvenanceKey,
-    /// Structured key term.
-    pub key: ProtocolInitializerTerm<T>,
-    /// Exact value-expression provenance.
-    pub value_key: ProvenanceKey,
-    /// Structured value term.
-    pub value: ProtocolInitializerTerm<T>,
+protocol_shape! {
+    /// One exact map item.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolMapItem<T => term_map => T2> {
+        /// Exact key-expression provenance.
+        pub key_key: ProvenanceKey => [keep],
+        /// Structured key term.
+        pub key: ProtocolInitializerTerm<T> => [nested term_map],
+        /// Exact value-expression provenance.
+        pub value_key: ProvenanceKey => [keep],
+        /// Structured value term.
+        pub value: ProtocolInitializerTerm<T> => [nested term_map],
+    }
 }
 
-/// Empty map, ordered exact items, or one functional update.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "map_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProtocolMapBody<T> {
-    /// `.Map` or empty `map![]`.
-    Empty {
-        /// Whether `.Map` was written explicitly.
-        explicit_dot: bool,
-    },
-    /// Ordered exact map items. Initializers cannot contain a remainder.
-    Items {
-        /// Nonempty ordered key/value entries.
-        items: Vec<ProtocolMapItem<T>>,
-    },
-    /// Functional update `(base, key, value)`.
-    Update {
-        /// Exact base-expression provenance.
-        base_key: ProvenanceKey,
-        /// Existing map term.
-        base: ProtocolInitializerTerm<T>,
-        /// Exact updated-key provenance.
-        key_key: ProvenanceKey,
-        /// Updated key term.
-        key: ProtocolInitializerTerm<T>,
-        /// Exact replacement-value provenance.
-        value_key: ProvenanceKey,
-        /// Replacement value term.
-        value: ProtocolInitializerTerm<T>,
-    },
+protocol_shape! {
+    /// Empty map, ordered exact items, or one functional update.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(tag = "map_kind", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum ProtocolMapBody<T => term_map => T2> {
+        /// `.Map` or empty `map![]`.
+        Empty {
+            /// Whether `.Map` was written explicitly.
+            explicit_dot: bool => [keep],
+        },
+        /// Ordered exact map items.
+        /// Initializers cannot contain a remainder.
+        Items {
+            /// Nonempty ordered key/value entries.
+            items: Vec<ProtocolMapItem<T>> => [vec nested term_map],
+        },
+        /// Functional update `(base, key, value)`.
+        Update {
+            /// Exact base-expression provenance.
+            base_key: ProvenanceKey => [keep],
+            /// Existing map term.
+            base: ProtocolInitializerTerm<T> => [nested term_map],
+            /// Exact updated-key provenance.
+            key_key: ProvenanceKey => [keep],
+            /// Updated key term.
+            key: ProtocolInitializerTerm<T> => [nested term_map],
+            /// Exact replacement-value provenance.
+            value_key: ProvenanceKey => [keep],
+            /// Replacement value term.
+            value: ProtocolInitializerTerm<T> => [nested term_map],
+        },
+    }
 }
 
-/// Structured exact map admitted by an initializer.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolMap<T> {
-    /// Complete payload provenance. Empty `map![]` alone has no inner endpoint.
-    pub payload_key: Option<ProvenanceKey>,
-    /// Typed map operation.
-    pub body: ProtocolMapBody<T>,
+protocol_shape! {
+    /// Structured exact map admitted by an initializer.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolMap<T => term_map => T2> {
+        /// Complete payload provenance.
+        /// Empty `map![]` alone has no inner endpoint.
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Typed map operation.
+        pub body: ProtocolMapBody<T> => [nested term_map],
+    }
 }
 
-/// Leaf state families admitted by a fixed initializer.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "state_term_kind",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum ProtocolInitializerStateTerm<T> {
-    /// Ordinary structured term.
-    Term(ProtocolInitializerTerm<T>),
-    /// Exact computation sequence.
-    KSequence(ProtocolKSequence<T>),
-    /// Exact map term.
-    Map(ProtocolMap<T>),
+protocol_shape! {
+    /// Leaf state families admitted by a fixed initializer.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(
+        tag = "state_term_kind",
+        rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum ProtocolInitializerStateTerm<T => term_map => T2> {
+        /// Ordinary structured term.
+        Term(value: ProtocolInitializerTerm<T> => [nested term_map]),
+        /// Exact computation sequence.
+        KSequence(value: ProtocolKSequence<T> => [nested term_map]),
+        /// Exact map term.
+        Map(value: ProtocolMap<T> => [nested term_map]),
+    }
 }
 
 /// Stable initializer state term.
@@ -385,38 +413,42 @@ pub type DescriptorInitializerStateTerm = ProtocolInitializerStateTerm<Descripto
 /// Host initializer state term.
 pub type HostInitializerStateTerm = ProtocolInitializerStateTerm<HostTerm>;
 
-/// Leaf or recursively nested initializer cell content.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "content_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProtocolInitializerCellContent<I, N, T> {
-    /// `Cell::new(...)` or `KCell::new(k![...])`.
-    Leaf {
-        /// Exact constructor-path provenance.
-        constructor_key: ProvenanceKey,
-        /// Typed wrapper meaning.
-        wrapper: CellWrapper,
-        /// Structured leaf state.
-        value: T,
-    },
-    /// Complete nominal nested-cell struct literal.
-    Nested {
-        /// Exact constructor reference.
-        declaration: N,
-        /// Ordered nonempty child initializers.
-        children: Vec<ProtocolInitializerCell<I, N, T>>,
-    },
+protocol_shape! {
+    /// Leaf or recursively nested initializer cell content.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(tag = "content_kind", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum ProtocolInitializerCellContent<I => cell_map => I2, N => nominal_map => N2, T => term_map => T2> {
+        /// `Cell::new(...)` or `KCell::new(k![...])`.
+        Leaf {
+            /// Exact constructor-path provenance.
+            constructor_key: ProvenanceKey => [keep],
+            /// Typed wrapper meaning.
+            wrapper: CellWrapper => [keep],
+            /// Structured leaf state.
+            value: T => [term_map],
+        },
+        /// Complete nominal nested-cell struct literal.
+        Nested {
+            /// Exact constructor reference.
+            declaration: N => [nominal_map],
+            /// Ordered nonempty child initializers.
+            children: Vec<ProtocolInitializerCell<I, N, T>> => [vec nested cell_map nominal_map term_map],
+        },
+    }
 }
 
-/// One node of a recursive initializer forest.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolInitializerCell<I, N, T> {
-    /// Exact initializer-cell node provenance.
-    pub key: ProvenanceKey,
-    /// Exact field occurrence and owner-qualified identity.
-    pub field: I,
-    /// Leaf or nested content.
-    pub content: ProtocolInitializerCellContent<I, N, T>,
+protocol_shape! {
+    /// One node of a recursive initializer forest.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolInitializerCell<I => cell_map => I2, N => nominal_map => N2, T => term_map => T2> {
+        /// Exact initializer-cell node provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Exact field occurrence and owner-qualified identity.
+        pub field: I => [cell_map],
+        /// Leaf or nested content.
+        pub content: ProtocolInitializerCellContent<I, N, T> => [nested cell_map nominal_map term_map],
+    }
 }
 
 /// Stable initializer cell.
@@ -433,22 +465,25 @@ pub type HostInitializerCell = ProtocolInitializerCell<
     HostInitializerStateTerm,
 >;
 
-/// Complete paired initializer payload.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolConfigurationInitializer<O, V, C> {
-    /// Exact associated-function declaration provenance.
-    pub key: ProvenanceKey,
-    /// Exact `Self` result-type provenance.
-    pub owner_key: ProvenanceKey,
-    /// Configuration owner identity. Host forms use a `HostTypeKey`.
-    pub owner: O,
-    /// Variables in parameter order.
-    pub variables: Vec<V>,
-    /// Complete declarative body provenance.
-    pub body_key: ProvenanceKey,
-    /// Complete ordered top-level initializer forest.
-    pub cells: Vec<C>,
+protocol_shape! {
+    /// Complete paired initializer payload.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolConfigurationInitializer<O => owner_map => O2, V => variable_map => V2, C => cell_map => C2> {
+        /// Exact associated-function declaration provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Exact `Self` result-type provenance.
+        pub owner_key: ProvenanceKey => [keep],
+        /// Configuration owner identity.
+        /// Host forms use a `HostTypeKey`.
+        pub owner: O => [owner_map],
+        /// Variables in parameter order.
+        pub variables: Vec<V> => [vec variable_map],
+        /// Complete declarative body provenance.
+        pub body_key: ProvenanceKey => [keep],
+        /// Complete ordered top-level initializer forest.
+        pub cells: Vec<C> => [vec cell_map],
+    }
 }
 
 /// Stable paired initializer.
@@ -462,28 +497,46 @@ pub type DescriptorConfigurationInitializer = ProtocolConfigurationInitializer<
 pub type HostConfigurationInitializer =
     ProtocolConfigurationInitializer<HostTypeKey, HostConfigurationVariable, HostInitializerCell>;
 
-/// Complete stable non-rule configuration payload.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorFixedConfiguration {
-    /// Generated or named top policy.
-    pub root: DescriptorConfigurationRoot,
-    /// Top-level declaration fields.
-    pub declaration: DescriptorConfigurationDeclaration,
-    /// Paired complete initializer.
-    pub initializer: DescriptorConfigurationInitializer,
+stage_shape! {
+    /// Complete non-rule configuration payload.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorFixedConfiguration",
+        bound(
+            serialize = "
+                S::Sort: Serialize,
+                S::Cell: Serialize,
+                S::CellDeclaration: Serialize,
+                S::InitializerOwner: Serialize,
+                S::Application: Serialize,
+                S::Nominal: Serialize
+            ",
+            deserialize = "
+                S::Sort: Deserialize<'de>,
+                S::Cell: Deserialize<'de>,
+                S::CellDeclaration: Deserialize<'de>,
+                S::InitializerOwner: Deserialize<'de>,
+                S::Application: Deserialize<'de>,
+                S::Nominal: Deserialize<'de>
+            "
+        )
+    )]
+    pub struct FixedConfiguration<S: Stage> {
+        /// Generated or named top policy.
+        pub root: DescriptorConfigurationRoot => [keep],
+        /// Top-level declaration fields.
+        pub declaration: StageCellDeclaration<S> => [with (map_declaration) S],
+        /// Paired complete initializer.
+        pub initializer: StageConfigurationInitializer<S> => [with (map_initializer) S],
+    }
 }
 
-/// Host counterpart of [`DescriptorFixedConfiguration`].
-#[derive(Clone, Debug)]
-pub struct HostFixedConfiguration {
-    /// Generated or named top policy.
-    pub root: DescriptorConfigurationRoot,
-    /// Top-level declaration fields.
-    pub declaration: HostConfigurationDeclaration,
-    /// Paired complete initializer.
-    pub initializer: HostConfigurationInitializer,
-}
+/// Stable descriptor-stage form of [`FixedConfiguration`].
+pub type DescriptorFixedConfiguration = FixedConfiguration<DescriptorStage>;
+
+/// Build-local host-stage form of [`FixedConfiguration`].
+pub type HostFixedConfiguration = FixedConfiguration<HostStage>;
 
 /// Typed local configuration transport error.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2233,4 +2286,52 @@ fn increment(value: u32) -> Result<u32, StateTransportError> {
         .ok_or(StateTransportError::InvalidCellContent(
             "provenance ordinal exceeds u32",
         ))
+}
+
+/// Declaration fields expressed through one reference stage.
+pub type StageCellDeclaration<S> = ProtocolCellDeclaration<
+    ProtocolCellField<<S as Stage>::Cell, <S as Stage>::Sort, <S as Stage>::CellDeclaration>,
+>;
+/// Paired initializer expressed through one reference stage.
+pub type StageConfigurationInitializer<S> = ProtocolConfigurationInitializer<
+    <S as Stage>::InitializerOwner,
+    ProtocolConfigurationVariable<<S as Stage>::Sort>,
+    ProtocolInitializerCell<
+        <S as Stage>::Cell,
+        <S as Stage>::CellDeclaration,
+        ProtocolInitializerStateTerm<crate::transport::grammar::Term<S>>,
+    >,
+>;
+
+pub(crate) fn map_declaration<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
+    value: StageCellDeclaration<S>,
+    map: &mut M,
+) -> Result<StageCellDeclaration<To>, M::Error> {
+    value.try_map_refs(map, &mut |field, map| {
+        field.try_map_refs(
+            map,
+            &mut |reference, map| map.cell(reference),
+            &mut |reference, map| map.sort(reference),
+            &mut |reference, map| map.cell_declaration(reference),
+        )
+    })
+}
+
+fn map_initializer<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
+    value: StageConfigurationInitializer<S>,
+    map: &mut M,
+) -> Result<StageConfigurationInitializer<To>, M::Error> {
+    value.try_map_refs(
+        map,
+        &mut |owner, map| map.initializer_owner(owner),
+        &mut |variable, map| variable.try_map_refs(map, &mut |sort, map| map.sort(sort)),
+        &mut |cell, map| {
+            cell.try_map_refs(
+                map,
+                &mut |reference, map| map.cell(reference),
+                &mut |reference, map| map.cell_declaration(reference),
+                &mut |value, map| value.try_map_refs(map, &mut |term, map| term.try_map_refs(map)),
+            )
+        },
+    )
 }

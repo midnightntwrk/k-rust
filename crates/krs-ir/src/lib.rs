@@ -28,6 +28,9 @@ pub mod provenance_role;
 pub mod semantic;
 pub mod sorted;
 pub mod stable_text;
+pub mod stage;
+#[cfg(test)]
+mod stage_tests;
 pub mod state;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
@@ -36,9 +39,10 @@ pub mod transport;
 pub mod wire;
 
 pub use bundle::{
-    ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
-    DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, SentenceKind, SortDescriptor,
+    Constructor, ConstructorDescriptor, ConstructorField, ConstructorFieldDescriptor, Descriptor,
+    DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin,
+    DescriptorPayload, DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind,
+    SortDescriptor, SortPayload,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -85,6 +89,7 @@ pub use semantic::{
     SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
 };
 pub use stable_text::StableText;
+pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellCollectionType, CellColor, CellContentFrame, CellMultiplicity, CellPost,
     ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
@@ -99,50 +104,54 @@ pub use transport::configuration::{
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
     DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorKSequenceNotation,
-    HostCellDeclaration, HostCellDeclarationReference, HostCellField, HostCellIdentity,
-    HostCellReference, HostConfigurationDeclaration, HostConfigurationInitializer,
-    HostConfigurationVariable, HostFixedConfiguration, HostInitializerCell,
-    HostInitializerStateTerm, ProtocolCellContent, ProtocolCellDeclaration, ProtocolCellField,
-    ProtocolConfigurationInitializer, ProtocolConfigurationVariable, ProtocolInitializerCell,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
-    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
-    StateTransportError,
+    FixedConfiguration as TransportFixedConfiguration, HostCellDeclaration,
+    HostCellDeclarationReference, HostCellField, HostCellIdentity, HostCellReference,
+    HostConfigurationDeclaration, HostConfigurationInitializer, HostConfigurationVariable,
+    HostFixedConfiguration, HostInitializerCell, HostInitializerStateTerm, ProtocolCellContent,
+    ProtocolCellDeclaration, ProtocolCellField, ProtocolConfigurationInitializer,
+    ProtocolConfigurationVariable, ProtocolInitializerCell, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, StageCellDeclaration,
+    StageConfigurationInitializer, StateTransportError,
 };
 pub use transport::grammar::{
-    DescriptorApplicationHeadClass, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorAssociativitySentence, DescriptorCellTermField, DescriptorContextAliasReference,
-    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
-    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorPrecedenceChain,
-    DescriptorProduction, DescriptorProductionAttribute, DescriptorProductionItem,
-    DescriptorProductionOwner, DescriptorRuleCondition, DescriptorRuleLabel,
-    DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor, GrammarTransportError,
-    HostApplicationIdentity, HostApplicationReference, HostApplicationTarget,
-    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostCellTermField, HostContextAliasReference,
-    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostGrammarDescriptor, HostListOperationRegistration,
-    HostMapOperationRegistration, HostProduction, HostProductionAttribute, HostProductionItem,
-    HostProductionOwner, HostRuleCondition, HostSetOperationRegistration, HostSortReference,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, StructuredRuleDescriptor,
+    CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationRef,
+    DescriptorApplicationReference, DescriptorAssociativitySentence, DescriptorCellTermField,
+    DescriptorContextAliasReference, DescriptorFieldReference, DescriptorFormatFragment,
+    DescriptorGroupReference, DescriptorLexicalPrecedence, DescriptorLiteral,
+    DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
+    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRuleCondition,
+    DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
+    DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+    DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
+    GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
+    HostApplicationTarget, HostBuiltinOperationRegistration, HostBuiltinRegistry,
+    HostBuiltinRegistryError, HostBuiltinSortRegistration, HostCellTermField,
+    HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor,
+    HostListOperationRegistration, HostMapOperationRegistration, HostProduction,
+    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
+    HostSetOperationRegistration, HostSortReference, HostStructuredRuleDescriptor, HostTerm,
+    HostTermArgument, Production, ProductionAttribute as TransportProductionAttribute,
+    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition,
+    StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
     enum_variant_disambiguator,
 };
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleResult, HostHeadRule, HostHeadRuleBinding, HostHeadRuleCellReference,
-    HostHeadRuleExtra, HostHeadRuleResult, ProtocolHeadRuleBinding, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult,
+    DescriptorHeadRuleResult, HeadRule, HostHeadRule, HostHeadRuleBinding,
+    HostHeadRuleCellReference, HostHeadRuleExtra, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ResolvedHeadRule,
 };
 pub use transport::rule::{
-    ClaimModality, DescriptorClaim, DescriptorClaimBinder, DescriptorConfigurationReference,
-    DescriptorConfigurationRule, DescriptorContextAlias, DescriptorRuleBinding,
-    DescriptorRuleCells, HostClaim, HostClaimBinder, HostConfigurationReference,
-    HostConfigurationRule, HostContextAlias, HostRuleBinding, HostRuleCells,
-    ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolRuleBinding,
-    ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame,
-    ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm,
+    Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
+    DescriptorClaimBinder, DescriptorConfigurationReference, DescriptorConfigurationRule,
+    DescriptorContextAlias, DescriptorRuleBinding, DescriptorRuleCells, HostClaim, HostClaimBinder,
+    HostConfigurationReference, HostConfigurationRule, HostContextAlias, HostRuleBinding,
+    HostRuleCells, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
+    ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleCells,
+    ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
+    ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
 };
 
 use serde::{Deserialize, Serialize};

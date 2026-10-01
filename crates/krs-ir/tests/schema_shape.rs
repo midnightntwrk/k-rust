@@ -399,6 +399,8 @@ fn collect_items(
     public: &mut BTreeSet<String>,
     derived: &mut BTreeSet<String>,
     implemented: &mut BTreeSet<String>,
+    stage_derived: &mut BTreeSet<String>,
+    stage_aliases: &mut BTreeMap<String, (String, bool)>,
 ) {
     for item in items {
         let declaration = match item {
@@ -425,15 +427,96 @@ fn collect_items(
             }
             Item::Mod(item) => {
                 if let Some((_, nested)) = &item.content {
-                    collect_items(nested, public, derived, implemented);
+                    collect_items(
+                        nested,
+                        public,
+                        derived,
+                        implemented,
+                        stage_derived,
+                        stage_aliases,
+                    );
                 }
             }
-            Item::Macro(item) if item.mac.path.is_ident("macro_rules") => {
+            Item::Type(item) if matches!(item.vis, syn::Visibility::Public(_)) => {
+                if let Some(target) = stage_alias_target(item.ty.as_ref()) {
+                    stage_aliases.insert(item.ident.to_string(), target);
+                }
+            }
+            Item::Macro(item)
+                if item.mac.path.is_ident("macro_rules")
+                    || item
+                        .mac
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == "protocol_shape") =>
+            {
                 collect_macro_tokens(item.mac.tokens.clone(), public, derived);
+            }
+            Item::Macro(item)
+                if item
+                    .mac
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "stage_shape") =>
+            {
+                collect_macro_tokens(item.mac.tokens.clone(), public, stage_derived);
             }
             _ => {}
         }
     }
+}
+
+fn stage_alias_target(ty: &syn::Type) -> Option<(String, bool)> {
+    let syn::Type::Path(target) = ty else {
+        return None;
+    };
+    let segment = target.path.segments.last()?;
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    let Some(syn::GenericArgument::Type(syn::Type::Path(stage))) = arguments.args.first() else {
+        return None;
+    };
+    let serializable = match stage.path.segments.last()?.ident.to_string().as_str() {
+        "WireStage" | "DescriptorStage" => true,
+        "HostStage" => false,
+        _ => return None,
+    };
+    Some((segment.ident.to_string(), serializable))
+}
+
+fn deserializable_names(sources: &[syn::File]) -> BTreeSet<String> {
+    let mut public = BTreeSet::new();
+    let mut derived = BTreeSet::new();
+    let mut implemented = BTreeSet::new();
+    let mut stage_derived = BTreeSet::new();
+    let mut stage_aliases = BTreeMap::new();
+    for source in sources {
+        collect_items(
+            &source.items,
+            &mut public,
+            &mut derived,
+            &mut implemented,
+            &mut stage_derived,
+            &mut stage_aliases,
+        );
+    }
+    derived.extend(implemented.intersection(&public).cloned());
+    // Stage shapes are classified through their serialized concrete aliases.
+    // Host aliases carry Rust identities and must remain outside this census.
+    let aliases: BTreeSet<_> = stage_aliases
+        .iter()
+        .filter(|(_, (target, serializable))| *serializable && stage_derived.contains(target))
+        .map(|(name, _)| name.clone())
+        .collect();
+    for (target, _) in stage_aliases.values() {
+        stage_derived.remove(target);
+    }
+    derived.extend(stage_derived);
+    derived.extend(aliases);
+    derived
 }
 
 fn census() -> BTreeSet<String> {
@@ -442,14 +525,60 @@ fn census() -> BTreeSet<String> {
         &PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src")),
         &mut sources,
     );
-    let mut public = BTreeSet::new();
-    let mut derived = BTreeSet::new();
-    let mut implemented = BTreeSet::new();
-    for source in &sources {
-        collect_items(&source.items, &mut public, &mut derived, &mut implemented);
-    }
-    derived.extend(implemented.intersection(&public).cloned());
-    derived
+    deserializable_names(&sources)
+}
+
+#[test]
+fn serde_census_preserves_concrete_stage_aliases() {
+    let source = syn::parse_file(
+        r"
+        stage_shape! {
+            #[derive(serde::Deserialize)]
+            pub struct Term<S: Stage> {
+                pub sort: S::Sort => [sort],
+            }
+        }
+        pub type WireTerm = Term<WireStage>;
+        pub type HostTerm = Term<HostStage>;
+        pub type DescriptorTerm = Term<DescriptorStage>;
+        stage_shape! {
+            #[derive(Deserialize)]
+            pub enum Payload<S: Stage, H => head => H2> {
+                Head(value: H => [via head]),
+            }
+        }
+        pub type DescriptorPayload = Payload<DescriptorStage, DescriptorHeadRule>;
+        pub type HostDescriptorPayload = Payload<HostStage, HostHeadRule>;
+        #[derive(Deserialize)]
+        pub struct ProtocolTerm<T> {
+            pub value: T,
+        }
+        protocol_shape! {
+            #[derive(Deserialize)]
+            pub struct ProtocolField<T> {
+                pub value: T => [map],
+            }
+        }
+        mod semantic {
+            #[derive(Deserialize)]
+            pub struct Term<T> {
+                pub value: T,
+            }
+        }
+        ",
+    )
+    .unwrap();
+    assert_eq!(
+        deserializable_names(&[source]),
+        BTreeSet::from([
+            "WireTerm".to_owned(),
+            "DescriptorTerm".to_owned(),
+            "DescriptorPayload".to_owned(),
+            "ProtocolTerm".to_owned(),
+            "ProtocolField".to_owned(),
+            "Term".to_owned(),
+        ])
+    );
 }
 
 #[allow(clippy::too_many_lines)]

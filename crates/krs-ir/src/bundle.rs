@@ -7,12 +7,17 @@ use std::io::Write;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::stage::{DescriptorStage, stage_shape};
+use crate::transport::{
+    configuration::{FixedConfiguration as TransportFixedConfiguration, StageCellDeclaration},
+    grammar::{StageGrammarDescriptor, StructuredRule},
+    rule::{ConfigurationRule, ContextAlias},
+};
+
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
-    DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
-    DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
-    GrammarTransportError, OriginStack, ProvenanceKey, ProvenanceRole, RustVisibility,
-    SchemaVersion, StableItemId, StateTransportError, StructuredRuleDescriptor,
+    ExplicitSymbol, GrammarTransportError, OriginStack, ProvenanceKey, ProvenanceRole,
+    RustVisibility, SchemaVersion, StableItemId, StateTransportError, StructuredRuleDescriptor,
 };
 
 impl SortKey for Descriptor {
@@ -668,41 +673,91 @@ impl fmt::Display for DescriptorProvenanceError {
 
 impl Error for DescriptorProvenanceError {}
 
-/// Minimal serializable declaration variants.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "descriptor_kind",
-    content = "descriptor",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum DescriptorPayload {
-    /// Open-sort declaration.
-    Sort(SortDescriptor),
-    /// Constructor declaration.
-    Constructor(ConstructorDescriptor),
-    /// Typed after-the-fact object-grammar sentence.
-    Grammar(Box<GrammarDescriptor>),
-    /// Fully structured relational sentence using typed term references.
-    StructuredRule(Box<StructuredRuleDescriptor>),
-    /// Complete fixed configuration and initializer.
-    FixedConfiguration(Box<DescriptorFixedConfiguration>),
-    /// Nominal nested fixed-cell declaration.
-    Cell(Box<DescriptorCellDeclaration>),
-    /// Simultaneous whole-configuration rule.
-    ConfigurationRule(Box<DescriptorConfigurationRule>),
-    /// Collector-completed bare-sort computation-head rule.
-    HeadRule(Box<crate::DescriptorHeadRule>),
-    /// One-sided reusable fixed-configuration context template.
-    ContextAlias(Box<DescriptorContextAlias>),
+stage_shape! {
+    /// Matching collector declaration payloads across reference stages.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        tag = "descriptor_kind",
+        content = "descriptor",
+        rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    #[serde(
+        rename = "DescriptorPayload",
+        bound(
+            serialize = "
+                S::Parents: Serialize,
+                S::ConstructorSort: Serialize,
+                S::ConstructorFieldSort: Serialize,
+                S::Sort: Serialize,
+                S::Application: Serialize,
+                S::Nominal: Serialize,
+                S::ContextAlias: Serialize,
+                S::Configuration: Serialize,
+                S::Cell: Serialize,
+                S::CellDeclaration: Serialize,
+                S::InitializerOwner: Serialize,
+                H: Serialize
+            ",
+            deserialize = "
+                S::Parents: Deserialize<'de>,
+                S::ConstructorSort: Deserialize<'de>,
+                S::ConstructorFieldSort: Deserialize<'de>,
+                S::Sort: Deserialize<'de>,
+                S::Application: Deserialize<'de>,
+                S::Nominal: Deserialize<'de>,
+                S::ContextAlias: Deserialize<'de>,
+                S::Configuration: Deserialize<'de>,
+                S::Cell: Deserialize<'de>,
+                S::CellDeclaration: Deserialize<'de>,
+                S::InitializerOwner: Deserialize<'de>,
+                H: Deserialize<'de>
+            "
+        )
+    )]
+    pub enum Payload<S: Stage, H => head => H2> {
+        /// Open-sort declaration.
+        Sort(value: SortPayload<S> => [nested]),
+        /// Constructor declaration.
+        Constructor(value: Constructor<S> => [nested]),
+        /// Typed after-the-fact object-grammar sentence.
+        Grammar(value: Box<StageGrammarDescriptor<S>> => [box nested]),
+        /// Fully structured relational sentence using typed term references.
+        StructuredRule(value: Box<StructuredRule<S>> => [box nested]),
+        /// Complete fixed configuration and initializer.
+        FixedConfiguration(value: Box<TransportFixedConfiguration<S>> => [box nested]),
+        /// Nominal nested fixed-cell declaration.
+        Cell(value: Box<StageCellDeclaration<S>> => [box with (crate::transport::configuration::map_declaration) S]),
+        /// Simultaneous whole-configuration rule.
+        ConfigurationRule(value: Box<ConfigurationRule<S>> => [box nested]),
+        /// Computation-head rule before or after collector completion.
+        HeadRule(value: Box<H> => [box via head]),
+        /// One-sided reusable fixed-configuration context template.
+        ContextAlias(value: Box<ContextAlias<S>> => [box nested]),
+    }
 }
 
-/// Resolved open-sort payload.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct SortDescriptor {
-    /// Direct super-sorts in canonical order.
-    pub parents: BTreeSet<StableItemId>,
+/// Stable payload with a collector-completed head rule.
+pub type DescriptorPayload = Payload<DescriptorStage, crate::DescriptorHeadRule>;
+
+stage_shape! {
+    /// Open-sort payload with direct parent references.
+    #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    #[serde(
+        rename = "SortDescriptor",
+        bound(
+            serialize = "S::Parents: Serialize",
+            deserialize = "S::Parents: Deserialize<'de>"
+        )
+    )]
+    pub struct SortPayload<S: Stage> {
+        /// Direct super-sort references in the stage's collection order.
+        pub parents: S::Parents => [parents],
+    }
 }
+
+/// Stable descriptor-stage form of [`SortPayload`].
+pub type SortDescriptor = SortPayload<DescriptorStage>;
 
 #[cfg(feature = "test-support")]
 impl SortDescriptor {
@@ -717,24 +772,48 @@ impl SortDescriptor {
     }
 }
 
-/// Resolved constructor payload.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct ConstructorDescriptor {
-    /// Sort directly containing the constructor.
-    pub sort: DescriptorSortRef,
-    /// Fields in authored constructor order.
-    pub fields: Vec<ConstructorFieldDescriptor>,
+stage_shape! {
+    /// Constructor payload with result-sort and ordered field references.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "ConstructorDescriptor",
+        bound(
+            serialize = "S::ConstructorSort: Serialize, S::ConstructorFieldSort: Serialize",
+            deserialize = "S::ConstructorSort: Deserialize<'de>, S::ConstructorFieldSort: Deserialize<'de>"
+        )
+    )]
+    pub struct Constructor<S: Stage> {
+        /// Sort directly containing the constructor.
+        pub sort: S::ConstructorSort => [constructor_sort],
+        /// Fields in authored constructor order.
+        pub fields: Vec<ConstructorField<S>> => [vec nested],
+    }
 }
 
-/// One named constructor field.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct ConstructorFieldDescriptor {
-    /// Rust field name.
-    pub name: String,
-    /// Declared or builtin field sort when known at descriptor collection time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sort: Option<crate::DescriptorSortRef>,
+/// Stable descriptor-stage form of [`Constructor`].
+pub type ConstructorDescriptor = Constructor<DescriptorStage>;
+
+stage_shape! {
+    /// One named constructor field.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "ConstructorFieldDescriptor",
+        bound(
+            serialize = "S::ConstructorFieldSort: Serialize",
+            deserialize = "S::ConstructorFieldSort: Deserialize<'de>"
+        )
+    )]
+    pub struct ConstructorField<S: Stage> {
+        /// Rust field name.
+        pub name: String => [keep],
+        /// Declared or builtin field sort when known at descriptor collection time.
+        #[serde(skip_serializing_if = "S::skip_constructor_field_sort")]
+        pub sort: S::ConstructorFieldSort => [constructor_field_sort],
+    }
 }
+
+/// Stable descriptor-stage form of [`ConstructorField`].
+pub type ConstructorFieldDescriptor = ConstructorField<DescriptorStage>;
 
 /// Explicit K sentence kind; rule ordering is never encoded here.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

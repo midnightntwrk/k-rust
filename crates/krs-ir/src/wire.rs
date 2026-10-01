@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::stage::{WireStage, stage_shape};
+use crate::transport::grammar::{
+    CellTermField, Production, ProductionAttribute, ProductionItem, ProductionOwner, RuleCondition,
+    StageGrammarDescriptor, StructuredRule, Term, TermArgument,
+};
+use crate::transport::head_rule::HeadRule;
 use crate::{
-    BuiltinSort, DescriptorApplicationHeadClass, DescriptorAssociativitySentence,
-    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
-    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorPrecedenceChain, DescriptorRuleLabel,
-    DescriptorRulePriority, DescriptorSimplification, HookOperation, ProductionFieldId,
     ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey,
-    SentenceKind, StrictnessKind,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,106 +41,64 @@ pub struct WireApplicationReference {
     pub authored_path: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "argument_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WireTermArgument {
-    Positional {
-        value: Box<WireTerm>,
-    },
-    Named {
-        key: ProvenanceKey,
-        field: ProductionFieldId,
-        value: Box<WireTerm>,
-    },
+/// Static wire-stage form of [`TermArgument`].
+pub type WireTermArgument = TermArgument<WireStage>;
+
+/// Static wire-stage form of [`CellTermField`].
+pub type WireCellTermField = CellTermField<WireStage>;
+
+/// Static wire-stage form of [`Term`].
+pub type WireTerm = Term<WireStage>;
+
+/// Static wire-stage form of [`RuleCondition`].
+pub type WireRuleCondition = RuleCondition<WireStage>;
+
+/// Static wire-stage form of [`StructuredRule`].
+pub type WireStructuredRule = StructuredRule<WireStage>;
+
+stage_shape! {
+    /// Static indexed constructor transport.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "WireConstructorFieldDescriptor",
+        deny_unknown_fields,
+        bound(
+            serialize = "S::Sort: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        )
+    )]
+    pub struct StaticConstructorField<S: Stage> {
+        /// Authored field name.
+        pub name: String => [keep],
+        /// Declared sort reference.
+        pub sort: S::Nominal => [nominal],
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireCellTermField {
-    pub key: ProvenanceKey,
-    pub field: ProductionFieldId,
-    pub value: Box<WireTerm>,
+/// Static wire-stage constructor transport.
+pub type WireConstructorFieldDescriptor = StaticConstructorField<WireStage>;
+
+stage_shape! {
+    /// Static indexed constructor transport.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "WireConstructorDescriptor",
+        deny_unknown_fields,
+        bound(
+            serialize = "S::Sort: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        )
+    )]
+    pub struct StaticConstructor<S: Stage> {
+        /// Declared sort reference.
+        pub sort: S::Sort => [sort],
+        /// Constructor fields in authored order.
+        pub fields: Vec<StaticConstructorField<S>> => [vec nested],
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "term_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WireTerm {
-    Variable {
-        key: ProvenanceKey,
-        path_key: ProvenanceKey,
-        name: String,
-    },
-    Application {
-        head_class: DescriptorApplicationHeadClass,
-        reference: WireApplicationReference,
-        path_key: ProvenanceKey,
-        arguments: Vec<WireTermArgument>,
-    },
-    Literal {
-        key: ProvenanceKey,
-        literal: DescriptorLiteral,
-    },
-    Wildcard {
-        key: ProvenanceKey,
-    },
-    BuiltinToken {
-        key: ProvenanceKey,
-        sort: BuiltinSort,
-        value: String,
-    },
-    Anonymous {
-        key: ProvenanceKey,
-        sort: WireSortReference,
-        spelling: String,
-    },
-    OrBool {
-        key: ProvenanceKey,
-        arguments: Vec<WireTerm>,
-    },
-    Cell {
-        key: ProvenanceKey,
-        declaration: WireTypeReference,
-        fields: Vec<WireCellTermField>,
-    },
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireRuleCondition {
-    pub key: ProvenanceKey,
-    pub term: WireTerm,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStructuredRule {
-    pub sentence_kind: SentenceKind,
-    pub label: Option<DescriptorRuleLabel>,
-    pub requires: Option<WireRuleCondition>,
-    pub priority: Option<DescriptorRulePriority>,
-    pub simplification: Option<DescriptorSimplification>,
-    pub pattern_key: ProvenanceKey,
-    pub result_key: ProvenanceKey,
-    pub subject_sort: WireSortReference,
-    pub result_sort: WireSortReference,
-    pub bindings: Vec<String>,
-    pub subject: WireTerm,
-    pub result: WireTerm,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireConstructorFieldDescriptor {
-    pub name: String,
-    pub sort: WireTypeReference,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireConstructorDescriptor {
-    pub sort: WireSortReference,
-    pub fields: Vec<WireConstructorFieldDescriptor>,
-}
+/// Static wire-stage constructor transport.
+pub type WireConstructorDescriptor = StaticConstructor<WireStage>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -148,129 +107,26 @@ pub struct WireContextAliasReference {
     pub slot: usize,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "item_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WireProductionItem {
-    Terminal {
-        key: ProvenanceKey,
-        text: String,
-    },
-    NonTerminal {
-        key: ProvenanceKey,
-        field_key: ProvenanceKey,
-        declaration_key: Option<ProvenanceKey>,
-        field: ProductionFieldId,
-        sort: Box<WireSortReference>,
-    },
-    RegexTerminal {
-        key: ProvenanceKey,
-        precede_regex: Option<String>,
-        regex: String,
-        follow_regex: Option<String>,
-    },
-}
+/// Static wire-stage form of [`ProductionItem`].
+pub type WireProductionItem = ProductionItem<WireStage>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WireProductionAttribute {
-    Documentation {
-        key: ProvenanceKey,
-        text: String,
-    },
-    Function {
-        key: ProvenanceKey,
-    },
-    Total {
-        key: ProvenanceKey,
-    },
-    Hook {
-        key: ProvenanceKey,
-        operation: HookOperation,
-    },
-    Alias {
-        key: ProvenanceKey,
-    },
-    Token {
-        key: ProvenanceKey,
-        lexical_precedence: Option<DescriptorLexicalPrecedence>,
-    },
-    Group {
-        reference: DescriptorGroupReference,
-    },
-    Bracket {
-        key: ProvenanceKey,
-    },
-    Avoid {
-        key: ProvenanceKey,
-    },
-    Format {
-        key: ProvenanceKey,
-        fragments: Vec<DescriptorFormatFragment>,
-    },
-    Strictness {
-        key: ProvenanceKey,
-        kind: StrictnessKind,
-        using: Option<WireContextAliasReference>,
-        fields: Vec<DescriptorFieldReference>,
-        result_sort: Box<WireSortReference>,
-    },
-}
+/// Static wire-stage form of [`ProductionAttribute`].
+pub type WireProductionAttribute = ProductionAttribute<WireStage>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(
-    tag = "production_owner",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum WireProductionOwner {
-    Constructor {
-        constructor: WireApplicationReference,
-    },
-    TokenSort {
-        sort: WireSortReference,
-    },
-    BracketSort {
-        sort: WireSortReference,
-    },
-}
+/// Static wire-stage form of [`ProductionOwner`].
+pub type WireProductionOwner = ProductionOwner<WireStage>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireProduction {
-    pub key: ProvenanceKey,
-    pub template_key: Option<ProvenanceKey>,
-    pub owner: WireProductionOwner,
-    pub result_sort: WireSortReference,
-    pub items: Vec<WireProductionItem>,
-    pub attributes: Vec<WireProductionAttribute>,
-}
+/// Static wire-stage form of [`Production`].
+pub type WireProduction = Production<WireStage>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(
-    tag = "grammar_kind",
-    content = "grammar",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum WireGrammarDescriptor {
-    Production(WireProduction),
-    Subsort {
-        key: ProvenanceKey,
-        subsort: WireSortReference,
-        supersort: WireSortReference,
-    },
-    Precedence {
-        key: ProvenanceKey,
-        chains: Vec<DescriptorPrecedenceChain>,
-    },
-    Associativity {
-        key: ProvenanceKey,
-        sentences: Vec<DescriptorAssociativitySentence>,
-    },
-}
+/// Static wire-stage form of [`StageGrammarDescriptor`].
+pub type WireGrammarDescriptor = StageGrammarDescriptor<WireStage>;
 
+/// Static wire-stage binding in a readable head rule.
 pub type WireHeadRuleBinding = ProtocolHeadRuleBinding<WireSortReference>;
+/// Static wire-stage result in a readable head rule.
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
+/// Static wire-stage extra-cell clause in a readable head rule.
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -280,32 +136,27 @@ pub struct WireHeadRuleCellReference {
     pub name: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireHeadRule {
-    pub sentence_kind: SentenceKind,
-    pub label: Option<DescriptorRuleLabel>,
-    pub priority: Option<DescriptorRulePriority>,
-    pub pattern_key: ProvenanceKey,
-    pub result_key: ProvenanceKey,
-    pub head_sort: Option<WireSortReference>,
-    pub configuration: Option<WireConfigurationReference>,
-    pub computation_cell_name: Option<String>,
-    pub bindings: Vec<WireHeadRuleBinding>,
-    pub subject: WireTerm,
-    pub result: WireHeadRuleResult,
-    pub requires: Option<WireRuleCondition>,
-    pub extras: Vec<WireHeadRuleExtra>,
+/// Static wire-stage form of [`HeadRule`].
+pub type WireHeadRule = HeadRule<WireStage>;
+
+stage_shape! {
+    /// The payload kinds supported by static indexed macro data.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(rename = "WirePayload", rename_all = "snake_case", deny_unknown_fields, bound(serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize, S::ContextAlias: Serialize, S::Configuration: Serialize, S::HeadRuleCell: Serialize", deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>, S::ContextAlias: Deserialize<'de>, S::Configuration: Deserialize<'de>, S::HeadRuleCell: Deserialize<'de>"))]
+    pub enum StaticPayload<S: Stage> {
+        /// Constructor declaration.
+        Constructor(value: StaticConstructor<S> => [nested]),
+        /// Object-grammar sentence.
+        Grammar(value: Box<StageGrammarDescriptor<S>> => [box nested]),
+        /// Structured relational sentence.
+        StructuredRule(value: Box<StructuredRule<S>> => [box nested]),
+        /// Authored computation-head rule.
+        HeadRule(value: Box<HeadRule<S>> => [box nested]),
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum WirePayload {
-    Constructor(WireConstructorDescriptor),
-    Grammar(Box<WireGrammarDescriptor>),
-    StructuredRule(Box<WireStructuredRule>),
-    HeadRule(Box<WireHeadRule>),
-}
+/// Static wire-stage payload.
+pub type WirePayload = StaticPayload<WireStage>;
 
 #[cfg(test)]
 mod tests {
@@ -331,5 +182,124 @@ mod tests {
         );
         let decoded: WireTerm = crate::json::from_slice(json.as_bytes()).unwrap();
         assert_eq!(serde_json::to_string(&decoded).unwrap(), json);
+    }
+
+    fn key() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleType, 0)
+    }
+
+    fn sort() -> super::WireSortReference {
+        super::WireSortReference {
+            key: key(),
+            target: super::WireTypeReference {
+                slot: 0,
+                authored_path: "Value".to_owned(),
+            },
+        }
+    }
+
+    fn term() -> WireTerm {
+        WireTerm::Anonymous {
+            key: key(),
+            sort: sort(),
+            spelling: "_".to_owned(),
+        }
+    }
+
+    #[test]
+    fn static_constructor_traversal_maps_fields_and_propagates_errors() {
+        let field = super::WireConstructorFieldDescriptor {
+            name: "value".to_owned(),
+            sort: super::WireTypeReference {
+                slot: 1,
+                authored_path: "Int".to_owned(),
+            },
+        };
+        let mut map = crate::stage::tests::CountingMap::default();
+        let mapped = field.clone().try_map_refs(&mut map).unwrap();
+        assert_eq!(
+            serde_json::to_value(&mapped).unwrap(),
+            serde_json::to_value(&field).unwrap()
+        );
+        assert_eq!(map.calls, ["nominal"]);
+        let constructor = super::WireConstructorDescriptor {
+            sort: sort(),
+            fields: vec![field],
+        };
+        let mut map = crate::stage::tests::CountingMap::default();
+        let mapped = constructor.clone().try_map_refs(&mut map).unwrap();
+        assert_eq!(
+            serde_json::to_value(&mapped).unwrap(),
+            serde_json::to_value(&constructor).unwrap()
+        );
+        assert_eq!(map.calls, ["sort", "nominal"]);
+        for failure in ["sort", "nominal"] {
+            let mut map = crate::stage::tests::CountingMap {
+                fail: Some(failure),
+                ..Default::default()
+            };
+            assert_eq!(
+                constructor.clone().try_map_refs(&mut map).unwrap_err(),
+                failure
+            );
+        }
+    }
+
+    #[test]
+    fn static_payload_traversal_covers_every_supported_kind() {
+        let key = key();
+        let payloads = [
+            super::WirePayload::Constructor(super::WireConstructorDescriptor {
+                sort: sort(),
+                fields: vec![],
+            }),
+            super::WirePayload::Grammar(Box::new(super::WireGrammarDescriptor::Subsort {
+                key: key.clone(),
+                subsort: sort(),
+                supersort: sort(),
+            })),
+            super::WirePayload::StructuredRule(Box::new(super::WireStructuredRule {
+                sentence_kind: crate::SentenceKind::Transition,
+                label: None,
+                requires: None,
+                priority: None,
+                simplification: None,
+                pattern_key: key.clone(),
+                result_key: key.clone(),
+                subject_sort: sort(),
+                result_sort: sort(),
+                bindings: vec![],
+                subject: term(),
+                result: term(),
+            })),
+            super::WirePayload::HeadRule(Box::new(super::WireHeadRule {
+                sentence_kind: crate::SentenceKind::Transition,
+                label: None,
+                priority: None,
+                pattern_key: key.clone(),
+                result_key: key,
+                head_sort: Some(sort()),
+                configuration: None,
+                computation_cell_name: None,
+                bindings: vec![],
+                subject: term(),
+                result: super::WireHeadRuleResult::Replace(term()),
+                requires: None,
+                extras: vec![],
+            })),
+        ];
+        for (payload, count) in payloads.into_iter().zip([1, 2, 4, 3]) {
+            let expected = serde_json::to_vec(&payload).unwrap();
+            let mut map = crate::stage::tests::CountingMap::default();
+            let mapped = payload.clone().try_map_refs(&mut map).unwrap();
+            assert_eq!(serde_json::to_vec(&mapped).unwrap(), expected);
+            assert_eq!(map.calls, vec!["sort"; count]);
+            let mut map = crate::stage::tests::CountingMap {
+                fail: Some("sort"),
+                ..Default::default()
+            };
+            assert_eq!(payload.try_map_refs(&mut map).unwrap_err(), "sort");
+            assert_eq!(map.calls, ["sort"]);
+        }
     }
 }

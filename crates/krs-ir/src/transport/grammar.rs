@@ -13,6 +13,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
+use crate::stage::{DescriptorStage, HostStage, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
     ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey,
@@ -686,321 +687,230 @@ pub struct DescriptorLexicalPrecedence {
     pub value: u32,
 }
 
-/// Ordered grammar item in a structured production.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "item_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DescriptorProductionItem {
-    /// Literal concrete-syntax terminal.
-    Terminal {
-        /// Exact item provenance.
-        key: ProvenanceKey,
-        /// Nonempty terminal text.
-        text: String,
-    },
-    /// Named nonterminal with a typed sort.
-    NonTerminal {
-        /// Exact ordered-item provenance.
-        key: ProvenanceKey,
-        /// Exact placeholder/name provenance.
-        field_key: ProvenanceKey,
-        /// Constructor field-declaration provenance, absent only for a
-        /// compiler-owned bracket placeholder.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        declaration_key: Option<ProvenanceKey>,
-        /// Stable field identity.
-        field: ProductionFieldId,
-        /// Typed field sort and its Rust type-path provenance.
-        sort: Box<DescriptorSortReference>,
-    },
-    /// K-compatible regex terminal.
-    RegexTerminal {
-        /// Exact regex-literal provenance.
-        key: ProvenanceKey,
-        /// Optional negative lookbehind guard.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        precede_regex: Option<String>,
-        /// Nonempty central regex.
-        regex: String,
-        /// Optional negative lookahead guard.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        follow_regex: Option<String>,
-    },
+stage_shape! {
+    /// Ordered grammar item in a structured production.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorProductionItem",
+        bound(
+            serialize = "S::Sort: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>"
+        ),
+        tag = "item_kind", rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum ProductionItem<S: Stage> {
+        /// Literal concrete-syntax terminal.
+        Terminal {
+            /// Exact item provenance.
+            key: ProvenanceKey => [keep],
+            /// Nonempty terminal text.
+            text: String => [keep],
+        },
+        /// Named nonterminal with a typed sort.
+        NonTerminal {
+            /// Exact ordered-item provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact placeholder/name provenance.
+            field_key: ProvenanceKey => [keep],
+            /// Constructor field-declaration provenance, absent only for a compiler-owned bracket placeholder.
+            #[serde(skip_serializing_if = "S::skip_none")]
+            declaration_key: Option<ProvenanceKey> => [keep],
+            /// Stable field identity.
+            field: ProductionFieldId => [keep],
+            /// Typed field sort and its Rust type-path provenance.
+            sort: Box<S::Sort> => [box sort],
+        },
+        /// K-compatible regex terminal.
+        RegexTerminal {
+            /// Exact regex-literal provenance.
+            key: ProvenanceKey => [keep],
+            /// Optional negative lookbehind guard.
+            #[serde(skip_serializing_if = "S::skip_none")]
+            precede_regex: Option<String> => [keep],
+            /// Nonempty central regex.
+            regex: String => [keep],
+            /// Optional negative lookahead guard.
+            #[serde(skip_serializing_if = "S::skip_none")]
+            follow_regex: Option<String> => [keep],
+        },
+    }
 }
 
-/// Host counterpart of [`DescriptorProductionItem`].
-#[derive(Clone, Debug)]
-pub enum HostProductionItem {
-    /// Literal terminal.
-    Terminal {
-        /// Exact item provenance.
-        key: ProvenanceKey,
-        /// Nonempty terminal text.
-        text: String,
-    },
-    /// Named nonterminal awaiting exact sort resolution.
-    NonTerminal {
-        /// Exact ordered-item provenance.
-        key: ProvenanceKey,
-        /// Exact placeholder/name provenance.
-        field_key: ProvenanceKey,
-        /// Constructor field-declaration provenance, absent for brackets.
-        declaration_key: Option<ProvenanceKey>,
-        /// Stable field identity.
-        field: ProductionFieldId,
-        /// Build-local sort reference.
-        sort: Box<HostSortReference>,
-    },
-    /// Regex terminal.
-    RegexTerminal {
-        /// Exact regex-literal provenance.
-        key: ProvenanceKey,
-        /// Optional negative lookbehind guard.
-        precede_regex: Option<String>,
-        /// Nonempty central regex.
-        regex: String,
-        /// Optional negative lookahead guard.
-        follow_regex: Option<String>,
-    },
+/// Descriptor-stage form of [`ProductionItem`].
+pub type DescriptorProductionItem = ProductionItem<DescriptorStage>;
+
+/// Host-stage form of [`ProductionItem`].
+pub type HostProductionItem = ProductionItem<HostStage>;
+
+stage_shape! {
+    /// Classified production metadata transported without raw K attributes.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorProductionAttribute",
+        bound(
+            serialize = "S::Sort: Serialize, S::ContextAlias: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::ContextAlias: Deserialize<'de>"
+        ),
+        tag = "attribute_kind", rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum ProductionAttribute<S: Stage> {
+        /// Literal production documentation carried from Rust rustdoc.
+        Documentation {
+            /// Documentation-line provenance.
+            key: ProvenanceKey => [keep],
+            /// One normalized documentation line.
+            text: String => [keep],
+        },
+        /// Marks a production as a K function.
+        Function {
+            /// Function-marker provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Marks a functional production as total.
+        Total {
+            /// Totality-marker provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Selects one closed backend hook identity.
+        Hook {
+            /// Hook-selector provenance.
+            key: ProvenanceKey => [keep],
+            /// Closed hook identity.
+            operation: HookOperation => [keep],
+        },
+        /// Marks a constructor production as a reversible static alias.
+        Alias {
+            /// Alias-marker provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Regex token production and optional lexical precedence.
+        Token {
+            /// Token-attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// Optional lexical priority.
+            #[serde(skip_serializing_if = "S::skip_none")]
+            lexical_precedence: Option<DescriptorLexicalPrecedence> => [keep],
+        },
+        /// Nominal precedence/associativity group membership.
+        Group {
+            /// Group identity and authored location.
+            reference: DescriptorGroupReference => [keep],
+        },
+        /// Syntax-only bracket marker.
+        Bracket {
+            /// Bracket-attribute provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Typed parser preference.
+        Avoid {
+            /// Avoid-attribute provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Structured unparse format.
+        Format {
+            /// Format-attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// Ordered typed fragments with independent origins.
+            fragments: Vec<DescriptorFormatFragment> => [keep],
+        },
+        /// Strict or sequentially strict evaluation metadata.
+        Strictness {
+            /// Strictness-attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// Strict or sequentially strict strategy.
+            kind: StrictnessKind => [keep],
+            /// Optional selected context-alias declaration.
+            #[serde(skip_serializing_if = "S::skip_none")]
+            using: Option<S::ContextAlias> => [option context_alias],
+            /// Named fields in authored order.
+            fields: Vec<DescriptorFieldReference> => [keep],
+            /// Explicit result-predicate sort.
+            result_sort: Box<S::Sort> => [box sort],
+        },
+    }
 }
 
-/// Classified production metadata transported without raw K attributes.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DescriptorProductionAttribute {
-    /// Literal production documentation carried from Rust rustdoc.
-    Documentation {
-        /// Documentation-line provenance.
-        key: ProvenanceKey,
-        /// One normalized documentation line.
-        text: String,
-    },
-    /// Marks a production as a K function.
-    Function {
-        /// Function-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Marks a functional production as total.
-    Total {
-        /// Totality-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Selects one closed backend hook identity.
-    Hook {
-        /// Hook-selector provenance.
-        key: ProvenanceKey,
-        /// Closed hook identity.
-        operation: HookOperation,
-    },
-    /// Marks a constructor production as a reversible static alias.
-    Alias {
-        /// Alias-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Regex token production and optional lexical precedence.
-    Token {
-        /// Token-attribute provenance.
-        key: ProvenanceKey,
-        /// Optional lexical priority.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        lexical_precedence: Option<DescriptorLexicalPrecedence>,
-    },
-    /// Nominal precedence/associativity group membership.
-    Group {
-        /// Group identity and authored location.
-        reference: DescriptorGroupReference,
-    },
-    /// Syntax-only bracket marker.
-    Bracket {
-        /// Bracket-attribute provenance.
-        key: ProvenanceKey,
-    },
-    /// Typed parser preference.
-    Avoid {
-        /// Avoid-attribute provenance.
-        key: ProvenanceKey,
-    },
-    /// Structured unparse format.
-    Format {
-        /// Format-attribute provenance.
-        key: ProvenanceKey,
-        /// Ordered typed fragments with independent origins.
-        fragments: Vec<DescriptorFormatFragment>,
-    },
-    /// Strict or sequentially strict evaluation metadata.
-    Strictness {
-        /// Strictness-attribute provenance.
-        key: ProvenanceKey,
-        /// Strict or sequentially strict strategy.
-        kind: StrictnessKind,
-        /// Optional selected context-alias declaration.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        using: Option<DescriptorContextAliasReference>,
-        /// Named fields in authored order.
-        fields: Vec<DescriptorFieldReference>,
-        /// Explicit result-predicate sort.
-        result_sort: Box<DescriptorSortReference>,
-    },
+/// Descriptor-stage form of [`ProductionAttribute`].
+pub type DescriptorProductionAttribute = ProductionAttribute<DescriptorStage>;
+
+/// Host-stage form of [`ProductionAttribute`].
+pub type HostProductionAttribute = ProductionAttribute<HostStage>;
+
+stage_shape! {
+    /// Ownership of a semantic production.
+    /// Generated token/bracket identities are deliberately absent; the compiler derives them from the grammar descriptor.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorProductionOwner",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>"
+        ),
+        tag = "production_owner",
+        rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum ProductionOwner<S: Stage> {
+        /// Grammar belonging to an authored constructor declaration.
+        Constructor {
+            /// Authored constructor identity and location.
+            constructor: S::Application => [application],
+        },
+        /// Compiler-owned token production for an authored sort.
+        TokenSort {
+            /// Authored token sort and location.
+            sort: S::Sort => [sort],
+        },
+        /// Compiler-owned bracket production attached to an authored sort.
+        BracketSort {
+            /// Authored bracket sort and location.
+            sort: S::Sort => [sort],
+        },
+    }
 }
 
-/// Host counterpart of [`DescriptorProductionAttribute`].
-#[derive(Clone, Debug)]
-pub enum HostProductionAttribute {
-    /// Literal production documentation carried from Rust rustdoc.
-    Documentation {
-        /// Documentation-line provenance.
-        key: ProvenanceKey,
-        /// One normalized documentation line.
-        text: String,
-    },
-    /// Marks a production as a K function.
-    Function {
-        /// Function-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Marks a functional production as total.
-    Total {
-        /// Totality-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Selects one closed backend hook identity.
-    Hook {
-        /// Hook-selector provenance.
-        key: ProvenanceKey,
-        /// Closed hook identity.
-        operation: HookOperation,
-    },
-    /// Marks a constructor production as a reversible static alias.
-    Alias {
-        /// Alias-marker provenance.
-        key: ProvenanceKey,
-    },
-    /// Regex token production and optional lexical precedence.
-    Token {
-        /// Token-attribute provenance.
-        key: ProvenanceKey,
-        /// Optional lexical priority.
-        lexical_precedence: Option<DescriptorLexicalPrecedence>,
-    },
-    /// Nominal production-group membership.
-    Group {
-        /// Group identity and authored location.
-        reference: DescriptorGroupReference,
-    },
-    /// Syntax-only bracket marker.
-    Bracket {
-        /// Bracket-attribute provenance.
-        key: ProvenanceKey,
-    },
-    /// Typed parser preference.
-    Avoid {
-        /// Avoid-attribute provenance.
-        key: ProvenanceKey,
-    },
-    /// Structured unparse format.
-    Format {
-        /// Format-attribute provenance.
-        key: ProvenanceKey,
-        /// Ordered typed fragments.
-        fragments: Vec<DescriptorFormatFragment>,
-    },
-    /// Strict or sequentially strict evaluation metadata.
-    Strictness {
-        /// Strictness-attribute provenance.
-        key: ProvenanceKey,
-        /// Evaluation strategy.
-        kind: StrictnessKind,
-        /// Optional selected context-alias declaration.
-        using: Option<HostContextAliasReference>,
-        /// Named fields in authored order.
-        fields: Vec<DescriptorFieldReference>,
-        /// Build-local result-predicate sort.
-        result_sort: Box<HostSortReference>,
-    },
+/// Descriptor-stage form of [`ProductionOwner`].
+pub type DescriptorProductionOwner = ProductionOwner<DescriptorStage>;
+
+/// Host-stage form of [`ProductionOwner`].
+pub type HostProductionOwner = ProductionOwner<HostStage>;
+
+stage_shape! {
+    /// One complete typed production extension.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorProduction",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::ContextAlias: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::ContextAlias: Deserialize<'de>"
+        ),
+        deny_unknown_fields
+    )]
+    pub struct Production<S: Stage> {
+        /// Production-level authored provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Explicit syntax-template literal provenance.
+        /// This is present for authored constructor templates and absent for default/token/bracket productions.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub template_key: Option<ProvenanceKey> => [keep],
+        /// Declared or compiler-generated production ownership.
+        pub owner: ProductionOwner<S> => [nested],
+        /// Typed production result sort and its authored sort-path provenance.
+        pub result_sort: S::Sort => [sort],
+        /// Ordered classified grammar items.
+        pub items: Vec<ProductionItem<S>> => [vec nested],
+        /// Classified metadata only.
+        pub attributes: Vec<ProductionAttribute<S>> => [vec nested],
+    }
 }
 
-/// Ownership of a semantic production. Generated token/bracket identities are
-/// deliberately absent; the compiler derives them from the grammar descriptor.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "production_owner",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum DescriptorProductionOwner {
-    /// Grammar belonging to an authored constructor declaration.
-    Constructor {
-        /// Authored constructor identity and location.
-        constructor: DescriptorApplicationReference,
-    },
-    /// Compiler-owned token production for an authored sort.
-    TokenSort {
-        /// Authored token sort and location.
-        sort: DescriptorSortReference,
-    },
-    /// Compiler-owned bracket production attached to an authored sort.
-    BracketSort {
-        /// Authored bracket sort and location.
-        sort: DescriptorSortReference,
-    },
-}
+/// Descriptor-stage form of [`Production`].
+pub type DescriptorProduction = Production<DescriptorStage>;
 
-/// Host counterpart of [`DescriptorProductionOwner`].
-#[derive(Clone, Debug)]
-pub enum HostProductionOwner {
-    /// Grammar belonging to an authored constructor declaration.
-    Constructor {
-        /// Build-local constructor identity.
-        constructor: HostApplicationReference,
-    },
-    /// Compiler-owned token production for an authored sort.
-    TokenSort {
-        /// Build-local token sort identity.
-        sort: HostSortReference,
-    },
-    /// Compiler-owned bracket production attached to an authored sort.
-    BracketSort {
-        /// Build-local bracket sort identity.
-        sort: HostSortReference,
-    },
-}
-
-/// One complete typed production extension.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorProduction {
-    /// Production-level authored provenance.
-    pub key: ProvenanceKey,
-    /// Explicit syntax-template literal provenance. This is present for
-    /// authored constructor templates and absent for default/token/bracket
-    /// productions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_key: Option<ProvenanceKey>,
-    /// Declared or compiler-generated production ownership.
-    pub owner: DescriptorProductionOwner,
-    /// Typed production result sort and its authored sort-path provenance.
-    pub result_sort: DescriptorSortReference,
-    /// Ordered classified grammar items.
-    pub items: Vec<DescriptorProductionItem>,
-    /// Classified metadata only.
-    pub attributes: Vec<DescriptorProductionAttribute>,
-}
-
-/// Host counterpart of [`DescriptorProduction`].
-#[derive(Clone, Debug)]
-pub struct HostProduction {
-    /// Production-level authored provenance.
-    pub key: ProvenanceKey,
-    /// Optional explicit constructor syntax-template provenance.
-    pub template_key: Option<ProvenanceKey>,
-    /// Declared or compiler-generated ownership.
-    pub owner: HostProductionOwner,
-    /// Build-local production result sort.
-    pub result_sort: HostSortReference,
-    /// Ordered classified grammar items.
-    pub items: Vec<HostProductionItem>,
-    /// Classified metadata only.
-    pub attributes: Vec<HostProductionAttribute>,
-}
+/// Host-stage form of [`Production`].
+pub type HostProduction = Production<HostStage>;
 
 /// One direct precedence edge with every group occurrence retained.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1025,71 +935,54 @@ pub struct DescriptorAssociativitySentence {
     pub groups: Vec<DescriptorGroupReference>,
 }
 
-/// Typed after-the-fact object-grammar sentence.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "grammar_kind",
-    content = "grammar",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum GrammarDescriptor {
-    /// Constructor, token, or bracket production.
-    Production(DescriptorProduction),
-    /// Explicit direct subsort relation, including builtin endpoints.
-    Subsort {
-        /// Subsort-declaration provenance.
-        key: ProvenanceKey,
-        /// Smaller sort and authored path.
-        subsort: DescriptorSortReference,
-        /// Larger sort and authored path.
-        supersort: DescriptorSortReference,
-    },
-    /// One macro declaration containing one or more precedence edges.
-    Precedence {
-        /// Complete macro-invocation provenance.
-        key: ProvenanceKey,
-        /// Direct partial-order edges.
-        chains: Vec<DescriptorPrecedenceChain>,
-    },
-    /// One macro declaration containing one or more associativity sentences.
-    Associativity {
-        /// Complete macro-invocation provenance.
-        key: ProvenanceKey,
-        /// Typed associativity sentences.
-        sentences: Vec<DescriptorAssociativitySentence>,
-    },
+stage_shape! {
+    /// Typed after-the-fact object-grammar sentence.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "GrammarDescriptor",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::ContextAlias: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::ContextAlias: Deserialize<'de>"
+        ),
+        tag = "grammar_kind",
+        content = "grammar",
+        rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum StageGrammarDescriptor<S: Stage> {
+        /// Constructor, token, or bracket production.
+        Production(value: Production<S> => [nested]),
+        /// Explicit direct subsort relation, including builtin endpoints.
+        Subsort {
+            /// Subsort-declaration provenance.
+            key: ProvenanceKey => [keep],
+            /// Smaller sort and authored path.
+            subsort: S::Sort => [sort],
+            /// Larger sort and authored path.
+            supersort: S::Sort => [sort],
+        },
+        /// One macro declaration containing one or more precedence edges.
+        Precedence {
+            /// Complete macro-invocation provenance.
+            key: ProvenanceKey => [keep],
+            /// Direct partial-order edges.
+            chains: Vec<DescriptorPrecedenceChain> => [keep],
+        },
+        /// One macro declaration containing one or more associativity sentences.
+        Associativity {
+            /// Complete macro-invocation provenance.
+            key: ProvenanceKey => [keep],
+            /// Typed associativity sentences.
+            sentences: Vec<DescriptorAssociativitySentence> => [keep],
+        },
+    }
 }
 
-/// Host counterpart of [`GrammarDescriptor`].
-#[derive(Clone, Debug)]
-pub enum HostGrammarDescriptor {
-    /// Constructor, token, or bracket production.
-    Production(HostProduction),
-    /// Explicit direct subsort relation.
-    Subsort {
-        /// Subsort-declaration provenance.
-        key: ProvenanceKey,
-        /// Build-local smaller sort.
-        subsort: HostSortReference,
-        /// Build-local larger sort.
-        supersort: HostSortReference,
-    },
-    /// One macro declaration containing precedence edges.
-    Precedence {
-        /// Complete macro-invocation provenance.
-        key: ProvenanceKey,
-        /// Direct partial-order edges.
-        chains: Vec<DescriptorPrecedenceChain>,
-    },
-    /// One macro declaration containing associativity sentences.
-    Associativity {
-        /// Complete macro-invocation provenance.
-        key: ProvenanceKey,
-        /// Typed associativity sentences.
-        sentences: Vec<DescriptorAssociativitySentence>,
-    },
-}
+/// Descriptor-stage form of [`StageGrammarDescriptor`].
+pub type GrammarDescriptor = StageGrammarDescriptor<DescriptorStage>;
+
+/// Host-stage form of [`StageGrammarDescriptor`].
+pub type HostGrammarDescriptor = StageGrammarDescriptor<HostStage>;
 
 /// Literal kinds admitted by the explicit Rust term grammar.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1123,214 +1016,159 @@ pub enum DescriptorApplicationHeadClass {
     BareReference,
 }
 
-/// One argument of a structured application. Positional tuple/call syntax and
-/// named record syntax remain distinct so ordinary Rust field reordering never
-/// changes K argument meaning.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "argument_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DescriptorTermArgument {
-    /// Argument from tuple/call syntax, interpreted in source order.
-    Positional {
-        /// Structured argument value.
-        value: Box<DescriptorTerm>,
-    },
-    /// Argument from record syntax, interpreted by field identity.
-    Named {
-        /// Exact authored record-field name provenance.
-        key: ProvenanceKey,
-        /// Stable constructor-field identity.
-        field: ProductionFieldId,
-        /// Structured field value.
-        value: Box<DescriptorTerm>,
-    },
+stage_shape! {
+    /// One argument of a structured application.
+    /// Positional tuple/call syntax and named record syntax remain distinct so ordinary Rust field reordering never changes K argument meaning.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorTermArgument",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        tag = "argument_kind", rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum TermArgument<S: Stage> {
+        /// Argument from tuple/call syntax, interpreted in source order.
+        Positional {
+            /// Structured argument value.
+            value: Box<Term<S>> => [box nested],
+        },
+        /// Argument from record syntax, interpreted by field identity.
+        Named {
+            /// Exact authored record-field name provenance.
+            key: ProvenanceKey => [keep],
+            /// Stable constructor-field identity.
+            field: ProductionFieldId => [keep],
+            /// Structured field value.
+            value: Box<Term<S>> => [box nested],
+        },
+    }
 }
 
-/// Host counterpart of [`DescriptorTermArgument`].
-#[derive(Clone, Debug)]
-pub enum HostTermArgument {
-    /// Argument from tuple/call syntax.
-    Positional {
-        /// Structured argument value.
-        value: Box<HostTerm>,
-    },
-    /// Argument from record syntax.
-    Named {
-        /// Exact authored record-field name provenance.
-        key: ProvenanceKey,
-        /// Stable constructor-field identity.
-        field: ProductionFieldId,
-        /// Structured field value.
-        value: Box<HostTerm>,
-    },
+/// Descriptor-stage form of [`TermArgument`].
+pub type DescriptorTermArgument = TermArgument<DescriptorStage>;
+
+/// Host-stage form of [`TermArgument`].
+pub type HostTermArgument = TermArgument<HostStage>;
+
+stage_shape! {
+    /// One named child of a compiler-owned complete cell term.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorCellTermField",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        deny_unknown_fields
+    )]
+    pub struct CellTermField<S: Stage> {
+        /// Exact authored child-field provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Stable Rust field identity within the nominal cell declaration.
+        pub field: ProductionFieldId => [keep],
+        /// Structured child value, before the generated child-cell wrapper.
+        pub value: Box<Term<S>> => [box nested],
+    }
 }
 
-/// One named child of a compiler-owned complete cell term.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorCellTermField {
-    /// Exact authored child-field provenance.
-    pub key: ProvenanceKey,
-    /// Stable Rust field identity within the nominal cell declaration.
-    pub field: ProductionFieldId,
-    /// Structured child value, before the generated child-cell wrapper.
-    pub value: Box<DescriptorTerm>,
+/// Descriptor-stage form of [`CellTermField`].
+pub type DescriptorCellTermField = CellTermField<DescriptorStage>;
+
+/// Host-stage form of [`CellTermField`].
+pub type HostCellTermField = CellTermField<HostStage>;
+
+stage_shape! {
+    /// A fully structured rule term with stage-specific references.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorTerm",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        tag = "term_kind", rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum Term<S: Stage> {
+        /// Bound variable reference.
+        Variable {
+            /// Exact bare-reference provenance.
+            key: ProvenanceKey => [keep],
+            /// Compact named-path provenance retained for source-map continuity.
+            path_key: ProvenanceKey => [keep],
+            /// Bound Rust identifier.
+            name: String => [keep],
+        },
+        /// Declared constructor or builtin operation application.
+        Application {
+            /// Syntactic head class used to select exact parser provenance.
+            head_class: DescriptorApplicationHeadClass => [keep],
+            /// Typed application head and provenance.
+            reference: S::Application => [application],
+            /// Compact named-path provenance retained for source-map continuity.
+            path_key: ProvenanceKey => [keep],
+            /// Positional or named arguments.
+            /// One application may not mix forms.
+            arguments: Vec<TermArgument<S>> => [vec nested],
+        },
+        /// Exact Int/Bool literal.
+        Literal {
+            /// Exact literal provenance.
+            key: ProvenanceKey => [keep],
+            /// Typed literal payload.
+            literal: DescriptorLiteral => [keep],
+        },
+        /// Anonymous subject-pattern wildcard.
+        /// This is rejected on rule results.
+        Wildcard {
+            /// Exact authored underscore provenance.
+            key: ProvenanceKey => [keep],
+        },
+        /// Compiler-owned domain token whose sort is intrinsic.
+        BuiltinToken {
+            /// Exact literal provenance.
+            key: ProvenanceKey => [keep],
+            /// Closed builtin token sort.
+            sort: BuiltinSort => [keep],
+            /// Complete validated payload.
+            value: String => [keep],
+        },
+        /// One fresh typed anonymous-variable occurrence.
+        Anonymous {
+            /// Complete occurrence provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact authored sort occurrence.
+            sort: S::Sort => [sort],
+            /// Display spelling retained for K/native anonymous handling.
+            spelling: String => [keep],
+        },
+        /// Compiler-owned associative object-Bool disjunction.
+        OrBool {
+            /// Complete macro-shell provenance.
+            key: ProvenanceKey => [keep],
+            /// Ordered operands, at least two.
+            arguments: Vec<Term<S>> => [vec nested],
+        },
+        /// Complete nominal parent-cell term constructed by `fragment!`.
+        Cell {
+            /// Complete macro-shell provenance.
+            key: ProvenanceKey => [keep],
+            /// Exact nominal `#[k::cell]` declaration reference.
+            declaration: S::Nominal => [nominal],
+            /// Authored child values; semantic lowering validates completeness and order.
+            fields: Vec<CellTermField<S>> => [vec nested],
+        },
+    }
 }
 
-/// Host counterpart of [`DescriptorCellTermField`].
-#[derive(Clone, Debug)]
-pub struct HostCellTermField {
-    /// Exact authored child-field provenance.
-    pub key: ProvenanceKey,
-    /// Stable Rust field identity within the nominal cell declaration.
-    pub field: ProductionFieldId,
-    /// Structured child value.
-    pub value: Box<HostTerm>,
-}
+/// Descriptor-stage form of [`Term`].
+pub type DescriptorTerm = Term<DescriptorStage>;
 
-/// A fully structured rule term after stable reference resolution.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "term_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DescriptorTerm {
-    /// Bound variable reference.
-    Variable {
-        /// Exact bare-reference provenance.
-        key: ProvenanceKey,
-        /// Compact named-path provenance retained for source-map
-        /// continuity.
-        path_key: ProvenanceKey,
-        /// Bound Rust identifier.
-        name: String,
-    },
-    /// Declared constructor or builtin operation application.
-    Application {
-        /// Syntactic head class used to select exact parser provenance.
-        head_class: DescriptorApplicationHeadClass,
-        /// Typed application head and provenance.
-        reference: DescriptorApplicationReference,
-        /// Compact named-path provenance retained for source-map
-        /// continuity.
-        path_key: ProvenanceKey,
-        /// Positional or named arguments. One application may not mix forms.
-        arguments: Vec<DescriptorTermArgument>,
-    },
-    /// Exact Int/Bool literal.
-    Literal {
-        /// Exact literal provenance.
-        key: ProvenanceKey,
-        /// Typed literal payload.
-        literal: DescriptorLiteral,
-    },
-    /// Anonymous subject-pattern wildcard. This is rejected on rule results.
-    Wildcard {
-        /// Exact authored underscore provenance.
-        key: ProvenanceKey,
-    },
-    /// Compiler-owned domain token whose sort is intrinsic.
-    BuiltinToken {
-        /// Exact literal provenance.
-        key: ProvenanceKey,
-        /// Closed builtin token sort.
-        sort: BuiltinSort,
-        /// Complete validated payload.
-        value: String,
-    },
-    /// One fresh typed anonymous-variable occurrence.
-    Anonymous {
-        /// Complete occurrence provenance.
-        key: ProvenanceKey,
-        /// Exact authored sort occurrence.
-        sort: DescriptorSortReference,
-        /// Display spelling retained for K/native anonymous handling.
-        spelling: String,
-    },
-    /// Compiler-owned associative object-Bool disjunction.
-    OrBool {
-        /// Complete macro-shell provenance.
-        key: ProvenanceKey,
-        /// Ordered operands, at least two.
-        arguments: Vec<DescriptorTerm>,
-    },
-    /// Complete nominal parent-cell term constructed by `fragment!`.
-    Cell {
-        /// Complete macro-shell provenance.
-        key: ProvenanceKey,
-        /// Stable `#[k::cell]` declaration identity.
-        declaration: StableItemId,
-        /// Authored child values; semantic lowering validates completeness and order.
-        fields: Vec<DescriptorCellTermField>,
-    },
-}
-
-/// Host term whose application heads still carry build-local Rust identities.
-#[derive(Clone, Debug)]
-pub enum HostTerm {
-    /// Bound variable reference.
-    Variable {
-        /// Exact bare-reference provenance.
-        key: ProvenanceKey,
-        /// Compact named-path provenance.
-        path_key: ProvenanceKey,
-        /// Bound Rust identifier.
-        name: String,
-    },
-    /// Declared constructor or builtin operation application.
-    Application {
-        /// Syntactic head class used to select exact parser provenance.
-        head_class: DescriptorApplicationHeadClass,
-        /// Build-local application head and provenance.
-        reference: HostApplicationReference,
-        /// Compact named-path provenance.
-        path_key: ProvenanceKey,
-        /// Positional or named arguments. One application may not mix forms.
-        arguments: Vec<HostTermArgument>,
-    },
-    /// Exact Int/Bool literal.
-    Literal {
-        /// Exact literal provenance.
-        key: ProvenanceKey,
-        /// Typed literal payload.
-        literal: DescriptorLiteral,
-    },
-    /// Anonymous subject-pattern wildcard. This is rejected on rule results.
-    Wildcard {
-        /// Exact authored underscore provenance.
-        key: ProvenanceKey,
-    },
-    /// Host counterpart of a compiler-owned builtin token.
-    BuiltinToken {
-        /// Exact literal provenance.
-        key: ProvenanceKey,
-        /// Closed builtin token sort.
-        sort: BuiltinSort,
-        /// Complete validated payload.
-        value: String,
-    },
-    /// Host counterpart of a typed fresh anonymous occurrence.
-    Anonymous {
-        /// Complete occurrence provenance.
-        key: ProvenanceKey,
-        /// Rust-resolved explicit sort.
-        sort: HostSortReference,
-        /// Exact display spelling.
-        spelling: String,
-    },
-    /// Host counterpart of an associative object-Bool disjunction.
-    OrBool {
-        /// Complete macro-shell provenance.
-        key: ProvenanceKey,
-        /// Ordered operands, at least two.
-        arguments: Vec<HostTerm>,
-    },
-    /// Host counterpart of a complete nominal parent-cell term.
-    Cell {
-        /// Complete macro-shell provenance.
-        key: ProvenanceKey,
-        /// Rust-resolved nominal `#[k::cell]` owner.
-        declaration: HostTypeReference,
-        /// Authored child values.
-        fields: Vec<HostCellTermField>,
-    },
-}
+/// Host-stage form of [`Term`].
+pub type HostTerm = Term<HostStage>;
 
 /// Optional explicit K rule label and its authored literal provenance.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1342,24 +1180,30 @@ pub struct DescriptorRuleLabel {
     pub name: String,
 }
 
-/// One typed object-language Boolean rule condition and its complete payload provenance.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorRuleCondition {
-    /// Complete `#[k::requires(...)]` payload provenance.
-    pub key: ProvenanceKey,
-    /// Structured object-language term whose inferred sort must be `Bool`.
-    pub term: DescriptorTerm,
+stage_shape! {
+    /// One typed object-language Boolean rule condition and its complete payload provenance.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "DescriptorRuleCondition",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        deny_unknown_fields
+    )]
+    pub struct RuleCondition<S: Stage> {
+        /// Complete `#[k::requires(...)]` payload provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Structured object-language term whose inferred sort must be `Bool`.
+        pub term: Term<S> => [nested],
+    }
 }
 
-/// Host counterpart of [`DescriptorRuleCondition`].
-#[derive(Clone, Debug)]
-pub struct HostRuleCondition {
-    /// Complete `#[k::requires(...)]` payload provenance.
-    pub key: ProvenanceKey,
-    /// Build-local structured object-language condition term.
-    pub term: HostTerm,
-}
+/// Descriptor-stage form of [`RuleCondition`].
+pub type DescriptorRuleCondition = RuleCondition<DescriptorStage>;
+
+/// Host-stage form of [`RuleCondition`].
+pub type HostRuleCondition = RuleCondition<HostStage>;
 
 /// One explicit K rule priority with exact authoring provenance.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1400,68 +1244,54 @@ impl DescriptorRuleLabel {
     }
 }
 
-/// Structured relational sentence.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StructuredRuleDescriptor {
-    /// Transition, equation, or claim meaning.
-    pub sentence_kind: SentenceKind,
-    /// Optional explicit emitted K label.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<DescriptorRuleLabel>,
-    /// Optional object-language Boolean applicability condition.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires: Option<DescriptorRuleCondition>,
-    /// Optional explicit equation or ordered-fallback priority.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<DescriptorRulePriority>,
-    /// Simplifier classification and optional hint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub simplification: Option<DescriptorSimplification>,
-    /// Complete subject-pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Complete result-expression provenance.
-    pub result_key: ProvenanceKey,
-    /// Exact authored subject sort.
-    pub subject_sort: DescriptorSortReference,
-    /// Exact authored result sort.
-    pub result_sort: DescriptorSortReference,
-    /// Bound names in deterministic pattern preorder.
-    pub bindings: Vec<String>,
-    /// Structured left pattern.
-    pub subject: DescriptorTerm,
-    /// Structured right result.
-    pub result: DescriptorTerm,
+stage_shape! {
+    /// Structured relational sentence.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "StructuredRuleDescriptor",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        ),
+        deny_unknown_fields
+    )]
+    pub struct StructuredRule<S: Stage> {
+        /// Explicit relational sentence meaning.
+        pub sentence_kind: SentenceKind => [keep],
+        /// Optional explicit emitted K label.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub label: Option<DescriptorRuleLabel> => [keep],
+        /// Optional object-language Boolean applicability condition.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub requires: Option<RuleCondition<S>> => [option nested],
+        /// Optional explicit equation or ordered-fallback priority.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub priority: Option<DescriptorRulePriority> => [keep],
+        /// Simplifier classification and optional hint.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub simplification: Option<DescriptorSimplification> => [keep],
+        /// Complete subject-pattern provenance.
+        pub pattern_key: ProvenanceKey => [keep],
+        /// Complete result-expression provenance.
+        pub result_key: ProvenanceKey => [keep],
+        /// Exact authored subject sort.
+        pub subject_sort: S::Sort => [sort],
+        /// Exact authored result sort.
+        pub result_sort: S::Sort => [sort],
+        /// Bound names in deterministic pattern preorder.
+        pub bindings: Vec<String> => [keep],
+        /// Structured left pattern.
+        pub subject: Term<S> => [nested],
+        /// Structured right result.
+        pub result: Term<S> => [nested],
+    }
 }
 
-/// Host counterpart of [`StructuredRuleDescriptor`].
-#[derive(Clone, Debug)]
-pub struct HostStructuredRuleDescriptor {
-    /// Transition, equation, or claim meaning.
-    pub sentence_kind: SentenceKind,
-    /// Optional explicit emitted K label.
-    pub label: Option<DescriptorRuleLabel>,
-    /// Optional object-language Boolean applicability condition.
-    pub requires: Option<HostRuleCondition>,
-    /// Optional explicit equation or ordered-fallback priority.
-    pub priority: Option<DescriptorRulePriority>,
-    /// Simplifier classification and optional hint.
-    pub simplification: Option<DescriptorSimplification>,
-    /// Complete subject-pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Complete result-expression provenance.
-    pub result_key: ProvenanceKey,
-    /// Build-local subject sort.
-    pub subject_sort: HostSortReference,
-    /// Build-local result sort.
-    pub result_sort: HostSortReference,
-    /// Bound names in deterministic pattern preorder.
-    pub bindings: Vec<String>,
-    /// Structured left pattern.
-    pub subject: HostTerm,
-    /// Structured right result.
-    pub result: HostTerm,
-}
+/// Descriptor-stage form of [`StructuredRule`].
+pub type StructuredRuleDescriptor = StructuredRule<DescriptorStage>;
+
+/// Host-stage form of [`StructuredRule`].
+pub type HostStructuredRuleDescriptor = StructuredRule<HostStage>;
 
 /// Typed local grammar transport error.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3010,5 +2840,390 @@ fn require_key(
         Ok(())
     } else {
         Err(GrammarTransportError::MissingProvenance(key.clone()))
+    }
+}
+
+#[cfg(test)]
+mod traversal_tests {
+    use super::{
+        CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, Production,
+        ProductionAttribute, ProductionItem, ProductionOwner, RuleCondition,
+        StageGrammarDescriptor, StructuredRule, Term, TermArgument,
+    };
+    use crate::stage::{WireStage, tests::CountingMap};
+    use crate::wire::{
+        WireApplicationReference, WireContextAliasReference, WireSortReference, WireTypeReference,
+    };
+    use crate::{
+        BuiltinSort, DescriptorAssociativitySentence, DescriptorFieldReference,
+        DescriptorFormatFragment, DescriptorGroupReference, DescriptorLexicalPrecedence,
+        DescriptorPrecedenceChain, FormatFragment, GroupAssociativity, HookOperation,
+        ProductionFieldId, ProductionGroupId, ProvenanceKey, ProvenanceRole, SentenceKind,
+        StrictnessKind,
+    };
+
+    macro_rules! assert_traversal {
+        ($shape:expr, [$($call:literal),* $(,)?], $failure:literal) => {{
+            let shape = $shape;
+            let original = serde_json::to_vec(&shape).unwrap();
+            let mut map = CountingMap::default();
+            let mapped = shape.clone().try_map_refs::<WireStage, _>(&mut map).unwrap();
+            assert_eq!(serde_json::to_vec(&mapped).unwrap(), original);
+            assert_eq!(map.calls, [$($call),*]);
+            let mut failing = CountingMap {
+                fail: Some($failure),
+                ..CountingMap::default()
+            };
+            assert_eq!(
+                shape.try_map_refs::<WireStage, _>(&mut failing).unwrap_err(),
+                $failure,
+            );
+            let expected_calls = [$($call),*];
+            let first_failure = expected_calls.iter().position(|call| *call == $failure).unwrap();
+            assert_eq!(failing.calls, expected_calls[..=first_failure]);
+        }};
+    }
+
+    fn key(ordinal: u32) -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleLeftReference, ordinal)
+    }
+
+    fn field() -> ProductionFieldId {
+        ProductionFieldId::new("value").unwrap()
+    }
+
+    fn nominal() -> WireTypeReference {
+        WireTypeReference {
+            slot: 3,
+            authored_path: "State".to_owned(),
+        }
+    }
+
+    fn sort() -> WireSortReference {
+        WireSortReference {
+            key: key(1),
+            target: nominal(),
+        }
+    }
+
+    fn application() -> WireApplicationReference {
+        WireApplicationReference {
+            key: key(2),
+            target: 5,
+            authored_path: "Add".to_owned(),
+        }
+    }
+
+    fn anonymous() -> Term<WireStage> {
+        Term::Anonymous {
+            key: key(3),
+            sort: sort(),
+            spelling: "_".to_owned(),
+        }
+    }
+
+    fn group() -> DescriptorGroupReference {
+        DescriptorGroupReference {
+            key: key(4),
+            group: ProductionGroupId::new("arithmetic").unwrap(),
+        }
+    }
+
+    fn nonterminal() -> ProductionItem<WireStage> {
+        ProductionItem::NonTerminal {
+            key: key(5),
+            field_key: key(6),
+            declaration_key: Some(key(7)),
+            field: field(),
+            sort: Box::new(sort()),
+        }
+    }
+
+    fn strictness() -> ProductionAttribute<WireStage> {
+        ProductionAttribute::Strictness {
+            key: key(8),
+            kind: StrictnessKind::SeqStrict,
+            using: Some(WireContextAliasReference {
+                key: key(9),
+                slot: 7,
+            }),
+            fields: vec![DescriptorFieldReference {
+                key: key(10),
+                field: field(),
+            }],
+            result_sort: Box::new(sort()),
+        }
+    }
+
+    fn production() -> Production<WireStage> {
+        Production {
+            key: key(11),
+            template_key: Some(key(12)),
+            owner: ProductionOwner::Constructor {
+                constructor: application(),
+            },
+            result_sort: sort(),
+            items: vec![nonterminal()],
+            attributes: vec![strictness()],
+        }
+    }
+
+    #[test]
+    fn term_traversal_covers_every_variant_and_stops_on_reference_error() {
+        let term = Term::<WireStage>::OrBool {
+            key: key(0),
+            arguments: vec![
+                Term::Variable {
+                    key: key(1),
+                    path_key: key(2),
+                    name: "bound".to_owned(),
+                },
+                Term::Application {
+                    head_class: DescriptorApplicationHeadClass::Applied,
+                    reference: application(),
+                    path_key: key(3),
+                    arguments: vec![TermArgument::Positional {
+                        value: Box::new(anonymous()),
+                    }],
+                },
+                Term::Literal {
+                    key: key(4),
+                    literal: DescriptorLiteral::Int("42".to_owned()),
+                },
+                Term::Wildcard { key: key(5) },
+                Term::BuiltinToken {
+                    key: key(6),
+                    sort: BuiltinSort::Bytes,
+                    value: "0xff".to_owned(),
+                },
+                anonymous(),
+                Term::OrBool {
+                    key: key(7),
+                    arguments: vec![anonymous(), anonymous()],
+                },
+                Term::Cell {
+                    key: key(8),
+                    declaration: nominal(),
+                    fields: vec![CellTermField {
+                        key: key(9),
+                        field: field(),
+                        value: Box::new(anonymous()),
+                    }],
+                },
+            ],
+        };
+        assert_traversal!(
+            term,
+            [
+                "application",
+                "sort",
+                "sort",
+                "sort",
+                "sort",
+                "nominal",
+                "sort"
+            ],
+            "nominal"
+        );
+    }
+
+    #[test]
+    fn term_arguments_map_positional_and_named_values() {
+        let positional = TermArgument::<WireStage>::Positional {
+            value: Box::new(anonymous()),
+        };
+        assert_traversal!(positional, ["sort"], "sort");
+        let named = TermArgument::<WireStage>::Named {
+            key: key(0),
+            field: field(),
+            value: Box::new(anonymous()),
+        };
+        assert_traversal!(named, ["sort"], "sort");
+    }
+
+    #[test]
+    fn cell_term_field_maps_its_nested_value() {
+        let field = CellTermField::<WireStage> {
+            key: key(0),
+            field: field(),
+            value: Box::new(anonymous()),
+        };
+        assert_traversal!(field, ["sort"], "sort");
+    }
+
+    #[test]
+    fn rule_condition_maps_its_term() {
+        let condition = RuleCondition::<WireStage> {
+            key: key(0),
+            term: anonymous(),
+        };
+        assert_traversal!(condition, ["sort"], "sort");
+    }
+
+    #[test]
+    fn structured_rule_maps_condition_sorts_and_both_terms() {
+        let rule = StructuredRule::<WireStage> {
+            sentence_kind: SentenceKind::Equation,
+            label: None,
+            requires: Some(RuleCondition {
+                key: key(0),
+                term: anonymous(),
+            }),
+            priority: None,
+            simplification: None,
+            pattern_key: key(1),
+            result_key: key(2),
+            subject_sort: sort(),
+            result_sort: sort(),
+            bindings: vec!["bound".to_owned()],
+            subject: anonymous(),
+            result: anonymous(),
+        };
+        assert_traversal!(rule, ["sort", "sort", "sort", "sort", "sort"], "sort");
+    }
+
+    #[test]
+    fn production_items_map_sorts_and_preserve_terminal_payloads() {
+        assert_traversal!(nonterminal(), ["sort"], "sort");
+        let items: [ProductionItem<WireStage>; 2] = [
+            ProductionItem::Terminal {
+                key: key(0),
+                text: "token".to_owned(),
+            },
+            ProductionItem::RegexTerminal {
+                key: key(1),
+                precede_regex: Some("before".to_owned()),
+                regex: "[a-z]+".to_owned(),
+                follow_regex: None,
+            },
+        ];
+        for item in items {
+            let original = serde_json::to_vec(&item).unwrap();
+            let mut map = CountingMap::default();
+            let mapped = item.try_map_refs::<WireStage, _>(&mut map).unwrap();
+            assert_eq!(serde_json::to_vec(&mapped).unwrap(), original);
+            assert!(map.calls.is_empty());
+        }
+    }
+
+    #[test]
+    fn production_attributes_map_aliases_and_sorts_and_preserve_metadata() {
+        assert_traversal!(strictness(), ["context_alias", "sort"], "context_alias");
+        let attributes: [ProductionAttribute<WireStage>; 10] = [
+            ProductionAttribute::Documentation {
+                key: key(0),
+                text: "Documentation".to_owned(),
+            },
+            ProductionAttribute::Function { key: key(1) },
+            ProductionAttribute::Total { key: key(2) },
+            ProductionAttribute::Hook {
+                key: key(3),
+                operation: HookOperation::KryptoSha256Raw,
+            },
+            ProductionAttribute::Alias { key: key(4) },
+            ProductionAttribute::Token {
+                key: key(5),
+                lexical_precedence: Some(DescriptorLexicalPrecedence {
+                    key: key(6),
+                    value: 42,
+                }),
+            },
+            ProductionAttribute::Group { reference: group() },
+            ProductionAttribute::Bracket { key: key(7) },
+            ProductionAttribute::Avoid { key: key(8) },
+            ProductionAttribute::Format {
+                key: key(9),
+                fragments: vec![DescriptorFormatFragment {
+                    key: key(10),
+                    fragment: FormatFragment::Item(1),
+                }],
+            },
+        ];
+        for attribute in attributes {
+            let original = serde_json::to_vec(&attribute).unwrap();
+            let mut map = CountingMap::default();
+            let mapped = attribute.try_map_refs::<WireStage, _>(&mut map).unwrap();
+            assert_eq!(serde_json::to_vec(&mapped).unwrap(), original);
+            assert!(map.calls.is_empty());
+        }
+        let ProductionAttribute::Strictness {
+            key,
+            kind,
+            fields,
+            result_sort,
+            ..
+        } = strictness()
+        else {
+            unreachable!();
+        };
+        let without_alias = ProductionAttribute::<WireStage>::Strictness {
+            key,
+            kind,
+            using: None,
+            fields,
+            result_sort,
+        };
+        assert_traversal!(without_alias, ["sort"], "sort");
+    }
+
+    #[test]
+    fn production_owners_map_every_reference_variant() {
+        let constructor = ProductionOwner::<WireStage>::Constructor {
+            constructor: application(),
+        };
+        assert_traversal!(constructor, ["application"], "application");
+        let token = ProductionOwner::<WireStage>::TokenSort { sort: sort() };
+        assert_traversal!(token, ["sort"], "sort");
+        let bracket = ProductionOwner::<WireStage>::BracketSort { sort: sort() };
+        assert_traversal!(bracket, ["sort"], "sort");
+    }
+
+    #[test]
+    fn production_maps_owner_result_items_and_attributes() {
+        assert_traversal!(
+            production(),
+            ["application", "sort", "sort", "context_alias", "sort"],
+            "context_alias"
+        );
+    }
+
+    #[test]
+    fn grammar_descriptor_maps_references_and_preserves_group_sentences() {
+        let production = StageGrammarDescriptor::<WireStage>::Production(production());
+        assert_traversal!(
+            production,
+            ["application", "sort", "sort", "context_alias", "sort"],
+            "context_alias"
+        );
+        let subsort = StageGrammarDescriptor::<WireStage>::Subsort {
+            key: key(0),
+            subsort: sort(),
+            supersort: sort(),
+        };
+        assert_traversal!(subsort, ["sort", "sort"], "sort");
+        let descriptors = [
+            StageGrammarDescriptor::<WireStage>::Precedence {
+                key: key(1),
+                chains: vec![DescriptorPrecedenceChain {
+                    key: key(2),
+                    groups: vec![group()],
+                }],
+            },
+            StageGrammarDescriptor::Associativity {
+                key: key(3),
+                sentences: vec![DescriptorAssociativitySentence {
+                    key: key(4),
+                    associativity: GroupAssociativity::Left,
+                    groups: vec![group()],
+                }],
+            },
+        ];
+        for descriptor in descriptors {
+            let original = serde_json::to_vec(&descriptor).unwrap();
+            let mut map = CountingMap::default();
+            let mapped = descriptor.try_map_refs::<WireStage, _>(&mut map).unwrap();
+            assert_eq!(serde_json::to_vec(&mapped).unwrap(), original);
+            assert!(map.calls.is_empty());
+        }
     }
 }

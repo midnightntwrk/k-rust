@@ -10,9 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DisplayPath, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
-    HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
-    HostStructuredRuleDescriptor, ItemKind, ProvenanceRole, SchemaVersion, StateTransportError,
+    DisplayPath, HostDeclarationIdentity, HostHeadRule, ItemKind, ProvenanceRole, SchemaVersion,
+    StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -690,53 +689,17 @@ impl HostDescriptor {
     }
 }
 
-/// Minimal host-side descriptor variants.
-#[derive(Clone, Debug)]
-pub enum HostDescriptorPayload {
-    /// Open-sort declaration.
-    Sort(HostSortDescriptor),
-    /// Constructor declaration.
-    Constructor(HostConstructorDescriptor),
-    /// Typed after-the-fact grammar registration.
-    Grammar(Box<HostGrammarDescriptor>),
-    /// Fully structured relational sentence.
-    StructuredRule(Box<HostStructuredRuleDescriptor>),
-    /// Complete fixed configuration and initializer.
-    FixedConfiguration(Box<HostFixedConfiguration>),
-    /// Nominal nested fixed-cell declaration.
-    Cell(Box<HostCellDeclaration>),
-    /// Simultaneous whole-configuration rule.
-    ConfigurationRule(Box<HostConfigurationRule>),
-    /// Bare-sort rule completed into a fixed computation cell by the collector.
-    HeadRule(Box<HostHeadRule>),
-    /// One-sided reusable fixed-configuration context template.
-    ContextAlias(Box<HostContextAlias>),
-}
+/// Build-local payload with an authored head rule.
+pub type HostDescriptorPayload = crate::bundle::Payload<crate::HostStage, HostHeadRule>;
 
-/// Host-side sort payload.
-#[derive(Clone, Debug, Default)]
-pub struct HostSortDescriptor {
-    /// Rust-resolved direct super-sort references.
-    pub parents: Vec<HostTypeReference>,
-}
+/// Build-local host-stage form of [`crate::bundle::SortPayload`].
+pub type HostSortDescriptor = crate::bundle::SortPayload<crate::HostStage>;
 
-/// Host-side constructor payload.
-#[derive(Clone, Debug)]
-pub struct HostConstructorDescriptor {
-    /// Rust-resolved result sort.
-    pub sort: crate::HostSortReference,
-    /// Ordered record fields and their rustc-resolved sorts.
-    pub fields: Vec<HostConstructorFieldDescriptor>,
-}
+/// Build-local host-stage form of [`crate::bundle::Constructor`].
+pub type HostConstructorDescriptor = crate::bundle::Constructor<crate::HostStage>;
 
-/// One host-side constructor record field.
-#[derive(Clone, Debug)]
-pub struct HostConstructorFieldDescriptor {
-    /// Rust field name.
-    pub name: String,
-    /// Rust-resolved field sort.
-    pub sort: HostTypeReference,
-}
+/// Build-local host-stage form of [`crate::bundle::ConstructorField`].
+pub type HostConstructorFieldDescriptor = crate::bundle::ConstructorField<crate::HostStage>;
 
 #[cfg(test)]
 mod tests {

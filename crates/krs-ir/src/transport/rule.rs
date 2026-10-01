@@ -4,15 +4,17 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
+
 use crate::host::HostTypeReference;
 use crate::transport::configuration::{
     CellWrapper, DescriptorCellReference, DescriptorKSequenceNotation, HostCellReference,
     StateTransportError,
 };
 use crate::transport::grammar::{
-    DescriptorApplicationHeadClass, DescriptorRuleCondition, DescriptorRuleLabel,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
-    HostRuleCondition, HostSortReference, HostTerm, HostTermArgument, valid_rule_label_name,
+    DescriptorApplicationHeadClass, DescriptorRuleLabel, DescriptorSortRef,
+    DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, HostSortReference, HostTerm,
+    HostTermArgument, valid_rule_label_name,
 };
 use crate::{
     ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole, RuleRole, RuleSide, SentenceKind,
@@ -29,77 +31,73 @@ pub enum ClaimModality {
     OnePath,
 }
 
-/// One typed claim binder with explicit scope kind retained by its containing list.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorClaimBinder {
-    /// Binder declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Binder-name provenance.
-    pub name_key: ProvenanceKey,
-    /// Authored Rust name.
-    pub name: String,
-    /// Exact resolved sort and sort provenance.
-    pub sort: DescriptorSortReference,
+stage_shape! {
+    /// One typed claim binder with explicit scope kind retained by its containing list.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorClaimBinder",
+        bound(
+            serialize = "S::Sort: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>"
+        )
+    )]
+    pub struct ClaimBinder<S: Stage> {
+        /// Binder declaration provenance.
+        pub declaration_key: ProvenanceKey => [keep],
+        /// Binder-name provenance.
+        pub name_key: ProvenanceKey => [keep],
+        /// Authored Rust name.
+        pub name: String => [keep],
+        /// Exact sort reference and sort provenance.
+        pub sort: S::Sort => [sort],
+    }
 }
 
-/// Host counterpart of [`DescriptorClaimBinder`].
-#[derive(Clone, Debug)]
-pub struct HostClaimBinder {
-    /// Binder declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Binder-name provenance.
-    pub name_key: ProvenanceKey,
-    /// Authored Rust name.
-    pub name: String,
-    /// Rust-resolved sort.
-    pub sort: HostSortReference,
+/// Stable descriptor-stage form of [`ClaimBinder`].
+pub type DescriptorClaimBinder = ClaimBinder<DescriptorStage>;
+
+/// Build-local host-stage form of [`ClaimBinder`].
+pub type HostClaimBinder = ClaimBinder<HostStage>;
+
+stage_shape! {
+    /// Claim-only metadata attached to one configuration rewrite.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorClaim",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        )
+    )]
+    pub struct Claim<S: Stage> {
+        /// Claim declaration provenance.
+        pub declaration_key: ProvenanceKey => [keep],
+        /// Exact modality provenance.
+        pub modality_key: ProvenanceKey => [keep],
+        /// Exactly one reachability modality.
+        pub modality: ClaimModality => [keep],
+        /// Optional circularity marker provenance.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub circularity_key: Option<ProvenanceKey> => [keep],
+        /// Universally scoped ordinary term binders.
+        pub universals: Vec<ClaimBinder<S>> => [vec nested],
+        /// Existentials scoped to RHS and ensures.
+        pub existentials: Vec<ClaimBinder<S>> => [vec nested],
+        /// Optional object-Bool postcondition.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub ensures: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
+        /// Complete `or_bool!` shell provenance occurrences.
+        pub or_bool_keys: Vec<ProvenanceKey> => [keep],
+    }
 }
 
-/// Stable claim-only metadata attached to one configuration rewrite.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorClaim {
-    /// Claim declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Exact modality provenance.
-    pub modality_key: ProvenanceKey,
-    /// Exactly one reachability modality.
-    pub modality: ClaimModality,
-    /// Optional circularity marker provenance.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub circularity_key: Option<ProvenanceKey>,
-    /// Universally scoped ordinary term binders.
-    pub universals: Vec<DescriptorClaimBinder>,
-    /// Existentials scoped to RHS and ensures.
-    pub existentials: Vec<DescriptorClaimBinder>,
-    /// Optional object-Bool postcondition.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ensures: Option<DescriptorRuleCondition>,
-    /// Complete `or_bool!` shell provenance occurrences.
-    pub or_bool_keys: Vec<ProvenanceKey>,
-}
+/// Stable descriptor-stage form of [`Claim`].
+pub type DescriptorClaim = Claim<DescriptorStage>;
 
-/// Host counterpart of [`DescriptorClaim`].
-#[derive(Clone, Debug)]
-pub struct HostClaim {
-    /// Claim declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Exact modality provenance.
-    pub modality_key: ProvenanceKey,
-    /// Exactly one reachability modality.
-    pub modality: ClaimModality,
-    /// Optional circularity marker provenance.
-    pub circularity_key: Option<ProvenanceKey>,
-    /// Universally scoped ordinary term binders.
-    pub universals: Vec<HostClaimBinder>,
-    /// Existentials scoped to RHS and ensures.
-    pub existentials: Vec<HostClaimBinder>,
-    /// Optional object-Bool postcondition.
-    pub ensures: Option<HostRuleCondition>,
-    /// Complete `or_bool!` shell provenance occurrences.
-    pub or_bool_keys: Vec<ProvenanceKey>,
-}
+/// Build-local host-stage form of [`Claim`].
+pub type HostClaim = Claim<HostStage>;
 
 /// Stable configuration type reference in a whole-configuration rule.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -120,31 +118,35 @@ pub struct HostConfigurationReference {
     pub configuration: HostTypeReference,
 }
 
-/// Semantic family and, for ordinary terms, exact sort of one rule binding.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "binding_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProtocolRuleBindingKind<S> {
-    /// Ordinary term binding with an explicitly authored sort.
-    Term {
-        /// Exact authored sort reference.
-        sort: S,
-    },
-    /// Named remainder of a K sequence.
-    KSequenceFrame,
-    /// Named remainder of a map.
-    MapFrame,
-    /// Named remainder of the complete fixed configuration.
-    ConfigurationFrame,
+protocol_shape! {
+    /// Semantic family and, for ordinary terms, exact sort of one rule binding.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(tag = "binding_kind", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum ProtocolRuleBindingKind<S => sort_map => S2> {
+        /// Ordinary term binding with an explicitly authored sort.
+        Term {
+            /// Exact authored sort reference.
+            sort: S => [sort_map],
+        },
+        /// Named remainder of a K sequence.
+        KSequenceFrame,
+        /// Named remainder of a map.
+        MapFrame,
+        /// Named remainder of the complete fixed configuration.
+        ConfigurationFrame,
+    }
 }
 
-/// One typed/kinded rule binding in subject first-occurrence preorder.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleBinding<S> {
-    /// Rust binding name used by subject and result terms or frames.
-    pub name: String,
-    /// Exact structural family and optional term sort.
-    pub kind: ProtocolRuleBindingKind<S>,
+protocol_shape! {
+    /// One typed/kinded rule binding in subject first-occurrence preorder.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleBinding<S => sort_map => S2> {
+        /// Rust binding name used by subject and result terms or frames.
+        pub name: String => [keep],
+        /// Exact structural family and optional term sort.
+        pub kind: ProtocolRuleBindingKind<S> => [nested sort_map],
+    }
 }
 
 /// Stable typed configuration-rule binding.
@@ -180,129 +182,147 @@ pub enum ProtocolRuleFrame {
     },
 }
 
-/// One ordered K-sequence item in a configuration rule.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleKSequenceItem<T> {
-    /// Exact structural item provenance.
-    pub key: ProvenanceKey,
-    /// Structured item term.
-    pub value: T,
+protocol_shape! {
+    /// One ordered K-sequence item in a configuration rule.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleKSequenceItem<T => term_map => T2> {
+        /// Exact structural item provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Structured item term.
+        pub value: T => [term_map],
+    }
 }
 
-/// Structured K sequence with an exact or framed tail.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleKSequence<T> {
-    /// Complete payload provenance. Empty `k![]` alone has no inner endpoint.
-    pub payload_key: Option<ProvenanceKey>,
-    /// Exact standalone `.K` provenance.
-    pub dot_k_key: Option<ProvenanceKey>,
-    /// Preserved parser notation.
-    pub notation: DescriptorKSequenceNotation,
-    /// Ordered sequence prefix.
-    pub items: Vec<ProtocolRuleKSequenceItem<T>>,
-    /// Exact or associative tail.
-    pub tail: ProtocolRuleFrame,
+protocol_shape! {
+    /// Structured K sequence with an exact or framed tail.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleKSequence<T => term_map => T2> {
+        /// Complete payload provenance.
+        /// Empty `k![]` alone has no inner endpoint.
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Exact standalone `.K` provenance.
+        pub dot_k_key: Option<ProvenanceKey> => [keep],
+        /// Preserved parser notation.
+        pub notation: DescriptorKSequenceNotation => [keep],
+        /// Ordered sequence prefix.
+        pub items: Vec<ProtocolRuleKSequenceItem<T>> => [vec nested term_map],
+        /// Exact or associative tail.
+        pub tail: ProtocolRuleFrame => [keep],
+    }
 }
 
-/// One ordered map item in a configuration rule.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleMapItem<T> {
-    /// Exact key-expression provenance.
-    pub key_key: ProvenanceKey,
-    /// Structured map key.
-    pub key: T,
-    /// Exact value-expression provenance.
-    pub value_key: ProvenanceKey,
-    /// Structured map value.
-    pub value: T,
+protocol_shape! {
+    /// One ordered map item in a configuration rule.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleMapItem<T => term_map => T2> {
+        /// Exact key-expression provenance.
+        pub key_key: ProvenanceKey => [keep],
+        /// Structured map key.
+        pub key: T => [term_map],
+        /// Exact value-expression provenance.
+        pub value_key: ProvenanceKey => [keep],
+        /// Structured map value.
+        pub value: T => [term_map],
+    }
 }
 
-/// Empty, associative-item, or functional-update map rule term.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "map_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProtocolRuleMapBody<T> {
-    /// `.Map` or empty `map![]`.
-    Empty {
-        /// Whether `.Map` was explicitly authored.
-        explicit_dot: bool,
-    },
-    /// Ordered items and exact/framed remainder.
-    Items {
-        /// Ordered key/value items; may be empty when the frame is non-exact.
-        items: Vec<ProtocolRuleMapItem<T>>,
-        /// Exact or associative remainder.
-        remainder: ProtocolRuleFrame,
-    },
-    /// Functional result-side update.
-    Update {
-        /// Exact base-expression provenance.
-        base_key: ProvenanceKey,
-        /// Existing map term.
-        base: T,
-        /// Exact updated-key provenance.
-        key_key: ProvenanceKey,
-        /// Updated key term.
-        key: T,
-        /// Exact replacement-value provenance.
-        value_key: ProvenanceKey,
-        /// Replacement value term.
-        value: T,
-    },
+protocol_shape! {
+    /// Empty, associative-item, or functional-update map rule term.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(tag = "map_kind", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum ProtocolRuleMapBody<T => term_map => T2> {
+        /// `.Map` or empty `map![]`.
+        Empty {
+            /// Whether `.Map` was explicitly authored.
+            explicit_dot: bool => [keep],
+        },
+        /// Ordered items and exact/framed remainder.
+        Items {
+            /// Ordered key/value items; may be empty when the frame is non-exact.
+            items: Vec<ProtocolRuleMapItem<T>> => [vec nested term_map],
+            /// Exact or associative remainder.
+            remainder: ProtocolRuleFrame => [keep],
+        },
+        /// Functional result-side update.
+        Update {
+            /// Exact base-expression provenance.
+            base_key: ProvenanceKey => [keep],
+            /// Existing map term.
+            base: T => [term_map],
+            /// Exact updated-key provenance.
+            key_key: ProvenanceKey => [keep],
+            /// Updated key term.
+            key: T => [term_map],
+            /// Exact replacement-value provenance.
+            value_key: ProvenanceKey => [keep],
+            /// Replacement value term.
+            value: T => [term_map],
+        },
+    }
 }
 
-/// Structured map occurrence in a configuration rule.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleMap<T> {
-    /// Complete map payload provenance. Empty `map![]` has no inner endpoint.
-    pub payload_key: Option<ProvenanceKey>,
-    /// Classified map operation.
-    pub body: ProtocolRuleMapBody<T>,
+protocol_shape! {
+    /// Structured map occurrence in a configuration rule.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleMap<T => term_map => T2> {
+        /// Complete map payload provenance.
+        /// Empty `map![]` has no inner endpoint.
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Classified map operation.
+        pub body: ProtocolRuleMapBody<T> => [nested term_map],
+    }
 }
 
-/// Leaf state families admitted by `cells!` entries.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(
-    tag = "state_term_kind",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum ProtocolRuleStateTerm<T> {
-    /// Ordinary structured term.
-    Term(T),
-    /// Structured K sequence.
-    KSequence(ProtocolRuleKSequence<T>),
-    /// Structured map.
-    Map(ProtocolRuleMap<T>),
+protocol_shape! {
+    /// Leaf state families admitted by `cells!` entries.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(
+        tag = "state_term_kind",
+        rename_all = "snake_case",
+        deny_unknown_fields
+    )]
+    pub enum ProtocolRuleStateTerm<T => term_map => T2> {
+        /// Ordinary structured term.
+        Term(value: T => [term_map]),
+        /// Structured K sequence.
+        KSequence(value: ProtocolRuleKSequence<T> => [nested term_map]),
+        /// Structured map.
+        Map(value: ProtocolRuleMap<T> => [nested term_map]),
+    }
 }
 
-/// One selected fixed cell in a simultaneous configuration side.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleCell<I, T> {
-    /// Exact selected-field provenance and owner-qualified identity.
-    pub field: I,
-    /// Exact `Cell`/`KCell` wrapper path provenance.
-    pub wrapper_key: ProvenanceKey,
-    /// Typed wrapper meaning.
-    pub wrapper: CellWrapper,
-    /// Structured cell state.
-    pub value: ProtocolRuleStateTerm<T>,
+protocol_shape! {
+    /// One selected fixed cell in a simultaneous configuration side.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleCell<I => cell_map => I2, T => term_map => T2> {
+        /// Exact selected-field provenance and owner-qualified identity.
+        pub field: I => [cell_map],
+        /// Exact `Cell`/`KCell` wrapper path provenance.
+        pub wrapper_key: ProvenanceKey => [keep],
+        /// Typed wrapper meaning.
+        pub wrapper: CellWrapper => [keep],
+        /// Structured cell state.
+        pub value: ProtocolRuleStateTerm<T> => [nested term_map],
+    }
 }
 
-/// One complete `cells!` side of a simultaneous configuration rule.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolRuleCells<I, T> {
-    /// Complete `cells!` payload provenance.
-    pub key: ProvenanceKey,
-    /// Selected fixed cells in authored order.
-    pub cells: Vec<ProtocolRuleCell<I, T>>,
-    /// Exact or framed remainder of the complete configuration.
-    pub remainder: ProtocolRuleFrame,
+protocol_shape! {
+    /// One complete `cells!` side of a simultaneous configuration rule.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolRuleCells<I => cell_map => I2, T => term_map => T2> {
+        /// Complete `cells!` payload provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Selected fixed cells in authored order.
+        pub cells: Vec<ProtocolRuleCell<I, T>> => [vec nested cell_map term_map],
+        /// Exact or framed remainder of the complete configuration.
+        pub remainder: ProtocolRuleFrame => [keep],
+    }
 }
 
 /// Stable selected-cell side.
@@ -311,81 +331,89 @@ pub type DescriptorRuleCells = ProtocolRuleCells<DescriptorCellReference, Descri
 /// Host selected-cell side.
 pub type HostRuleCells = ProtocolRuleCells<HostCellReference, HostTerm>;
 
-/// Semantic family of one binding in a one-sided context-alias pattern.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "binding_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProtocolContextAliasBindingKind<S> {
-    /// The distinguished ordinary term occurrence substituted for `HERE`.
-    Here,
-    /// An ordinary typed term binding other than `HERE`.
-    Term {
-        /// Exact authored sort reference.
-        sort: S,
-    },
-    /// Named K-sequence tail.
-    KSequenceFrame,
-    /// Named map remainder.
-    MapFrame,
-    /// Named complete-configuration remainder.
-    ConfigurationFrame,
+protocol_shape! {
+    /// Semantic family of one binding in a one-sided context-alias pattern.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(tag = "binding_kind", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum ProtocolContextAliasBindingKind<S => sort_map => S2> {
+        /// The distinguished ordinary term occurrence substituted for `HERE`.
+        Here,
+        /// An ordinary typed term binding other than `HERE`.
+        Term {
+            /// Exact authored sort reference.
+            sort: S => [sort_map],
+        },
+        /// Named K-sequence tail.
+        KSequenceFrame,
+        /// Named map remainder.
+        MapFrame,
+        /// Named complete-configuration remainder.
+        ConfigurationFrame,
+    }
 }
 
-/// One binding in a one-sided context-alias pattern.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolContextAliasBinding<S> {
-    /// Authored Rust binding name.
-    pub name: String,
-    /// Typed or structural binding family.
-    pub kind: ProtocolContextAliasBindingKind<S>,
+protocol_shape! {
+    /// One binding in a one-sided context-alias pattern.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolContextAliasBinding<S => sort_map => S2> {
+        /// Authored Rust binding name.
+        pub name: String => [keep],
+        /// Typed or structural binding family.
+        pub kind: ProtocolContextAliasBindingKind<S> => [nested sort_map],
+    }
 }
 
-/// Stable one-sided reusable configuration context template.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorContextAlias {
-    /// Declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Exact alias-name occurrence provenance.
-    pub name_key: ProvenanceKey,
-    /// Target-neutral authored alias identity.
-    pub name: String,
-    /// Exact `here` binder occurrence provenance.
-    pub here_key: ProvenanceKey,
-    /// Binding selected for native `HERE` substitution.
-    pub here: String,
-    /// Complete one-sided pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Exact fixed-configuration type.
-    pub configuration: DescriptorConfigurationReference,
-    /// Typed bindings in first-occurrence preorder.
-    pub bindings: Vec<ProtocolContextAliasBinding<DescriptorSortReference>>,
-    /// Complete one-sided cells pattern.
-    pub pattern: DescriptorRuleCells,
+stage_shape! {
+    /// One-sided reusable configuration context template.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorContextAlias",
+        bound(
+            serialize = "
+                S::Sort: Serialize,
+                S::Configuration: Serialize,
+                S::Cell: Serialize,
+                S::Application: Serialize,
+                S::Nominal: Serialize
+            ",
+            deserialize = "
+                S::Sort: Deserialize<'de>,
+                S::Configuration: Deserialize<'de>,
+                S::Cell: Deserialize<'de>,
+                S::Application: Deserialize<'de>,
+                S::Nominal: Deserialize<'de>
+            "
+        )
+    )]
+    pub struct ContextAlias<S: Stage> {
+        /// Declaration provenance.
+        pub declaration_key: ProvenanceKey => [keep],
+        /// Exact alias-name occurrence provenance.
+        pub name_key: ProvenanceKey => [keep],
+        /// Target-neutral authored alias identity.
+        pub name: String => [keep],
+        /// Exact `here` binder occurrence provenance.
+        pub here_key: ProvenanceKey => [keep],
+        /// Binding selected for native `HERE` substitution.
+        pub here: String => [keep],
+        /// Complete one-sided pattern provenance.
+        pub pattern_key: ProvenanceKey => [keep],
+        /// Exact fixed-configuration reference.
+        pub configuration: S::Configuration => [configuration],
+        /// Typed bindings in first-occurrence preorder.
+        pub bindings: Vec<ProtocolContextAliasBinding<S::Sort>> => [vec protocol sort],
+        /// Complete one-sided cells pattern.
+        pub pattern: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+    }
 }
 
-/// Host counterpart of [`DescriptorContextAlias`].
-#[derive(Clone, Debug)]
-pub struct HostContextAlias {
-    /// Declaration provenance.
-    pub declaration_key: ProvenanceKey,
-    /// Exact alias-name occurrence provenance.
-    pub name_key: ProvenanceKey,
-    /// Target-neutral authored alias identity.
-    pub name: String,
-    /// Exact `here` binder occurrence provenance.
-    pub here_key: ProvenanceKey,
-    /// Binding selected for native `HERE` substitution.
-    pub here: String,
-    /// Complete one-sided pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Rust-resolved fixed-configuration type.
-    pub configuration: HostConfigurationReference,
-    /// Typed bindings in first-occurrence preorder.
-    pub bindings: Vec<ProtocolContextAliasBinding<HostSortReference>>,
-    /// Complete one-sided cells pattern.
-    pub pattern: HostRuleCells,
-}
+/// Stable descriptor-stage form of [`ContextAlias`].
+pub type DescriptorContextAlias = ContextAlias<DescriptorStage>;
+
+/// Build-local host-stage form of [`ContextAlias`].
+pub type HostContextAlias = ContextAlias<HostStage>;
 
 impl DescriptorContextAlias {
     /// Validates the frozen one-sided alias contract.
@@ -821,68 +849,66 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
     }
 }
 
-/// Stable simultaneous configuration rewrite.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DescriptorConfigurationRule {
-    /// Transition, equation, or claim meaning.
-    pub sentence_kind: SentenceKind,
-    /// Optional explicit emitted K label.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<DescriptorRuleLabel>,
-    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<crate::DescriptorRulePriority>,
-    /// Optional object-language Boolean applicability condition.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires: Option<DescriptorRuleCondition>,
-    /// Required claim-only metadata, present iff this is a claim.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub claim: Option<DescriptorClaim>,
-    /// Complete subject-pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Exact subject configuration type.
-    pub subject_configuration: DescriptorConfigurationReference,
-    /// Complete result-expression provenance.
-    pub result_key: ProvenanceKey,
-    /// Exact result configuration type.
-    pub result_configuration: DescriptorConfigurationReference,
-    /// Typed subject bindings in first-occurrence structural preorder.
-    pub bindings: Vec<DescriptorRuleBinding>,
-    /// Complete left `cells!` pattern.
-    pub subject: DescriptorRuleCells,
-    /// Complete right `cells!` expression.
-    pub result: DescriptorRuleCells,
+stage_shape! {
+    /// Stable simultaneous configuration rewrite.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[serde(
+        rename = "DescriptorConfigurationRule",
+        bound(
+            serialize = "
+                S::Sort: Serialize,
+                S::Configuration: Serialize,
+                S::Cell: Serialize,
+                S::Application: Serialize,
+                S::Nominal: Serialize
+            ",
+            deserialize = "
+                S::Sort: Deserialize<'de>,
+                S::Configuration: Deserialize<'de>,
+                S::Cell: Deserialize<'de>,
+                S::Application: Deserialize<'de>,
+                S::Nominal: Deserialize<'de>
+            "
+        )
+    )]
+    pub struct ConfigurationRule<S: Stage> {
+        /// Explicit relational sentence meaning.
+        pub sentence_kind: SentenceKind => [keep],
+        /// Optional explicit emitted K label.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub label: Option<DescriptorRuleLabel> => [keep],
+        /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub priority: Option<crate::DescriptorRulePriority> => [keep],
+        /// Optional object-language Boolean applicability condition.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub requires: Option<crate::transport::grammar::RuleCondition<S>> => [option nested],
+        /// Required claim-only metadata, present iff this is a claim.
+        #[serde(skip_serializing_if = "S::skip_none")]
+        pub claim: Option<Claim<S>> => [option nested],
+        /// Complete subject-pattern provenance.
+        pub pattern_key: ProvenanceKey => [keep],
+        /// Exact subject configuration type.
+        pub subject_configuration: S::Configuration => [configuration],
+        /// Complete result-expression provenance.
+        pub result_key: ProvenanceKey => [keep],
+        /// Exact result configuration type.
+        pub result_configuration: S::Configuration => [configuration],
+        /// Typed subject bindings in first-occurrence structural preorder.
+        pub bindings: Vec<ProtocolRuleBinding<S::Sort>> => [vec protocol sort],
+        /// Complete left `cells!` pattern.
+        pub subject: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+        /// Complete right `cells!` expression.
+        pub result: ProtocolRuleCells<S::Cell, crate::transport::grammar::Term<S>> => [protocol cell nested],
+    }
 }
 
-/// Host counterpart of [`DescriptorConfigurationRule`].
-#[derive(Clone, Debug)]
-pub struct HostConfigurationRule {
-    /// Transition, equation, or claim meaning.
-    pub sentence_kind: SentenceKind,
-    /// Optional explicit emitted K label.
-    pub label: Option<DescriptorRuleLabel>,
-    /// Optional ordered-fallback priority transported from `#[k::rule(owise)]`.
-    pub priority: Option<crate::DescriptorRulePriority>,
-    /// Optional object-language Boolean applicability condition.
-    pub requires: Option<HostRuleCondition>,
-    /// Required claim-only metadata, present iff this is a claim.
-    pub claim: Option<HostClaim>,
-    /// Complete subject-pattern provenance.
-    pub pattern_key: ProvenanceKey,
-    /// Rust-resolved subject configuration type.
-    pub subject_configuration: HostConfigurationReference,
-    /// Complete result-expression provenance.
-    pub result_key: ProvenanceKey,
-    /// Rust-resolved result configuration type.
-    pub result_configuration: HostConfigurationReference,
-    /// Typed subject bindings in first-occurrence structural preorder.
-    pub bindings: Vec<HostRuleBinding>,
-    /// Complete left `cells!` pattern.
-    pub subject: HostRuleCells,
-    /// Complete right `cells!` expression.
-    pub result: HostRuleCells,
-}
+/// Stable descriptor-stage form of [`ConfigurationRule`].
+pub type DescriptorConfigurationRule = ConfigurationRule<DescriptorStage>;
+
+/// Build-local host-stage form of [`ConfigurationRule`].
+pub type HostConfigurationRule = ConfigurationRule<HostStage>;
 
 #[derive(Clone, Copy)]
 enum ValidationSide {
