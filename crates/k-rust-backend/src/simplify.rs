@@ -77,9 +77,13 @@ use crate::{
 };
 
 mod result;
+mod scan;
 
 use result::{Accumulated, HookOutcome};
 pub use result::{Simplification, SimplificationParts};
+use scan::{
+    EquationAttempt, GroupScan, IndeterminateEquation, TheoryScan, scan_group, scan_theory,
+};
 
 /// Default equation iterations allowed for each simplification fixed point.
 ///
@@ -3204,23 +3208,6 @@ fn builtin_effect_result(
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum IndeterminateEquation {
-    Block,
-    Continue,
-}
-
-enum TheoryScan {
-    /// The result of the equation that applied, and that equation.
-    Applied(Simplification, Arc<RewriteRule>),
-    Blocked,
-    /// No equation applied, but some equation was set aside for a reason other than a failed
-    /// match (see [`GroupScan::NotCacheable`]); the term is not a fixed point to record.
-    NotCacheable,
-    /// Every equation offered the term failed to match it.
-    NotApplicable,
-}
-
 /// Whether `term` is one of the normalized value-like equation heads whose fixed point can be
 /// retained in the term itself. Fully evaluated children exclude a closed parent whose child
 /// scan was blocked, and the empty variable set keeps a symbolic application out of the cache.
@@ -3252,102 +3239,16 @@ fn apply_theory(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<TheoryScan> {
     let (theory, indeterminate_equation) = theory;
-    let groups = applicable_groups(theory, &term_index(term));
-    let mut blocked = false;
-    let mut not_cacheable = false;
-    for rules in groups.values() {
-        match scan_group(rules, |rule| {
-            Ok(
-                match apply_equation(
-                    definition,
-                    rule,
-                    term,
-                    known_predicates,
-                    options,
-                    active_conditions,
-                    solver,
-                )? {
-                    EquationAttempt::Applied(result) => {
-                        EquationAttempt::Applied((result, Arc::clone(rule)))
-                    }
-                    EquationAttempt::NotApplicable => EquationAttempt::NotApplicable,
-                    EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
-                    EquationAttempt::Unused => EquationAttempt::Unused,
-                    EquationAttempt::Indeterminate(reason) => {
-                        EquationAttempt::Indeterminate(reason)
-                    }
-                },
-            )
-        })? {
-            GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
-            GroupScan::Blocked if indeterminate_equation == IndeterminateEquation::Block => {
-                // A rule at this priority may apply after the symbolic subject becomes more
-                // concrete. Function evaluation must preserve the application and must not fall
-                // through to an owise or otherwise lower-priority equation.
-                return Ok(TheoryScan::Blocked);
-            }
-            GroupScan::Blocked => blocked = true,
-            GroupScan::NotCacheable => not_cacheable = true,
-            GroupScan::NotApplicable => {}
-        }
-    }
-    Ok(if blocked {
-        TheoryScan::Blocked
-    } else if not_cacheable {
-        TheoryScan::NotCacheable
-    } else {
-        TheoryScan::NotApplicable
-    })
-}
-
-enum EquationAttempt<T> {
-    NotApplicable,
-    /// The equation is inapplicable under the current path condition, but may apply if the same
-    /// term is simplified under different assumptions. Unlike `Indeterminate`, this does not
-    /// block lower-priority equations in the current scan.
-    ContextDependent,
-    /// The equation's left-hand side matched, or its shape keeps the evaluator from using it as
-    /// a term rewrite, and the evaluator does not use it on this term: a `concrete` or
-    /// `symbolic` attribute rejected the binding, the match bound a variable outside the
-    /// left-hand side, or the right-hand side is a predicate. These are choices of when the
-    /// evaluator uses an equation, not of what the definition means: the equation still holds,
-    /// so the term may equal its right-hand side. Like `ContextDependent`, this lets
-    /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
-    Unused,
-    Indeterminate(ConditionIndeterminacy),
-    Applied(T),
-}
-
-enum GroupScan<T> {
-    Applied(T),
-    Blocked,
-    /// No equation applied, and some equation was `ContextDependent` or `Unused`: the scan's
-    /// answer may differ under another path condition, or an equation that matched was set aside,
-    /// so the term must not be recorded as a fixed point.
-    NotCacheable,
-    NotApplicable,
-}
-
-fn scan_group<R, T>(
-    rules: &[Arc<R>],
-    mut attempt: impl FnMut(&Arc<R>) -> SimplifyResult<EquationAttempt<T>>,
-) -> SimplifyResult<GroupScan<T>> {
-    let mut indeterminate = false;
-    let mut not_cacheable = false;
-    for rule in rules {
-        match attempt(rule)? {
-            EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
-            EquationAttempt::Indeterminate(_reason) => indeterminate = true,
-            EquationAttempt::ContextDependent | EquationAttempt::Unused => not_cacheable = true,
-            EquationAttempt::NotApplicable => {}
-        }
-    }
-    Ok(if indeterminate {
-        GroupScan::Blocked
-    } else if not_cacheable {
-        GroupScan::NotCacheable
-    } else {
-        GroupScan::NotApplicable
+    scan_theory(theory, indeterminate_equation, term, |rule| {
+        apply_equation(
+            definition,
+            rule,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        )
     })
 }
 
