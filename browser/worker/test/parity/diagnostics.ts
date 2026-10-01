@@ -340,7 +340,9 @@ interface FieldResult {
 function compareOne(n: Normalized, b: Normalized | undefined): FieldResult[] {
   const f = (field: string, native: unknown, browser: unknown, gating = true): FieldResult => ({ field, native, browser, equal: JSON.stringify(native) === JSON.stringify(browser), gating });
   if (!b) return [f("present", true, false)];
-  const rows = [f("stage", n.stage, b.stage), f("code", n.code, b.code), f("message", n.message, b.message, n.message !== null), f("class", n.class, b.class)];
+  // rustc's compile_error! carries no code, so a native expander diagnostic leaves the browser's code reported, not compared.
+  const codeGates = n.code !== null || n.stage !== "expander";
+  const rows = [f("stage", n.stage, b.stage), f("code", n.code, b.code, codeGates), f("message", n.message, b.message, n.message !== null), f("class", n.class, b.class)];
   if (n.authored !== null || b.authored !== null) rows.push(f("authored", n.authored, b.authored));
   return rows;
 }
