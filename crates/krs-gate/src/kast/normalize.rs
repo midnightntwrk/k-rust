@@ -602,10 +602,10 @@ pub(crate) fn normalize(
                 label.ok_or("claim normalization requires label")?,
                 false,
             )?;
-            normalizer.sentence(&mut claim)?;
             if claim.attributes().get("priority").is_some() {
                 return Err("claims must not carry rule/equation priority".into());
             }
+            normalizer.sentence(&mut claim)?;
             Ok(json!({"format":"KRS-IMP-CLAIM","version":1,"term":reader::sentence_value(&claim)?}))
         }
         "static_claim" => {

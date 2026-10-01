@@ -295,10 +295,15 @@ class Session:
 
     def kast_normalize(
         self, variant: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
-        policy: Mapping[str, Any] | None = None, **options: Any,
+        policy: Mapping[str, Any] | None = None, label: str | None = None, allow_prefix: bool = False,
     ) -> Any:
         """Normalize opaque evidence under an explicit Rust policy variant."""
 
+        options: dict[str, Any] = {}
+        if label is not None:
+            options["label"] = label
+        if allow_prefix:
+            options["allow_prefix"] = True
         return self.request(
             "kast.normalize", variant=variant, policy=dict(policy or {}),
             **self._kast_input(value, text=text, path=path), **options,
@@ -318,21 +323,36 @@ class Session:
         )
 
     def kast_frontier(
-        self, action: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
-        **fields: Any,
+        self, action: str, value: Any, *,
+        returncode: int | None = None, stderr: str | None = None,
+        constraint_labels: list[str] | tuple[str, ...] | None = None,
     ) -> Any:
-        """Return a proof classification and frontier, or a normalized search set."""
+        """Return proof classification and frontier, or a normalized search set."""
 
-        return self.request(
-            "kast.frontier", action=action, **self._kast_input(value, text=text, path=path), **fields,
-        )
+        fields = {
+            key: child for key, child in {
+                "returncode": returncode, "stderr": stderr, "constraint_labels": constraint_labels,
+            }.items() if child is not None
+        }
+        return self.request("kast.frontier", action=action, value=value, **fields)
 
     def kast_inspect(
         self, action: str, value: Any = None, *, text: str | None = None, path: Path | None = None,
-        **options: Any,
+        policy: Mapping[str, Any] | None = None, label_map: Mapping[str, str] | None = None,
+        name: str | None = None, if_complete: bool = False, head: str | None = None,
+        allow_prefix: bool = False,
     ) -> Any:
-        """Return generic term observations or module structure facts."""
+        """Return generic term observations or facts for one definition module."""
 
+        options = {
+            key: child for key, child in {
+                "policy": policy, "label_map": label_map, "name": name, "head": head,
+            }.items() if child is not None
+        }
+        if if_complete:
+            options["if_complete"] = True
+        if allow_prefix:
+            options["allow_prefix"] = True
         return self.request(
             "kast.inspect", action=action, **self._kast_input(value, text=text, path=path), **options,
         )

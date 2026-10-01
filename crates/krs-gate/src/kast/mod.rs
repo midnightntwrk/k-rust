@@ -10,7 +10,6 @@ mod reader;
 
 pub use canonical::canonical_json;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 fn string<'a>(request: &'a Value, key: &str) -> Result<&'a str, String> {
     request
@@ -42,27 +41,6 @@ fn input(request: &Value) -> Result<reader::Document, String> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
     )
-}
-
-fn present(value: Value, request: &Value) -> Result<Value, String> {
-    match request
-        .get("representation")
-        .and_then(Value::as_str)
-        .unwrap_or("value")
-    {
-        "value" => Ok(value),
-        "canonical" => Ok(Value::String(canonical_json(&value))),
-        "sha256" => Ok(Value::String(format!(
-            "{:x}",
-            Sha256::digest(canonical_json(&value).as_bytes())
-        ))),
-        "all" => {
-            let canonical = canonical_json(&value);
-            let sha256 = format!("{:x}", Sha256::digest(canonical.as_bytes()));
-            Ok(json!({"value":value,"canonical":canonical,"sha256":sha256}))
-        }
-        other => Err(format!("unknown KAST result representation `{other}`")),
-    }
 }
 
 pub(crate) fn dispatch(operation: &str, request: &Value) -> Result<Value, String> {
@@ -105,7 +83,7 @@ pub(crate) fn dispatch(operation: &str, request: &Value) -> Result<Value, String
         "kast.inspect" => inspect::handle(request, &input(request)?)?,
         _ => return Err(format!("unsupported KAST operation `{operation}`")),
     };
-    present(result, request)
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -117,14 +95,9 @@ mod tests {
         let mut session = Session::new();
         let variable = json!({"node":"KVariable","name":"X"});
         let policy = json!({"label_map":{},"identity_labels":[],"sort_map":{},"identity_sorts":[]});
-        let valid = session.dispatch(&json!({"id":"good","operation":"kast.normalize","value":variable,"variant":"behavior","policy":policy,"representation":"all"})).unwrap();
+        let valid = session.dispatch(&json!({"id":"good","operation":"kast.normalize","value":variable,"variant":"behavior","policy":policy})).unwrap();
         let expected = json!({"node":"KVariable","name":"V0"});
-        assert_eq!(valid["result"]["value"], expected);
-        assert_eq!(valid["result"]["canonical"], canonical_json(&expected));
-        assert_eq!(
-            valid["result"]["sha256"],
-            format!("{:x}", Sha256::digest(canonical_json(&expected).as_bytes()))
-        );
+        assert_eq!(valid["result"], expected);
         for value in [
             json!({"node":"Future"}),
             json!({"node":"KVariable","name":"X","extra":0}),
@@ -141,7 +114,7 @@ mod tests {
         }
         assert!(session.dispatch(&json!({"id":"shape","operation":"kast.normalize","value":variable,"text":"{}","variant":"behavior","policy":policy})).unwrap()["error"].is_object());
         let top = json!({"node":"KApply","label":{"node":"KLabel","name":"#Top","params":[]},"args":[],"arity":0});
-        assert_eq!(session.dispatch(&json!({"id":"proof","operation":"kast.frontier","value":top,"returncode":0,"stderr":""})).unwrap()["result"]["status"], "proved");
+        assert_eq!(session.dispatch(&json!({"id":"proof","operation":"kast.frontier","action":"proof","constraint_labels":[],"value":top,"returncode":0,"stderr":""})).unwrap()["result"]["status"], "proved");
     }
     #[test]
     fn deep_inline_terms_reach_the_lossless_reader() {
@@ -166,7 +139,7 @@ mod tests {
         let mut session = Session::new();
         assert!(session.dispatch(&json!({"id":"load","operation":"definition.load","definition_ir":"/nonexistent","module":"M"})).unwrap()["error"].is_object());
         let value = json!({"node":"KSequence","arity":0,"items":[]});
-        assert_eq!(session.dispatch(&json!({"id":"inspect","operation":"kast.inspect","action":"envelope","value":value,"policy":{}})).unwrap()["result"],reader::envelope(value));
+        assert_eq!(session.dispatch(&json!({"id":"inspect","operation":"kast.inspect","action":"term","value":value,"policy":{}})).unwrap()["result"],value);
     }
     fn claim_spec(labels: &[&str]) -> Value {
         let variable =
@@ -196,10 +169,52 @@ mod tests {
         ] {
             assert!(session.dispatch(&json!({"id":"invalid","operation":"kast.normalize","variant":"static_claim","value":value,"label":label})).unwrap()["error"].is_object());
         }
-        let policy = json!({"identity_labels":["case"],"identity_sorts":["Int"],"known_attributes":["label","digest"],"metadata_attributes":["digest"]});
+        let policy = json!({"identity_labels":["case"],"identity_sorts":["Int"]});
         let result = session.dispatch(&json!({"id":"selected","operation":"kast.normalize","variant":"proof_claim","value":spec,"label":"case","policy":policy})).unwrap();
         assert_eq!(result["result"]["format"], "KRS-IMP-CLAIM");
         assert_eq!(result["result"]["term"]["body"]["name"], "O0");
+    }
+
+    #[test]
+    fn proof_claim_selection_rejects_missing_duplicate_priority_and_unknown_attributes() {
+        let policy = json!({"identity_labels":["case","other"],"identity_sorts":["Int"]});
+        let selected = normalize::normalize(
+            &reader::from_value(&claim_spec(&["case", "other"])).unwrap(),
+            "proof_claim",
+            &policy,
+            Some("case"),
+        )
+        .unwrap();
+        assert_eq!(selected["term"]["att"]["att"], json!({"label":"case"}));
+        for labels in [&["other"][..], &["case", "case"][..]] {
+            assert!(
+                normalize::normalize(
+                    &reader::from_value(&claim_spec(labels)).unwrap(),
+                    "proof_claim",
+                    &policy,
+                    Some("case"),
+                )
+                .unwrap_err()
+                .contains("expected exactly one KClaim")
+            );
+        }
+        for (attribute, expected) in [
+            ("priority", "must not carry"),
+            ("future", "unknown attributes"),
+        ] {
+            let mut spec = claim_spec(&["case"]);
+            spec["term"]["term"][0]["localSentences"][0]["att"]["att"][attribute] = json!("50");
+            assert!(
+                normalize::normalize(
+                    &reader::from_value(&spec).unwrap(),
+                    "proof_claim",
+                    &policy,
+                    Some("case"),
+                )
+                .unwrap_err()
+                .contains(expected)
+            );
+        }
     }
 
     #[test]

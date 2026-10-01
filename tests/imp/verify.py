@@ -520,7 +520,7 @@ def phase_rust(context: Context) -> RustBuild:
     )
     for suite in (
         HERE / "test_gate.py",
-        HERE / "oracle/test_oracle.py",
+        HERE / "oracle/test_orchestration.py",
         HERE / "compatibility/test_probes.py",
     ):
         run([sys.executable, suite], timeout=300, environment=env)
@@ -740,31 +740,8 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
     return SourceDefinitions(actual, reference, actual_failure, reference_failure, actual_source, {})
 
 
-def _projection_policy(raw: Any):
-    sys.path.insert(0, os.fspath(HERE / "oracle"))
-    from source_definition import ProjectionPolicy
-
-    value = dict(table(raw, "projection policy"))
-    for key in (
-        "identity_labels", "identity_sorts", "identity_names",
-        "known_attributes", "metadata_attributes",
-        "closed_module_prefixes",
-    ):
-        if key in value:
-            value[key] = frozenset(value[key])
-    for field in ("imports_by_origin", "supplemental_imports_by_origin"):
-        if field in value:
-            value[field] = {
-                key: tuple(child) for key, child in value[field].items()
-            }
-    return ProjectionPolicy(**value)
-
-
 def phase_source_definition(context: Context, artifacts: Artifacts) -> SourceDefinitions:
     definitions = compile_source_definitions(context, artifacts)
-    sys.path.insert(0, os.fspath(HERE / "oracle"))
-    from source_definition import compare_definitions, load_definition
-
     policies = table(context.pins.get("source_definition"), "pins.source_definition")
     if policies.get("status") != "ready":
         raise GateError(str(policies.get("blocker", "source-definition policy is not ready")))
@@ -772,46 +749,46 @@ def phase_source_definition(context: Context, artifacts: Artifacts) -> SourceDef
     if set(files) != {"parsed.json", "compiled.json"}:
         raise GateError("source-definition policies must cover parsed.json and compiled.json")
     comparison = {}
-    for filename in ("parsed.json", "compiled.json"):
-        file_policy = table(files[filename], f"source_definition.files.{filename}")
-        if set(file_policy) != {
-            "reference_ignored_sha256", "actual_ignored_sha256",
-            "reference_supplemental_sha256", "actual_supplemental_sha256",
-            "compatible_sentence_pairs",
-        }:
-            raise GateError(f"{filename} source compatibility policy has unknown fields")
-        reference_raw = dict(table(policies.get("reference"), "source_definition.reference"))
-        actual_raw = dict(table(policies.get("actual"), "source_definition.actual"))
-        reference_raw["ignored_sentence_sha256"] = table(
-            file_policy["reference_ignored_sha256"],
-            f"source_definition.files.{filename}.reference_ignored_sha256",
-        )
-        actual_raw["ignored_sentence_sha256"] = table(
-            file_policy["actual_ignored_sha256"],
-            f"source_definition.files.{filename}.actual_ignored_sha256",
-        )
-        reference_raw["supplemental_sentence_sha256"] = table(
-            file_policy["reference_supplemental_sha256"],
-            f"source_definition.files.{filename}.reference_supplemental_sha256",
-        )
-        actual_raw["supplemental_sentence_sha256"] = table(
-            file_policy["actual_supplemental_sha256"],
-            f"source_definition.files.{filename}.actual_supplemental_sha256",
-        )
-        comparison[filename] = compare_definitions(
-            load_definition(definitions.reference / filename),
-            load_definition(definitions.actual / filename),
-            _projection_policy(reference_raw),
-            _projection_policy(actual_raw),
-            file_policy["compatible_sentence_pairs"],
-        )
+    with krs_gate.Session(context.target / "release/krs-gate", environment=context.environment) as session:
+        for filename in ("parsed.json", "compiled.json"):
+            file_policy = table(files[filename], f"source_definition.files.{filename}")
+            if set(file_policy) != {
+                "reference_ignored_sha256", "actual_ignored_sha256",
+                "reference_supplemental_sha256", "actual_supplemental_sha256",
+                "compatible_sentence_pairs",
+            }:
+                raise GateError(f"{filename} source compatibility policy has unknown fields")
+            reference_raw = dict(table(policies.get("reference"), "source_definition.reference"))
+            actual_raw = dict(table(policies.get("actual"), "source_definition.actual"))
+            reference_raw["ignored_sentence_sha256"] = table(
+                file_policy["reference_ignored_sha256"],
+                f"source_definition.files.{filename}.reference_ignored_sha256",
+            )
+            actual_raw["ignored_sentence_sha256"] = table(
+                file_policy["actual_ignored_sha256"],
+                f"source_definition.files.{filename}.actual_ignored_sha256",
+            )
+            reference_raw["supplemental_sentence_sha256"] = table(
+                file_policy["reference_supplemental_sha256"],
+                f"source_definition.files.{filename}.reference_supplemental_sha256",
+            )
+            actual_raw["supplemental_sentence_sha256"] = table(
+                file_policy["actual_supplemental_sha256"],
+                f"source_definition.files.{filename}.actual_supplemental_sha256",
+            )
+            comparison[filename] = session.kast_project(
+                {"path": os.fspath(definitions.reference / filename)},
+                {"path": os.fspath(definitions.actual / filename)},
+                reference_raw, actual_raw,
+                compatible_sentence_pairs=file_policy["compatible_sentence_pairs"],
+            )
     observed = {
-        "parsed_reference_sha256": comparison["parsed.json"].baseline_sha256,
-        "parsed_actual_sha256": comparison["parsed.json"].actual_sha256,
-        "compiled_reference_sha256": comparison["compiled.json"].baseline_sha256,
-        "compiled_actual_sha256": comparison["compiled.json"].actual_sha256,
-        "parsed_sentence_count": comparison["parsed.json"].sentence_count,
-        "compiled_sentence_count": comparison["compiled.json"].sentence_count,
+        "parsed_reference_sha256": comparison["parsed.json"]["baseline_sha256"],
+        "parsed_actual_sha256": comparison["parsed.json"]["actual_sha256"],
+        "compiled_reference_sha256": comparison["compiled.json"]["baseline_sha256"],
+        "compiled_actual_sha256": comparison["compiled.json"]["actual_sha256"],
+        "parsed_sentence_count": comparison["parsed.json"]["sentence_count"],
+        "compiled_sentence_count": comparison["compiled.json"]["sentence_count"],
     }
     context.pins.expect(("source_definition", "expected"), observed)
     return replace(definitions, comparison=observed)
@@ -896,6 +873,7 @@ def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
     plan = adapter(ROOT, context.corpus, context.pins["behavior"])
     summary = behavior.compare_behavior(
         kast=context.tools["kast"], krun=context.tools["krun"],
+        gate=context.target / "release/krs-gate",
         reference=behavior.Route(
             definitions.reference,
             reference_policy,

@@ -45,7 +45,7 @@ class ParseAcceptedTests(unittest.TestCase):
                 with self.subTest(returncode=returncode, stdout=stdout):
                     session = Mock()
                     session.kast_inspect.side_effect = [
-                        {"term": raw_term}, ["expected"], {"term": raw_term},
+                        raw_term, ["expected"], raw_term,
                     ]
                     responses = [
                         subprocess.CompletedProcess([], 0, "opaque JSON", ""),

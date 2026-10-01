@@ -97,12 +97,6 @@ struct ProofPolicy {
     sort_map: BTreeMap<String, String>,
     #[serde(default)]
     identity_sorts: BTreeSet<String>,
-    #[serde(default = "metadata_attributes")]
-    known_attributes: BTreeSet<String>,
-    #[serde(default = "metadata_attributes")]
-    metadata_attributes: BTreeSet<String>,
-    #[serde(default, rename = "constraint_labels")]
-    _constraint_labels: BTreeSet<String>,
 }
 
 #[derive(Deserialize)]
@@ -137,8 +131,11 @@ pub(crate) fn read(raw: &Value, variant: &str) -> Result<(NamePolicy, AttributeP
                     ..NamePolicy::default()
                 },
                 AttributePolicy {
-                    known_attributes: policy.known_attributes,
-                    metadata_attributes: policy.metadata_attributes,
+                    known_attributes: metadata_attributes()
+                        .into_iter()
+                        .chain(["label", "circularity", "all-path", "one-path"].map(str::to_owned))
+                        .collect(),
+                    metadata_attributes: metadata_attributes(),
                     attribute_value_map: BTreeMap::new(),
                 },
             )
@@ -169,12 +166,30 @@ mod tests {
         let mut extra = value;
         extra["unknown"] = true.into();
         assert!(read(&extra, "behavior").is_err());
-        assert!(
-            read(
-                &json!({"known_attributes":[],"metadata_attributes":["digest"]}),
-                "proof_claim"
-            )
-            .is_err()
-        );
+        for (field, invalid) in [
+            ("label_map", json!({"f":0})),
+            ("sort_map", json!({"Int":true})),
+            ("identity_labels", json!([0])),
+            ("identity_sorts", json!("Int")),
+        ] {
+            let mut policy =
+                json!({"label_map":{},"sort_map":{},"identity_labels":[],"identity_sorts":[]});
+            policy[field] = invalid;
+            for variant in ["behavior", "proof_result", "proof_claim"] {
+                assert!(read(&policy, variant).is_err());
+            }
+        }
+        for field in [
+            "known_attributes",
+            "metadata_attributes",
+            "constraint_labels",
+        ] {
+            assert!(read(&json!({field:[]}), "proof_claim").is_err());
+        }
+        let (_, attributes) = read(&json!({}), "proof_claim").unwrap();
+        assert_eq!(attributes.metadata_attributes, metadata_attributes());
+        for name in ["label", "circularity", "all-path", "one-path"] {
+            assert!(attributes.known_attributes.contains(name));
+        }
     }
 }

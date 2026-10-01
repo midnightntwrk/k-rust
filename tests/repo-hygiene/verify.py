@@ -95,11 +95,6 @@ PROTOCOL_CLIENT = "tests/support/krs_gate.py"
 # Each entry counts matching AST string constants, including f-string constant parts.
 # Counts must decrease when an interpretation site is removed.
 K_VOCABULARY_ALLOWLIST: dict[str, tuple[int, str]] = {
-    "tests/imp/oracle/behavior.py": (14, "IMP oracle KAST reader, to be replaced by krs-gate"),
-    "tests/imp/oracle/proofs.py": (20, "IMP oracle KAST reader, to be replaced by krs-gate"),
-    "tests/imp/oracle/source_definition.py": (50, "IMP oracle KAST reader, to be replaced by krs-gate"),
-    "tests/imp/oracle/source_policy_probe.py": (5, "IMP oracle KAST policy fixtures, to be replaced by krs-gate"),
-    "tests/imp/oracle/test_oracle.py": (31, "IMP oracle KAST fixtures, to be replaced by krs-gate"),
     "tests/repo-hygiene/verify.py": (38, "Python K vocabulary policy"),
     "tests/repo-hygiene/test_vocabulary.py": (3, "Seeded hygiene rule fixtures"),
 }

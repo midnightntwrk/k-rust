@@ -2,9 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::definition::{Attributes, Definition, Sentence};
+use k_rust::definition::Sentence;
 use k_rust::kast::{Label, Sort, Term};
-use sha2::{Digest, Sha256};
 
 use super::reader::{self, DefinitionDocument, Document};
 use serde::Deserialize;
@@ -182,44 +181,38 @@ pub(crate) fn search_frontier(term: &Term) -> Result<&Term, String> {
     Ok(frontier)
 }
 
-fn sentence_kind(sentence: &Sentence, semantic: bool) -> &'static str {
-    let (node, kind) = match sentence {
-        Sentence::SyntaxSort { .. } => ("KSyntaxSort", "syntax_sort"),
-        Sentence::SortSynonym { .. } => ("KSortSynonym", "sort_synonym"),
-        Sentence::SyntaxLexical { .. } => ("KSyntaxLexical", "syntax_lexical"),
-        Sentence::Production { .. } => ("KProduction", "production"),
-        Sentence::SyntaxAssociativity { .. } => ("KSyntaxAssociativity", "syntax_associativity"),
-        Sentence::SyntaxPriority { .. } => ("KSyntaxPriority", "syntax_priority"),
-        Sentence::ContextAlias { .. } => ("KContextAlias", "context_alias"),
-        Sentence::Context { .. } => ("KContext", "context"),
-        Sentence::Rule { .. } => ("KRule", "rule"),
-        Sentence::Claim { .. } => ("KClaim", "claim"),
-        Sentence::Configuration { .. } => ("KConfiguration", "configuration"),
-        Sentence::Bubble { .. } => ("KBubble", "bubble"),
-    };
-    if semantic { kind } else { node }
+fn sentence_kind(sentence: &Sentence) -> &'static str {
+    match sentence {
+        Sentence::SyntaxSort { .. } => "syntax_sort",
+        Sentence::SortSynonym { .. } => "sort_synonym",
+        Sentence::SyntaxLexical { .. } => "syntax_lexical",
+        Sentence::Production { .. } => "production",
+        Sentence::SyntaxAssociativity { .. } => "syntax_associativity",
+        Sentence::SyntaxPriority { .. } => "syntax_priority",
+        Sentence::ContextAlias { .. } => "context_alias",
+        Sentence::Context { .. } => "context",
+        Sentence::Rule { .. } => "rule",
+        Sentence::Claim { .. } => "claim",
+        Sentence::Configuration { .. } => "configuration",
+        Sentence::Bubble { .. } => "bubble",
+    }
 }
 
-fn sentence_fact(sentence: &Sentence, semantic: bool) -> Result<Value, String> {
+fn sentence_fact(sentence: &Sentence) -> Value {
     let attributes = sentence.attributes();
     let klabel = match sentence {
         Sentence::Production { label, .. } => label.as_ref().map(|label| label.name.as_str()),
         _ => None,
     };
-    Ok(json!({
-        "sha256":format!("{:x}", Sha256::digest(super::canonical_json(&reader::sentence_value(sentence)?).as_bytes())),
-        "node":sentence_kind(sentence, semantic),
+    json!({
+        "node":sentence_kind(sentence),
         "label":attributes.get("label").unwrap_or(&Value::Null),
         "klabel":klabel,
         "attribute_keys":attributes.wire_entries().map(|(key,_)| key).collect::<Vec<_>>()
-    }))
+    })
 }
 
-fn module_facts(
-    document: &DefinitionDocument,
-    name: &str,
-    semantic: bool,
-) -> Result<Value, String> {
+fn module_facts(document: &DefinitionDocument, name: &str) -> Result<Value, String> {
     let matches = document
         .definition
         .modules
@@ -240,20 +233,16 @@ fn module_facts(
     let mut facts = Vec::with_capacity(total);
     for index in 0..total {
         if bad.is_some_and(|bad| bad.contains_key(&index)) {
-            let kind = if semantic {
-                "bad_sentence"
-            } else {
-                "badsentence"
-            };
-            *counts.entry(kind).or_default() += 1;
-            facts
-                .push(json!({"node":kind,"label":null,"klabel":null,"attribute_keys":[],"sha256":format!("{:x}", Sha256::digest(super::canonical_json(&json!({"node":"badsentence"})).as_bytes()))}));
+            *counts.entry("bad_sentence").or_default() += 1;
+            facts.push(
+                json!({"node":"bad_sentence","label":null,"klabel":null,"attribute_keys":[]}),
+            );
         } else {
             let sentence = sentences
                 .next()
                 .ok_or("invalid recorded sentence positions")?;
-            *counts.entry(sentence_kind(sentence, semantic)).or_default() += 1;
-            facts.push(sentence_fact(sentence, semantic)?);
+            *counts.entry(sentence_kind(sentence)).or_default() += 1;
+            facts.push(sentence_fact(sentence));
         }
     }
     Ok(json!({"counts":counts,"sentences":facts}))
@@ -285,13 +274,13 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
         .and_then(Value::as_str)
         .ok_or("inspect requires action")?;
     match action {
-        "envelope" => {
+        "term" => {
             if let Some(raw_policy) = request.get("policy") {
                 let policy = serde_json::from_value(raw_policy.clone())
                     .map_err(|error| format!("invalid validation policy: {error}"))?;
                 validate_term(document.term()?, &policy)?;
             }
-            document.to_value()
+            reader::term_value(document.term()?)
         }
         "abstract_term" => {
             let names = serde_json::from_value(
@@ -304,53 +293,11 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
             abstract_term(document.term()?, &names)
         }
         "module_facts" => {
-            let semantic = match request.get("vocabulary") {
-                None => false,
-                Some(Value::String(value)) if value == "kast" => false,
-                Some(Value::String(value)) if value == "semantic" => true,
-                _ => return Err("module_facts vocabulary must be kast or semantic".into()),
-            };
-            let wrapper;
-            let definition = match document {
-                Document::Definition(definition) => definition,
-                Document::ModuleList {
-                    main_module,
-                    modules,
-                } => {
-                    wrapper = DefinitionDocument {
-                        definition: Definition {
-                            main_module: main_module.clone(),
-                            modules: modules.clone(),
-                            attributes: Attributes::default(),
-                        },
-                        bad_sentences: BTreeMap::new(),
-                    };
-                    &wrapper
-                }
-                Document::Term(_) => {
-                    return Err("module_facts requires a definition or module list".into());
-                }
-            };
-            if let Some(name) = request.get("name") {
-                module_facts(
-                    definition,
-                    name.as_str().ok_or("module name must be a string")?,
-                    semantic,
-                )
-            } else {
-                definition
-                    .definition
-                    .modules
-                    .iter()
-                    .map(|module| {
-                        Ok((
-                            module.name.clone(),
-                            module_facts(definition, &module.name, semantic)?,
-                        ))
-                    })
-                    .collect::<Result<serde_json::Map<_, _>, String>>()
-                    .map(Value::Object)
-            }
+            let name = request
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or("module_facts requires a string name")?;
+            module_facts(document.definition()?, name)
         }
         "final_environment" => {
             let result = final_environment(document.term()?);
@@ -499,26 +446,15 @@ mod tests {
     }
 
     #[test]
-    fn envelope_action_validates_allowlists_and_returns_an_envelope() {
+    fn term_action_validates_allowlists_and_returns_the_lossless_term() {
         let document = Document::Term(Term::apply("known", vec![]));
         let value = handle(
-            &json!({"action":"envelope","policy":{"labels":["known"]}}),
+            &json!({"action":"term","policy":{"labels":["known"]}}),
             &document,
         )
         .unwrap();
-        assert_eq!(value["format"], "KAST");
-        assert_eq!(value["version"], k_rust::kast::json::VERSION);
-        assert_eq!(
-            value["term"],
-            reader::term_value(document.term().unwrap()).unwrap()
-        );
-        assert!(
-            handle(
-                &json!({"action":"envelope","policy":{"labels":[]}}),
-                &document
-            )
-            .is_err()
-        );
+        assert_eq!(value, reader::term_value(document.term().unwrap()).unwrap());
+        assert!(handle(&json!({"action":"term","policy":{"labels":[]}}), &document).is_err());
     }
 
     #[test]
@@ -565,28 +501,12 @@ mod tests {
             )]),
         });
         let facts = handle(&json!({"action":"module_facts","name":"MAIN"}), &document).unwrap();
-        assert_eq!(facts["counts"], json!({"badsentence":1,"KProduction":1}));
-        assert_eq!(facts["sentences"][0]["node"], "badsentence");
+        assert_eq!(facts["counts"], json!({"bad_sentence":1,"production":1}));
+        assert_eq!(facts["sentences"][0]["node"], "bad_sentence");
+        assert_eq!(facts["sentences"][1]["node"], "production");
         assert_eq!(facts["sentences"][1]["klabel"], "label");
         assert_eq!(facts["sentences"][1]["attribute_keys"], json!(["strict"]));
-        let summary = handle(
-            &json!({"action":"module_facts","name":"MAIN","vocabulary":"semantic"}),
-            &document,
-        )
-        .unwrap();
-        assert_eq!(summary["counts"], json!({"bad_sentence":1,"production":1}));
-        assert_eq!(summary["sentences"][0]["node"], "bad_sentence");
-        assert_eq!(summary["sentences"][1]["node"], "production");
-        for field in ["label", "klabel", "attribute_keys", "sha256"] {
-            assert_eq!(summary["sentences"][1][field], facts["sentences"][1][field]);
-        }
-        assert!(
-            handle(
-                &json!({"action":"module_facts","vocabulary":"unknown"}),
-                &document
-            )
-            .is_err()
-        );
+        assert!(handle(&json!({"action":"module_facts"}), &document).is_err());
 
         assert!(
             handle(

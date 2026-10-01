@@ -20,7 +20,7 @@ from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E4
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
-from support.pins import Ledger  # noqa: E402
+from support.pins import Ledger, table  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch, k_executable, k_tool, z3_environment  # noqa: E402
 
@@ -113,12 +113,11 @@ def actual_spec_source(execution_source: Path, claims: str) -> str:
     )
 
 
-def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]], proofs: Any) -> Any:
-    term_policy = pins.table("behavior").get("term_policy", {}).get(side)
-    if not isinstance(term_policy, dict) or set(term_policy) != {
-        "label_map", "identity_labels", "sort_map", "identity_sorts"
-    }:
-        raise GateError(f"missing exact {side} proof term policy")
+def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+    term_policy = table(
+        table(pins.table("behavior").get("term_policy"), "behavior.term_policy").get(side),
+        f"behavior.term_policy.{side}",
+    )
     label_map = dict(term_policy["label_map"])
     claim_pairs = (
         ((case["source_claim"], case["native_label"]) for case in cases)
@@ -129,14 +128,11 @@ def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]], pr
         prior = label_map.setdefault(source, target)
         if prior != target:
             raise GateError(f"conflicting proof claim label mapping {source!r}")
-    return proofs.ProofPolicy(
-        label_map=label_map,
-        identity_labels=frozenset(term_policy["identity_labels"]) | CONSTRAINT_LABELS,
-        sort_map=dict(term_policy["sort_map"]),
-        identity_sorts=frozenset(term_policy["identity_sorts"]),
-        known_attributes=proofs.DEFAULT_METADATA_ATTRIBUTES
-        | {"label", "circularity", "all-path", "one-path"},
-    )
+    return {
+        **term_policy,
+        "label_map": label_map,
+        "identity_labels": sorted(set(term_policy["identity_labels"]) | CONSTRAINT_LABELS),
+    }
 
 
 def compile_definitions(
@@ -185,7 +181,6 @@ def compile_definitions(
 def invoke_source(
     *,
     kprove: str,
-    session: krs_gate.Session,
     definition: Path,
     spec: Path,
     module: str,
@@ -193,7 +188,7 @@ def invoke_source(
     bounds: Any,
     spec_json: Path,
     includes: Sequence[Path],
-) -> tuple[subprocess.CompletedProcess[str], dict[str, Any], dict[str, Any]]:
+) -> tuple[subprocess.CompletedProcess[str], Mapping[str, Any], Mapping[str, Any]]:
     command: list[str | os.PathLike[str]] = [
         kprove, spec, "-d", definition, "--spec-module", module, "--claims", claim,
         "--output", "json", "--emit-json-spec", spec_json,
@@ -202,23 +197,15 @@ def invoke_source(
     for include in includes:
         command.extend(["-I", include])
     process = run(command, check=False, timeout=WATCHDOG_SECONDS)
-    try:
-        result = session.kast_inspect("envelope", text=process.stdout)
-        emitted_spec = session.kast_inspect("envelope", path=spec_json)
-    except (OSError, GateError) as error:
-        raise GateError(
-            f"{claim}: proof did not emit complete KAST JSON: {error}; "
-            f"rc={process.returncode}; stderr={process.stderr[:3000]}"
-        ) from error
-    return process, result, emitted_spec
+    return process, {"text": process.stdout}, {"path": spec_json}
 
 
 def legacy_pin(
-    *, process: subprocess.CompletedProcess[str], result: dict[str, Any], claim: dict[str, Any],
+    *, process: subprocess.CompletedProcess[str], result: Mapping[str, Any], claim: Mapping[str, Any],
     bounds: Any, session: krs_gate.Session, label: str,
 ) -> dict[str, Any]:
-    normalized_result = session.kast_normalize("static_proof", result)
-    normalized_claim = session.kast_normalize("static_claim", claim, label=label)
+    normalized_result = session.kast_normalize("static_proof", **result)
+    normalized_claim = session.kast_normalize("static_claim", **claim, label=label)
     evidence = session.kast_frontier(
         "proof", normalized_result, returncode=process.returncode, stderr=process.stderr,
         constraint_labels=sorted(CONSTRAINT_LABELS),
@@ -423,8 +410,8 @@ def main() -> int:
     reference_definition, actual_definition, actual_spec = compile_definitions(
         workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers
     )
-    reference_policy = proof_policy(pins, "reference", cases, proofs)
-    actual_policy = proof_policy(pins, "actual", cases, proofs)
+    reference_policy = proof_policy(pins, "reference", cases)
+    actual_policy = proof_policy(pins, "actual", cases)
 
     support = build_support()
     with krs_gate.Session(support, environment=z3_environment()) as session:
@@ -447,13 +434,13 @@ def main() -> int:
             actual_json = workspace / "actual-json" / f"{case['name']}.json"
             case_jobs.append({
                 "reference": job(lambda case=case, spec_json=reference_json: invoke_source(
-                    kprove=kprove, session=session, definition=reference_definition, spec=case["source_spec"],
+                    kprove=kprove, definition=reference_definition, spec=case["source_spec"],
                     module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
                     spec_json=spec_json,
                     includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
                 )),
                 "actual": job(lambda case=case, spec_json=actual_json: invoke_source(
-                    kprove=kprove, session=session, definition=actual_definition, spec=actual_spec,
+                    kprove=kprove, definition=actual_definition, spec=actual_spec,
                     module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
                     spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
                 )),
@@ -477,26 +464,28 @@ def main() -> int:
             reference_process, reference_result, reference_claim = results[indices["reference"]].get()
             actual_process, actual_result, actual_claim = results[indices["actual"]].get()
             try:
-                reference_evidence = proofs.evidence_from_values(
+                reference_evidence = proofs.evidence_from_inputs(
+                    session=session,
                     case=proofs.ProofCase(
                         case["name"], case["source_spec"], case["source_module"],
                         case["source_claim"], case["bounds"]
                     ),
-                    result_value=reference_result, claim_value=reference_claim,
+                    result=reference_result, claim=reference_claim,
                     returncode=reference_process.returncode, stderr=reference_process.stderr,
-                    user_labels=(), policy=reference_policy,
+                    user_labels=(), policy=reference_policy, constraint_labels=sorted(CONSTRAINT_LABELS),
                 )
             except RuntimeError as error:
                 raise GateError(f"{case['name']} reference evidence: {error}") from error
             try:
-                actual_evidence = proofs.evidence_from_values(
+                actual_evidence = proofs.evidence_from_inputs(
+                    session=session,
                     case=proofs.ProofCase(
                         case["name"], actual_spec, ACTUAL_SPEC_MODULE,
                         case["actual_claim"], case["bounds"]
                     ),
-                    result_value=actual_result, claim_value=actual_claim,
+                    result=actual_result, claim=actual_claim,
                     returncode=actual_process.returncode, stderr=actual_process.stderr,
-                    user_labels=(), policy=actual_policy,
+                    user_labels=(), policy=actual_policy, constraint_labels=sorted(CONSTRAINT_LABELS),
                 )
             except RuntimeError as error:
                 raise GateError(f"{case['name']} actual evidence: {error}") from error

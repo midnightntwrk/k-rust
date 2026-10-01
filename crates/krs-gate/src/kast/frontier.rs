@@ -92,9 +92,8 @@ fn classify(returncode: i64, root: Option<&str>, stderr: &str) -> Result<&'stati
 pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, String> {
     let term = document.term()?;
     let action = match request.get("action") {
-        None => "proof",
-        Some(Value::String(action)) => action,
-        Some(_) => return Err("frontier action must be a string".into()),
+        Some(Value::String(action)) => action.as_str(),
+        _ => return Err("frontier requires a string action".into()),
     };
     match action {
         "proof" => {
@@ -108,15 +107,14 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
                 .ok_or("proof frontier requires stderr")?;
             let root = root_label(term);
             let status = classify(code, root, stderr)?;
-            let labels = match request.get("constraint_labels") {
-                Some(labels) => serde_json::from_value(labels.clone())
-                    .map_err(|error| format!("invalid constraint_labels: {error}"))?,
-                None => ["#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"]
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-            };
-            Ok(json!({"root":root,"status":status,"frontier":frontier(term,&labels)?}))
+            let labels = serde_json::from_value(
+                request
+                    .get("constraint_labels")
+                    .cloned()
+                    .ok_or("proof frontier requires constraint_labels")?,
+            )
+            .map_err(|error| format!("invalid constraint_labels: {error}"))?;
+            Ok(json!({"status":status,"frontier":frontier(term,&labels)?}))
         }
         "search_set" => {
             let mut terms = Vec::new();
@@ -178,18 +176,42 @@ mod tests {
     fn proof_action_returns_combined_evidence_and_requires_termination_fields() {
         let document = Document::Term(Term::apply("#Top", vec![]));
         assert_eq!(
-            handle(&json!({"returncode":0,"stderr":""}), &document).unwrap(),
-            json!({"root":"#Top","status":"proved","frontier":[]})
+            handle(
+                &json!({"action":"proof","constraint_labels":[],"returncode":0,"stderr":""}),
+                &document
+            )
+            .unwrap(),
+            json!({"status":"proved","frontier":[]})
         );
-        assert!(handle(&json!({"returncode":0}), &document).is_err());
-        assert!(handle(&json!({"stderr":""}), &document).is_err());
+        assert!(
+            handle(
+                &json!({"action":"proof","constraint_labels":[],"returncode":0}),
+                &document
+            )
+            .is_err()
+        );
+        assert!(
+            handle(
+                &json!({"action":"proof","constraint_labels":[],"stderr":""}),
+                &document
+            )
+            .is_err()
+        );
+        assert!(handle(&json!({"returncode":0,"stderr":""}), &document).is_err());
+        assert!(
+            handle(
+                &json!({"action":"proof","returncode":0,"stderr":""}),
+                &document
+            )
+            .is_err()
+        );
         let document = Document::Term(Term::Sequence(vec![]));
         let result = handle(
-            &json!({"returncode":1,"stderr":"configuration cannot be rewritten further"}),
+            &json!({"action":"proof","constraint_labels":[],"returncode":1,"stderr":"configuration cannot be rewritten further"}),
             &document,
         )
         .unwrap();
-        assert_eq!(result["root"], Value::Null);
+        assert!(result.get("root").is_none());
         assert_eq!(result["status"], "incomplete");
         assert_eq!(result["frontier"].as_array().unwrap().len(), 1);
     }

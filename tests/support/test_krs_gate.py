@@ -108,18 +108,18 @@ class ClientTests(unittest.TestCase):
 
     def test_kast_methods_forward_opaque_inputs_and_policy(self) -> None:
         with krs_gate.Session(self.binary) as session:
-            normalized = session.kast_normalize("behavior", text="opaque", allow_prefix=True, policy={"labels": []})
+            normalized = session.kast_normalize("behavior", text="opaque", allow_prefix=True, policy={"label_map": {}, "sort_map": {}, "identity_labels": [], "identity_sorts": []})
             projected = session.kast_project({"path": "left"}, {"path": "right"}, {}, {})
-            frontier = session.kast_frontier("proof", {"opaque": True}, returncode=0, stderr="")
+            frontier = session.kast_frontier("proof", {"opaque": True}, returncode=0, stderr="", constraint_labels=[])
             inspected = session.kast_inspect("module_facts", path=Path("definition.json"), name="MAIN")
         self.assertEqual(normalized["fields"], {
-            "variant": "behavior", "text": "opaque", "allow_prefix": True, "policy": {"labels": []},
+            "variant": "behavior", "text": "opaque", "allow_prefix": True, "policy": {"label_map": {}, "sort_map": {}, "identity_labels": [], "identity_sorts": []},
         })
         self.assertEqual(projected["fields"], {
             "reference": {"path": "left"}, "actual": {"path": "right"},
             "reference_policy": {}, "actual_policy": {}, "compatible_sentence_pairs": [],
         })
-        self.assertEqual(frontier["fields"], {"action": "proof", "value": {"opaque": True}, "returncode": 0, "stderr": ""})
+        self.assertEqual(frontier["fields"], {"action": "proof", "value": {"opaque": True}, "returncode": 0, "stderr": "", "constraint_labels": []})
         self.assertEqual(inspected["fields"], {"action": "module_facts", "path": "definition.json", "name": "MAIN"})
         with self.assertRaisesRegex(GateError, "exactly one"):
             session.kast_normalize("behavior", text="opaque", path=Path("definition.json"))

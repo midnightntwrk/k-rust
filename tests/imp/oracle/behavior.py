@@ -7,38 +7,24 @@ their verifiers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import json
+from dataclasses import dataclass
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
-from support import GateError
-from support.hashing import canonical_json, json_sha256
+from support import GateError, krs_gate
+from support.hashing import json_sha256
 from support.parallel import settle_all, worker_count
 from support.process import compact, run
-from support.tools import executable
-
-try:
-    from .source_definition import NODE_FIELDS
-except ImportError:  # Direct loading by tests/imp/verify.py.
-    from source_definition import NODE_FIELDS
-
-
-@dataclass(frozen=True)
-class TermPolicy:
-    label_map: Mapping[str, str] = field(default_factory=dict)
-    identity_labels: frozenset[str] = frozenset()
-    sort_map: Mapping[str, str] = field(default_factory=dict)
-    identity_sorts: frozenset[str] = frozenset()
+from support.tools import executable, z3_environment
 
 
 @dataclass(frozen=True)
 class Route:
     definition: Path
-    term_policy: TermPolicy
+    term_policy: Mapping[str, Any]
     failure_definition: Path | None = None
 
 
@@ -138,89 +124,6 @@ def _without_address_space_limit(command: Sequence[str]) -> list[str]:
     return [executable("prlimit"), "--as=unlimited", "--", *command]
 
 
-def _envelope(output: str) -> dict[str, Any]:
-    start = output.find("{")
-    if start < 0:
-        raise GateError("KAST output has no JSON envelope")
-    try:
-        value = json.loads(output[start:])
-    except json.JSONDecodeError as error:
-        raise GateError(f"invalid KAST JSON: {error}") from error
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"format", "version", "term"}
-        or value["format"] != "KAST"
-        or value["version"] != 4
-    ):
-        raise GateError("output is not exactly a KAST v4 envelope")
-    return value
-
-
-class _TermNormalizer:
-    def __init__(self, policy: TermPolicy) -> None:
-        self.policy = policy
-        self.variables: dict[tuple[str, str, str], str] = {}
-
-    def _name(self, raw: Any, mapping: Mapping[str, str], identities: frozenset[str], kind: str) -> str:
-        if not isinstance(raw, str):
-            raise GateError(f"{kind} is not a string")
-        if raw in mapping:
-            return mapping[raw]
-        if raw in identities:
-            return raw
-        raise GateError(f"unknown {kind} {raw!r}")
-
-    def visit(self, value: Any) -> Any:
-        if isinstance(value, list):
-            return [self.visit(child) for child in value]
-        if not isinstance(value, dict):
-            if isinstance(value, (str, int, bool)) or value is None:
-                return value
-            raise GateError(f"unsupported KAST scalar {value!r}")
-        kind = value.get("node")
-        if kind not in {"KApply", "KLabel", "KSort", "KToken", "KVariable", "KSequence", "KRewrite"}:
-            raise GateError(f"unclassified behavior KAST node {kind!r}")
-        fields = frozenset(value)
-        if fields not in NODE_FIELDS[kind]:
-            raise GateError(f"unknown {kind} fields: {sorted(fields)}")
-        if kind == "KVariable":
-            name = value["name"]
-            raw_sort = value.get("sort")
-            sort = "<unsorted>"
-            if raw_sort is not None:
-                sort = self._name(
-                    raw_sort.get("name"),
-                    self.policy.sort_map,
-                    self.policy.identity_sorts,
-                    "sort",
-                )
-            variable_kind = "e" if str(name).startswith("?") else "a" if str(name).startswith("_") else "v"
-            key = (str(name), variable_kind, sort)
-            self.variables.setdefault(key, f"{variable_kind.upper()}{len(self.variables)}")
-            result: dict[str, Any] = {"node": kind, "name": self.variables[key]}
-            if raw_sort is not None:
-                result["sort"] = self.visit(raw_sort)
-            return result
-        result = {key: self.visit(child) for key, child in value.items()}
-        if kind == "KLabel":
-            result["name"] = self._name(
-                value["name"], self.policy.label_map, self.policy.identity_labels, "label"
-            )
-        elif kind == "KSort":
-            result["name"] = self._name(
-                value["name"], self.policy.sort_map, self.policy.identity_sorts, "sort"
-            )
-        elif kind in {"KApply", "KSequence"}:
-            children = result["args"] if kind == "KApply" else result["items"]
-            if result["arity"] != len(children):
-                raise GateError(f"invalid {kind} arity")
-        return result
-
-
-def normalize_term(term: Mapping[str, Any], policy: TermPolicy) -> Any:
-    return _TermNormalizer(policy).visit(dict(term))
-
-
 def _parse(
     kast: str, route: Route, module: str, sort: str, path: Path, timeout: int
 ) -> subprocess.CompletedProcess[str]:
@@ -295,24 +198,13 @@ def _execute(
     return run(command, timeout=timeout, check=False)
 
 
-def _normalized_output(process: subprocess.CompletedProcess[str], policy: TermPolicy, name: str) -> Any:
+def _normalized_output(
+    session: krs_gate.Session, process: subprocess.CompletedProcess[str],
+    policy: Mapping[str, Any], name: str,
+) -> Any:
     if process.returncode != 0:
         raise GateError(f"{name} failed: {compact(process)}")
-    return normalize_term(_envelope(process.stdout)["term"], policy)
-
-
-def _search_set(term: Any) -> list[str]:
-    if (
-        isinstance(term, dict)
-        and term.get("node") == "KApply"
-        and term.get("label", {}).get("name") == "#Or"
-    ):
-        values: list[Any] = []
-        for child in term["args"]:
-            child_values = _search_set(child)
-            values.extend(json.loads(item) for item in child_values)
-        return sorted({canonical_json(value) for value in values})
-    return [canonical_json(term)]
+    return session.kast_normalize("behavior", text=process.stdout, allow_prefix=True, policy=policy)
 
 
 def _diagnostic_class(stderr: str) -> str:
@@ -348,6 +240,7 @@ def compare_behavior(
     *,
     kast: str,
     krun: str,
+    gate: Path,
     reference: Route,
     actual: Route,
     plan: BehaviorPlan,
@@ -449,133 +342,115 @@ def compare_behavior(
 
         results = settle_all(jobs, worker_limit)
 
-    evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
-    depth_count = 0
+    with krs_gate.Session(gate, environment=z3_environment()) as session:
+        evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
+        depth_count = 0
 
-    for case, index in zip(plan.parse_cases, parse_jobs):
-        chain = results[index].get()
-        left, right = chain["parsed"]
-        left_term = _normalized_output(left, reference.term_policy, f"reference parse {case.name}")
-        right_term = _normalized_output(right, actual.term_policy, f"actual parse {case.name}")
-        if left_term != right_term:
-            raise GateError(f"parse tree differs for {case.name}")
+        for case, index in zip(plan.parse_cases, parse_jobs):
+            chain = results[index].get()
+            left, right = chain["parsed"]
+            left_term = _normalized_output(session, left, reference.term_policy, f"reference parse {case.name}")
+            right_term = _normalized_output(session, right, actual.term_policy, f"actual parse {case.name}")
+            if left_term != right_term:
+                raise GateError(f"parse tree differs for {case.name}")
 
-        unparsed_left, unparsed_right = chain["unparsed"]
-        if unparsed_left.returncode != 0 or unparsed_right.returncode != 0:
-            raise GateError(f"unparse failed for {case.name}")
-        pair = (unparsed_left.stdout.strip(), unparsed_right.stdout.strip())
-        if pair[0] != pair[1] and pair != case.allowed_unparse_pair:
-            raise GateError(f"unparse output differs for {case.name}: {pair!r}")
+            unparsed_left, unparsed_right = chain["unparsed"]
+            if unparsed_left.returncode != 0 or unparsed_right.returncode != 0:
+                raise GateError(f"unparse failed for {case.name}")
+            pair = (unparsed_left.stdout.strip(), unparsed_right.stdout.strip())
+            if pair[0] != pair[1] and pair != case.allowed_unparse_pair:
+                raise GateError(f"unparse output differs for {case.name}: {pair!r}")
 
-        # Each frontend's output must reparse to its own original term,
-        # except for an explicitly frozen parser/unparser mismatch.
-        reparsed = [
-            _normalized_output(process, route.term_policy, f"reparse {case.name}")
-            for (route, _), process in zip(sides, chain["reparsed"])
-        ]
-        if case.allowed_unparse_pair is None and reparsed != [left_term, right_term]:
-            raise GateError(f"parse/unparse/parse changed {case.name}")
-        evidence["parse"][case.name] = {"term": left_term, "unparse": pair}
-
-    for case, indices in zip(plan.execution_cases, execution_jobs):
-        if indices["full"] is not None:
-            full = [
-                _normalized_output(results[index].get(), route.term_policy, f"{side} execution {case.name}")
-                for (route, side), index in zip(sides, indices["full"])
+            # Each frontend's output must reparse to its original term unless the pin permits a parser/unparser mismatch.
+            reparsed = [
+                _normalized_output(session, process, route.term_policy, f"reparse {case.name}")
+                for (route, _), process in zip(sides, chain["reparsed"])
             ]
-            if full[0] != full[1]:
-                raise GateError(f"final state differs for {case.name}")
-            evidence["execution"][case.name] = {"term": full[0]}
+            if case.allowed_unparse_pair is None and reparsed != [left_term, right_term]:
+                raise GateError(f"parse/unparse/parse changed {case.name}")
+            evidence["parse"][case.name] = {"term": left_term, "unparse": pair}
 
-        for depth, pair_indices in zip(case.depths, indices["depths"]):
-            states = [
-                _normalized_output(results[index].get(), route.term_policy, f"{case.name}@{depth}")
-                for (route, _), index in zip(sides, pair_indices)
-            ]
-            if states[0] != states[1]:
-                raise GateError(f"depth state differs for {case.name}@{depth}")
-            evidence["execution"][f"{case.name}@{depth:03d}"] = states[0]
-            depth_count += 1
+        for case, indices in zip(plan.execution_cases, execution_jobs):
+            if indices["full"] is not None:
+                full = [
+                    _normalized_output(session, results[index].get(), route.term_policy, f"{side} execution {case.name}")
+                    for (route, side), index in zip(sides, indices["full"])
+                ]
+                if full[0] != full[1]:
+                    raise GateError(f"final state differs for {case.name}")
+                evidence["execution"][case.name] = {"term": full[0]}
 
-        for depth, pair_indices in zip(case.search_depths, indices["searches"]):
-            searches = [
-                _search_set(_normalized_output(
-                    results[index].get(), route.term_policy, f"search {case.name}@{depth}"
-                ))
-                for (route, _), index in zip(sides, pair_indices)
-            ]
-            if searches[0] != searches[1]:
-                raise GateError(f"search set differs for {case.name}@{depth}")
-            evidence["search"][f"{case.name}@{depth:03d}"] = searches[0]
+            for depth, pair_indices in zip(case.depths, indices["depths"]):
+                states = [
+                    _normalized_output(session, results[index].get(), route.term_policy, f"{case.name}@{depth}")
+                    for (route, _), index in zip(sides, pair_indices)
+                ]
+                if states[0] != states[1]:
+                    raise GateError(f"depth state differs for {case.name}@{depth}")
+                evidence["execution"][f"{case.name}@{depth:03d}"] = states[0]
+                depth_count += 1
 
-    for case, indices in zip(plan.rejection_cases, rejection_jobs):
-        observed = []
-        for index in indices:
-            process = results[index].get()
-            if process.returncode == 0:
-                raise GateError(f"rejected input parsed successfully: {case.name}")
-            observed.append((_diagnostic_class(process.stderr), _diagnostic_range(process.stderr)))
-        expected = (case.expected_class, case.expected_range)
-        if observed != [expected, expected]:
-            raise GateError(f"rejection differs for {case.name}: {observed}")
-        evidence["rejection"][case.name] = expected
+            for depth, pair_indices in zip(case.search_depths, indices["searches"]):
+                searches = [
+                    session.kast_frontier("search_set", _normalized_output(session,
+                        results[index].get(), route.term_policy, f"search {case.name}@{depth}"
+                    ))
+                    for (route, _), index in zip(sides, pair_indices)
+                ]
+                if searches[0] != searches[1]:
+                    raise GateError(f"search set differs for {case.name}@{depth}")
+                evidence["search"][f"{case.name}@{depth:03d}"] = searches[0]
 
-    for case, indices in zip(plan.failure_cases, failure_jobs):
-        observed = []
-        for (_, side), index in zip(sides, indices):
-            process = results[index].get()
-            if process.returncode == 0:
-                raise GateError(
-                    f"{side} failure input completed successfully: {case.name}"
-                )
-            if case.expected_fragment not in process.stderr:
-                raise GateError(
-                    f"failure diagnostic fragment differs for {case.name}: {compact(process)}"
-                )
-            observed.append(_diagnostic_class(process.stderr))
-        if observed != [case.expected_class, case.expected_class]:
-            raise GateError(f"failure class differs for {case.name}: {observed}")
-        evidence["failure"][case.name] = {
-            "class": case.expected_class,
-            "fragment": case.expected_fragment,
-        }
+        for case, indices in zip(plan.rejection_cases, rejection_jobs):
+            observed = []
+            for index in indices:
+                process = results[index].get()
+                if process.returncode == 0:
+                    raise GateError(f"rejected input parsed successfully: {case.name}")
+                observed.append((_diagnostic_class(process.stderr), _diagnostic_range(process.stderr)))
+            expected = (case.expected_class, case.expected_range)
+            if observed != [expected, expected]:
+                raise GateError(f"rejection differs for {case.name}: {observed}")
+            evidence["rejection"][case.name] = expected
 
-    return BehaviorSummary(
-        parse_count=len(plan.parse_cases),
-        execution_count=len(plan.execution_cases),
-        depth_state_count=depth_count,
-        search_count=sum(len(case.search_depths) for case in plan.execution_cases),
-        rejection_count=len(plan.rejection_cases),
-        failure_count=len(plan.failure_cases),
-        evidence_sha256=json_sha256(evidence),
-    )
+        for case, indices in zip(plan.failure_cases, failure_jobs):
+            observed = []
+            for (_, side), index in zip(sides, indices):
+                process = results[index].get()
+                if process.returncode == 0:
+                    raise GateError(
+                        f"{side} failure input completed successfully: {case.name}"
+                    )
+                if case.expected_fragment not in process.stderr:
+                    raise GateError(
+                        f"failure diagnostic fragment differs for {case.name}: {compact(process)}"
+                    )
+                observed.append(_diagnostic_class(process.stderr))
+            if observed != [case.expected_class, case.expected_class]:
+                raise GateError(f"failure class differs for {case.name}: {observed}")
+            evidence["failure"][case.name] = {
+                "class": case.expected_class,
+                "fragment": case.expected_fragment,
+            }
+
+        return BehaviorSummary(
+            parse_count=len(plan.parse_cases),
+            execution_count=len(plan.execution_cases),
+            depth_state_count=depth_count,
+            search_count=sum(len(case.search_depths) for case in plan.execution_cases),
+            rejection_count=len(plan.rejection_cases),
+            failure_count=len(plan.failure_cases),
+            evidence_sha256=json_sha256(evidence),
+        )
 
 
-def term_policies(raw: Mapping[str, Any]) -> tuple[TermPolicy, TermPolicy]:
-    """Build both fail-closed term policies from the checked root ledger."""
+def term_policies(raw: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Select the two pin policy tables for native validation and normalization."""
 
     policies = raw.get("term_policy")
     if not isinstance(policies, dict) or set(policies) != {"reference", "actual"}:
         raise GateError("behavior.term_policy must name exactly reference and actual")
-
-    def build(side: str) -> TermPolicy:
-        value = policies[side]
-        if not isinstance(value, dict) or set(value) != {
-            "label_map", "identity_labels", "sort_map", "identity_sorts"
-        }:
-            raise GateError(f"behavior term policy has unknown shape: {side}")
-        if not isinstance(value["label_map"], dict) or not isinstance(value["sort_map"], dict):
-            raise GateError(f"behavior term maps are not objects: {side}")
-        if not isinstance(value["identity_labels"], list) or not isinstance(value["identity_sorts"], list):
-            raise GateError(f"behavior identity sets are not arrays: {side}")
-        return TermPolicy(
-            label_map=value["label_map"],
-            identity_labels=frozenset(value["identity_labels"]),
-            sort_map=value["sort_map"],
-            identity_sorts=frozenset(value["identity_sorts"]),
-        )
-
-    return build("reference"), build("actual")
+    return policies["reference"], policies["actual"]
 
 
 def plan_from_manifest(

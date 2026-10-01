@@ -133,7 +133,7 @@ def read_term(session: krs_gate.Session, kast: KAST, output: str, *, search: boo
     policy = kast.search_validation_policy if search else kast.validation_policy
     if policy is None:
         raise GateError("bounded search needs a validation policy")
-    return session.kast_inspect("envelope", text=output, allow_prefix=True, policy=policy)["term"]
+    return session.kast_inspect("term", text=output, allow_prefix=True, policy=policy)
 
 
 def verify_definition_structure(
@@ -142,7 +142,7 @@ def verify_definition_structure(
     """Compare native sentence facts with the gate's data expectations."""
 
     facts = {
-        name: session.kast_inspect("module_facts", path=parsed, name=name, vocabulary="semantic")
+        name: session.kast_inspect("module_facts", path=parsed, name=name)
         for name in kast.parsed_counts
     }
     for name, counts in kast.parsed_counts.items():
@@ -163,12 +163,12 @@ def verify_definition_structure(
         actual_labels = {fact["label"] for fact in facts[spec.module]["sentences"] if fact["node"] == "rule"}
         if actual_labels != set(kast.rule_labels):
             raise GateError(f"rule labels differ: {actual_labels}")
-    syntax = session.kast_inspect("module_facts", path=compiled, name=spec.syntax_module, vocabulary="semantic")
+    syntax = session.kast_inspect("module_facts", path=compiled, name=spec.syntax_module)
     contexts = [fact for fact in syntax["sentences"] if fact["node"] == "context"]
     if (len(contexts) != kast.context_count
             or any(key not in fact["attribute_keys"] for fact in contexts for key in kast.context_attributes)):
         raise GateError(f"compiled strict contexts differ: expected={kast.context_count}, actual={len(contexts)}")
-    main = session.kast_inspect("module_facts", path=compiled, name=spec.module, vocabulary="semantic")
+    main = session.kast_inspect("module_facts", path=compiled, name=spec.module)
     rules = [fact for fact in main["sentences"] if fact["node"] == "rule"]
     heat_cool = tuple(sum(key in fact["attribute_keys"] for fact in rules) for key in ("heat", "cool"))
     if (heat_cool != kast.heat_cool

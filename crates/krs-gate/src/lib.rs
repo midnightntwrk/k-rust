@@ -57,7 +57,8 @@
 //! Canonical list sorting and projection grouping occur after serialization.
 //! `kast.normalize` requires `variant` and accepts a closed `policy` object.
 //! `behavior` requires exactly `label_map`, `sort_map`, `identity_labels`, and `identity_sorts` in its policy and returns a normalized bare term.
-//! `proof_result` accepts the same name tables plus `known_attributes`, `metadata_attributes`, and `constraint_labels`, and returns a normalized KAST term envelope.
+//! `proof_result` accepts the same name tables with empty defaults and returns a normalized KAST term envelope.
+//! Proof normalization removes location metadata and permits only metadata, `label`, `circularity`, `all-path`, and `one-path` attributes.
 //! `proof_claim` accepts that proof policy and requires `label`; it selects exactly one matching claim, rejects priority, and returns a `KRS-IMP-CLAIM` version 1 envelope.
 //! `static_proof` requires an empty policy, concrete variable sorts, and a term without rewrites; it returns a normalized KAST term envelope.
 //! `static_claim` requires an empty policy and `label`; it requires exactly one claim in a `KFlatModuleList` and requires that claim's label to match.
@@ -70,29 +71,26 @@
 //! Policy objects must not contain unknown fields; compared and supplemental modules must be disjoint.
 //! Each compatibility pair must provide `origin`, `reference_sha256`, `actual_sha256`, and a positive `count`, with an exact witness on each side.
 //! Comparison returns `{baseline_sha256,actual_sha256,sentence_count}`; mismatched layouts or sentence multisets are errors.
-//! `kast.frontier` requires one normalized term input and defaults to `action: "proof"`.
-//! `proof` requires `returncode` and `stderr`, and returns `{root,status,frontier}`.
+//! `kast.frontier` requires one normalized term input and `action`.
+//! `proof` requires `returncode`, `stderr`, and `constraint_labels`, and returns `{status,frontier}`.
 //! It flattens `#Or`, flattens each branch's `#And`, separates constraints from states, and returns sorted canonical branch strings.
-//! `constraint_labels` may override the default constraint-label set.
+//! `constraint_labels` declares the labels classified as constraints.
 //! Branch multiplicity is retained; `#Top` and `#Bottom` have empty frontiers.
 //! Status is `proved` only for exit 0 with `#Top`, `failed` only for exit 1 with `#Bottom`, and `incomplete` only for exit 1 with another root and the stalled-configuration diagnostic.
 //! Other terminations are errors.
 //! `action: "search_set"` flattens `#Or` and returns sorted distinct canonical term strings.
 //! `kast.inspect` requires `action` and one KAST input.
-//! `envelope` returns the losslessly read KAST envelope.
+//! `term` returns the losslessly read bare term; the input envelope is validated by the reader.
 //! An optional closed validation `policy` with `labels`, `label_prefixes`, `label_contains`, `parameterized_sorts`, and `variables` restricts term inputs to the configured vocabulary.
 //! `abstract_term` requires a `label_map` and returns a nested label/token array.
-//! `module_facts` accepts a definition or module list.
-//! With `name`, it requires exactly one matching module and returns `{counts,sentences}`; without `name`, it returns a map from each module name to those facts.
-//! `vocabulary: "semantic"` uses `syntax_sort`, `sort_synonym`, `syntax_lexical`, `production`, `syntax_associativity`, `syntax_priority`, `context_alias`, `context`, `rule`, `claim`, `configuration`, `bubble`, and `bad_sentence` for count keys and sentence `node` values.
-//! The default `vocabulary: "kast"` uses KAST node names; other vocabulary values are errors.
-//! Each sentence fact contains `node`, `label`, `klabel`, sorted `attribute_keys`, and the canonical sentence `sha256` for structure and identity comparisons.
+//! `module_facts` requires a definition and a module `name`.
+//! It requires exactly one matching module and returns `{counts,sentences}`.
+//! It uses `syntax_sort`, `sort_synonym`, `syntax_lexical`, `production`, `syntax_associativity`, `syntax_priority`, `context_alias`, `context`, `rule`, `claim`, `configuration`, `bubble`, and `bad_sentence` for count keys and sentence `node` values.
+//! Each sentence fact contains `node`, `label`, `klabel`, and sorted `attribute_keys` for structure comparisons.
 //! `final_environment` returns concrete Id-to-Int/Bool token strings from a generated top configuration with an empty K cell and an environment Map, rejecting duplicate keys.
 //! `if_complete: true` returns null when a concrete final environment cannot be extracted.
 //! `search_frontier` unwraps exactly `#Equals(Result, frontier)` and returns the frontier term.
 //! `k_head` requires `head` and returns whether the first item of the configuration's K sequence is an application with that label.
-//! Every KAST operation accepts `representation`, defaulting to `value`.
-//! `canonical` returns compact JSON text with sorted Unicode keys and Python-compatible escaping; `sha256` returns its lowercase UTF-8 SHA-256 digest; `all` returns `{value,canonical,sha256}`.
 //! `observe` requires a retained `state` name and an array of `cells` names.
 //! Its result maps each name to `kore`, the canonical content KORE text, and `size`, the element count for collection content or null otherwise.
 //! Each named cell must occur exactly once in the state.

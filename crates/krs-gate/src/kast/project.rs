@@ -881,6 +881,54 @@ mod tests {
     }
 
     #[test]
+    fn sentence_fields_and_sort_vocabulary_fail_closed() {
+        let mut malformed = definition("REF", json!([rule("a")]));
+        malformed["term"]["modules"][0]["localSentences"][0]["mystery"] = json!(true);
+        assert!(project_definition(&malformed, &policy("REF")).is_err());
+        let unknown_sort = definition("REF", json!([syntax_sort("FutureSort")]));
+        assert_error(
+            project_definition(&unknown_sort, &policy("REF")),
+            "unknown sort",
+        );
+    }
+
+    #[test]
+    fn ignored_context_requires_exact_digest_count_and_heat_cool_witnesses() {
+        let context = json!({"node":"KContext","body":apply("a"),"requires":apply("#Top"),"att":{"node":"KAtt","att":{}}});
+        let mut reference_policy = policy("REF");
+        reference_policy["ignored_sentence_sha256"] = json!({digest(&context):1});
+        let reference = definition("REF", json!([context, rule("a"), rule("b")]));
+        let actual = definition("REF", json!([rule("a"), rule("b")]));
+        let result = compare_definitions(
+            &reference,
+            &actual,
+            &reference_policy,
+            &policy("REF"),
+            &Value::Null,
+        )
+        .unwrap();
+        assert_eq!(result["sentence_count"], 2);
+        let missing_cool = definition("REF", json!([rule("a")]));
+        assert_error(
+            compare_definitions(
+                &reference,
+                &missing_cool,
+                &reference_policy,
+                &policy("REF"),
+                &Value::Null,
+            ),
+            "projection differs",
+        );
+        for expected in [json!({digest(&context):2}), json!({"wrong":1})] {
+            reference_policy["ignored_sentence_sha256"] = expected;
+            assert_error(
+                project_definition(&reference, &reference_policy),
+                "ignored sentence multiset differs",
+            );
+        }
+    }
+
+    #[test]
     fn flattened_module_requires_every_sentence_origin() {
         let definition = definition("REF", json!([rule("a")]));
         let mut policy = policy("REF");
@@ -1048,6 +1096,22 @@ mod tests {
         assert_eq!(
             normalized["productionItems"],
             json!([{"node":"KTerminal","value":"#a"}])
+        );
+        let mut repeated = definition.clone();
+        let production = repeated["term"]["modules"][0]["localSentences"][0].clone();
+        repeated["term"]["modules"][0]["localSentences"]
+            .as_array_mut()
+            .unwrap()
+            .push(production);
+        assert_error(
+            project_definition(&repeated, &policy),
+            "redundant production klabels differ",
+        );
+        let mut joined_policy = policy.clone();
+        joined_policy["redundant_production_klabels"] = json!([]);
+        assert_error(
+            project_definition(&repeated, &joined_policy),
+            "joined terminal productions differ",
         );
         let mut malformed = definition;
         malformed["term"]["modules"][0]["localSentences"][0]["productionItems"][0]["value"] =

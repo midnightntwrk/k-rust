@@ -1,44 +1,31 @@
 # IMP source, behavior, and proof oracle library
 
-This directory holds the source, behavior, and proof comparison libraries of
-the complete IMP gate.
-It is deliberately a library: the root-owned `tests/imp/verify.py`,
-`corpus.json`, and `pins.json` supply the generated artifacts and the reviewed
-normalization tables.
-Missing evidence is an error; none of these modules falls back to an earlier
-fixture or another frontend route.
+This directory holds the behavior and proof orchestration libraries of the complete IMP gate.
+The root runner `tests/imp/verify.py`, `corpus.json`, and `pins.json` must supply the generated artifacts and the reviewed normalization tables.
+Missing evidence must be an error; these modules must not fall back to an earlier fixture or another frontend route.
 
 ## Root integration API
 
-Put `tests/` on `sys.path` (the modules import the shared `support`
-package and `imp_static_semantics.normalize`), then import the three modules from
-`tests.imp.oracle` or with this directory on `sys.path` for a directly loaded
-runner.
+The root runner must put `tests/` and this directory on `sys.path` and build krs-gate before comparing evidence.
+Python must orchestrate tool execution, assemble policies from the pins, compare native observations, hash returned JSON, and report results.
+KAST output must be read and normalized through k-rust's readers in krs-gate.
 
 1. Compile upstream IMP and KRS-emitted K with the same pinned K frontend.
-   Call `source_definition.compare_definitions` independently for
-   `parsed.json` and `compiled.json`, because the reviewed exact-count
-   omissions and exact reference/actual sentence pairs differ at those two
-   frontend boundaries. Each
-   `ProjectionPolicy` must enumerate selected modules, every label/sort/name
-   identity or mapping, every known attribute, any explicit structured
-   attribute-value mapping (for example a renamed `seqstrict` alias), and
-   sentence origins for a flattened module.  Unknown structure fails before
-   behavior.
-2. Construct `behavior.Route` values for the two compiled source definitions
-   and one `BehaviorPlan` from the checked corpus manifest.  Call
-   `behavior.compare_behavior(kast=..., krun=..., reference=..., actual=...,
-   plan=...)`.
-3. Construct one `proofs.ProofCase` per invocation.  Every case requires an
-   explicit `ProofBounds(depth, branching_allowed)`; there is no unbounded
-   constructor.  `run_bounded_source_proof` owns and terminates a complete
-   process group on timeout.  A timeout is an error, never a pinned status.
-   Native/external proof consumers can instead construct evidence with
-   `evidence_from_values`.
-4. Call `proofs.compare_proof_evidence(reference, actual,
-   pins["proof_outcomes"])`.  It compares the normalized claim, full result,
-   proved/failed/incomplete status, frontier states and constraints, semantic
-   bounds, and representative applied user labels before checking pins.
+   Send one `kast.project` request for each of `parsed.json` and `compiled.json`, using file paths, the two pin policy tables, and the file's exact ignored and supplemental sentence multisets and compatible sentence pairs.
+   These boundaries have different reviewed omissions and compatibility witnesses.
+   The policies must enumerate selected modules, name maps and identities, known attributes, structured attribute-value mappings, and flattened sentence origins.
+   Unknown structure must fail before behavior comparison.
+2. Construct `behavior.Route` values from the compiled source definitions and the pin's term-policy side tables.
+   Construct a `BehaviorPlan` from the checked corpus manifest and call `behavior.compare_behavior(kast=..., krun=..., gate=..., reference=..., actual=..., plan=...)`.
+   The comparison must use one session for `kast.normalize` with the `behavior` variant and `kast.frontier` with the `search_set` action.
+3. Construct one `proofs.ProofCase` per invocation with explicit `ProofBounds(depth, branching_allowed)`.
+   The proof runner must own and terminate each complete process group on timeout.
+   A timeout must be an error, never a pinned status.
+   Pass kprove stdout and the emitted-spec path to `proofs.evidence_from_inputs` with the shared session and the assembled proof policy.
+   It must call `kast.normalize` with `proof_result` and `proof_claim`, select the claim by label, and obtain status and frontier through `kast.frontier` with the `proof` action.
+   The legacy pin must use the `static_proof` and `static_claim` variants through the same session.
+4. Compare normalized claims and results, proved/failed/incomplete status, frontier states and constraints, semantic bounds, and applied user labels before checking pins.
+   `ProofEvidence.pin()` must assemble the established pin shape from native observations.
 
 ## Corpus wiring
 
@@ -64,8 +51,7 @@ The LLVM failure routes require `prlimit`.
 They restore an unlimited soft address-space limit only for the LLVM interpreter because its collector reserves a sparse 2 TiB virtual region; the root gate may keep every resident-memory-heavy route under a soft `RLIMIT_AS` ceiling.
 
 Each case has both its upstream module and KRS module.
-`TermPolicy` maps every KRS-generated label/sort to the upstream identity;
-identities are also explicit.
+The `behavior.term_policy` tables must map every KRS-generated label and sort to the upstream identity or list it as an explicit identity.
 Unparse differences are permitted only as complete, case-named
 reference/actual strings.
 This includes the expression unary-binding round-trip exception and the exact
@@ -96,4 +82,5 @@ PYTHONDONTWRITEBYTECODE=1 \
 python3 -m unittest discover -s tests/imp/oracle -p 'test_*.py' -v
 ```
 
-The tests are tool-independent and do not launch any proof.
+The Python orchestration tests must be tool-independent and must not launch a proof.
+KAST reader, normalization, projection, and frontier tests must run in krs-gate.
