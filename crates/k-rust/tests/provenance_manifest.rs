@@ -193,6 +193,7 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
         let boundary_source = match boundary.boundary.as_str() {
             "k-to-kore" => include_str!("../src/kompile/module_to_kore.rs"),
             "load" => {
+                // Load-boundary generators currently only expand configurations.
                 assert!(
                     include_str!("../src/outer/loader.rs").contains(&format!("{}(", boundary.call)),
                     "load-boundary generator {:?} is not called by the loader",

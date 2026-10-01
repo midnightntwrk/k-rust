@@ -309,6 +309,16 @@ impl Error for LoadError {}
 /// # }
 /// ```
 ///
+/// Naming every field does not help: the fields are private outside `outer::loader`.
+///
+/// ```compile_fail,E0451
+/// # use k_rust::{definition::{Definition, ResolvedDefinition}, outer::{InputAddressing, LoadedDefinition}};
+/// # fn build(definition: Definition, resolved: ResolvedDefinition) -> LoadedDefinition {
+/// LoadedDefinition { files: Vec::new(), source_table: Default::default(), definition,
+///     resolved, diagnostics: Vec::new(), addressing: InputAddressing::Compile }
+/// # }
+/// ```
+///
 /// The same parts go through the constructor, which establishes the facts:
 ///
 /// ```
@@ -800,8 +810,7 @@ pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
-    // Configuration expansion recognizes cell wrappers by name, so a parameter on one would be
-    // dropped before compilation's own check: reject on exactly the caller's sentences.
+    // Configuration expansion recognizes cell wrappers by name, so a parameter on one would be dropped before the loaded-stage check at the end of `finish_load`: reject on exactly the caller's sentences.
     reject_label_parameters(&definition)?;
     stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
