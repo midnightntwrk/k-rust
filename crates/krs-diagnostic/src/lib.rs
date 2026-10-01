@@ -83,6 +83,8 @@ pub enum Location {
     Source(SourceRange),
     /// A key in the Definition source map supplied to the renderer.
     Definition(SourceMapKey),
+    /// Exact downstream line/column range, retained without inferring authored coordinates.
+    Generated(envelope::DiagnosticGeneratedRange),
 }
 
 /// A location and optional explanation attached to a diagnostic.

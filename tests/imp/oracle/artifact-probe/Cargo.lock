@@ -550,6 +550,7 @@ name = "krs-k-rust"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "krs-diagnostic",
  "krs-ir",
  "serde",
  "serde_json",

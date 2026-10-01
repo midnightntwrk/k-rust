@@ -16,12 +16,17 @@ use k_rust::{
         self as native_definition, Attributes as NativeAttributes, CheckMode as NativeCheckMode,
         FlatImport, FlatModule, ProductionItem as NativeItem, Sentence as NativeSentence,
     },
-    diagnostic::{Diagnostic as NativeDiagnostic, Severity as NativeSeverity},
+    diagnostic::{
+        Diagnostic as NativeDiagnostic, DiagnosticCode as NativeDiagnosticCode,
+        Severity as NativeSeverity,
+    },
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
     kompile,
     kore::parser::parse_definition as parse_kore_definition,
     outer::{LoadOptions as NativeLoadOptions, load_structured},
 };
+use krs_diagnostic::envelope::DiagnosticGeneratedRange;
+use krs_diagnostic::{Code, Diagnostic, Label, Location, Severity, ToDiagnostic};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
     ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
@@ -350,13 +355,15 @@ pub struct FrontendDiagnostic {
     /// Diagnostic severity.
     pub severity: DiagnosticSeverity,
     /// Stable-within-the-pin native diagnostic code name.
-    pub code: String,
+    pub code: Code,
     /// Human-readable diagnostic message.
     pub message: String,
     /// Source identifier, when attached to the originating sentence.
     pub source: Option<String>,
     /// Source location, when attached to the originating sentence.
     pub location: Option<SourceLocation>,
+    /// Exact adapted Definition source-map key, when a structured address resolves.
+    pub source_map_key: Option<SourceMapKey>,
     /// Input sentence addresses attached by the native frontend.
     pub input_addresses: Vec<InputAddress>,
 }
@@ -368,7 +375,7 @@ impl From<&NativeDiagnostic> for FrontendDiagnostic {
                 NativeSeverity::Error => DiagnosticSeverity::Error,
                 NativeSeverity::Warning => DiagnosticSeverity::Warning,
             },
-            code: format!("{:?}", diagnostic.code),
+            code: native_diagnostic_code(diagnostic.code),
             message: diagnostic.message.clone(),
             source: diagnostic.source.clone(),
             location: diagnostic.location.map(|location| SourceLocation {
@@ -377,9 +384,113 @@ impl From<&NativeDiagnostic> for FrontendDiagnostic {
                 end_line: location.end_line,
                 end_column: location.end_column,
             }),
+            source_map_key: None,
             input_addresses: diagnostic.input_addresses.clone(),
         }
     }
+}
+
+impl ToDiagnostic for FrontendDiagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let mut diagnostic = Diagnostic::error(
+            self.code.clone(),
+            self.message.clone(),
+            self.source_map_key
+                .clone()
+                .map_or(Location::None, Location::Definition),
+        );
+        diagnostic.severity = match self.severity {
+            DiagnosticSeverity::Error => Severity::Error,
+            DiagnosticSeverity::Warning => Severity::Warning,
+        };
+        if let Some(location) = self.location {
+            diagnostic
+                .secondary
+                .push(Label::new(Location::Generated(DiagnosticGeneratedRange {
+                    artifact: self
+                        .source
+                        .clone()
+                        .unwrap_or_else(|| "native-definition".to_owned()),
+                    start_line: location.start_line,
+                    start_column: location.start_column,
+                    end_line: location.end_line,
+                    end_column: location.end_column,
+                })));
+        }
+        diagnostic
+    }
+}
+
+fn native_diagnostic_code(code: NativeDiagnosticCode) -> Code {
+    // The upstream enum has no documented stable string spelling.
+    // Keep this exhaustive workaround so variant additions and renames require an explicit wire-code decision.
+    Code::foreign(match code {
+        NativeDiagnosticCode::CellCollectionVarWithoutInitial => "CellCollectionVarWithoutInitial",
+        NativeDiagnosticCode::ClaimInDefinition => "ClaimInDefinition",
+        NativeDiagnosticCode::DeprecatedAttribute => "DeprecatedAttribute",
+        NativeDiagnosticCode::DeprecatedProduction => "DeprecatedProduction",
+        NativeDiagnosticCode::DuplicateOverload => "DuplicateOverload",
+        NativeDiagnosticCode::DuplicateSentenceLabel => "DuplicateSentenceLabel",
+        NativeDiagnosticCode::DuplicateConfigurationCell => "DuplicateConfigurationCell",
+        NativeDiagnosticCode::DuplicateKLabel => "DuplicateKLabel",
+        NativeDiagnosticCode::DuplicateUserList => "DuplicateUserList",
+        NativeDiagnosticCode::FutureError => "FutureError",
+        NativeDiagnosticCode::InvalidAnonymousVariable => "InvalidAnonymousVariable",
+        NativeDiagnosticCode::InvalidAttribute => "InvalidAttribute",
+        NativeDiagnosticCode::InvalidAsPattern => "InvalidAsPattern",
+        NativeDiagnosticCode::InvalidBracketProduction => "InvalidBracketProduction",
+        NativeDiagnosticCode::InvalidAssociativity => "InvalidAssociativity",
+        NativeDiagnosticCode::InvalidCommutativeSimplification => {
+            "InvalidCommutativeSimplification"
+        }
+        NativeDiagnosticCode::InvalidConstantFolding => "InvalidConstantFolding",
+        NativeDiagnosticCode::InvalidCellConcretization => "InvalidCellConcretization",
+        NativeDiagnosticCode::InvalidContext => "InvalidContext",
+        NativeDiagnosticCode::InvalidExistentialVariable => "InvalidExistentialVariable",
+        NativeDiagnosticCode::InvalidFunctionPattern => "InvalidFunctionPattern",
+        NativeDiagnosticCode::InvalidFreshConstant => "InvalidFreshConstant",
+        NativeDiagnosticCode::InvalidFunctionConfiguration => "InvalidFunctionConfiguration",
+        NativeDiagnosticCode::InvalidLocalFunction => "InvalidLocalFunction",
+        NativeDiagnosticCode::InvalidHole => "InvalidHole",
+        NativeDiagnosticCode::InvalidHeatCool => "InvalidHeatCool",
+        NativeDiagnosticCode::InvalidListDeclaration => "InvalidListDeclaration",
+        NativeDiagnosticCode::InvalidMainCell => "InvalidMainCell",
+        NativeDiagnosticCode::InvalidMacroExpansion => "InvalidMacroExpansion",
+        NativeDiagnosticCode::InvalidOrPattern => "InvalidOrPattern",
+        NativeDiagnosticCode::InvalidRegex => "InvalidRegex",
+        NativeDiagnosticCode::InvalidRewrite => "InvalidRewrite",
+        NativeDiagnosticCode::InvalidIoStream => "InvalidIoStream",
+        NativeDiagnosticCode::IsSortPredicateConflict => "IsSortPredicateConflict",
+        NativeDiagnosticCode::InvalidSmtLemma => "InvalidSmtLemma",
+        NativeDiagnosticCode::InvalidSemanticCast => "InvalidSemanticCast",
+        NativeDiagnosticCode::InvalidSimplification => "InvalidSimplification",
+        NativeDiagnosticCode::InvalidStreamCell => "InvalidStreamCell",
+        NativeDiagnosticCode::InvalidStrictness => "InvalidStrictness",
+        NativeDiagnosticCode::InvalidUnitAttribute => "InvalidUnitAttribute",
+        NativeDiagnosticCode::IllegalFunctionOnLhs => "IllegalFunctionOnLhs",
+        NativeDiagnosticCode::InconsistentFunctionRuleAttributes => {
+            "InconsistentFunctionRuleAttributes"
+        }
+        NativeDiagnosticCode::MultipleTopSorts => "MultipleTopSorts",
+        NativeDiagnosticCode::InvalidTokenProduction => "InvalidTokenProduction",
+        NativeDiagnosticCode::InvalidDomainValue => "InvalidDomainValue",
+        NativeDiagnosticCode::MarkdownWarning => "MarkdownWarning",
+        NativeDiagnosticCode::MissingSyntaxModule => "MissingSyntaxModule",
+        NativeDiagnosticCode::ProofModuleRule => "ProofModuleRule",
+        NativeDiagnosticCode::ProofModuleSyntax => "ProofModuleSyntax",
+        NativeDiagnosticCode::SingletonOverload => "SingletonOverload",
+        NativeDiagnosticCode::UnusedVariable => "UnusedVariable",
+        NativeDiagnosticCode::UnboundVariable => "UnboundVariable",
+        NativeDiagnosticCode::UnadmittedHookNamespace => "UnadmittedHookNamespace",
+        NativeDiagnosticCode::UnsupportedExistentialVariable => "UnsupportedExistentialVariable",
+        NativeDiagnosticCode::UnsupportedCellBag => "UnsupportedCellBag",
+        NativeDiagnosticCode::UndefinedKLabel => "UndefinedKLabel",
+        NativeDiagnosticCode::UndeclaredTag => "UndeclaredTag",
+        NativeDiagnosticCode::UndefinedSort => "UndefinedSort",
+        NativeDiagnosticCode::UnrecognizedAttribute => "UnrecognizedAttribute",
+        NativeDiagnosticCode::UnsupportedParametricSort => "UnsupportedParametricSort",
+        NativeDiagnosticCode::UnusedSymbol => "UnusedSymbol",
+    })
 }
 
 /// Textual KORE artifacts emitted by the native frontend.
@@ -599,44 +710,116 @@ impl fmt::Display for ProvenanceAddress<'_> {
 
 impl Error for ProvenanceError {}
 
+/// Rejection by the pinned native preparation boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PreparationError {
+    /// The pinned embedded prelude is unavailable.
+    MissingPrelude,
+    /// The structured loader rejected the definition.
+    Loader {
+        /// Complete pinned loader error.
+        error: Box<k_rust::outer::LoadError>,
+        /// Adapted loader diagnostics, with resolved source keys when available.
+        diagnostics: Vec<FrontendDiagnostic>,
+    },
+}
+
+impl PreparationError {
+    /// Structured diagnostics produced by preparation.
+    #[must_use]
+    pub fn diagnostics(&self) -> &[FrontendDiagnostic] {
+        match self {
+            Self::MissingPrelude => &[],
+            Self::Loader { diagnostics, .. } => diagnostics,
+        }
+    }
+
+    fn resolve_diagnostics(&mut self, origins: &[OriginMapping]) {
+        if let Self::Loader { diagnostics, .. } = self {
+            resolve_diagnostic_keys(origins, diagnostics);
+        }
+    }
+}
+
+impl From<k_rust::outer::LoadError> for PreparationError {
+    fn from(error: k_rust::outer::LoadError) -> Self {
+        let diagnostics = match &error {
+            k_rust::outer::LoadError::SourceDiagnostics(diagnostics) => {
+                diagnostics.iter().map(Into::into).collect()
+            }
+            _ => Vec::new(),
+        };
+        Self::Loader {
+            error: Box::new(error),
+            diagnostics,
+        }
+    }
+}
+
+impl fmt::Display for PreparationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingPrelude => {
+                formatter.write_str("pinned structured-loader prelude is unavailable")
+            }
+            Self::Loader { error, diagnostics } => {
+                error.fmt(formatter)?;
+                display_diagnostics(formatter, diagnostics)
+            }
+        }
+    }
+}
+
+impl Error for PreparationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::MissingPrelude => None,
+            Self::Loader { error, .. } => Some(error.as_ref()),
+        }
+    }
+}
+
 /// Permanent structured compilation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DefinitionCompileError {
     /// Definition IR could not be represented by the schema-9 adapter.
     Adapter(AdapterError),
     /// The pinned public preparation primitives rejected the native graph.
-    Preparation(String),
+    Preparation(PreparationError),
     /// Native input provenance did not join to the adapted Definition IR.
     Provenance(ProvenanceError),
     /// The ordered native compiler rejected the prepared graph.
-    Compile {
-        /// Native pipeline stage.
-        stage: &'static str,
-        /// Native pipeline message.
-        message: String,
-        /// Structured frontend diagnostics.
-        diagnostics: Vec<FrontendDiagnostic>,
-    },
+    Compile(CompileError),
     /// A produced KORE definition did not reparse under the exact pin.
     KoreReparse {
         /// Artifact which failed.
         artifact: &'static str,
-        /// Parser message.
-        message: String,
+        /// Complete pinned parser error, including its byte offset.
+        error: k_rust::kore::parser::ParseError,
     },
+}
+
+impl DefinitionCompileError {
+    /// Structured frontend diagnostics produced by preparation or compilation.
+    #[must_use]
+    pub fn diagnostics(&self) -> &[FrontendDiagnostic] {
+        match self {
+            Self::Preparation(error) => error.diagnostics(),
+            Self::Compile(error) => error.diagnostics(),
+            Self::Adapter(_) | Self::Provenance(_) | Self::KoreReparse { .. } => &[],
+        }
+    }
 }
 
 impl fmt::Display for DefinitionCompileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
-            Self::Preparation(message) => write!(formatter, "native preparation failed: {message}"),
+            Self::Preparation(error) => write!(formatter, "native preparation failed: {error}"),
             Self::Provenance(error) => error.fmt(formatter),
-            Self::Compile { stage, message, .. } => {
-                write!(formatter, "native frontend stage {stage} failed: {message}")
-            }
-            Self::KoreReparse { artifact, message } => {
-                write!(formatter, "pinned parser rejected {artifact}: {message}")
+            Self::Compile(error) => error.fmt(formatter),
+            Self::KoreReparse { artifact, error } => {
+                write!(formatter, "pinned parser rejected {artifact}: {error}")
             }
         }
     }
@@ -646,10 +829,22 @@ impl Error for DefinitionCompileError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Adapter(error) => Some(error),
+            Self::Preparation(error) => Some(error),
             Self::Provenance(error) => Some(error),
-            Self::Preparation(_) | Self::Compile { .. } | Self::KoreReparse { .. } => None,
+            Self::Compile(error) => Some(error),
+            Self::KoreReparse { error, .. } => Some(error),
         }
     }
+}
+
+fn display_diagnostics(
+    formatter: &mut fmt::Formatter<'_>,
+    diagnostics: &[FrontendDiagnostic],
+) -> fmt::Result {
+    for diagnostic in diagnostics {
+        write!(formatter, "\n{}: {}", diagnostic.code, diagnostic.message)?;
+    }
+    Ok(())
 }
 
 /// Structurally maps schema-9 Definition IR to the pinned native source
@@ -690,14 +885,12 @@ pub fn adapt_definition_for(
 ///
 /// # Errors
 ///
-/// Returns a stable message when the pinned loader, configuration expander, or
-/// resolver rejects the graph.
+/// Returns the complete typed rejection when the pinned loader, configuration expander, or resolver rejects the graph.
 pub fn prepare_definition(
     definition: NativeDefinition,
     backend: Backend,
-) -> Result<LoadedDefinition, String> {
-    let prelude = builtin::embedded("prelude.md")
-        .ok_or_else(|| "pinned structured-loader prelude is unavailable".to_owned())?;
+) -> Result<LoadedDefinition, PreparationError> {
+    let prelude = builtin::embedded("prelude.md").ok_or(PreparationError::MissingPrelude)?;
     let excluded = match backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm.excluded_module_attribute(),
         Backend::Haskell => kompile::CompilationBackend::Rust.excluded_module_attribute(),
@@ -710,7 +903,7 @@ pub fn prepare_definition(
             ..NativeLoadOptions::default()
         },
     )
-    .map_err(|error| error.to_string())
+    .map_err(PreparationError::from)
 }
 
 /// Compile schema-9 Definition IR through the permanent native boundary.
@@ -755,28 +948,28 @@ pub fn compile_definition_with_context_timed(
         adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)
     })?;
     let loaded = timings.try_span("native.prepare", |_| {
-        prepare_definition(adapted.definition.clone(), options.backend)
-            .map_err(DefinitionCompileError::Preparation)
+        prepare_definition(adapted.definition.clone(), options.backend).map_err(|mut error| {
+            error.resolve_diagnostics(adapted.origins());
+            DefinitionCompileError::Preparation(error)
+        })
     })?;
-    let artifacts = timings.try_span("native.compile", |timings| {
+    let mut artifacts = timings.try_span("native.compile", |timings| {
         let (artifacts, phases) =
-            compile_loaded_definition_timed(&loaded, options).map_err(|error| {
-                DefinitionCompileError::Compile {
-                    stage: error.stage(),
-                    message: error.message().to_owned(),
-                    diagnostics: error.diagnostics().to_vec(),
-                }
+            compile_loaded_definition_timed(&loaded, options).map_err(|mut error| {
+                resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
+                DefinitionCompileError::Compile(error)
             })?;
         for phase in phases.phases {
             timings.record(phase.name, phase.seconds, phase.depth);
         }
         Ok(artifacts)
     })?;
+    resolve_diagnostic_keys(adapted.origins(), &mut artifacts.diagnostics);
     timings.try_span("native.reparse.definition", |_| {
         parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
             DefinitionCompileError::KoreReparse {
                 artifact: "definition.kore",
-                message: error.to_string(),
+                error,
             }
         })
     })?;
@@ -784,7 +977,7 @@ pub fn compile_definition_with_context_timed(
         parse_kore_definition(&artifacts.syntax_definition_kore).map_err(|error| {
             DefinitionCompileError::KoreReparse {
                 artifact: "syntaxDefinition.kore",
-                message: error.to_string(),
+                error,
             }
         })
     })?;
@@ -807,6 +1000,12 @@ pub fn compile_definition_with_context_timed(
         },
         context,
     ))
+}
+
+fn resolve_diagnostic_keys(origins: &[OriginMapping], diagnostics: &mut [FrontendDiagnostic]) {
+    for diagnostic in diagnostics {
+        diagnostic.source_map_key = diagnostic_source_map_key(origins, diagnostic);
+    }
 }
 
 /// Resolve a native diagnostic's Structured sentence address to its KRS source key.
@@ -972,7 +1171,7 @@ fn join_sentence_provenance(
 }
 
 /// Failure from a named stage of the native frontend pipeline.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileError {
     diagnostics: Vec<FrontendDiagnostic>,
     source: Box<kompile::CompileError>,
@@ -1013,7 +1212,8 @@ impl fmt::Display for CompileError {
             formatter,
             "native frontend stage {} failed: {}",
             self.source.stage, self.source.message
-        )
+        )?;
+        display_diagnostics(formatter, &self.diagnostics)
     }
 }
 

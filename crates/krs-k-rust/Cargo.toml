@@ -13,6 +13,7 @@ z3-inference = ["k-rust/z3-inference"]
 [dependencies]
 k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false }
 krs-ir = { path = "../krs-ir" }
+krs-diagnostic = { path = "../krs-diagnostic" }
 serde.workspace = true
 serde_json.workspace = true
 

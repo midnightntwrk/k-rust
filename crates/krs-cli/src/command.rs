@@ -19,7 +19,7 @@ use krs_ir::{
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
-    adapt_definition_for, compile_definition_timed, diagnostic_source_map_key,
+    compile_definition_timed,
 };
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -142,13 +142,20 @@ pub struct CommandRequest {
     pub no_reuse: bool,
 }
 
-/// Stable command output intended for stdout.
+/// Stable command stdout and success diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandOutcome {
     stdout: Vec<u8>,
+    warnings: crate::DiagnosticReports,
 }
 
 impl CommandOutcome {
+    /// Native warnings reported after successful execution, including cache restoration.
+    #[must_use]
+    pub const fn warnings(&self) -> &crate::DiagnosticReports {
+        &self.warnings
+    }
+
     /// Bytes to write to stdout after successful execution.
     #[must_use]
     pub fn stdout(&self) -> &[u8] {
@@ -189,9 +196,9 @@ impl CommandExecution {
 /// # Errors
 ///
 /// Returns a typed stage error.
-/// A native compilation or adapter failure is [`CommandError::Native`],
-/// except that a compilation failure whose every diagnostic maps to an
-/// authored source range is [`CommandError::Diagnostics`].
+/// A native compilation or adapter failure without diagnostics is [`CommandError::Native`].
+/// Native failures carrying diagnostics are [`CommandError::NativeDiagnostics`];
+/// each diagnostic is translated independently and unlocated diagnostics remain available for prose.
 pub fn execute_command(request: &CommandRequest) -> Result<CommandOutcome, CommandError> {
     execute_command_measured(request, &mut Measurement::disabled())
 }
@@ -543,11 +550,10 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
     if !FRONTEND_CAPABILITIES.supports_backend(backend) {
         return Err(CommandError::UnsupportedBackend(backend));
     }
-    // Structural adaptation checks the selected target-neutral definition
-    // without claiming that the unavailable preparation seam can compile it.
     adapt_definition(prepared.lowered.definition())
         .map_err(|error| CommandError::Native(DefinitionCompileError::Adapter(error)))?;
     Ok(CommandOutcome {
+        warnings: crate::DiagnosticReports::default(),
         stdout: format!(
             "KRS check passed: {} descriptors, {} semantic modules\n",
             prepared.bundle.descriptors.len(),
@@ -582,6 +588,7 @@ fn expand(
         &root.manifest_path,
     )?;
     Ok(CommandOutcome {
+        warnings: crate::DiagnosticReports::default(),
         stdout: expanded.into_bytes(),
     })
 }
@@ -640,7 +647,10 @@ fn emit(
             .set(format!("emit_k.bytes.{name}"), bytes.len());
     }
     Ok(CommandExecution {
-        outcome: CommandOutcome { stdout },
+        outcome: CommandOutcome {
+            warnings: crate::DiagnosticReports::default(),
+            stdout,
+        },
         artifacts,
     })
 }
@@ -666,9 +676,11 @@ fn build(
     )
     .map_err(|error| {
         measurement.timings.span("native.diagnostics", |_| {
-            native_command_error(prepared, backend, error)
+            native_command_error(prepared.lowered.source_map(), error)
         })
     })?;
+    let warnings =
+        crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     let files = vec![
         (
             "definition.kore".to_owned(),
@@ -706,6 +718,7 @@ fn build(
     let stdout = format!("built definition.kore, syntaxDefinition.kore, macros.kore\n{omitted}");
     Ok(CommandExecution {
         outcome: CommandOutcome {
+            warnings,
             stdout: stdout.into_bytes(),
         },
         artifacts: files,
@@ -713,36 +726,17 @@ fn build(
 }
 
 fn native_command_error(
-    prepared: &PreparedDefinition,
-    backend: Backend,
+    source_map: &krs_compiler::SourceMap,
     error: DefinitionCompileError,
 ) -> CommandError {
-    let DefinitionCompileError::Compile { diagnostics, .. } = &error else {
-        return CommandError::Native(error);
-    };
+    let diagnostics = error.diagnostics();
     if diagnostics.is_empty() {
         return CommandError::Native(error);
     }
-    let Ok(adapted) = adapt_definition_for(prepared.lowered.definition(), backend) else {
-        return CommandError::Native(error);
-    };
-    let mut translated = Vec::with_capacity(diagnostics.len());
-    for diagnostic in diagnostics {
-        let Some(key) = diagnostic_source_map_key(adapted.origins(), diagnostic) else {
-            return CommandError::Native(error);
-        };
-        let Some(envelope) =
-            crate::translate_native_diagnostic(prepared.lowered.source_map(), &key, diagnostic)
-        else {
-            return CommandError::Native(error);
-        };
-        translated.push(envelope);
+    CommandError::NativeDiagnostics {
+        reports: crate::DiagnosticReports::native(source_map, diagnostics),
+        source: error,
     }
-    translated.sort_by(|left, right| {
-        (&left.code, &left.authored_range).cmp(&(&right.code, &right.authored_range))
-    });
-    translated.dedup();
-    CommandError::Diagnostics(translated)
 }
 
 fn prepare_output(path: &Path) -> Result<(), CommandError> {
@@ -1089,6 +1083,13 @@ pub enum CommandError {
     },
     /// One or more renderer-independent diagnostics with exact authored ranges.
     Diagnostics(Vec<DiagnosticEnvelope>),
+    /// Native diagnostics translated individually, retaining the typed failure for fallback.
+    NativeDiagnostics {
+        /// Located envelopes and unlocated prose diagnostics.
+        reports: crate::DiagnosticReports,
+        /// Structured native failure.
+        source: DefinitionCompileError,
+    },
     /// Collector stdout was not a current canonical descriptor protocol.
     DescriptorProtocol(serde_json::Error),
     /// Collector diagnostics were malformed or used an unsupported schema.
@@ -1160,7 +1161,9 @@ impl fmt::Display for CommandError {
             Self::Lowering(error) => error.fmt(formatter),
             Self::Emission(error) => error.fmt(formatter),
             Self::ReferenceExpansion(error) => error.fmt(formatter),
-            Self::Native(error) => error.fmt(formatter),
+            Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => {
+                error.fmt(formatter)
+            }
             Self::UnsupportedBackend(backend) => {
                 write!(
                     formatter,
@@ -1200,7 +1203,7 @@ impl Error for CommandError {
             Self::Lowering(error) => Some(error),
             Self::Emission(error) => Some(error),
             Self::ReferenceExpansion(error) => Some(error),
-            Self::Native(error) => Some(error),
+            Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => Some(error),
             Self::InvalidRequest(_)
             | Self::InvalidMetadata(_)
             | Self::ProcessFailed { .. }
@@ -1212,11 +1215,23 @@ impl Error for CommandError {
 }
 
 impl CommandError {
+    /// Returns native diagnostics that have no exact authored range.
+    #[must_use]
+    pub fn unlocated_diagnostics(&self) -> &[crate::UnlocatedDiagnostic] {
+        match self {
+            Self::NativeDiagnostics { reports, .. } => &reports.unlocated,
+            _ => &[],
+        }
+    }
+
     /// Returns envelopes when the producing diagnostic has an exact authored range.
     #[must_use]
     pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
         let diagnostic = match self {
             Self::Diagnostics(diagnostics) => return Some(Cow::Borrowed(diagnostics)),
+            Self::NativeDiagnostics { reports, .. } => {
+                return Some(Cow::Borrowed(&reports.envelopes));
+            }
             Self::DescriptorLowering(error) => error.to_diagnostic(),
             Self::Lowering(error) => error.to_diagnostic(),
             _ => return None,

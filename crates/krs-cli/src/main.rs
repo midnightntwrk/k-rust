@@ -118,6 +118,7 @@ fn write_measurement(
 fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>) -> bool {
     match result {
         Ok(outcome) => {
+            report_diagnostics(&outcome.warnings().envelopes, &outcome.warnings().unlocated);
             if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
                 eprintln!("krs: could not write stdout: {error}");
                 return false;
@@ -126,20 +127,36 @@ fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>
         }
         Err(error) => {
             if let Some(diagnostics) = error.diagnostics() {
-                for diagnostic in diagnostics.iter() {
-                    match diagnostic.to_json_line() {
-                        Ok(line) => eprint!("{line}"),
-                        Err(render_error) => {
-                            eprintln!("krs: could not render diagnostic: {render_error}");
-                        }
-                    }
-                }
+                report_diagnostics(&diagnostics, error.unlocated_diagnostics());
             } else {
                 eprintln!("krs: {error}");
             }
             false
         }
     }
+}
+
+fn report_diagnostics(
+    envelopes: &[krs_cli::DiagnosticEnvelope],
+    unlocated: &[krs_cli::UnlocatedDiagnostic],
+) {
+    if let Err(error) = write_diagnostics(&mut io::stderr().lock(), envelopes, unlocated) {
+        eprintln!("krs: could not render diagnostic: {error}");
+    }
+}
+
+fn write_diagnostics(
+    writer: &mut impl Write,
+    envelopes: &[krs_cli::DiagnosticEnvelope],
+    unlocated: &[krs_cli::UnlocatedDiagnostic],
+) -> io::Result<()> {
+    for diagnostic in envelopes {
+        writer.write_all(diagnostic.to_json_line()?.as_bytes())?;
+    }
+    for diagnostic in unlocated {
+        writeln!(writer, "krs: {diagnostic}")?;
+    }
+    Ok(())
 }
 
 enum ParseResult {
@@ -524,6 +541,45 @@ fn utf8(value: OsString, role: &str) -> Result<String, UsageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reports_envelopes_and_unlocated_errors_and_warnings_together() {
+        let package = krs_ir::PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap();
+        let file = krs_ir::SourceFileId::new(
+            package,
+            "src/lib.rs",
+            krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let mut envelope = krs_cli::DiagnosticEnvelope::error(
+            krs_cli::DiagnosticStage::Native,
+            "UnusedVariable",
+            "unused variable",
+            krs_ir::SourceRange::new(file, 7, 16).unwrap(),
+        );
+        envelope.severity = krs_cli::DiagnosticSeverity::Warning;
+        let error = krs_cli::UnlocatedDiagnostic {
+            code: "UndefinedKLabel".to_owned(),
+            severity: krs_cli::DiagnosticSeverity::Error,
+            message: "undefined label".to_owned(),
+            source: None,
+            generated_range: None,
+            notes: Vec::new(),
+        };
+        let mut warning = error.clone();
+        warning.code = "UnusedVariable".to_owned();
+        warning.severity = krs_cli::DiagnosticSeverity::Warning;
+        warning.message = "unused variable".to_owned();
+        let mut output = Vec::new();
+        write_diagnostics(&mut output, &[envelope.clone()], &[error, warning]).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            format!(
+                "{}krs: UndefinedKLabel: undefined label\nkrs: warning: UnusedVariable: unused variable\n",
+                envelope.to_json_line().unwrap(),
+            )
+        );
+    }
 
     fn parse_args(args: &[&str]) -> Result<ParseResult, UsageError> {
         parse(args.iter().map(OsString::from).collect())

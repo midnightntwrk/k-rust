@@ -1,9 +1,9 @@
 //! Renderer-independent diagnostics for every production KRS boundary.
 
 use krs_compiler::SourceMap;
-use krs_diagnostic::Diagnostic;
-use krs_ir::SourceMapKey;
-use krs_k_rust::{DiagnosticSeverity as NativeSeverity, FrontendDiagnostic};
+use krs_diagnostic::{Diagnostic, ToDiagnostic};
+use krs_k_rust::FrontendDiagnostic;
+use serde::{Deserialize, Serialize};
 
 pub use krs_diagnostic::envelope::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity,
@@ -22,43 +22,94 @@ pub fn diagnostic_envelope(
     })
 }
 
-/// Translate a native diagnostic through an exact Definition source-map key.
-///
-/// A native location is retained only when the frontend supplied all four
-/// coordinates. The authored range always comes from the parser-owned origin
-/// stack rather than from the generated location.
+/// Translates a native diagnostic through its producer-resolved Definition source-map key.
+/// Generated coordinates come from the shared diagnostic model without inferring authored tokens.
 #[must_use]
 pub fn translate_native_diagnostic(
     source_map: &SourceMap,
-    key: &SourceMapKey,
     diagnostic: &FrontendDiagnostic,
 ) -> Option<DiagnosticEnvelope> {
-    let authored_range = source_map.exact_authored_range(key)?;
-    let generated_range = diagnostic
-        .location
-        .map(|location| DiagnosticGeneratedRange {
-            artifact: diagnostic
-                .source
-                .clone()
-                .unwrap_or_else(|| "native-definition".to_owned()),
-            start_line: location.start_line,
-            start_column: location.start_column,
-            end_line: location.end_line,
-            end_column: location.end_column,
+    diagnostic_envelope(
+        diagnostic.to_diagnostic(),
+        DiagnosticStage::Native,
+        Some(source_map),
+    )
+}
+
+/// A native diagnostic without an exact authored range.
+/// Generated coordinates and supplemental detail remain available even though the CLI renders prose.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UnlocatedDiagnostic {
+    /// Stable producer code.
+    pub code: String,
+    /// Whether compilation may continue.
+    pub severity: DiagnosticSeverity,
+    /// Principal explanation.
+    pub message: String,
+    /// Source identifier reported by the frontend.
+    pub source: Option<String>,
+    /// Exact downstream coordinates, when reported.
+    pub generated_range: Option<DiagnosticGeneratedRange>,
+    /// Supplemental detail in producer order.
+    pub notes: Vec<String>,
+}
+
+impl std::fmt::Display for UnlocatedDiagnostic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.severity == DiagnosticSeverity::Warning {
+            formatter.write_str("warning: ")?;
+        }
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+/// Independently translated native diagnostics.
+/// Located envelopes must sort by code and authored range and deduplicate by full envelope equality.
+/// Unlocated diagnostics must retain producer order.
+/// The CLI must render them alongside envelopes as `krs: <code>: <message>` lines, with `warning:` for warnings.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticReports {
+    /// Diagnostics with exact authored coordinates.
+    pub envelopes: Vec<DiagnosticEnvelope>,
+    /// Diagnostics that must remain available to prose renderers.
+    pub unlocated: Vec<UnlocatedDiagnostic>,
+}
+
+impl DiagnosticReports {
+    pub(crate) fn native(source_map: &SourceMap, diagnostics: &[FrontendDiagnostic]) -> Self {
+        let mut reports = Self::default();
+        for diagnostic in diagnostics {
+            if let Some(envelope) = translate_native_diagnostic(source_map, diagnostic) {
+                reports.envelopes.push(envelope);
+            } else {
+                let model = diagnostic.to_diagnostic();
+                let generated_range =
+                    model
+                        .secondary
+                        .iter()
+                        .find_map(|label| match &label.location {
+                            krs_diagnostic::Location::Generated(range) => Some(range.clone()),
+                            _ => None,
+                        });
+                reports.unlocated.push(UnlocatedDiagnostic {
+                    code: model.code.to_string(),
+                    severity: match model.severity {
+                        krs_diagnostic::Severity::Error => DiagnosticSeverity::Error,
+                        krs_diagnostic::Severity::Warning => DiagnosticSeverity::Warning,
+                    },
+                    message: model.message,
+                    source: diagnostic.source.clone(),
+                    generated_range,
+                    notes: model.notes,
+                });
+            }
+        }
+        reports.envelopes.sort_by(|left, right| {
+            (&left.code, &left.authored_range).cmp(&(&right.code, &right.authored_range))
         });
-    Some(DiagnosticEnvelope {
-        schema_version: DIAGNOSTIC_SCHEMA_VERSION,
-        stage: DiagnosticStage::Native,
-        code: diagnostic.code.clone(),
-        severity: match diagnostic.severity {
-            NativeSeverity::Error => DiagnosticSeverity::Error,
-            NativeSeverity::Warning => DiagnosticSeverity::Warning,
-        },
-        message: diagnostic.message.clone(),
-        authored_range,
-        generated_range,
-        notes: Vec::new(),
-    })
+        reports.envelopes.dedup();
+        reports
+    }
 }
 
 /// Translate a generated-K frontend range through a unique `sources.json`
@@ -105,8 +156,9 @@ pub fn translate_k_frontend_diagnostic(
 mod tests {
     use super::*;
     use krs_diagnostic::{Location, Severity};
-    use krs_ir::SourceRange;
     use krs_ir::{OriginStack, PackageId, Sha256Digest, SourceFileId};
+    use krs_ir::{SourceMapKey, SourceRange};
+    use krs_k_rust::DiagnosticSeverity as NativeSeverity;
 
     fn range() -> SourceRange {
         let package = PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap();
@@ -117,6 +169,18 @@ mod tests {
         )
         .unwrap();
         SourceRange::new(file, 7, 16).unwrap()
+    }
+
+    fn source_map(key: &SourceMapKey) -> SourceMap {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 2,
+            "entries": [{
+                "key": key.as_str(),
+                "node_kind": "module",
+                "origin": OriginStack::authored(range()),
+            }],
+        }))
+        .unwrap()
     }
 
     #[test]
@@ -142,15 +206,7 @@ mod tests {
     #[test]
     fn definition_locations_require_an_exact_source_map_entry() {
         let key = SourceMapKey::new("diag.module").unwrap();
-        let source_map = serde_json::from_value::<SourceMap>(serde_json::json!({
-            "schema_version": 2,
-            "entries": [{
-                "key": key.as_str(),
-                "node_kind": "module",
-                "origin": OriginStack::authored(range()),
-            }],
-        }))
-        .unwrap();
+        let source_map = source_map(&key);
         let diagnostic = Diagnostic::error(
             krs_diagnostic::codes::analysis::NAME_COLLISION,
             "collision",
@@ -193,29 +249,95 @@ mod tests {
     #[test]
     fn exact_mapping_never_fabricates_a_native_range() {
         let key = SourceMapKey::new("diag.module").unwrap();
-        let origin = OriginStack::authored(range());
-        let source_map = serde_json::from_value::<SourceMap>(serde_json::json!({
-            "schema_version": 2,
-            "entries": [{
-                "key": key.as_str(),
-                "node_kind": "module",
-                "origin": origin,
-            }],
-        }))
-        .unwrap();
+        let source_map = source_map(&key);
         assert_eq!(source_map.exact_authored_range(&key), Some(range()));
 
         let diagnostic = FrontendDiagnostic {
             severity: NativeSeverity::Error,
-            code: "UnsupportedThing".to_owned(),
+            code: krs_diagnostic::Code::foreign("UnsupportedThing"),
+            source_map_key: Some(key.clone()),
             message: "unsupported".to_owned(),
             source: None,
             location: None,
             input_addresses: Vec::new(),
         };
-        let translated = translate_native_diagnostic(&source_map, &key, &diagnostic)
-            .expect("exact authored mapping");
+        let translated =
+            translate_native_diagnostic(&source_map, &diagnostic).expect("exact authored mapping");
         assert_eq!(translated.authored_range, range());
         assert_eq!(translated.generated_range, None);
+    }
+
+    #[test]
+    fn native_reports_keep_located_and_unlocated_diagnostics_independently() {
+        let key = SourceMapKey::new("diag.module").unwrap();
+        let source_map = source_map(&key);
+        let generated = krs_k_rust::SourceLocation {
+            start_line: 1,
+            start_column: 2,
+            end_line: 3,
+            end_column: 4,
+        };
+        let located = FrontendDiagnostic {
+            severity: NativeSeverity::Error,
+            code: krs_diagnostic::Code::foreign("UndefinedKLabel"),
+            message: "undefined label".to_owned(),
+            source_map_key: Some(key),
+            source: Some("native-definition".to_owned()),
+            location: Some(generated),
+            input_addresses: Vec::new(),
+        };
+        let mut unlocated = located.clone();
+        unlocated.source_map_key = Some(SourceMapKey::new("missing.key").unwrap());
+        unlocated.code = krs_diagnostic::Code::foreign("InvalidAttribute");
+        unlocated.message = "unlocated attribute".to_owned();
+        let reports =
+            DiagnosticReports::native(&source_map, &[located.clone(), unlocated, located]);
+        assert_eq!(reports.envelopes.len(), 1);
+        assert_eq!(reports.envelopes[0].authored_range, range());
+        assert_eq!(
+            reports.envelopes[0]
+                .generated_range
+                .as_ref()
+                .unwrap()
+                .end_column,
+            4
+        );
+        assert_eq!(reports.unlocated.len(), 1);
+        assert_eq!(
+            reports.unlocated[0].to_string(),
+            "InvalidAttribute: unlocated attribute"
+        );
+        assert_eq!(
+            reports.unlocated[0].generated_range,
+            reports.envelopes[0].generated_range
+        );
+    }
+
+    #[test]
+    fn success_warnings_survive_translation_and_cache_serialization() {
+        let key = SourceMapKey::new("diag.module").unwrap();
+        let source_map = source_map(&key);
+        let located = FrontendDiagnostic {
+            severity: NativeSeverity::Warning,
+            code: krs_diagnostic::Code::foreign("UnusedVariable"),
+            message: "unused variable".to_owned(),
+            source_map_key: Some(key),
+            source: None,
+            location: None,
+            input_addresses: Vec::new(),
+        };
+        let mut unlocated = located.clone();
+        unlocated.source_map_key = None;
+        let reports = DiagnosticReports::native(&source_map, &[located, unlocated]);
+        assert_eq!(reports.envelopes[0].severity, DiagnosticSeverity::Warning);
+        assert_eq!(
+            reports.unlocated[0].to_string(),
+            "warning: UnusedVariable: unused variable"
+        );
+        let cached = serde_json::to_vec(&reports).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<DiagnosticReports>(&cached).unwrap(),
+            reports
+        );
     }
 }

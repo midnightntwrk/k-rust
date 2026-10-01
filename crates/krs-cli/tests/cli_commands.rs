@@ -505,6 +505,68 @@ fn assert_success(output: &Output) {
 }
 
 #[test]
+fn successful_build_forwards_native_warnings_and_replays_them_from_cache() {
+    let temporary = temp_dir();
+    let source = format!(
+        r##"{FOO_BAR}
+#[krs::function(
+    total,
+    sort = krs::builtin::Bytes,
+    syntax = "#sha256({{value}})",
+    hook = krypto::sha256_raw,
+)]
+pub struct Sha256Digest {{
+    pub value: krs::Term<krs::builtin::Bytes>,
+}}
+"##
+    );
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let target = fixture_target(&manifest, Some(temporary.path()));
+    let native = temporary.path().join("native");
+    let timings = temporary.path().join("timings.json");
+    let run = || {
+        command(
+            &target,
+            &manifest,
+            "build",
+            Some(&native),
+            &["--backend", "llvm", "--timings", timings.to_str().unwrap()],
+        )
+    };
+    let first = run();
+    assert_success(&first);
+    assert_eq!(
+        first.stdout,
+        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+    );
+    let stderr = String::from_utf8(first.stderr.clone()).unwrap();
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    assert_eq!(diagnostics[0].code, "UnadmittedHookNamespace");
+    assert_eq!(
+        diagnostics[0].severity,
+        krs_cli::DiagnosticSeverity::Warning
+    );
+    assert_eq!(
+        diagnostics[0].message,
+        "hook namespace `KRYPTO` of `hook(KRYPTO.sha256raw)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
+    );
+    assert_eq!(
+        diagnostics[0].authored_range.file.package_relative_path(),
+        "src/lib.rs"
+    );
+    let cached = run();
+    assert_success(&cached);
+    assert_eq!(cached.stdout, first.stdout);
+    assert_eq!(cached.stderr, first.stderr);
+    assert!(
+        span_ids(&read_json(&timings))
+            .iter()
+            .any(|(id, _)| id == "result.reuse")
+    );
+}
+
+#[test]
 fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
     let temporary = temp_dir();
     let manifest = materialize_fixture(temporary.path(), NESTED_FUNCTION_PATTERN);

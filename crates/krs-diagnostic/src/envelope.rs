@@ -136,6 +136,12 @@ pub fn diagnostic_envelope(
     stage: DiagnosticStage,
     resolve: impl FnOnce(&SourceMapKey) -> Option<SourceRange>,
 ) -> Option<DiagnosticEnvelope> {
+    let generated_range = std::iter::once(&diagnostic.primary)
+        .chain(&diagnostic.secondary)
+        .find_map(|label| match &label.location {
+            Location::Generated(range) => Some(range.clone()),
+            _ => None,
+        });
     let authored_range = match diagnostic.primary.location {
         Location::Source(range) => range,
         Location::Definition(key) => resolve(&key)?,
@@ -151,7 +157,7 @@ pub fn diagnostic_envelope(
         },
         message: diagnostic.message,
         authored_range,
-        generated_range: None,
+        generated_range,
         notes: diagnostic.notes,
     })
 }

@@ -14,7 +14,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const SCHEMA: u32 = 4;
+const SCHEMA: u32 = 5;
 
 #[derive(Serialize)]
 struct CacheRequest<'a> {
@@ -41,6 +41,7 @@ struct Image {
     read_set: CollectorReadSet,
     counters_recorded: bool,
     counters: BTreeMap<String, u64>,
+    warnings: crate::DiagnosticReports,
     stdout_len: usize,
     stdout_sha256: String,
     files: Vec<FileEntry>,
@@ -138,6 +139,7 @@ impl ResultCache {
         }
         Ok(Some(CommandOutcome {
             stdout: stdout.to_vec(),
+            warnings: image.warnings,
         }))
     }
 
@@ -180,6 +182,7 @@ impl ResultCache {
             read_set: read_set.clone(),
             counters_recorded: counters.is_enabled(),
             counters: counters.values().clone(),
+            warnings: outcome.warnings.clone(),
             stdout_len: outcome.stdout.len(),
             stdout_sha256: sha256(&outcome.stdout),
             files,

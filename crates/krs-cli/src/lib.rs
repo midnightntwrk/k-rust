@@ -20,9 +20,9 @@ pub use command::{
     execute_command_measured,
 };
 pub use diagnostic::{
-    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity,
-    DiagnosticStage, diagnostic_envelope, translate_k_frontend_diagnostic,
-    translate_native_diagnostic,
+    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticReports,
+    DiagnosticSeverity, DiagnosticStage, UnlocatedDiagnostic, diagnostic_envelope,
+    translate_k_frontend_diagnostic, translate_native_diagnostic,
 };
 pub use format::{FormatInput, discover_format_inputs};
 pub use generate::{GeneratedCollector, GenerationError};
