@@ -36,6 +36,9 @@
 //! differ), `Distinct` (two ground terms that denote distinct values) and [`RigidCycle`] (a
 //! variable occurring in a term through free constructors and injections only).
 
+#[cfg(feature = "check-normal-forms")]
+pub(crate) mod check;
+
 use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
     definition::{BackendDefinition, SelectionComplete},

@@ -1027,12 +1027,20 @@ impl Term {
     ///
     /// The structural conditions (the term is a ground application of an equation head or an
     /// overloaded symbol whose arguments carry the bit) are the caller's
-    /// (`simplify::cacheable_equation_head`) and are checked here in debug builds.
+    /// (`simplify::cacheable_equation_head`) and are checked here in debug builds. Under
+    /// `check-normal-forms` the term is checked against every term equation of the definition
+    /// (`term::head::check`), which panics when one surely matches it at its root.
     pub(crate) fn with_evaluated_cache(
         &self,
         definition: &crate::definition::BackendDefinition,
         _certificate: head::NormalFormCertificate,
     ) -> Self {
+        #[cfg(feature = "check-normal-forms")]
+        head::check::assert_no_equation_matches(
+            definition,
+            self,
+            head::check::Claim::EvaluatedMark,
+        );
         debug_assert!(
             self.attributes().variables.is_empty(),
             "the evaluated mark is certified only on a ground term"

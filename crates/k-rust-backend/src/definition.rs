@@ -384,6 +384,10 @@ pub struct BackendDefinition {
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
     /// [`Self::equation_selection_complete`].
     term_equation_in_predicate_theory: bool,
+    /// Every term equation's left-hand side by root symbol, for the normal-form checker; built
+    /// on first use by `normal_form_catalog`.
+    #[cfg(feature = "check-normal-forms")]
+    normal_form_catalog: OnceLock<crate::term::head::check::Catalog>,
 }
 
 /// Minted only by `BackendDefinition::equation_selection_complete`: equation selection reaches
@@ -930,6 +934,8 @@ impl BackendDefinition {
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             term_equation_in_predicate_theory: false,
+            #[cfg(feature = "check-normal-forms")]
+            normal_form_catalog: OnceLock::new(),
         };
         let rules = result
             .classified_axioms
@@ -1044,6 +1050,15 @@ impl BackendDefinition {
             && !self.function_theory.contains_key(&TermIndex::And)
             && !self.simplification_theory.contains_key(&TermIndex::And))
         .then_some(SelectionComplete(()))
+    }
+
+    /// The term equations the normal-form checker tries (`term::head::check`), catalogued at most
+    /// once per definition. The theories it reads are fixed by `internalize`, so the catalog
+    /// cannot go stale.
+    #[cfg(feature = "check-normal-forms")]
+    pub(crate) fn normal_form_catalog(&self) -> &crate::term::head::check::Catalog {
+        self.normal_form_catalog
+            .get_or_init(|| crate::term::head::check::Catalog::of(self))
     }
 
     /// The may-contain-`KVar` sort fact, a least fixpoint computed at most once per definition.

@@ -265,7 +265,9 @@ impl<'t> NoEquationReaches<'t> {
     /// `term_index(subject)` and by `TermIndex::Variable`, and returns `Some` only when
     /// `excluded` holds for every one of them (their left-hand side cannot match an instance of
     /// `subject`). `selection` makes those candidates every term equation of the definition that
-    /// could match an application.
+    /// could match an application. Under `check-normal-forms`, a `Some` answer is first checked
+    /// against every term equation of the definition (`term::head::check`), which panics when one
+    /// surely matches `subject` at its root.
     #[must_use]
     fn scan(
         _selection: SelectionComplete,
@@ -274,7 +276,7 @@ impl<'t> NoEquationReaches<'t> {
         mut excluded: impl FnMut(&RewriteRule) -> bool,
     ) -> Option<Self> {
         let indices = [term_index(subject), TermIndex::Variable];
-        [
+        let none_reaches = [
             definition.function_theory(),
             definition.simplification_theory(),
         ]
@@ -285,7 +287,15 @@ impl<'t> NoEquationReaches<'t> {
                     .get(index)
                     .is_none_or(|groups| groups.values().flatten().all(|rule| excluded(rule)))
             })
-        })
-        .then_some(Self { subject })
+        });
+        #[cfg(feature = "check-normal-forms")]
+        if none_reaches {
+            crate::term::head::check::assert_no_equation_matches(
+                definition,
+                subject,
+                crate::term::head::check::Claim::InstanceNormal,
+            );
+        }
+        none_reaches.then_some(Self { subject })
     }
 }

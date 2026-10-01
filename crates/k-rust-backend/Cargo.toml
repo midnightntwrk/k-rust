@@ -31,14 +31,18 @@ stacker.workspace = true
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
-# Test builds count work through `k_rust_kore::measure`; `cargo build` stays feature-off.
-k-rust-backend = { path = ".", features = ["measure"] }
+# Test builds count work through `k_rust_kore::measure` and check every normal-form claim
+# (`check-normal-forms`); `cargo build` stays feature-off.
+k-rust-backend = { path = ".", features = ["measure", "check-normal-forms"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 lean-conformance.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 
 [features]
+# Panic when a term marked evaluated or minted instance-normal is matched at its root by some
+# term equation of the definition (`term::head::check`). For tests; off in every normal build.
+check-normal-forms = []
 measure = ["k-rust-kore/measure"]
 z3 = ["dep:z3"]
 z3-gh-release = ["z3", "z3/gh-release"]
