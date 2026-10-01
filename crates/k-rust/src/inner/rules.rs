@@ -793,6 +793,9 @@ fn rule_grammar(
         grammar.admit_rewrites_in_argument_positions(&rule_sorts, &scaffolding);
     }
 
+    // The generated productions are complete; check their sorts against their roles (G1-G3).
+    #[cfg(debug_assertions)]
+    grammar.assert_generated_sort_roles(&universe);
     Ok(grammar)
 }
 

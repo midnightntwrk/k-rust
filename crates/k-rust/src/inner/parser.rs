@@ -93,6 +93,8 @@ mod parametric;
 mod prediction;
 mod record;
 mod scanner;
+#[cfg(debug_assertions)]
+mod sort_check;
 #[cfg(feature = "z3-inference")]
 mod z3_inference;
 

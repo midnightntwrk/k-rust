@@ -301,6 +301,9 @@ fn configuration_grammar(
     }
     add_synonym_casts(&mut grammar, &universe, &CONFIGURATION_GRAMMAR)?;
 
+    // The generated productions are complete; check their sorts against their roles (G1-G3).
+    #[cfg(debug_assertions)]
+    grammar.assert_generated_sort_roles(&universe);
     Ok(grammar)
 }
 

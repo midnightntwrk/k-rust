@@ -103,14 +103,9 @@ impl SortUniverse {
     }
 
     /// Whether `sort` is a member or the alias of a synonym whose target is a sort of the grammar:
-    /// a sort a generated production may mention.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "read by the grammar sort-role checker (CBC-05-T7)"
-        )
-    )]
+    /// a sort a generated production may mention. Read by the grammar sort-role check, which
+    /// exists in builds with debug assertions.
+    #[cfg(debug_assertions)]
     pub(in crate::inner) fn admits(&self, sort: &Sort) -> bool {
         self.members.contains_key(sort) || self.synonyms.iter().any(|(alias, _)| alias == sort)
     }
