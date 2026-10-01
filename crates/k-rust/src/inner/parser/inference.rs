@@ -449,6 +449,8 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        #[cfg(all(test, feature = "z3-inference"))]
+        super::z3_inference::record_inference_problem(self, &term, top_sort, explicitly_anywhere);
         if !self.sort_inference_supported(&term) {
             #[cfg(feature = "z3-inference")]
             return self.infer_sorts_z3(term, top_sort, explicitly_anywhere);

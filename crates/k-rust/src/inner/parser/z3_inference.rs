@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::packed_term_constraint", "Encoding::less_than_eq", "Encoding::solver_for", "Encoding::domain_solver", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -58,14 +58,14 @@
 //! typing. The grammar's syntactic relation, which also holds such productions, belongs to
 //! bracket and priority filtering and is not encoded.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 use z3::ast::{Ast, Bool, Datatype};
-use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
+use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult};
 
 use crate::definition::{PartialOrder, SortHead};
 use crate::kast::{
@@ -78,10 +78,15 @@ use super::{
     cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
 
-/// Every check-sat call of sort inference goes through here so `parser.z3_checks` counts them.
-fn check(solver: &Solver) -> SatResult {
-    measure::bump(Counter::ParserZ3Checks);
-    solver.check()
+use domain::{DomainSolver, check};
+
+/// What an inference unknown stands for (`Encoding::unknown`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UnknownKind {
+    /// The sort of a variable of the sentence.
+    Variable,
+    /// A formal sort parameter of one occurrence of a parametric production.
+    Parameter,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -162,8 +167,15 @@ struct TermSorts {
 struct Encoding<'a> {
     grammar: &'a Grammar,
     base: Rc<EncodingBase>,
+    /// Every inference unknown, variables and sort parameters alike, by key; created only by
+    /// `Encoding::unknown`.
     variables: BTreeMap<String, Datatype>,
+    /// The keys of `variables` that are sort parameters.
     parameters: BTreeSet<String>,
+    /// Whether `Encoding::solver_for` or `Encoding::domain_solver` has issued a solver. A
+    /// solver asserts the domain of the unknowns that exist when it is issued, so no unknown
+    /// may be created after that (`Encoding::unknown`).
+    domain_issued: Cell<bool>,
     /// Soft per-ambiguity preferences for the overload-minimal function-LHS branches.
     packed_overload_preferences: Vec<Bool>,
     /// The node constraints of the term constraint and the nodes that use each of them.
@@ -193,6 +205,133 @@ impl Deref for Encoding<'_> {
     }
 }
 
+/// The solvers of sort inference. `DomainSolver`'s field is private to this module, so the two
+/// constructors here are the only way to obtain one, and every encoder method that checks or
+/// reads a solver takes a `&DomainSolver`: no query of an encoding runs on a solver that lacks
+/// the domain of its unknowns.
+mod domain {
+    use std::borrow::Borrow;
+    use std::collections::BTreeMap;
+
+    use k_rust_kore::measure::{self, Counter};
+    use z3::ast::Bool;
+    use z3::{Model, SatResult, Solver};
+
+    use super::{Encoding, ParseError};
+    use crate::kast::Sort;
+
+    /// A Z3 solver on which the domain of every unknown of one encoding is asserted: each
+    /// unknown ranges over the values with a parametric head or a nullary head whose role is in
+    /// the inference domain (`SortRole::in_inference_domain`), and each sort parameter
+    /// additionally over nullary heads whose role is in the parameter domain
+    /// (`SortRole::in_parameter_domain`).
+    ///
+    /// The sort datatype also carries the grammar's other sorts (`KList`, `KBott`, the
+    /// `#`-prefixed scaffolding sorts), because the production constraints need them as ground
+    /// values; nothing in the term constraint stops an unknown from taking one of them, so the
+    /// domain is asserted separately and every query must run where it holds.
+    /// The domain assertions sit at the solver's base scope, below every `push`, so no `pop`
+    /// removes them; the wrapper exposes no `reset`.
+    pub(super) struct DomainSolver(Solver);
+
+    /// Every check-sat call of sort inference goes through here so `parser.z3_checks` counts them.
+    pub(super) fn check(solver: &DomainSolver) -> SatResult {
+        measure::bump(Counter::ParserZ3Checks);
+        solver.0.check()
+    }
+
+    impl DomainSolver {
+        pub(super) fn push(&self) {
+            self.0.push();
+        }
+
+        pub(super) fn pop(&self, scopes: u32) {
+            self.0.pop(scopes);
+        }
+
+        pub(super) fn assert(&self, constraint: impl Borrow<Bool>) {
+            self.0.assert(constraint);
+        }
+
+        pub(super) fn get_model(&self) -> Option<Model> {
+            self.0.get_model()
+        }
+
+        pub(super) fn get_reason_unknown(&self) -> Option<String> {
+            self.0.get_reason_unknown()
+        }
+
+        #[cfg(test)]
+        pub(super) fn set_params(&self, params: &z3::Params) {
+            self.0.set_params(params);
+        }
+    }
+
+    impl Encoding<'_> {
+        /// A solver with `constraint` asserted, then the domain of every unknown. It takes the
+        /// finished constraint because building the constraint is what creates the unknowns.
+        pub(super) fn solver_for(&self, constraint: &Bool) -> Result<DomainSolver, ParseError> {
+            self.issue(Some(constraint))
+        }
+
+        /// A solver with only the domain of every unknown asserted, for the replay of the unsat
+        /// explanation, which asserts the recorded constraints one at a time.
+        pub(super) fn domain_solver(&self) -> Result<DomainSolver, ParseError> {
+            self.issue(None)
+        }
+
+        fn issue(&self, constraint: Option<&Bool>) -> Result<DomainSolver, ParseError> {
+            let solver = Solver::new();
+            if let Some(constraint) = constraint {
+                solver.assert(constraint);
+            }
+            // A nullary head in the inference domain but outside the parameter domain (`KLabel`,
+            // the sort of label variables) is excluded from the sort parameters, which range
+            // over sorts of terms and widths.
+            for head in &self.heads {
+                let role = Sort::new(head.as_str()).role();
+                if head.parameters() != 0
+                    || !role.in_inference_domain()
+                    || role.in_parameter_domain()
+                {
+                    continue;
+                }
+                let excluded = self.sort_value(&Sort::new(head.as_str()), &BTreeMap::new())?;
+                for parameter in &self.parameters {
+                    let value = self
+                        .variables
+                        .get(parameter)
+                        .expect("parameters are also inference variables");
+                    solver.assert(value.ne(&excluded));
+                }
+            }
+            // A nullary head outside the inference domain is excluded from every unknown,
+            // variables and sort parameters alike.
+            let outside = self
+                .heads
+                .iter()
+                .enumerate()
+                .filter(|(_, head)| {
+                    head.parameters() == 0 && !Sort::new(head.as_str()).role().in_inference_domain()
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            for value in self.variables.values() {
+                for index in &outside {
+                    let is_outside = self.datatype.variants[*index]
+                        .tester
+                        .apply(&[value])
+                        .as_bool()
+                        .expect("a datatype tester returns a Bool");
+                    solver.assert(is_outside.not());
+                }
+            }
+            self.domain_issued.set(true);
+            Ok(DomainSolver(solver))
+        }
+    }
+}
+
 type EncodingBaseKey = (u64, Sort);
 type EncodingBaseCache = Vec<(EncodingBaseKey, Rc<EncodingBase>)>;
 
@@ -205,11 +344,43 @@ thread_local! {
     /// Test switch: `less_than_eq` writes every order constraint over the whole relation.
     #[cfg(test)]
     static FORCE_FULL_DISJUNCTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Test recorder: when `Some`, `record_inference_problem` appends each problem
+    /// `Grammar::infer_sorts` is given.
+    #[cfg(test)]
+    static INFERENCE_PROBLEMS: RefCell<Option<Vec<InferenceProblem>>> = const {
+        RefCell::new(None)
+    };
     /// Test recorder: when `Some`, `less_than_eq` appends each call and the formula it built.
     #[cfg(test)]
     static ORDER_CONSTRAINTS: RefCell<Option<Vec<OrderConstraintCall>>> = const {
         RefCell::new(None)
     };
+}
+
+/// One `Grammar::infer_sorts` call, as `INFERENCE_PROBLEMS` records it: the grammar, the term,
+/// the top sort and whether the sentence is explicitly an anywhere rule.
+#[cfg(test)]
+type InferenceProblem = (Grammar, ParsedTerm, Sort, bool);
+
+/// Append the problem of one `Grammar::infer_sorts` call to `INFERENCE_PROBLEMS` when a test
+/// records them.
+#[cfg(test)]
+pub(super) fn record_inference_problem(
+    grammar: &Grammar,
+    term: &ParsedTerm,
+    top_sort: &Sort,
+    explicitly_anywhere: bool,
+) {
+    INFERENCE_PROBLEMS.with(|problems| {
+        if let Some(problems) = problems.borrow_mut().as_mut() {
+            problems.push((
+                grammar.clone(),
+                term.clone(),
+                top_sort.clone(),
+                explicitly_anywhere,
+            ));
+        }
+    });
 }
 
 /// One `less_than_eq` call, as `ORDER_CONSTRAINTS` records it.
@@ -499,9 +670,9 @@ impl Grammar {
         let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
         let mut encoding =
             Encoding::for_packed_inference(self, &term, top_sort, explicitly_anywhere)?;
-        let solver = Solver::new();
-        let (expected, root_context) =
-            encoding.assert_packed_hard_constraints(&term, top_sort, &solver)?;
+        let (constraint, expected, root_context) =
+            encoding.packed_term_constraint(&term, top_sort)?;
+        let solver = encoding.solver_for(&constraint)?;
         let seed = encoding.seed_model(&solver)?;
         match check(&solver) {
             SatResult::Unsat => {
@@ -699,26 +870,13 @@ impl Grammar {
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
-        let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
-        let mut encoding = Encoding::new(self, &term, top_sort, anywhere)?;
-        encoding.top_rewrite_paths = top_rewrite_paths(self, &term);
-        let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
-        let root_context = if !top_sort.in_inference_domain() {
-            CastContext::Parser
-        } else {
-            CastContext::None
-        };
-        let (constraint, root) =
-            encoding.constraint_node(&term, &expected, root_context, "root")?;
-        encoding.reading_indicators = encoding.liveness.indicators(root);
+        let mut encoding = Encoding::for_inference(self, &term, top_sort, explicitly_anywhere)?;
+        let (constraint, expected, root_context) = encoding.term_constraint(&term, top_sort)?;
         if encoding.variables.is_empty() && !encoding.ill_sorted_ground {
             return Ok(term);
         }
 
-        let solver = Solver::new();
-        solver.assert(&constraint);
-        encoding.exclude_klabel_parameters(&solver)?;
-        encoding.restrict_to_real_sorts(&solver);
+        let solver = encoding.solver_for(&constraint)?;
         let seed = encoding.seed_model(&solver)?;
         match check(&solver) {
             SatResult::Unsat => {
@@ -1064,16 +1222,46 @@ impl<'a> Encoding<'a> {
         Ok(encoding)
     }
 
-    /// Assert the hard constraints of a packed inference on `solver`: the term constraint at
-    /// `top_sort`, the `KLabel` exclusion and the real-sort restriction. Returns the top sort's
-    /// value and the root cast context, which model application and the unsat explanation
-    /// reuse.
-    fn assert_packed_hard_constraints(
+    /// The encoding of one `Grammar::infer_sorts_z3` problem, before any constraint.
+    fn for_inference(
+        grammar: &'a Grammar,
+        term: &ParsedTerm,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+    ) -> Result<Self, ParseError> {
+        let anywhere = explicitly_anywhere || grammar.lhs_is_function_or_macro(term);
+        let mut encoding = Self::new(grammar, term, top_sort, anywhere)?;
+        encoding.top_rewrite_paths = top_rewrite_paths(grammar, term);
+        Ok(encoding)
+    }
+
+    /// The term constraint of an unpacked inference at `top_sort`, which creates every unknown
+    /// of the encoding; the unpacked twin of `Encoding::packed_term_constraint`.
+    fn term_constraint(
+        &mut self,
+        term: &ParsedTerm,
+        top_sort: &Sort,
+    ) -> Result<(Bool, Datatype, CastContext), ParseError> {
+        let expected = self.sort_value(top_sort, &BTreeMap::new())?;
+        let root_context = if !top_sort.in_inference_domain() {
+            CastContext::Parser
+        } else {
+            CastContext::None
+        };
+        let (constraint, root) = self.constraint_node(term, &expected, root_context, "root")?;
+        self.reading_indicators = self.liveness.indicators(root);
+        Ok((constraint, expected, root_context))
+    }
+
+    /// The term constraint of a packed inference at `top_sort`, which creates every unknown of
+    /// the encoding; `Encoding::solver_for` then adds the domain of each unknown. Returns the
+    /// constraint, the top sort's value and the root cast context, which model application and
+    /// the unsat explanation reuse.
+    fn packed_term_constraint(
         &mut self,
         term: &Rc<PackedTerm>,
         top_sort: &Sort,
-        solver: &Solver,
-    ) -> Result<(Datatype, CastContext), ParseError> {
+    ) -> Result<(Bool, Datatype, CastContext), ParseError> {
         let expected = self.sort_value(top_sort, &BTreeMap::new())?;
         let root_context = if !top_sort.in_inference_domain() {
             CastContext::Parser
@@ -1083,10 +1271,7 @@ impl<'a> Encoding<'a> {
         let (constraint, root) =
             self.constraint_packed_node(term, &expected, root_context, &mut HashMap::new())?;
         self.reading_indicators = self.liveness.indicators(root);
-        solver.assert(&constraint);
-        self.exclude_klabel_parameters(solver)?;
-        self.restrict_to_real_sorts(solver);
-        Ok((expected, root_context))
+        Ok((constraint, expected, root_context))
     }
 
     fn new_with_term_sorts(
@@ -1100,6 +1285,7 @@ impl<'a> Encoding<'a> {
             base: encoding_base(grammar, top_sort, term_sorts)?,
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
+            domain_issued: Cell::new(false),
             packed_overload_preferences: Vec::new(),
             liveness: LivenessGraph::default(),
             reading_indicators: Vec::new(),
@@ -1523,12 +1709,7 @@ impl<'a> Encoding<'a> {
                     self.packed_id(identity),
                     index,
                 );
-                let value = self
-                    .variables
-                    .entry(name.clone())
-                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
-                    .clone();
-                self.parameters.insert(name);
+                let value = self.unknown(name, UnknownKind::Parameter);
                 (parameter.clone(), value)
             })
             .collect()
@@ -1541,10 +1722,7 @@ impl<'a> Encoding<'a> {
         identity: *const PackedTerm,
     ) -> Datatype {
         let key = packed_inference_variable_key(term, name, self.packed_id(identity));
-        self.variables
-            .entry(key.clone())
-            .or_insert_with(|| Datatype::new_const(key, &self.base.datatype.sort))
-            .clone()
+        self.unknown(key, UnknownKind::Variable)
     }
 
     fn packed_id(&self, identity: *const PackedTerm) -> usize {
@@ -1596,12 +1774,7 @@ impl<'a> Encoding<'a> {
             .enumerate()
             .map(|(index, parameter)| {
                 let name = inference_parameter_key(production_index, metadata, path, index);
-                let value = self
-                    .variables
-                    .entry(name.clone())
-                    .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
-                    .clone();
-                self.parameters.insert(name);
+                let value = self.unknown(name, UnknownKind::Parameter);
                 (parameter.clone(), value)
             })
             .collect()
@@ -1609,10 +1782,29 @@ impl<'a> Encoding<'a> {
 
     fn term_variable(&mut self, term: &Term, name: &str, path: &str) -> Datatype {
         let key = inference_variable_key(term, name, path);
-        self.variables
-            .entry(key.clone())
-            .or_insert_with(|| Datatype::new_const(key, &self.base.datatype.sort))
-            .clone()
+        self.unknown(key, UnknownKind::Variable)
+    }
+
+    /// The inference unknown `key`, created on first use and recorded as a sort parameter when
+    /// `kind` says so. A solver asserts the domain of the unknowns that exist when it is issued,
+    /// so creating one afterwards would leave it unrestricted; looking up an existing key, as
+    /// the unsat explanation does when it walks the term again, is allowed.
+    fn unknown(&mut self, key: String, kind: UnknownKind) -> Datatype {
+        if kind == UnknownKind::Parameter {
+            self.parameters.insert(key.clone());
+        }
+        match self.variables.entry(key) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.get().clone(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                debug_assert!(
+                    !self.domain_issued.get(),
+                    "inference unknown {} created after a DomainSolver was issued",
+                    entry.key()
+                );
+                let constant = Datatype::new_const(entry.key().clone(), &self.base.datatype.sort);
+                entry.insert(constant).clone()
+            }
+        }
     }
 
     /// `TypeInferencer.isBadNatSort`: a numeric sort name the grammar never declared as a
@@ -1817,9 +2009,7 @@ impl<'a> Encoding<'a> {
     /// variable bounds first, and name the first one that is unsatisfiable together with the
     /// sorts of the last satisfiable model.
     fn replay_constraints(&self) -> Result<ParseError, ParseError> {
-        let solver = Solver::new();
-        self.exclude_klabel_parameters(&solver)?;
-        self.restrict_to_real_sorts(&solver);
+        let solver = self.domain_solver()?;
         let mut constraints = self.replay.iter().collect::<Vec<_>>();
         constraints.sort_by_key(|constraint| {
             !matches!(constraint.subject, ReplaySubject::Variable { .. })
@@ -1971,52 +2161,6 @@ impl<'a> Encoding<'a> {
         Ok(formula)
     }
 
-    /// `TypeInferencer` declares its Z3 `Sort` datatype from the module's sorts filtered by
-    /// `isRealSort` (TypeInferencer.java:118-130: parametric heads, and no parser sort except
-    /// `K`, `KItem`, `KLabel` and the Nat sorts), and every variable and sort parameter is a
-    /// constant of that datatype, so a scaffolding sort such as `KList` is never their value.
-    /// k-rust's datatype also carries the grammar's scaffolding sorts, which the production
-    /// constraints need as ground values, so the variables and parameters are restricted here.
-    fn restrict_to_real_sorts(&self, solver: &Solver) {
-        let unreal = self
-            .heads
-            .iter()
-            .enumerate()
-            .filter(|(_, head)| {
-                head.parameters() == 0 && !Sort::new(head.as_str()).in_inference_domain()
-            })
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        for value in self.variables.values() {
-            for index in &unreal {
-                let is_unreal = self.datatype.variants[*index]
-                    .tester
-                    .apply(&[value])
-                    .as_bool()
-                    .expect("a datatype tester returns a Bool");
-                solver.assert(is_unreal.not());
-            }
-        }
-    }
-
-    fn exclude_klabel_parameters(&self, solver: &Solver) -> Result<(), ParseError> {
-        if !self
-            .head_indexes
-            .contains_key(&SortHead::nullary(FrontendSort::KLabel.as_str()))
-        {
-            return Ok(());
-        }
-        let klabel = self.sort_value(&Sort::frontend(FrontendSort::KLabel), &BTreeMap::new())?;
-        for parameter in &self.parameters {
-            let value = self
-                .variables
-                .get(parameter)
-                .expect("parameters are also inference variables");
-            solver.assert(value.ne(&klabel));
-        }
-        Ok(())
-    }
-
     /// Seed maximal-model search with the reference's soft `K`/`KItem`/`Bag` preferences.
     ///
     /// The cardinality assertion is scoped to this first model. Maximal-model enumeration runs
@@ -2045,7 +2189,10 @@ impl<'a> Encoding<'a> {
         Ok(constraints)
     }
 
-    fn seed_model(&self, solver: &Solver) -> Result<Option<BTreeMap<String, Sort>>, ParseError> {
+    fn seed_model(
+        &self,
+        solver: &DomainSolver,
+    ) -> Result<Option<BTreeMap<String, Sort>>, ParseError> {
         let constraints = self.top_preferences(|_| true)?;
         if constraints.is_empty() {
             return Ok(None);
@@ -2074,7 +2221,11 @@ impl<'a> Encoding<'a> {
 
     /// Assert that the largest satisfiable number of `preferences` holds and return that count.
     /// The caller scopes the assertion with `push`/`pop`.
-    fn assert_preferred(&self, solver: &Solver, preferences: &[Bool]) -> Result<usize, ParseError> {
+    fn assert_preferred(
+        &self,
+        solver: &DomainSolver,
+        preferences: &[Bool],
+    ) -> Result<usize, ParseError> {
         if preferences.is_empty() {
             return Ok(0);
         }
@@ -2117,7 +2268,7 @@ impl<'a> Encoding<'a> {
     /// their parses (`prefer`/`avoid`, or an ambiguity).
     fn maximal_models(
         &self,
-        solver: &Solver,
+        solver: &DomainSolver,
         seed: Option<BTreeMap<String, Sort>>,
     ) -> Result<Vec<Vec<BTreeMap<String, Sort>>>, ParseError> {
         let real_variables = self
@@ -2279,7 +2430,7 @@ impl<'a> Encoding<'a> {
     /// instead of keeping a subset.
     fn admissible_parameters(
         &self,
-        solver: &Solver,
+        solver: &DomainSolver,
         chosen: &BTreeMap<String, Sort>,
     ) -> Result<Vec<BTreeMap<String, Sort>>, ParseError> {
         if self.parameters.is_empty() {
@@ -2351,7 +2502,11 @@ impl<'a> Encoding<'a> {
 
     /// The live set of `model` (which reading indicators hold), grown to a live set that no
     /// satisfying assignment of the current assertions strictly contains.
-    fn maximal_live_set(&self, solver: &Solver, model: &Model) -> Result<Vec<bool>, ParseError> {
+    fn maximal_live_set(
+        &self,
+        solver: &DomainSolver,
+        model: &Model,
+    ) -> Result<Vec<bool>, ParseError> {
         let evaluate = |model: &Model| {
             self.reading_indicators
                 .iter()
@@ -2410,7 +2565,7 @@ impl<'a> Encoding<'a> {
     /// excluding each one once found.
     fn enumerate_parameters(
         &self,
-        solver: &Solver,
+        solver: &DomainSolver,
         admissible: &mut Vec<BTreeMap<String, Sort>>,
     ) -> Result<(), ParseError> {
         // Invariant: every vector found in this call is in `admissible` and excluded on the
@@ -3521,6 +3676,7 @@ mod tests {
     use crate::definition::ProductionItem;
     use crate::kast::Label;
     use proptest::prelude::*;
+    use z3::Solver;
 
     mod lean_bridge;
 
@@ -3791,7 +3947,7 @@ mod tests {
         /// use, is reflexive and transitive on every value of the encoding datatype.
         /// Fresh constants range over every value a Z3 model can give a variable or a parameter,
         /// including values of the parametric heads and of the parser sorts that
-        /// `restrict_to_real_sorts` excludes, so Z3 must report an irreflexive or a
+        /// the domain of `Encoding::solver_for` excludes, so Z3 must report an irreflexive or a
         /// transitivity-breaking assignment unsatisfiable.
         #[test]
         fn subsort_order_is_a_preorder_on_model_values(
@@ -4169,7 +4325,8 @@ mod tests {
 
     /// The inference path of `Grammar::infer_packed_sorts_z3` up to `maximal_models`: the same
     /// encoding (`Encoding::for_packed_inference`), hard constraints
-    /// (`Encoding::assert_packed_hard_constraints`), seed and enumeration, with the
+    /// (`Encoding::packed_term_constraint` and `Encoding::solver_for`), seed and enumeration,
+    /// with the
     /// perturbation applied. Returns `None` when the hard constraints are unsatisfiable, and
     /// otherwise the recorded models projected onto the real variables, in recorded order.
     fn recorded_real_projections(
@@ -4218,13 +4375,13 @@ mod tests {
             let base = Rc::get_mut(&mut encoding.base).expect("an uncached base is not shared");
             base.semantic_relation = reversed(&base.semantic_relation);
         }
-        let solver = Solver::new();
+        let (constraint, ..) = encoding.packed_term_constraint(term, &problem.top_sort)?;
+        let solver = encoding.solver_for(&constraint)?;
         if let Some(seed) = perturbation.random_seed {
             let mut params = z3::Params::new();
             params.set_u32("random_seed", seed);
             solver.set_params(&params);
         }
-        encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
         let seed = encoding.seed_model(&solver)?;
         match check(&solver) {
             SatResult::Unsat => return Ok(None),
@@ -4340,8 +4497,8 @@ mod tests {
         let mut encoding = with_uncached_encoding_base(|| {
             Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
-        let solver = Solver::new();
-        encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
+        let (constraint, ..) = encoding.packed_term_constraint(term, &problem.top_sort)?;
+        let solver = encoding.solver_for(&constraint)?;
         let root = encoding.liveness.constraints.len() - 1;
         let trees = graph_trees(&encoding.liveness, root)
             .into_iter()
@@ -4389,7 +4546,7 @@ mod tests {
                     .expect("every pinned name is an inference variable");
                 solver.assert(variable.eq(&encoding.sort_value(sort, &BTreeMap::new())?));
             }
-            let status = solver.check();
+            let status = check(&solver);
             if status == SatResult::Sat {
                 let model = solver.get_model().expect("sat has a model");
                 let holds = |constraint: &Bool| {
@@ -4462,12 +4619,12 @@ mod tests {
         let mut encoding = with_uncached_encoding_base(|| {
             Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
-        let solver = Solver::new();
-        encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
+        let (constraint, ..) = encoding.packed_term_constraint(term, &problem.top_sort)?;
+        let solver = encoding.solver_for(&constraint)?;
 
         // No generated sort has a parametric head (the parametric production `q` has a formal
         // parameter, not a parametric sort), so every value a real variable can take under
-        // `restrict_to_real_sorts` is a nullary real sort of the datatype.
+        // `Encoding::solver_for` is a nullary real sort of the datatype.
         let domain = encoding
             .ground_sorts
             .iter()
@@ -4489,7 +4646,7 @@ mod tests {
                 solver
                     .assert(variable.eq(&encoding.sort_value(&domain[*index], &BTreeMap::new())?));
             }
-            let status = solver.check();
+            let status = check(&solver);
             solver.pop(1);
             match status {
                 SatResult::Sat => satisfiable.push(
@@ -4843,11 +5000,192 @@ mod tests {
         );
     }
 
+    /// The problem of `shared_parameter_keeps_both_incomparable_live_sets`: one variable `X`
+    /// and one formal parameter `Q`, both of which the term constraint creates.
+    fn variable_and_parameter_problem() -> ConformanceProblem {
+        conformance_problem(
+            3,
+            &[(0, 1)],
+            &[],
+            None,
+            &[(0, 0, 0), (0, 1, 0)],
+            &[(0, 0, 0), (1, 0, 0)],
+            None,
+            None,
+            Some(true),
+            &[],
+        )
+    }
+
+    /// An unknown created after a solver was issued would range over every value of the
+    /// datatype, so `Encoding::unknown` refuses to create one.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "created after a DomainSolver was issued")]
+    fn an_unknown_created_after_a_domain_solver_was_issued_panics() {
+        let problem = variable_and_parameter_problem();
+        let mut encoding = Encoding::for_packed_inference(
+            &problem.grammar,
+            &problem.term,
+            &problem.top_sort,
+            false,
+        )
+        .unwrap();
+        let (constraint, ..) = encoding
+            .packed_term_constraint(&problem.term, &problem.top_sort)
+            .unwrap();
+        let _solver = encoding.solver_for(&constraint).unwrap();
+        encoding.unknown("variable_Fresh".to_owned(), UnknownKind::Variable);
+    }
+
+    /// The unsat explanation walks the term again after the first solver was issued and then
+    /// issues the replay solver; the walk only looks up the unknowns the term constraint created,
+    /// for the packed and the unpacked encoding alike.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_unsat_explanation_walks_the_term_again_without_creating_an_unknown() {
+        let problem = variable_and_parameter_problem();
+        let mut packed = Encoding::for_packed_inference(
+            &problem.grammar,
+            &problem.term,
+            &problem.top_sort,
+            false,
+        )
+        .unwrap();
+        let (constraint, expected, root_context) = packed
+            .packed_term_constraint(&problem.term, &problem.top_sort)
+            .unwrap();
+        let _solver = packed.solver_for(&constraint).unwrap();
+        let unknowns = packed.variables.keys().cloned().collect::<Vec<_>>();
+        assert!(unknowns.contains(&"variable_X".to_owned()), "{unknowns:?}");
+        assert_eq!(packed.parameters.len(), 1, "{unknowns:?}");
+        packed.explain_unsat_packed(&problem.term, &expected, root_context);
+        assert_eq!(
+            packed.variables.keys().cloned().collect::<Vec<_>>(),
+            unknowns
+        );
+
+        let term = problem.term.unpack();
+        let mut unpacked =
+            Encoding::for_inference(&problem.grammar, &term, &problem.top_sort, false).unwrap();
+        let (constraint, expected, root_context) =
+            unpacked.term_constraint(&term, &problem.top_sort).unwrap();
+        let _solver = unpacked.solver_for(&constraint).unwrap();
+        let unknowns = unpacked.variables.keys().cloned().collect::<Vec<_>>();
+        assert!(!unpacked.parameters.is_empty(), "{unknowns:?}");
+        unpacked.explain_unsat(&term, &expected, root_context);
+        assert_eq!(
+            unpacked.variables.keys().cloned().collect::<Vec<_>>(),
+            unknowns
+        );
+    }
+
+    /// The key of the first leaf of `term` that is the variable `name`, when the leaf has a
+    /// source span (`inference_variable_key` reads the path only without one).
+    fn variable_key(term: &ParsedTerm, name: &str) -> Option<String> {
+        match term {
+            ParsedTerm::Term(leaf) => (inferred_variable_name(leaf) == Some(name))
+                .then(|| inference_variable_key(leaf, name, "")),
+            ParsedTerm::Production { children, .. }
+            | ParsedTerm::InstantiatedProduction { children, .. } => {
+                children.iter().find_map(|child| variable_key(child, name))
+            }
+            ParsedTerm::Ambiguity(alternatives) => alternatives
+                .iter()
+                .find_map(|alternative| variable_key(alternative, name)),
+        }
+    }
+
+    /// 80fd52d8: in `rule foo(_X) => #Exists Y . { ?_I #Equals Y }` the bound variable `Y` and
+    /// `?_I` sit under the rule grammar's `KList ::= K`, so the term constraint alone lets them
+    /// take `KList`, a scaffolding sort that the datatype carries only as a ground value of the
+    /// production constraints. On the solver of `Encoding::solver_for` no model assigns `KList` to
+    /// them, or to any other unknown of the encoding.
+    #[test]
+    fn no_model_of_the_exists_binder_assigns_klist_to_its_variables() {
+        let source = include_str!("../../../tests/fixtures/reference/inner/exists-binder/test.k");
+        let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
+        let mut resolver = |_: &str, required: &str| {
+            crate::builtin::embedded(required)
+                .ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = crate::outer::load_with_options(
+            crate::outer::ResolvedSource::new("test.k", source.to_owned()),
+            "TEST",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("TEST loads: {error}"));
+        let previous = INFERENCE_PROBLEMS.with(|problems| problems.replace(Some(Vec::new())));
+        let parsed = crate::inner::rules::parse_rule_content(
+            &loaded.resolved,
+            "TEST",
+            "foo(_X) => #Exists Y . { ?_I #Equals Y }",
+            crate::definition::Attributes::default(),
+        );
+        let problems = INFERENCE_PROBLEMS
+            .with(|problems| problems.replace(previous))
+            .expect("the recorder was set above");
+        parsed.expect("the rule parses");
+
+        let mut checked = 0;
+        for (grammar, term, top_sort, explicitly_anywhere) in &problems {
+            let Some(y) = variable_key(term, "Y") else {
+                continue;
+            };
+            let i = variable_key(term, "?_I").expect("?_I occurs next to Y");
+            let mut encoding =
+                Encoding::for_inference(grammar, term, top_sort, *explicitly_anywhere).unwrap();
+            let (constraint, ..) = encoding.term_constraint(term, top_sort).unwrap();
+            assert!(
+                encoding.variables.contains_key(&y) && encoding.variables.contains_key(&i),
+                "{y} and {i} are unknowns: {:?}",
+                encoding.variables.keys().collect::<Vec<_>>()
+            );
+            let klist = encoding
+                .sort_value(&Sort::frontend(FrontendSort::KList), &BTreeMap::new())
+                .expect("the rule grammar has the KList scaffolding sort");
+            let is_klist = |key: &str| encoding.variables[key].eq(&klist);
+
+            // The defect's shape: on a solver without the domain, both can take KList.
+            let plain = Solver::new();
+            plain.assert(&constraint);
+            for key in [&y, &i] {
+                plain.push();
+                plain.assert(is_klist(key));
+                assert_eq!(
+                    plain.check(),
+                    SatResult::Sat,
+                    "{key} takes KList without the domain"
+                );
+                plain.pop(1);
+            }
+
+            let solver = encoding.solver_for(&constraint).unwrap();
+            assert_eq!(check(&solver), SatResult::Sat);
+            for key in encoding.variables.keys() {
+                solver.push();
+                solver.assert(is_klist(key));
+                assert_eq!(check(&solver), SatResult::Unsat, "{key} takes KList");
+                solver.pop(1);
+            }
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no recorded problem binds Y: {}",
+            problems.len()
+        );
+    }
+
     /// The call sites of `Encoding::less_than_eq` in one packed inference.
     #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
     enum OrderSite {
         /// The term constraint and the variable and token constraints under it
-        /// (`Encoding::assert_packed_hard_constraints`).
+        /// (`Encoding::packed_term_constraint`).
         HardConstraint,
         /// `top_preferences`, read by `seed_model` and `admissible_parameters`.
         Preference,
@@ -4894,11 +5232,10 @@ mod tests {
         let mut encoding = with_uncached_encoding_base(|| {
             Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
-        let solver = Solver::new();
         let mut sites = Vec::new();
-        let (hard, calls) =
-            recording(|| encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver));
-        hard?;
+        let (hard, calls) = recording(|| encoding.packed_term_constraint(term, &problem.top_sort));
+        let (constraint, ..) = hard?;
+        let solver = encoding.solver_for(&constraint)?;
         sites.extend(
             calls
                 .into_iter()

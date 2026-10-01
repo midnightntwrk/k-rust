@@ -6777,7 +6777,7 @@ symbol = "OrderRelation::full_disjunction"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Encoding::assert_packed_hard_constraints"
+symbol = "Encoding::packed_term_constraint"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6787,12 +6787,12 @@ symbol = "Encoding::less_than_eq"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Encoding::restrict_to_real_sorts"
+symbol = "Encoding::solver_for"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Encoding::exclude_klabel_parameters"
+symbol = "Encoding::domain_solver"
 
 [[node.sites]]
 crate = "k-rust"

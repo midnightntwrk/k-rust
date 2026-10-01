@@ -163,10 +163,10 @@ impl SortRole {
     /// A value a production's sort parameter can take: the inference domain without `KLabel`,
     /// since a sort parameter ranges over sorts of terms and widths, not over labels.
     #[cfg_attr(
-        not(test),
+        not(any(test, feature = "z3-inference")),
         expect(
             dead_code,
-            reason = "first read by the Z3 parameter encoding (CBC-05-T2)"
+            reason = "read only by the Z3 encoder's DomainSolver, which the portable build omits"
         )
     )]
     pub(crate) const fn in_parameter_domain(self) -> bool {
@@ -250,9 +250,9 @@ mod tests {
             && sort.name != BuiltinSort::KItem.k_name()
     }
 
-    /// The values a Z3 parameter unknown can take at a nullary head: `restrict_to_real_sorts`
-    /// admits the heads that pass `is_real_ground_sort`, and `exclude_klabel_parameters` removes
-    /// `KLabel` from the parameter unknowns (inner/parser/z3_inference.rs).
+    /// The values a Z3 parameter unknown could take at a nullary head before
+    /// `in_parameter_domain`: the encoder admitted the heads that pass `is_real_ground_sort`
+    /// for every unknown and removed `KLabel` from the parameter unknowns.
     fn legacy_parameter_domain(head: &Sort) -> bool {
         legacy_is_real_ground_sort(head) && !head.is_frontend(FrontendSort::KLabel)
     }
