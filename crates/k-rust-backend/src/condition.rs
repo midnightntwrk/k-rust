@@ -111,6 +111,10 @@ impl Condition {
 
     /// The condition under `substitution`, as a predicate over the subject's instances.
     pub(crate) fn instantiate(&self, substitution: &Substitution) -> InstantiatedCondition {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
+        )]
         InstantiatedCondition(substitute_predicates(&self.0, substitution))
     }
 }
@@ -123,6 +127,10 @@ pub(crate) fn instantiate_constraints(
     constraints: &[Predicate],
     substitution: &Substitution,
 ) -> InstantiatedCondition {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
+    )]
     InstantiatedCondition(substitute_predicates(constraints, substitution))
 }
 
@@ -142,6 +150,10 @@ impl InstantiatedCondition {
                 .all(|value| matches!(value.kind(), TermKind::Variable(_))),
             "an instantiated condition is renamed only to variables"
         );
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
+        )]
         Self(substitute_predicates(&self.0, renaming))
     }
 
@@ -271,6 +283,10 @@ pub(crate) fn eliminate_bindings(
     bindings: &Substitution,
     known: &[Predicate],
 ) -> Vec<Predicate> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
+    )]
     let mut result = substitute_predicates(predicates, bindings);
     for (variable, value) in bindings {
         if variable.kind != VariableKind::Element || value.attributes().ceil_free() {
@@ -447,6 +463,10 @@ impl DefinedEquation {
     /// only view of the instantiated right-hand side, so the open obligations cannot be left
     /// out of it.
     pub(crate) fn into_result(self, predicates: &[Predicate]) -> Vec<Predicate> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the instantiation entry point: callers state definedness through InstantiatedCondition, EquationInstance or eliminate_bindings"
+        )]
         let mut result = substitute_predicates(predicates, &self.substitution);
         result.extend(self.carried.into_predicates());
         result

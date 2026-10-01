@@ -1753,6 +1753,10 @@ fn execute_state(
         "term".into(),
         encode_kore_source_raw(externalize::External::Term(&term))?,
     );
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "rendering a state: its own equalities applied to its remaining constraints, as normalize_pattern_substitution does"
+    )]
     let predicates = substitute_predicates(&predicates, &substitution);
     let mut ordered_predicates = predicates
         .iter()

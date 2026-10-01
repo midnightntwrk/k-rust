@@ -240,6 +240,10 @@ fn recover_by_simplifying_pairs(
         unresolved.extend(pair_remainder);
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "simplification constraints of the recovered match under its own substitution; phase P9 of apply_rule states the definedness of every non-variable binding"
+    )]
     let conditions = substitute_predicates(&conditions, &substitution);
     let result = if unresolved.is_empty() {
         MatchResult::Success(substitution)
@@ -358,6 +362,7 @@ fn finalize_general_unification(
                 freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
             let mut all_constraints = constraints.to_vec();
             extend_unique(&mut all_constraints, solution.constraints);
+            #[expect(clippy::disallowed_methods, reason = "unifier constraints; collection_unification_definedness of the same substitution is conjoined next")]
             let mut constraints = substitute_predicates(&all_constraints, &substitution);
             extend_unique(
                 &mut constraints,

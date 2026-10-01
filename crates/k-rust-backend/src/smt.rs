@@ -486,6 +486,10 @@ impl TranslationState {
             arguments.push(SExpr::atom(name));
         }
         // Only atomic predicates reach this method, so this substitution crosses no binder.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a renaming to placeholder variables; a variable denotes an element"
+        )]
         let template = substitute_predicates(std::slice::from_ref(predicate), &substitution)
             .pop()
             .unwrap();

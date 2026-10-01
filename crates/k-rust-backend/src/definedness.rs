@@ -346,6 +346,10 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
                 let RuleRhs::Predicates(predicates) = &rule.rhs else {
                     continue;
                 };
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "the right-hand side of an unconditional ceil equation; ceil_term_node collects the definedness of the arguments, which contain every bound term"
+                )]
                 let predicates = simplified_ceil_condition(
                     definition,
                     substitute_predicates(predicates, &substitution),

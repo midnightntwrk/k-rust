@@ -1,0 +1,3 @@
+disallowed-methods = [
+  { path = "k_rust_backend::rewrite::predicates::substitute_predicates", reason = "instantiate a condition through k_rust_backend::condition (Condition::instantiate, instantiate_constraints, EquationInstance, eliminate_bindings); a renaming or a normalization by a pattern's own equalities states in #[expect(clippy::disallowed_methods, reason = ...)] why definedness is preserved" },
+]

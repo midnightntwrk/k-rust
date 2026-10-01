@@ -1075,6 +1075,10 @@ fn empty_computation_instance(
         .into_iter()
         .map(|variable| (variable, empty.clone()))
         .collect::<Substitution>();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a nullary constructor substituted for variables; a constructor application denotes an element"
+    )]
     Some(Pattern {
         term: substitute(&pattern.term, &substitution),
         constraints: substitute_predicates(&pattern.constraints, &substitution),
@@ -1699,6 +1703,10 @@ fn freshen_claim(
         );
         renaming.insert(variable.clone(), Term::variable(variable.with_name(name)));
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a renaming to fresh variables; a variable denotes an element"
+    )]
     let rename_pattern = |pattern: &Pattern| Pattern {
         term: substitute(&pattern.term, &renaming),
         constraints: substitute_predicates(&pattern.constraints, &renaming),

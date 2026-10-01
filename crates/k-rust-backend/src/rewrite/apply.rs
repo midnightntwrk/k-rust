@@ -758,6 +758,7 @@ fn recover_by_split(
             let (substitution, _) =
                 freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
             let mut conditions = inherited_conditions.to_vec();
+            #[expect(clippy::disallowed_methods, reason = "unifier constraints; collection_unification_definedness of the same substitution is conjoined next")]
             extend_unique(
                 &mut conditions,
                 substitute_predicates(&solution.constraints, &substitution),
@@ -1094,6 +1095,10 @@ fn requires(
             })
             .collect::<Substitution>();
         if !bindings.is_empty() {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "bindings extracted from these conditions; the re-entered attempt states their definedness in phase P9"
+            )]
             return Err(PhaseExit::Attempt(reenter(
                 context,
                 fresh_counter,

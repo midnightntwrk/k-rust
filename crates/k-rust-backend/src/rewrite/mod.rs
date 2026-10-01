@@ -99,6 +99,10 @@ pub fn normalize_pattern_substitution(pattern: &mut Pattern, sorts: &SortGraph) 
     }
     pattern.term = substitute(&pattern.term, &substitution);
     let mut constraints = substitution_predicates(&substitution);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the pattern's own equalities, which stay among its constraints and state that their values are defined"
+    )]
     for predicate in substitute_predicates(&remaining, &substitution) {
         if !constraints.contains(&predicate) {
             constraints.push(predicate);

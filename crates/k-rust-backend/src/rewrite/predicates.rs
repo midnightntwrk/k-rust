@@ -246,8 +246,14 @@ fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> P
         Predicate::Not(inner) => {
             Predicate::Not(Box::new(substitute_predicate(inner, substitution)))
         }
-        Predicate::And(inner) => Predicate::And(substitute_predicates(inner, substitution)),
-        Predicate::Or(inner) => Predicate::Or(substitute_predicates(inner, substitution)),
+        Predicate::And(inner) => Predicate::And({
+            #[expect(clippy::disallowed_methods, reason = "the function's own recursion")]
+            substitute_predicates(inner, substitution)
+        }),
+        Predicate::Or(inner) => Predicate::Or({
+            #[expect(clippy::disallowed_methods, reason = "the function's own recursion")]
+            substitute_predicates(inner, substitution)
+        }),
         Predicate::Implies(left, right) => Predicate::Implies(
             Box::new(substitute_predicate(left, substitution)),
             Box::new(substitute_predicate(right, substitution)),

@@ -1642,6 +1642,10 @@ fn freshen_existentials(
         );
         fresh.insert(variable);
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a renaming to fresh variables; a variable denotes an element"
+    )]
     (
         Pattern {
             term: substitute(&consequent.term, &substitution),
@@ -1690,6 +1694,10 @@ fn rename_existentials_apart(
             )
         })
         .collect::<Substitution>();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a renaming to fresh variables; a variable denotes an element"
+    )]
     Some(Pattern {
         term: substitute(&pattern.term, &substitution),
         constraints: substitute_predicates(&pattern.constraints, &substitution),

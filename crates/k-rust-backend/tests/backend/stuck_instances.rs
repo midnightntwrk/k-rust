@@ -151,6 +151,10 @@ fn visit_instances(
         substitution.remove(variable);
         return;
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test oracle: a leaf's constraints under the instance the test enumerates"
+    )]
     let constraints = substitute_predicates(&leaf.constraints, substitution);
     let simplified = simplify_predicates_with_solver(
         definition,
