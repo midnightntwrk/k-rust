@@ -4,6 +4,7 @@ mod claims;
 mod configuration;
 mod constructors;
 mod enum_family;
+mod factory;
 mod grammar;
 mod initializer;
 mod island_checks;

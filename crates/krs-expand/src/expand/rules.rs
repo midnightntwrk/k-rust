@@ -15,6 +15,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
@@ -369,6 +370,24 @@ fn expand_ordinary_rule(
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#item_kind),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid host identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(
@@ -395,30 +414,7 @@ fn expand_ordinary_rule(
 
         #(#term_key_functions)*
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"),
-                    module_path!(),
-                    #name,
-                    #item_kind,
-                    "",
-                )
-                .expect("Cargo and Rust macro context form a valid host identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 

@@ -19,6 +19,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Ident, ItemEnum, Path};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::grammar::grammar_macro_descriptor;
 use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::strictness_tokens;
@@ -170,6 +171,49 @@ pub(crate) fn constructors(
         let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
         let membership_anchors = declaration.membership_provenance()?;
         let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors);
+        let sort_factory_tokens = DescriptorFactory {
+            facade: &facade,
+            factory: &sort_factory,
+            name: quote!(#enum_name),
+            item_kind: quote!(#facade::ItemKind::Sort),
+            disambiguator: quote!(""),
+            identity_check: IdentityCheck::Expect(
+                "Cargo and Rust macro context form a valid enum-sort identity",
+            ),
+            declared_type: quote! {
+                ::core::option::Option::Some(
+                    #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#enum_key)),
+                )
+            },
+            payload: quote! {
+                #facade::HostDescriptorPayload::Sort(
+                    #facade::HostSortDescriptor { parents: ::std::vec![] },
+                )
+            },
+            cfg: quote!(::core::default::Default::default()),
+            attributes: quote!(#(#cfg)*),
+            provenance: quote!(#sort_provenance),
+            prelude: TokenStream::new(),
+        }
+        .render();
+        let membership_factory_tokens = DescriptorFactory {
+            facade: &facade,
+            factory: &membership_factory,
+            name: quote!(#membership_name),
+            item_kind: quote!(#facade::ItemKind::Grammar),
+            disambiguator: quote!("enum-membership"),
+            identity_check: IdentityCheck::Expect(
+                "Cargo and Rust macro context form a valid enum-membership identity",
+            ),
+            declared_type: quote!(::core::option::Option::None),
+            payload: quote!(#facade::__krs_host_payload(#membership_wire, #membership_slot_tokens)),
+            cfg: quote!(::core::default::Default::default()),
+            attributes: quote!(#(#cfg)*),
+            provenance: quote!(#membership_provenance),
+            prelude: TokenStream::new(),
+        }
+        .render();
+
         quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -177,49 +221,9 @@ pub(crate) fn constructors(
                 ::core::any::TypeId::of::<dyn #outer_path>()
             }
 
-            #(#cfg)*
-            #[doc(hidden)]
-            fn #sort_factory() -> #facade::HostDescriptor {
-                #facade::HostDescriptor {
-                    protocol_version: #facade::SchemaVersion::CURRENT,
-                    id: #facade::HostItemId::from_macro_context(
-                        env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                        env!("CARGO_MANIFEST_DIR"), module_path!(), #enum_name,
-                        #facade::ItemKind::Sort, "",
-                    ).expect("Cargo and Rust macro context form a valid enum-sort identity"),
-                    declared_type: ::core::option::Option::Some(
-                        #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#enum_key)),
-                    ),
-                    payload: #facade::HostDescriptorPayload::Sort(
-                        #facade::HostSortDescriptor { parents: ::std::vec![] },
-                    ),
-                    cfg: ::core::default::Default::default(),
-                    provenance: #sort_provenance,
-                }
-            }
+            #sort_factory_tokens
 
-            #(#cfg)*
-            #facade::__register_host_descriptor!(#sort_factory);
-
-            #(#cfg)*
-            #[doc(hidden)]
-            fn #membership_factory() -> #facade::HostDescriptor {
-                #facade::HostDescriptor {
-                    protocol_version: #facade::SchemaVersion::CURRENT,
-                    id: #facade::HostItemId::from_macro_context(
-                        env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                        env!("CARGO_MANIFEST_DIR"), module_path!(), #membership_name,
-                        #facade::ItemKind::Grammar, "enum-membership",
-                    ).expect("Cargo and Rust macro context form a valid enum-membership identity"),
-                    declared_type: ::core::option::Option::None,
-                    payload: #facade::__krs_host_payload(#membership_wire, #membership_slot_tokens),
-                    cfg: ::core::default::Default::default(),
-                    provenance: #membership_provenance,
-                }
-            }
-
-            #(#cfg)*
-            #facade::__register_host_descriptor!(#membership_factory);
+            #membership_factory_tokens
         }
     };
     let open_sort_key = declaration.is_open_family().then(|| {
@@ -540,56 +544,57 @@ fn expand_enum_variant(
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");
     let slot_tokens = slots.tokens();
 
+    let descriptor_factory_tokens = DescriptorFactory {
+        facade,
+        factory: &descriptor_factory,
+        name: quote!(#variant_name),
+        item_kind: quote!(#facade::ItemKind::Constructor),
+        disambiguator: quote!(#disambiguator),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid enum-variant identity",
+        ),
+        declared_type: quote! {
+            ::core::option::Option::Some(
+                #facade::HostDeclarationIdentity::EnumVariant(
+                    #facade::HostEnumVariantKey::new(
+                        #facade::HostTypeKey(#enum_key),
+                        #facade::HostTypeKey(#variant_key),
+                    ),
+                ),
+            )
+        },
+        payload: quote!(#facade::__krs_host_payload(#constructor_wire, #slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+    let grammar_factory_tokens = DescriptorFactory {
+        facade,
+        factory: &grammar_factory,
+        name: quote!(#grammar_name),
+        item_kind: quote!(#facade::ItemKind::Grammar),
+        disambiguator: quote!(#disambiguator),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid variant-grammar identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote!(#facade::__krs_host_payload(#grammar_wire, #grammar_slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#grammar_provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #(#field_key_functions)*
         #strictness_key
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #descriptor_factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #variant_name,
-                    #facade::ItemKind::Constructor, #disambiguator,
-                ).expect("Cargo and Rust macro context form a valid enum-variant identity"),
-                declared_type: ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::EnumVariant(
-                        #facade::HostEnumVariantKey::new(
-                            #facade::HostTypeKey(#enum_key),
-                            #facade::HostTypeKey(#variant_key),
-                        ),
-                    ),
-                ),
-                payload: #facade::__krs_host_payload(#constructor_wire, #slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
+        #descriptor_factory_tokens
 
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#descriptor_factory);
-
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #grammar_factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,
-                    #facade::ItemKind::Grammar, #disambiguator,
-                ).expect("Cargo and Rust macro context form a valid variant-grammar identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::__krs_host_payload(#grammar_wire, #grammar_slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #grammar_provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#grammar_factory);
+        #grammar_factory_tokens
     })
 }
 

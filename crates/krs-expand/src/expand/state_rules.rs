@@ -13,6 +13,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
 use super::configuration::cell_marker_function;
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::rules::{rule_label_tokens, rule_owise_tokens};
@@ -139,6 +140,44 @@ pub(crate) fn context_alias(
     let alias_name = attribute.name().to_string();
     let here_name = attribute.here().to_string();
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#rust_name),
+        item_kind: quote!(#facade::ItemKind::ContextAlias),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid context alias identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote! {
+            #facade::HostDescriptorPayload::ContextAlias(::std::boxed::Box::new(
+                #facade::HostContextAlias {
+                    declaration_key: #facade::ProvenanceKey::new(#context_alias_declaration_role, 0),
+                    name_key: #facade::ProvenanceKey::new(#context_alias_name_role, 0),
+                    name: #alias_name.to_owned(),
+                    here_key: #facade::ProvenanceKey::new(#context_alias_here_role, 0),
+                    here: #here_name.to_owned(),
+                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
+                    configuration: #facade::HostConfigurationReference {
+                        key: #facade::ProvenanceKey::new(#rule_type_role, 0),
+                        configuration: #facade::HostTypeReference {
+                            key: #facade::HostTypeKey(#configuration_key),
+                            authored_path: #configuration_spelling.to_owned(),
+                        },
+                    },
+                    bindings: ::std::vec![#(#bindings),*],
+                    pattern: #pattern,
+                }
+            ))
+        },
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(__krs_symbolic_configuration: #configuration_type) {
@@ -155,41 +194,7 @@ pub(crate) fn context_alias(
             ::core::any::TypeId::of::<#configuration_type>()
         }
         #(#key_functions)*
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
-                    module_path!(), #rust_name, #facade::ItemKind::ContextAlias, "",
-                ).expect("Cargo and Rust macro context form a valid context alias identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::ContextAlias(::std::boxed::Box::new(
-                    #facade::HostContextAlias {
-                        declaration_key: #facade::ProvenanceKey::new(#context_alias_declaration_role, 0),
-                        name_key: #facade::ProvenanceKey::new(#context_alias_name_role, 0),
-                        name: #alias_name.to_owned(),
-                        here_key: #facade::ProvenanceKey::new(#context_alias_here_role, 0),
-                        here: #here_name.to_owned(),
-                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
-                        configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_type_role, 0),
-                            configuration: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#configuration_key),
-                                authored_path: #configuration_spelling.to_owned(),
-                            },
-                        },
-                        bindings: ::std::vec![#(#bindings),*],
-                        pattern: #pattern,
-                    }
-                )),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 
@@ -332,6 +337,53 @@ pub(super) fn configuration_rule(
     }
     let island_import_checks = consumed_state_island_import_checks(original);
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Rule),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid host identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote! {
+            #facade::HostDescriptorPayload::ConfigurationRule(
+                ::std::boxed::Box::new(#facade::HostConfigurationRule {
+                    sentence_kind: #facade::SentenceKind::Transition,
+                    label: #label,
+                    priority: #priority,
+                    requires: #requires,
+                    claim: ::core::option::Option::None,
+                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
+                    subject_configuration: #facade::HostConfigurationReference {
+                        key: #facade::ProvenanceKey::new(#rule_type_role, 0),
+                        configuration: #facade::HostTypeReference {
+                            key: #facade::HostTypeKey(#subject_key),
+                            authored_path: #subject_spelling.to_owned(),
+                        },
+                    },
+                    result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
+                    result_configuration: #facade::HostConfigurationReference {
+                        key: #facade::ProvenanceKey::new(#rule_result_type_role, 0),
+                        configuration: #facade::HostTypeReference {
+                            key: #facade::HostTypeKey(#result_key),
+                            authored_path: #result_spelling.to_owned(),
+                        },
+                    },
+                    bindings: ::std::vec![#(#bindings),*],
+                    subject: #subject,
+                    result: #result,
+                })
+            )
+        },
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #(#attrs)*
         #visibility #fn_token #name_ident(
@@ -361,52 +413,7 @@ pub(super) fn configuration_rule(
 
         #(#key_functions)*
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
-                    #facade::ItemKind::Rule, "",
-                ).expect("Cargo and Rust macro context form a valid host identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::ConfigurationRule(
-                    ::std::boxed::Box::new(#facade::HostConfigurationRule {
-                        sentence_kind: #facade::SentenceKind::Transition,
-                        label: #label,
-                        priority: #priority,
-                        requires: #requires,
-                        claim: ::core::option::Option::None,
-                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
-                        subject_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_type_role, 0),
-                            configuration: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#subject_key),
-                                authored_path: #subject_spelling.to_owned(),
-                            },
-                        },
-                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
-                        result_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new(#rule_result_type_role, 0),
-                            configuration: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#result_key),
-                                authored_path: #result_spelling.to_owned(),
-                            },
-                        },
-                        bindings: ::std::vec![#(#bindings),*],
-                        subject: #subject,
-                        result: #result,
-                    })
-                ),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 

@@ -16,6 +16,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::productions::strictness_tokens;
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
@@ -339,6 +340,30 @@ fn constructor_like(
         alias.is_some(),
     )?;
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Constructor),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid host identity",
+        ),
+        declared_type: quote! {
+            ::core::option::Option::Some(
+                #facade::HostDeclarationIdentity::Nominal(
+                    #facade::HostTypeKey(#declared_key),
+                ),
+            )
+        },
+        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #item
 
@@ -362,34 +387,7 @@ fn constructor_like(
 
         #rule_application
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"),
-                    module_path!(),
-                    #name,
-                    #facade::ItemKind::Constructor,
-                    "",
-                )
-                .expect("Cargo and Rust macro context form a valid host identity"),
-                declared_type: ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::Nominal(
-                        #facade::HostTypeKey(#declared_key),
-                    ),
-                ),
-                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
 
         #grammar
     })
@@ -598,6 +596,49 @@ pub(crate) fn token(
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
+    let sort_factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &sort_factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Sort),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid token-sort identity",
+        ),
+        declared_type: quote! {
+            ::core::option::Option::Some(
+                #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
+            )
+        },
+        payload: quote! {
+            #facade::HostDescriptorPayload::Sort(
+                #facade::HostSortDescriptor { parents: ::std::vec![] },
+            )
+        },
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#sort_provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+    let grammar_factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &grammar_factory,
+        name: quote!(#grammar_name),
+        item_kind: quote!(#facade::ItemKind::Grammar),
+        disambiguator: quote!("token"),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid token-grammar identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#grammar_provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #item
 
@@ -607,49 +648,9 @@ pub(crate) fn token(
             ::core::any::TypeId::of::<#declared>()
         }
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #sort_factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
-                    #facade::ItemKind::Sort, "",
-                ).expect("Cargo and Rust macro context form a valid token-sort identity"),
-                declared_type: ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
-                ),
-                payload: #facade::HostDescriptorPayload::Sort(
-                    #facade::HostSortDescriptor { parents: ::std::vec![] },
-                ),
-                cfg: ::core::default::Default::default(),
-                provenance: #sort_provenance,
-            }
-        }
+        #sort_factory_tokens
 
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#sort_factory);
-
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #grammar_factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,
-                    #facade::ItemKind::Grammar, "token",
-                ).expect("Cargo and Rust macro context form a valid token-grammar identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #grammar_provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#grammar_factory);
+        #grammar_factory_tokens
     })
 }
 
@@ -780,33 +781,28 @@ fn constructor_grammar(
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
+    let factory_tokens = DescriptorFactory {
+        facade,
+        factory: &factory,
+        name: quote!(#grammar_name),
+        item_kind: quote!(#facade::ItemKind::Grammar),
+        disambiguator: quote!(#disambiguator),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid grammar identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #strict_key_function
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"),
-                    module_path!(),
-                    #grammar_name,
-                    #facade::ItemKind::Grammar,
-                    #disambiguator,
-                )
-                .expect("Cargo and Rust macro context form a valid grammar identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 

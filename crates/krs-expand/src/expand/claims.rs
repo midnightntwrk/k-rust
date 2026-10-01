@@ -8,6 +8,7 @@ use krs_syntax::{
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
@@ -253,6 +254,35 @@ fn configuration_claim(
         }
     }
     let island_import_checks = consumed_state_island_import_checks(original);
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Claim),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Unwrap,
+        declared_type: quote!(None),
+        payload: quote! {
+            #facade::HostDescriptorPayload::ConfigurationRule(Box::new(#facade::HostConfigurationRule {
+                sentence_kind: #facade::SentenceKind::Claim,
+                label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new(#claim_label_role, 0), name: #label_name.to_owned() }),
+                priority: None,
+                requires: #requires,
+                claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new(#claim_declaration_role, 0), modality_key: #facade::ProvenanceKey::new(#claim_modality_role, 0), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
+                pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
+                subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
+                result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
+                result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_result_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
+                bindings: vec![#(#bindings),*], subject: #subject, result: #result,
+            }))
+        },
+        cfg: quote!(Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #(#attrs)* #visibility #fn_token #name_ident(#(#ordinary_inputs,)* __krs_symbolic_configuration: #subject_type) -> #result_type {
             let _krs_path_check = || {
@@ -265,25 +295,6 @@ fn configuration_claim(
         #(#cfg)* #[doc(hidden)] fn #subject_key() -> ::core::any::TypeId { ::core::any::TypeId::of::<#subject_type>() }
         #(#cfg)* #[doc(hidden)] fn #result_key() -> ::core::any::TypeId { ::core::any::TypeId::of::<#result_type>() }
         #(#key_functions)*
-        #(#cfg)* #[doc(hidden)] fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"), module_path!(), #name, #facade::ItemKind::Claim, "").unwrap(),
-                declared_type: None,
-                payload: #facade::HostDescriptorPayload::ConfigurationRule(Box::new(#facade::HostConfigurationRule {
-                    sentence_kind: #facade::SentenceKind::Claim,
-                    label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new(#claim_label_role, 0), name: #label_name.to_owned() }),
-                    priority: None,
-                    requires: #requires,
-                    claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new(#claim_declaration_role, 0), modality_key: #facade::ProvenanceKey::new(#claim_modality_role, 0), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
-                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0),
-                    subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
-                    result_key: #facade::ProvenanceKey::new(#rule_result_role, 0),
-                    result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_result_type_role, 0), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
-                    bindings: vec![#(#bindings),*], subject: #subject, result: #result,
-                })), cfg: Default::default(), provenance: #provenance,
-            }
-        }
-        #(#cfg)* #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }

@@ -7,6 +7,7 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
 use crate::environment::MacroEnvironment;
@@ -45,6 +46,45 @@ pub(crate) fn configuration(
     let (field_helpers, fields) =
         configuration_fields(&facade, &declaration, &declared, &declared_key)?;
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Configuration),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid host identity",
+        ),
+        declared_type: quote! {
+            ::core::option::Option::Some(
+                #facade::HostDeclarationIdentity::Nominal(
+                    #facade::HostTypeKey(#declared_key),
+                ),
+            )
+        },
+        payload: quote! {
+            #facade::HostDescriptorPayload::FixedConfiguration(
+                ::std::boxed::Box::new(#facade::HostFixedConfiguration {
+                    root: #root,
+                    declaration: #facade::HostConfigurationDeclaration {
+                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
+                        fields: ::std::vec![#(#fields),*],
+                    },
+                    initializer,
+                }),
+            )
+        },
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote! {
+            #provenance
+            .merge(initializer_provenance)
+            .expect("configuration and initializer provenance keys are disjoint")
+        },
+        prelude: quote!(let (initializer, initializer_provenance) = #declared::__krs_initializer_payload();),
+    }
+    .render();
+
     Ok(quote! {
         #item
 
@@ -63,46 +103,7 @@ pub(crate) fn configuration(
             ::core::any::TypeId::of::<#declared>()
         }
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            let (initializer, initializer_provenance) = #declared::__krs_initializer_payload();
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"),
-                    module_path!(),
-                    #name,
-                    #facade::ItemKind::Configuration,
-                    "",
-                )
-                .expect("Cargo and Rust macro context form a valid host identity"),
-                declared_type: ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::Nominal(
-                        #facade::HostTypeKey(#declared_key),
-                    ),
-                ),
-                payload: #facade::HostDescriptorPayload::FixedConfiguration(
-                    ::std::boxed::Box::new(#facade::HostFixedConfiguration {
-                        root: #root,
-                        declaration: #facade::HostConfigurationDeclaration {
-                            key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
-                            fields: ::std::vec![#(#fields),*],
-                        },
-                        initializer,
-                    }),
-                ),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance
-                    .merge(initializer_provenance)
-                    .expect("configuration and initializer provenance keys are disjoint"),
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 
@@ -131,6 +132,35 @@ pub(crate) fn cell(
     let (field_helpers, fields) =
         configuration_fields(&facade, &declaration, &declared, &declared_key)?;
 
+    let factory_tokens = DescriptorFactory {
+        facade: &facade,
+        factory: &factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Cell),
+        disambiguator: quote!(""),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid host identity",
+        ),
+        declared_type: quote! {
+            ::core::option::Option::Some(
+                #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
+            )
+        },
+        payload: quote! {
+            #facade::HostDescriptorPayload::Cell(::std::boxed::Box::new(
+                #facade::HostCellDeclaration {
+                    key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
+                    fields: ::std::vec![#(#fields),*],
+                }
+            ))
+        },
+        cfg: quote!(::core::default::Default::default()),
+        attributes: quote!(#(#cfg)*),
+        provenance: quote!(#provenance),
+        prelude: TokenStream::new(),
+    }
+    .render();
+
     Ok(quote! {
         #item
 
@@ -149,32 +179,7 @@ pub(crate) fn cell(
             ::core::any::TypeId::of::<#declared>()
         }
 
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
-                    #facade::ItemKind::Cell, "",
-                ).expect("Cargo and Rust macro context form a valid host identity"),
-                declared_type: ::core::option::Option::Some(
-                    #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
-                ),
-                payload: #facade::HostDescriptorPayload::Cell(::std::boxed::Box::new(
-                    #facade::HostCellDeclaration {
-                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
-                        fields: ::std::vec![#(#fields),*],
-                    }
-                )),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #(#cfg)*
-        #facade::__register_host_descriptor!(#factory);
+        #factory_tokens
     })
 }
 

@@ -13,6 +13,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Ident, Path};
 
+use super::factory::{DescriptorFactory, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::terms::wire_key;
 use crate::environment::MacroEnvironment;
@@ -176,24 +177,21 @@ pub(super) fn grammar_macro_descriptor(
             let _ = ::core::any::TypeId::of::<#owner>();
         }
     });
-    quote! {
-        #[doc(hidden)]
-        fn #factory() -> #facade::HostDescriptor {
-            #owner_check
-            #facade::HostDescriptor {
-                protocol_version: #facade::SchemaVersion::CURRENT,
-                id: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
-                    env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
-                    #facade::ItemKind::Grammar, #disambiguator,
-                ).expect("Cargo and Rust macro context form a valid grammar identity"),
-                declared_type: ::core::option::Option::None,
-                payload: #facade::__krs_host_payload(#wire, &[]),
-                cfg: ::core::default::Default::default(),
-                provenance: #provenance,
-            }
-        }
-
-        #facade::__register_host_descriptor!(#factory);
+    DescriptorFactory {
+        facade,
+        factory,
+        name: quote!(#name),
+        item_kind: quote!(#facade::ItemKind::Grammar),
+        disambiguator: quote!(#disambiguator),
+        identity_check: IdentityCheck::Expect(
+            "Cargo and Rust macro context form a valid grammar identity",
+        ),
+        declared_type: quote!(::core::option::Option::None),
+        payload: quote!(#facade::__krs_host_payload(#wire, &[])),
+        cfg: quote!(::core::default::Default::default()),
+        attributes: TokenStream::new(),
+        provenance: quote!(#provenance),
+        prelude: quote!(#owner_check),
     }
+    .render()
 }
