@@ -4,23 +4,23 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-import json
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
-from support import GateError
+from support import GateError, ROOT
+from support import krs_gate
 from support.checkouts import verify_checkout
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text
 from support.lock import k_version
 from support.pins import Ledger
 from support.process import compact, run
 from support.report import Results
-from support.tools import find_k_tool, k_version_matches
+from support.tools import checkout_scratch, find_k_tool, k_version_matches, z3_environment
 
 
 @dataclass(frozen=True)
@@ -60,8 +60,7 @@ class DivisionCase:
 class RejectionPin:
     """Key and report names of the entries in the `rejection_sha256` pin table.
 
-    `diagnostics_key` pins the normalized syntax diagnostics and requires
-    `KAST.normalize_diagnostic`.
+    `diagnostics_key` pins syntax diagnostics with the checkout path normalized.
     """
 
     stuck_key: str
@@ -113,17 +112,74 @@ class Spec:
 
 @dataclass(frozen=True)
 class KAST:
-    """Gate-owned KAST readers and checks; their implementations stay in each verifier."""
+    """Gate-owned validation policies and expectations for native KAST observations."""
 
-    envelope: Callable[..., dict[str, Any]]
-    abstract_term: Callable[[dict[str, Any]], Any]
-    normalized_definition: Callable[[dict[str, Any]], dict[str, Any]]
-    verify_definition_structure: Callable[[dict[str, Any], dict[str, Any]], None]
-    final_environment: Callable[[dict[str, Any]], dict[str, str]]
-    final_environment_if_complete: Callable[[dict[str, Any]], dict[str, str] | None]
-    search_frontier: Callable[[dict[str, Any]], dict[str, Any]] | None = None
-    normalize_diagnostic: Callable[[str], str] | None = None
-    execute_accepted: Callable[[str, Path], tuple[dict[str, Any], dict[str, Any]]] | None = None
+    validation_policy: Mapping[str, Any]
+    label_map: Mapping[str, str]
+    parsed_counts: Mapping[str, Mapping[str, int]]
+    heat_cool: tuple[int, int]
+    context_attributes: tuple[str, ...]
+    context_count: int
+    search_validation_policy: Mapping[str, Any] | None = None
+    production_attributes: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = field(default_factory=dict)
+    rule_labels: tuple[str, ...] | None = None
+    compiled_rule_count: int | None = None
+    k_heads: Mapping[str, str] = field(default_factory=dict)
+
+
+def read_term(session: krs_gate.Session, kast: KAST, output: str, *, search: bool = False) -> Any:
+    """Read and validate tool output natively, retaining its lossless term for hashing."""
+
+    policy = kast.search_validation_policy if search else kast.validation_policy
+    if policy is None:
+        raise GateError("bounded search needs a validation policy")
+    return session.kast_inspect("envelope", text=output, allow_prefix=True, policy=policy)["term"]
+
+
+def verify_definition_structure(
+    spec: Spec, kast: KAST, session: krs_gate.Session, parsed: Path, compiled: Path,
+) -> None:
+    """Compare native sentence facts with the gate's data expectations."""
+
+    facts = {
+        name: session.kast_inspect("module_facts", path=parsed, name=name, vocabulary="semantic")
+        for name in kast.parsed_counts
+    }
+    for name, counts in kast.parsed_counts.items():
+        actual = facts[name]["counts"]
+        if actual != counts:
+            raise GateError(f"parsed {name} counts differ: expected={counts}, actual={actual}")
+    productions = {
+        fact["klabel"]: fact["attribute_keys"]
+        for fact in facts[spec.syntax_module]["sentences"] if fact["node"] == "production"
+    }
+    for label, (required, forbidden) in kast.production_attributes.items():
+        attributes = productions.get(label, [])
+        if (label not in productions
+                or any(key not in attributes for key in required)
+                or any(key in attributes for key in forbidden)):
+            raise GateError(f"production attributes differ for {label}: {attributes}")
+    if kast.rule_labels is not None:
+        actual_labels = {fact["label"] for fact in facts[spec.module]["sentences"] if fact["node"] == "rule"}
+        if actual_labels != set(kast.rule_labels):
+            raise GateError(f"rule labels differ: {actual_labels}")
+    syntax = session.kast_inspect("module_facts", path=compiled, name=spec.syntax_module, vocabulary="semantic")
+    contexts = [fact for fact in syntax["sentences"] if fact["node"] == "context"]
+    if (len(contexts) != kast.context_count
+            or any(key not in fact["attribute_keys"] for fact in contexts for key in kast.context_attributes)):
+        raise GateError(f"compiled strict contexts differ: expected={kast.context_count}, actual={len(contexts)}")
+    main = session.kast_inspect("module_facts", path=compiled, name=spec.module, vocabulary="semantic")
+    rules = [fact for fact in main["sentences"] if fact["node"] == "rule"]
+    heat_cool = tuple(sum(key in fact["attribute_keys"] for fact in rules) for key in ("heat", "cool"))
+    if (heat_cool != kast.heat_cool
+            or kast.compiled_rule_count is not None and len(rules) != kast.compiled_rule_count):
+        raise GateError(f"compiled rules differ: count={len(rules)}, heat/cool={heat_cool}")
+
+
+def normalize_diagnostic(stderr: str) -> str:
+    """Replace the checkout path in a diagnostic before pinning it."""
+
+    return stderr.replace(str(ROOT), "<ROOT>").strip()
 
 
 def aggregate(values: Mapping[str, Any]) -> str:
@@ -227,7 +283,7 @@ def compile_reference(spec: Spec, kompile: str, output: Path) -> subprocess.Comp
 
 
 def parse_accepted(
-    spec: Spec, kast: KAST, tools: Mapping[str, str], definition: Path, workspace: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, tools: Mapping[str, str], definition: Path, workspace: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Parse, unparse, and reparse the accepted corpus."""
 
@@ -241,8 +297,8 @@ def parse_accepted(
         process = run(command, timeout=60, check=False)
         if process.returncode != 0:
             raise RuntimeError(f"accepted parse failed for {path.name}: {compact(process)}")
-        term = kast.envelope(process.stdout)["term"]
-        abstract = kast.abstract_term(term)
+        term = read_term(session, kast, process.stdout)
+        abstract = session.kast_inspect("abstract_term", term, label_map=kast.label_map)
         if abstract != spec.expected_trees[path.name]:
             raise RuntimeError(f"wrong tree for {path.name}: {abstract!r}")
         trees[path.name] = term
@@ -251,7 +307,7 @@ def parse_accepted(
              "--sort", "Stmt", str(path)],
             timeout=60, check=False,
         )
-        if portable.returncode != 0 or "Lbl" not in portable.stdout:
+        if portable.returncode != 0 or not portable.stdout.strip():
             raise RuntimeError(f"kparse failed for {path.name}: {compact(portable)}")
         pretty = run(command[:-2] + ["program", str(path)], timeout=60, check=False)
         if pretty.returncode != 0:
@@ -259,7 +315,7 @@ def parse_accepted(
         roundtrip = workspace / f"roundtrip-{path.name}"
         roundtrip.write_text(pretty.stdout, encoding="utf-8")
         reparsed = run(command[:-1] + [str(roundtrip)], timeout=60, check=False)
-        if reparsed.returncode != 0 or canonical_json(kast.envelope(reparsed.stdout)["term"]) != canonical_json(term):
+        if reparsed.returncode != 0 or canonical_json(read_term(session, kast, reparsed.stdout)) != canonical_json(term):
             raise RuntimeError(f"parse/unparse/parse changed {path.name}: {compact(reparsed)}")
         unparsed[path.name] = pretty.stdout.strip()
     return trees, unparsed
@@ -283,7 +339,7 @@ def execute_case(
 
 
 def execute_accepted(
-    spec: Spec, kast: KAST, krun: str, definition: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, krun: str, definition: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Collect final and depth-indexed states for every accepted case."""
 
@@ -298,9 +354,10 @@ def execute_accepted(
         match = re.search(r"\[(\d+) steps\]", process.stdout)
         if match is None or int(match.group(1)) != expectation["steps"]:
             raise RuntimeError(f"rewrite count differs for {name}: {compact(process)}")
-        term = kast.envelope(process.stdout)["term"]
-        if kast.final_environment(term) != expectation["env"]:
-            raise RuntimeError(f"final environment differs for {name}: {kast.final_environment(term)!r}")
+        term = read_term(session, kast, process.stdout)
+        environment = session.kast_inspect("final_environment", term)
+        if environment != expectation["env"]:
+            raise RuntimeError(f"final environment differs for {name}: {environment!r}")
         finals[name] = term
         jobs.extend((name, depth, path, initial_env) for depth in range(int(expectation["steps"]) + 1))
 
@@ -309,21 +366,21 @@ def execute_accepted(
         process = execute_case(spec, krun, definition, path, initial_env, depth=depth)
         if process.returncode != 0:
             raise RuntimeError(f"depth-{depth} execution failed for {name}: {compact(process)}")
-        return f"{name}@{depth:03d}", kast.envelope(process.stdout)["term"]
+        return f"{name}@{depth:03d}", read_term(session, kast, process.stdout)
 
     with ThreadPoolExecutor(max_workers=spec.workers) as executor:
         trace = dict(executor.map(snapshot, jobs))
+    for key, head in kast.k_heads.items():
+        if not session.kast_inspect("k_head", trace[key], head=head):
+            raise GateError(f"no-else form did not desugar through [if-else] at {key}")
     return finals, trace
 
 
 def verify_search(
-    spec: Spec, search: BoundedSearch, kast: KAST, krun: str, definition: Path
+    spec: Spec, search: BoundedSearch, kast: KAST, session: krs_gate.Session, krun: str, definition: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Compare bounded search frontiers with direct execution."""
 
-    search_frontier = kast.search_frontier
-    if search_frontier is None:
-        raise GateError("bounded search needs the KAST search frontier reader")
     searches: dict[str, Any] = {}
     bounded: dict[str, Any] = {}
     jobs: list[tuple[str, int, Path, bool]] = []
@@ -340,11 +397,11 @@ def verify_search(
             raise RuntimeError(
                 f"bounded search failed for {name}@{depth}: ordinary={compact(ordinary)}, search={compact(searched)}"
             )
-        state = kast.envelope(ordinary.stdout)["term"]
-        search_term = kast.envelope(searched.stdout, search=True)["term"]
-        if canonical_json(search_frontier(search_term)) != canonical_json(state):
+        state = read_term(session, kast, ordinary.stdout)
+        search_term = read_term(session, kast, searched.stdout, search=True)
+        if canonical_json(session.kast_inspect("search_frontier", search_term)) != canonical_json(state):
             raise RuntimeError(f"search frontier differs from execution at {name}@{depth}")
-        if nonterminating and kast.final_environment_if_complete(state) is not None:
+        if nonterminating and session.kast_inspect("final_environment", state, if_complete=True) is not None:
             raise RuntimeError(f"{name} unexpectedly terminated by depth {depth}")
         return f"{name}@{depth:03d}", search_term, state, nonterminating
 
@@ -357,7 +414,7 @@ def verify_search(
 
 
 def verify_rejections(
-    spec: Spec, kast: KAST, tools: Mapping[str, str], definition: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, tools: Mapping[str, str], definition: Path
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Check exact parser locations and stuck reference executions.
 
@@ -365,9 +422,6 @@ def verify_rejections(
     has a key for them.
     """
 
-    normalize = kast.normalize_diagnostic
-    if spec.rejection_pin.diagnostics_key is not None and normalize is None:
-        raise GateError("pinned syntax diagnostics need the KAST diagnostic normalizer")
     diagnostics: dict[str, str] = {}
     for path in sorted(spec.syntax_rejected.glob(f"*{spec.extension}")):
         process = run(
@@ -382,8 +436,8 @@ def verify_rejections(
                 or (fragment is not None and fragment not in process.stderr)
                 or path.name not in process.stderr):
             raise RuntimeError(f"syntax rejection differs for {path.name}: {compact(process)}")
-        if spec.rejection_pin.diagnostics_key is not None and normalize is not None:
-            diagnostics[path.name] = normalize(process.stderr)
+        if spec.rejection_pin.diagnostics_key is not None:
+            diagnostics[path.name] = normalize_diagnostic(process.stderr)
 
     stuck: dict[str, Any] = {}
     expectations = spec.stuck_steps
@@ -392,8 +446,8 @@ def verify_rejections(
         match = re.search(r"\[(\d+) steps\]", process.stdout)
         if process.returncode != 0 or match is None or int(match.group(1)) != steps:
             raise RuntimeError(f"stuck behavior differs for {name}: {compact(process)}")
-        term = kast.envelope(process.stdout)["term"]
-        if kast.final_environment_if_complete(term) is not None:
+        term = read_term(session, kast, process.stdout)
+        if session.kast_inspect("final_environment", term, if_complete=True) is not None:
             raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")
         stuck[name] = term
     return stuck, diagnostics
@@ -417,7 +471,7 @@ def verify_division(
     return division.stderr
 
 
-def verify_induced_diagnostic(spec: Spec, kast: KAST, kompile: str, workspace: Path) -> str | None:
+def verify_induced_diagnostic(spec: Spec, kompile: str, workspace: Path) -> str | None:
     """Require the authored syntax error at its pinned source location.
 
     Return the normalized diagnostic when the gate pins it.
@@ -436,13 +490,11 @@ def verify_induced_diagnostic(spec: Spec, kast: KAST, kompile: str, workspace: P
         raise RuntimeError(f"induced diagnostic differs: {compact(process)}")
     if not spec.pin_induced_diagnostic:
         return None
-    if kast.normalize_diagnostic is None:
-        raise GateError("a pinned induced diagnostic needs the KAST diagnostic normalizer")
-    return kast.normalize_diagnostic(process.stderr)
+    return normalize_diagnostic(process.stderr)
 
 
 def reference_oracle(
-    spec: Spec, kast: KAST, results: Results, tools: Mapping[str, str], pins: Ledger, workspace: Path
+    spec: Spec, kast: KAST, session: krs_gate.Session, results: Results, tools: Mapping[str, str], pins: Ledger, workspace: Path
 ) -> None:
     """Run the reference layers and retain every report line in gate order."""
 
@@ -455,27 +507,24 @@ def reference_oracle(
         results.add("reference_compile", "FAIL", compact(compiled_process))
         return
     try:
-        parsed = json.loads((definition / "parsed.json").read_text(encoding="utf-8"))
-        compiled = json.loads((definition / "compiled.json").read_text(encoding="utf-8"))
-        kast.verify_definition_structure(parsed, compiled)
+        parsed = definition / "parsed.json"
+        compiled = definition / "compiled.json"
+        verify_definition_structure(spec, kast, session, parsed, compiled)
         definition_hashes = {
-            "parsed": json_sha256(kast.normalized_definition(parsed)),
-            "compiled": json_sha256(kast.normalized_definition(compiled)),
+            "parsed": json_sha256(session.kast_normalize("normalized_definition", path=parsed)),
+            "compiled": json_sha256(session.kast_normalize("normalized_definition", path=compiled)),
         }
         compare_output(results, pins, "definition_structure", "normalized_definition_sha256",
                        definition_hashes, f"{spec.definition_detail}; hashes={definition_hashes}")
 
-        trees, unparsed = parse_accepted(spec, kast, tools, definition, workspace)
+        trees, unparsed = parse_accepted(spec, kast, session, tools, definition, workspace)
         tree_hash, unparse_hash = aggregate(trees), aggregate(unparsed)
         compare_output(results, pins, "parse_trees", "accepted_tree_aggregate_sha256",
                        tree_hash, f"{spec.trees_detail}; aggregate={tree_hash}")
         compare_output(results, pins, "unparse_roundtrip", "unparse_aggregate_sha256",
                        unparse_hash, f"all trees round-trip exactly; aggregate={unparse_hash}")
 
-        if kast.execute_accepted is None:
-            finals, trace = execute_accepted(spec, kast, tools["krun"], definition)
-        else:
-            finals, trace = kast.execute_accepted(tools["krun"], definition)
+        finals, trace = execute_accepted(spec, kast, session, tools["krun"], definition)
         final_hash, trace_hash = aggregate(finals), aggregate(trace)
         compare_output(results, pins, "final_states", "final_state_aggregate_sha256",
                        final_hash, f"{spec.final_detail}; aggregate={final_hash}")
@@ -484,7 +533,7 @@ def reference_oracle(
 
         search = spec.search
         if search is not None:
-            searches, bounded = verify_search(spec, search, kast, tools["krun"], definition)
+            searches, bounded = verify_search(spec, search, kast, session, tools["krun"], definition)
             search_hash, bounded_hash = aggregate(searches), aggregate(bounded)
             compare_output(
                 results, pins, "bounded_search", "bounded_search_sha256",
@@ -494,7 +543,7 @@ def reference_oracle(
                 f"bounds remain live; frontiers={search_hash}, nontermination={bounded_hash}",
             )
 
-        stuck, diagnostics = verify_rejections(spec, kast, tools, definition)
+        stuck, diagnostics = verify_rejections(spec, kast, session, tools, definition)
         rejection_pin = spec.rejection_pin
         stuck_hash = aggregate(stuck)
         observed = {rejection_pin.stuck_key: stuck_hash}
@@ -509,14 +558,14 @@ def reference_oracle(
         compare_output(results, pins, "rejections", "rejection_sha256", observed,
                        f"{spec.rejection_detail}; {', '.join(reported)}")
 
-        induced = verify_induced_diagnostic(spec, kast, tools["kompile"], workspace)
+        induced = verify_induced_diagnostic(spec, tools["kompile"], workspace)
         if induced is not None:
             induced_hash = sha256_text(induced)
             compare_output(results, pins, "definition_diagnostic", "induced_diagnostic_sha256",
                            induced_hash, f"{spec.induced_detail}; hash={induced_hash}")
         else:
             results.add("definition_diagnostic", "PASS", spec.induced_detail)
-    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         results.add("reference_oracle", "FAIL", str(error))
 
 
@@ -528,10 +577,12 @@ def main(spec: Spec, kast: KAST) -> int:
     arguments = parser.parse_args()
     results = Results()
     pins = Ledger(spec.pins_path, record=arguments.record)
+    binary = krs_gate.configured_or_build(checkout_scratch() / f"{spec.here.name}-root-target")
     verify_pins(spec, results, pins)
     tools = verify_tools(results)
-    with tempfile.TemporaryDirectory(prefix=f"krs-{spec.here.name}-oracle-") as temporary:
-        reference_oracle(spec, kast, results, tools, pins, Path(temporary))
+    with krs_gate.Session(binary, environment=z3_environment()) as session:
+        with tempfile.TemporaryDirectory(prefix=f"krs-{spec.here.name}-oracle-") as temporary:
+            reference_oracle(spec, kast, session, results, tools, pins, Path(temporary))
     if results.failed:
         print(f"\n{spec.label} FAILED")
         return 1

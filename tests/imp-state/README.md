@@ -1,9 +1,9 @@
 # IMP state independent configuration/state oracle
 
-This directory freezes the external acceptance contract for the second IMP
-vertical slice. It is production-independent: the verifier invokes only the
-pinned K command-line tools, and neither the handwritten definition nor the
-corpus imports a KRS crate or KRS-generated artifact.
+This directory freezes the external acceptance contract for the second IMP vertical slice.
+The verifier must run the pinned K command-line tools and read their KAST JSON output through k-rust's reader in krs-gate.
+Oracle independence rests on Java K producing that output.
+Neither the handwritten definition nor the corpus may import a KRS crate or KRS-generated artifact.
 
 `fixtures/expr.k` carries forward the IMP expression theory.
 `fixtures/calc.k` is a module-renamed transcription of modern IMP `calc.k`,

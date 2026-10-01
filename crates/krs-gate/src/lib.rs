@@ -84,6 +84,8 @@
 //! `abstract_term` requires a `label_map` and returns a nested label/token array.
 //! `module_facts` accepts a definition or module list.
 //! With `name`, it requires exactly one matching module and returns `{counts,sentences}`; without `name`, it returns a map from each module name to those facts.
+//! `vocabulary: "semantic"` uses `syntax_sort`, `sort_synonym`, `syntax_lexical`, `production`, `syntax_associativity`, `syntax_priority`, `context_alias`, `context`, `rule`, `claim`, `configuration`, `bubble`, and `bad_sentence` for count keys and sentence `node` values.
+//! The default `vocabulary: "kast"` uses KAST node names; other vocabulary values are errors.
 //! Each sentence fact contains `node`, `label`, `klabel`, sorted `attribute_keys`, and the canonical sentence `sha256` for structure and identity comparisons.
 //! `final_environment` returns concrete Id-to-Int/Bool token strings from a generated top configuration with an empty K cell and an environment Map, rejecting duplicate keys.
 //! `if_complete: true` returns null when a concrete final environment cannot be extracted.

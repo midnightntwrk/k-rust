@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import re
@@ -14,7 +13,6 @@ import sys
 from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from imp_static_semantics import normalize as normalizer  # noqa: E402
 import proofs  # noqa: E402
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
@@ -22,9 +20,9 @@ from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E4
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
-from support.pins import Ledger, load_json  # noqa: E402
+from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, k_executable, k_tool  # noqa: E402
+from support.tools import checkout_scratch, k_executable, k_tool, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -187,6 +185,7 @@ def compile_definitions(
 def invoke_source(
     *,
     kprove: str,
+    session: krs_gate.Session,
     definition: Path,
     spec: Path,
     module: str,
@@ -204,9 +203,9 @@ def invoke_source(
         command.extend(["-I", include])
     process = run(command, check=False, timeout=WATCHDOG_SECONDS)
     try:
-        result = json.loads(process.stdout)
-        emitted_spec = load_json(spec_json)
-    except json.JSONDecodeError as error:
+        result = session.kast_inspect("envelope", text=process.stdout)
+        emitted_spec = session.kast_inspect("envelope", path=spec_json)
+    except (OSError, GateError) as error:
         raise GateError(
             f"{claim}: proof did not emit complete KAST JSON: {error}; "
             f"rc={process.returncode}; stderr={process.stderr[:3000]}"
@@ -214,61 +213,19 @@ def invoke_source(
     return process, result, emitted_spec
 
 
-def root_label(normalized: Mapping[str, Any]) -> str | None:
-    term = normalized.get("term")
-    if not isinstance(term, dict):
-        raise GateError("normalized proof has no object term")
-    label = term.get("label")
-    if label is None:
-        return None
-    name = label.get("name") if isinstance(label, dict) else None
-    if not isinstance(name, str):
-        raise GateError("normalized proof root label is malformed")
-    return name
-
-
-def flatten(term: Any, label: str) -> list[Any]:
-    if isinstance(term, dict) and term.get("node") == "KApply" and term.get("label", {}).get("name") == label:
-        result: list[Any] = []
-        for child in term["args"]:
-            result.extend(flatten(child, label))
-        return result
-    return [term]
-
-
 def legacy_pin(
     *, process: subprocess.CompletedProcess[str], result: dict[str, Any], claim: dict[str, Any],
-    bounds: Any, normalizer: Any,
+    bounds: Any, session: krs_gate.Session, label: str,
 ) -> dict[str, Any]:
-    normalized_result = normalizer.normalize_proof(normalizer.envelope(canonical_json(result)))
-    normalized_claim = normalizer.normalize_claim_spec(claim)
-    root = root_label(normalized_result)
-    stalled = re.search(r"configuration cannot be\s+rewritten further", process.stderr) is not None
-    if process.returncode == 0 and root == "#Top":
-        status = "proved"
-    elif process.returncode == 1 and root == "#Bottom":
-        status = "failed"
-    elif process.returncode == 1 and root not in {"#Top", "#Bottom"} and stalled:
-        status = "incomplete"
-    else:
-        raise GateError(
-            f"unclassified reference proof termination: rc={process.returncode}, root={root!r}"
-        )
-    frontier: list[str] = []
-    if root not in {"#Top", "#Bottom"}:
-        for branch in flatten(normalized_result["term"], "#Or"):
-            states: list[Any] = []
-            constraints: list[Any] = []
-            for conjunct in flatten(branch, "#And"):
-                name = conjunct.get("label", {}).get("name") if isinstance(conjunct, dict) else None
-                (constraints if name in CONSTRAINT_LABELS else states).append(conjunct)
-            frontier.append(canonical_json({
-                "states": sorted(states, key=canonical_json),
-                "constraints": sorted(constraints, key=canonical_json),
-            }))
-    frontier.sort()
+    normalized_result = session.kast_normalize("static_proof", result)
+    normalized_claim = session.kast_normalize("static_claim", claim, label=label)
+    evidence = session.kast_frontier(
+        "proof", normalized_result, returncode=process.returncode, stderr=process.stderr,
+        constraint_labels=sorted(CONSTRAINT_LABELS),
+    )
+    frontier = evidence["frontier"]
     return {
-        "status": status,
+        "status": evidence["status"],
         "bounds": {"depth": bounds.depth, "branching_allowed": bounds.branching_allowed},
         "frontier_count": len(frontier),
         "frontier_sha256": sha256_text("\n".join(frontier)),
@@ -470,123 +427,118 @@ def main() -> int:
     actual_policy = proof_policy(pins, "actual", cases, proofs)
 
     support = build_support()
-    krs = arguments.krs.resolve(strict=True)
-    native_definition, native_specs = build_native(workspace, krs, support, labels)
-    for directory in ("reference-json", "actual-json"):
-        (workspace / directory).mkdir()
+    with krs_gate.Session(support, environment=z3_environment()) as session:
+        krs = arguments.krs.resolve(strict=True)
+        native_definition, native_specs = build_native(workspace, krs, support, labels)
+        for directory in ("reference-json", "actual-json"):
+            (workspace / directory).mkdir()
 
-    # Every proof invocation below depends only on the compiled definitions,
-    # so all of them run in one pool. The checks then walk the cases in pin
-    # order, so the first reported difference does not depend on scheduling.
-    jobs: list[Callable[[], Any]] = []
+        # Proof invocations depend only on the compiled definitions and must run in one pool.
+        # Checks must follow pin order so the first reported difference is independent of scheduling.
+        jobs: list[Callable[[], Any]] = []
 
-    def job(call: Callable[[], Any]) -> int:
-        jobs.append(call)
-        return len(jobs) - 1
+        def job(call: Callable[[], Any]) -> int:
+            jobs.append(call)
+            return len(jobs) - 1
 
-    case_jobs = []
-    for case in cases:
-        reference_json = workspace / "reference-json" / f"{case['name']}.json"
-        actual_json = workspace / "actual-json" / f"{case['name']}.json"
-        case_jobs.append({
-            "reference": job(lambda case=case, spec_json=reference_json: invoke_source(
-                kprove=kprove, definition=reference_definition, spec=case["source_spec"],
-                module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
-                spec_json=spec_json,
-                includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
-            )),
-            "actual": job(lambda case=case, spec_json=actual_json: invoke_source(
-                kprove=kprove, definition=actual_definition, spec=actual_spec,
-                module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
-                spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
-            )),
-            "dry_run": job(lambda case=case: dry_run_spec(
-                kprove=kprove, definition=reference_definition, case=case,
-                workspace=workspace, support=support,
-            )),
-            "native": job(lambda case=case: native_proof(
-                kore_exec=kore_exec, support=support, definition=native_definition,
-                specs=native_specs, case=case, workspace=workspace,
-            )),
-            # The source KORE residual is compared only for an incomplete
-            # proof, and a native status that differs from the pin fails first.
-            "source_kore": job(lambda case=case: actual_source_kore_result(
-                kprove=kprove, definition=actual_definition, spec=actual_spec,
-                case=case, workspace=workspace,
-            )) if case["pin"]["status"] == "incomplete" else None,
-        })
-    results = settle_all(jobs, workers)
+        case_jobs = []
+        for case in cases:
+            reference_json = workspace / "reference-json" / f"{case['name']}.json"
+            actual_json = workspace / "actual-json" / f"{case['name']}.json"
+            case_jobs.append({
+                "reference": job(lambda case=case, spec_json=reference_json: invoke_source(
+                    kprove=kprove, session=session, definition=reference_definition, spec=case["source_spec"],
+                    module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
+                    spec_json=spec_json,
+                    includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
+                )),
+                "actual": job(lambda case=case, spec_json=actual_json: invoke_source(
+                    kprove=kprove, session=session, definition=actual_definition, spec=actual_spec,
+                    module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
+                    spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
+                )),
+                "dry_run": job(lambda case=case: dry_run_spec(
+                    kprove=kprove, definition=reference_definition, case=case,
+                    workspace=workspace, support=support,
+                )),
+                "native": job(lambda case=case: native_proof(
+                    kore_exec=kore_exec, support=support, definition=native_definition,
+                    specs=native_specs, case=case, workspace=workspace,
+                )),
+                # The source KORE residual must be compared only for an incomplete proof, after checking the native status against its pin.
+                "source_kore": job(lambda case=case: actual_source_kore_result(
+                    kprove=kprove, definition=actual_definition, spec=actual_spec,
+                    case=case, workspace=workspace,
+                )) if case["pin"]["status"] == "incomplete" else None,
+            })
+        results = settle_all(jobs, workers)
 
-    for case, indices in zip(cases, case_jobs):
-        reference_process, reference_result, reference_claim = results[indices["reference"]].get()
-        actual_process, actual_result, actual_claim = results[indices["actual"]].get()
-        try:
-            reference_evidence = proofs.evidence_from_values(
-                case=proofs.ProofCase(
-                    case["name"], case["source_spec"], case["source_module"],
-                    case["source_claim"], case["bounds"]
-                ),
-                result_value=reference_result, claim_value=reference_claim,
-                returncode=reference_process.returncode, stderr=reference_process.stderr,
-                user_labels=(), policy=reference_policy,
+        for case, indices in zip(cases, case_jobs):
+            reference_process, reference_result, reference_claim = results[indices["reference"]].get()
+            actual_process, actual_result, actual_claim = results[indices["actual"]].get()
+            try:
+                reference_evidence = proofs.evidence_from_values(
+                    case=proofs.ProofCase(
+                        case["name"], case["source_spec"], case["source_module"],
+                        case["source_claim"], case["bounds"]
+                    ),
+                    result_value=reference_result, claim_value=reference_claim,
+                    returncode=reference_process.returncode, stderr=reference_process.stderr,
+                    user_labels=(), policy=reference_policy,
+                )
+            except RuntimeError as error:
+                raise GateError(f"{case['name']} reference evidence: {error}") from error
+            try:
+                actual_evidence = proofs.evidence_from_values(
+                    case=proofs.ProofCase(
+                        case["name"], actual_spec, ACTUAL_SPEC_MODULE,
+                        case["actual_claim"], case["bounds"]
+                    ),
+                    result_value=actual_result, claim_value=actual_claim,
+                    returncode=actual_process.returncode, stderr=actual_process.stderr,
+                    user_labels=(), policy=actual_policy,
+                )
+            except RuntimeError as error:
+                raise GateError(f"{case['name']} actual evidence: {error}") from error
+            compare_source_evidence(case["name"], reference_evidence, actual_evidence)
+            observed_pin = legacy_pin(
+                process=reference_process, result=reference_result, claim=reference_claim,
+                bounds=case["bounds"], session=session, label=case["source_claim"],
             )
-        except RuntimeError as error:
-            raise GateError(f"{case['name']} reference evidence: {error}") from error
-        try:
-            actual_evidence = proofs.evidence_from_values(
-                case=proofs.ProofCase(
-                    case["name"], actual_spec, ACTUAL_SPEC_MODULE,
-                    case["actual_claim"], case["bounds"]
-                ),
-                result_value=actual_result, claim_value=actual_claim,
-                returncode=actual_process.returncode, stderr=actual_process.stderr,
-                user_labels=(), policy=actual_policy,
-            )
-        except RuntimeError as error:
-            raise GateError(f"{case['name']} actual evidence: {error}") from error
-        compare_source_evidence(case["name"], reference_evidence, actual_evidence)
-        observed_pin = legacy_pin(
-            process=reference_process, result=reference_result, claim=reference_claim,
-            bounds=case["bounds"], normalizer=normalizer,
+            comparable_pin = dict(observed_pin)
+            comparable_expected = dict(case["pin"])
+            if observed_pin["status"] == "incomplete":
+                # KORE conjunction and branch traversal can change the raw KAST tree order while preserving the normalized sorted frontier.
+                # Incomplete proofs must match the exact frontier digest and parsed source/native KORE below.
+                # The raw result digest must be excluded from this comparison because it pins one traversal order.
+                comparable_pin.pop("result_sha256")
+                comparable_expected.pop("result_sha256")
+            if comparable_pin != comparable_expected:
+                raise GateError(
+                    f"reference proof pin differs for {case['name']}: observed={canonical_json(observed_pin)}"
+                )
+            results[indices["dry_run"]].get()
+
+        native_statuses: dict[str, str] = {}
+        for case, indices in zip(cases, case_jobs):
+            status, native_result = results[indices["native"]].get()
+            if status != case["pin"]["status"]:
+                raise GateError(
+                    f"native proof status differs for {case['name']}: "
+                    f"expected={case['pin']['status']}, observed={status}"
+                )
+            native_statuses[case["name"]] = status
+            if status == "incomplete":
+                source_result = results[indices["source_kore"]].get()
+                run([support, "proof", "compare-patterns", source_result, native_result], timeout=120)
+        if set(native_statuses) != {case["name"] for case in cases}:
+            raise GateError("native proof coverage is incomplete")
+
+        print(
+            "PASS IMP proofs: reference_source=21 actual_source=21 "
+            "dry_run_specs=21 native_haskell=21 native_unique_claims=20"
         )
-        comparable_pin = dict(observed_pin)
-        comparable_expected = dict(case["pin"])
-        if observed_pin["status"] == "incomplete":
-            # KORE's conjunction/branch traversal can change the raw KAST tree
-            # order while the normalized sorted frontier remains identical.
-            # The result digest in the investigation ledger captured one such
-            # traversal.  The complete semantic residual is protected by the
-            # exact frontier digest and, below, by parsed source/native KORE
-            # equality.  Do not mistake the unstable container order for a
-            # semantic delta.
-            comparable_pin.pop("result_sha256")
-            comparable_expected.pop("result_sha256")
-        if comparable_pin != comparable_expected:
-            raise GateError(
-                f"reference proof pin differs for {case['name']}: observed={canonical_json(observed_pin)}"
-            )
-        results[indices["dry_run"]].get()
-
-    native_statuses: dict[str, str] = {}
-    for case, indices in zip(cases, case_jobs):
-        status, native_result = results[indices["native"]].get()
-        if status != case["pin"]["status"]:
-            raise GateError(
-                f"native proof status differs for {case['name']}: "
-                f"expected={case['pin']['status']}, observed={status}"
-            )
-        native_statuses[case["name"]] = status
-        if status == "incomplete":
-            source_result = results[indices["source_kore"]].get()
-            run([support, "proof", "compare-patterns", source_result, native_result], timeout=120)
-    if set(native_statuses) != {case["name"] for case in cases}:
-        raise GateError("native proof coverage is incomplete")
-
-    print(
-        "PASS IMP proofs: reference_source=21 actual_source=21 "
-        "dry_run_specs=21 native_haskell=21 native_unique_claims=20"
-    )
-    return 0
+        return 0
 
 
 if __name__ == "__main__":

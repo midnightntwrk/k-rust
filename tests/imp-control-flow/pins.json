@@ -43,6 +43,5 @@
     "syntax_diagnostics": "c6773531d96d6bedfb47be29cf0c39219bd4a655a5062d4f3f29adc2646169f7"
   },
   "induced_diagnostic_sha256": "6a933c5f68605b93af7b391578e5e2da4384d183f0a9e8de08544b6ec802ee28",
-  "kast_json_version": 4,
   "trace_normalizer_version": 1
 }

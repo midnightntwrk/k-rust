@@ -5,8 +5,9 @@ lost with the failed disk. The original file hashes are retained in the
 `reconstruction` table of `pins.json`; none of the reconstructed files claims
 byte identity.
 
-The oracle remains independent of KRS-generated artifacts. It layers a small
-static-form stress surface over the pinned upstream IMP definition and checks:
+The oracle must run the pinned K command-line tools and read their KAST JSON output through k-rust's reader in krs-gate.
+Its independence rests on Java K producing that output independently of KRS-generated artifacts.
+It layers a small static-form stress surface over the pinned upstream IMP definition and checks:
 
 - total and partial functions and guarded equations;
 - explicit equation priority;
@@ -22,6 +23,4 @@ Run under K 7.1.337:
 TMPDIR=/var/tmp PYTHONDONTWRITEBYTECODE=1 python3 tests/imp_static_semantics/verify.py
 ```
 
-The verifier owns fresh disposable compilation/proof workspaces and treats a
-timeout, unknown KAST node, unclassified proof exit, or pin difference as a
-failure.
+The verifier must own fresh disposable compilation/proof workspaces and treat a timeout, unknown KAST node, unclassified proof exit, or pin difference as a failure.

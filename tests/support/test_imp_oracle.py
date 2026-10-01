@@ -5,10 +5,14 @@ from __future__ import annotations
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
-from support.imp_oracle import aggregate, compare_output
+from support import imp_oracle
+from support.imp_oracle import KAST, aggregate, compare_output, parse_accepted
 from support.pins import Ledger
 from support.report import Results
 
@@ -20,6 +24,43 @@ class AggregateTests(unittest.TestCase):
             aggregate({"a": [1, 2], "b": {"value": 2}}),
         )
         self.assertNotEqual(aggregate({"a": 1}), aggregate({"a": 2}))
+
+
+class ParseAcceptedTests(unittest.TestCase):
+    def test_kparse_uses_process_evidence_and_preserves_raw_terms(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            (workspace / "accepted.calc").write_text("opaque source", encoding="utf-8")
+            spec = SimpleNamespace(
+                accepted=workspace, extension=".calc", module="MAIN",
+                expected_trees={"accepted.calc": ["expected"]},
+            )
+            kast = KAST(
+                validation_policy={}, label_map={}, parsed_counts={},
+                heat_cool=(0, 0), context_attributes=(), context_count=0,
+            )
+            raw_term = {"opaque": ["raw", "observation"], "order": 1}
+            tools = {"kast": "parse-tool", "kparse": "portable-tool"}
+            for returncode, stdout, accepted in ((0, "opaque result", True), (0, " \n", False), (1, "opaque result", False)):
+                with self.subTest(returncode=returncode, stdout=stdout):
+                    session = Mock()
+                    session.kast_inspect.side_effect = [
+                        {"term": raw_term}, ["expected"], {"term": raw_term},
+                    ]
+                    responses = [
+                        subprocess.CompletedProcess([], 0, "opaque JSON", ""),
+                        subprocess.CompletedProcess([], returncode, stdout, ""),
+                        subprocess.CompletedProcess([], 0, "opaque program", ""),
+                        subprocess.CompletedProcess([], 0, "opaque JSON", ""),
+                    ]
+                    with patch.object(imp_oracle, "run", side_effect=responses):
+                        if accepted:
+                            trees, unparsed = parse_accepted(spec, kast, session, tools, workspace, workspace)
+                            self.assertIs(trees["accepted.calc"], raw_term)
+                            self.assertEqual(unparsed, {"accepted.calc": "opaque program"})
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, "kparse failed"):
+                                parse_accepted(spec, kast, session, tools, workspace, workspace)
 
 
 class CompareOutputTests(unittest.TestCase):

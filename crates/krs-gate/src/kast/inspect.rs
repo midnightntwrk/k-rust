@@ -182,24 +182,25 @@ pub(crate) fn search_frontier(term: &Term) -> Result<&Term, String> {
     Ok(frontier)
 }
 
-fn sentence_kind(sentence: &Sentence) -> &'static str {
-    match sentence {
-        Sentence::SyntaxSort { .. } => "KSyntaxSort",
-        Sentence::SortSynonym { .. } => "KSortSynonym",
-        Sentence::SyntaxLexical { .. } => "KSyntaxLexical",
-        Sentence::Production { .. } => "KProduction",
-        Sentence::SyntaxAssociativity { .. } => "KSyntaxAssociativity",
-        Sentence::SyntaxPriority { .. } => "KSyntaxPriority",
-        Sentence::ContextAlias { .. } => "KContextAlias",
-        Sentence::Context { .. } => "KContext",
-        Sentence::Rule { .. } => "KRule",
-        Sentence::Claim { .. } => "KClaim",
-        Sentence::Configuration { .. } => "KConfiguration",
-        Sentence::Bubble { .. } => "KBubble",
-    }
+fn sentence_kind(sentence: &Sentence, semantic: bool) -> &'static str {
+    let (node, kind) = match sentence {
+        Sentence::SyntaxSort { .. } => ("KSyntaxSort", "syntax_sort"),
+        Sentence::SortSynonym { .. } => ("KSortSynonym", "sort_synonym"),
+        Sentence::SyntaxLexical { .. } => ("KSyntaxLexical", "syntax_lexical"),
+        Sentence::Production { .. } => ("KProduction", "production"),
+        Sentence::SyntaxAssociativity { .. } => ("KSyntaxAssociativity", "syntax_associativity"),
+        Sentence::SyntaxPriority { .. } => ("KSyntaxPriority", "syntax_priority"),
+        Sentence::ContextAlias { .. } => ("KContextAlias", "context_alias"),
+        Sentence::Context { .. } => ("KContext", "context"),
+        Sentence::Rule { .. } => ("KRule", "rule"),
+        Sentence::Claim { .. } => ("KClaim", "claim"),
+        Sentence::Configuration { .. } => ("KConfiguration", "configuration"),
+        Sentence::Bubble { .. } => ("KBubble", "bubble"),
+    };
+    if semantic { kind } else { node }
 }
 
-fn sentence_fact(sentence: &Sentence) -> Result<Value, String> {
+fn sentence_fact(sentence: &Sentence, semantic: bool) -> Result<Value, String> {
     let attributes = sentence.attributes();
     let klabel = match sentence {
         Sentence::Production { label, .. } => label.as_ref().map(|label| label.name.as_str()),
@@ -207,14 +208,18 @@ fn sentence_fact(sentence: &Sentence) -> Result<Value, String> {
     };
     Ok(json!({
         "sha256":format!("{:x}", Sha256::digest(super::canonical_json(&reader::sentence_value(sentence)?).as_bytes())),
-        "node":sentence_kind(sentence),
+        "node":sentence_kind(sentence, semantic),
         "label":attributes.get("label").unwrap_or(&Value::Null),
         "klabel":klabel,
         "attribute_keys":attributes.wire_entries().map(|(key,_)| key).collect::<Vec<_>>()
     }))
 }
 
-fn module_facts(document: &DefinitionDocument, name: &str) -> Result<Value, String> {
+fn module_facts(
+    document: &DefinitionDocument,
+    name: &str,
+    semantic: bool,
+) -> Result<Value, String> {
     let matches = document
         .definition
         .modules
@@ -235,15 +240,20 @@ fn module_facts(document: &DefinitionDocument, name: &str) -> Result<Value, Stri
     let mut facts = Vec::with_capacity(total);
     for index in 0..total {
         if bad.is_some_and(|bad| bad.contains_key(&index)) {
-            *counts.entry("badsentence").or_default() += 1;
+            let kind = if semantic {
+                "bad_sentence"
+            } else {
+                "badsentence"
+            };
+            *counts.entry(kind).or_default() += 1;
             facts
-                .push(json!({"node":"badsentence","label":null,"klabel":null,"attribute_keys":[],"sha256":format!("{:x}", Sha256::digest(super::canonical_json(&json!({"node":"badsentence"})).as_bytes()))}));
+                .push(json!({"node":kind,"label":null,"klabel":null,"attribute_keys":[],"sha256":format!("{:x}", Sha256::digest(super::canonical_json(&json!({"node":"badsentence"})).as_bytes()))}));
         } else {
             let sentence = sentences
                 .next()
                 .ok_or("invalid recorded sentence positions")?;
-            *counts.entry(sentence_kind(sentence)).or_default() += 1;
-            facts.push(sentence_fact(sentence)?);
+            *counts.entry(sentence_kind(sentence, semantic)).or_default() += 1;
+            facts.push(sentence_fact(sentence, semantic)?);
         }
     }
     Ok(json!({"counts":counts,"sentences":facts}))
@@ -294,6 +304,12 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
             abstract_term(document.term()?, &names)
         }
         "module_facts" => {
+            let semantic = match request.get("vocabulary") {
+                None => false,
+                Some(Value::String(value)) if value == "kast" => false,
+                Some(Value::String(value)) if value == "semantic" => true,
+                _ => return Err("module_facts vocabulary must be kast or semantic".into()),
+            };
             let wrapper;
             let definition = match document {
                 Document::Definition(definition) => definition,
@@ -319,6 +335,7 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
                 module_facts(
                     definition,
                     name.as_str().ok_or("module name must be a string")?,
+                    semantic,
                 )
             } else {
                 definition
@@ -326,7 +343,10 @@ pub(crate) fn handle(request: &Value, document: &Document) -> Result<Value, Stri
                     .modules
                     .iter()
                     .map(|module| {
-                        Ok((module.name.clone(), module_facts(definition, &module.name)?))
+                        Ok((
+                            module.name.clone(),
+                            module_facts(definition, &module.name, semantic)?,
+                        ))
                     })
                     .collect::<Result<serde_json::Map<_, _>, String>>()
                     .map(Value::Object)
@@ -549,6 +569,25 @@ mod tests {
         assert_eq!(facts["sentences"][0]["node"], "badsentence");
         assert_eq!(facts["sentences"][1]["klabel"], "label");
         assert_eq!(facts["sentences"][1]["attribute_keys"], json!(["strict"]));
+        let summary = handle(
+            &json!({"action":"module_facts","name":"MAIN","vocabulary":"semantic"}),
+            &document,
+        )
+        .unwrap();
+        assert_eq!(summary["counts"], json!({"bad_sentence":1,"production":1}));
+        assert_eq!(summary["sentences"][0]["node"], "bad_sentence");
+        assert_eq!(summary["sentences"][1]["node"], "production");
+        for field in ["label", "klabel", "attribute_keys", "sha256"] {
+            assert_eq!(summary["sentences"][1][field], facts["sentences"][1][field]);
+        }
+        assert!(
+            handle(
+                &json!({"action":"module_facts","vocabulary":"unknown"}),
+                &document
+            )
+            .is_err()
+        );
+
         assert!(
             handle(
                 &json!({"action":"module_facts","name":"MISSING"}),

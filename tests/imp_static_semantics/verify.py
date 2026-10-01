@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import re
 import sys
@@ -12,14 +11,13 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from imp_static_semantics.normalize import envelope, normalize_claim_spec, normalize_proof  # noqa: E402
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.lock import k_commit, k_version  # noqa: E402
-from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.hashing import json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import k_tool  # noqa: E402
+from support.tools import checkout_scratch, k_tool, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -35,85 +33,6 @@ PINS = HERE / "pins.json"
 INPUT_PIN_KEYS = frozenset({"schema", "oracle", "upstream_imp", "reconstruction", "corpus_sha256"})
 OUTPUT_PIN_KEYS = frozenset({"static_execution", "proof_outcomes", "qualified_proof_outcomes"})
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
-
-
-def root_label(normalized: dict[str, Any]) -> str | None:
-    term = normalized.get("term")
-    if not isinstance(term, dict):
-        raise GateError("normalized proof has no object term")
-    label = term.get("label")
-    if label is None:
-        return None
-    if not isinstance(label, dict) or not isinstance(label.get("name"), str):
-        raise GateError("normalized proof root label is malformed")
-    return label["name"]
-
-
-def flatten(root: Any, label: str) -> list[Any]:
-    if (
-        isinstance(root, dict)
-        and root.get("node") == "KApply"
-        and root.get("label", {}).get("name") == label
-    ):
-        result: list[Any] = []
-        for child in root["args"]:
-            result.extend(flatten(child, label))
-        return result
-    return [root]
-
-
-def normalized_frontier(normalized: dict[str, Any]) -> tuple[str, ...]:
-    term = normalized["term"]
-    if root_label(normalized) in {"#Top", "#Bottom"}:
-        return ()
-    frontier: list[str] = []
-    for branch in flatten(term, "#Or"):
-        states: list[Any] = []
-        constraints: list[Any] = []
-        for conjunct in flatten(branch, "#And"):
-            name = conjunct.get("label", {}).get("name") if isinstance(conjunct, dict) else None
-            (constraints if name in CONSTRAINT_LABELS else states).append(conjunct)
-        frontier.append(
-            canonical_json(
-                {
-                    "states": sorted(states, key=canonical_json),
-                    "constraints": sorted(constraints, key=canonical_json),
-                }
-            )
-        )
-    return tuple(sorted(frontier))
-
-
-def classify(returncode: int, root: str | None, stderr: str) -> str:
-    if returncode == 0 and root == "#Top":
-        return "proved"
-    if returncode == 1 and root == "#Bottom":
-        return "failed"
-    stalled = re.search(r"configuration cannot be\s+rewritten further", stderr) is not None
-    if returncode == 1 and root not in {"#Top", "#Bottom"} and stalled:
-        return "incomplete"
-    raise GateError(
-        f"unclassified bounded proof termination: rc={returncode}, root={root!r}"
-    )
-
-
-def unique_claim(value: dict[str, Any]) -> dict[str, Any]:
-    found: list[dict[str, Any]] = []
-
-    def visit(node: Any) -> None:
-        if isinstance(node, list):
-            for child in node:
-                visit(child)
-        elif isinstance(node, dict):
-            if node.get("node") == "KClaim":
-                found.append(node)
-            for child in node.values():
-                visit(child)
-
-    visit(value)
-    if len(found) != 1:
-        raise GateError(f"expected one selected KClaim, found {len(found)}")
-    return found[0]
 
 
 def proof_cases() -> tuple[dict[str, Any], ...]:
@@ -151,6 +70,7 @@ def prove(
     case: dict[str, Any],
     *,
     kprove: str,
+    session: krs_gate.Session,
     definition: Path,
     workspace: Path,
     timeout: int,
@@ -183,17 +103,19 @@ def prove(
         check=False,
     )
     try:
-        normalized_result = normalize_proof(envelope(process.stdout))
-        claim_value = json.loads(spec_json.read_text(encoding="utf-8"))
-        selected = unique_claim(claim_value)
-        if selected.get("att", {}).get("att", {}).get("label") != case["claim"]:
-            raise GateError(f"selected claim differs for {case['name']}")
-        normalized_claim = normalize_claim_spec(claim_value)
-    except (OSError, json.JSONDecodeError, ValueError) as error:
+        normalized_result = session.kast_normalize("static_proof", text=process.stdout)
+        normalized_claim = session.kast_normalize(
+            "static_claim", path=spec_json, label=case["claim"]
+        )
+        evidence = session.kast_frontier(
+            "proof", normalized_result, returncode=process.returncode, stderr=process.stderr,
+            constraint_labels=sorted(CONSTRAINT_LABELS),
+        )
+    except (OSError, ValueError, GateError) as error:
         raise GateError(f"incomplete proof evidence for {case['name']}: {error}") from error
-    frontier = normalized_frontier(normalized_result)
+    frontier = evidence["frontier"]
     return {
-        "status": classify(process.returncode, root_label(normalized_result), process.stderr),
+        "status": evidence["status"],
         "bounds": {"depth": case["depth"], "branching_allowed": 64},
         "frontier_count": len(frontier),
         "frontier_sha256": sha256_text("\n".join(frontier)),
@@ -297,7 +219,11 @@ def main() -> int:
     upstream_commit = str(pins.table("upstream_imp").get("commit"))
     verify_checkout(IMP, upstream_commit, label="IMP")
 
-    with tempfile.TemporaryDirectory(prefix="krs-imp-static-reconstructed-") as temporary:
+    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-static-semantics-root-target")
+    with (
+        krs_gate.Session(gate, environment=z3_environment()) as session,
+        tempfile.TemporaryDirectory(prefix="krs-imp-static-reconstructed-") as temporary,
+    ):
         workspace = Path(temporary)
         definition = workspace / "static-kompiled"
         compiled = run(
@@ -354,6 +280,7 @@ def main() -> int:
             outcome = prove(
                 case,
                 kprove=kprove,
+                session=session,
                 definition=definition,
                 workspace=workspace,
                 timeout=options.timeout,

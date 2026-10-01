@@ -1,9 +1,9 @@
 # Independent IMP control-flow oracle
 
-This directory freezes the external acceptance contract for the third explicit
-IMP vertical slice. It is production-independent: the verifier invokes only
-the pinned K command-line tools and neither the handwritten definition nor its
-corpus imports a KRS crate or KRS-generated artifact.
+This directory freezes the external acceptance contract for the third explicit IMP vertical slice.
+The verifier must run the pinned K command-line tools and read their KAST JSON output through k-rust's reader in krs-gate.
+Oracle independence rests on Java K producing that output.
+Neither the handwritten definition nor the corpus may import a KRS crate or KRS-generated artifact.
 
 `fixtures/imp.k` layers directly on `tests/imp-state/fixtures/calc.k` with an ordinary
 `requires`. It is a module-renamed transcription of modern IMP `imp.k` and
