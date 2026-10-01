@@ -23,6 +23,7 @@ use k_rust::{
         ResolvedDefinition, SENTENCE_END_OFFSET_ATTRIBUTE, SENTENCE_START_OFFSET_ATTRIBUTE,
         Sentence, checks::check_definition,
     },
+    inner::ParsedProgram,
     kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan, printer::Printer},
     kompile::{
         GeneratedVariableIdentity, MacroExpansionDefinition, add_cool_like_attributes,
@@ -3614,9 +3615,10 @@ fn simplification_rules_do_not_inherit_macro_kinds_during_expansion() {
             expand_macros_in_term(
                 &definition,
                 "MAIN",
-                application("m", vec![application("a", Vec::new())]),
+                ParsedProgram::from_term(application("m", vec![application("a", Vec::new())])),
             )
-            .unwrap(),
+            .unwrap()
+            .into_term(),
             application("m", vec![application("a", Vec::new())]),
             "production attribute {macro_kind}",
         );
@@ -3642,9 +3644,10 @@ fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
             expand_macros_in_term(
                 &definition,
                 "MAIN",
-                application("m", vec![application("a", Vec::new())]),
+                ParsedProgram::from_term(application("m", vec![application("a", Vec::new())])),
             )
-            .unwrap(),
+            .unwrap()
+            .into_term(),
             application("f", vec![application("a", Vec::new())]),
             "production attribute {macro_kind}",
         );
@@ -3675,17 +3678,15 @@ fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
             k_rust::provenance::SourceId(0),
         )
         .unwrap()
-        .typed_term()
-        .clone()
     };
 
     let int = program("Int", "m(1)");
-    let Term::Apply { label, .. } = int.unannotated() else {
+    let Term::Apply { label, .. } = int.typed_term().unannotated() else {
         panic!("{int:?}")
     };
     assert_eq!(label.parameters, [Sort::new("Int")], "{int:?}");
     assert_eq!(
-        prepared.expand_term("MAIN", int).unwrap(),
+        prepared.expand_program("MAIN", int).unwrap().into_term(),
         Term::Token {
             token: "1".into(),
             sort: Sort::new("Int"),
@@ -3693,8 +3694,12 @@ fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
     );
 
     let exp = program("Exp", "m(a)");
-    let expanded = prepared.expand_term("MAIN", exp.clone()).unwrap();
-    assert_eq!(expanded, exp, "an Exp argument does not match X:Int");
+    let expanded = prepared.expand_program("MAIN", exp.clone()).unwrap();
+    assert_eq!(
+        expanded.term(),
+        exp.typed_term(),
+        "an Exp argument does not match X:Int"
+    );
 }
 
 /// One parametric production with two macro rules that only their result sorts separate: each
@@ -3723,17 +3728,15 @@ fn parametric_macro_rules_apply_only_at_their_head_instance() {
             k_rust::provenance::SourceId(0),
         )
         .unwrap()
-        .typed_term()
-        .clone()
     };
     for (sort, token) in [("Bool", "true"), ("Int", "1")] {
         let term = program(sort);
-        let Term::Apply { label, .. } = term.unannotated() else {
+        let Term::Apply { label, .. } = term.typed_term().unannotated() else {
             panic!("{term:?}")
         };
         assert_eq!(label.parameters, [Sort::new(sort)], "{term:?}");
         assert_eq!(
-            prepared.expand_term("MAIN", term).unwrap(),
+            prepared.expand_program("MAIN", term).unwrap().into_term(),
             Term::Token {
                 token: token.into(),
                 sort: Sort::new(sort),
@@ -3742,7 +3745,10 @@ fn parametric_macro_rules_apply_only_at_their_head_instance() {
         );
     }
     let exp = program("Exp");
-    assert_eq!(prepared.expand_term("MAIN", exp.clone()).unwrap(), exp);
+    assert_eq!(
+        prepared.expand_program("MAIN", exp.clone()).unwrap().term(),
+        exp.typed_term()
+    );
 }
 
 /// The instance of a macro rule's head is the one the typing of the rule gives it. When nothing
@@ -3765,14 +3771,12 @@ fn a_parametric_macro_head_takes_the_instance_its_rule_is_typed_at() {
             "m()",
             k_rust::provenance::SourceId(0),
         )
-        .unwrap()
-        .typed_term()
-        .clone();
+        .unwrap();
         let expanded = MacroExpansionDefinition::prepare(&definition)
             .unwrap()
-            .expand_term("MAIN", program)
+            .expand_program("MAIN", program)
             .unwrap();
-        Printer::new().print_term(&expanded)
+        Printer::new().print_term(expanded.term())
     };
     assert_eq!(expand("m() => n()", "Bool"), "n(.KList)");
     assert_eq!(expand("m() => X", "Bool"), "m{Bool}(.KList)");
@@ -3830,9 +3834,10 @@ fn a_parametric_macro_sees_the_instance_of_its_expanded_arguments() {
     "#};
     let definition = parsed(source);
     let term = application("f", vec![application("m", Vec::new())]);
-    let expanded = expand_macros_in_term(&definition, "MAIN", term).unwrap();
+    let expanded =
+        expand_macros_in_term(&definition, "MAIN", ParsedProgram::from_term(term)).unwrap();
     assert_eq!(
-        Printer::new().print_term(&expanded),
+        Printer::new().print_term(expanded.term()),
         r#"f(#token("true","Bool"))"#
     );
 }
@@ -3882,8 +3887,9 @@ fn a_parametric_macro_reads_the_label_instance_under_a_downcast() {
             sort: Some(Sort::new("KItem")),
         }],
     ));
-    let expanded = expand_macros_in_term(&definition, "MAIN", term.clone()).unwrap();
-    assert_eq!(expanded, term);
+    let expanded =
+        expand_macros_in_term(&definition, "MAIN", ParsedProgram::from_term(term.clone())).unwrap();
+    assert_eq!(expanded.term(), &term);
     // The same rule applies where the label's instance is `Bool`.
     let at_instance = application(
         "f",
@@ -3893,7 +3899,9 @@ fn a_parametric_macro_reads_the_label_instance_under_a_downcast() {
         }],
     );
     assert_eq!(
-        expand_macros_in_term(&definition, "MAIN", at_instance).unwrap(),
+        expand_macros_in_term(&definition, "MAIN", ParsedProgram::from_term(at_instance))
+            .unwrap()
+            .into_term(),
         truth()
     );
 }
@@ -3931,9 +3939,10 @@ fn a_parametric_macro_waits_for_the_sentence_to_type() {
             ),
         ],
     );
-    let expanded = expand_macros_in_term(&definition, "MAIN", term).unwrap();
+    let expanded =
+        expand_macros_in_term(&definition, "MAIN", ParsedProgram::from_term(term)).unwrap();
     assert_eq!(
-        Printer::new().print_term(&expanded),
+        Printer::new().print_term(expanded.term()),
         r#"pair(#token("false","Bool"),g(#token("1","Int")))"#
     );
 }
@@ -3983,18 +3992,19 @@ fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
         "f(a)",
         k_rust::provenance::SourceId(0),
     )
-    .unwrap()
-    .typed_term()
-    .clone();
-    let Term::Apply { label, .. } = program.unannotated() else {
+    .unwrap();
+    let Term::Apply { label, .. } = program.typed_term().unannotated() else {
         panic!("{program:?}")
     };
     assert_eq!(label.parameters, [Sort::new("KItem")], "{program:?}");
     let expanded = MacroExpansionDefinition::prepare(&definition)
         .unwrap()
-        .expand_term("MAIN", program)
+        .expand_program("MAIN", program)
         .unwrap();
-    assert_eq!(Printer::new().print_term(&expanded), r#"#token("0","Int")"#);
+    assert_eq!(
+        Printer::new().print_term(expanded.term()),
+        r#"#token("0","Int")"#
+    );
 }
 
 /// In a parsed program, whose labels carry the parser's instances, an application is typed
@@ -4021,14 +4031,12 @@ fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() 
         "f(m())",
         k_rust::provenance::SourceId(0),
     )
-    .unwrap()
-    .typed_term()
-    .clone();
+    .unwrap();
     let expanded = MacroExpansionDefinition::prepare(&definition)
         .unwrap()
-        .expand_term("MAIN", program)
+        .expand_program("MAIN", program)
         .unwrap();
-    let printed = Printer::new().print_term(&expanded);
+    let printed = Printer::new().print_term(expanded.term());
     assert!(printed.starts_with("f{"), "{printed}");
     assert!(printed.ends_with(r#"(#token("true","Bool"))"#), "{printed}");
 }
@@ -4060,9 +4068,10 @@ fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
 
     for term in terms {
+        let program = ParsedProgram::from_term(term);
         assert_eq!(
-            prepared.expand_term("MAIN", term.clone()).unwrap(),
-            expand_macros_in_term(&definition, "MAIN", term).unwrap(),
+            prepared.expand_program("MAIN", program.clone()).unwrap(),
+            expand_macros_in_term(&definition, "MAIN", program).unwrap(),
         );
     }
 }
@@ -4121,14 +4130,15 @@ fn prepared_macro_definition_matches_whole_definition_preparation() {
 
     let mut changed = 0;
     for term in terms {
-        let expanded = restricted.expand_term("MAIN", term.clone()).unwrap();
+        let program = ParsedProgram::from_term(term.clone());
+        let expanded = restricted.expand_program("MAIN", program.clone()).unwrap();
         assert_eq!(
             expanded,
-            reference.expand_term("MAIN", term.clone()).unwrap(),
+            reference.expand_program("MAIN", program).unwrap(),
             "{}",
             Printer::new().print_term(&term),
         );
-        changed += usize::from(expanded != term);
+        changed += usize::from(expanded.term() != &term);
     }
     // Every term but the ordinary `f(a)` applies a macro.
     assert_eq!(changed, 5);
@@ -4161,7 +4171,9 @@ fn explicit_simplification_macro_does_not_inherit_recursive_kind() {
     );
 
     assert_eq!(
-        expand_macros_in_term(&definition, "MAIN", term).unwrap(),
+        expand_macros_in_term(&definition, "MAIN", ParsedProgram::from_term(term))
+            .unwrap()
+            .into_term(),
         application(
             "m",
             vec![application(

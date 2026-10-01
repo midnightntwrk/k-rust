@@ -106,7 +106,7 @@ impl std::error::Error for ProgramParseError {}
 /// applications are as parsed.
 ///
 /// It is neither user-facing KAST nor an executable input: [`ProgramParser::present`] produces
-/// the first, and macro expansion in the executable module the second. The typed term is
+/// the first and [`MacroExpansionDefinition::expand_program`] the second. The typed term is
 /// reachable only through [`Self::typed_term`], which is for inspection, so a printer or a
 /// converter cannot receive it by accident:
 ///
@@ -128,6 +128,8 @@ impl std::error::Error for ProgramParseError {}
 /// Ok(presented.to_kast_text())
 /// # }
 /// ```
+///
+/// [`MacroExpansionDefinition::expand_program`]: crate::kompile::MacroExpansionDefinition::expand_program
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[must_use]
 pub struct ParsedProgram(Term);
@@ -146,7 +148,8 @@ impl ParsedProgram {
         &self.0
     }
 
-    /// The typed parser term, handed to macro expansion by the initial-configuration assembler.
+    /// The typed parser term, handed to macro expansion by
+    /// [`crate::kompile::MacroExpansionDefinition::expand_program`].
     pub(crate) fn into_typed_term(self) -> Term {
         self.0
     }

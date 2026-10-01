@@ -2,8 +2,10 @@
 //! with their cell's parser module, `$IO`/`$STDIN` stream defaults, and the
 //! `initGeneratedTopCell` application.
 //!
-//! [`ConfigurationAssembler`] composes these steps for any embedder; the leaf functions below
-//! remain available to callers that build a binding some other way.
+//! [`ConfigurationAssembler`] composes these steps. The bindings it collects and the builder of
+//! the application are private to the crate, so every `$X` entry it emits comes from a
+//! macro-expanded value or a stream default: an embedder cannot place an unexpanded program in
+//! the configuration map.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -12,17 +14,31 @@ use std::{
 
 use crate::{
     definition::{AttributeKey, Definition, ResolveError, ResolvedDefinition, Sentence},
-    inner::{ProgramError, ProgramParseError, ProgramParser, definition_with_named_projections},
-    kast::{Sort as KastSort, Term},
+    inner::{
+        ParsedProgram, ProgramError, ProgramParseError, ProgramParser,
+        definition_with_named_projections,
+    },
+    kast::Sort as KastSort,
     kompile::{
-        MacroExpansionDefinition, SortInjectionError, SortInjector, TermConversionError,
-        encode_kore_sort, term_to_kore_from_resolved_with_token_module,
+        ExpandedProgram, MacroExpansionDefinition, SortInjectionError, SortInjector,
+        TermConversionError, encode_kore_sort, term_to_kore_from_resolved_with_token_module,
     },
     kore::ast::{KoreString, Pattern, Sort, Symbol},
     names::{BuiltinSort, WellKnownSymbol},
 };
 
-pub type ConfigurationBinding = (String, Pattern, Sort);
+/// One `$X` entry of `initGeneratedTopCell`: the variable's name with its `$`, its KORE value,
+/// and the sort the value had before its injection into `KItem`.
+///
+/// The value is built only from a macro-expanded program or configuration value
+/// ([`ConfigurationAssembler::program`], [`ConfigurationAssembler::bind`]) or a stream default
+/// ([`stream_defaults`]).
+#[derive(Debug)]
+pub(crate) struct ConfigurationBinding {
+    name: String,
+    value: Pattern,
+    sort: Sort,
+}
 
 /// The grammar that concrete inputs to a compiled definition are parsed and converted against.
 ///
@@ -205,7 +221,7 @@ pub struct ConfigurationAssembler<'g> {
     macro_definition: Option<MacroExpansionDefinition>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
-    program: Option<(Pattern, Sort)>,
+    program: Option<ConfigurationBinding>,
     bound: BTreeSet<String>,
     bindings: Vec<ConfigurationBinding>,
 }
@@ -245,11 +261,16 @@ impl<'g> ConfigurationAssembler<'g> {
         let program = parser
             .parse(start_sort, text)
             .map_err(ConfigurationError::Program)?;
-        let term = self.expand(program.into_typed_term())?;
+        let program = self.expand(program)?;
         // The program has its own injector: a fresh one numbers the sort parameters it
         // introduces from zero, independently of the configuration values.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
-        self.program = Some(self.to_kore(&injector, &self.syntax_module, &term)?);
+        let (value, sort) = self.to_kore(&injector, &self.syntax_module, &program)?;
+        self.program = Some(ConfigurationBinding {
+            name: "$PGM".to_owned(),
+            value,
+            sort,
+        });
         Ok(())
     }
 
@@ -312,7 +333,7 @@ impl<'g> ConfigurationAssembler<'g> {
                 sort: sort.clone(),
                 error: Box::new(error),
             })?;
-        let term = self.expand(parsed.into_typed_term())?;
+        let expanded = self.expand(parsed)?;
         if self.injector.is_none() {
             self.injector = Some(SortInjector::new(resolved, &self.main_module)?);
         }
@@ -320,16 +341,20 @@ impl<'g> ConfigurationAssembler<'g> {
             .injector
             .as_ref()
             .expect("the injector was created above");
-        let (value, value_sort) = self.to_kore(injector, &parser_module, &term)?;
+        let (value, sort) = self.to_kore(injector, &parser_module, &expanded)?;
         self.bound.insert(name.to_owned());
-        self.bindings.push((format!("${name}"), value, value_sort));
+        self.bindings.push(ConfigurationBinding {
+            name: format!("${name}"),
+            value,
+            sort,
+        });
         Ok(())
     }
 
     /// Bind each declared `String`-sorted stream variable that is still unbound: `$IO` to `on`
     /// or `off` after `io`, and `$STDIN` to the input `read_input` returns, or to the empty
     /// string when `io` is on or the program itself was read from that input. `read_input` runs
-    /// only when its result is used; see [`stream_defaults`].
+    /// only when its result is used.
     ///
     /// The definition's parser attributes are validated first, so a malformed definition is
     /// reported before any input is consumed.
@@ -396,9 +421,9 @@ impl<'g> ConfigurationAssembler<'g> {
             .expect("the parser modules were computed above"))
     }
 
-    /// Expand the macros of a parsed term in the main module. The expander depends on the
-    /// grammar alone, so it is prepared once and serves every term.
-    fn expand(&mut self, term: Term) -> Result<Term, ConfigurationError> {
+    /// Expand the macros of a parsed value in the main module. The expander depends on the
+    /// grammar alone, so it is prepared once and serves every value.
+    fn expand(&mut self, program: ParsedProgram) -> Result<ExpandedProgram, ConfigurationError> {
         if self.macro_definition.is_none() {
             self.macro_definition = Some(
                 MacroExpansionDefinition::prepare(self.grammar.definition())
@@ -408,20 +433,21 @@ impl<'g> ConfigurationAssembler<'g> {
         self.macro_definition
             .as_ref()
             .expect("the macro definition was prepared above")
-            .expand_term(&self.main_module, term)
+            .expand_program(&self.main_module, program)
             .map_err(ConfigurationError::MacroExpansion)
     }
 
-    /// Inject and convert an expanded term parsed with `token_module`, returning its KORE
+    /// Inject and convert an expanded value parsed with `token_module`, returning its KORE
     /// pattern and the sort it had before injection.
     fn to_kore(
         &self,
         injector: &SortInjector<'g, 'g>,
         token_module: &str,
-        term: &Term,
+        program: &ExpandedProgram,
     ) -> Result<(Pattern, Sort), ConfigurationError> {
         // Expansion rebases applications into the executable catalog. Tokens remain
         // self-describing, and conversion retains lexical hooks from the parser module.
+        let term = program.term();
         let sort = injector.term_sort(term, None)?;
         let term = injector.inject_at_top(term)?;
         let pattern = term_to_kore_from_resolved_with_token_module(
@@ -469,9 +495,10 @@ pub fn parser_modules(
     Ok(modules)
 }
 
-/// Supply the stream configuration variables in reference order and read buffered stdin only when
-/// `$STDIN` is declared, absent, IO is disabled, and the parsed program does not consume stdin.
-pub fn stream_defaults<E>(
+/// Bind each declared `String`-sorted stream variable that is still unbound, `$IO` before
+/// `$STDIN`. Buffered stdin is read only for an unbound `$STDIN` when IO is off and the program
+/// itself does not consume stdin; otherwise `$STDIN` is the empty string.
+pub(crate) fn stream_defaults<E>(
     available: &BTreeMap<String, KastSort>,
     seen: &mut BTreeSet<String>,
     io: bool,
@@ -481,11 +508,11 @@ pub fn stream_defaults<E>(
     let mut bindings = Vec::new();
     let string_sort = KastSort::builtin(BuiltinSort::String);
     if available.get("IO") == Some(&string_sort) && !seen.contains("IO") {
-        bindings.push((
-            "$IO".into(),
-            string_domain_value(if io { "on" } else { "off" }),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
+        bindings.push(ConfigurationBinding {
+            name: "$IO".into(),
+            value: string_domain_value(if io { "on" } else { "off" }),
+            sort: kore_sort(BuiltinSort::String.kore_name()),
+        });
         seen.insert("IO".into());
     }
     if available.get("STDIN") == Some(&string_sort) && !seen.contains("STDIN") {
@@ -494,17 +521,19 @@ pub fn stream_defaults<E>(
         } else {
             read_buffered_stdin()?
         };
-        bindings.push((
-            "$STDIN".into(),
-            string_domain_value(input),
-            kore_sort(BuiltinSort::String.kore_name()),
-        ));
+        bindings.push(ConfigurationBinding {
+            name: "$STDIN".into(),
+            value: string_domain_value(input),
+            sort: kore_sort(BuiltinSort::String.kore_name()),
+        });
         seen.insert("STDIN".into());
     }
     Ok(bindings)
 }
 
-pub fn missing_variables(
+/// The declared variables other than `$PGM` that `seen` does not bind, each with its `$`, in
+/// name order.
+pub(crate) fn missing_variables(
     available: &BTreeMap<String, KastSort>,
     seen: &BTreeSet<String>,
 ) -> Vec<String> {
@@ -515,20 +544,16 @@ pub fn missing_variables(
         .collect()
 }
 
-/// Build the `initGeneratedTopCell` application the way `llvm-krun` does from krun's `-c`
-/// list: `$PGM` first, then supplied and synthesized configuration bindings in their input order.
-pub fn top_cell_initializer(
-    program: Option<(Pattern, Sort)>,
-    config_vars: Vec<ConfigurationBinding>,
+/// Build the `initGeneratedTopCell` application of a configuration map whose entries are the
+/// program binding first, when there is one, then `bindings` in their order.
+pub(crate) fn top_cell_initializer(
+    program: Option<ConfigurationBinding>,
+    bindings: Vec<ConfigurationBinding>,
 ) -> Pattern {
-    let mut entries = Vec::with_capacity(config_vars.len() + 1);
-    if let Some((program, program_sort)) = program {
-        entries.push(("$PGM".to_owned(), program, program_sort));
-    }
-    entries.extend(config_vars);
-    let mut entries = entries
+    let mut entries = program
         .into_iter()
-        .map(|(name, value, value_sort)| configuration_map_entry(&name, value, value_sort));
+        .chain(bindings)
+        .map(|binding| configuration_map_entry(&binding.name, binding.value, binding.sort));
     let arguments = match entries.next() {
         Some(first) => vec![entries.fold(first, |left, right| {
             kore_application("Lbl'Unds'Map'Unds'", Vec::new(), vec![left, right])
@@ -598,18 +623,19 @@ mod tests {
     #[test]
     fn top_initializer_combines_program_and_configuration_bindings() {
         let initial = top_cell_initializer(
-            Some((
-                Pattern::DomainValue {
+            Some(ConfigurationBinding {
+                name: "$PGM".into(),
+                value: Pattern::DomainValue {
                     sort: kore_sort("SortExp"),
                     value: "program".into(),
                 },
-                kore_sort("SortExp"),
-            )),
-            vec![(
-                "$ENV".into(),
-                kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
-                kore_sort("SortMap"),
-            )],
+                sort: kore_sort("SortExp"),
+            }),
+            vec![ConfigurationBinding {
+                name: "$ENV".into(),
+                value: kore_application("Lbl'Dot'Map", Vec::new(), Vec::new()),
+                sort: kore_sort("SortMap"),
+            }],
         );
         let rendered = Printer::compact().print_pattern(&initial);
 

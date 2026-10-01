@@ -42,6 +42,7 @@ use crate::{
         checks::{self, check_functions_with_internal_labels},
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
+    inner::ParsedProgram,
     kast::{Label, Sort, Term},
     kompile::{
         SentenceTyper, SentenceTyping, SortInjector,
@@ -208,8 +209,71 @@ fn check_smt_lemmas(
     diagnostics
 }
 
-/// Expand macros in a term parsed outside the definition, such as a program or
-/// configuration-variable value.
+/// A program or configuration value after macro expansion in the executable module: every
+/// application the module's macro and alias rules match is rewritten. An application that no
+/// rule matches remains; the backend's executable-pattern check rejects it at execution.
+///
+/// Macro and alias rules are definitional abbreviations that compilation removes from the
+/// executable semantics, so a macro application has no meaning there: execution consumes the
+/// expansion of a parse, never the parse itself. Only macro expansion produces this value
+/// ([`MacroExpansionDefinition::expand_program`], [`expand_macros_in_term`],
+/// [`expand_macros_in_term_with_scope`]), so sort injection and KORE conversion of a program
+/// cannot receive an unexpanded one:
+///
+/// ```compile_fail,E0308
+/// # use k_rust::{inner::ParsedProgram, kompile::SortInjector};
+/// # fn inject(injector: &SortInjector<'_, '_>, program: ParsedProgram) {
+/// let _ = injector.inject_at_top(&program); // 99e02f3e: an unexpanded program reaches conversion
+/// # }
+/// ```
+///
+/// The expanded term is what injection and conversion read:
+///
+/// ```
+/// # use k_rust::{kompile::{ExpandedProgram, SortInjector}};
+/// # fn inject(injector: &SortInjector<'_, '_>, program: ExpandedProgram) {
+/// let _ = injector.inject_at_top(program.term());
+/// # }
+/// ```
+///
+/// An expansion is not a presentation of the user's text, which shows macro applications as
+/// parsed, so a KAST printer does not take this value:
+///
+/// ```compile_fail,E0308
+/// # use k_rust::{kompile::ExpandedProgram, kast::printer::Printer};
+/// # fn show(expanded: &ExpandedProgram) -> String {
+/// Printer::new().print_term(expanded) // c156f029: an expanded program presented as KAST
+/// # }
+/// ```
+///
+/// [`Self::term`] is the accessor every consumer of the expansion uses, so it is not restricted:
+/// printing the expanded term compiles, and the site names the stage it prints.
+///
+/// ```
+/// # use k_rust::{kompile::ExpandedProgram, kast::printer::Printer};
+/// # fn show(expanded: &ExpandedProgram) -> String {
+/// Printer::new().print_term(expanded.term())
+/// # }
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct ExpandedProgram(Term);
+
+impl ExpandedProgram {
+    /// The expanded term, for sort injection and KORE conversion.
+    #[must_use]
+    pub fn term(&self) -> &Term {
+        &self.0
+    }
+
+    /// The expanded term, by value.
+    #[must_use]
+    pub fn into_term(self) -> Term {
+        self.0
+    }
+}
+
+/// Expand macros in a program or configuration value, a term parsed outside the definition.
 ///
 /// Definition compilation expands sentence bodies, but concrete programs are parsed only after
 /// that pipeline has finished. They must use the same propagated macro rules before sort
@@ -217,12 +281,12 @@ fn check_smt_lemmas(
 pub fn expand_macros_in_term(
     definition: &Definition,
     module: &str,
-    term: Term,
-) -> Result<Term, String> {
-    expand_macros_in_term_with_scope(definition, module, module, term)
+    program: ParsedProgram,
+) -> Result<ExpandedProgram, String> {
+    expand_macros_in_term_with_scope(definition, module, module, program)
 }
 
-/// Expand a standalone term parsed in one module with another module's executable syntax.
+/// Expand a standalone program parsed in one module with another module's executable syntax.
 ///
 /// Source-driven execution parses concrete input in a syntax or configuration parser module,
 /// while K selects executable macro rules from the main module. Parsed applications are rebased
@@ -233,9 +297,9 @@ pub fn expand_macros_in_term_with_scope(
     definition: &Definition,
     _term_module: &str,
     macro_module: &str,
-    term: Term,
-) -> Result<Term, String> {
-    MacroExpansionDefinition::prepare(definition)?.expand_term(macro_module, term)
+    program: ParsedProgram,
+) -> Result<ExpandedProgram, String> {
+    MacroExpansionDefinition::prepare(definition)?.expand_program(macro_module, program)
 }
 
 /// The definition from which standalone terms, such as a program or a configuration-variable
@@ -317,23 +381,29 @@ impl MacroExpansionDefinition {
         Ok(Self { resolved })
     }
 
-    /// Expand the macros of `macro_module` in one standalone term.
+    /// Expand the macros of `macro_module` in one parsed program or configuration value.
     ///
     /// Each call builds its own expander and fresh-name allocator, so the result of one call
-    /// does not depend on the terms expanded by earlier calls.
-    pub fn expand_term(&self, macro_module: &str, term: Term) -> Result<Term, String> {
+    /// does not depend on the programs expanded by earlier calls.
+    pub fn expand_program(
+        &self,
+        macro_module: &str,
+        program: ParsedProgram,
+    ) -> Result<ExpandedProgram, String> {
         let views = self.resolved.views();
         let mut expanded = expand_macros_in_terms_from_views_with_scope(
             &views,
             macro_module,
             macro_module,
-            vec![term],
+            vec![program.into_typed_term()],
         )
         .map_err(|diagnostic| diagnostic.message)?;
-        Ok(expanded
-            .terms
-            .pop()
-            .expect("one input term produces one expanded term"))
+        Ok(ExpandedProgram(
+            expanded
+                .terms
+                .pop()
+                .expect("one input term produces one expanded term"),
+        ))
     }
 }
 
