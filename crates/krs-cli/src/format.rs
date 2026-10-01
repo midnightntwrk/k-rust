@@ -42,8 +42,10 @@ pub struct FormatInput {
 /// Without paths, only the targets that reach a file count,
 /// so a file reached through `#[path]` from outside the source directory of every such target
 /// takes the edition of the first target, in Cargo's order, that reached it.
-/// Each file takes its facade aliases from its owning package's Cargo metadata dependencies.
-/// Dependency kinds and target predicates do not restrict the alias set.
+/// Each file takes the facade aliases of its owning package's manifest, as the collector does:
+/// each normal or dev-dependency on `krs` under its dependency name with `-` spelled `_`,
+/// following workspace inheritance, and `crate` within the `krs` package itself.
+/// Target predicates do not restrict the alias set.
 ///
 /// # Errors
 ///
@@ -71,8 +73,9 @@ pub fn discover_format_inputs(
         .map(|path| canonical_or_normalized(Path::new(path)))
         .transpose()?;
 
+    let mut aliases = FacadeAliasCache::default();
     if paths.is_empty() {
-        return workspace_inputs(&packages);
+        return workspace_inputs(&packages, &mut aliases);
     }
 
     // Ownership is resolved on canonical paths; files keep the caller's spelling.
@@ -83,7 +86,9 @@ pub fn discover_format_inputs(
             if root.extension().is_none_or(|extension| extension != "rs") {
                 return Err(format!("`{}` is not a Rust source file", path.display()));
             }
-            let Some((edition, facade_aliases)) = explicit_settings(&root, &packages)? else {
+            let Some((edition, facade_aliases)) =
+                explicit_settings(&root, &packages, &mut aliases)?
+            else {
                 return Err(format!(
                     "`{}` is not owned by a workspace package; pass --manifest-path of the workspace that owns it",
                     path.display()
@@ -102,7 +107,9 @@ pub fn discover_format_inputs(
         let mut owned = 0_usize;
         for file in found {
             // Files of no workspace member, such as a virtual workspace root's fixtures, are not inputs.
-            let Some((edition, facade_aliases)) = explicit_settings(&file, &packages)? else {
+            let Some((edition, facade_aliases)) =
+                explicit_settings(&file, &packages, &mut aliases)?
+            else {
                 continue;
             };
             owned += 1;
@@ -128,6 +135,7 @@ pub fn discover_format_inputs(
 
 fn workspace_inputs(
     packages: &BTreeMap<PathBuf, &MetadataPackage>,
+    aliases: &mut FacadeAliasCache,
 ) -> Result<Vec<FormatInput>, String> {
     let mut selected = BTreeMap::new();
     for package in packages.values() {
@@ -151,7 +159,7 @@ fn workspace_inputs(
                     0
                 };
                 let facade_aliases =
-                    facade_aliases(owning_package(&file, packages).unwrap_or(package))?;
+                    aliases.of(owning_package(&file, packages).unwrap_or(package))?;
                 let entry =
                     selected
                         .entry(file)
@@ -176,6 +184,7 @@ fn workspace_inputs(
 fn explicit_settings(
     file: &Path,
     packages: &BTreeMap<PathBuf, &MetadataPackage>,
+    aliases: &mut FacadeAliasCache,
 ) -> Result<Option<(Edition, BTreeSet<String>)>, String> {
     let Some(package) = owning_package(file, packages) else {
         return Ok(None);
@@ -195,13 +204,25 @@ fn explicit_settings(
             edition = target_edition(package, target.edition.as_deref())?;
         }
     }
-    Ok(Some((edition, facade_aliases(package)?)))
+    Ok(Some((edition, aliases.of(package)?)))
 }
 
 /// The facade aliases of `package` under the collector's manifest rule.
-fn facade_aliases(package: &MetadataPackage) -> Result<BTreeSet<String>, String> {
-    krs_collector::package_facade_aliases(Path::new(&package.manifest_path))
-        .map_err(|error| error.to_string())
+/// The facade aliases of each package, read from its manifest at most once.
+#[derive(Default)]
+struct FacadeAliasCache(BTreeMap<String, BTreeSet<String>>);
+
+impl FacadeAliasCache {
+    fn of(&mut self, package: &MetadataPackage) -> Result<BTreeSet<String>, String> {
+        if let Some(aliases) = self.0.get(&package.manifest_path) {
+            return Ok(aliases.clone());
+        }
+        let aliases = krs_collector::package_facade_aliases(Path::new(&package.manifest_path))
+            .map_err(|error| error.to_string())?;
+        self.0
+            .insert(package.manifest_path.clone(), aliases.clone());
+        Ok(aliases)
+    }
 }
 
 fn owning_package<'a>(
