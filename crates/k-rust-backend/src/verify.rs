@@ -144,6 +144,120 @@ impl<'a> VerifyContext<'a> {
         }
     }
 
+    /// The sort of an application of `symbol` to `arguments`, written plainly when
+    /// `associativity` is `None` and as an associative application otherwise.
+    fn application(
+        &mut self,
+        symbol: &kore::Symbol,
+        arguments: &[kore::Pattern],
+        associativity: Option<kore::Associativity>,
+    ) -> Result<Sort, VerificationError> {
+        self.with_context(format!("symbol or alias '{}'", symbol.name), |ctx| {
+            let sort_arguments = symbol
+                .sort_parameters
+                .iter()
+                .map(|sort| ctx.sort(sort))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (parameters, expected_arguments, result) =
+                if let Some(declaration) = ctx.symbols.get(symbol.name.as_str()) {
+                    (
+                        declaration.sort_variables.clone(),
+                        declaration.argument_sorts.clone(),
+                        declaration.result_sort.clone(),
+                    )
+                } else if let Some(alias) = ctx.aliases.get(&symbol.name) {
+                    let parameters = alias
+                        .sort_parameters
+                        .iter()
+                        .map(|name| Name::from(name.as_str()))
+                        .collect::<Vec<_>>();
+                    let known = alias
+                        .sort_parameters
+                        .iter()
+                        .cloned()
+                        .map(Name::from)
+                        .collect::<BTreeSet<_>>();
+                    (
+                        parameters,
+                        alias
+                            .argument_sorts
+                            .iter()
+                            .map(|sort| internalize_sort(sort, ctx.sorts, &known))
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|error| ctx.error(format!("{error}")))?,
+                        internalize_sort(&alias.result_sort, ctx.sorts, &known)
+                            .map_err(|error| ctx.error(format!("{error}")))?,
+                    )
+                } else {
+                    return Err(ctx.error(format!("Head '{}' not defined.", symbol.name)));
+                };
+            if parameters.len() != sort_arguments.len() {
+                return Err(ctx.error(format!(
+                    "Expected {} sort parameters, but got {}.",
+                    parameters.len(),
+                    sort_arguments.len()
+                )));
+            }
+            let substitution = parameters
+                .into_iter()
+                .zip(sort_arguments)
+                .collect::<BTreeMap<_, _>>();
+            let expected_arguments = expected_arguments
+                .iter()
+                .map(|expected| substitute_sort(expected, &substitution))
+                .collect::<Vec<_>>();
+            let result = substitute_sort(&result, &substitution);
+            let Some(associativity) = associativity else {
+                if expected_arguments.len() != arguments.len() {
+                    return Err(ctx.error(format!(
+                        "Expected {} operands, but got {}.",
+                        expected_arguments.len(),
+                        arguments.len()
+                    )));
+                }
+                for (argument, expected) in arguments.iter().zip(&expected_arguments) {
+                    let actual = ctx.pattern(argument)?;
+                    ctx.expect_sort(expected, actual)?;
+                }
+                return Ok(result);
+            };
+            // `\left-assoc{}(f(a1, ..., an))` denotes `f(...f(f(a1, a2), a3)..., an)` and
+            // `\right-assoc{}(f(a1, ..., an))` denotes `f(a1, f(a2, ...f(an-1, an)...))`:
+            // a fold of a binary head over one or more operands, whose single-operand case
+            // is the operand itself. It is well formed when every application of the fold
+            // is.
+            let [left, right] = expected_arguments.as_slice() else {
+                return Err(ctx.error(format!(
+                    "Associative application needs a binary head, but '{}' takes {} operands.",
+                    symbol.name,
+                    expected_arguments.len()
+                )));
+            };
+            let mut operands = arguments
+                .iter()
+                .map(|argument| ctx.pattern(argument))
+                .collect::<Result<Vec<_>, _>>()?;
+            // The accumulated fold is the first operand of a left fold step and the second of
+            // a right fold step.
+            let (accumulated_expected, operand_expected) = match associativity {
+                kore::Associativity::Left => (left, right),
+                kore::Associativity::Right => {
+                    operands.reverse();
+                    (right, left)
+                }
+            };
+            let mut operands = operands.into_iter();
+            let first = operands
+                .next()
+                .ok_or_else(|| ctx.error("Associative application needs at least one operand."))?;
+            operands.try_fold(first, |accumulated, operand| {
+                ctx.expect_sort(accumulated_expected, accumulated)?;
+                ctx.expect_sort(operand_expected, operand)?;
+                Ok(result.clone())
+            })
+        })
+    }
+
     fn pattern(&mut self, pattern: &kore::Pattern) -> Result<Sort, VerificationError> {
         use kore::Pattern;
         match pattern {
@@ -171,72 +285,12 @@ impl<'a> VerifyContext<'a> {
                 }
                 Ok(sort)
             }
-            Pattern::Application { symbol, arguments }
-            | Pattern::AssociativeApplication {
-                symbol, arguments, ..
-            } => self.with_context(format!("symbol or alias '{}'", symbol.name), |ctx| {
-                let sort_arguments = symbol
-                    .sort_parameters
-                    .iter()
-                    .map(|sort| ctx.sort(sort))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let (parameters, expected_arguments, result) =
-                    if let Some(declaration) = ctx.symbols.get(symbol.name.as_str()) {
-                        (
-                            declaration.sort_variables.clone(),
-                            declaration.argument_sorts.clone(),
-                            declaration.result_sort.clone(),
-                        )
-                    } else if let Some(alias) = ctx.aliases.get(&symbol.name) {
-                        let parameters = alias
-                            .sort_parameters
-                            .iter()
-                            .map(|name| Name::from(name.as_str()))
-                            .collect::<Vec<_>>();
-                        let known = alias
-                            .sort_parameters
-                            .iter()
-                            .cloned()
-                            .map(Name::from)
-                            .collect::<BTreeSet<_>>();
-                        (
-                            parameters,
-                            alias
-                                .argument_sorts
-                                .iter()
-                                .map(|sort| internalize_sort(sort, ctx.sorts, &known))
-                                .collect::<Result<Vec<_>, _>>()
-                                .map_err(|error| ctx.error(format!("{error}")))?,
-                            internalize_sort(&alias.result_sort, ctx.sorts, &known)
-                                .map_err(|error| ctx.error(format!("{error}")))?,
-                        )
-                    } else {
-                        return Err(ctx.error(format!("Head '{}' not defined.", symbol.name)));
-                    };
-                if parameters.len() != sort_arguments.len() {
-                    return Err(ctx.error(format!(
-                        "Expected {} sort parameters, but got {}.",
-                        parameters.len(),
-                        sort_arguments.len()
-                    )));
-                }
-                if expected_arguments.len() != arguments.len() {
-                    return Err(ctx.error(format!(
-                        "Expected {} operands, but got {}.",
-                        expected_arguments.len(),
-                        arguments.len()
-                    )));
-                }
-                let substitution = parameters
-                    .into_iter()
-                    .zip(sort_arguments)
-                    .collect::<BTreeMap<_, _>>();
-                for (argument, expected) in arguments.iter().zip(expected_arguments) {
-                    let actual = ctx.pattern(argument)?;
-                    ctx.expect_sort(&substitute_sort(&expected, &substitution), actual)?;
-                }
-                Ok(substitute_sort(&result, &substitution))
-            }),
+            Pattern::Application { symbol, arguments } => self.application(symbol, arguments, None),
+            Pattern::AssociativeApplication {
+                associativity,
+                symbol,
+                arguments,
+            } => self.application(symbol, arguments, Some(*associativity)),
             Pattern::Top { sort } | Pattern::Bottom { sort } => self.sort(sort),
             Pattern::And { sort, arguments } | Pattern::Or { sort, arguments } => {
                 let operator = if matches!(pattern, Pattern::And { .. }) {

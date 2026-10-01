@@ -2999,6 +2999,58 @@ mod tests {
         assert_eq!(sort, Sort::Variable(Name::from("S")));
     }
 
+    /// An associative application denotes the fold of its binary head over its operands, so the
+    /// standalone verifier accepts every fold that internalizes, of one or more operands, and
+    /// checks the sorts of each fold step.
+    #[test]
+    fn standalone_verification_reads_an_associative_application_as_a_fold() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                sort SortA{} []
+                sort SortB{} []
+                symbol a{}() : SortA{} [constructor{}(), functional{}()]
+                symbol b{}() : SortB{} [constructor{}(), functional{}()]
+                symbol pair{}(SortA{}, SortA{}) : SortA{} [constructor{}(), functional{}()]
+                symbol push{}(SortA{}, SortB{}) : SortA{} [constructor{}(), functional{}()]
+                symbol one{}(SortA{}) : SortA{} [constructor{}(), functional{}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let verify = |source: &str| {
+            let pattern = parse_pattern(source).expect("pattern should parse");
+            definition
+                .verify_standalone_pattern(&pattern, &[])
+                .and_then(|admitted| admitted.internalize_term())
+                .map_err(|error| error.to_string())
+        };
+
+        for source in [
+            r"\left-assoc{}(pair{}(a{}()))",
+            r"\left-assoc{}(pair{}(a{}(), a{}()))",
+            r"\left-assoc{}(pair{}(a{}(), a{}(), a{}()))",
+            r"\right-assoc{}(pair{}(a{}(), a{}(), a{}()))",
+            r"\left-assoc{}(push{}(a{}(), b{}(), b{}()))",
+        ] {
+            verify(source).unwrap_or_else(|error| panic!("{source}: {error}"));
+        }
+        for (source, message) in [
+            (
+                r"\right-assoc{}(push{}(a{}(), b{}(), b{}()))",
+                "Expecting sort SortA{} but got SortB{}.",
+            ),
+            (
+                r"\left-assoc{}(one{}(a{}()))",
+                "Associative application needs a binary head, but 'one' takes 1 operands.",
+            ),
+        ] {
+            let error = verify(source).expect_err(source);
+            assert!(error.contains(message), "{source}: {error}");
+        }
+    }
+
     fn predicate_floating_definition() -> BackendDefinition {
         let syntax = parse_definition(indoc! {r#"
             []
