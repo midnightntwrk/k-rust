@@ -404,7 +404,7 @@ fn collect_items(
     derived: &mut BTreeSet<String>,
     implemented: &mut BTreeSet<String>,
     stage_derived: &mut BTreeSet<String>,
-    stage_aliases: &mut BTreeMap<String, (String, bool)>,
+    shape_aliases: &mut BTreeMap<String, (String, bool)>,
 ) {
     for item in items {
         let declaration = match item {
@@ -437,13 +437,13 @@ fn collect_items(
                         derived,
                         implemented,
                         stage_derived,
-                        stage_aliases,
+                        shape_aliases,
                     );
                 }
             }
             Item::Type(item) if matches!(item.vis, syn::Visibility::Public(_)) => {
-                if let Some(target) = stage_alias_target(item.ty.as_ref()) {
-                    stage_aliases.insert(item.ident.to_string(), target);
+                if let Some(target) = shape_alias_target(item.ty.as_ref()) {
+                    shape_aliases.insert(item.ident.to_string(), target);
                 }
             }
             Item::Macro(item)
@@ -472,11 +472,15 @@ fn collect_items(
     }
 }
 
-fn stage_alias_target(ty: &syn::Type) -> Option<(String, bool)> {
+fn shape_alias_target(ty: &syn::Type) -> Option<(String, bool)> {
     let syn::Type::Path(target) = ty else {
         return None;
     };
     let segment = target.path.segments.last()?;
+    let name = segment.ident.to_string();
+    if name.starts_with("Ir") {
+        return Some((name, true));
+    }
     let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
         return None;
     };
@@ -496,7 +500,7 @@ fn deserializable_names(sources: &[syn::File]) -> BTreeSet<String> {
     let mut derived = BTreeSet::new();
     let mut implemented = BTreeSet::new();
     let mut stage_derived = BTreeSet::new();
-    let mut stage_aliases = BTreeMap::new();
+    let mut shape_aliases = BTreeMap::new();
     for source in sources {
         collect_items(
             &source.items,
@@ -504,19 +508,26 @@ fn deserializable_names(sources: &[syn::File]) -> BTreeSet<String> {
             &mut derived,
             &mut implemented,
             &mut stage_derived,
-            &mut stage_aliases,
+            &mut shape_aliases,
         );
     }
     derived.extend(implemented.intersection(&public).cloned());
-    // Stage shapes are classified through their serialized concrete aliases.
+    // Stage and IR shapes are classified through their serialized concrete aliases.
     // Host aliases carry Rust identities and must remain outside this census.
-    let aliases: BTreeSet<_> = stage_aliases
+    let aliases: BTreeSet<_> = shape_aliases
         .iter()
-        .filter(|(_, (target, serializable))| *serializable && stage_derived.contains(target))
+        .filter(|(_, (target, serializable))| {
+            *serializable
+                && (stage_derived.contains(target)
+                    || (target.starts_with("Ir") && derived.contains(target)))
+        })
         .map(|(name, _)| name.clone())
         .collect();
-    for (target, _) in stage_aliases.values() {
+    for (target, _) in shape_aliases.values() {
         stage_derived.remove(target);
+        if target.starts_with("Ir") {
+            derived.remove(target);
+        }
     }
     derived.extend(stage_derived);
     derived.extend(aliases);
@@ -533,7 +544,7 @@ fn census() -> BTreeSet<String> {
 }
 
 #[test]
-fn serde_census_preserves_concrete_stage_aliases() {
+fn serde_census_preserves_concrete_shape_aliases() {
     let source = syn::parse_file(
         r"
         stage_shape! {
@@ -582,6 +593,38 @@ fn serde_census_preserves_concrete_stage_aliases() {
             "ProtocolField".to_owned(),
             "Term".to_owned(),
         ])
+    );
+}
+
+#[test]
+fn serde_census_preserves_concrete_ir_aliases() {
+    let source = syn::parse_file(
+        r"
+        #[derive(Deserialize)]
+        pub struct IrTerm<L: IrLevel> { pub sort: L::Sort }
+        pub type SemanticTerm = IrTerm<SemanticLevel>;
+        pub type DefinitionTerm = IrTerm<DefinitionLevel>;
+        #[derive(Deserialize)]
+        pub enum IrSortRef<D> { Declared(D) }
+        pub type SemanticSortRef = IrSortRef<StableItemId>;
+        pub type DefinitionSortRef = IrSortRef<SymbolId>;
+        #[derive(Deserialize)]
+        pub struct IrRulePriority { pub value: u32 }
+        pub type SemanticRulePriority = crate::IrRulePriority;
+        pub type DefinitionRulePriority = crate::IrRulePriority;
+        ",
+    )
+    .unwrap();
+    assert_eq!(
+        deserializable_names(&[source]),
+        BTreeSet::from([
+            "SemanticTerm".to_owned(),
+            "DefinitionTerm".to_owned(),
+            "SemanticSortRef".to_owned(),
+            "DefinitionSortRef".to_owned(),
+            "SemanticRulePriority".to_owned(),
+            "DefinitionRulePriority".to_owned(),
+        ]),
     );
 }
 

@@ -21,6 +21,8 @@ pub mod grammar;
 pub mod host;
 pub mod identity;
 pub mod ir;
+pub mod ir_level;
+mod ir_validation;
 pub mod json;
 pub mod measure;
 pub mod provenance;
@@ -75,6 +77,11 @@ pub use identity::{
     StableItemId, lower_hex,
 };
 pub use ir::{BuiltinSort, IrIdentityError, ModuleId, NodeOrigin, SemanticId, SourceMapKey};
+pub use ir_level::{
+    DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRuleBody, IrRuleCondition,
+    IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef, IrSubsort, IrTerm,
+    IrTermKind, IrVariable, SemanticLevel,
+};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
     SourceRangeOverflow, TransformationOriginKind,

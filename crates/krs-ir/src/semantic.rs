@@ -11,15 +11,19 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::ir_level::SemanticLevel;
+use crate::ir_validation::{
+    collect_configuration_nodes, insert_node, require_kind, require_sort,
+    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_subsort_order,
+};
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
-    FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
-    FixedConfigurationRewrite, FixedInitializerCell, FixedInitializerContent, FormatFragment,
+    ApplicationRef, BuiltinOperation, BuiltinSort, FixedConfiguration, FixedConfigurationRewrite,
     GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, HookOperation,
     ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SchemaVersion, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey, StableItemId,
+    ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
+    SourceMapKey, StableItemId,
 };
 
 impl SortKey for SemanticModule {
@@ -76,64 +80,7 @@ pub type SemanticProductionItem = GrammarProductionItem<SemanticSortRef>;
 pub type SemanticProductionAttribute = ProductionAttribute<SemanticSortRef>;
 
 /// A resolved sort reference in semantic IR.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "sort_source", content = "sort", rename_all = "snake_case")]
-pub enum SemanticSortRef {
-    /// Sort declared by a KRS item or selected dependency.
-    Declared(StableItemId),
-    /// Sort intrinsic to the K language.
-    Builtin(BuiltinSort),
-}
-
-impl SemanticSortRef {
-    /// Refers to a declared semantic sort.
-    #[must_use]
-    pub const fn declared(sort: StableItemId) -> Self {
-        Self::Declared(sort)
-    }
-
-    /// Refers to the builtin K computation-sequence sort.
-    #[must_use]
-    pub const fn k_sequence() -> Self {
-        Self::Builtin(BuiltinSort::KSequence)
-    }
-
-    /// Refers to the pinned compiler-provided integer sort.
-    #[must_use]
-    pub const fn int() -> Self {
-        Self::Builtin(BuiltinSort::Int)
-    }
-
-    /// Refers to the pinned compiler-provided Boolean sort.
-    #[must_use]
-    pub const fn bool() -> Self {
-        Self::Builtin(BuiltinSort::Bool)
-    }
-
-    /// Stable identifier-token sort from `ID-SYNTAX`.
-    #[must_use]
-    pub const fn id() -> Self {
-        Self::Builtin(BuiltinSort::Id)
-    }
-
-    /// Stable finite-map sort from `MAP`.
-    #[must_use]
-    pub const fn map() -> Self {
-        Self::Builtin(BuiltinSort::Map)
-    }
-
-    /// Stable associative-list sort from `LIST`.
-    #[must_use]
-    pub const fn list() -> Self {
-        Self::Builtin(BuiltinSort::List)
-    }
-
-    /// Stable associative-set sort from `SET`.
-    #[must_use]
-    pub const fn set() -> Self {
-        Self::Builtin(BuiltinSort::Set)
-    }
-}
+pub type SemanticSortRef = crate::IrSortRef<StableItemId>;
 
 /// A checked resolved semantic theory.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -248,14 +195,14 @@ impl SemanticTheory {
                 "module",
                 module.id.as_str(),
             )?;
-            insert_node(&mut node_keys, module.origin.key())?;
+            insert_node::<SemanticLevel>(&mut node_keys, module.origin.key())?;
             for sort in &module.sorts {
                 validate_item_kind(&sort.id, ItemKind::Sort)?;
                 insert_declaration(&mut declarations, &sort.id)?;
-                insert_node(&mut node_keys, sort.origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, sort.origin.key())?;
             }
             for subsort in &module.subsorts {
-                insert_node(&mut node_keys, subsort.origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, subsort.origin.key())?;
                 sort_parents
                     .entry(subsort.subsort.clone())
                     .or_default()
@@ -264,8 +211,8 @@ impl SemanticTheory {
             for production in &module.productions {
                 validate_item_kind(&production.id, ItemKind::Constructor)?;
                 insert_declaration(&mut declarations, &production.id)?;
-                insert_node(&mut node_keys, production.origin.key())?;
-                validate_semantic_production_shape(
+                insert_node::<SemanticLevel>(&mut node_keys, production.origin.key())?;
+                validate_production_shape::<SemanticLevel>(
                     &production.id,
                     &production.result_sort,
                     &production.items,
@@ -286,10 +233,10 @@ impl SemanticTheory {
                     alias_productions.insert(production.id.clone());
                 }
                 for item in &production.items {
-                    insert_node(&mut node_keys, item.origin().key())?;
+                    insert_node::<SemanticLevel>(&mut node_keys, item.origin().key())?;
                 }
                 for attribute in &production.attributes {
-                    insert_node(&mut node_keys, attribute.origin().key())?;
+                    insert_node::<SemanticLevel>(&mut node_keys, attribute.origin().key())?;
                     if let ProductionAttribute::Strictness {
                         using,
                         fields,
@@ -298,12 +245,12 @@ impl SemanticTheory {
                     } = attribute
                     {
                         if let Some(using) = using {
-                            insert_node(&mut node_keys, using.origin().key())?;
+                            insert_node::<SemanticLevel>(&mut node_keys, using.origin().key())?;
                         }
                         for field in fields {
-                            insert_node(&mut node_keys, field.origin().key())?;
+                            insert_node::<SemanticLevel>(&mut node_keys, field.origin().key())?;
                         }
-                        insert_node(&mut node_keys, result_sort.origin().key())?;
+                        insert_node::<SemanticLevel>(&mut node_keys, result_sort.origin().key())?;
                     }
                     if let ProductionAttribute::Group { group, .. } = attribute {
                         groups.insert(group.clone());
@@ -328,10 +275,10 @@ impl SemanticTheory {
                 );
             }
             for precedence in &module.precedences {
-                insert_node(&mut node_keys, precedence.origin().key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, precedence.origin().key())?;
             }
             for associativity in &module.associativities {
-                insert_node(&mut node_keys, associativity.origin().key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, associativity.origin().key())?;
             }
             for rule in &module.rules {
                 let expected = match rule.kind {
@@ -343,14 +290,14 @@ impl SemanticTheory {
                 };
                 validate_item_kind(&rule.id, expected)?;
                 insert_declaration(&mut declarations, &rule.id)?;
-                insert_node(&mut node_keys, rule.origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, rule.origin.key())?;
             }
             for alias in &module.context_aliases {
                 validate_item_kind(&alias.id, ItemKind::ContextAlias)?;
                 insert_declaration(&mut declarations, &alias.id)?;
-                insert_node(&mut node_keys, alias.origin.key())?;
-                insert_node(&mut node_keys, alias.name_origin.key())?;
-                insert_node(&mut node_keys, alias.here_origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, alias.origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, alias.name_origin.key())?;
+                insert_node::<SemanticLevel>(&mut node_keys, alias.here_origin.key())?;
             }
             if let Some(configuration) = &module.configuration {
                 configurations += 1;
@@ -360,11 +307,14 @@ impl SemanticTheory {
                     configuration.initializer_id(),
                     "initializer",
                 )?;
-                insert_node(&mut node_keys, configuration.origin().key())?;
-                insert_node(&mut node_keys, configuration.initializer_origin().key())?;
-                collect_fixed_configuration_nodes(
+                insert_node::<SemanticLevel>(&mut node_keys, configuration.origin().key())?;
+                insert_node::<SemanticLevel>(
+                    &mut node_keys,
+                    configuration.initializer_origin().key(),
+                )?;
+                collect_configuration_nodes::<SemanticLevel>(
                     configuration,
-                    &mut semantic_ids,
+                    &mut &mut semantic_ids,
                     &mut node_keys,
                 )?;
             }
@@ -385,25 +335,29 @@ impl SemanticTheory {
                 }
             }
             for subsort in &module.subsorts {
-                require_semantic_sort(&declarations, &subsort.subsort)?;
-                require_semantic_sort(&declarations, &subsort.supersort)?;
+                require_sort::<SemanticLevel>(&declarations, &subsort.subsort)?;
+                require_sort::<SemanticLevel>(&declarations, &subsort.supersort)?;
             }
             for production in &module.productions {
-                require_semantic_sort(&declarations, &production.result_sort)?;
+                require_sort::<SemanticLevel>(&declarations, &production.result_sort)?;
                 for item in &production.items {
                     if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-                        require_semantic_sort(&declarations, sort)?;
+                        require_sort::<SemanticLevel>(&declarations, sort)?;
                     }
                 }
                 for attribute in &production.attributes {
                     if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
-                        require_semantic_sort(&declarations, result_sort.sort())?;
+                        require_sort::<SemanticLevel>(&declarations, result_sort.sort())?;
                     }
                     if let ProductionAttribute::Strictness {
                         using: Some(alias), ..
                     } = attribute
                     {
-                        require_kind(&declarations, alias.alias(), ItemKind::ContextAlias)?;
+                        require_kind::<SemanticLevel>(
+                            &declarations,
+                            alias.alias(),
+                            ItemKind::ContextAlias,
+                        )?;
                     }
                 }
             }
@@ -426,7 +380,7 @@ impl SemanticTheory {
                 }
             }
             if let Some(configuration) = &module.configuration {
-                validate_fixed_configuration(
+                validate_fixed_configuration::<SemanticLevel>(
                     configuration,
                     &declarations,
                     &production_signatures,
@@ -435,7 +389,7 @@ impl SemanticTheory {
                 )?;
             }
             for rule in &module.rules {
-                validate_rule(
+                validate_rule::<SemanticLevel>(
                     rule,
                     fixed_configuration,
                     &declarations,
@@ -447,8 +401,8 @@ impl SemanticTheory {
                 )?;
             }
         }
-        validate_precedence_order(&self.modules)?;
-        validate_semantic_subsort_order(&sort_parents)?;
+        validate_precedence_order::<SemanticLevel>(&self.modules)?;
+        validate_subsort_order::<SemanticLevel>(&sort_parents)?;
         Ok(())
     }
 }
@@ -687,41 +641,9 @@ impl SemanticSort {
     }
 }
 
-/// One direct typed subsort edge. Either endpoint may be compiler-provided.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticSubsort {
-    origin: NodeOrigin,
-    subsort: SemanticSortRef,
-    supersort: SemanticSortRef,
-}
-
-impl SemanticSubsort {
-    /// Creates a direct subsort edge.
-    #[must_use]
-    pub fn new(origin: NodeOrigin, subsort: SemanticSortRef, supersort: SemanticSortRef) -> Self {
-        Self {
-            origin,
-            subsort,
-            supersort,
-        }
-    }
-    /// Returns edge provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the smaller sort.
-    #[must_use]
-    pub const fn subsort(&self) -> &SemanticSortRef {
-        &self.subsort
-    }
-    /// Returns the larger sort.
-    #[must_use]
-    pub const fn supersort(&self) -> &SemanticSortRef {
-        &self.supersort
-    }
-}
+/// One direct typed subsort edge.
+/// Either endpoint may be compiler-provided.
+pub type SemanticSubsort = crate::IrSubsort<crate::SemanticLevel>;
 
 /// A resolved nominal production with classified object grammar.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -751,7 +673,7 @@ impl SemanticProduction {
         items: Vec<SemanticProductionItem>,
         attributes: Vec<SemanticProductionAttribute>,
     ) -> Result<Self, SemanticValidationError> {
-        validate_semantic_production_shape(&id, &result_sort, &items, &attributes)?;
+        validate_production_shape::<SemanticLevel>(&id, &result_sort, &items, &attributes)?;
         Ok(Self {
             origin,
             id,
@@ -776,7 +698,7 @@ impl SemanticProduction {
         visibility: crate::RustVisibility,
         explicit_symbol: Option<crate::ExplicitSymbol>,
     ) -> Result<Self, SemanticValidationError> {
-        validate_semantic_production_shape(&id, &result_sort, &items, &attributes)?;
+        validate_production_shape::<SemanticLevel>(&id, &result_sort, &items, &attributes)?;
         Ok(Self {
             origin,
             id,
@@ -828,30 +750,7 @@ impl SemanticProduction {
 pub type SemanticConfiguration = FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>;
 
 /// A resolved rule variable declaration.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticVariable {
-    id: SemanticId,
-    sort: SemanticSortRef,
-}
-
-impl SemanticVariable {
-    /// Declares a resolved variable.
-    #[must_use]
-    pub const fn new(id: SemanticId, sort: SemanticSortRef) -> Self {
-        Self { id, sort }
-    }
-    /// Returns the stable variable ID.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Returns its resolved sort.
-    #[must_use]
-    pub const fn sort(&self) -> &SemanticSortRef {
-        &self.sort
-    }
-}
+pub type SemanticVariable = crate::IrVariable<crate::SemanticLevel>;
 
 /// One provenance-bearing explicit emitted K rule label.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -862,231 +761,22 @@ pub struct SemanticRuleLabel {
 }
 
 /// One provenance-bearing object-language Boolean rule condition.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticRuleCondition {
-    origin: NodeOrigin,
-    term: SemanticTerm,
-}
+pub type SemanticRuleCondition = crate::IrRuleCondition<crate::SemanticLevel>;
 
 /// One explicitly scoped claim binder declaration.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticClaimBinder {
-    origin: NodeOrigin,
-    name_origin: NodeOrigin,
-    id: SemanticId,
-    sort_origin: NodeOrigin,
-    sort: SemanticSortRef,
-}
+pub type SemanticClaimBinder = crate::IrClaimBinder<crate::SemanticLevel>;
 
-/// Typed reachability metadata which is present only on claims.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticClaim {
-    modality_origin: NodeOrigin,
-    modality: crate::ClaimModality,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    circularity_origin: Option<NodeOrigin>,
-    universals: Vec<SemanticClaimBinder>,
-    existentials: Vec<SemanticClaimBinder>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ensures: Option<SemanticRuleCondition>,
-}
-
-impl SemanticClaimBinder {
-    /// Creates one provenance-bearing scoped binder.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        name_origin: NodeOrigin,
-        id: SemanticId,
-        sort_origin: NodeOrigin,
-        sort: SemanticSortRef,
-    ) -> Self {
-        Self {
-            origin,
-            name_origin,
-            id,
-            sort_origin,
-            sort,
-        }
-    }
-    /// Declaration provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Name provenance.
-    #[must_use]
-    pub const fn name_origin(&self) -> &NodeOrigin {
-        &self.name_origin
-    }
-    /// Stable binder identity.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Sort provenance.
-    #[must_use]
-    pub const fn sort_origin(&self) -> &NodeOrigin {
-        &self.sort_origin
-    }
-    /// Resolved sort.
-    #[must_use]
-    pub const fn sort(&self) -> &SemanticSortRef {
-        &self.sort
-    }
-}
-
-impl SemanticClaim {
-    /// Creates typed claim adjunct metadata.
-    #[must_use]
-    pub const fn new(
-        modality_origin: NodeOrigin,
-        modality: crate::ClaimModality,
-        circularity_origin: Option<NodeOrigin>,
-        universals: Vec<SemanticClaimBinder>,
-        existentials: Vec<SemanticClaimBinder>,
-        ensures: Option<SemanticRuleCondition>,
-    ) -> Self {
-        Self {
-            modality_origin,
-            modality,
-            circularity_origin,
-            universals,
-            existentials,
-            ensures,
-        }
-    }
-    /// Modality provenance.
-    #[must_use]
-    pub const fn modality_origin(&self) -> &NodeOrigin {
-        &self.modality_origin
-    }
-    /// Reachability modality.
-    #[must_use]
-    pub const fn modality(&self) -> crate::ClaimModality {
-        self.modality
-    }
-    /// Optional circularity provenance.
-    #[must_use]
-    pub const fn circularity_origin(&self) -> Option<&NodeOrigin> {
-        self.circularity_origin.as_ref()
-    }
-    /// Universal binders.
-    #[must_use]
-    pub fn universals(&self) -> &[SemanticClaimBinder] {
-        &self.universals
-    }
-    /// RHS-scoped existential binders.
-    #[must_use]
-    pub fn existentials(&self) -> &[SemanticClaimBinder] {
-        &self.existentials
-    }
-    /// Object-Bool postcondition.
-    #[must_use]
-    pub const fn ensures(&self) -> Option<&SemanticRuleCondition> {
-        self.ensures.as_ref()
-    }
-}
+/// Typed reachability metadata present only on claims.
+pub type SemanticClaim = crate::IrClaim<crate::SemanticLevel>;
 
 /// One explicit equation or transition-rule priority.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticRulePriority {
-    origin: NodeOrigin,
-    value: u32,
-}
+pub type SemanticRulePriority = crate::IrRulePriority;
 
 /// Simplifier classification and optional ordering hint.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticSimplification {
-    origin: NodeOrigin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<SemanticSimplificationPriority>,
-}
+pub type SemanticSimplification = crate::IrSimplification;
 
 /// One numeric simplification ordering hint.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticSimplificationPriority {
-    origin: NodeOrigin,
-    value: u32,
-}
-
-impl SemanticSimplification {
-    /// Creates typed simplification metadata.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, priority: Option<SemanticSimplificationPriority>) -> Self {
-        Self { origin, priority }
-    }
-    /// Returns marker provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns an optional numeric hint.
-    #[must_use]
-    pub const fn priority(&self) -> Option<&SemanticSimplificationPriority> {
-        self.priority.as_ref()
-    }
-}
-
-impl SemanticSimplificationPriority {
-    /// Creates a provenance-bearing hint.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, value: u32) -> Self {
-        Self { origin, value }
-    }
-    /// Returns hint provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the numeric hint.
-    #[must_use]
-    pub const fn value(&self) -> u32 {
-        self.value
-    }
-}
-
-impl SemanticRulePriority {
-    /// Creates a provenance-bearing priority.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, value: u32) -> Self {
-        Self { origin, value }
-    }
-    /// Returns priority provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the explicit numeric priority.
-    #[must_use]
-    pub const fn value(&self) -> u32 {
-        self.value
-    }
-}
-
-impl SemanticRuleCondition {
-    /// Creates a typed condition while retaining complete payload provenance.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, term: SemanticTerm) -> Self {
-        Self { origin, term }
-    }
-    /// Returns complete condition-payload provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the structured object-language condition term.
-    #[must_use]
-    pub const fn term(&self) -> &SemanticTerm {
-        &self.term
-    }
-}
+pub type SemanticSimplificationPriority = crate::IrSimplificationPriority;
 
 impl SemanticRuleLabel {
     /// Creates a portable explicit K rule label.
@@ -1140,95 +830,10 @@ pub struct SemanticRule {
 }
 
 /// One source-level, one-sided reusable fixed-configuration context template.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticContextAlias {
-    origin: NodeOrigin,
-    id: StableItemId,
-    name_origin: NodeOrigin,
-    name: String,
-    here_origin: NodeOrigin,
-    here: SemanticId,
-    variables: Vec<SemanticVariable>,
-    body: FixedConfigurationPattern<SemanticId, SemanticTerm>,
-}
-
-impl SemanticContextAlias {
-    /// Creates one one-sided context template.
-    #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        origin: NodeOrigin,
-        id: StableItemId,
-        name_origin: NodeOrigin,
-        name: String,
-        here_origin: NodeOrigin,
-        here: SemanticId,
-        variables: Vec<SemanticVariable>,
-        body: FixedConfigurationPattern<SemanticId, SemanticTerm>,
-    ) -> Self {
-        Self {
-            origin,
-            id,
-            name_origin,
-            name,
-            here_origin,
-            here,
-            variables,
-            body,
-        }
-    }
-    /// Returns declaration provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns stable declaration identity.
-    #[must_use]
-    pub const fn id(&self) -> &StableItemId {
-        &self.id
-    }
-    /// Returns exact alias-name provenance.
-    #[must_use]
-    pub const fn name_origin(&self) -> &NodeOrigin {
-        &self.name_origin
-    }
-    /// Returns target-neutral alias name.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    /// Returns exact HERE occurrence provenance.
-    #[must_use]
-    pub const fn here_origin(&self) -> &NodeOrigin {
-        &self.here_origin
-    }
-    /// Returns selected HERE binding.
-    #[must_use]
-    pub const fn here(&self) -> &SemanticId {
-        &self.here
-    }
-    /// Returns typed/frame variables.
-    #[must_use]
-    pub fn variables(&self) -> &[SemanticVariable] {
-        &self.variables
-    }
-    /// Returns the one-sided configuration pattern.
-    #[must_use]
-    pub const fn body(&self) -> &FixedConfigurationPattern<SemanticId, SemanticTerm> {
-        &self.body
-    }
-}
+pub type SemanticContextAlias = crate::IrContextAlias<crate::SemanticLevel>;
 
 /// Structured relational body of one ordinary labeled semantic rule.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SemanticRuleBody {
-    /// One ordinary term rewrite.
-    Term(Box<SemanticTerm>),
-    /// One simultaneous fixed-configuration rewrite.
-    Configuration(FixedConfigurationRewrite<SemanticId, SemanticTerm>),
-}
+pub type SemanticRuleBody = crate::IrRuleBody<crate::SemanticLevel>;
 
 impl SemanticRule {
     /// Creates a rule with an explicitly structured rewrite body.
@@ -1425,255 +1030,11 @@ impl SemanticRule {
     }
 }
 
-/// A typed semantic term. Every nested node has its own origin/key.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct SemanticTerm {
-    origin: NodeOrigin,
-    sort: SemanticSortRef,
-    #[serde(flatten)]
-    kind: SemanticTermKind,
-}
-
-impl SemanticTerm {
-    /// Creates a variable reference.
-    #[must_use]
-    pub const fn variable(origin: NodeOrigin, sort: SemanticSortRef, variable: SemanticId) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Variable { variable },
-        }
-    }
-    /// Creates a constructor application. Argument order is semantic.
-    #[must_use]
-    pub const fn application(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        application: SemanticApplicationRef,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Application {
-                application,
-                arguments,
-            },
-        }
-    }
-    /// Creates a domain token.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SemanticValidationError`] for an empty token payload.
-    pub fn token(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        value: impl Into<String>,
-    ) -> Result<Self, SemanticValidationError> {
-        let value = value.into();
-        if value.is_empty() {
-            return Err(SemanticValidationError::EmptyText("token value"));
-        }
-        Ok(Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Token { value },
-        })
-    }
-    /// Creates a rewrite. Whole-theory validation requires both endpoint sorts
-    /// to inject into the declared rewrite sort.
-    ///
-    /// # Errors
-    ///
-    /// Returns no local shape error; subsorting is a whole-theory property.
-    pub fn rewrite(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        from: Self,
-        to: Self,
-    ) -> Result<Self, SemanticValidationError> {
-        Ok(Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Rewrite {
-                from: Box::new(from),
-                to: Box::new(to),
-            },
-        })
-    }
-    /// Creates an explicit source-level K computation sequence. The frontend
-    /// remains responsible for inserting each item's injection into `KItem`.
-    #[must_use]
-    pub const fn k_sequence(
-        origin: NodeOrigin,
-        item_sort: SemanticSortRef,
-        items: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort: SemanticSortRef::Builtin(BuiltinSort::KSequence),
-            kind: SemanticTermKind::KSequence { item_sort, items },
-        }
-    }
-    /// Creates one typed Map-theory operation.
-    #[must_use]
-    pub const fn map(origin: NodeOrigin, operation: MapOperation, arguments: Vec<Self>) -> Self {
-        Self {
-            origin,
-            sort: SemanticSortRef::Builtin(BuiltinSort::Map),
-            kind: SemanticTermKind::Map {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one typed Map-theory operation with a non-Map result sort.
-    #[must_use]
-    pub const fn typed_map(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        operation: MapOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Map {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one typed builtin-List operation.
-    #[must_use]
-    pub const fn list(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        operation: ListOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::List {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one typed builtin-Set operation.
-    #[must_use]
-    pub const fn set(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        operation: SetOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Set {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one complete generated configuration-cell term.
-    #[must_use]
-    pub const fn cell(
-        origin: NodeOrigin,
-        sort: SemanticSortRef,
-        cell: SemanticId,
-        children: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: SemanticTermKind::Cell { cell, children },
-        }
-    }
-    /// Returns node provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the resolved sort.
-    #[must_use]
-    pub const fn sort(&self) -> &SemanticSortRef {
-        &self.sort
-    }
-    /// Returns the term form.
-    #[must_use]
-    pub const fn kind(&self) -> &SemanticTermKind {
-        &self.kind
-    }
-}
+/// A typed semantic term whose nested nodes retain their own origins and keys.
+pub type SemanticTerm = crate::IrTerm<crate::SemanticLevel>;
 
 /// Structured target-neutral semantic term forms.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "term_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SemanticTermKind {
-    /// Reference to a declared rule/initializer variable.
-    Variable {
-        /// Stable binder identity.
-        variable: SemanticId,
-    },
-    /// Resolved constructor application.
-    Application {
-        /// Resolved authored or compiler-provided production identity.
-        application: SemanticApplicationRef,
-        /// Arguments in production order.
-        arguments: Vec<SemanticTerm>,
-    },
-    /// Domain token with its sort on the enclosing term.
-    Token {
-        /// Exact token payload.
-        value: String,
-    },
-    /// Explicit ordered K computation sequence.
-    KSequence {
-        /// Declared sort into which sequence items must inject (`KItem`).
-        item_sort: SemanticSortRef,
-        /// Items in computation order.
-        items: Vec<SemanticTerm>,
-    },
-    /// Structured Map unit/item/update operation with KItem-like operands.
-    Map {
-        /// Exact compiler-known Map operation.
-        operation: MapOperation,
-        /// Ordered structured operands.
-        arguments: Vec<SemanticTerm>,
-    },
-    /// Structured builtin-List operation with KItem-like operands.
-    List {
-        /// Exact compiler-known List operation.
-        operation: ListOperation,
-        /// Ordered structured operands.
-        arguments: Vec<SemanticTerm>,
-    },
-    /// Structured builtin-Set operation with KItem-like operands.
-    Set {
-        /// Exact compiler-known Set operation.
-        operation: SetOperation,
-        /// Ordered structured operands.
-        arguments: Vec<SemanticTerm>,
-    },
-    /// Complete generated configuration-cell application.
-    Cell {
-        /// Stable fixed-cell identity.
-        cell: SemanticId,
-        /// Leaf content or ordered nested child-cell terms.
-        children: Vec<SemanticTerm>,
-    },
-    /// Relational pre/post rewrite.
-    Rewrite {
-        /// Pre-pattern.
-        from: Box<SemanticTerm>,
-        /// Post-term.
-        to: Box<SemanticTerm>,
-    },
-}
+pub type SemanticTermKind = crate::IrTermKind<crate::SemanticLevel>;
 
 /// Typed failure while constructing or validating semantic IR.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2007,15 +1368,7 @@ fn validate_item_kind(
     id: &StableItemId,
     expected: ItemKind,
 ) -> Result<(), SemanticValidationError> {
-    if id.item_kind() == expected {
-        Ok(())
-    } else {
-        Err(SemanticValidationError::WrongItemKind {
-            id: Box::new(id.clone()),
-            expected,
-            actual: id.item_kind(),
-        })
-    }
+    crate::ir_validation::expect_kind::<SemanticLevel>(id, id.item_kind(), expected)
 }
 
 fn insert_unique<T: Ord>(
@@ -2031,17 +1384,6 @@ fn insert_unique<T: Ord>(
             kind,
             id: display.into(),
         })
-    }
-}
-
-fn insert_node(
-    set: &mut BTreeSet<SourceMapKey>,
-    key: &SourceMapKey,
-) -> Result<(), SemanticValidationError> {
-    if set.insert(key.clone()) {
-        Ok(())
-    } else {
-        Err(SemanticValidationError::DuplicateSourceMapKey(key.clone()))
     }
 }
 
@@ -2073,1146 +1415,12 @@ fn insert_semantic_id(
     }
 }
 
-fn require_kind(
-    map: &BTreeMap<StableItemId, ItemKind>,
-    id: &StableItemId,
-    expected: ItemKind,
-) -> Result<(), SemanticValidationError> {
-    match map.get(id) {
-        None => Err(SemanticValidationError::DanglingItem(Box::new(id.clone()))),
-        Some(actual) if *actual == expected => Ok(()),
-        Some(actual) => Err(SemanticValidationError::WrongItemKind {
-            id: Box::new(id.clone()),
-            expected,
-            actual: *actual,
-        }),
-    }
-}
-
-fn require_semantic_sort(
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    sort: &SemanticSortRef,
-) -> Result<(), SemanticValidationError> {
-    match sort {
-        SemanticSortRef::Declared(id) => require_kind(declarations, id, ItemKind::Sort),
-        SemanticSortRef::Builtin(
-            BuiltinSort::KSequence
-            | BuiltinSort::Int
-            | BuiltinSort::Bool
-            | BuiltinSort::Map
-            | BuiltinSort::Id
-            | BuiltinSort::Bytes
-            | BuiltinSort::String
-            | BuiltinSort::List
-            | BuiltinSort::Set,
-        ) => Ok(()),
-    }
-}
-
-fn variable_scope(
-    variables: &[SemanticVariable],
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-) -> Result<BTreeMap<SemanticId, SemanticSortRef>, SemanticValidationError> {
-    let mut scope = BTreeMap::new();
-    for variable in variables {
-        require_semantic_sort(declarations, &variable.sort)?;
-        if scope
-            .insert(variable.id.clone(), variable.sort.clone())
-            .is_some()
-        {
-            return Err(SemanticValidationError::DuplicateVariable(
-                variable.id.clone(),
-            ));
-        }
-    }
-    Ok(scope)
-}
-
-fn collect_fixed_configuration_nodes(
-    configuration: &FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>,
-    semantic_ids: &mut BTreeSet<SemanticId>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    fn cells(
-        values: &[FixedCell<SemanticSortRef, SemanticId>],
-        semantic_ids: &mut BTreeSet<SemanticId>,
-        nodes: &mut BTreeSet<SourceMapKey>,
-    ) -> Result<(), SemanticValidationError> {
-        for cell in values {
-            insert_semantic_id(semantic_ids, cell.id(), "cell")?;
-            insert_node(nodes, cell.origin().key())?;
-            for attribute in cell.attributes() {
-                insert_node(nodes, attribute.origin().key())?;
-            }
-            if let FixedCellContent::Children { children } = cell.content() {
-                cells(children, semantic_ids, nodes)?;
-            }
-        }
-        Ok(())
-    }
-    fn initializer(
-        values: &[FixedInitializerCell<SemanticId, SemanticTerm>],
-        nodes: &mut BTreeSet<SourceMapKey>,
-    ) -> Result<(), SemanticValidationError> {
-        for cell in values {
-            insert_node(nodes, cell.origin().key())?;
-            if let FixedInitializerContent::Children { children } = cell.content() {
-                initializer(children, nodes)?;
-            }
-        }
-        Ok(())
-    }
-    if let Some(origin) = configuration.root().origin() {
-        insert_node(nodes, origin.key())?;
-    }
-    for variable in configuration.variables() {
-        insert_node(nodes, variable.origin().key())?;
-    }
-    cells(configuration.cells(), semantic_ids, nodes)?;
-    initializer(configuration.initializer(), nodes)
-}
-
-fn validate_fixed_configuration(
-    configuration: &FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    let mut scope = BTreeMap::new();
-    let mut external_names = BTreeSet::new();
-    let mut main_count = 0_usize;
-    for variable in configuration.variables() {
-        require_semantic_sort(declarations, variable.sort())?;
-        if scope
-            .insert(variable.id().clone(), variable.sort().clone())
-            .is_some()
-        {
-            return Err(SemanticValidationError::DuplicateVariable(
-                variable.id().clone(),
-            ));
-        }
-        if !external_names.insert(variable.external_name()) {
-            return Err(SemanticValidationError::EmptyText(
-                "duplicate external configuration variable",
-            ));
-        }
-        main_count += usize::from(variable.is_main());
-    }
-    if main_count > 1 {
-        return Err(SemanticValidationError::EmptyText(
-            "multiple main configuration variables",
-        ));
-    }
-    validate_initializer_forest(
-        configuration.cells(),
-        configuration.initializer(),
-        &scope,
-        declarations,
-        signatures,
-        sort_parents,
-        nodes,
-    )?;
-    let mut used = BTreeSet::new();
-    collect_initializer_variables(configuration.initializer(), &mut used);
-    if used != scope.keys().cloned().collect() {
-        return Err(SemanticValidationError::VariableClosure);
-    }
-    Ok(())
-}
-
-fn collect_initializer_variables(
-    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
-    used: &mut BTreeSet<SemanticId>,
-) {
-    for cell in initializer {
-        match cell.content() {
-            FixedInitializerContent::Term { term } => collect_term_variables(term, used),
-            FixedInitializerContent::Children { children } => {
-                collect_initializer_variables(children, used);
-            }
-        }
-    }
-}
-
-fn validate_initializer_forest(
-    cells: &[FixedCell<SemanticSortRef, SemanticId>],
-    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
-    scope: &BTreeMap<SemanticId, SemanticSortRef>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    if cells.len() != initializer.len() {
-        return Err(SemanticValidationError::InitializerTreeMismatch);
-    }
-    for (cell, initialized) in cells.iter().zip(initializer) {
-        if cell.id() != initialized.cell() {
-            return Err(SemanticValidationError::InitializerTreeMismatch);
-        }
-        match (cell.content(), initialized.content()) {
-            (FixedCellContent::Term { sort }, FixedInitializerContent::Term { term }) => {
-                require_semantic_sort(declarations, sort)?;
-                validate_term(term, scope, declarations, signatures, sort_parents, nodes)?;
-                if term.sort() != sort {
-                    return Err(SemanticValidationError::InitializerLeafSortMismatch);
-                }
-            }
-            (
-                FixedCellContent::Children { children },
-                FixedInitializerContent::Children {
-                    children: initialized_children,
-                },
-            ) => validate_initializer_forest(
-                children,
-                initialized_children,
-                scope,
-                declarations,
-                signatures,
-                sort_parents,
-                nodes,
-            )?,
-            _ => return Err(SemanticValidationError::InitializerTreeMismatch),
-        }
-    }
-    Ok(())
-}
-
-fn validate_configuration_rewrite(
-    rewrite: &FixedConfigurationRewrite<SemanticId, SemanticTerm>,
-    configuration: &FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>,
-    scope: &BTreeMap<SemanticId, SemanticSortRef>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    fn leaves(
-        cells: &[FixedCell<SemanticSortRef, SemanticId>],
-        output: &mut BTreeMap<SemanticId, SemanticSortRef>,
-    ) -> Result<(), SemanticValidationError> {
-        for cell in cells {
-            match cell.content() {
-                FixedCellContent::Term { sort } => {
-                    if output.insert(cell.id().clone(), sort.clone()).is_some() {
-                        return Err(SemanticValidationError::InvalidCellFraming);
-                    }
-                }
-                FixedCellContent::Children { children } => leaves(children, output)?,
-            }
-        }
-        Ok(())
-    }
-    let mut leaf_sorts = BTreeMap::new();
-    leaves(configuration.cells(), &mut leaf_sorts)?;
-    let mentioned = rewrite
-        .clauses()
-        .iter()
-        .map(|clause| clause.cell().clone())
-        .collect::<BTreeSet<_>>();
-    let omitted = rewrite
-        .omitted_siblings()
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if mentioned.len() != rewrite.clauses().len()
-        || omitted.len() != rewrite.omitted_siblings().len()
-        || !mentioned.is_disjoint(&omitted)
-        || mentioned.union(&omitted).cloned().collect::<BTreeSet<_>>()
-            != leaf_sorts.keys().cloned().collect()
-    {
-        return Err(SemanticValidationError::InvalidCellFraming);
-    }
-    insert_node(nodes, rewrite.origin().key())?;
-    for clause in rewrite.clauses() {
-        let sort = leaf_sorts
-            .get(clause.cell())
-            .ok_or(SemanticValidationError::InvalidCellFraming)?;
-        insert_node(nodes, clause.origin().key())?;
-        validate_term(
-            clause.before(),
-            scope,
-            declarations,
-            signatures,
-            sort_parents,
-            nodes,
-        )?;
-        if clause.before().sort() != sort {
-            return Err(SemanticValidationError::CellFrameSortMismatch);
-        }
-        if let CellPost::Replace { term } = clause.after() {
-            validate_term(term, scope, declarations, signatures, sort_parents, nodes)?;
-            if term.sort() != sort {
-                return Err(SemanticValidationError::CellFrameSortMismatch);
-            }
-        }
-        validate_cell_frame(clause, sort, scope, nodes)?;
-    }
-    Ok(())
-}
-
-fn validate_cell_frame(
-    clause: &FixedCellClause<SemanticId, SemanticTerm>,
-    sort: &SemanticSortRef,
-    scope: &BTreeMap<SemanticId, SemanticSortRef>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    let (origin, binding, required_sort) = match clause.frame() {
-        CellContentFrame::Exact => return Ok(()),
-        CellContentFrame::KSequenceTail { origin, binding } => (
-            origin,
-            binding,
-            SemanticSortRef::Builtin(BuiltinSort::KSequence),
-        ),
-        CellContentFrame::MapRemainder { origin, binding } => {
-            (origin, binding, SemanticSortRef::Builtin(BuiltinSort::Map))
-        }
-    };
-    insert_node(nodes, origin.key())?;
-    if sort != &required_sort {
-        return Err(SemanticValidationError::CellFrameSortMismatch);
-    }
-    if let Some(binding) = binding
-        && scope.get(binding) != Some(&required_sort)
-    {
-        return Err(SemanticValidationError::CellFrameBindingMismatch(
-            binding.clone(),
-        ));
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn validate_rule(
-    rule: &SemanticRule,
-    configuration: Option<&FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    functional_productions: &BTreeSet<StableItemId>,
-    alias_productions: &BTreeSet<StableItemId>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    let claim = match (rule.kind, rule.claim.as_ref()) {
-        (SentenceKind::Claim, Some(claim)) => Some(claim),
-        (SentenceKind::Claim, None) | (_, Some(_)) => {
-            return Err(SemanticValidationError::InvalidClaimMetadata(Box::new(
-                rule.id.clone(),
-            )));
-        }
-        (_, None) => None,
-    };
-    if rule.kind == SentenceKind::Claim {
-        if rule.priority.is_some() || rule.simplification.is_some() {
-            return Err(SemanticValidationError::InvalidClaimMetadata(Box::new(
-                rule.id.clone(),
-            )));
-        }
-        if rule.label.is_none() {
-            return Err(SemanticValidationError::ClaimLabelRequired(Box::new(
-                rule.id.clone(),
-            )));
-        }
-        if !matches!(&rule.body, SemanticRuleBody::Configuration(_)) {
-            return Err(SemanticValidationError::ClaimBodyNotConfiguration(
-                Box::new(rule.id.clone()),
-            ));
-        }
-    }
-    if let Some(label) = &rule.label {
-        insert_node(nodes, label.origin().key())?;
-    }
-    let scope = variable_scope(&rule.variables, declarations)?;
-    match &rule.body {
-        SemanticRuleBody::Term(body) => {
-            validate_term(body, &scope, declarations, signatures, sort_parents, nodes)?;
-            if !matches!(body.kind, SemanticTermKind::Rewrite { .. }) {
-                return Err(SemanticValidationError::RuleBodyNotRewrite(Box::new(
-                    rule.id.clone(),
-                )));
-            }
-            if rule.kind == SentenceKind::Equation {
-                let SemanticTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                let SemanticTermKind::Application {
-                    application: ApplicationRef::Declared(production),
-                    ..
-                } = from.kind()
-                else {
-                    return Err(SemanticValidationError::InvalidEquationRoot(Box::new(
-                        rule.id.clone(),
-                    )));
-                };
-                if !functional_productions.contains(production) {
-                    return Err(SemanticValidationError::InvalidEquationRoot(Box::new(
-                        rule.id.clone(),
-                    )));
-                }
-            }
-            if rule.kind == SentenceKind::Alias {
-                let SemanticTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                let SemanticTermKind::Application {
-                    application: ApplicationRef::Declared(production),
-                    ..
-                } = from.kind()
-                else {
-                    return Err(SemanticValidationError::InvalidAliasRoot(Box::new(
-                        rule.id.clone(),
-                    )));
-                };
-                if !alias_productions.contains(production) {
-                    return Err(SemanticValidationError::InvalidAliasRoot(Box::new(
-                        rule.id.clone(),
-                    )));
-                }
-            }
-            if rule.kind == SentenceKind::Simplification {
-                let SemanticTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                match from.kind() {
-                    SemanticTermKind::Application {
-                        application: ApplicationRef::Declared(production),
-                        ..
-                    } if functional_productions.contains(production) => {}
-                    SemanticTermKind::Application {
-                        application: ApplicationRef::Builtin(operation),
-                        ..
-                    } if operation.is_functional() => {}
-                    _ => {
-                        return Err(SemanticValidationError::InvalidSimplificationRoot(
-                            Box::new(rule.id.clone()),
-                        ));
-                    }
-                }
-            }
-        }
-        SemanticRuleBody::Configuration(body) => {
-            if rule.kind == SentenceKind::Alias {
-                return Err(SemanticValidationError::InvalidAliasRoot(Box::new(
-                    rule.id.clone(),
-                )));
-            }
-            if rule.kind == SentenceKind::Simplification {
-                return Err(SemanticValidationError::InvalidSimplificationRoot(
-                    Box::new(rule.id.clone()),
-                ));
-            }
-            let configuration = configuration.ok_or_else(|| {
-                SemanticValidationError::ConfigurationRuleWithoutFixedConfiguration(Box::new(
-                    rule.id.clone(),
-                ))
-            })?;
-            if body.configuration() != configuration.id() {
-                return Err(SemanticValidationError::ConfigurationRuleTargetMismatch(
-                    Box::new(rule.id.clone()),
-                ));
-            }
-            validate_configuration_rewrite(
-                body,
-                configuration,
-                &scope,
-                declarations,
-                signatures,
-                sort_parents,
-                nodes,
-            )?;
-        }
-    }
-    if rule.kind == SentenceKind::Simplification {
-        let Some(simplification) = &rule.simplification else {
-            return Err(SemanticValidationError::InvalidSimplificationMetadata(
-                Box::new(rule.id.clone()),
-            ));
-        };
-        insert_node(nodes, simplification.origin().key())?;
-        if let Some(priority) = simplification.priority() {
-            insert_node(nodes, priority.origin().key())?;
-        }
-    } else if rule.simplification.is_some() {
-        return Err(SemanticValidationError::InvalidSimplificationMetadata(
-            Box::new(rule.id.clone()),
-        ));
-    }
-    if let Some(priority) = &rule.priority {
-        if !matches!(rule.kind, SentenceKind::Equation | SentenceKind::Transition) {
-            return Err(SemanticValidationError::InvalidRulePriority(Box::new(
-                rule.id.clone(),
-            )));
-        }
-        insert_node(nodes, priority.origin().key())?;
-    }
-    if let Some(condition) = &rule.requires {
-        if rule.kind == SentenceKind::Alias {
-            return Err(SemanticValidationError::AliasCondition);
-        }
-        insert_node(nodes, condition.origin().key())?;
-        validate_term(
-            condition.term(),
-            &scope,
-            declarations,
-            signatures,
-            sort_parents,
-            nodes,
-        )?;
-        if condition.term().sort() != &SemanticSortRef::Builtin(BuiltinSort::Bool) {
-            return Err(SemanticValidationError::RuleConditionSortMismatch);
-        }
-    }
-    if let Some(claim) = claim {
-        validate_claim(
-            rule,
-            claim,
-            &scope,
-            declarations,
-            signatures,
-            sort_parents,
-            nodes,
-        )?;
-    }
-    let mut used = BTreeSet::new();
-    match &rule.body {
-        SemanticRuleBody::Term(body) => collect_term_variables(body, &mut used),
-        SemanticRuleBody::Configuration(body) => {
-            for clause in body.clauses() {
-                collect_term_variables(clause.before(), &mut used);
-                if let CellPost::Replace { term } = clause.after() {
-                    collect_term_variables(term, &mut used);
-                }
-                match clause.frame() {
-                    CellContentFrame::Exact => {}
-                    CellContentFrame::KSequenceTail { binding, .. }
-                    | CellContentFrame::MapRemainder { binding, .. } => {
-                        if let Some(binding) = binding {
-                            used.insert(binding.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Some(condition) = &rule.requires {
-        collect_term_variables(condition.term(), &mut used);
-    }
-    if let Some(ensures) = claim.and_then(SemanticClaim::ensures) {
-        collect_term_variables(ensures.term(), &mut used);
-    }
-    if used != scope.keys().cloned().collect() {
-        return Err(SemanticValidationError::VariableClosure);
-    }
-    Ok(())
-}
-
-fn validate_claim(
-    rule: &SemanticRule,
-    claim: &SemanticClaim,
-    scope: &BTreeMap<SemanticId, SemanticSortRef>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    insert_node(nodes, claim.modality_origin().key())?;
-    if let Some(origin) = claim.circularity_origin() {
-        insert_node(nodes, origin.key())?;
-    }
-
-    let mut binder_ids = BTreeSet::new();
-    for binder in claim.universals().iter().chain(claim.existentials()) {
-        if !binder_ids.insert(binder.id().clone()) || scope.get(binder.id()) != Some(binder.sort())
-        {
-            return Err(SemanticValidationError::InvalidClaimBinder(
-                binder.id().clone(),
-            ));
-        }
-        require_semantic_sort(declarations, binder.sort())?;
-        insert_node(nodes, binder.origin().key())?;
-        insert_node(nodes, binder.name_origin().key())?;
-        insert_node(nodes, binder.sort_origin().key())?;
-    }
-
-    let mut left_uses = BTreeSet::new();
-    let mut right_uses = BTreeSet::new();
-    let SemanticRuleBody::Configuration(body) = &rule.body else {
-        return Err(SemanticValidationError::ClaimBodyNotConfiguration(
-            Box::new(rule.id.clone()),
-        ));
-    };
-    for clause in body.clauses() {
-        collect_term_variables(clause.before(), &mut left_uses);
-        if let CellPost::Replace { term } = clause.after() {
-            collect_term_variables(term, &mut right_uses);
-        }
-        match clause.frame() {
-            CellContentFrame::Exact => {}
-            CellContentFrame::KSequenceTail { binding, .. }
-            | CellContentFrame::MapRemainder { binding, .. } => {
-                if let Some(binding) = binding {
-                    left_uses.insert(binding.clone());
-                }
-            }
-        }
-    }
-    if let Some(requires) = rule.requires() {
-        collect_term_variables(requires.term(), &mut left_uses);
-    }
-    if let Some(ensures) = claim.ensures() {
-        insert_node(nodes, ensures.origin().key())?;
-        validate_term(
-            ensures.term(),
-            scope,
-            declarations,
-            signatures,
-            sort_parents,
-            nodes,
-        )?;
-        if ensures.term().sort() != &SemanticSortRef::Builtin(BuiltinSort::Bool) {
-            return Err(SemanticValidationError::RuleConditionSortMismatch);
-        }
-        collect_term_variables(ensures.term(), &mut right_uses);
-    }
-    for binder in claim.existentials() {
-        if left_uses.contains(binder.id()) {
-            return Err(SemanticValidationError::ExistentialScopeViolation(
-                binder.id().clone(),
-            ));
-        }
-        if !right_uses.contains(binder.id()) {
-            return Err(SemanticValidationError::UnusedExistential(
-                binder.id().clone(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn collect_term_variables(term: &SemanticTerm, used: &mut BTreeSet<SemanticId>) {
-    match term.kind() {
-        SemanticTermKind::Variable { variable } => {
-            used.insert(variable.clone());
-        }
-        SemanticTermKind::Application { arguments, .. }
-        | SemanticTermKind::Map { arguments, .. }
-        | SemanticTermKind::List { arguments, .. }
-        | SemanticTermKind::Set { arguments, .. } => {
-            for argument in arguments {
-                collect_term_variables(argument, used);
-            }
-        }
-        SemanticTermKind::KSequence { items, .. } => {
-            for item in items {
-                collect_term_variables(item, used);
-            }
-        }
-        SemanticTermKind::Rewrite { from, to } => {
-            collect_term_variables(from, used);
-            collect_term_variables(to, used);
-        }
-        SemanticTermKind::Cell { children, .. } => {
-            for child in children {
-                collect_term_variables(child, used);
-            }
-        }
-        SemanticTermKind::Token { .. } => {}
-    }
-}
-
-#[allow(clippy::too_many_lines)]
-fn validate_term(
-    term: &SemanticTerm,
-    scope: &BTreeMap<SemanticId, SemanticSortRef>,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    insert_node(nodes, term.origin.key())?;
-    require_semantic_sort(declarations, &term.sort)?;
-    match &term.kind {
-        SemanticTermKind::Variable { variable } => match scope.get(variable) {
-            None => return Err(SemanticValidationError::DanglingVariable(variable.clone())),
-            Some(sort) if *sort != term.sort => {
-                return Err(SemanticValidationError::VariableSortMismatch(
-                    variable.clone(),
-                ));
-            }
-            Some(_) => {}
-        },
-        SemanticTermKind::Application {
-            application,
-            arguments,
-        } => {
-            let signature = match application {
-                ApplicationRef::Declared(production) => {
-                    let Some(kind) = declarations.get(production) else {
-                        return Err(SemanticValidationError::DanglingProduction(Box::new(
-                            production.clone(),
-                        )));
-                    };
-                    if *kind != ItemKind::Constructor {
-                        return Err(SemanticValidationError::WrongItemKind {
-                            id: Box::new(production.clone()),
-                            expected: ItemKind::Constructor,
-                            actual: *kind,
-                        });
-                    }
-                    signatures.get(production).cloned().ok_or_else(|| {
-                        SemanticValidationError::DanglingProduction(Box::new(production.clone()))
-                    })?
-                }
-                ApplicationRef::Builtin(operation) => builtin_signature(*operation),
-            };
-            let (result_sort, argument_sorts) = signature;
-            if term.sort != result_sort
-                || arguments.len() != argument_sorts.len()
-                || arguments
-                    .iter()
-                    .zip(&argument_sorts)
-                    .any(|(argument, sort)| !is_subsort(&argument.sort, sort, sort_parents))
-            {
-                return match application {
-                    ApplicationRef::Declared(production) => Err(
-                        SemanticValidationError::ApplicationSignature(Box::new(production.clone())),
-                    ),
-                    ApplicationRef::Builtin(operation) => Err(
-                        SemanticValidationError::BuiltinApplicationSignature(*operation),
-                    ),
-                };
-            }
-            for argument in arguments {
-                validate_term(
-                    argument,
-                    scope,
-                    declarations,
-                    signatures,
-                    sort_parents,
-                    nodes,
-                )?;
-            }
-        }
-        SemanticTermKind::Token { value } => {
-            if value.is_empty() {
-                return Err(SemanticValidationError::EmptyText("token value"));
-            }
-        }
-        SemanticTermKind::KSequence { item_sort, items } => {
-            require_semantic_sort(declarations, item_sort)?;
-            if term.sort != SemanticSortRef::Builtin(BuiltinSort::KSequence) {
-                return Err(SemanticValidationError::SequenceSortMismatch);
-            }
-            for item in items {
-                validate_term(item, scope, declarations, signatures, sort_parents, nodes)?;
-                if !is_subsort(&item.sort, item_sort, sort_parents) {
-                    return Err(SemanticValidationError::SequenceItemSortMismatch);
-                }
-            }
-        }
-        SemanticTermKind::Map {
-            operation,
-            arguments,
-        } => {
-            let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
-            let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-            let valid_arity = match operation {
-                MapOperation::Empty => term.sort == map_sort && arguments.is_empty(),
-                MapOperation::Item => {
-                    term.sort == map_sort
-                        && !arguments.is_empty()
-                        && arguments.len().is_multiple_of(2)
-                }
-                MapOperation::Update => {
-                    term.sort == map_sort && arguments.len() == 3 && arguments[0].sort == map_sort
-                }
-                MapOperation::Get => arguments.len() == 2 && arguments[0].sort == map_sort,
-                MapOperation::InKeys => {
-                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == map_sort
-                }
-            };
-            if !valid_arity {
-                return Err(SemanticValidationError::MapOperationSignature(*operation));
-            }
-            for argument in arguments {
-                validate_term(
-                    argument,
-                    scope,
-                    declarations,
-                    signatures,
-                    sort_parents,
-                    nodes,
-                )?;
-            }
-        }
-        SemanticTermKind::List {
-            operation,
-            arguments,
-        } => {
-            let list_sort = SemanticSortRef::Builtin(BuiltinSort::List);
-            let int_sort = SemanticSortRef::Builtin(BuiltinSort::Int);
-            let valid = match operation {
-                ListOperation::Empty => term.sort == list_sort && arguments.is_empty(),
-                ListOperation::Item => term.sort == list_sort && arguments.len() == 1,
-                ListOperation::Concat => {
-                    term.sort == list_sort
-                        && arguments.len() == 2
-                        && arguments.iter().all(|argument| argument.sort == list_sort)
-                }
-                ListOperation::Get => {
-                    arguments.len() == 2
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Update => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Size => {
-                    term.sort == int_sort && arguments.len() == 1 && arguments[0].sort == list_sort
-                }
-                ListOperation::Make => {
-                    term.sort == list_sort && arguments.len() == 2 && arguments[0].sort == int_sort
-                }
-                ListOperation::Range => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == int_sort
-                }
-                ListOperation::UpdateAll => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == list_sort
-                }
-            };
-            if !valid {
-                return Err(SemanticValidationError::ListOperationSignature(*operation));
-            }
-            for argument in arguments {
-                validate_term(
-                    argument,
-                    scope,
-                    declarations,
-                    signatures,
-                    sort_parents,
-                    nodes,
-                )?;
-            }
-        }
-        SemanticTermKind::Set {
-            operation,
-            arguments,
-        } => {
-            let set_sort = SemanticSortRef::Builtin(BuiltinSort::Set);
-            let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-            let valid = match operation {
-                SetOperation::Empty => term.sort == set_sort && arguments.is_empty(),
-                SetOperation::Item => term.sort == set_sort && arguments.len() == 1,
-                SetOperation::Concat | SetOperation::Union => {
-                    term.sort == set_sort
-                        && arguments.len() == 2
-                        && arguments.iter().all(|argument| argument.sort == set_sort)
-                }
-                SetOperation::Contains => {
-                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == set_sort
-                }
-            };
-            if !valid {
-                return Err(SemanticValidationError::SetOperationSignature(*operation));
-            }
-            for argument in arguments {
-                validate_term(
-                    argument,
-                    scope,
-                    declarations,
-                    signatures,
-                    sort_parents,
-                    nodes,
-                )?;
-            }
-        }
-        SemanticTermKind::Cell { children, .. } => {
-            if children.is_empty() {
-                return Err(SemanticValidationError::InvalidCellFraming);
-            }
-            for child in children {
-                validate_term(child, scope, declarations, signatures, sort_parents, nodes)?;
-            }
-        }
-        SemanticTermKind::Rewrite { from, to } => {
-            validate_term(from, scope, declarations, signatures, sort_parents, nodes)?;
-            validate_term(to, scope, declarations, signatures, sort_parents, nodes)?;
-            if !is_subsort(&from.sort, &term.sort, sort_parents)
-                || !is_subsort(&to.sort, &term.sort, sort_parents)
-            {
-                return Err(SemanticValidationError::RewriteSortMismatch);
-            }
-        }
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_lines)] // Mirrors definition production validation at this IR boundary.
-fn validate_semantic_production_shape(
-    id: &StableItemId,
-    result_sort: &SemanticSortRef,
-    items: &[SemanticProductionItem],
-    attributes: &[SemanticProductionAttribute],
-) -> Result<(), SemanticValidationError> {
-    if items.is_empty() {
-        return Err(SemanticValidationError::EmptyProduction(Box::new(
-            id.clone(),
-        )));
-    }
-    let fields = items
-        .iter()
-        .filter_map(|item| match item.kind() {
-            GrammarProductionItemKind::NonTerminal { field, .. } => Some(field.clone()),
-            GrammarProductionItemKind::Terminal { .. }
-            | GrammarProductionItemKind::RegexTerminal { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if has_duplicate_fields(&fields) {
-        return Err(SemanticValidationError::InvalidStrictnessField);
-    }
-    let regexes = items
-        .iter()
-        .filter(|item| matches!(item.kind(), GrammarProductionItemKind::RegexTerminal { .. }))
-        .count();
-    let mut token = false;
-    let mut function = false;
-    let mut total = false;
-    let mut hook = None;
-    let mut alias = false;
-    let mut group = false;
-    let mut bracket = false;
-    let mut avoid = false;
-    let mut format = false;
-    let mut strictness = false;
-    for attribute in attributes {
-        let already = match attribute {
-            ProductionAttribute::Documentation { .. } => continue,
-            ProductionAttribute::Function { .. } => std::mem::replace(&mut function, true),
-            ProductionAttribute::Total { .. } => std::mem::replace(&mut total, true),
-            ProductionAttribute::Hook { operation, .. } => hook.replace(*operation).is_some(),
-            ProductionAttribute::Alias { .. } => std::mem::replace(&mut alias, true),
-            ProductionAttribute::Token { .. } => std::mem::replace(&mut token, true),
-            ProductionAttribute::Group { .. } => std::mem::replace(&mut group, true),
-            ProductionAttribute::Bracket { .. } => std::mem::replace(&mut bracket, true),
-            ProductionAttribute::Avoid { .. } => std::mem::replace(&mut avoid, true),
-            ProductionAttribute::Format { .. } => std::mem::replace(&mut format, true),
-            ProductionAttribute::Strictness { .. } => std::mem::replace(&mut strictness, true),
-        };
-        if already {
-            let name = attribute
-                .unique_name()
-                .expect("repeatable documentation was skipped above");
-            return Err(SemanticValidationError::DuplicateProductionAttribute(name));
-        }
-        match attribute {
-            ProductionAttribute::Strictness {
-                fields: selected, ..
-            } => {
-                if selected.is_empty()
-                    || has_duplicate_fields(&selected.iter().map(|field| field.field().clone()).collect::<Vec<_>>())
-                    || selected.iter().any(|field| !fields.contains(field.field()))
-                {
-                    return Err(SemanticValidationError::InvalidStrictnessField);
-                }
-            }
-            ProductionAttribute::Format { fragments, .. } => {
-                if fragments.is_empty()
-                    || fragments.iter().any(|fragment| {
-                        matches!(fragment, FormatFragment::Item(position) if *position == 0 || usize::from(*position) > items.len())
-                    })
-                {
-                    return Err(SemanticValidationError::InvalidFormat);
-                }
-            }
-            ProductionAttribute::Documentation { .. }
-            | ProductionAttribute::Function { .. }
-            | ProductionAttribute::Total { .. }
-            | ProductionAttribute::Hook { .. }
-            | ProductionAttribute::Alias { .. }
-            | ProductionAttribute::Token { .. }
-            | ProductionAttribute::Group { .. }
-            | ProductionAttribute::Bracket { .. }
-            | ProductionAttribute::Avoid { .. } => {}
-        }
-    }
-    if total && !function {
-        return Err(SemanticValidationError::InvalidFunctionProduction);
-    }
-    if hook.is_some() && !(function && total) {
-        return Err(SemanticValidationError::InvalidFunctionProduction);
-    }
-    if let Some(operation) = hook {
-        let argument_sorts = items
-            .iter()
-            .filter_map(|item| match item.kind() {
-                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
-                GrammarProductionItemKind::Terminal { .. }
-                | GrammarProductionItemKind::RegexTerminal { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let valid_signature =
-            if let Some((expected_result, expected_arguments)) = operation.builtin_signature() {
-                result_sort == &SemanticSortRef::Builtin(expected_result)
-                    && argument_sorts
-                        == expected_arguments
-                            .iter()
-                            .copied()
-                            .map(SemanticSortRef::Builtin)
-                            .collect::<Vec<_>>()
-                            .iter()
-                            .collect::<Vec<_>>()
-            } else {
-                match operation {
-                    HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
-                        result_sort == &SemanticSortRef::Builtin(BuiltinSort::Bool)
-                            && matches!(argument_sorts.as_slice(), [SemanticSortRef::Declared(_)])
-                    }
-                    HookOperation::KryptoBn128Add => {
-                        matches!(result_sort, SemanticSortRef::Declared(_))
-                            && argument_sorts.as_slice() == [result_sort, result_sort]
-                    }
-                    HookOperation::KryptoBn128Mul => {
-                        matches!(result_sort, SemanticSortRef::Declared(_))
-                            && argument_sorts.len() == 2
-                            && argument_sorts[0] == result_sort
-                            && argument_sorts[1] == &SemanticSortRef::Builtin(BuiltinSort::Int)
-                    }
-                    HookOperation::KryptoKeccak256Raw
-                    | HookOperation::KryptoSha256Raw
-                    | HookOperation::KryptoRipemd160Raw
-                    | HookOperation::KryptoEcdsaRecover
-                    | HookOperation::KryptoBn128Ate => {
-                        unreachable!("builtin-signature hooks are handled above")
-                    }
-                }
-            };
-        if !valid_signature {
-            return Err(SemanticValidationError::InvalidHookSignature(operation));
-        }
-    }
-    if alias && function {
-        return Err(SemanticValidationError::InvalidAliasProduction);
-    }
-    if token && (items.len() != 1 || regexes != 1) {
-        return Err(SemanticValidationError::InvalidTokenProduction);
-    }
-    if regexes != 0 && !token {
-        return Err(SemanticValidationError::RegexWithoutToken);
-    }
-    if bracket && fields.len() != 1 {
-        return Err(SemanticValidationError::InvalidBracketProduction);
-    }
-    Ok(())
-}
-
-fn has_duplicate_fields(fields: &[ProductionFieldId]) -> bool {
-    let mut unique = BTreeSet::new();
-    fields.iter().any(|field| !unique.insert(field))
-}
-
-fn builtin_signature(operation: BuiltinOperation) -> (SemanticSortRef, Vec<SemanticSortRef>) {
-    (
-        SemanticSortRef::Builtin(operation.result_sort()),
-        operation
-            .argument_sorts()
-            .iter()
-            .copied()
-            .map(SemanticSortRef::Builtin)
-            .collect(),
-    )
-}
-
-fn validate_precedence_order(modules: &[SemanticModule]) -> Result<(), SemanticValidationError> {
-    let mut edges: BTreeMap<ProductionGroupId, BTreeSet<ProductionGroupId>> = BTreeMap::new();
-    for relation in modules.iter().flat_map(|module| &module.precedences) {
-        for higher in relation.higher() {
-            for lower in relation.lower() {
-                edges
-                    .entry(higher.clone())
-                    .or_default()
-                    .insert(lower.clone());
-            }
-        }
-    }
-    for start in edges.keys() {
-        let mut pending = edges
-            .get(start)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut visited = BTreeSet::new();
-        while let Some(group) = pending.pop() {
-            if &group == start {
-                return Err(SemanticValidationError::PrecedenceCycle(start.clone()));
-            }
-            if visited.insert(group.clone()) {
-                pending.extend(edges.get(&group).into_iter().flatten().cloned());
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_semantic_subsort_order(
-    edges: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-) -> Result<(), SemanticValidationError> {
-    for start in edges.keys() {
-        let mut pending = edges
-            .get(start)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut visited = BTreeSet::new();
-        while let Some(sort) = pending.pop() {
-            if &sort == start {
-                return Err(SemanticValidationError::SubsortCycle(Box::new(
-                    start.clone(),
-                )));
-            }
-            if visited.insert(sort.clone()) {
-                pending.extend(edges.get(&sort).into_iter().flatten().cloned());
-            }
-        }
-    }
-    Ok(())
-}
-
-fn is_subsort(
-    candidate: &SemanticSortRef,
-    expected: &SemanticSortRef,
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-) -> bool {
-    let mut pending = vec![candidate];
-    let mut visited = BTreeSet::new();
-    while let Some(sort) = pending.pop() {
-        if sort == expected {
-            return true;
-        }
-        if visited.insert(sort) {
-            pending.extend(parents.get(sort).into_iter().flatten());
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ClaimModality;
+    use crate::ir_validation::{validate_claim, variable_scope};
+    use crate::{CellContentFrame, CellPost, FixedCellClause};
 
     fn node(key: &str) -> NodeOrigin {
         crate::testing::origin_in(
@@ -3310,8 +1518,8 @@ mod tests {
     }
 
     fn validate_claim_only(rule: &SemanticRule) -> Result<(), SemanticValidationError> {
-        let scope = variable_scope(&rule.variables, &BTreeMap::new())?;
-        validate_claim(
+        let scope = variable_scope::<SemanticLevel>(&rule.variables, &BTreeMap::new())?;
+        validate_claim::<SemanticLevel>(
             rule,
             rule.claim.as_ref().expect("claim metadata"),
             &scope,
@@ -3398,7 +1606,7 @@ mod tests {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
         rule.kind = SentenceKind::Transition;
         assert!(matches!(
-            validate_rule(
+            validate_rule::<SemanticLevel>(
                 &rule,
                 None,
                 &BTreeMap::new(),
@@ -3417,7 +1625,7 @@ mod tests {
         );
         rule.claim = None;
         assert!(matches!(
-            validate_rule(
+            validate_rule::<SemanticLevel>(
                 &rule,
                 None,
                 &BTreeMap::new(),
@@ -3436,7 +1644,7 @@ mod tests {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
         rule.label = None;
         assert!(matches!(
-            validate_rule(
+            validate_rule::<SemanticLevel>(
                 &rule,
                 None,
                 &BTreeMap::new(),
@@ -3463,7 +1671,7 @@ mod tests {
             .expect("valid rewrite"),
         ));
         assert!(matches!(
-            validate_rule(
+            validate_rule::<SemanticLevel>(
                 &rule,
                 None,
                 &BTreeMap::new(),
@@ -3482,7 +1690,7 @@ mod tests {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
         rule.simplification = Some(SemanticSimplification::new(node("simplification"), None));
         assert!(matches!(
-            validate_rule(
+            validate_rule::<SemanticLevel>(
                 &rule,
                 None,
                 &BTreeMap::new(),

@@ -11,19 +11,21 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir::validated_id;
+use crate::ir_level::DefinitionLevel;
+use crate::ir_validation::{
+    collect_configuration_nodes, insert_node, require_kind, require_sort,
+    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_subsort_order, validate_term, variable_scope,
+};
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GrammarProductionItem,
+    ApplicationRef, BuiltinOperation, BuiltinSort, GrammarProductionItem,
     GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
     ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SchemaVersion, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey, StableItemId,
+    ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
+    SourceMapKey, StableItemId,
 };
-use crate::{
-    CellContentFrame, CellPost, FixedCell, FixedCellClause, FixedCellContent, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedInitializerCell,
-    FixedInitializerContent,
-};
+use crate::{CellContentFrame, FixedConfiguration, FixedConfigurationRewrite};
 
 impl SortKey for DefinitionModule {
     type Key = ModuleId;
@@ -86,70 +88,7 @@ impl<'de> Deserialize<'de> for SymbolId {
 }
 
 /// A sort reference in source-level Definition IR.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "sort_source", content = "sort", rename_all = "snake_case")]
-pub enum DefinitionSortRef {
-    /// Generated or imported declared sort symbol.
-    Declared(SymbolId),
-    /// Sort intrinsic to the K language.
-    Builtin(BuiltinSort),
-}
-
-impl DefinitionSortRef {
-    /// Refers to a declared sort symbol.
-    #[must_use]
-    pub const fn declared(sort: SymbolId) -> Self {
-        Self::Declared(sort)
-    }
-
-    /// Refers to the builtin K computation-sequence sort.
-    #[must_use]
-    pub const fn k_sequence() -> Self {
-        Self::Builtin(BuiltinSort::KSequence)
-    }
-
-    /// Refers to the compiler-provided integer sort.
-    #[must_use]
-    pub const fn int() -> Self {
-        Self::Builtin(BuiltinSort::Int)
-    }
-
-    /// Refers to the compiler-provided Boolean sort.
-    #[must_use]
-    pub const fn bool() -> Self {
-        Self::Builtin(BuiltinSort::Bool)
-    }
-
-    /// Refers to the compiler-provided byte-string sort.
-    #[must_use]
-    pub const fn bytes() -> Self {
-        Self::Builtin(BuiltinSort::Bytes)
-    }
-
-    /// Stable identifier-token sort from `ID-SYNTAX`.
-    #[must_use]
-    pub const fn id() -> Self {
-        Self::Builtin(BuiltinSort::Id)
-    }
-
-    /// Stable finite-map sort from `MAP`.
-    #[must_use]
-    pub const fn map() -> Self {
-        Self::Builtin(BuiltinSort::Map)
-    }
-
-    /// Stable associative-list sort from `LIST`.
-    #[must_use]
-    pub const fn list() -> Self {
-        Self::Builtin(BuiltinSort::List)
-    }
-
-    /// Stable associative-set sort from `SET`.
-    #[must_use]
-    pub const fn set() -> Self {
-        Self::Builtin(BuiltinSort::Set)
-    }
-}
+pub type DefinitionSortRef = crate::IrSortRef<SymbolId>;
 
 /// Stable generated rule-label identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -412,9 +351,9 @@ impl DefinitionIr {
                     module.id.clone(),
                 ));
             }
-            insert_node(&mut nodes, module.origin.key())?;
+            insert_node::<DefinitionLevel>(&mut nodes, module.origin.key())?;
             for group in &module.production_groups {
-                insert_node(&mut nodes, group.origin.key())?;
+                insert_node::<DefinitionLevel>(&mut nodes, group.origin.key())?;
                 if !groups.insert(group.id.clone()) {
                     return Err(DefinitionValidationError::DuplicateProductionGroup(
                         group.id.clone(),
@@ -427,7 +366,7 @@ impl DefinitionIr {
                 }
             }
             for sentence in &module.sentences {
-                insert_node(&mut nodes, sentence.origin().key())?;
+                insert_node::<DefinitionLevel>(&mut nodes, sentence.origin().key())?;
                 match sentence {
                     DefinitionSentence::SyntaxSort(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
@@ -472,10 +411,10 @@ impl DefinitionIr {
                             alias_productions.insert(sentence.symbol.id.clone());
                         }
                         for item in &sentence.items {
-                            insert_node(&mut nodes, item.origin().key())?;
+                            insert_node::<DefinitionLevel>(&mut nodes, item.origin().key())?;
                         }
                         for attribute in &sentence.attributes {
-                            insert_node(&mut nodes, attribute.origin().key())?;
+                            insert_node::<DefinitionLevel>(&mut nodes, attribute.origin().key())?;
                             if let ProductionAttribute::Strictness {
                                 using,
                                 fields,
@@ -484,23 +423,34 @@ impl DefinitionIr {
                             } = attribute
                             {
                                 if let Some(using) = using {
-                                    insert_node(&mut nodes, using.origin().key())?;
+                                    insert_node::<DefinitionLevel>(
+                                        &mut nodes,
+                                        using.origin().key(),
+                                    )?;
                                 }
                                 for field in fields {
-                                    insert_node(&mut nodes, field.origin().key())?;
+                                    insert_node::<DefinitionLevel>(
+                                        &mut nodes,
+                                        field.origin().key(),
+                                    )?;
                                 }
-                                insert_node(&mut nodes, result_sort.origin().key())?;
+                                insert_node::<DefinitionLevel>(
+                                    &mut nodes,
+                                    result_sort.origin().key(),
+                                )?;
                             }
                         }
                     }
                     DefinitionSentence::Precedence(_) | DefinitionSentence::Associativity(_) => {}
                     DefinitionSentence::Configuration(sentence) => {
                         configurations += 1;
-                        insert_node(&mut nodes, sentence.initializer_origin().key())?;
-                        collect_definition_fixed_configuration(
+                        insert_node::<DefinitionLevel>(
+                            &mut nodes,
+                            sentence.initializer_origin().key(),
+                        )?;
+                        collect_configuration_nodes::<DefinitionLevel>(
                             sentence,
-                            &mut symbols,
-                            &mut symbol_names,
+                            &mut (&mut symbols, &mut symbol_names),
                             &mut nodes,
                         )?;
                     }
@@ -512,8 +462,8 @@ impl DefinitionIr {
                                 "context alias identity",
                             ));
                         }
-                        insert_node(&mut nodes, sentence.name_origin.key())?;
-                        insert_node(&mut nodes, sentence.here_origin.key())?;
+                        insert_node::<DefinitionLevel>(&mut nodes, sentence.name_origin.key())?;
+                        insert_node::<DefinitionLevel>(&mut nodes, sentence.here_origin.key())?;
                     }
                     DefinitionSentence::Rule(sentence) => {
                         validate_label_text(&sentence.label)?;
@@ -557,11 +507,15 @@ impl DefinitionIr {
             for sentence in &module.sentences {
                 match sentence {
                     DefinitionSentence::SyntaxSort(sentence) => {
-                        require_declared_kind(&symbols, sentence.symbol.id(), SymbolKind::Sort)?;
+                        require_kind::<DefinitionLevel>(
+                            &symbols,
+                            sentence.symbol.id(),
+                            SymbolKind::Sort,
+                        )?;
                     }
                     DefinitionSentence::Subsort(sentence) => {
-                        require_definition_sort(&symbols, &sentence.subsort)?;
-                        require_definition_sort(&symbols, &sentence.supersort)?;
+                        require_sort::<DefinitionLevel>(&symbols, &sentence.subsort)?;
+                        require_sort::<DefinitionLevel>(&symbols, &sentence.supersort)?;
                     }
                     DefinitionSentence::Production(sentence) => {
                         validate_production(sentence, &symbols, &groups, &context_aliases)?;
@@ -576,13 +530,15 @@ impl DefinitionIr {
                             require_definition_group(&groups, group)?;
                         }
                     }
-                    DefinitionSentence::Configuration(sentence) => validate_fixed_configuration(
-                        sentence,
-                        &symbols,
-                        &production_signatures,
-                        &subsort_parents,
-                        &mut nodes,
-                    )?,
+                    DefinitionSentence::Configuration(sentence) => {
+                        validate_fixed_configuration::<DefinitionLevel>(
+                            sentence,
+                            &symbols,
+                            &production_signatures,
+                            &subsort_parents,
+                            &mut nodes,
+                        )?;
+                    }
                     DefinitionSentence::ContextAlias(sentence) => validate_context_alias(
                         sentence,
                         &symbols,
@@ -591,7 +547,7 @@ impl DefinitionIr {
                         &mut nodes,
                     )?,
                     DefinitionSentence::Rule(sentence) => {
-                        validate_rule(
+                        validate_rule::<DefinitionLevel>(
                             sentence,
                             fixed_configuration,
                             &symbols,
@@ -606,8 +562,8 @@ impl DefinitionIr {
             }
         }
         validate_bn128_point_constructors(&self.modules)?;
-        validate_definition_precedence_order(&self.modules)?;
-        validate_definition_subsort_order(&subsort_parents)?;
+        validate_precedence_order::<DefinitionLevel>(&self.modules)?;
+        validate_subsort_order::<DefinitionLevel>(&subsort_parents)?;
         Ok(())
     }
 }
@@ -731,85 +687,7 @@ impl DefinitionSentence {
 }
 
 /// One source-level reusable one-sided fixed-configuration context template.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContextAliasSentence {
-    origin: NodeOrigin,
-    id: StableItemId,
-    name_origin: NodeOrigin,
-    name: String,
-    here_origin: NodeOrigin,
-    here: SemanticId,
-    variables: Vec<DefinitionVariable>,
-    body: FixedConfigurationPattern<SymbolId, DefinitionTerm>,
-}
-
-impl ContextAliasSentence {
-    /// Creates one already-validated context-alias sentence.
-    #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        origin: NodeOrigin,
-        id: StableItemId,
-        name_origin: NodeOrigin,
-        name: String,
-        here_origin: NodeOrigin,
-        here: SemanticId,
-        variables: Vec<DefinitionVariable>,
-        body: FixedConfigurationPattern<SymbolId, DefinitionTerm>,
-    ) -> Self {
-        Self {
-            origin,
-            id,
-            name_origin,
-            name,
-            here_origin,
-            here,
-            variables,
-            body,
-        }
-    }
-    /// Returns declaration provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns stable declaration identity.
-    #[must_use]
-    pub const fn id(&self) -> &StableItemId {
-        &self.id
-    }
-    /// Returns alias-name provenance.
-    #[must_use]
-    pub const fn name_origin(&self) -> &NodeOrigin {
-        &self.name_origin
-    }
-    /// Returns the exact emitted alias name.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    /// Returns HERE occurrence provenance.
-    #[must_use]
-    pub const fn here_origin(&self) -> &NodeOrigin {
-        &self.here_origin
-    }
-    /// Returns the selected HERE binding.
-    #[must_use]
-    pub const fn here(&self) -> &SemanticId {
-        &self.here
-    }
-    /// Returns typed variables.
-    #[must_use]
-    pub fn variables(&self) -> &[DefinitionVariable] {
-        &self.variables
-    }
-    /// Returns the one-sided fixed-configuration pattern.
-    #[must_use]
-    pub const fn body(&self) -> &FixedConfigurationPattern<SymbolId, DefinitionTerm> {
-        &self.body
-    }
-}
+pub type ContextAliasSentence = crate::IrContextAlias<crate::DefinitionLevel>;
 
 /// Compiler-owned emitted identity for one nominal production group.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -866,45 +744,7 @@ impl ProductionGroupIdentity {
 }
 
 /// A direct source-level subsort production without a generated term symbol.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SubsortSentence {
-    origin: NodeOrigin,
-    subsort: DefinitionSortRef,
-    supersort: DefinitionSortRef,
-}
-
-impl SubsortSentence {
-    /// Declares one direct subsort edge.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        subsort: DefinitionSortRef,
-        supersort: DefinitionSortRef,
-    ) -> Self {
-        Self {
-            origin,
-            subsort,
-            supersort,
-        }
-    }
-
-    /// Returns sentence provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the smaller sort.
-    #[must_use]
-    pub const fn subsort(&self) -> &DefinitionSortRef {
-        &self.subsort
-    }
-    /// Returns the larger sort.
-    #[must_use]
-    pub const fn supersort(&self) -> &DefinitionSortRef {
-        &self.supersort
-    }
-}
+pub type SubsortSentence = crate::IrSubsort<crate::DefinitionLevel>;
 
 /// Syntax sort sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -968,7 +808,12 @@ impl ProductionSentence {
                 symbol.id.clone(),
             ));
         }
-        validate_definition_production_shape(symbol.id(), &result_sort, &items, &attributes)?;
+        validate_production_shape::<DefinitionLevel>(
+            symbol.id(),
+            &result_sort,
+            &items,
+            &attributes,
+        )?;
         Ok(Self {
             origin,
             symbol,
@@ -1008,259 +853,25 @@ impl ProductionSentence {
 pub type ConfigurationSentence = FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>;
 
 /// Definition-level variable declaration.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionVariable {
-    id: SemanticId,
-    sort: DefinitionSortRef,
-}
-impl DefinitionVariable {
-    /// Declares a variable.
-    #[must_use]
-    pub const fn new(id: SemanticId, sort: DefinitionSortRef) -> Self {
-        Self { id, sort }
-    }
-    /// Returns its stable ID.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Returns its sort.
-    #[must_use]
-    pub const fn sort(&self) -> &DefinitionSortRef {
-        &self.sort
-    }
-}
+pub type DefinitionVariable = crate::IrVariable<crate::DefinitionLevel>;
 
 /// One provenance-bearing object-language Boolean rule condition.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionRuleCondition {
-    origin: NodeOrigin,
-    term: DefinitionTerm,
-}
+pub type DefinitionRuleCondition = crate::IrRuleCondition<crate::DefinitionLevel>;
 
-/// One explicitly scoped Definition claim binder.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionClaimBinder {
-    origin: NodeOrigin,
-    name_origin: NodeOrigin,
-    id: SemanticId,
-    sort_origin: NodeOrigin,
-    sort: DefinitionSortRef,
-}
+/// One explicitly scoped claim binder declaration.
+pub type DefinitionClaimBinder = crate::IrClaimBinder<crate::DefinitionLevel>;
 
-/// Typed Definition claim adjunct metadata.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionClaim {
-    modality_origin: NodeOrigin,
-    modality: crate::ClaimModality,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    circularity_origin: Option<NodeOrigin>,
-    universals: Vec<DefinitionClaimBinder>,
-    existentials: Vec<DefinitionClaimBinder>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ensures: Option<DefinitionRuleCondition>,
-}
+/// Typed reachability metadata present only on claims.
+pub type DefinitionClaim = crate::IrClaim<crate::DefinitionLevel>;
 
-impl DefinitionClaimBinder {
-    /// Creates one typed scoped binder.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        name_origin: NodeOrigin,
-        id: SemanticId,
-        sort_origin: NodeOrigin,
-        sort: DefinitionSortRef,
-    ) -> Self {
-        Self {
-            origin,
-            name_origin,
-            id,
-            sort_origin,
-            sort,
-        }
-    }
-    /// Declaration provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Name provenance.
-    #[must_use]
-    pub const fn name_origin(&self) -> &NodeOrigin {
-        &self.name_origin
-    }
-    /// Stable binder identity.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Sort provenance.
-    #[must_use]
-    pub const fn sort_origin(&self) -> &NodeOrigin {
-        &self.sort_origin
-    }
-    /// Definition sort.
-    #[must_use]
-    pub const fn sort(&self) -> &DefinitionSortRef {
-        &self.sort
-    }
-}
-
-impl DefinitionClaim {
-    /// Creates typed claim metadata.
-    #[must_use]
-    pub const fn new(
-        modality_origin: NodeOrigin,
-        modality: crate::ClaimModality,
-        circularity_origin: Option<NodeOrigin>,
-        universals: Vec<DefinitionClaimBinder>,
-        existentials: Vec<DefinitionClaimBinder>,
-        ensures: Option<DefinitionRuleCondition>,
-    ) -> Self {
-        Self {
-            modality_origin,
-            modality,
-            circularity_origin,
-            universals,
-            existentials,
-            ensures,
-        }
-    }
-    /// Modality provenance.
-    #[must_use]
-    pub const fn modality_origin(&self) -> &NodeOrigin {
-        &self.modality_origin
-    }
-    /// Reachability modality.
-    #[must_use]
-    pub const fn modality(&self) -> crate::ClaimModality {
-        self.modality
-    }
-    /// Circularity provenance.
-    #[must_use]
-    pub const fn circularity_origin(&self) -> Option<&NodeOrigin> {
-        self.circularity_origin.as_ref()
-    }
-    /// Universal binders.
-    #[must_use]
-    pub fn universals(&self) -> &[DefinitionClaimBinder] {
-        &self.universals
-    }
-    /// Existential binders.
-    #[must_use]
-    pub fn existentials(&self) -> &[DefinitionClaimBinder] {
-        &self.existentials
-    }
-    /// Object-Bool postcondition.
-    #[must_use]
-    pub const fn ensures(&self) -> Option<&DefinitionRuleCondition> {
-        self.ensures.as_ref()
-    }
-}
-
-/// One explicit equation priority.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionRulePriority {
-    origin: NodeOrigin,
-    value: u32,
-}
+/// One explicit equation or transition-rule priority.
+pub type DefinitionRulePriority = crate::IrRulePriority;
 
 /// Simplifier classification and optional ordering hint.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionSimplification {
-    origin: NodeOrigin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<DefinitionSimplificationPriority>,
-}
+pub type DefinitionSimplification = crate::IrSimplification;
 
 /// One numeric simplification ordering hint.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefinitionSimplificationPriority {
-    origin: NodeOrigin,
-    value: u32,
-}
-
-impl DefinitionSimplification {
-    /// Creates typed simplification metadata.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        priority: Option<DefinitionSimplificationPriority>,
-    ) -> Self {
-        Self { origin, priority }
-    }
-    /// Returns marker provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the optional numeric hint.
-    #[must_use]
-    pub const fn priority(&self) -> Option<&DefinitionSimplificationPriority> {
-        self.priority.as_ref()
-    }
-}
-
-impl DefinitionSimplificationPriority {
-    /// Creates a provenance-bearing hint.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, value: u32) -> Self {
-        Self { origin, value }
-    }
-    /// Returns hint provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the numeric hint.
-    #[must_use]
-    pub const fn value(&self) -> u32 {
-        self.value
-    }
-}
-
-impl DefinitionRulePriority {
-    /// Creates a provenance-bearing priority.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, value: u32) -> Self {
-        Self { origin, value }
-    }
-    /// Returns priority provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the explicit numeric priority.
-    #[must_use]
-    pub const fn value(&self) -> u32 {
-        self.value
-    }
-}
-
-impl DefinitionRuleCondition {
-    /// Creates a typed condition while retaining complete payload provenance.
-    #[must_use]
-    pub const fn new(origin: NodeOrigin, term: DefinitionTerm) -> Self {
-        Self { origin, term }
-    }
-    /// Returns complete condition-payload provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the structured object-language condition term.
-    #[must_use]
-    pub const fn term(&self) -> &DefinitionTerm {
-        &self.term
-    }
-}
+pub type DefinitionSimplificationPriority = crate::IrSimplificationPriority;
 
 /// Rule, equation, or claim sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1282,14 +893,7 @@ pub struct RuleSentence {
 }
 
 /// Structured relational body of one ordinary labeled Definition rule.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum DefinitionRuleBody {
-    /// One ordinary term rewrite.
-    Term(DefinitionTerm),
-    /// One simultaneous fixed-configuration rewrite.
-    Configuration(FixedConfigurationRewrite<SymbolId, DefinitionTerm>),
-}
+pub type DefinitionRuleBody = crate::IrRuleBody<crate::DefinitionLevel>;
 impl RuleSentence {
     /// Creates a sentence whose body must be a structured rewrite.
     ///
@@ -1446,259 +1050,11 @@ impl RuleSentence {
     }
 }
 
-/// Structured K term with mandatory nested provenance.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct DefinitionTerm {
-    origin: NodeOrigin,
-    sort: DefinitionSortRef,
-    #[serde(flatten)]
-    kind: DefinitionTermKind,
-}
-impl DefinitionTerm {
-    /// Creates a variable reference.
-    #[must_use]
-    pub const fn variable(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        variable: SemanticId,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Variable { variable },
-        }
-    }
-    /// Creates an application referencing a symbol declared elsewhere.
-    #[must_use]
-    pub const fn application(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        application: DefinitionApplicationRef,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Application {
-                application,
-                arguments,
-            },
-        }
-    }
-    /// Creates a nonempty domain token.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DefinitionValidationError`] for an empty token payload.
-    pub fn token(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        value: impl Into<String>,
-    ) -> Result<Self, DefinitionValidationError> {
-        let value = value.into();
-        if value.is_empty() {
-            return Err(DefinitionValidationError::EmptyText("token value"));
-        }
-        Ok(Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Token { value },
-        })
-    }
-    /// Creates a sorted rewrite. Whole-definition validation requires both
-    /// endpoint sorts to inject into the declared rewrite sort.
-    ///
-    /// # Errors
-    ///
-    /// Returns no local shape error; subsorting is a whole-definition property.
-    pub fn rewrite(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        from: Self,
-        to: Self,
-    ) -> Result<Self, DefinitionValidationError> {
-        Ok(Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Rewrite {
-                from: Box::new(from),
-                to: Box::new(to),
-            },
-        })
-    }
-    /// Creates an explicit source-level K computation sequence. Per-item sort
-    /// injections remain the responsibility of the K frontend.
-    #[must_use]
-    pub const fn k_sequence(
-        origin: NodeOrigin,
-        item_sort: DefinitionSortRef,
-        items: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort: DefinitionSortRef::Builtin(BuiltinSort::KSequence),
-            kind: DefinitionTermKind::KSequence { item_sort, items },
-        }
-    }
-    /// Creates one structured finite-map operation.
-    #[must_use]
-    pub const fn map(origin: NodeOrigin, operation: MapOperation, arguments: Vec<Self>) -> Self {
-        Self {
-            origin,
-            sort: DefinitionSortRef::Builtin(BuiltinSort::Map),
-            kind: DefinitionTermKind::Map {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one typed Map-theory operation with a non-Map result sort.
-    #[must_use]
-    pub const fn typed_map(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        operation: MapOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Map {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one structured builtin-List operation.
-    #[must_use]
-    pub const fn list(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        operation: ListOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::List {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one structured builtin-Set operation.
-    #[must_use]
-    pub const fn set(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        operation: SetOperation,
-        arguments: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Set {
-                operation,
-                arguments,
-            },
-        }
-    }
-    /// Creates one complete generated configuration-cell term.
-    #[must_use]
-    pub const fn cell(
-        origin: NodeOrigin,
-        sort: DefinitionSortRef,
-        cell: SymbolId,
-        children: Vec<Self>,
-    ) -> Self {
-        Self {
-            origin,
-            sort,
-            kind: DefinitionTermKind::Cell { cell, children },
-        }
-    }
-    /// Returns mandatory provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns the declared sort reference.
-    #[must_use]
-    pub const fn sort(&self) -> &DefinitionSortRef {
-        &self.sort
-    }
-    /// Returns the structured form.
-    #[must_use]
-    pub const fn kind(&self) -> &DefinitionTermKind {
-        &self.kind
-    }
-}
+/// A typed Definition IR term whose nested nodes retain their own origins and keys.
+pub type DefinitionTerm = crate::IrTerm<crate::DefinitionLevel>;
 
-/// Definition term forms. No adapter production IDs, KAST metadata, or KORE
-/// nodes can be represented here.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(tag = "term_kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DefinitionTermKind {
-    /// Variable reference.
-    Variable {
-        /// Stable binder identity.
-        variable: SemanticId,
-    },
-    /// Symbol application with ordered arguments.
-    Application {
-        /// Referenced authored or compiler-provided application.
-        application: DefinitionApplicationRef,
-        /// Arguments in declared nonterminal order.
-        arguments: Vec<DefinitionTerm>,
-    },
-    /// Domain token.
-    Token {
-        /// Exact token payload.
-        value: String,
-    },
-    /// Explicit ordered K computation sequence.
-    KSequence {
-        /// Declared item sort (`KItem`) used by the sequence.
-        item_sort: DefinitionSortRef,
-        /// Items in computation order.
-        items: Vec<DefinitionTerm>,
-    },
-    /// Structured finite-map operation or associative item pattern.
-    Map {
-        /// Exact target-neutral map operation.
-        operation: MapOperation,
-        /// Ordered operands; key/value terms retain their own sorts.
-        arguments: Vec<DefinitionTerm>,
-    },
-    /// Structured builtin-List operation.
-    List {
-        /// Exact target-neutral List operation.
-        operation: ListOperation,
-        /// Ordered operands; item values retain their own sorts.
-        arguments: Vec<DefinitionTerm>,
-    },
-    /// Structured builtin-Set operation.
-    Set {
-        /// Exact target-neutral Set operation.
-        operation: SetOperation,
-        /// Ordered operands; item values retain their own sorts.
-        arguments: Vec<DefinitionTerm>,
-    },
-    /// Complete generated configuration-cell application.
-    Cell {
-        /// Generated fixed-cell symbol identity.
-        cell: SymbolId,
-        /// Leaf content or ordered nested child cells.
-        children: Vec<DefinitionTerm>,
-    },
-    /// Relational rewrite.
-    Rewrite {
-        /// Pre-pattern.
-        from: Box<DefinitionTerm>,
-        /// Post-term.
-        to: Box<DefinitionTerm>,
-    },
-}
+/// Structured target-neutral Definition term forms.
+pub type DefinitionTermKind = crate::IrTermKind<crate::DefinitionLevel>;
 
 /// Typed Definition IR validation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2046,28 +1402,7 @@ fn expect_symbol_kind(
     symbol: &SymbolIdentity,
     expected: SymbolKind,
 ) -> Result<(), DefinitionValidationError> {
-    if symbol.kind == expected {
-        Ok(())
-    } else {
-        Err(DefinitionValidationError::WrongSymbolKind {
-            id: symbol.id.clone(),
-            expected,
-            actual: symbol.kind,
-        })
-    }
-}
-
-fn insert_node(
-    nodes: &mut BTreeSet<SourceMapKey>,
-    key: &SourceMapKey,
-) -> Result<(), DefinitionValidationError> {
-    if nodes.insert(key.clone()) {
-        Ok(())
-    } else {
-        Err(DefinitionValidationError::DuplicateSourceMapKey(
-            key.clone(),
-        ))
-    }
+    crate::ir_validation::expect_kind::<DefinitionLevel>(&symbol.id, symbol.kind, expected)
 }
 
 fn declare_symbol(
@@ -2086,65 +1421,6 @@ fn declare_symbol(
         ));
     }
     Ok(())
-}
-
-fn collect_definition_fixed_configuration(
-    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    symbols: &mut BTreeMap<SymbolId, SymbolKind>,
-    names: &mut BTreeSet<String>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    fn cells(
-        values: &[FixedCell<DefinitionSortRef, SymbolId>],
-        symbols: &mut BTreeMap<SymbolId, SymbolKind>,
-        names: &mut BTreeSet<String>,
-        nodes: &mut BTreeSet<SourceMapKey>,
-    ) -> Result<(), DefinitionValidationError> {
-        for cell in values {
-            if symbols
-                .insert(cell.id().clone(), SymbolKind::Cell)
-                .is_some()
-            {
-                return Err(DefinitionValidationError::DuplicateSymbol(
-                    cell.id().clone(),
-                ));
-            }
-            if !names.insert(cell.name().to_owned()) {
-                return Err(DefinitionValidationError::DuplicateEmittedName(
-                    cell.name().to_owned(),
-                ));
-            }
-            insert_node(nodes, cell.origin().key())?;
-            for attribute in cell.attributes() {
-                insert_node(nodes, attribute.origin().key())?;
-            }
-            if let FixedCellContent::Children { children } = cell.content() {
-                cells(children, symbols, names, nodes)?;
-            }
-        }
-        Ok(())
-    }
-    fn initializer(
-        values: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-        nodes: &mut BTreeSet<SourceMapKey>,
-    ) -> Result<(), DefinitionValidationError> {
-        for cell in values {
-            insert_node(nodes, cell.origin().key())?;
-            if let FixedInitializerContent::Children { children } = cell.content() {
-                initializer(children, nodes)?;
-            }
-        }
-        Ok(())
-    }
-
-    if let Some(origin) = configuration.root().origin() {
-        insert_node(nodes, origin.key())?;
-    }
-    for variable in configuration.variables() {
-        insert_node(nodes, variable.origin().key())?;
-    }
-    cells(configuration.cells(), symbols, names, nodes)?;
-    initializer(configuration.initializer(), nodes)
 }
 
 fn validate_symbol_text(symbol: &SymbolIdentity) -> Result<(), DefinitionValidationError> {
@@ -2171,50 +1447,14 @@ fn validate_label_text(label: &LabelIdentity) -> Result<(), DefinitionValidation
     Ok(())
 }
 
-fn require_declared_kind(
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    id: &SymbolId,
-    expected: SymbolKind,
-) -> Result<(), DefinitionValidationError> {
-    match symbols.get(id) {
-        None => Err(DefinitionValidationError::DanglingSymbol(id.clone())),
-        Some(actual) if *actual == expected => Ok(()),
-        Some(actual) => Err(DefinitionValidationError::WrongSymbolKind {
-            id: id.clone(),
-            expected,
-            actual: *actual,
-        }),
-    }
-}
-
-fn require_definition_sort(
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    sort: &DefinitionSortRef,
-) -> Result<(), DefinitionValidationError> {
-    match sort {
-        DefinitionSortRef::Declared(id) => require_declared_kind(symbols, id, SymbolKind::Sort),
-        DefinitionSortRef::Builtin(
-            BuiltinSort::KSequence
-            | BuiltinSort::Int
-            | BuiltinSort::Bool
-            | BuiltinSort::Map
-            | BuiltinSort::Id
-            | BuiltinSort::Bytes
-            | BuiltinSort::String
-            | BuiltinSort::List
-            | BuiltinSort::Set,
-        ) => Ok(()),
-    }
-}
-
 fn validate_production(
     sentence: &ProductionSentence,
     symbols: &BTreeMap<SymbolId, SymbolKind>,
     groups: &BTreeSet<ProductionGroupId>,
     context_aliases: &BTreeSet<StableItemId>,
 ) -> Result<(), DefinitionValidationError> {
-    require_declared_kind(symbols, sentence.symbol.id(), SymbolKind::Production)?;
-    require_definition_sort(symbols, &sentence.result_sort)?;
+    require_kind::<DefinitionLevel>(symbols, sentence.symbol.id(), SymbolKind::Production)?;
+    require_sort::<DefinitionLevel>(symbols, &sentence.result_sort)?;
     if sentence.items.is_empty() {
         return Err(DefinitionValidationError::EmptyProduction(
             sentence.symbol.id.clone(),
@@ -2222,7 +1462,7 @@ fn validate_production(
     }
     for item in &sentence.items {
         if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-            require_definition_sort(symbols, sort)?;
+            require_sort::<DefinitionLevel>(symbols, sort)?;
         }
     }
     for attribute in &sentence.attributes {
@@ -2233,7 +1473,7 @@ fn validate_production(
             ProductionAttribute::Strictness {
                 result_sort, using, ..
             } => {
-                require_definition_sort(symbols, result_sort.sort())?;
+                require_sort::<DefinitionLevel>(symbols, result_sort.sort())?;
                 if using
                     .as_ref()
                     .is_some_and(|alias| !context_aliases.contains(alias.alias()))
@@ -2254,7 +1494,7 @@ fn validate_production(
             | ProductionAttribute::Format { .. } => {}
         }
     }
-    validate_definition_production_shape(
+    validate_production_shape::<DefinitionLevel>(
         sentence.symbol.id(),
         &sentence.result_sort,
         &sentence.items,
@@ -2280,11 +1520,11 @@ fn validate_context_alias(
             "context alias name/HERE",
         ));
     }
-    let scope = variable_scope(&sentence.variables, symbols)?;
+    let scope = variable_scope::<DefinitionLevel>(&sentence.variables, symbols)?;
     for cell in sentence.body.cells() {
-        require_declared_kind(symbols, cell.cell(), SymbolKind::Cell)?;
-        insert_node(nodes, cell.origin().key())?;
-        validate_term(
+        require_kind::<DefinitionLevel>(symbols, cell.cell(), SymbolKind::Cell)?;
+        insert_node::<DefinitionLevel>(nodes, cell.origin().key())?;
+        validate_term::<DefinitionLevel>(
             cell.pattern(),
             &scope,
             symbols,
@@ -2295,782 +1535,7 @@ fn validate_context_alias(
         if let CellContentFrame::KSequenceTail { origin, .. }
         | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
         {
-            insert_node(nodes, origin.key())?;
-        }
-    }
-    Ok(())
-}
-
-fn variable_scope(
-    variables: &[DefinitionVariable],
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-) -> Result<BTreeMap<SemanticId, DefinitionSortRef>, DefinitionValidationError> {
-    let mut scope = BTreeMap::new();
-    for variable in variables {
-        require_definition_sort(symbols, &variable.sort)?;
-        if scope
-            .insert(variable.id.clone(), variable.sort.clone())
-            .is_some()
-        {
-            return Err(DefinitionValidationError::DuplicateVariable(
-                variable.id.clone(),
-            ));
-        }
-    }
-    Ok(scope)
-}
-
-fn validate_fixed_configuration(
-    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    let mut scope = BTreeMap::new();
-    let mut external_names = BTreeSet::new();
-    let mut main_count = 0_usize;
-    for variable in configuration.variables() {
-        require_definition_sort(symbols, variable.sort())?;
-        if scope
-            .insert(variable.id().clone(), variable.sort().clone())
-            .is_some()
-        {
-            return Err(DefinitionValidationError::DuplicateVariable(
-                variable.id().clone(),
-            ));
-        }
-        if !external_names.insert(variable.external_name()) {
-            return Err(DefinitionValidationError::EmptyText(
-                "duplicate external configuration variable",
-            ));
-        }
-        main_count += usize::from(variable.is_main());
-    }
-    if main_count > 1 {
-        return Err(DefinitionValidationError::EmptyText(
-            "multiple main configuration variables",
-        ));
-    }
-    validate_initializer_forest(
-        configuration.cells(),
-        configuration.initializer(),
-        &scope,
-        symbols,
-        signatures,
-        subsort_parents,
-        nodes,
-    )?;
-    let mut used = BTreeSet::new();
-    collect_initializer_variables(configuration.initializer(), &mut used);
-    if used != scope.keys().cloned().collect() {
-        return Err(DefinitionValidationError::VariableClosure);
-    }
-    Ok(())
-}
-
-fn collect_initializer_variables(
-    initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-    used: &mut BTreeSet<SemanticId>,
-) {
-    for cell in initializer {
-        match cell.content() {
-            FixedInitializerContent::Term { term } => collect_term_variables(term, used),
-            FixedInitializerContent::Children { children } => {
-                collect_initializer_variables(children, used);
-            }
-        }
-    }
-}
-
-fn validate_initializer_forest(
-    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
-    initializer: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-    scope: &BTreeMap<SemanticId, DefinitionSortRef>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    if cells.len() != initializer.len() {
-        return Err(DefinitionValidationError::InitializerTreeMismatch);
-    }
-    for (cell, initialized) in cells.iter().zip(initializer) {
-        if cell.id() != initialized.cell() {
-            return Err(DefinitionValidationError::InitializerTreeMismatch);
-        }
-        match (cell.content(), initialized.content()) {
-            (FixedCellContent::Term { sort }, FixedInitializerContent::Term { term }) => {
-                require_definition_sort(symbols, sort)?;
-                validate_term(term, scope, symbols, signatures, subsort_parents, nodes)?;
-                if term.sort() != sort {
-                    return Err(DefinitionValidationError::InitializerLeafSortMismatch);
-                }
-            }
-            (
-                FixedCellContent::Children { children },
-                FixedInitializerContent::Children {
-                    children: initialized_children,
-                },
-            ) => validate_initializer_forest(
-                children,
-                initialized_children,
-                scope,
-                symbols,
-                signatures,
-                subsort_parents,
-                nodes,
-            )?,
-            _ => return Err(DefinitionValidationError::InitializerTreeMismatch),
-        }
-    }
-    Ok(())
-}
-
-fn validate_configuration_rewrite(
-    rewrite: &FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
-    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    scope: &BTreeMap<SemanticId, DefinitionSortRef>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    fn leaves(
-        cells: &[FixedCell<DefinitionSortRef, SymbolId>],
-        output: &mut BTreeMap<SymbolId, DefinitionSortRef>,
-    ) -> Result<(), DefinitionValidationError> {
-        for cell in cells {
-            match cell.content() {
-                FixedCellContent::Term { sort } => {
-                    if output.insert(cell.id().clone(), sort.clone()).is_some() {
-                        return Err(DefinitionValidationError::InvalidCellFraming);
-                    }
-                }
-                FixedCellContent::Children { children } => leaves(children, output)?,
-            }
-        }
-        Ok(())
-    }
-
-    let mut leaf_sorts = BTreeMap::new();
-    leaves(configuration.cells(), &mut leaf_sorts)?;
-    let mentioned = rewrite
-        .clauses()
-        .iter()
-        .map(|clause| clause.cell().clone())
-        .collect::<BTreeSet<_>>();
-    let omitted = rewrite
-        .omitted_siblings()
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if mentioned.len() != rewrite.clauses().len()
-        || omitted.len() != rewrite.omitted_siblings().len()
-        || !mentioned.is_disjoint(&omitted)
-        || mentioned.union(&omitted).cloned().collect::<BTreeSet<_>>()
-            != leaf_sorts.keys().cloned().collect()
-    {
-        return Err(DefinitionValidationError::InvalidCellFraming);
-    }
-    insert_node(nodes, rewrite.origin().key())?;
-    for clause in rewrite.clauses() {
-        let sort = leaf_sorts
-            .get(clause.cell())
-            .ok_or(DefinitionValidationError::InvalidCellFraming)?;
-        insert_node(nodes, clause.origin().key())?;
-        validate_term(
-            clause.before(),
-            scope,
-            symbols,
-            signatures,
-            subsort_parents,
-            nodes,
-        )?;
-        if clause.before().sort() != sort {
-            return Err(DefinitionValidationError::CellFrameSortMismatch);
-        }
-        if let CellPost::Replace { term } = clause.after() {
-            validate_term(term, scope, symbols, signatures, subsort_parents, nodes)?;
-            if term.sort() != sort {
-                return Err(DefinitionValidationError::CellFrameSortMismatch);
-            }
-        }
-        validate_cell_frame(clause, sort, scope, nodes)?;
-    }
-    Ok(())
-}
-
-fn validate_cell_frame(
-    clause: &FixedCellClause<SymbolId, DefinitionTerm>,
-    sort: &DefinitionSortRef,
-    scope: &BTreeMap<SemanticId, DefinitionSortRef>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    let (origin, binding, required_sort) = match clause.frame() {
-        CellContentFrame::Exact => return Ok(()),
-        CellContentFrame::KSequenceTail { origin, binding } => (
-            origin,
-            binding,
-            DefinitionSortRef::Builtin(BuiltinSort::KSequence),
-        ),
-        CellContentFrame::MapRemainder { origin, binding } => (
-            origin,
-            binding,
-            DefinitionSortRef::Builtin(BuiltinSort::Map),
-        ),
-    };
-    insert_node(nodes, origin.key())?;
-    if sort != &required_sort {
-        return Err(DefinitionValidationError::CellFrameSortMismatch);
-    }
-    if let Some(binding) = binding
-        && scope.get(binding) != Some(&required_sort)
-    {
-        return Err(DefinitionValidationError::CellFrameBindingMismatch(
-            binding.clone(),
-        ));
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn validate_rule(
-    sentence: &RuleSentence,
-    configuration: Option<&FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    functional_productions: &BTreeSet<SymbolId>,
-    alias_productions: &BTreeSet<SymbolId>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    let claim = match (sentence.kind, sentence.claim.as_ref()) {
-        (SentenceKind::Claim, Some(claim)) => Some(claim),
-        (SentenceKind::Claim, None) | (_, Some(_)) => {
-            return Err(DefinitionValidationError::InvalidClaimMetadata(
-                sentence.label.id.clone(),
-            ));
-        }
-        (_, None) => None,
-    };
-    if sentence.kind == SentenceKind::Claim {
-        if sentence.priority.is_some() || sentence.simplification.is_some() {
-            return Err(DefinitionValidationError::InvalidClaimMetadata(
-                sentence.label.id.clone(),
-            ));
-        }
-        if !matches!(&sentence.body, DefinitionRuleBody::Configuration(_)) {
-            return Err(DefinitionValidationError::ClaimBodyNotConfiguration(
-                sentence.label.id.clone(),
-            ));
-        }
-    }
-    let scope = variable_scope(&sentence.variables, symbols)?;
-    match &sentence.body {
-        DefinitionRuleBody::Term(body) => {
-            validate_term(body, &scope, symbols, signatures, subsort_parents, nodes)?;
-            if !matches!(body.kind, DefinitionTermKind::Rewrite { .. }) {
-                return Err(DefinitionValidationError::RuleBodyNotRewrite(
-                    sentence.label.id.clone(),
-                ));
-            }
-            if sentence.kind == SentenceKind::Equation {
-                let DefinitionTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                let DefinitionTermKind::Application {
-                    application: ApplicationRef::Declared(symbol),
-                    ..
-                } = from.kind()
-                else {
-                    return Err(DefinitionValidationError::InvalidEquationRoot(
-                        sentence.label.id.clone(),
-                    ));
-                };
-                if !functional_productions.contains(symbol) {
-                    return Err(DefinitionValidationError::InvalidEquationRoot(
-                        sentence.label.id.clone(),
-                    ));
-                }
-            }
-            if sentence.kind == SentenceKind::Alias {
-                let DefinitionTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                let DefinitionTermKind::Application {
-                    application: ApplicationRef::Declared(symbol),
-                    ..
-                } = from.kind()
-                else {
-                    return Err(DefinitionValidationError::InvalidAliasRoot(
-                        sentence.label.id.clone(),
-                    ));
-                };
-                if !alias_productions.contains(symbol) {
-                    return Err(DefinitionValidationError::InvalidAliasRoot(
-                        sentence.label.id.clone(),
-                    ));
-                }
-            }
-            if sentence.kind == SentenceKind::Simplification {
-                let DefinitionTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
-                match from.kind() {
-                    DefinitionTermKind::Application {
-                        application: ApplicationRef::Declared(symbol),
-                        ..
-                    } if functional_productions.contains(symbol) => {}
-                    DefinitionTermKind::Application {
-                        application: ApplicationRef::Builtin(operation),
-                        ..
-                    } if operation.is_functional() => {}
-                    _ => {
-                        return Err(DefinitionValidationError::InvalidSimplificationRoot(
-                            sentence.label.id.clone(),
-                        ));
-                    }
-                }
-            }
-        }
-        DefinitionRuleBody::Configuration(body) => {
-            if sentence.kind == SentenceKind::Alias {
-                return Err(DefinitionValidationError::InvalidAliasRoot(
-                    sentence.label.id.clone(),
-                ));
-            }
-            if sentence.kind == SentenceKind::Simplification {
-                return Err(DefinitionValidationError::InvalidSimplificationRoot(
-                    sentence.label.id.clone(),
-                ));
-            }
-            let configuration = configuration.ok_or_else(|| {
-                DefinitionValidationError::ConfigurationRuleWithoutFixedConfiguration(
-                    sentence.label.id.clone(),
-                )
-            })?;
-            if body.configuration() != configuration.id() {
-                return Err(DefinitionValidationError::ConfigurationRuleTargetMismatch(
-                    sentence.label.id.clone(),
-                ));
-            }
-            validate_configuration_rewrite(
-                body,
-                configuration,
-                &scope,
-                symbols,
-                signatures,
-                subsort_parents,
-                nodes,
-            )?;
-        }
-    }
-    if sentence.kind == SentenceKind::Simplification {
-        let Some(simplification) = &sentence.simplification else {
-            return Err(DefinitionValidationError::InvalidSimplificationMetadata(
-                sentence.label.id.clone(),
-            ));
-        };
-        insert_node(nodes, simplification.origin().key())?;
-        if let Some(priority) = simplification.priority() {
-            insert_node(nodes, priority.origin().key())?;
-        }
-    } else if sentence.simplification.is_some() {
-        return Err(DefinitionValidationError::InvalidSimplificationMetadata(
-            sentence.label.id.clone(),
-        ));
-    }
-    if let Some(priority) = &sentence.priority {
-        if !matches!(
-            sentence.kind,
-            SentenceKind::Equation | SentenceKind::Transition
-        ) {
-            return Err(DefinitionValidationError::InvalidRulePriority(
-                sentence.label.id.clone(),
-            ));
-        }
-        insert_node(nodes, priority.origin().key())?;
-    }
-    if let Some(condition) = &sentence.requires {
-        if sentence.kind == SentenceKind::Alias {
-            return Err(DefinitionValidationError::AliasCondition);
-        }
-        insert_node(nodes, condition.origin().key())?;
-        validate_term(
-            condition.term(),
-            &scope,
-            symbols,
-            signatures,
-            subsort_parents,
-            nodes,
-        )?;
-        if condition.term().sort() != &DefinitionSortRef::Builtin(BuiltinSort::Bool) {
-            return Err(DefinitionValidationError::RuleConditionSortMismatch);
-        }
-    }
-    if let Some(claim) = claim {
-        validate_claim(
-            sentence,
-            claim,
-            &scope,
-            symbols,
-            signatures,
-            subsort_parents,
-            nodes,
-        )?;
-    }
-    let mut used = BTreeSet::new();
-    match &sentence.body {
-        DefinitionRuleBody::Term(body) => collect_term_variables(body, &mut used),
-        DefinitionRuleBody::Configuration(body) => {
-            for clause in body.clauses() {
-                collect_term_variables(clause.before(), &mut used);
-                if let CellPost::Replace { term } = clause.after() {
-                    collect_term_variables(term, &mut used);
-                }
-                match clause.frame() {
-                    CellContentFrame::Exact => {}
-                    CellContentFrame::KSequenceTail { binding, .. }
-                    | CellContentFrame::MapRemainder { binding, .. } => {
-                        if let Some(binding) = binding {
-                            used.insert(binding.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Some(condition) = &sentence.requires {
-        collect_term_variables(condition.term(), &mut used);
-    }
-    if let Some(ensures) = claim.and_then(DefinitionClaim::ensures) {
-        collect_term_variables(ensures.term(), &mut used);
-    }
-    if used != scope.keys().cloned().collect() {
-        return Err(DefinitionValidationError::VariableClosure);
-    }
-    Ok(())
-}
-
-fn validate_claim(
-    sentence: &RuleSentence,
-    claim: &DefinitionClaim,
-    scope: &BTreeMap<SemanticId, DefinitionSortRef>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    insert_node(nodes, claim.modality_origin().key())?;
-    if let Some(origin) = claim.circularity_origin() {
-        insert_node(nodes, origin.key())?;
-    }
-
-    let mut binder_ids = BTreeSet::new();
-    for binder in claim.universals().iter().chain(claim.existentials()) {
-        if !binder_ids.insert(binder.id().clone()) || scope.get(binder.id()) != Some(binder.sort())
-        {
-            return Err(DefinitionValidationError::InvalidClaimBinder(
-                binder.id().clone(),
-            ));
-        }
-        require_definition_sort(symbols, binder.sort())?;
-        insert_node(nodes, binder.origin().key())?;
-        insert_node(nodes, binder.name_origin().key())?;
-        insert_node(nodes, binder.sort_origin().key())?;
-    }
-
-    let mut left_uses = BTreeSet::new();
-    let mut right_uses = BTreeSet::new();
-    let DefinitionRuleBody::Configuration(body) = &sentence.body else {
-        return Err(DefinitionValidationError::ClaimBodyNotConfiguration(
-            sentence.label.id.clone(),
-        ));
-    };
-    for clause in body.clauses() {
-        collect_term_variables(clause.before(), &mut left_uses);
-        if let CellPost::Replace { term } = clause.after() {
-            collect_term_variables(term, &mut right_uses);
-        }
-        match clause.frame() {
-            CellContentFrame::Exact => {}
-            CellContentFrame::KSequenceTail { binding, .. }
-            | CellContentFrame::MapRemainder { binding, .. } => {
-                if let Some(binding) = binding {
-                    left_uses.insert(binding.clone());
-                }
-            }
-        }
-    }
-    if let Some(requires) = sentence.requires() {
-        collect_term_variables(requires.term(), &mut left_uses);
-    }
-    if let Some(ensures) = claim.ensures() {
-        insert_node(nodes, ensures.origin().key())?;
-        validate_term(
-            ensures.term(),
-            scope,
-            symbols,
-            signatures,
-            subsort_parents,
-            nodes,
-        )?;
-        if ensures.term().sort() != &DefinitionSortRef::Builtin(BuiltinSort::Bool) {
-            return Err(DefinitionValidationError::RuleConditionSortMismatch);
-        }
-        collect_term_variables(ensures.term(), &mut right_uses);
-    }
-    for binder in claim.existentials() {
-        if left_uses.contains(binder.id()) {
-            return Err(DefinitionValidationError::ExistentialScopeViolation(
-                binder.id().clone(),
-            ));
-        }
-        if !right_uses.contains(binder.id()) {
-            return Err(DefinitionValidationError::UnusedExistential(
-                binder.id().clone(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn collect_term_variables(term: &DefinitionTerm, used: &mut BTreeSet<SemanticId>) {
-    match term.kind() {
-        DefinitionTermKind::Variable { variable } => {
-            used.insert(variable.clone());
-        }
-        DefinitionTermKind::Application { arguments, .. }
-        | DefinitionTermKind::Map { arguments, .. }
-        | DefinitionTermKind::List { arguments, .. }
-        | DefinitionTermKind::Set { arguments, .. } => {
-            for argument in arguments {
-                collect_term_variables(argument, used);
-            }
-        }
-        DefinitionTermKind::KSequence { items, .. } => {
-            for item in items {
-                collect_term_variables(item, used);
-            }
-        }
-        DefinitionTermKind::Rewrite { from, to } => {
-            collect_term_variables(from, used);
-            collect_term_variables(to, used);
-        }
-        DefinitionTermKind::Cell { children, .. } => {
-            for child in children {
-                collect_term_variables(child, used);
-            }
-        }
-        DefinitionTermKind::Token { .. } => {}
-    }
-}
-
-#[allow(clippy::too_many_lines)]
-fn validate_term(
-    term: &DefinitionTerm,
-    scope: &BTreeMap<SemanticId, DefinitionSortRef>,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    insert_node(nodes, term.origin.key())?;
-    require_definition_sort(symbols, &term.sort)?;
-    match &term.kind {
-        DefinitionTermKind::Variable { variable } => match scope.get(variable) {
-            None => {
-                return Err(DefinitionValidationError::DanglingVariable(
-                    variable.clone(),
-                ));
-            }
-            Some(sort) if *sort != term.sort => {
-                return Err(DefinitionValidationError::VariableSortMismatch(
-                    variable.clone(),
-                ));
-            }
-            Some(_) => {}
-        },
-        DefinitionTermKind::Application {
-            application,
-            arguments,
-        } => {
-            let signature = match application {
-                ApplicationRef::Declared(symbol) => {
-                    require_declared_kind(symbols, symbol, SymbolKind::Production)?;
-                    signatures
-                        .get(symbol)
-                        .cloned()
-                        .ok_or_else(|| DefinitionValidationError::DanglingSymbol(symbol.clone()))?
-                }
-                ApplicationRef::Builtin(operation) => definition_builtin_signature(*operation),
-            };
-            let (result_sort, argument_sorts) = signature;
-            if term.sort != result_sort
-                || arguments.len() != argument_sorts.len()
-                || arguments
-                    .iter()
-                    .zip(&argument_sorts)
-                    .any(|(argument, sort)| {
-                        !is_definition_subsort(&argument.sort, sort, subsort_parents)
-                    })
-            {
-                return match application {
-                    ApplicationRef::Declared(symbol) => Err(
-                        DefinitionValidationError::ApplicationSignature(symbol.clone()),
-                    ),
-                    ApplicationRef::Builtin(operation) => Err(
-                        DefinitionValidationError::BuiltinApplicationSignature(*operation),
-                    ),
-                };
-            }
-            for argument in arguments {
-                validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;
-            }
-        }
-        DefinitionTermKind::Token { value } => {
-            if value.is_empty() {
-                return Err(DefinitionValidationError::EmptyText("token value"));
-            }
-        }
-        DefinitionTermKind::KSequence { item_sort, items } => {
-            require_definition_sort(symbols, item_sort)?;
-            if term.sort != DefinitionSortRef::Builtin(BuiltinSort::KSequence) {
-                return Err(DefinitionValidationError::SequenceSortMismatch);
-            }
-            for item in items {
-                validate_term(item, scope, symbols, signatures, subsort_parents, nodes)?;
-                if !is_definition_subsort(&item.sort, item_sort, subsort_parents) {
-                    return Err(DefinitionValidationError::SequenceItemSortMismatch);
-                }
-            }
-        }
-        DefinitionTermKind::Map {
-            operation,
-            arguments,
-        } => {
-            let map_sort = DefinitionSortRef::Builtin(BuiltinSort::Map);
-            let bool_sort = DefinitionSortRef::Builtin(BuiltinSort::Bool);
-            let valid_arity = match operation {
-                MapOperation::Empty => term.sort == map_sort && arguments.is_empty(),
-                MapOperation::Item => {
-                    term.sort == map_sort
-                        && !arguments.is_empty()
-                        && arguments.len().is_multiple_of(2)
-                }
-                MapOperation::Update => {
-                    term.sort == map_sort && arguments.len() == 3 && arguments[0].sort == map_sort
-                }
-                MapOperation::Get => arguments.len() == 2 && arguments[0].sort == map_sort,
-                MapOperation::InKeys => {
-                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == map_sort
-                }
-            };
-            if !valid_arity {
-                return Err(DefinitionValidationError::MapOperationSignature(*operation));
-            }
-            for argument in arguments {
-                validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;
-            }
-        }
-        DefinitionTermKind::List {
-            operation,
-            arguments,
-        } => {
-            let list_sort = DefinitionSortRef::Builtin(BuiltinSort::List);
-            let int_sort = DefinitionSortRef::Builtin(BuiltinSort::Int);
-            let valid = match operation {
-                ListOperation::Empty => term.sort == list_sort && arguments.is_empty(),
-                ListOperation::Item => term.sort == list_sort && arguments.len() == 1,
-                ListOperation::Concat => {
-                    term.sort == list_sort
-                        && arguments.len() == 2
-                        && arguments.iter().all(|argument| argument.sort == list_sort)
-                }
-                ListOperation::Get => {
-                    arguments.len() == 2
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Update => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                }
-                ListOperation::Size => {
-                    term.sort == int_sort && arguments.len() == 1 && arguments[0].sort == list_sort
-                }
-                ListOperation::Make => {
-                    term.sort == list_sort && arguments.len() == 2 && arguments[0].sort == int_sort
-                }
-                ListOperation::Range => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == int_sort
-                }
-                ListOperation::UpdateAll => {
-                    term.sort == list_sort
-                        && arguments.len() == 3
-                        && arguments[0].sort == list_sort
-                        && arguments[1].sort == int_sort
-                        && arguments[2].sort == list_sort
-                }
-            };
-            if !valid {
-                return Err(DefinitionValidationError::ListOperationSignature(
-                    *operation,
-                ));
-            }
-            for argument in arguments {
-                validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;
-            }
-        }
-        DefinitionTermKind::Set {
-            operation,
-            arguments,
-        } => {
-            let set_sort = DefinitionSortRef::Builtin(BuiltinSort::Set);
-            let bool_sort = DefinitionSortRef::Builtin(BuiltinSort::Bool);
-            let valid = match operation {
-                SetOperation::Empty => term.sort == set_sort && arguments.is_empty(),
-                SetOperation::Item => term.sort == set_sort && arguments.len() == 1,
-                SetOperation::Concat | SetOperation::Union => {
-                    term.sort == set_sort
-                        && arguments.len() == 2
-                        && arguments.iter().all(|argument| argument.sort == set_sort)
-                }
-                SetOperation::Contains => {
-                    term.sort == bool_sort && arguments.len() == 2 && arguments[1].sort == set_sort
-                }
-            };
-            if !valid {
-                return Err(DefinitionValidationError::SetOperationSignature(*operation));
-            }
-            for argument in arguments {
-                validate_term(argument, scope, symbols, signatures, subsort_parents, nodes)?;
-            }
-        }
-        DefinitionTermKind::Cell { cell, children } => {
-            require_declared_kind(symbols, cell, SymbolKind::Cell)?;
-            if children.is_empty() {
-                return Err(DefinitionValidationError::InvalidCellFraming);
-            }
-            for child in children {
-                validate_term(child, scope, symbols, signatures, subsort_parents, nodes)?;
-            }
-        }
-        DefinitionTermKind::Rewrite { from, to } => {
-            validate_term(from, scope, symbols, signatures, subsort_parents, nodes)?;
-            validate_term(to, scope, symbols, signatures, subsort_parents, nodes)?;
-            if !is_definition_subsort(&from.sort, &term.sort, subsort_parents)
-                || !is_definition_subsort(&to.sort, &term.sort, subsort_parents)
-            {
-                return Err(DefinitionValidationError::RewriteSortMismatch);
-            }
+            insert_node::<DefinitionLevel>(nodes, origin.key())?;
         }
     }
     Ok(())
@@ -3211,275 +1676,12 @@ fn validate_bn128_point_constructors(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)] // Exhaustively validates the closed production-attribute catalog.
-fn validate_definition_production_shape(
-    id: &SymbolId,
-    result_sort: &DefinitionSortRef,
-    items: &[ProductionItem],
-    attributes: &[DefinitionProductionAttribute],
-) -> Result<(), DefinitionValidationError> {
-    if items.is_empty() {
-        return Err(DefinitionValidationError::EmptyProduction(id.clone()));
-    }
-    let fields = items
-        .iter()
-        .filter_map(|item| match item.kind() {
-            GrammarProductionItemKind::NonTerminal { field, .. } => Some(field.clone()),
-            GrammarProductionItemKind::Terminal { .. }
-            | GrammarProductionItemKind::RegexTerminal { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if has_duplicate_definition_fields(&fields) {
-        return Err(DefinitionValidationError::InvalidStrictnessField);
-    }
-    let regexes = items
-        .iter()
-        .filter(|item| matches!(item.kind(), GrammarProductionItemKind::RegexTerminal { .. }))
-        .count();
-    let mut token = false;
-    let mut function = false;
-    let mut total = false;
-    let mut hook = None;
-    let mut alias = false;
-    let mut group = false;
-    let mut bracket = false;
-    let mut avoid = false;
-    let mut format = false;
-    let mut strictness = false;
-    for attribute in attributes {
-        let already = match attribute {
-            ProductionAttribute::Documentation { .. } => continue,
-            ProductionAttribute::Function { .. } => std::mem::replace(&mut function, true),
-            ProductionAttribute::Total { .. } => std::mem::replace(&mut total, true),
-            ProductionAttribute::Hook { operation, .. } => hook.replace(*operation).is_some(),
-            ProductionAttribute::Alias { .. } => std::mem::replace(&mut alias, true),
-            ProductionAttribute::Token { .. } => std::mem::replace(&mut token, true),
-            ProductionAttribute::Group { .. } => std::mem::replace(&mut group, true),
-            ProductionAttribute::Bracket { .. } => std::mem::replace(&mut bracket, true),
-            ProductionAttribute::Avoid { .. } => std::mem::replace(&mut avoid, true),
-            ProductionAttribute::Format { .. } => std::mem::replace(&mut format, true),
-            ProductionAttribute::Strictness { .. } => std::mem::replace(&mut strictness, true),
-        };
-        if already {
-            let name = attribute
-                .unique_name()
-                .expect("repeatable documentation was skipped above");
-            return Err(DefinitionValidationError::DuplicateProductionAttribute(
-                name,
-            ));
-        }
-        match attribute {
-            ProductionAttribute::Strictness {
-                fields: selected, ..
-            } => {
-                if selected.is_empty()
-                    || has_duplicate_definition_fields(&selected.iter().map(|field| field.field().clone()).collect::<Vec<_>>())
-                    || selected.iter().any(|field| !fields.contains(field.field()))
-                {
-                    return Err(DefinitionValidationError::InvalidStrictnessField);
-                }
-            }
-            ProductionAttribute::Format { fragments, .. } => {
-                if fragments.is_empty()
-                    || fragments.iter().any(|fragment| {
-                        matches!(fragment, FormatFragment::Item(position) if *position == 0 || usize::from(*position) > items.len())
-                    })
-                {
-                    return Err(DefinitionValidationError::InvalidFormat);
-                }
-            }
-            ProductionAttribute::Documentation { .. }
-            | ProductionAttribute::Function { .. }
-            | ProductionAttribute::Total { .. }
-            | ProductionAttribute::Hook { .. }
-            | ProductionAttribute::Alias { .. }
-            | ProductionAttribute::Token { .. }
-            | ProductionAttribute::Group { .. }
-            | ProductionAttribute::Bracket { .. }
-            | ProductionAttribute::Avoid { .. } => {}
-        }
-    }
-    if total && !function {
-        return Err(DefinitionValidationError::InvalidFunctionProduction);
-    }
-    if hook.is_some() && !(function && total) {
-        return Err(DefinitionValidationError::InvalidFunctionProduction);
-    }
-    if let Some(operation) = hook {
-        let argument_sorts = items
-            .iter()
-            .filter_map(|item| match item.kind() {
-                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
-                GrammarProductionItemKind::Terminal { .. }
-                | GrammarProductionItemKind::RegexTerminal { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let valid_signature =
-            if let Some((expected_result, expected_arguments)) = operation.builtin_signature() {
-                result_sort == &DefinitionSortRef::Builtin(expected_result)
-                    && argument_sorts
-                        == expected_arguments
-                            .iter()
-                            .copied()
-                            .map(DefinitionSortRef::Builtin)
-                            .collect::<Vec<_>>()
-                            .iter()
-                            .collect::<Vec<_>>()
-            } else {
-                match operation {
-                    HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
-                        result_sort == &DefinitionSortRef::Builtin(BuiltinSort::Bool)
-                            && matches!(argument_sorts.as_slice(), [DefinitionSortRef::Declared(_)])
-                    }
-                    HookOperation::KryptoBn128Add => {
-                        matches!(result_sort, DefinitionSortRef::Declared(_))
-                            && argument_sorts.as_slice() == [result_sort, result_sort]
-                    }
-                    HookOperation::KryptoBn128Mul => {
-                        matches!(result_sort, DefinitionSortRef::Declared(_))
-                            && argument_sorts.len() == 2
-                            && argument_sorts[0] == result_sort
-                            && argument_sorts[1] == &DefinitionSortRef::Builtin(BuiltinSort::Int)
-                    }
-                    HookOperation::KryptoKeccak256Raw
-                    | HookOperation::KryptoSha256Raw
-                    | HookOperation::KryptoRipemd160Raw
-                    | HookOperation::KryptoEcdsaRecover
-                    | HookOperation::KryptoBn128Ate => {
-                        unreachable!("builtin-signature hooks are handled above")
-                    }
-                }
-            };
-        if !valid_signature {
-            return Err(DefinitionValidationError::InvalidHookSignature(operation));
-        }
-    }
-    if alias && function {
-        return Err(DefinitionValidationError::InvalidAliasProduction);
-    }
-    if token && (items.len() != 1 || regexes != 1) {
-        return Err(DefinitionValidationError::InvalidTokenProduction);
-    }
-    if regexes != 0 && !token {
-        return Err(DefinitionValidationError::RegexWithoutToken);
-    }
-    if bracket && fields.len() != 1 {
-        return Err(DefinitionValidationError::InvalidBracketProduction);
-    }
-    Ok(())
-}
-
-fn has_duplicate_definition_fields(fields: &[ProductionFieldId]) -> bool {
-    let mut unique = BTreeSet::new();
-    fields.iter().any(|field| !unique.insert(field))
-}
-
-fn definition_builtin_signature(
-    operation: BuiltinOperation,
-) -> (DefinitionSortRef, Vec<DefinitionSortRef>) {
-    (
-        DefinitionSortRef::Builtin(operation.result_sort()),
-        operation
-            .argument_sorts()
-            .iter()
-            .copied()
-            .map(DefinitionSortRef::Builtin)
-            .collect(),
-    )
-}
-
-fn validate_definition_precedence_order(
-    modules: &[DefinitionModule],
-) -> Result<(), DefinitionValidationError> {
-    let mut edges: BTreeMap<ProductionGroupId, BTreeSet<ProductionGroupId>> = BTreeMap::new();
-    for relation in modules
-        .iter()
-        .flat_map(|module| &module.sentences)
-        .filter_map(|sentence| match sentence {
-            DefinitionSentence::Precedence(relation) => Some(relation),
-            DefinitionSentence::SyntaxSort(_)
-            | DefinitionSentence::Subsort(_)
-            | DefinitionSentence::Production(_)
-            | DefinitionSentence::Associativity(_)
-            | DefinitionSentence::Configuration(_)
-            | DefinitionSentence::ContextAlias(_)
-            | DefinitionSentence::Rule(_) => None,
-        })
-    {
-        for higher in relation.higher() {
-            for lower in relation.lower() {
-                edges
-                    .entry(higher.clone())
-                    .or_default()
-                    .insert(lower.clone());
-            }
-        }
-    }
-    for start in edges.keys() {
-        let mut pending = edges
-            .get(start)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut visited = BTreeSet::new();
-        while let Some(group) = pending.pop() {
-            if &group == start {
-                return Err(DefinitionValidationError::PrecedenceCycle(start.clone()));
-            }
-            if visited.insert(group.clone()) {
-                pending.extend(edges.get(&group).into_iter().flatten().cloned());
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_definition_subsort_order(
-    edges: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-) -> Result<(), DefinitionValidationError> {
-    for start in edges.keys() {
-        let mut pending = edges
-            .get(start)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut visited = BTreeSet::new();
-        while let Some(sort) = pending.pop() {
-            if &sort == start {
-                return Err(DefinitionValidationError::SubsortCycle(start.clone()));
-            }
-            if visited.insert(sort.clone()) {
-                pending.extend(edges.get(&sort).into_iter().flatten().cloned());
-            }
-        }
-    }
-    Ok(())
-}
-
-fn is_definition_subsort(
-    candidate: &DefinitionSortRef,
-    expected: &DefinitionSortRef,
-    parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-) -> bool {
-    let mut pending = vec![candidate];
-    let mut visited = BTreeSet::new();
-    while let Some(sort) = pending.pop() {
-        if sort == expected {
-            return true;
-        }
-        if visited.insert(sort) {
-            pending.extend(parents.get(sort).into_iter().flatten());
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ClaimModality;
+    use crate::ir_validation::validate_claim;
+    use crate::{CellPost, FixedCellClause};
 
     fn node(key: &str) -> NodeOrigin {
         crate::testing::origin_in(
@@ -3558,8 +1760,8 @@ mod tests {
     }
 
     fn validate_claim_only(sentence: &RuleSentence) -> Result<(), DefinitionValidationError> {
-        let scope = variable_scope(&sentence.variables, &BTreeMap::new())?;
-        validate_claim(
+        let scope = variable_scope::<DefinitionLevel>(&sentence.variables, &BTreeMap::new())?;
+        validate_claim::<DefinitionLevel>(
             sentence,
             sentence.claim.as_ref().expect("claim metadata"),
             &scope,
@@ -3625,7 +1827,7 @@ mod tests {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
         sentence.kind = SentenceKind::Transition;
         assert!(matches!(
-            validate_rule(
+            validate_rule::<DefinitionLevel>(
                 &sentence,
                 None,
                 &BTreeMap::new(),
@@ -3644,7 +1846,7 @@ mod tests {
         );
         sentence.claim = None;
         assert!(matches!(
-            validate_rule(
+            validate_rule::<DefinitionLevel>(
                 &sentence,
                 None,
                 &BTreeMap::new(),
@@ -3671,7 +1873,7 @@ mod tests {
             .expect("valid rewrite"),
         );
         assert!(matches!(
-            validate_rule(
+            validate_rule::<DefinitionLevel>(
                 &sentence,
                 None,
                 &BTreeMap::new(),

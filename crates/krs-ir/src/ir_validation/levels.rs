@@ -1,0 +1,318 @@
+use std::collections::BTreeSet;
+
+use super::{
+    DeclarationRole, Declarations, RuleView, Signature, Signatures, Validation, ValidationError,
+    expect_kind, insert_node, require_kind,
+};
+use crate::{
+    DefinitionLevel, DefinitionModule, DefinitionSentence, DefinitionSortRef,
+    DefinitionValidationError, FixedCell, ItemKind, LabelId, PrecedenceRelation, RuleSentence,
+    SemanticId, SemanticLevel, SemanticModule, SemanticRule, SemanticSortRef,
+    SemanticValidationError, SourceMapKey, StableItemId, SymbolKind,
+};
+
+macro_rules! validation_error {
+    ($error:expr, $public:ident, $identity:path) => {
+        match $error {
+            ValidationError::AliasCondition => $public::AliasCondition,
+            ValidationError::ApplicationSignature(id) => {
+                $public::ApplicationSignature($identity(id))
+            }
+            ValidationError::BuiltinApplicationSignature(operation) => {
+                $public::BuiltinApplicationSignature(operation)
+            }
+            ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
+            ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
+            ValidationError::ClaimBodyNotConfiguration(id) => {
+                $public::ClaimBodyNotConfiguration($identity(id))
+            }
+            ValidationError::ConfigurationRuleTargetMismatch(id) => {
+                $public::ConfigurationRuleTargetMismatch($identity(id))
+            }
+            ValidationError::ConfigurationRuleWithoutFixedConfiguration(id) => {
+                $public::ConfigurationRuleWithoutFixedConfiguration($identity(id))
+            }
+            ValidationError::DanglingVariable(id) => $public::DanglingVariable(id),
+            ValidationError::DuplicateProductionAttribute(name) => {
+                $public::DuplicateProductionAttribute(name)
+            }
+            ValidationError::DuplicateSourceMapKey(key) => $public::DuplicateSourceMapKey(key),
+            ValidationError::DuplicateVariable(id) => $public::DuplicateVariable(id),
+            ValidationError::EmptyProduction(id) => $public::EmptyProduction($identity(id)),
+            ValidationError::EmptyText(field) => $public::EmptyText(field),
+            ValidationError::ExistentialScopeViolation(id) => {
+                $public::ExistentialScopeViolation(id)
+            }
+            ValidationError::InitializerLeafSortMismatch => $public::InitializerLeafSortMismatch,
+            ValidationError::InitializerTreeMismatch => $public::InitializerTreeMismatch,
+            ValidationError::InvalidAliasProduction => $public::InvalidAliasProduction,
+            ValidationError::InvalidAliasRoot(id) => $public::InvalidAliasRoot($identity(id)),
+            ValidationError::InvalidBracketProduction => $public::InvalidBracketProduction,
+            ValidationError::InvalidCellFraming => $public::InvalidCellFraming,
+            ValidationError::InvalidClaimBinder(id) => $public::InvalidClaimBinder(id),
+            ValidationError::InvalidClaimMetadata(id) => {
+                $public::InvalidClaimMetadata($identity(id))
+            }
+            ValidationError::InvalidEquationRoot(id) => $public::InvalidEquationRoot($identity(id)),
+            ValidationError::InvalidFormat => $public::InvalidFormat,
+            ValidationError::InvalidFunctionProduction => $public::InvalidFunctionProduction,
+            ValidationError::InvalidHookSignature(operation) => {
+                $public::InvalidHookSignature(operation)
+            }
+            ValidationError::InvalidRulePriority(id) => $public::InvalidRulePriority($identity(id)),
+            ValidationError::InvalidSimplificationMetadata(id) => {
+                $public::InvalidSimplificationMetadata($identity(id))
+            }
+            ValidationError::InvalidSimplificationRoot(id) => {
+                $public::InvalidSimplificationRoot($identity(id))
+            }
+            ValidationError::InvalidStrictnessField => $public::InvalidStrictnessField,
+            ValidationError::InvalidTokenProduction => $public::InvalidTokenProduction,
+            ValidationError::ListOperationSignature(operation) => {
+                $public::ListOperationSignature(operation)
+            }
+            ValidationError::MapOperationSignature(operation) => {
+                $public::MapOperationSignature(operation)
+            }
+            ValidationError::PrecedenceCycle(group) => $public::PrecedenceCycle(group),
+            ValidationError::RegexWithoutToken => $public::RegexWithoutToken,
+            ValidationError::RewriteSortMismatch => $public::RewriteSortMismatch,
+            ValidationError::RuleBodyNotRewrite(id) => $public::RuleBodyNotRewrite($identity(id)),
+            ValidationError::RuleConditionSortMismatch => $public::RuleConditionSortMismatch,
+            ValidationError::SequenceItemSortMismatch => $public::SequenceItemSortMismatch,
+            ValidationError::SequenceSortMismatch => $public::SequenceSortMismatch,
+            ValidationError::SetOperationSignature(operation) => {
+                $public::SetOperationSignature(operation)
+            }
+            ValidationError::SubsortCycle(sort) => $public::SubsortCycle($identity(sort)),
+            ValidationError::UnusedExistential(id) => $public::UnusedExistential(id),
+            ValidationError::VariableClosure => $public::VariableClosure,
+            ValidationError::VariableSortMismatch(id) => $public::VariableSortMismatch(id),
+        }
+    };
+}
+
+impl Validation for SemanticLevel {
+    type Kind = ItemKind;
+    type Rule = SemanticRule;
+    type RuleId = StableItemId;
+    type Module = SemanticModule;
+
+    fn precedences(module: &Self::Module) -> impl Iterator<Item = &PrecedenceRelation> {
+        module.precedences().iter()
+    }
+    type Registration<'a> = &'a mut BTreeSet<SemanticId>;
+
+    fn rule_view(rule: &Self::Rule) -> RuleView<'_, Self> {
+        RuleView {
+            kind: rule.kind(),
+            id: rule.id().clone(),
+            variables: rule.variables(),
+            body: rule.relational_body(),
+            requires: rule.requires(),
+            priority: rule.priority(),
+            simplification: rule.simplification(),
+            claim: rule.claim(),
+        }
+    }
+
+    fn claim_label(rule: &Self::Rule) -> Result<(), Self::Error> {
+        if rule.label().is_none() {
+            return Err(SemanticValidationError::ClaimLabelRequired(Box::new(
+                rule.id().clone(),
+            )));
+        }
+        Ok(())
+    }
+
+    fn rule_label_origin(
+        rule: &Self::Rule,
+        nodes: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), Self::Error> {
+        if let Some(label) = rule.label() {
+            insert_node::<Self>(nodes, label.origin().key())?;
+        }
+        Ok(())
+    }
+
+    fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
+        match sort {
+            SemanticSortRef::Declared(id) => Some(id),
+            SemanticSortRef::Builtin(_) => None,
+        }
+    }
+
+    fn required_kind(role: DeclarationRole) -> Self::Kind {
+        match role {
+            DeclarationRole::Sort => ItemKind::Sort,
+            DeclarationRole::Production => ItemKind::Constructor,
+        }
+    }
+
+    fn missing_declaration(id: &Self::Declaration) -> Self::Error {
+        SemanticValidationError::DanglingItem(Box::new(id.clone()))
+    }
+
+    fn wrong_kind(id: &Self::Declaration, expected: Self::Kind, actual: Self::Kind) -> Self::Error {
+        SemanticValidationError::WrongItemKind {
+            id: Box::new(id.clone()),
+            expected,
+            actual,
+        }
+    }
+
+    fn application_signature(
+        declarations: &Declarations<Self>,
+        signatures: &Signatures<Self>,
+        id: &Self::Declaration,
+    ) -> Result<Signature<Self>, Self::Error> {
+        let Some(kind) = declarations.get(id) else {
+            return Err(SemanticValidationError::DanglingProduction(Box::new(
+                id.clone(),
+            )));
+        };
+        expect_kind::<Self>(id, *kind, Self::required_kind(DeclarationRole::Production))?;
+        signatures
+            .get(id)
+            .cloned()
+            .ok_or_else(|| SemanticValidationError::DanglingProduction(Box::new(id.clone())))
+    }
+
+    fn require_cell(_: &Declarations<Self>, _: &Self::Cell) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn register_cell(
+        registration: &mut Self::Registration<'_>,
+        cell: &FixedCell<Self::Sort, Self::Cell>,
+    ) -> Result<(), Self::Error> {
+        if registration.insert(cell.id().clone()) {
+            Ok(())
+        } else {
+            Err(SemanticValidationError::DuplicateId {
+                kind: "cell",
+                id: cell.id().as_str().into(),
+            })
+        }
+    }
+
+    fn error(error: ValidationError<Self>) -> Self::Error {
+        validation_error!(error, SemanticValidationError, Box::new)
+    }
+}
+
+impl Validation for DefinitionLevel {
+    type Kind = SymbolKind;
+    type Rule = RuleSentence;
+    type RuleId = LabelId;
+    type Module = DefinitionModule;
+
+    fn precedences(module: &Self::Module) -> impl Iterator<Item = &PrecedenceRelation> {
+        module
+            .sentences()
+            .iter()
+            .filter_map(|sentence| match sentence {
+                DefinitionSentence::Precedence(relation) => Some(relation),
+                _ => None,
+            })
+    }
+    type Registration<'a> = (&'a mut Declarations<Self>, &'a mut BTreeSet<String>);
+
+    fn rule_view(rule: &Self::Rule) -> RuleView<'_, Self> {
+        RuleView {
+            kind: rule.kind(),
+            id: rule.label().id().clone(),
+            variables: rule.variables(),
+            body: rule.relational_body(),
+            requires: rule.requires(),
+            priority: rule.priority(),
+            simplification: rule.simplification(),
+            claim: rule.claim(),
+        }
+    }
+
+    fn claim_label(_: &Self::Rule) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn rule_label_origin(
+        _: &Self::Rule,
+        _: &mut BTreeSet<SourceMapKey>,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn declared_sort(sort: &Self::Sort) -> Option<&Self::Declaration> {
+        match sort {
+            DefinitionSortRef::Declared(id) => Some(id),
+            DefinitionSortRef::Builtin(_) => None,
+        }
+    }
+
+    fn required_kind(role: DeclarationRole) -> Self::Kind {
+        match role {
+            DeclarationRole::Sort => SymbolKind::Sort,
+            DeclarationRole::Production => SymbolKind::Production,
+        }
+    }
+
+    fn missing_declaration(id: &Self::Declaration) -> Self::Error {
+        DefinitionValidationError::DanglingSymbol(id.clone())
+    }
+
+    fn wrong_kind(id: &Self::Declaration, expected: Self::Kind, actual: Self::Kind) -> Self::Error {
+        DefinitionValidationError::WrongSymbolKind {
+            id: id.clone(),
+            expected,
+            actual,
+        }
+    }
+
+    fn application_signature(
+        declarations: &Declarations<Self>,
+        signatures: &Signatures<Self>,
+        id: &Self::Declaration,
+    ) -> Result<Signature<Self>, Self::Error> {
+        require_kind::<Self>(
+            declarations,
+            id,
+            Self::required_kind(DeclarationRole::Production),
+        )?;
+        signatures
+            .get(id)
+            .cloned()
+            .ok_or_else(|| DefinitionValidationError::DanglingSymbol(id.clone()))
+    }
+
+    fn require_cell(
+        declarations: &Declarations<Self>,
+        cell: &Self::Cell,
+    ) -> Result<(), Self::Error> {
+        require_kind::<Self>(declarations, cell, SymbolKind::Cell)
+    }
+
+    fn register_cell(
+        registration: &mut Self::Registration<'_>,
+        cell: &FixedCell<Self::Sort, Self::Cell>,
+    ) -> Result<(), Self::Error> {
+        if registration
+            .0
+            .insert(cell.id().clone(), SymbolKind::Cell)
+            .is_some()
+        {
+            return Err(DefinitionValidationError::DuplicateSymbol(
+                cell.id().clone(),
+            ));
+        }
+        if !registration.1.insert(cell.name().to_owned()) {
+            return Err(DefinitionValidationError::DuplicateEmittedName(
+                cell.name().to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn error(error: ValidationError<Self>) -> Self::Error {
+        validation_error!(error, DefinitionValidationError, std::convert::identity)
+    }
+}

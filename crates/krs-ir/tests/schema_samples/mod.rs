@@ -2100,24 +2100,6 @@ impl Sample for DefinitionRuleCondition {
         )]
     }
 }
-impl Sample for DefinitionRulePriority {
-    fn samples() -> Vec<Self> {
-        vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
-    }
-}
-impl Sample for DefinitionSimplification {
-    fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<Option<DefinitionSimplificationPriority>>(),
-        )]
-    }
-}
-impl Sample for DefinitionSimplificationPriority {
-    fn samples() -> Vec<Self> {
-        vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
-    }
-}
 impl Sample for DefinitionVariable {
     fn samples() -> Vec<Self> {
         vec![Self::new(
@@ -2518,20 +2500,20 @@ impl Sample for SemanticRuleLabel {
         vec![Self::new(sample::<NodeOrigin>(), sample::<String>()).unwrap()]
     }
 }
-impl Sample for SemanticRulePriority {
+impl Sample for IrRulePriority {
     fn samples() -> Vec<Self> {
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }
 }
-impl Sample for SemanticSimplification {
+impl Sample for IrSimplification {
     fn samples() -> Vec<Self> {
         vec![Self::new(
             sample::<NodeOrigin>(),
-            sample::<Option<SemanticSimplificationPriority>>(),
+            sample::<Option<IrSimplificationPriority>>(),
         )]
     }
 }
-impl Sample for SemanticSimplificationPriority {
+impl Sample for IrSimplificationPriority {
     fn samples() -> Vec<Self> {
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }

@@ -3,10 +3,9 @@
 use std::fmt;
 
 use crate::{
-    BuiltinOperation, BuiltinSort, DefinitionSortRef, ExplicitSymbol, HookOperation, ItemKind,
-    LabelId, ListOperation, MapOperation, ModuleId, PackageId, ProductionFieldId,
-    ProductionGroupId, SemanticId, SemanticSortRef, SetOperation, Sha256Digest, SourceMapKey,
-    StableItemId, SymbolId, SymbolKind,
+    BuiltinOperation, BuiltinSort, ExplicitSymbol, HookOperation, ItemKind, LabelId, ListOperation,
+    MapOperation, ModuleId, PackageId, ProductionFieldId, ProductionGroupId, SemanticId,
+    SetOperation, Sha256Digest, SourceMapKey, StableItemId, SymbolId, SymbolKind,
 };
 
 impl fmt::Display for ItemKind {
@@ -53,16 +52,7 @@ impl fmt::Display for BuiltinSort {
     }
 }
 
-impl fmt::Display for SemanticSortRef {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Declared(id) => id.fmt(formatter),
-            Self::Builtin(sort) => sort.fmt(formatter),
-        }
-    }
-}
-
-impl fmt::Display for DefinitionSortRef {
+impl<D: fmt::Display> fmt::Display for crate::IrSortRef<D> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Declared(id) => id.fmt(formatter),
@@ -198,6 +188,7 @@ impl fmt::Display for SetOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DefinitionSortRef, SemanticSortRef};
 
     #[test]
     fn author_facing_id_and_sort_text() {
