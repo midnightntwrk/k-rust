@@ -47,7 +47,7 @@ fn __krs_constructor_descriptor_4ea6542dee396e65() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{second} pair {first}\",\"fields\":[{\"name\":\"first\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"second\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"first\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"second\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_constructor_sort_4ea6542dee396e65),

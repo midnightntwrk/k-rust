@@ -1039,7 +1039,6 @@ impl TestPackage {
                     key: krs_ir::ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                     target: type_ref(sort, "Expr"),
                 },
-                syntax: parsed.syntax.as_ref().map(syn::LitStr::value),
                 fields,
             }),
             cfg: BTreeMap::new(),

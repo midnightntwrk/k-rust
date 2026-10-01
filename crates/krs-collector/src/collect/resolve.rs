@@ -532,7 +532,6 @@ pub(super) fn resolve_payload(
         HostDescriptorPayload::Constructor(constructor) => {
             Ok(DescriptorPayload::Constructor(ConstructorDescriptor {
                 sort: resolve_sort_reference(&constructor.sort, declarations, builtins)?.sort,
-                syntax: constructor.syntax.clone(),
                 fields: constructor
                     .fields
                     .iter()

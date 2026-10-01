@@ -130,7 +130,6 @@ impl Decoder<'_> {
     fn constructor(&self, wire: WireConstructorDescriptor) -> HostConstructorDescriptor {
         HostConstructorDescriptor {
             sort: self.sort(wire.sort),
-            syntax: wire.syntax,
             fields: wire
                 .fields
                 .into_iter()
@@ -571,7 +570,6 @@ mod tests {
     fn constructor_wire_matches_code_built_payload() {
         let wire = WirePayload::Constructor(WireConstructorDescriptor {
             sort: wire_sort(),
-            syntax: Some("{value}".to_owned()),
             fields: vec![WireConstructorFieldDescriptor {
                 name: "value".to_owned(),
                 sort: WireTypeReference {
@@ -583,7 +581,6 @@ mod tests {
         let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
         let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
             sort: host_sort(),
-            syntax: Some("{value}".to_owned()),
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".to_owned(),
                 sort: HostTypeReference {

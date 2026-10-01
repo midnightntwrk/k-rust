@@ -42,7 +42,7 @@ fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"-{value}\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_constructor_sort_1bd4e99d7edfdcae),

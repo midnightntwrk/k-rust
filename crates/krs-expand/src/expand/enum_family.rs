@@ -414,7 +414,6 @@ fn expand_enum_variant(
     let fallback = TokenRange::for_tokens(variant.variant())?;
     let provenance = host_provenance(env, facade, fallback, &anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
-    let syntax = variant.syntax().map(|syntax| syntax.syntax().value());
 
     let mut slots = WireSlots::new(facade);
     let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#result_key)));
@@ -535,7 +534,6 @@ fn expand_enum_variant(
                 authored_path: result_spelling,
             },
         },
-        syntax,
         fields,
     });
     let constructor_wire =

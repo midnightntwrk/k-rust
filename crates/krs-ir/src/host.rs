@@ -725,8 +725,6 @@ pub struct HostSortDescriptor {
 pub struct HostConstructorDescriptor {
     /// Rust-resolved result sort.
     pub sort: crate::HostSortReference,
-    /// Checked authored syntax template.
-    pub syntax: Option<String>,
     /// Ordered record fields and their rustc-resolved sorts.
     pub fields: Vec<HostConstructorFieldDescriptor>,
 }
@@ -846,7 +844,6 @@ mod tests {
                 key: ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
                 target: type_reference("model::Expr"),
             },
-            syntax: Some("{value}".into()),
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: type_reference("model::Value"),

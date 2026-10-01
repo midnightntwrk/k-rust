@@ -144,7 +144,6 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
         provenance: provenance(ProvenanceRole::ConstructorSort),
         payload: DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: krs_ir::DescriptorSortRef::Declared(sort),
-            syntax: None,
             fields: Vec::new(),
         }),
     }

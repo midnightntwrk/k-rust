@@ -141,7 +141,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"zeroAlias\",\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
@@ -418,7 +418,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"double({value})\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
@@ -962,7 +962,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{lhs} && {rhs}\",\"fields\":[{\"name\":\"lhs\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"rhs\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"lhs\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"rhs\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
@@ -1514,7 +1514,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_3() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{{{body}}}\",\"fields\":[{\"name\":\"body\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"fields\":[{\"name\":\"body\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),

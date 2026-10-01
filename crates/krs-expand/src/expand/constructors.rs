@@ -276,8 +276,6 @@ fn constructor_like(
             authored_path: sort_spelling,
         },
     };
-    let syntax = attribute.syntax.as_ref().map(syn::LitStr::value);
-
     let mut field_key_functions = Vec::new();
     let mut fields = Vec::new();
     for (index, field) in declaration.fields().iter().enumerate() {
@@ -306,7 +304,6 @@ fn constructor_like(
     }
     let wire = WirePayload::Constructor(WireConstructorDescriptor {
         sort: sort_reference,
-        syntax,
         fields,
     });
     let wire = serde_json::to_string(&wire).expect("constructor wire is serializable");

@@ -138,7 +138,6 @@ pub struct WireConstructorFieldDescriptor {
 #[serde(deny_unknown_fields)]
 pub struct WireConstructorDescriptor {
     pub sort: WireSortReference,
-    pub syntax: Option<String>,
     pub fields: Vec<WireConstructorFieldDescriptor>,
 }
 

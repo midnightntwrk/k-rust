@@ -722,9 +722,6 @@ impl SortDescriptor {
 pub struct ConstructorDescriptor {
     /// Sort directly containing the constructor.
     pub sort: DescriptorSortRef,
-    /// Checked authored syntax template.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub syntax: Option<String>,
     /// Fields in authored constructor order.
     pub fields: Vec<ConstructorFieldDescriptor>,
 }

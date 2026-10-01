@@ -87,7 +87,7 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"syntax\":\"foo\",\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"fields\":[]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
@@ -334,7 +334,7 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"syntax\":\"bar\",\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"fields\":[]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),

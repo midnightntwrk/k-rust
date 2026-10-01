@@ -850,7 +850,6 @@ fn collector_encoding_is_pinned() {
         constructor_id.clone(),
         DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: DescriptorSortRef::Declared(sort_id.clone()),
-            syntax: Some("foo({value})".to_owned()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".to_owned(),
                 sort: Some(DescriptorSortRef::Declared(sort_id)),

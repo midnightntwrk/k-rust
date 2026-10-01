@@ -240,7 +240,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_0() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"syntax\":\"true\",\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[]}}",
             &[::k::__KrsSlot::Type(::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040))],
         ),
         cfg: ::core::default::Default::default(),
@@ -437,7 +437,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_1() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"syntax\":\"false\",\"fields\":[]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[]}}",
             &[::k::__KrsSlot::Type(::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040))],
         ),
         cfg: ::core::default::Default::default(),
@@ -638,7 +638,7 @@ fn __krs_enum_constructor_01bc3d1b6dad6040_2() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"syntax\":\"tag {value}\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Boolean\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040)),
                 ::k::__KrsSlot::Type(

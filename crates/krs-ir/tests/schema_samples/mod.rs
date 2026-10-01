@@ -427,7 +427,6 @@ impl Sample for WireConstructorDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<WireSortReference>(),
-            syntax: sample::<Option<String>>(),
             fields: sample::<Vec<WireConstructorFieldDescriptor>>(),
         }]
     }
@@ -1976,7 +1975,6 @@ impl Sample for ConstructorDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<DescriptorSortRef>(),
-            syntax: sample::<Option<String>>(),
             fields: sample::<Vec<ConstructorFieldDescriptor>>(),
         }]
     }

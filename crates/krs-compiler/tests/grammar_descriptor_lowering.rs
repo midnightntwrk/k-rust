@@ -206,7 +206,6 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
             add.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
                 sort: DescriptorSortRef::Declared(expr.clone()),
-                syntax: None,
                 fields: vec![
                     ConstructorFieldDescriptor {
                         name: "lhs".into(),
@@ -224,7 +223,6 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
             unit.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
                 sort: DescriptorSortRef::Declared(expr.clone()),
-                syntax: None,
                 fields: vec![],
             }),
             ProvenanceRole::ConstructorSort,
@@ -233,7 +231,6 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
             start.clone(),
             DescriptorPayload::Constructor(ConstructorDescriptor {
                 sort: DescriptorSortRef::Declared(expr.clone()),
-                syntax: None,
                 fields: vec![],
             }),
             ProvenanceRole::ConstructorSort,
@@ -1074,7 +1071,6 @@ fn constructor_without_grammar_descriptor_is_rejected() {
         escaped.clone(),
         DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: DescriptorSortRef::Declared(id("Expr", ItemKind::Sort)),
-            syntax: Some("{{ {value} }}".into()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: Some(DescriptorSortRef::Declared(id("Expr", ItemKind::Sort))),

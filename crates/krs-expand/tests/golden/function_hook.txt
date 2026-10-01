@@ -43,7 +43,7 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"syntax\":\"Keccak256raw({value})\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}]}}",
             &[
                 ::k::__KrsSlot::Type(
                     ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),

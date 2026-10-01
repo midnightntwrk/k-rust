@@ -1,5 +1,5 @@
 {
-  "protocol_version": 38,
+  "protocol_version": 39,
   "descriptors": [
     {
       "id": {
@@ -70,7 +70,6 @@
             "disambiguator": ""
           }
         },
-        "syntax": "bar",
         "fields": []
       }
     },
@@ -143,7 +142,6 @@
             "disambiguator": ""
           }
         },
-        "syntax": "foo({value})",
         "fields": [
           {
             "name": "value",

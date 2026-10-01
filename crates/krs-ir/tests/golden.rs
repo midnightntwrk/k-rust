@@ -61,7 +61,6 @@ fn populated_bundle() -> DescriptorBundle {
         foo_constructor,
         DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: DescriptorSortRef::Declared(value.clone()),
-            syntax: Some("foo({value})".into()),
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: Some(DescriptorSortRef::Declared(k_item)),
@@ -72,7 +71,6 @@ fn populated_bundle() -> DescriptorBundle {
         bar_constructor,
         DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: DescriptorSortRef::Declared(value),
-            syntax: Some("bar".into()),
             fields: Vec::new(),
         }),
     );
@@ -351,7 +349,10 @@ fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
     let mut forward = populated_bundle();
     let mut alternate = forward.descriptors[0].clone();
     if let DescriptorPayload::Constructor(constructor) = &mut alternate.payload {
-        constructor.syntax = Some("baz".into());
+        constructor.fields.push(ConstructorFieldDescriptor {
+            name: "alternate".into(),
+            sort: None,
+        });
     }
     forward.descriptors.push(alternate.clone());
 
