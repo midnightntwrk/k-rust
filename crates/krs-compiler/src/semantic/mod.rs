@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorPayload, ItemKind,
-    ModuleId, PackageId, SemanticTheory, StableItemId,
+    ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
 };
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
@@ -132,12 +132,28 @@ pub fn lower_descriptor_bundle(
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     if let Some((first, second)) = crate::overlap::first_head_rule_overlap(&modules, &head_rule_ids)
     {
+        let second_head_range = declarations
+            .get(&second)
+            .and_then(|descriptor| exact_rule_head_range(descriptor));
         return Err(DescriptorLoweringError::OverlappingRules {
             first: Box::new(first),
             second: Box::new(second),
+            second_head_range: second_head_range.map(Box::new),
         });
     }
     Ok(SemanticTheory::new(modules)?)
+}
+
+fn exact_rule_head_range(descriptor: &Descriptor) -> Option<krs_ir::SourceRange> {
+    descriptor
+        .provenance
+        .origins()
+        .iter()
+        .find(|node| {
+            node.key.role() == ProvenanceRole::RuleLeftApplicationHead && node.key.ordinal() == 0
+        })?
+        .origin
+        .exact_authored_range()
 }
 
 fn validate_builtin_sort_names(

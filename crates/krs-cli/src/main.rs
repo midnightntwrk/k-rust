@@ -126,7 +126,7 @@ fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>
         }
         Err(error) => {
             if let Some(diagnostics) = error.diagnostics() {
-                for diagnostic in diagnostics {
+                for diagnostic in diagnostics.iter() {
                     match diagnostic.to_json_line() {
                         Ok(line) => eprint!("{line}"),
                         Err(render_error) => {

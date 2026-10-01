@@ -180,10 +180,13 @@ impl PackageId {
             cargo_version: cargo_version.into(),
             cargo_source: cargo_source.into(),
         };
-        validate_component("k_namespace", &package.k_namespace)?;
-        validate_component("cargo_name", &package.cargo_name)?;
-        validate_component("cargo_version", &package.cargo_version)?;
-        validate_component("cargo_source", &package.cargo_source)?;
+        validate_component(crate::IdentityComponent::KNamespace, &package.k_namespace)?;
+        validate_component(crate::IdentityComponent::CargoName, &package.cargo_name)?;
+        validate_component(
+            crate::IdentityComponent::CargoVersion,
+            &package.cargo_version,
+        )?;
+        validate_component(crate::IdentityComponent::CargoSource, &package.cargo_source)?;
         if DisplayPath::is_absolute_spelling(&package.cargo_source) {
             return Err(IdentityError::AbsoluteCargoSource);
         }
@@ -297,13 +300,13 @@ impl StableItemId {
     ) -> Result<Self, IdentityError> {
         let module_path = module_path.into_iter().map(Into::into).collect::<Vec<_>>();
         for component in &module_path {
-            validate_component("module_path", component)?;
+            validate_component(crate::IdentityComponent::ModulePath, component)?;
             if component.contains("::") || component.contains(['/', '\\']) {
                 return Err(IdentityError::InvalidModuleComponent(component.clone()));
             }
         }
         let item_name = item_name.into();
-        validate_component("item_name", &item_name)?;
+        validate_component(crate::IdentityComponent::ItemName, &item_name)?;
         let disambiguator = disambiguator.into();
         if disambiguator.contains(['/', '\\']) {
             return Err(IdentityError::InvalidDisambiguator(disambiguator));
@@ -502,7 +505,7 @@ impl TryFrom<SourceFileIdWire> for SourceFileId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IdentityError {
     /// A required component was empty.
-    EmptyComponent(&'static str),
+    EmptyComponent(crate::IdentityComponent),
     /// Cargo source identity looked like an absolute host path.
     AbsoluteCargoSource,
     /// A Rust module component contained a separator.
@@ -553,7 +556,7 @@ impl fmt::Display for IdentityError {
 
 impl Error for IdentityError {}
 
-fn validate_component(name: &'static str, value: &str) -> Result<(), IdentityError> {
+fn validate_component(name: crate::IdentityComponent, value: &str) -> Result<(), IdentityError> {
     if value.is_empty() {
         Err(IdentityError::EmptyComponent(name))
     } else {

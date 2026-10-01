@@ -325,7 +325,7 @@ impl ProductionGroupId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("production_group_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::ProductionGroupId, value.into()).map(Self)
     }
 
     /// Returns the stable identity.
@@ -356,7 +356,7 @@ impl ProductionFieldId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("production_field_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::ProductionFieldId, value.into()).map(Self)
     }
 
     /// Returns the stable field name.
@@ -395,7 +395,9 @@ impl<S> GrammarProductionItem<S> {
     ) -> Result<Self, GrammarShapeError> {
         let text = text.into();
         if text.is_empty() {
-            return Err(GrammarShapeError::EmptyText("production terminal"));
+            return Err(GrammarShapeError::EmptyText(
+                crate::IrField::ProductionTerminal,
+            ));
         }
         Ok(Self {
             origin,
@@ -426,13 +428,15 @@ impl<S> GrammarProductionItem<S> {
     ) -> Result<Self, GrammarShapeError> {
         let regex = regex.into();
         if regex.is_empty() {
-            return Err(GrammarShapeError::EmptyText("production regex"));
+            return Err(GrammarShapeError::EmptyText(
+                crate::IrField::ProductionRegex,
+            ));
         }
         if precede_regex.as_deref() == Some("") {
-            return Err(GrammarShapeError::EmptyText("precede regex"));
+            return Err(GrammarShapeError::EmptyText(crate::IrField::PrecedeRegex));
         }
         if follow_regex.as_deref() == Some("") {
-            return Err(GrammarShapeError::EmptyText("follow regex"));
+            return Err(GrammarShapeError::EmptyText(crate::IrField::FollowRegex));
         }
         Ok(Self {
             origin,
@@ -692,21 +696,21 @@ impl<S> ProductionAttribute<S> {
         }
     }
 
-    /// Returns the stable diagnostic name for a non-repeatable attribute.
+    /// Returns the non-repeatable production attribute family.
     #[must_use]
-    pub(crate) const fn unique_name(&self) -> Option<&'static str> {
+    pub(crate) const fn unique_family(&self) -> Option<crate::ProductionAttributeFamily> {
         match self {
             Self::Documentation { .. } => None,
-            Self::Function { .. } => Some("function"),
-            Self::Total { .. } => Some("total"),
-            Self::Hook { .. } => Some("hook"),
-            Self::Alias { .. } => Some("alias"),
-            Self::Token { .. } => Some("token"),
-            Self::Group { .. } => Some("group"),
-            Self::Bracket { .. } => Some("bracket"),
-            Self::Avoid { .. } => Some("avoid"),
-            Self::Format { .. } => Some("format"),
-            Self::Strictness { .. } => Some("strictness"),
+            Self::Function { .. } => Some(crate::ProductionAttributeFamily::Function),
+            Self::Total { .. } => Some(crate::ProductionAttributeFamily::Total),
+            Self::Hook { .. } => Some(crate::ProductionAttributeFamily::Hook),
+            Self::Alias { .. } => Some(crate::ProductionAttributeFamily::Alias),
+            Self::Token { .. } => Some(crate::ProductionAttributeFamily::Token),
+            Self::Group { .. } => Some(crate::ProductionAttributeFamily::Group),
+            Self::Bracket { .. } => Some(crate::ProductionAttributeFamily::Bracket),
+            Self::Avoid { .. } => Some(crate::ProductionAttributeFamily::Avoid),
+            Self::Format { .. } => Some(crate::ProductionAttributeFamily::Format),
+            Self::Strictness { .. } => Some(crate::ProductionAttributeFamily::Strictness),
         }
     }
 }
@@ -832,7 +836,7 @@ impl GroupAssociativitySentence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GrammarShapeError {
     /// A textual field was empty.
-    EmptyText(&'static str),
+    EmptyText(crate::IrField),
     /// One side of a precedence relation was empty.
     EmptyPrecedenceSide,
     /// An associativity sentence named no groups.

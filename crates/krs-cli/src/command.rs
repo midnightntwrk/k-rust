@@ -1,27 +1,28 @@
 use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DefinitionRequest, DiagnosticEnvelope,
     DiagnosticStage, FacetSelector, GeneratedCollector, GenerationError, KrsCfg, PlanningError,
-    RegistrationMode, exact_authored_range_from_origin,
+    RegistrationMode, diagnostic_envelope,
 };
 use krs_compiler::{
     DEFINITION_ARTIFACT, DescriptorLoweringError, EmitError, LoweringError,
     ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_package_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
-use krs_diagnostic::{Code, codes};
+use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::measure::{
     COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV, CollectorMeasureDocument, CollectorReadSet,
     Counters, Measurement, unix_seconds,
 };
 use krs_ir::{
-    DefinitionSentence, DescriptorBundle, PackageId, ProvenanceRole, Sha256Digest, SourceFileId,
-    SourceRange, StableText,
+    DefinitionSentence, DescriptorBundle, PackageId, Sha256Digest, SourceFileId, SourceRange,
+    StableText,
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
     adapt_definition_for, compile_definition_timed, diagnostic_source_map_key,
 };
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -492,60 +493,13 @@ fn count_definition(counters: &mut Counters, lowered: &krs_compiler::LoweredDefi
 }
 
 fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, CommandError> {
-    lower_descriptor_bundle(bundle).map_err(|error| {
-        if let DescriptorLoweringError::OverlappingRules { first, second } = &error
-            && let Some(descriptor) = bundle
-                .descriptors
-                .iter()
-                .find(|descriptor| &descriptor.id == second.as_ref())
-            && let Some(head_origin) = descriptor.provenance.origins().iter().find(|node| {
-                node.key.role() == ProvenanceRole::RuleLeftApplicationHead
-                    && node.key.ordinal() == 0
-            })
-            && let Some(range) = exact_authored_range_from_origin(&head_origin.origin)
-        {
-            let mut diagnostic = DiagnosticEnvelope::error(
-                DiagnosticStage::Analysis,
-                codes::analysis::OVERLAPPING_RULE_HEADS.as_str(),
-                error.to_string(),
-                range,
-            );
-            diagnostic.notes = vec![
-                format!("first rule: {first}"),
-                format!("second rule: {second}"),
-            ];
-            return CommandError::Diagnostics(vec![diagnostic]);
-        }
-        CommandError::DescriptorLowering(error)
-    })
+    lower_descriptor_bundle(bundle).map_err(CommandError::DescriptorLowering)
 }
 
 fn lower_definition(
     semantic: &krs_ir::SemanticTheory,
 ) -> Result<krs_compiler::LoweredDefinition, CommandError> {
-    lower_semantic_theory(semantic).map_err(|error| {
-        if let LoweringError::NameCollision {
-            namespace,
-            value: _,
-            second_origin,
-            ..
-        } = &error
-            && let Some(range) = exact_authored_range_from_origin(second_origin)
-        {
-            let code = if *namespace == "emitted symbol" {
-                codes::analysis::SYMBOL_NAME_COLLISION
-            } else {
-                codes::analysis::NAME_COLLISION
-            };
-            return CommandError::Diagnostics(vec![DiagnosticEnvelope::error(
-                DiagnosticStage::Analysis,
-                code.as_str(),
-                error.to_string(),
-                range,
-            )]);
-        }
-        CommandError::Lowering(error)
-    })
+    lower_semantic_theory(semantic).map_err(CommandError::Lowering)
 }
 
 fn collector_directory(target: &Path, collector: &GeneratedCollector) -> PathBuf {
@@ -985,12 +939,16 @@ fn rust_diagnostics(stdout: &[u8], metadata: &CargoMetadata) -> Vec<DiagnosticEn
         );
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(metadata, manifest, span) {
-                diagnostics.push(DiagnosticEnvelope::error(
+                let view = diagnostic_envelope(
+                    Diagnostic::error(
+                        code.clone(),
+                        diagnostic.message.clone(),
+                        Location::Source(range),
+                    ),
                     DiagnosticStage::RustExpansion,
-                    code.as_str(),
-                    diagnostic.message.clone(),
-                    range,
-                ));
+                    None,
+                );
+                diagnostics.extend(view);
             }
         }
     }
@@ -1211,13 +1169,17 @@ impl Error for CommandError {
 }
 
 impl CommandError {
-    /// Returns structured diagnostics when this failure crossed a diagnostic boundary.
+    /// Returns envelopes when the producing diagnostic has an exact authored range.
     #[must_use]
-    pub fn diagnostics(&self) -> Option<&[DiagnosticEnvelope]> {
-        match self {
-            Self::Diagnostics(diagnostics) => Some(diagnostics),
-            _ => None,
-        }
+    pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
+        let diagnostic = match self {
+            Self::Diagnostics(diagnostics) => return Some(Cow::Borrowed(diagnostics)),
+            Self::DescriptorLowering(error) => error.to_diagnostic(),
+            Self::Lowering(error) => error.to_diagnostic(),
+            _ => return None,
+        };
+        diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+            .map(|envelope| Cow::Owned(vec![envelope]))
     }
 }
 
@@ -1293,6 +1255,35 @@ mod tests {
             emission_stdout(&artifacts),
             b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, spec.k, symbols.json, sources.json\n"
         );
+    }
+
+    #[test]
+    fn analysis_failures_expose_envelopes_only_with_an_exact_authored_range() {
+        let package = PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap();
+        let file = SourceFileId::new(
+            package,
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let range = SourceRange::new(file, 7, 16).unwrap();
+        let error = LoweringError::NameCollision {
+            namespace: krs_compiler::CollisionNamespace::EmittedSymbol,
+            value: "name".to_owned(),
+            first: "first".to_owned(),
+            second: "second".to_owned(),
+            second_origin: krs_ir::OriginStack::authored(range.clone()),
+        };
+        let message = error.to_string();
+        let failure = CommandError::from(error);
+        let envelopes = failure.diagnostics().unwrap();
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(envelopes[0].code, "krs::analysis::symbol-name-collision");
+        assert_eq!(envelopes[0].message, message);
+        assert_eq!(envelopes[0].authored_range, range);
+        let unlocated = CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
+        assert!(unlocated.diagnostics().is_none());
+        assert_eq!(unlocated.to_string(), "invalid lowered sidecar: detail");
     }
 
     #[test]

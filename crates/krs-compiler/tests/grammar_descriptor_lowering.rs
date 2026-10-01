@@ -1255,7 +1255,7 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
     assert!(matches!(
         lower_semantic_theory(&semantic),
         Err(LoweringError::NameCollision {
-            namespace: "emitted label",
+            namespace: krs_compiler::CollisionNamespace::EmittedLabel,
             value,
             ..
         }) if value == "if-true"

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
     ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
@@ -51,6 +52,33 @@ impl LoweredDefinition {
     }
 }
 
+/// Namespace whose generated identity or emitted name must be unique.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollisionNamespace {
+    /// Semantic modules.
+    Module,
+    /// Definition symbol identities.
+    SymbolId,
+    /// Emitted sort, production, and cell names.
+    EmittedSymbol,
+    /// Emitted rule and context-alias labels.
+    EmittedLabel,
+    /// Definition label identities.
+    LabelId,
+}
+
+impl fmt::Display for CollisionNamespace {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Module => "module",
+            Self::SymbolId => "symbol ID",
+            Self::EmittedSymbol => "emitted symbol",
+            Self::EmittedLabel => "emitted label",
+            Self::LabelId => "label ID",
+        })
+    }
+}
+
 /// Typed failure at the semantic-to-Definition boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoweringError {
@@ -78,7 +106,7 @@ pub enum LoweringError {
     /// Two semantic declarations selected the same Definition identity or emitted name.
     NameCollision {
         /// Colliding namespace.
-        namespace: &'static str,
+        namespace: CollisionNamespace,
         /// Colliding generated value.
         value: String,
         /// First stable owner.
@@ -136,6 +164,34 @@ impl fmt::Display for LoweringError {
             }
             Self::InvalidSidecar(detail) => write!(formatter, "invalid lowered sidecar: {detail}"),
         }
+    }
+}
+
+impl ToDiagnostic for LoweringError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
+            Self::InvalidProductionTemplate { .. } => codes::analysis::INVALID_PRODUCTION_TEMPLATE,
+            Self::InvalidEmittedName { .. } => codes::analysis::INVALID_EMITTED_NAME,
+            Self::NameCollision { namespace, .. } => match namespace {
+                CollisionNamespace::EmittedSymbol => codes::analysis::SYMBOL_NAME_COLLISION,
+                CollisionNamespace::Module
+                | CollisionNamespace::SymbolId
+                | CollisionNamespace::EmittedLabel
+                | CollisionNamespace::LabelId => codes::analysis::NAME_COLLISION,
+            },
+            Self::SourceMapCollision(_) => codes::analysis::SOURCE_MAP_COLLISION,
+            Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
+            Self::InvalidDefinition(_) => codes::analysis::INVALID_DEFINITION,
+            Self::InvalidSidecar(_) => codes::analysis::INVALID_SIDECAR,
+        };
+        let location = match self {
+            Self::NameCollision { second_origin, .. } => second_origin
+                .exact_authored_range()
+                .map_or(Location::None, Location::Source),
+            _ => Location::None,
+        };
+        Diagnostic::error(code, self.to_string(), location)
     }
 }
 
@@ -224,7 +280,7 @@ impl NamingPass {
                 &mut modules,
                 module.id().as_str().to_owned(),
                 format!("semantic module {}", module.id().as_str()),
-                "module",
+                CollisionNamespace::Module,
                 module.origin(),
             )?;
             pass.modules
@@ -241,14 +297,14 @@ impl NamingPass {
                     &mut identities,
                     id.as_str().to_owned(),
                     owner.clone(),
-                    "symbol ID",
+                    CollisionNamespace::SymbolId,
                     sort.origin(),
                 )?;
                 claim(
                     &mut emitted,
                     name.clone(),
                     owner,
-                    "emitted symbol",
+                    CollisionNamespace::EmittedSymbol,
                     sort.origin(),
                 )?;
                 pass.sorts.insert(
@@ -265,14 +321,14 @@ impl NamingPass {
                     &mut identities,
                     id.as_str().to_owned(),
                     owner.clone(),
-                    "symbol ID",
+                    CollisionNamespace::SymbolId,
                     production.origin(),
                 )?;
                 claim(
                     &mut emitted,
                     name.clone(),
                     owner,
-                    "emitted symbol",
+                    CollisionNamespace::EmittedSymbol,
                     production.origin(),
                 )?;
                 pass.productions.insert(
@@ -294,7 +350,7 @@ impl NamingPass {
                     &mut labels,
                     alias.name().to_owned(),
                     stable_item_text(alias.id()),
-                    "emitted label",
+                    CollisionNamespace::EmittedLabel,
                     alias.origin(),
                 )?;
             }
@@ -313,14 +369,14 @@ impl NamingPass {
                     &mut labels,
                     id.as_str().to_owned(),
                     owner.clone(),
-                    "label ID",
+                    CollisionNamespace::LabelId,
                     rule.origin(),
                 )?;
                 claim(
                     &mut labels,
                     name.clone(),
                     owner,
-                    "emitted label",
+                    CollisionNamespace::EmittedLabel,
                     rule.origin(),
                 )?;
                 pass.rules
@@ -379,14 +435,14 @@ fn name_fixed_cells(
             identities,
             id.as_str().to_owned(),
             owner.clone(),
-            "symbol ID",
+            CollisionNamespace::SymbolId,
             cell.origin(),
         )?;
         claim(
             emitted,
             cell.name().to_owned(),
             owner,
-            "emitted symbol",
+            CollisionNamespace::EmittedSymbol,
             cell.origin(),
         )?;
         lowered.insert(cell.id().clone(), id);
@@ -1330,7 +1386,7 @@ fn claim(
     names: &mut BTreeMap<String, String>,
     value: String,
     owner: String,
-    namespace: &'static str,
+    namespace: CollisionNamespace,
     second_origin: &NodeOrigin,
 ) -> Result<(), LoweringError> {
     if let Some(first) = names.insert(value.clone(), owner.clone()) {
@@ -1476,7 +1532,9 @@ fn lower_camel(value: &str) -> String {
 mod tests {
     use krs_ir::{ExplicitSymbol, ItemKind, StableItemId};
 
-    use super::stable_symbol_text;
+    use super::{CollisionNamespace, LoweringError, claim, stable_symbol_text};
+    use krs_diagnostic::{Location, ToDiagnostic, codes};
+    use std::collections::BTreeMap;
 
     fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
         krs_ir::testing::item_in(
@@ -1485,6 +1543,72 @@ mod tests {
             name,
             kind,
         )
+    }
+
+    #[test]
+    fn collision_namespace_selects_the_code_and_preserves_the_second_origin() {
+        let origin = krs_ir::NodeOrigin::new(
+            krs_ir::SourceMapKey::new("sem.collision").unwrap(),
+            krs_ir::testing::authored(3, 8),
+        );
+        let expected_range = origin.origin().exact_authored_range().unwrap();
+        for (namespace, code, text) in [
+            (
+                CollisionNamespace::EmittedSymbol,
+                codes::analysis::SYMBOL_NAME_COLLISION,
+                "emitted symbol",
+            ),
+            (
+                CollisionNamespace::EmittedLabel,
+                codes::analysis::NAME_COLLISION,
+                "emitted label",
+            ),
+            (
+                CollisionNamespace::Module,
+                codes::analysis::NAME_COLLISION,
+                "module",
+            ),
+            (
+                CollisionNamespace::SymbolId,
+                codes::analysis::NAME_COLLISION,
+                "symbol ID",
+            ),
+            (
+                CollisionNamespace::LabelId,
+                codes::analysis::NAME_COLLISION,
+                "label ID",
+            ),
+        ] {
+            let mut names = BTreeMap::new();
+            claim(
+                &mut names,
+                "same".to_owned(),
+                "first".to_owned(),
+                namespace,
+                &origin,
+            )
+            .unwrap();
+            let error = claim(
+                &mut names,
+                "same".to_owned(),
+                "second".to_owned(),
+                namespace,
+                &origin,
+            )
+            .unwrap_err();
+            assert!(matches!(error, LoweringError::NameCollision { .. }));
+            let diagnostic = error.to_diagnostic();
+            assert_eq!(diagnostic.code, code);
+            assert_eq!(
+                diagnostic.message,
+                format!("{text} name collision for \"same\" between first and second")
+            );
+            let Location::Source(actual) = diagnostic.primary.location else {
+                panic!("missing second collision owner range");
+            };
+            assert_eq!(actual, expected_range);
+            assert!(diagnostic.notes.is_empty());
+        }
     }
 
     #[test]

@@ -15,7 +15,9 @@ pub mod bundle;
 pub mod bytes_token;
 pub mod coordinates;
 pub mod definition;
+mod detail_macros;
 mod display;
+mod error_detail;
 pub mod generated;
 pub mod grammar;
 pub mod host;
@@ -57,6 +59,10 @@ pub use definition::{
     DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
     ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
     SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+};
+pub use error_detail::{
+    Bn128PointSignature, IdentityComponent, IrField, IrIdentityKind, ProductionAttributeFamily,
+    SemanticIdentityKind,
 };
 pub use generated::{GeneratedProductionIdError, GeneratedProductionKind, generated_production_id};
 pub use grammar::{

@@ -190,7 +190,7 @@ impl Validation for SemanticLevel {
             Ok(())
         } else {
             Err(SemanticValidationError::DuplicateId {
-                kind: "cell",
+                kind: crate::SemanticIdentityKind::Cell,
                 id: cell.id().as_str().into(),
             })
         }

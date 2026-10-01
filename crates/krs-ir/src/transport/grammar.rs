@@ -14,6 +14,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::detail::{
+    GrammarApplicationReason, GrammarProductionReason, GrammarTermReason, TransportField,
+};
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, stage_shape};
 use crate::{
@@ -1300,15 +1303,15 @@ pub type HostStructuredRuleDescriptor = StructuredRule<HostStage>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GrammarTransportError {
     /// A required textual value was blank.
-    EmptyText(&'static str),
+    EmptyText(TransportField),
     /// A declared sort reference used the wrong stable namespace.
     SortReferenceKind(ItemKind),
     /// A declared application used the wrong stable namespace.
     ApplicationReferenceKind(ItemKind),
     /// A collection-valued grammar construct was empty.
-    EmptyCollection(&'static str),
+    EmptyCollection(TransportField),
     /// A set-valued list repeated a value.
-    DuplicateValue(&'static str),
+    DuplicateValue(TransportField),
     /// The enclosing descriptor used the wrong stable item namespace.
     DescriptorItemKind {
         /// Required stable namespace.
@@ -1335,11 +1338,11 @@ pub enum GrammarTransportError {
     /// A literal payload was not in canonical protocol form.
     InvalidLiteral,
     /// A production did not satisfy its classified owner/attribute shape.
-    InvalidProduction(&'static str),
+    InvalidProduction(GrammarProductionReason),
     /// A structured application mixed argument forms or repeated a field.
-    InvalidApplication(&'static str),
+    InvalidApplication(GrammarApplicationReason),
     /// A structured term used a node in an invalid relational position.
-    InvalidTerm(&'static str),
+    InvalidTerm(GrammarTermReason),
 }
 
 impl fmt::Display for GrammarTransportError {
@@ -1431,21 +1434,21 @@ impl DescriptorApplicationRef {
             && !MapOperation::TERM_APPLICATIONS.contains(operation)
         {
             return Err(GrammarTransportError::InvalidApplication(
-                "structural-only Map operation used as an application head",
+                GrammarApplicationReason::StructuralMapApplication,
             ));
         }
         if let Self::List(operation) = self
             && !ListOperation::TERM_APPLICATIONS.contains(operation)
         {
             return Err(GrammarTransportError::InvalidApplication(
-                "structural-only List operation used as an application head",
+                GrammarApplicationReason::StructuralListApplication,
             ));
         }
         if let Self::Set(operation) = self
             && !SetOperation::TERM_APPLICATIONS.contains(operation)
         {
             return Err(GrammarTransportError::InvalidApplication(
-                "structural-only Set operation used as an application head",
+                GrammarApplicationReason::StructuralSetApplication,
             ));
         }
         Ok(())
@@ -1476,7 +1479,7 @@ fn validate_map_application_shape(
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
         return Err(GrammarTransportError::InvalidApplication(
-            "a Map operation must be an applied term head",
+            GrammarApplicationReason::UnappliedMapOperation,
         ));
     }
     let expected = match operation {
@@ -1486,7 +1489,7 @@ fn validate_map_application_shape(
     };
     if arguments.len() != expected {
         return Err(GrammarTransportError::InvalidApplication(
-            "Map operation has invalid arity",
+            GrammarApplicationReason::MapOperationHasInvalidArity,
         ));
     }
     if arguments
@@ -1494,7 +1497,7 @@ fn validate_map_application_shape(
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
-            "Map operations accept positional arguments only",
+            GrammarApplicationReason::MapOperationsAcceptPositionalArgumentsOnly,
         ));
     }
     Ok(())
@@ -1510,7 +1513,7 @@ fn validate_set_application_shape(
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
         return Err(GrammarTransportError::InvalidApplication(
-            "a Set operation must be an applied term head",
+            GrammarApplicationReason::UnappliedSetOperation,
         ));
     }
     let expected = match operation {
@@ -1520,7 +1523,7 @@ fn validate_set_application_shape(
     };
     if arguments.len() != expected {
         return Err(GrammarTransportError::InvalidApplication(
-            "Set operation has invalid arity",
+            GrammarApplicationReason::SetOperationHasInvalidArity,
         ));
     }
     if arguments
@@ -1528,7 +1531,7 @@ fn validate_set_application_shape(
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
-            "Set operations accept positional arguments only",
+            GrammarApplicationReason::SetOperationsAcceptPositionalArgumentsOnly,
         ));
     }
     Ok(())
@@ -1544,7 +1547,7 @@ fn validate_list_application_shape(
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
         return Err(GrammarTransportError::InvalidApplication(
-            "a List operation must be an applied term head",
+            GrammarApplicationReason::UnappliedListOperation,
         ));
     }
     let expected = match operation {
@@ -1555,7 +1558,7 @@ fn validate_list_application_shape(
     };
     if arguments.len() != expected {
         return Err(GrammarTransportError::InvalidApplication(
-            "List operation has invalid arity",
+            GrammarApplicationReason::ListOperationHasInvalidArity,
         ));
     }
     if arguments
@@ -1563,7 +1566,7 @@ fn validate_list_application_shape(
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
-            "List operations accept positional arguments only",
+            GrammarApplicationReason::ListOperationsAcceptPositionalArgumentsOnly,
         ));
     }
     Ok(())
@@ -1624,7 +1627,7 @@ impl StructuredRuleDescriptor {
             require_key(&label.key, provenance)?;
             if !label.is_valid() {
                 return Err(GrammarTransportError::InvalidTerm(
-                    "invalid explicit rule label",
+                    GrammarTermReason::InvalidExplicitRuleLabel,
                 ));
             }
         }
@@ -1632,7 +1635,7 @@ impl StructuredRuleDescriptor {
             require_key(&requires.key, provenance)?;
             if self.sentence_kind == SentenceKind::Alias {
                 return Err(GrammarTransportError::InvalidTerm(
-                    "static alias clauses cannot carry requires conditions",
+                    GrammarTermReason::StaticAliasRequires,
                 ));
             }
         }
@@ -1645,7 +1648,7 @@ impl StructuredRuleDescriptor {
                 && priority.value == 200;
             if !(valid_equation || valid_owise) {
                 return Err(GrammarTransportError::InvalidTerm(
-                    "priority must be an equation priority or transition ordered fallback",
+                    GrammarTermReason::InvalidPriorityKind,
                 ));
             }
         }
@@ -1653,7 +1656,7 @@ impl StructuredRuleDescriptor {
             require_key(&simplification.key, provenance)?;
             if self.sentence_kind != SentenceKind::Simplification {
                 return Err(GrammarTransportError::InvalidTerm(
-                    "simplification metadata is supported only on simplifications",
+                    GrammarTermReason::UnexpectedSimplificationMetadata,
                 ));
             }
             if let Some(priority) = &simplification.priority {
@@ -1661,7 +1664,7 @@ impl StructuredRuleDescriptor {
             }
         } else if self.sentence_kind == SentenceKind::Simplification {
             return Err(GrammarTransportError::InvalidTerm(
-                "simplification sentence lacks simplification metadata",
+                GrammarTermReason::MissingSimplificationMetadata,
             ));
         }
         require_key(&self.subject_sort.key, provenance)?;
@@ -1677,7 +1680,9 @@ impl StructuredRuleDescriptor {
                 .iter()
                 .any(|binding| binding.trim().is_empty())
         {
-            return Err(GrammarTransportError::DuplicateValue("rule bindings"));
+            return Err(GrammarTransportError::DuplicateValue(
+                TransportField::RuleBindings,
+            ));
         }
         let mut subject_variables = BTreeSet::new();
         self.subject
@@ -1756,14 +1761,20 @@ impl GrammarDescriptor {
             Self::Precedence { key, chains } => {
                 require_key(key, provenance)?;
                 if chains.is_empty() {
-                    return Err(GrammarTransportError::EmptyCollection("precedence chains"));
+                    return Err(GrammarTransportError::EmptyCollection(
+                        TransportField::PrecedenceChains,
+                    ));
                 }
                 for chain in chains {
                     require_key(&chain.key, provenance)?;
-                    validate_group_references(&chain.groups, provenance, "precedence groups")?;
+                    validate_group_references(
+                        &chain.groups,
+                        provenance,
+                        TransportField::PrecedenceGroups,
+                    )?;
                     if chain.groups.len() < 2 {
                         return Err(GrammarTransportError::InvalidProduction(
-                            "precedence chain requires at least two groups",
+                            GrammarProductionReason::ShortPrecedenceChain,
                         ));
                     }
                 }
@@ -1773,7 +1784,7 @@ impl GrammarDescriptor {
                 require_key(key, provenance)?;
                 if sentences.is_empty() {
                     return Err(GrammarTransportError::EmptyCollection(
-                        "associativity sentences",
+                        TransportField::AssociativitySentences,
                     ));
                 }
                 for sentence in sentences {
@@ -1781,7 +1792,7 @@ impl GrammarDescriptor {
                     validate_group_references(
                         &sentence.groups,
                         provenance,
-                        "associativity groups",
+                        TransportField::AssociativityGroups,
                     )?;
                 }
                 Ok(())
@@ -1810,21 +1821,23 @@ impl DescriptorProduction {
                 validate_sort_reference(sort, provenance)?;
                 if !matches!(sort.sort, DescriptorSortRef::Declared(_)) {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token and bracket owners must be authored sorts",
+                        GrammarProductionReason::TokenOrBracketOwnerKind,
                     ));
                 }
             }
         }
         validate_sort_reference(&self.result_sort, provenance)?;
         if self.items.is_empty() {
-            return Err(GrammarTransportError::EmptyCollection("production items"));
+            return Err(GrammarTransportError::EmptyCollection(
+                TransportField::ProductionItems,
+            ));
         }
         for item in &self.items {
             match item {
                 DescriptorProductionItem::Terminal { key, text } => {
                     require_key(key, provenance)?;
                     if text.is_empty() {
-                        return Err(GrammarTransportError::EmptyText("terminal"));
+                        return Err(GrammarTransportError::EmptyText(TransportField::Terminal));
                     }
                 }
                 DescriptorProductionItem::NonTerminal {
@@ -1852,7 +1865,9 @@ impl DescriptorProduction {
                         || precede_regex.as_deref() == Some("")
                         || follow_regex.as_deref() == Some("")
                     {
-                        return Err(GrammarTransportError::EmptyText("production regex"));
+                        return Err(GrammarTransportError::EmptyText(
+                            TransportField::ProductionRegex,
+                        ));
                     }
                 }
             }
@@ -1905,7 +1920,9 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Format { key, fragments } => {
                     require_key(key, provenance)?;
                     if fragments.is_empty() {
-                        return Err(GrammarTransportError::EmptyCollection("format fragments"));
+                        return Err(GrammarTransportError::EmptyCollection(
+                            TransportField::FormatFragments,
+                        ));
                     }
                     for fragment in fragments {
                         require_key(&fragment.key, provenance)?;
@@ -1920,13 +1937,17 @@ impl DescriptorProduction {
                 } => {
                     require_key(key, provenance)?;
                     if fields.is_empty() {
-                        return Err(GrammarTransportError::EmptyCollection("strictness fields"));
+                        return Err(GrammarTransportError::EmptyCollection(
+                            TransportField::StrictnessFields,
+                        ));
                     }
                     let mut names = BTreeSet::new();
                     for field in fields {
                         require_key(&field.key, provenance)?;
                         if !names.insert(field.field.clone()) {
-                            return Err(GrammarTransportError::DuplicateValue("strictness fields"));
+                            return Err(GrammarTransportError::DuplicateValue(
+                                TransportField::StrictnessFields,
+                            ));
                         }
                     }
                     validate_sort_reference(result_sort, provenance)?;
@@ -1935,25 +1956,25 @@ impl DescriptorProduction {
             };
             if !families.insert(family) {
                 return Err(GrammarTransportError::DuplicateValue(
-                    "production attribute families",
+                    TransportField::ProductionAttributeFamilies,
                 ));
             }
         }
         if families.contains("total") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
-                "total metadata requires function metadata",
+                GrammarProductionReason::TotalWithoutFunction,
             ));
         }
         if families.contains("hook")
             && !(families.contains("function") && families.contains("total"))
         {
             return Err(GrammarTransportError::InvalidProduction(
-                "hook metadata requires a total function production",
+                GrammarProductionReason::HookWithoutTotalFunction,
             ));
         }
         if families.contains("alias") && families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
-                "alias metadata cannot be combined with function metadata",
+                GrammarProductionReason::AliasFunctionMetadata,
             ));
         }
         let regex_count = self
@@ -1967,7 +1988,7 @@ impl DescriptorProduction {
             DescriptorProductionOwner::TokenSort { .. } => {
                 if regex_count != 1 || !has_token {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token owner requires one regex item and token metadata",
+                        GrammarProductionReason::TokenOwnerShape,
                     ));
                 }
                 let [
@@ -1979,12 +2000,12 @@ impl DescriptorProduction {
                 ] = self.items.as_slice()
                 else {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token production must contain exactly one regex item",
+                        GrammarProductionReason::TokenRegexItemCount,
                     ));
                 };
                 if precede_regex.is_some() || follow_regex.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "nominal token regex cannot carry precede/follow guards",
+                        GrammarProductionReason::NominalTokenRegexGuards,
                     ));
                 }
                 Ok(())
@@ -1999,19 +2020,19 @@ impl DescriptorProduction {
                         != 1
                 {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "bracket owner requires bracket metadata and one nonterminal",
+                        GrammarProductionReason::BracketOwnerShape,
                     ));
                 }
                 if self.result_sort.sort != sort.sort {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "bracket owner and result sorts must be identical",
+                        GrammarProductionReason::BracketOwnerResultSortMismatch,
                     ));
                 }
                 for item in &self.items {
                     match item {
                         DescriptorProductionItem::RegexTerminal { .. } => {
                             return Err(GrammarTransportError::InvalidProduction(
-                                "bracket production cannot contain regex items",
+                                GrammarProductionReason::BracketRegexItem,
                             ));
                         }
                         DescriptorProductionItem::NonTerminal {
@@ -2022,17 +2043,17 @@ impl DescriptorProduction {
                         } => {
                             if field.as_str() != "value" {
                                 return Err(GrammarTransportError::InvalidProduction(
-                                    "bracket nonterminal field must be `value`",
+                                    GrammarProductionReason::BracketFieldName,
                                 ));
                             }
                             if declaration_key.is_some() {
                                 return Err(GrammarTransportError::InvalidProduction(
-                                    "bracket nonterminal cannot claim a constructor field",
+                                    GrammarProductionReason::BracketConstructorField,
                                 ));
                             }
                             if value_sort.sort != sort.sort {
                                 return Err(GrammarTransportError::InvalidProduction(
-                                    "bracket owner, result, and value sorts must be identical",
+                                    GrammarProductionReason::BracketSortMismatch,
                                 ));
                             }
                         }
@@ -2043,14 +2064,14 @@ impl DescriptorProduction {
             }
             DescriptorProductionOwner::Constructor { .. } if has_token || has_bracket => {
                 Err(GrammarTransportError::InvalidProduction(
-                    "constructor owner cannot carry token or bracket metadata",
+                    GrammarProductionReason::ConstructorOwnerMetadata,
                 ))
             }
             DescriptorProductionOwner::Constructor { .. }
                 if families.contains("format") && self.template_key.is_none() =>
             {
                 Err(GrammarTransportError::InvalidProduction(
-                    "format metadata requires explicit constructor syntax",
+                    GrammarProductionReason::FormatWithoutConstructorSyntax,
                 ))
             }
             DescriptorProductionOwner::Constructor { .. } => Ok(()),
@@ -2164,13 +2185,13 @@ impl DescriptorProduction {
                 )?;
                 if self.template_key.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token production cannot have a syntax-template key",
+                        GrammarProductionReason::TokenSyntaxTemplate,
                     ));
                 }
                 let [DescriptorProductionItem::RegexTerminal { key, .. }] = self.items.as_slice()
                 else {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token production must contain exactly one regex item",
+                        GrammarProductionReason::TokenRegexItemCount,
                     ));
                 };
                 insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
@@ -2182,7 +2203,7 @@ impl DescriptorProduction {
                 ] = self.attributes.as_slice()
                 else {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "token production must contain only token metadata",
+                        GrammarProductionReason::TokenMetadataShape,
                     ));
                 };
                 insert_exact(keys, key, ProvenanceRole::TokenRegex, 0)?;
@@ -2207,7 +2228,7 @@ impl DescriptorProduction {
                 )?;
                 if self.template_key.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "bracket production cannot have a constructor-template key",
+                        GrammarProductionReason::BracketConstructorTemplate,
                     ));
                 }
                 let mut field_ordinal = 0_u32;
@@ -2231,7 +2252,7 @@ impl DescriptorProduction {
                         } => {
                             if declaration_key.is_some() {
                                 return Err(GrammarTransportError::InvalidProduction(
-                                    "bracket nonterminal cannot claim a constructor field",
+                                    GrammarProductionReason::BracketConstructorField,
                                 ));
                             }
                             insert_exact(
@@ -2254,7 +2275,7 @@ impl DescriptorProduction {
                 let [DescriptorProductionAttribute::Bracket { key }] = self.attributes.as_slice()
                 else {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "bracket production must contain only bracket metadata",
+                        GrammarProductionReason::BracketMetadataShape,
                     ));
                 };
                 insert_exact(keys, key, ProvenanceRole::BracketDeclaration, 0)
@@ -2292,13 +2313,13 @@ impl DescriptorProduction {
                 } => {
                     let Some(declaration_key) = declaration_key else {
                         return Err(GrammarTransportError::InvalidProduction(
-                            "constructor nonterminal lacks its field declaration key",
+                            GrammarProductionReason::MissingConstructorFieldKey,
                         ));
                     };
                     let declaration_ordinal = declaration_key.ordinal();
                     if !declaration_ordinals.insert(declaration_ordinal) {
                         return Err(GrammarTransportError::InvalidProduction(
-                            "constructor field declaration ordinals must be unique",
+                            GrammarProductionReason::DuplicateConstructorFieldOrdinal,
                         ));
                     }
                     insert_exact(
@@ -2348,14 +2369,14 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionItem::RegexTerminal { .. } => {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "constructor production cannot contain a regex item",
+                        GrammarProductionReason::ConstructorRegexItem,
                     ));
                 }
             }
         }
         if declaration_ordinals != (0..occurrence_ordinal).collect::<BTreeSet<_>>() {
             return Err(GrammarTransportError::InvalidProduction(
-                "constructor field declaration ordinals must form a dense permutation",
+                GrammarProductionReason::SparseConstructorFieldOrdinals,
             ));
         }
         Ok(())
@@ -2444,7 +2465,7 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Token { .. }
                 | DescriptorProductionAttribute::Bracket { .. } => {
                     return Err(GrammarTransportError::InvalidProduction(
-                        "constructor has token or bracket metadata",
+                        GrammarProductionReason::ConstructorHasTokenOrBracketMetadata,
                     ));
                 }
             }
@@ -2643,15 +2664,18 @@ fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
 }
 
 fn checked_index(index: usize) -> Result<u32, GrammarTransportError> {
-    u32::try_from(index)
-        .map_err(|_| GrammarTransportError::InvalidProduction("provenance ordinal exceeds u32"))
+    u32::try_from(index).map_err(|_| {
+        GrammarTransportError::InvalidProduction(
+            GrammarProductionReason::ProvenanceOrdinalExceedsU32,
+        )
+    })
 }
 
 fn increment(value: u32) -> Result<u32, GrammarTransportError> {
     value
         .checked_add(1)
         .ok_or(GrammarTransportError::InvalidProduction(
-            "provenance ordinal exceeds u32",
+            GrammarProductionReason::ProvenanceOrdinalExceedsU32,
         ))
 }
 
@@ -2666,7 +2690,7 @@ fn validate_sort_reference(
 fn validate_group_references(
     references: &[DescriptorGroupReference],
     provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
-    field: &'static str,
+    field: TransportField,
 ) -> Result<(), GrammarTransportError> {
     if references.is_empty() {
         return Err(GrammarTransportError::EmptyCollection(field));

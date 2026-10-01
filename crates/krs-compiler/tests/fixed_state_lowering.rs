@@ -773,7 +773,7 @@ fn configuration_rule_labels_are_authored_but_remain_collision_checked() {
     assert!(matches!(
         error,
         LoweringError::NameCollision {
-            namespace: "emitted label",
+            namespace: krs_compiler::CollisionNamespace::EmittedLabel,
             value,
             ..
         } if value == "step"

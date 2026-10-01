@@ -253,7 +253,7 @@ fn name_collisions_are_rejected_before_definition_construction() {
         matches!(
             &result,
             Err(LoweringError::NameCollision {
-                namespace: "emitted symbol",
+                namespace: krs_compiler::CollisionNamespace::EmittedSymbol,
                 value,
                 second_origin,
                 ..

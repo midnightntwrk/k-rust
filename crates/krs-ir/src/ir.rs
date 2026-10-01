@@ -91,7 +91,7 @@ impl SourceMapKey {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("source_map_key", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::SourceMapKey, value.into()).map(Self)
     }
 
     /// Returns the stable key.
@@ -122,7 +122,7 @@ impl ModuleId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("module_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::ModuleId, value.into()).map(Self)
     }
 
     /// Returns the identity.
@@ -153,7 +153,7 @@ impl SemanticId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("semantic_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::SemanticId, value.into()).map(Self)
     }
 
     /// Returns the identity.
@@ -204,9 +204,9 @@ impl NodeOrigin {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IrIdentityError {
     /// An identity was empty or whitespace-only.
-    Empty(&'static str),
+    Empty(crate::IrIdentityKind),
     /// An identity contained a filesystem separator.
-    PathLike(&'static str, String),
+    PathLike(crate::IrIdentityKind, String),
 }
 
 impl fmt::Display for IrIdentityError {
@@ -222,7 +222,10 @@ impl fmt::Display for IrIdentityError {
 
 impl Error for IrIdentityError {}
 
-pub(crate) fn validated_id(kind: &'static str, value: String) -> Result<String, IrIdentityError> {
+pub(crate) fn validated_id(
+    kind: crate::IrIdentityKind,
+    value: String,
+) -> Result<String, IrIdentityError> {
     if value.trim().is_empty() {
         return Err(IrIdentityError::Empty(kind));
     }

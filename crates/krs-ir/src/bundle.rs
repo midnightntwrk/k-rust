@@ -8,6 +8,7 @@ use std::io::Write;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::stage::{DescriptorStage, stage_shape};
+use crate::transport::detail::TransportField;
 use crate::transport::{
     configuration::{FixedConfiguration as TransportFixedConfiguration, StageCellDeclaration},
     grammar::{StageGrammarDescriptor, StructuredRule},
@@ -438,7 +439,7 @@ impl Descriptor {
         }
         let Some(expected_primary) = expected_primary else {
             return Err(GrammarTransportError::EmptyCollection(
-                "required grammar primary provenance key",
+                TransportField::RequiredGrammarPrimaryProvenanceKey,
             ));
         };
         if self.provenance.primary_key() != &expected_primary {

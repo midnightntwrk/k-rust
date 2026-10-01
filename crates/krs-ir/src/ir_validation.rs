@@ -99,11 +99,11 @@ pub(crate) enum ValidationError<L: Validation> {
     ConfigurationRuleTargetMismatch(L::RuleId),
     ConfigurationRuleWithoutFixedConfiguration(L::RuleId),
     DanglingVariable(SemanticId),
-    DuplicateProductionAttribute(&'static str),
+    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
     DuplicateSourceMapKey(SourceMapKey),
     DuplicateVariable(SemanticId),
     EmptyProduction(L::Declaration),
-    EmptyText(&'static str),
+    EmptyText(crate::IrField),
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
     InitializerTreeMismatch,
@@ -202,14 +202,14 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
         }
         if !external_names.insert(variable.external_name()) {
             return Err(L::error(ValidationError::EmptyText(
-                "duplicate external configuration variable",
+                crate::IrField::DuplicateExternalConfigurationVariable,
             )));
         }
         main_count += usize::from(variable.is_main());
     }
     if main_count > 1 {
         return Err(L::error(ValidationError::EmptyText(
-            "multiple main configuration variables",
+            crate::IrField::MultipleMainConfigurationVariables,
         )));
     }
     validate_initializer_forest::<L>(
@@ -793,7 +793,9 @@ pub(crate) fn validate_term<L: Validation>(
         }
         IrTermKind::Token { value } => {
             if value.is_empty() {
-                return Err(L::error(ValidationError::EmptyText("token value")));
+                return Err(L::error(ValidationError::EmptyText(
+                    crate::IrField::TokenValue,
+                )));
             }
         }
         IrTermKind::KSequence { item_sort, items } => {
@@ -1027,7 +1029,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
         };
         if already {
             let name = attribute
-                .unique_name()
+                .unique_family()
                 .expect("repeatable documentation was skipped above");
             return Err(L::error(ValidationError::DuplicateProductionAttribute(
                 name,

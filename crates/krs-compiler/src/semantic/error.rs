@@ -1,7 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
-use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId};
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
+use krs_ir::{
+    BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, SourceRange, StableItemId,
+};
 
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +67,8 @@ pub enum DescriptorLoweringError {
         first: Box<StableItemId>,
         /// Second rule in deterministic stable-identity order.
         second: Box<StableItemId>,
+        /// Sole exact authored range of the second rule's application head.
+        second_head_range: Option<Box<SourceRange>>,
     },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity(String),
@@ -111,12 +116,49 @@ impl fmt::Display for DescriptorLoweringError {
             Self::UnsupportedShape { node, detail } => {
                 write!(formatter, "unsupported {node}: {detail}")
             }
-            Self::OverlappingRules { first, second } => write!(
+            Self::OverlappingRules { first, second, .. } => write!(
                 formatter,
                 "readable rules {first} and {second} have overlapping left-hand patterns at the same priority; refine a pattern, add disjoint `where` sorts, or mark the fallback `#[k::rule(owise)]`"
             ),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl ToDiagnostic for DescriptorLoweringError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::DuplicateItemId(_) => codes::analysis::DUPLICATE_ITEM_ID,
+            Self::BuiltinSortNameCollision { .. } => codes::analysis::BUILTIN_SORT_NAME_COLLISION,
+            Self::ConfigurationCount(_) => codes::analysis::CONFIGURATION_COUNT,
+            Self::WrongItemKind { .. } => codes::analysis::WRONG_ITEM_KIND,
+            Self::DanglingReference(_) => codes::analysis::DANGLING_REFERENCE,
+            Self::ReferenceKindMismatch { .. } => codes::analysis::REFERENCE_KIND_MISMATCH,
+            Self::ParserReferenceDisagreement { .. } => {
+                codes::analysis::PARSER_REFERENCE_DISAGREEMENT
+            }
+            Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
+            Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
+            Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
+            Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
+            Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
+        };
+        let location = match self {
+            Self::OverlappingRules {
+                second_head_range, ..
+            } => second_head_range
+                .as_deref()
+                .cloned()
+                .map_or(Location::None, Location::Source),
+            _ => Location::None,
+        };
+        let diagnostic = Diagnostic::error(code, self.to_string(), location);
+        match self {
+            Self::OverlappingRules { first, second, .. } => diagnostic
+                .with_note(format!("first rule: {first}"))
+                .with_note(format!("second rule: {second}")),
+            _ => diagnostic,
         }
     }
 }
@@ -148,5 +190,38 @@ impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
             node: "fixed configuration",
             detail: error.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlapping_rules_own_the_code_head_range_and_ordered_notes() {
+        let first = krs_ir::testing::item("rules", "first", ItemKind::Rule);
+        let second = krs_ir::testing::item("rules", "second", ItemKind::Rule);
+        let range = krs_ir::testing::authored(3, 8)
+            .exact_authored_range()
+            .unwrap();
+        let error = DescriptorLoweringError::OverlappingRules {
+            first: Box::new(first.clone()),
+            second: Box::new(second.clone()),
+            second_head_range: Some(Box::new(range.clone())),
+        };
+        let diagnostic = error.to_diagnostic();
+        assert_eq!(diagnostic.code, codes::analysis::OVERLAPPING_RULE_HEADS);
+        assert_eq!(diagnostic.message, error.to_string());
+        let Location::Source(actual) = diagnostic.primary.location else {
+            panic!("missing overlap application head range");
+        };
+        assert_eq!(actual, range);
+        assert_eq!(
+            diagnostic.notes,
+            [
+                format!("first rule: {first}"),
+                format!("second rule: {second}"),
+            ]
+        );
     }
 }

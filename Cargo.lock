@@ -569,6 +569,7 @@ dependencies = [
  "expect-test",
  "krs-collector",
  "krs-compiler",
+ "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
  "krs-test-support",

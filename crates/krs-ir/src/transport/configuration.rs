@@ -11,6 +11,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
 use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shape};
 
 use crate::host::{HostTypeKey, HostTypeReference};
@@ -549,17 +550,17 @@ pub type HostFixedConfiguration = FixedConfiguration<HostStage>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateTransportError {
     /// A required textual value was blank or path-shaped.
-    InvalidText(&'static str),
+    InvalidText(TransportField),
     /// A collection required by the fixed grammar was empty.
-    EmptyCollection(&'static str),
+    EmptyCollection(TransportField),
     /// A set-valued list repeated a value.
-    DuplicateValue(&'static str),
+    DuplicateValue(TransportField),
     /// A stable declaration or reference used the wrong namespace.
     ItemKind {
         /// Description of the value being checked.
-        field: &'static str,
+        field: TransportField,
         /// Allowed namespace(s).
-        expected: &'static str,
+        expected: TransportItemKind,
         /// Actual namespace.
         actual: ItemKind,
     },
@@ -572,9 +573,9 @@ pub enum StateTransportError {
     /// More than one configuration variable was marked main.
     MultipleMainVariables,
     /// A `KCell` or state family disagreed with its declaration.
-    InvalidCellContent(&'static str),
+    InvalidCellContent(StateCellContentReason),
     /// A structured initializer term was invalid.
-    InvalidTerm(&'static str),
+    InvalidTerm(StateTermReason),
     /// A nested semantic key was absent from materialized provenance.
     MissingProvenance(ProvenanceKey),
     /// A node used a key other than its exact parser role/ordinal.
@@ -648,7 +649,7 @@ impl DescriptorCellIdentity {
     /// Returns [`StateTransportError`] for a non-configuration/cell owner or
     /// an invalid stable Rust field name.
     pub fn validate(&self) -> Result<(), StateTransportError> {
-        require_cell_owner_kind(&self.owner, "cell identity owner")?;
+        require_cell_owner_kind(&self.owner, TransportField::CellIdentityOwner)?;
         validate_rust_field(&self.field)
     }
 }
@@ -657,8 +658,8 @@ impl DescriptorCellDeclarationReference {
     fn validate(&self) -> Result<(), StateTransportError> {
         if self.declaration.item_kind() != ItemKind::Cell {
             return Err(StateTransportError::ItemKind {
-                field: "nested cell declaration",
-                expected: "Cell",
+                field: TransportField::NestedCellDeclaration,
+                expected: TransportItemKind::Cell,
                 actual: self.declaration.item_kind(),
             });
         }
@@ -865,8 +866,8 @@ impl ConfigurationValidationStage for DescriptorStage {
     fn validate_configuration_owner(owner: &StableItemId) -> Result<(), StateTransportError> {
         if owner.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
-                field: "configuration descriptor",
-                expected: "Configuration",
+                field: TransportField::ConfigurationDescriptor,
+                expected: TransportItemKind::Configuration,
                 actual: owner.item_kind(),
             });
         }
@@ -874,7 +875,7 @@ impl ConfigurationValidationStage for DescriptorStage {
     }
 
     fn validate_declaration_owner(owner: &StableItemId) -> Result<(), StateTransportError> {
-        require_cell_owner_kind(owner, "cell declaration")
+        require_cell_owner_kind(owner, TransportField::CellDeclaration)
     }
 
     fn owners_match(left: &StableItemId, right: &StableItemId) -> bool {
@@ -929,8 +930,8 @@ impl ConfigurationValidationStage for DescriptorStage {
         sort.sort
             .validate()
             .map_err(|_| StateTransportError::ItemKind {
-                field: "cell content sort",
-                expected: "Sort or builtin",
+                field: TransportField::CellContentSort,
+                expected: TransportItemKind::SortOrBuiltin,
                 actual: match &sort.sort {
                     DescriptorSortRef::Declared(id) => id.item_kind(),
                     DescriptorSortRef::Builtin(_) => ItemKind::Sort,
@@ -942,7 +943,7 @@ impl ConfigurationValidationStage for DescriptorStage {
     fn validate_sort_argument(sort: &DescriptorSortReference) -> Result<(), StateTransportError> {
         sort.sort
             .validate()
-            .map_err(|_| StateTransportError::InvalidTerm("invalid cell sort argument"))
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidCellSortArgument))
     }
 
     fn declaration_key(declaration: &DescriptorCellDeclarationReference) -> &ProvenanceKey {
@@ -1032,7 +1033,7 @@ impl ConfigurationValidationStage for HostStage {
     fn validate_sort_argument(sort: &HostSortReference) -> Result<(), StateTransportError> {
         if sort.target.authored_path.trim().is_empty() {
             Err(StateTransportError::InvalidText(
-                "cell sort argument diagnostic path",
+                TransportField::CellSortArgumentDiagnosticPath,
             ))
         } else {
             Ok(())
@@ -1048,7 +1049,7 @@ impl ConfigurationValidationStage for HostStage {
     ) -> Result<(), StateTransportError> {
         if declaration.declaration.authored_path.trim().is_empty() {
             Err(StateTransportError::InvalidText(
-                "nested cell diagnostic path",
+                TransportField::NestedCellDiagnosticPath,
             ))
         } else {
             Ok(())
@@ -1102,7 +1103,9 @@ fn validate_declaration<S: ConfigurationValidationStage>(
         0,
     )?;
     if declaration.fields.is_empty() {
-        return Err(StateTransportError::EmptyCollection("fixed cell fields"));
+        return Err(StateTransportError::EmptyCollection(
+            TransportField::FixedCellFields,
+        ));
     }
     let mut rust_fields = BTreeSet::new();
     let mut emitted_names = BTreeSet::new();
@@ -1119,7 +1122,9 @@ fn validate_declaration<S: ConfigurationValidationStage>(
         if !rust_fields.insert(field.rust_field.clone())
             || !identities.insert(S::cell_identity(&field.reference))
         {
-            return Err(StateTransportError::DuplicateValue("fixed cell fields"));
+            return Err(StateTransportError::DuplicateValue(
+                TransportField::FixedCellFields,
+            ));
         }
         insert_exact(
             keys,
@@ -1130,7 +1135,7 @@ fn validate_declaration<S: ConfigurationValidationStage>(
         let emitted = validate_cell_metadata(field, ordinal, keys)?;
         if !emitted_names.insert(emitted) {
             return Err(StateTransportError::DuplicateValue(
-                "emitted sibling cell names",
+                TransportField::EmittedSiblingCellNames,
             ));
         }
         match &field.content {
@@ -1184,7 +1189,7 @@ fn validate_cell_metadata<I, S, N>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<String, StateTransportError> {
     let emitted = if let Some(name) = &field.emitted_name {
-        validate_nonblank("emitted cell name", &name.value)?;
+        validate_nonblank(TransportField::EmittedCellName, &name.value)?;
         insert_exact(
             keys,
             &name.key,
@@ -1196,7 +1201,7 @@ fn validate_cell_metadata<I, S, N>(
         field.rust_field.clone()
     };
     if let Some(color) = &field.color {
-        validate_nonblank("cell color", &color.value)?;
+        validate_nonblank(TransportField::CellColor, &color.value)?;
         insert_exact(
             keys,
             &color.key,
@@ -1207,7 +1212,7 @@ fn validate_cell_metadata<I, S, N>(
     if let Some(multiplicity) = &field.multiplicity {
         if multiplicity.value != "*" {
             return Err(StateTransportError::InvalidTerm(
-                "unsupported cell multiplicity",
+                StateTermReason::UnsupportedCellMultiplicity,
             ));
         }
         insert_exact(
@@ -1220,12 +1225,12 @@ fn validate_cell_metadata<I, S, N>(
     if let Some(cell_type) = &field.cell_type {
         if field.multiplicity.is_none() {
             return Err(StateTransportError::InvalidTerm(
-                "cell type requires repeated multiplicity",
+                StateTermReason::CellTypeRequiresRepeatedMultiplicity,
             ));
         }
         if !matches!(cell_type.value.as_str(), "Bag" | "List" | "Map" | "Set") {
             return Err(StateTransportError::InvalidTerm(
-                "unsupported repeated-cell collection type",
+                StateTermReason::UnsupportedRepeatedCellCollection,
             ));
         }
         insert_exact(
@@ -1243,7 +1248,7 @@ fn validate_root(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if let DescriptorConfigurationRoot::Named { key, name } = root {
-        validate_nonblank("configuration root name", name)?;
+        validate_nonblank(TransportField::ConfigurationRootName, name)?;
         insert_exact(keys, key, ProvenanceRole::ConfigurationRoot, 0)?;
     }
     Ok(())
@@ -1299,17 +1304,17 @@ fn validate_variables<S: ConfigurationValidationStage>(
         let ordinal = checked_index(index)?;
         validate_rust_field(&variable.binding)?;
         validate_nonblank(
-            "external configuration variable name",
+            TransportField::ExternalConfigurationVariableName,
             &variable.external_name,
         )?;
         if !bindings.insert(variable.binding.clone()) {
             return Err(StateTransportError::DuplicateValue(
-                "configuration variable bindings",
+                TransportField::ConfigurationVariableBindings,
             ));
         }
         if !external_names.insert(variable.external_name.clone()) {
             return Err(StateTransportError::DuplicateValue(
-                "external configuration variable names",
+                TransportField::ExternalConfigurationVariableNames,
             ));
         }
         insert_exact(
@@ -1330,8 +1335,9 @@ fn validate_variables<S: ConfigurationValidationStage>(
             ProvenanceRole::ConfigurationVariableType,
             ordinal,
         )?;
-        S::validate_sort(&variable.sort)
-            .map_err(|_| StateTransportError::InvalidCellContent("invalid variable sort"))?;
+        S::validate_sort(&variable.sort).map_err(|_| {
+            StateTransportError::InvalidCellContent(StateCellContentReason::InvalidVariableSort)
+        })?;
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
             insert_exact(
@@ -1373,7 +1379,7 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
 ) -> Result<(), StateTransportError> {
     if cells.is_empty() {
         return Err(StateTransportError::EmptyCollection(
-            "initializer cell fields",
+            TransportField::InitializerCellFields,
         ));
     }
     if cells.len() != declarations.len() {
@@ -1445,7 +1451,7 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
         {
             if children.is_empty() {
                 return Err(StateTransportError::EmptyCollection(
-                    "nested initializer children",
+                    TransportField::NestedInitializerChildren,
                 ));
             }
             S::validate_nested_initializer(nested)?;
@@ -1497,7 +1503,7 @@ fn validate_wrapper_state<T>(
             ProtocolInitializerStateTerm::Term(_) | ProtocolInitializerStateTerm::Map(_),
         ) => Ok(()),
         _ => Err(StateTransportError::InvalidCellContent(
-            "wrapper and initializer state family disagree",
+            StateCellContentReason::WrapperAndInitializerStateFamilyDisagree,
         )),
     }
 }
@@ -1629,7 +1635,7 @@ fn validate_k_sequence_shell<T>(
         DescriptorKSequenceNotation::DotK => {
             if !sequence.items.is_empty() || sequence.payload_key.is_none() {
                 return Err(StateTransportError::InvalidCellContent(
-                    "standalone .K must be empty and have payload provenance",
+                    StateCellContentReason::InvalidStandaloneDotKPayload,
                 ));
             }
             let dot_key =
@@ -1637,7 +1643,7 @@ fn validate_k_sequence_shell<T>(
                     .dot_k_key
                     .as_ref()
                     .ok_or(StateTransportError::InvalidCellContent(
-                        ".K is missing exact provenance",
+                        StateCellContentReason::DotKMissingProvenance,
                     ))?;
             insert_exact(
                 keys,
@@ -1654,7 +1660,7 @@ fn validate_k_sequence_shell<T>(
                     && sequence.items.len() < 2)
             {
                 return Err(StateTransportError::InvalidCellContent(
-                    "invalid exact K-sequence shell",
+                    StateCellContentReason::InvalidExactKSequenceShell,
                 ));
             }
         }
@@ -1680,20 +1686,20 @@ fn validate_map_shell<T>(
         ProtocolMapBody::Empty { explicit_dot } => {
             if *explicit_dot != map.payload_key.is_some() {
                 return Err(StateTransportError::InvalidCellContent(
-                    "empty map payload provenance disagrees with notation",
+                    StateCellContentReason::EmptyMapPayloadProvenanceMismatch,
                 ));
             }
         }
         ProtocolMapBody::Items { items } => {
             if items.is_empty() || map.payload_key.is_none() {
                 return Err(StateTransportError::InvalidCellContent(
-                    "map item form requires a nonempty payload",
+                    StateCellContentReason::EmptyMapItemPayload,
                 ));
             }
         }
         ProtocolMapBody::Update { .. } if map.payload_key.is_none() => {
             return Err(StateTransportError::InvalidCellContent(
-                "map update requires payload provenance",
+                StateCellContentReason::MapUpdateRequiresPayloadProvenance,
             ));
         }
         ProtocolMapBody::Update { .. } => {}
@@ -1744,7 +1750,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
     ) -> Result<(), Self::Error> {
         if key != path_key || !self.bindings.contains(name) {
             return Err(StateTransportError::InvalidTerm(
-                "variable keys disagree or the binding is undeclared",
+                StateTermReason::VariableKeyOrBindingMismatch,
             ));
         }
         insert_exact(
@@ -1769,11 +1775,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
                 && !arguments.is_empty())
         {
             return Err(StateTransportError::InvalidTerm(
-                "application path keys or head class are invalid",
+                StateTermReason::InvalidApplicationPathOrHeadClass,
             ));
         }
-        S::validate_application(reference)
-            .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
+        S::validate_application(reference).map_err(|_| {
+            StateTransportError::InvalidTerm(StateTermReason::InvalidApplicationTarget)
+        })?;
         insert_exact(
             self.keys,
             S::application_key(reference),
@@ -1796,7 +1803,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
             });
         }
         literal.validate().map_err(|_| {
-            StateTransportError::InvalidTerm("integer literal is not canonical unsigned decimal")
+            StateTransportError::InvalidTerm(StateTermReason::NonCanonicalIntegerLiteral)
         })?;
         self.keys.insert(key.clone());
         Ok(())
@@ -1804,7 +1811,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn wildcard(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "wildcards are not allowed in initializers",
+            StateTermReason::WildcardsAreNotAllowedInInitializers,
         ))
     }
 
@@ -1815,19 +1822,19 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         _: &str,
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "claim-only terms are not allowed in initializers",
+            StateTermReason::InitializerClaimTerm,
         ))
     }
 
     fn anonymous(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "claim-only terms are not allowed in initializers",
+            StateTermReason::InitializerClaimTerm,
         ))
     }
 
     fn or_bool(&mut self, _: &ProvenanceKey, _: &[Term<S>]) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "claim-only terms are not allowed in initializers",
+            StateTermReason::InitializerClaimTerm,
         ))
     }
 
@@ -1838,7 +1845,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         _: &[CellTermField<S>],
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "fragment! terms are not allowed in initializers",
+            StateTermReason::InitializerFragment,
         ))
     }
 
@@ -1851,7 +1858,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         match argument {
             TermArgument::Positional { .. } => Ok(()),
             TermArgument::Named { .. } => Err(StateTransportError::InvalidTerm(
-                "initializer syntax has no exact record-field provenance",
+                StateTermReason::InitializerRecordFieldProvenance,
             )),
         }
     }
@@ -1862,7 +1869,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         _: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
-            "fragment! terms are not allowed in initializers",
+            StateTermReason::InitializerFragment,
         ))
     }
 }
@@ -1874,7 +1881,7 @@ fn validate_k_cell_sort(
     if wrapper == CellWrapper::KCell && sort != &DescriptorSortRef::Builtin(BuiltinSort::KSequence)
     {
         return Err(StateTransportError::InvalidCellContent(
-            "KCell content sort must be builtin KSequence",
+            StateCellContentReason::KCellSortMismatch,
         ));
     }
     Ok(())
@@ -1882,14 +1889,14 @@ fn validate_k_cell_sort(
 
 fn require_cell_owner_kind(
     owner: &StableItemId,
-    field: &'static str,
+    field: TransportField,
 ) -> Result<(), StateTransportError> {
     if matches!(owner.item_kind(), ItemKind::Configuration | ItemKind::Cell) {
         Ok(())
     } else {
         Err(StateTransportError::ItemKind {
             field,
-            expected: "Configuration or Cell",
+            expected: TransportItemKind::ConfigurationOrCell,
             actual: owner.item_kind(),
         })
     }
@@ -1897,13 +1904,15 @@ fn require_cell_owner_kind(
 
 fn validate_rust_field(value: &str) -> Result<(), StateTransportError> {
     if value.trim().is_empty() || value.contains("::") || value.contains(['/', '\\']) {
-        Err(StateTransportError::InvalidText("Rust field identity"))
+        Err(StateTransportError::InvalidText(
+            TransportField::RustFieldIdentity,
+        ))
     } else {
         Ok(())
     }
 }
 
-fn validate_nonblank(field: &'static str, value: &str) -> Result<(), StateTransportError> {
+fn validate_nonblank(field: TransportField, value: &str) -> Result<(), StateTransportError> {
     if value.trim().is_empty() {
         Err(StateTransportError::InvalidText(field))
     } else {
@@ -1954,15 +1963,16 @@ fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
 }
 
 fn checked_index(index: usize) -> Result<u32, StateTransportError> {
-    u32::try_from(index)
-        .map_err(|_| StateTransportError::InvalidCellContent("provenance ordinal exceeds u32"))
+    u32::try_from(index).map_err(|_| {
+        StateTransportError::InvalidCellContent(StateCellContentReason::ProvenanceOrdinalExceedsU32)
+    })
 }
 
 fn increment(value: u32) -> Result<u32, StateTransportError> {
     value
         .checked_add(1)
         .ok_or(StateTransportError::InvalidCellContent(
-            "provenance ordinal exceeds u32",
+            StateCellContentReason::ProvenanceOrdinalExceedsU32,
         ))
 }
 

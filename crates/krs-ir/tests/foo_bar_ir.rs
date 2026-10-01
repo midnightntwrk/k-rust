@@ -322,17 +322,20 @@ fn semantic_and_definition_ir_carry_the_one_schema_version() {
 fn empty_and_path_shaped_ids_are_rejected() {
     assert_rejects!(
         SourceMapKey::new(" "),
-        IrIdentityError::Empty("source_map_key")
+        IrIdentityError::Empty(krs_ir::IrIdentityKind::SourceMapKey)
     );
     assert_rejects!(
         ModuleId::new("/tmp/SMOKE"),
-        IrIdentityError::PathLike("module_id", _)
+        IrIdentityError::PathLike(krs_ir::IrIdentityKind::ModuleId, _)
     );
     assert_rejects!(
         SymbolId::new("native/production/7"),
-        IrIdentityError::PathLike("symbol_id", _)
+        IrIdentityError::PathLike(krs_ir::IrIdentityKind::SymbolId, _)
     );
-    assert_rejects!(LabelId::new(""), IrIdentityError::Empty("label_id"));
+    assert_rejects!(
+        LabelId::new(""),
+        IrIdentityError::Empty(krs_ir::IrIdentityKind::LabelId)
+    );
 }
 
 #[test]

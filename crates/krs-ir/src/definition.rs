@@ -69,7 +69,7 @@ impl SymbolId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("symbol_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::SymbolId, value.into()).map(Self)
     }
     /// Returns the identity.
     #[must_use]
@@ -102,7 +102,7 @@ impl LabelId {
     ///
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
-        validated_id("label_id", value.into()).map(Self)
+        validated_id(crate::IrIdentityKind::LabelId, value.into()).map(Self)
     }
     /// Returns the identity.
     #[must_use]
@@ -154,11 +154,13 @@ impl SymbolIdentity {
     ) -> Result<Self, DefinitionValidationError> {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
-            return Err(DefinitionValidationError::EmptyText("symbol name"));
+            return Err(DefinitionValidationError::EmptyText(
+                crate::IrField::SymbolName,
+            ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                "symbol name",
+                crate::IrField::SymbolName,
             ));
         }
         Ok(Self {
@@ -204,11 +206,13 @@ impl LabelIdentity {
     ) -> Result<Self, DefinitionValidationError> {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
-            return Err(DefinitionValidationError::EmptyText("label name"));
+            return Err(DefinitionValidationError::EmptyText(
+                crate::IrField::LabelName,
+            ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                "label name",
+                crate::IrField::LabelName,
             ));
         }
         Ok(Self { id, emitted_name })
@@ -459,7 +463,7 @@ impl DefinitionIr {
                             || !context_aliases.insert(sentence.id.clone())
                         {
                             return Err(DefinitionValidationError::AdapterSpecificValue(
-                                "context alias identity",
+                                crate::IrField::ContextAliasIdentity,
                             ));
                         }
                         insert_node::<DefinitionLevel>(&mut nodes, sentence.name_origin.key())?;
@@ -712,12 +716,12 @@ impl ProductionGroupIdentity {
         let emitted_name = emitted_name.into();
         if emitted_name.trim().is_empty() {
             return Err(DefinitionValidationError::EmptyText(
-                "production group name",
+                crate::IrField::ProductionGroupName,
             ));
         }
         if emitted_name.contains(['/', '\\']) {
             return Err(DefinitionValidationError::AdapterSpecificValue(
-                "production group name",
+                crate::IrField::ProductionGroupName,
             ));
         }
         Ok(Self {
@@ -1062,9 +1066,9 @@ pub enum DefinitionValidationError {
     /// No module exists.
     EmptyDefinition,
     /// Blank text is not representable.
-    EmptyText(&'static str),
+    EmptyText(crate::IrField),
     /// A path-shaped or adapter-shaped value attempted to cross the boundary.
-    AdapterSpecificValue(&'static str),
+    AdapterSpecificValue(crate::IrField),
     /// A module ID was duplicated.
     DuplicateModule(ModuleId),
     /// A source-map key was duplicated.
@@ -1101,7 +1105,7 @@ pub enum DefinitionValidationError {
     /// A production has no terminal/nonterminal items.
     EmptyProduction(SymbolId),
     /// The same classified attribute family occurred more than once.
-    DuplicateProductionAttribute(&'static str),
+    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
     /// Token metadata was attached to a non-regex production.
     InvalidTokenProduction,
     /// A regex terminal lacked token metadata.
@@ -1123,7 +1127,7 @@ pub enum DefinitionValidationError {
         /// The declared sort used by the hook, if any.
         sort: String,
         /// The point signature required by the backend.
-        expected_signature: &'static str,
+        expected_signature: crate::Bn128PointSignature,
         /// Constructors matching that signature in the definition.
         matching_constructors: usize,
     },
@@ -1425,11 +1429,13 @@ fn declare_symbol(
 
 fn validate_symbol_text(symbol: &SymbolIdentity) -> Result<(), DefinitionValidationError> {
     if symbol.emitted_name.trim().is_empty() {
-        return Err(DefinitionValidationError::EmptyText("symbol name"));
+        return Err(DefinitionValidationError::EmptyText(
+            crate::IrField::SymbolName,
+        ));
     }
     if symbol.emitted_name.contains(['/', '\\']) {
         return Err(DefinitionValidationError::AdapterSpecificValue(
-            "symbol name",
+            crate::IrField::SymbolName,
         ));
     }
     Ok(())
@@ -1437,11 +1443,13 @@ fn validate_symbol_text(symbol: &SymbolIdentity) -> Result<(), DefinitionValidat
 
 fn validate_label_text(label: &LabelIdentity) -> Result<(), DefinitionValidationError> {
     if label.emitted_name.trim().is_empty() {
-        return Err(DefinitionValidationError::EmptyText("label name"));
+        return Err(DefinitionValidationError::EmptyText(
+            crate::IrField::LabelName,
+        ));
     }
     if label.emitted_name.contains(['/', '\\']) {
         return Err(DefinitionValidationError::AdapterSpecificValue(
-            "label name",
+            crate::IrField::LabelName,
         ));
     }
     Ok(())
@@ -1479,7 +1487,7 @@ fn validate_production(
                     .is_some_and(|alias| !context_aliases.contains(alias.alias()))
                 {
                     return Err(DefinitionValidationError::AdapterSpecificValue(
-                        "strictness context alias reference",
+                        crate::IrField::StrictnessContextAliasReference,
                     ));
                 }
             }
@@ -1517,7 +1525,7 @@ fn validate_context_alias(
             .any(|variable| variable.id() == &sentence.here)
     {
         return Err(DefinitionValidationError::EmptyText(
-            "context alias name/HERE",
+            crate::IrField::ContextAliasNameHere,
         ));
     }
     let scope = variable_scope::<DefinitionLevel>(&sentence.variables, symbols)?;
@@ -1646,13 +1654,19 @@ fn validate_bn128_point_constructors(
             });
         match hook {
             HookOperation::KryptoBn128Valid => {
-                check(hook, "G1Point", "G1Point(Int, Int)", 2, first_argument)?;
+                check(
+                    hook,
+                    "G1Point",
+                    crate::Bn128PointSignature::G1,
+                    2,
+                    first_argument,
+                )?;
             }
             HookOperation::KryptoBn128G2Valid => {
                 check(
                     hook,
                     "G2Point",
-                    "G2Point(Int, Int, Int, Int)",
+                    crate::Bn128PointSignature::G2,
                     4,
                     first_argument,
                 )?;
@@ -1661,14 +1675,14 @@ fn validate_bn128_point_constructors(
                 check(
                     hook,
                     "G1Point",
-                    "G1Point(Int, Int)",
+                    crate::Bn128PointSignature::G1,
                     2,
                     Some(production.result_sort()),
                 )?;
             }
             HookOperation::KryptoBn128Ate => {
-                check(hook, "G1Point", "G1Point(Int, Int)", 2, None)?;
-                check(hook, "G2Point", "G2Point(Int, Int, Int, Int)", 4, None)?;
+                check(hook, "G1Point", crate::Bn128PointSignature::G1, 2, None)?;
+                check(hook, "G2Point", crate::Bn128PointSignature::G2, 4, None)?;
             }
             _ => {}
         }

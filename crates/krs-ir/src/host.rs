@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::transport::detail::{StateCellContentReason, TransportField, TransportItemKind};
 use crate::{
     DisplayPath, HostDeclarationIdentity, HostHeadRule, ItemKind, ProvenanceRole, SchemaVersion,
     StateTransportError,
@@ -651,14 +652,14 @@ impl HostDescriptor {
             HostDescriptorPayload::FixedConfiguration(configuration) => {
                 if self.id.item_kind() != ItemKind::Configuration {
                     return Err(StateTransportError::ItemKind {
-                        field: "fixed configuration descriptor",
-                        expected: "Configuration",
+                        field: TransportField::FixedConfigurationDescriptor,
+                        expected: TransportItemKind::Configuration,
                         actual: self.id.item_kind(),
                     });
                 }
                 let Some(HostDeclarationIdentity::Nominal(owner)) = self.declared_type else {
                     return Err(StateTransportError::InvalidCellContent(
-                        "fixed configuration lacks a nominal host owner",
+                        StateCellContentReason::MissingConfigurationHostOwner,
                     ));
                 };
                 configuration.validate(owner)
@@ -666,14 +667,14 @@ impl HostDescriptor {
             HostDescriptorPayload::Cell(declaration) => {
                 if self.id.item_kind() != ItemKind::Cell {
                     return Err(StateTransportError::ItemKind {
-                        field: "nested cell descriptor",
-                        expected: "Cell",
+                        field: TransportField::NestedCellDescriptor,
+                        expected: TransportItemKind::Cell,
                         actual: self.id.item_kind(),
                     });
                 }
                 let Some(HostDeclarationIdentity::Nominal(owner)) = self.declared_type else {
                     return Err(StateTransportError::InvalidCellContent(
-                        "nested cell declaration lacks a nominal host owner",
+                        StateCellContentReason::MissingNestedCellHostOwner,
                     ));
                 };
                 declaration.validate_host(owner)

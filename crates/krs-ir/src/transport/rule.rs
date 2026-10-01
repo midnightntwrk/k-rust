@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 
 use super::validation::{TermValidation, ValidationStage, validate_term};
@@ -461,13 +462,13 @@ impl DescriptorContextAlias {
         self.validate(descriptor_kind)?;
         if primary != &self.declaration_key {
             return Err(StateTransportError::InvalidTerm(
-                "wrong context-alias primary provenance",
+                StateTermReason::AliasPrimaryProvenanceMismatch,
             ));
         }
         let expected = self.expected_provenance_keys();
         if expected != *actual {
             return Err(StateTransportError::InvalidTerm(
-                "context-alias provenance is not closed",
+                StateTermReason::AliasProvenanceNotClosed,
             ));
         }
         Ok(())
@@ -491,14 +492,16 @@ fn validate_context_alias<S: RuleValidationStage>(
 ) -> Result<(), StateTransportError> {
     if descriptor_kind != ItemKind::ContextAlias {
         return Err(StateTransportError::ItemKind {
-            field: "context alias descriptor",
-            expected: "ContextAlias",
+            field: TransportField::ContextAliasDescriptor,
+            expected: TransportItemKind::ContextAlias,
             actual: descriptor_kind,
         });
     }
     S::validate_configuration(&alias.configuration)?;
     if !valid_context_alias_name(&alias.name) || alias.here.trim().is_empty() {
-        return Err(StateTransportError::InvalidText("context alias name/here"));
+        return Err(StateTransportError::InvalidText(
+            TransportField::ContextAliasNameHere,
+        ));
     }
     S::validate_alias_duplicates(&alias.bindings)?;
     let here = alias
@@ -511,7 +514,7 @@ fn validate_context_alias<S: RuleValidationStage>(
         .count();
     if here != 1 {
         return Err(StateTransportError::InvalidTerm(
-            "context alias must select exactly one ordinary HERE binding",
+            StateTermReason::AliasHereBindingCount,
         ));
     }
     S::validate_alias_here(&alias.pattern, &alias.here)?;
@@ -537,7 +540,7 @@ fn validate_context_alias_frames<I, T, S>(
         .collect::<BTreeSet<_>>();
     if names.len() != bindings.len() || names.iter().any(|name| name.trim().is_empty()) {
         return Err(StateTransportError::DuplicateValue(
-            "context-alias bindings",
+            TransportField::ContextAliasBindings,
         ));
     }
     let structural = bindings
@@ -576,7 +579,7 @@ fn validate_context_alias_frames<I, T, S>(
     )?;
     if discovered != structural {
         return Err(StateTransportError::InvalidTerm(
-            "context-alias structural binding catalog does not match its frames",
+            StateTermReason::AliasBindingCatalogMismatch,
         ));
     }
     Ok(())
@@ -594,13 +597,13 @@ fn validate_context_alias_frame(
             let occurrence = (binding.clone(), expected);
             if !structural.contains(&occurrence) || !discovered.insert(occurrence) {
                 return Err(StateTransportError::InvalidTerm(
-                    "context-alias frame binding has the wrong structural kind or occurrence",
+                    StateTermReason::AliasFrameBindingMismatch,
                 ));
             }
             Ok(())
         }
         ProtocolRuleFrame::Reuse { .. } => Err(StateTransportError::InvalidTerm(
-            "a one-sided context alias cannot reuse a result frame",
+            StateTermReason::OneSidedAliasReusesResultFrame,
         )),
     }
 }
@@ -898,7 +901,8 @@ enum RuleBindingUse {
 }
 
 fn claim_checked_index(index: usize) -> Result<u32, StateTransportError> {
-    u32::try_from(index).map_err(|_| StateTransportError::InvalidTerm("too many claim nodes"))
+    u32::try_from(index)
+        .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::TooManyClaimNodes))
 }
 
 impl From<RuleSide> for ValidationSide {
@@ -1007,7 +1011,7 @@ fn builtin_token_role<'a>(
             Ok((ProvenanceRole::ClaimBytesToken, &mut counters.bytes_token))
         }
         _ => Err(StateTransportError::InvalidTerm(
-            "invalid compiler-owned builtin token",
+            StateTermReason::InvalidCompilerOwnedBuiltinToken,
         )),
     }
 }
@@ -1094,8 +1098,8 @@ impl RuleValidationStage for DescriptorStage {
             && sort.item_kind() != ItemKind::Sort
         {
             return Err(StateTransportError::ItemKind {
-                field: "rule binding sort",
-                expected: "Sort",
+                field: TransportField::RuleBindingSort,
+                expected: TransportItemKind::Sort,
                 actual: sort.item_kind(),
             });
         }
@@ -1130,7 +1134,7 @@ impl RuleValidationStage for DescriptorStage {
             .any(|binding| !names.insert(binding.name.as_str()))
         {
             return Err(StateTransportError::InvalidTerm(
-                "duplicate context-alias binding",
+                StateTermReason::DuplicateAliasBinding,
             ));
         }
         Ok(())
@@ -1142,7 +1146,7 @@ impl RuleValidationStage for DescriptorStage {
     ) -> Result<(), StateTransportError> {
         if count_here_in_cells(cells, here) != 1 {
             return Err(StateTransportError::InvalidTerm(
-                "context alias HERE binding must occur exactly once in cell content",
+                StateTermReason::AliasHereContentOccurrence,
             ));
         }
         Ok(())
@@ -1211,8 +1215,8 @@ impl DescriptorConfigurationReference {
     fn validate(&self) -> Result<(), StateTransportError> {
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
-                field: "configuration rule type",
-                expected: "Configuration",
+                field: TransportField::ConfigurationRuleType,
+                expected: TransportItemKind::Configuration,
                 actual: self.configuration.item_kind(),
             });
         }
@@ -1295,12 +1299,12 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     if rule.sentence_kind == SentenceKind::Claim {
         if rule.claim.is_none() || rule.label.is_none() {
             return Err(StateTransportError::InvalidTerm(
-                "claims require typed metadata and an explicit label",
+                StateTermReason::MissingClaimMetadataOrLabel,
             ));
         }
     } else if rule.claim.is_some() {
         return Err(StateTransportError::InvalidTerm(
-            "claim metadata is valid only on claims",
+            StateTermReason::UnexpectedClaimMetadata,
         ));
     }
     if let Some(label) = &rule.label {
@@ -1311,14 +1315,14 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         };
         S::insert_rule_label(keys, &label.key, label_role)?;
         if !valid_rule_label_name(&label.name) {
-            return Err(StateTransportError::InvalidText("rule label"));
+            return Err(StateTransportError::InvalidText(TransportField::RuleLabel));
         }
     }
     if let Some(priority) = &rule.priority {
         insert_rule_exact(keys, &priority.key, ProvenanceRole::RuleOwise, 0)?;
         if rule.sentence_kind != SentenceKind::Transition || priority.value != 200 {
             return Err(StateTransportError::InvalidTerm(
-                "configuration-rule ordered fallback priority",
+                StateTermReason::ConfigurationRuleOrderedFallbackPriority,
             ));
         }
     }
@@ -1326,7 +1330,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     S::validate_configuration(&rule.result_configuration)?;
     if !S::same_configuration(&rule.subject_configuration, &rule.result_configuration) {
         return Err(StateTransportError::InvalidCellContent(
-            "rule subject and result configurations differ",
+            StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
         ));
     }
     insert_rule_exact(keys, &rule.pattern_key, ProvenanceRole::RulePattern, 0)?;
@@ -1359,7 +1363,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     )?;
     if !binding_names_match(&rule.bindings, &discovered) {
         return Err(StateTransportError::InvalidTerm(
-            "binding catalog is not subject first-occurrence preorder",
+            StateTermReason::BindingCatalogOrder,
         ));
     }
     let mut ignored = Vec::new();
@@ -1435,7 +1439,7 @@ fn validate_rule_claim<S: RuleValidationStage>(
     if let Some(key) = &claim.circularity_key {
         if claim.modality != ClaimModality::AllPaths {
             return Err(StateTransportError::InvalidTerm(
-                "circularity requires an all-path claim",
+                StateTermReason::CircularityRequiresAnAllPathClaim,
             ));
         }
         insert_rule_exact(keys, key, ProvenanceRole::ClaimCircularity, 0)?;
@@ -1497,13 +1501,16 @@ fn validate_rule_claim_binders<S: RuleValidationStage>(
             || !binding_has_kind(catalog, &binder.name, RuleBindingUse::Term)
         {
             return Err(StateTransportError::InvalidTerm(
-                "invalid, duplicate, or uncatalogued claim binder",
+                StateTermReason::InvalidClaimBinderCatalog,
             ));
         }
         insert_rule_exact(keys, &binder.declaration_key, declaration_role, ordinal)?;
-        let binder_ordinal = binder_base
-            .checked_add(ordinal)
-            .ok_or(StateTransportError::InvalidTerm("too many claim binders"))?;
+        let binder_ordinal =
+            binder_base
+                .checked_add(ordinal)
+                .ok_or(StateTransportError::InvalidTerm(
+                    StateTermReason::TooManyClaimBinders,
+                ))?;
         insert_rule_exact(
             keys,
             &binder.name_key,
@@ -1516,8 +1523,9 @@ fn validate_rule_claim_binders<S: RuleValidationStage>(
             ProvenanceRole::ClaimBinderSort,
             binder_ordinal,
         )?;
-        S::validate_sort(&binder.sort)
-            .map_err(|_| StateTransportError::InvalidTerm("invalid claim binder sort"))?;
+        S::validate_sort(&binder.sort).map_err(|_| {
+            StateTransportError::InvalidTerm(StateTermReason::InvalidClaimBinderSort)
+        })?;
     }
     Ok(())
 }
@@ -1536,7 +1544,9 @@ fn validate_rule_cells<S: RuleValidationStage>(
     for cell in &cells.cells {
         S::validate_rule_cell(&cell.field, owner)?;
         if !selected.insert(S::rule_cell_identity(&cell.field)) {
-            return Err(StateTransportError::DuplicateValue("selected rule cells"));
+            return Err(StateTransportError::DuplicateValue(
+                TransportField::SelectedRuleCells,
+            ));
         }
         insert_state_exact(
             keys,
@@ -1579,7 +1589,7 @@ fn validate_rule_wrapper<T>(
             Ok(())
         }
         _ => Err(StateTransportError::InvalidCellContent(
-            "rule wrapper and state family disagree",
+            StateCellContentReason::RuleWrapperAndStateFamilyDisagree,
         )),
     }
 }
@@ -1751,7 +1761,7 @@ fn validate_k_shell<T>(
                 || !matches!(sequence.tail, ProtocolRuleFrame::Exact)
             {
                 return Err(StateTransportError::InvalidCellContent(
-                    "standalone .K has an invalid shell",
+                    StateCellContentReason::InvalidStandaloneDotKShell,
                 ));
             }
             let key =
@@ -1759,7 +1769,7 @@ fn validate_k_shell<T>(
                     .dot_k_key
                     .as_ref()
                     .ok_or(StateTransportError::InvalidCellContent(
-                        ".K is missing exact provenance",
+                        StateCellContentReason::DotKMissingProvenance,
                     ))?;
             insert_state_exact(keys, key, side, RuleRole::KSequenceTail, counters.k_tail)?;
             counters.k_tail = rule_increment(counters.k_tail)?;
@@ -1771,7 +1781,7 @@ fn validate_k_shell<T>(
                     && sequence.items.len() < 2)
             {
                 return Err(StateTransportError::InvalidCellContent(
-                    "invalid K-sequence shell",
+                    StateCellContentReason::InvalidKSequenceShell,
                 ));
             }
         }
@@ -1799,7 +1809,7 @@ fn validate_map_shell<T>(
         ProtocolRuleMapBody::Empty { explicit_dot } => {
             if *explicit_dot != map.payload_key.is_some() {
                 return Err(StateTransportError::InvalidCellContent(
-                    "empty map provenance disagrees with notation",
+                    StateCellContentReason::EmptyMapProvenanceMismatch,
                 ));
             }
         }
@@ -1808,14 +1818,14 @@ fn validate_map_shell<T>(
                 || (items.is_empty() && matches!(remainder, ProtocolRuleFrame::Exact))
             {
                 return Err(StateTransportError::InvalidCellContent(
-                    "map items require content or a frame and payload provenance",
+                    StateCellContentReason::MapItemContentOrPayloadProvenance,
                 ));
             }
         }
         ProtocolRuleMapBody::Update { .. } => {
             if matches!(side, RuleSide::Left) || map.payload_key.is_none() {
                 return Err(StateTransportError::InvalidCellContent(
-                    "map updates are result-only and require payload provenance",
+                    StateCellContentReason::MapUpdateSideOrPayloadProvenance,
                 ));
             }
         }
@@ -1862,7 +1872,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     ) -> Result<(), Self::Error> {
         if !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
             return Err(StateTransportError::InvalidTerm(
-                "rule variable binding is not a term",
+                StateTermReason::RuleVariableBindingIsNotATerm,
             ));
         }
         validate_term_path_key(self.keys, path_key, key, self.side, self.counters)?;
@@ -1887,13 +1897,14 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     ) -> Result<(), Self::Error> {
         if head_class == DescriptorApplicationHeadClass::BareReference && !arguments.is_empty() {
             return Err(StateTransportError::InvalidTerm(
-                "rule application keys or head class are invalid",
+                StateTermReason::InvalidRuleApplicationKeysOrHeadClass,
             ));
         }
         let key = S::application_key(reference);
         validate_term_path_key(self.keys, path_key, key, self.side, self.counters)?;
-        S::validate_application(reference)
-            .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
+        S::validate_application(reference).map_err(|_| {
+            StateTransportError::InvalidTerm(StateTermReason::InvalidApplicationTarget)
+        })?;
         let (role, counter) = match head_class {
             DescriptorApplicationHeadClass::Applied => {
                 (TermRole::ApplicationHead, &mut self.counters.application)
@@ -1921,14 +1932,14 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         )?;
         self.counters.literal = rule_increment(self.counters.literal)?;
         literal.validate().map_err(|_| {
-            StateTransportError::InvalidTerm("integer literal is not canonical unsigned decimal")
+            StateTransportError::InvalidTerm(StateTermReason::NonCanonicalIntegerLiteral)
         })
     }
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         if !matches!(self.side, ValidationSide::Left) {
             return Err(StateTransportError::InvalidTerm(
-                "wildcards are allowed only in rule subjects",
+                StateTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
         }
         insert_rule_exact(
@@ -1961,11 +1972,11 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     ) -> Result<(), Self::Error> {
         if !matches!(self.side, ValidationSide::Left) || !spelling.starts_with('_') {
             return Err(StateTransportError::InvalidTerm(
-                "anonymous occurrences are claim-subject-only",
+                StateTermReason::UnexpectedAnonymousOccurrence,
             ));
         }
         S::validate_sort(sort)
-            .map_err(|_| StateTransportError::InvalidTerm("invalid anonymous sort"))?;
+            .map_err(|_| StateTransportError::InvalidTerm(StateTermReason::InvalidAnonymousSort))?;
         insert_rule_exact(
             self.keys,
             key,
@@ -1994,7 +2005,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     fn or_bool(&mut self, key: &ProvenanceKey, arguments: &[Term<S>]) -> Result<(), Self::Error> {
         if arguments.len() < 2 {
             return Err(StateTransportError::InvalidTerm(
-                "or_bool requires at least two operands",
+                StateTermReason::OrBoolRequiresAtLeastTwoOperands,
             ));
         }
         self.keys.insert(key.clone());
@@ -2030,7 +2041,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             TermArgument::Named { key, field, .. } if named => {
                 if !fields.insert(field.clone()) {
                     return Err(StateTransportError::DuplicateValue(
-                        "rule application record fields",
+                        TransportField::RuleApplicationRecordFields,
                     ));
                 }
                 insert_term_exact(
@@ -2044,7 +2055,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
                 Ok(())
             }
             TermArgument::Positional { .. } | TermArgument::Named { .. } => Err(
-                StateTransportError::InvalidTerm("positional and named rule arguments are mixed"),
+                StateTransportError::InvalidTerm(StateTermReason::MixedRuleArgumentForms),
             ),
         }
     }
@@ -2056,7 +2067,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     ) -> Result<(), Self::Error> {
         if !names.insert(field.field.clone()) {
             return Err(StateTransportError::InvalidTerm(
-                "fragment! child field occurs more than once",
+                StateTermReason::DuplicateFragmentChildField,
             ));
         }
         insert_term_exact(
@@ -2083,7 +2094,7 @@ fn validate_term_path_key(
         counters.path = rule_increment(counters.path)?;
     } else if path_key != semantic_key {
         return Err(StateTransportError::InvalidTerm(
-            "configuration-rule term path and semantic keys disagree",
+            StateTermReason::RuleTermKeyMismatch,
         ));
     }
     Ok(())
@@ -2110,7 +2121,7 @@ fn validate_frame<S>(
         (RuleSide::Left, ProtocolRuleFrame::Bind { key, binding }) => {
             if !binding_has_kind(bindings, binding, binding_kind) {
                 return Err(StateTransportError::InvalidTerm(
-                    "subject frame binding has the wrong structural kind",
+                    StateTermReason::SubjectFrameBindingKind,
                 ));
             }
             insert_state_exact(keys, key, side, role_suffix, *counter)?;
@@ -2121,7 +2132,7 @@ fn validate_frame<S>(
         (RuleSide::Right, ProtocolRuleFrame::Reuse { key, binding }) => {
             if !binding_has_kind(bindings, binding, binding_kind) {
                 return Err(StateTransportError::InvalidTerm(
-                    "result frame binding has the wrong structural kind",
+                    StateTermReason::ResultFrameBindingKind,
                 ));
             }
             insert_state_exact(keys, key, side, role_suffix, *counter)?;
@@ -2131,7 +2142,7 @@ fn validate_frame<S>(
         (RuleSide::Left, ProtocolRuleFrame::Reuse { .. })
         | (RuleSide::Right, ProtocolRuleFrame::Anonymous { .. } | ProtocolRuleFrame::Bind { .. }) => {
             Err(StateTransportError::InvalidTerm(
-                "frame form is invalid on this rule side",
+                StateTermReason::FrameFormIsInvalidOnThisRuleSide,
             ))
         }
     }
@@ -2157,7 +2168,9 @@ fn validate_binding_catalog_names<S>(
             .iter()
             .any(|binding| binding.name.trim().is_empty())
     {
-        Err(StateTransportError::DuplicateValue("rule bindings"))
+        Err(StateTransportError::DuplicateValue(
+            TransportField::RuleBindings,
+        ))
     } else {
         Ok(())
     }
@@ -2217,12 +2230,12 @@ fn validate_sentence_kind(
 ) -> Result<(), StateTransportError> {
     if sentence_kind == SentenceKind::Alias {
         return Err(StateTransportError::InvalidTerm(
-            "static aliases cannot have configuration rewrite bodies",
+            StateTermReason::ConfigurationStaticAlias,
         ));
     }
     if sentence_kind == SentenceKind::Simplification {
         return Err(StateTransportError::InvalidTerm(
-            "simplifications cannot have configuration rewrite bodies",
+            StateTermReason::ConfigurationSimplification,
         ));
     }
     let expected = match sentence_kind {
@@ -2238,15 +2251,15 @@ fn validate_sentence_kind(
         Ok(())
     } else {
         Err(StateTransportError::ItemKind {
-            field: "configuration rule descriptor",
+            field: TransportField::ConfigurationRuleDescriptor,
             expected: match sentence_kind {
-                SentenceKind::Transition => "Rule",
-                SentenceKind::Equation => "Equation",
+                SentenceKind::Transition => TransportItemKind::Rule,
+                SentenceKind::Equation => TransportItemKind::Equation,
                 SentenceKind::Simplification => {
                     unreachable!("configuration simplifications were rejected above")
                 }
                 SentenceKind::Alias => unreachable!("configuration aliases were rejected above"),
-                SentenceKind::Claim => "Claim",
+                SentenceKind::Claim => TransportItemKind::Claim,
             },
             actual,
         })
@@ -2318,13 +2331,13 @@ fn insert_term_exact(
 
 fn rule_increment(value: u32) -> Result<u32, StateTransportError> {
     value.checked_add(1).ok_or(StateTransportError::InvalidTerm(
-        "rule provenance ordinal exceeds u32",
+        StateTermReason::RuleProvenanceOrdinalExceedsU32,
     ))
 }
 
 #[cfg(test)]
 mod bytes_token_tests {
-    use super::{RuleCounters, builtin_token_role};
+    use super::{RuleCounters, StateTermReason, builtin_token_role};
     use crate::{BuiltinSort, ProvenanceRole, StateTransportError};
     use krs_test_support::assert_rejects;
 
@@ -2339,7 +2352,7 @@ mod bytes_token_tests {
         for malformed in [r#""\x00""#, r#"b"\x0""#, r#"b"\xAF""#, r#"b"\x+1""#] {
             assert_rejects!(
                 builtin_token_role(BuiltinSort::Bytes, malformed, &mut counters),
-                StateTransportError::InvalidTerm("invalid compiler-owned builtin token")
+                StateTransportError::InvalidTerm(StateTermReason::InvalidCompilerOwnedBuiltinToken)
             );
         }
     }

@@ -275,6 +275,25 @@ impl OriginStack {
         self.0.push(frame);
     }
 
+    /// Returns the sole exact authored range in this origin stack.
+    /// Multiple authored frames must not be resolved by proximity.
+    #[must_use]
+    pub fn exact_authored_range(&self) -> Option<SourceRange> {
+        let mut authored = self.frames().iter().filter_map(|frame| match frame {
+            OriginFrame::Ranged {
+                kind: RangedOriginKind::Authored,
+                range,
+                ..
+            } => Some(range),
+            _ => None,
+        });
+        let range = authored.next()?.clone();
+        if authored.next().is_some() {
+            return None;
+        }
+        Some(range)
+    }
+
     /// Returns frames in authored-to-generated order.
     #[must_use]
     pub fn frames(&self) -> &[OriginFrame] {
@@ -316,7 +335,29 @@ impl Error for OriginStackError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameKind, RangedOriginKind, TransformationOriginKind};
+    use super::{FrameKind, OriginFrame, OriginStack, RangedOriginKind, TransformationOriginKind};
+
+    #[test]
+    fn exact_authored_range_rejects_missing_and_ambiguous_origins() {
+        let origin = crate::testing::authored(3, 8);
+        let expected = origin.exact_authored_range().unwrap();
+        let mut transformed = origin;
+        transformed.push(OriginFrame::Transformation {
+            kind: TransformationOriginKind::DefinitionIr,
+            item: None,
+            label: None,
+        });
+        transformed.push(OriginFrame::Ranged {
+            kind: RangedOriginKind::GeneratedArtifact,
+            range: expected.clone(),
+            item: None,
+            label: None,
+        });
+        assert_eq!(transformed.exact_authored_range(), Some(expected.clone()));
+        transformed.push(OriginFrame::authored(expected));
+        assert_eq!(transformed.exact_authored_range(), None);
+        assert_eq!(OriginStack(Vec::new()).exact_authored_range(), None);
+    }
 
     /// Changing a frame code requires advancing `collector::VERSION`.
     #[test]

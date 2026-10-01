@@ -4,6 +4,7 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing;
+use krs_ir::transport::detail::{StateTermReason, TransportField};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, Descriptor, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
@@ -222,7 +223,7 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     assert_eq!(
         duplicate_external.validate(&owner),
         Err(StateTransportError::DuplicateValue(
-            "external configuration variable names"
+            TransportField::ExternalConfigurationVariableNames
         ))
     );
 
@@ -547,7 +548,7 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     assert!(matches!(
         mismatched_tail.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "context-alias frame binding has the wrong structural kind or occurrence"
+            StateTermReason::AliasFrameBindingMismatch
         ))
     ));
 
@@ -556,7 +557,7 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     assert!(matches!(
         lost_configuration.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "context-alias structural binding catalog does not match its frames"
+            StateTermReason::AliasBindingCatalogMismatch
         ))
     ));
 }
@@ -763,7 +764,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     assert!(matches!(
         descriptor.validate(ItemKind::Alias),
         Err(StateTransportError::InvalidTerm(
-            "static aliases cannot have configuration rewrite bodies"
+            StateTermReason::ConfigurationStaticAlias
         ))
     ));
 
@@ -772,7 +773,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     assert!(matches!(
         host.validate(ItemKind::Alias),
         Err(StateTransportError::InvalidTerm(
-            "static aliases cannot have configuration rewrite bodies"
+            StateTermReason::ConfigurationStaticAlias
         ))
     ));
 
@@ -781,7 +782,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     assert!(matches!(
         descriptor.validate(ItemKind::Simplification),
         Err(StateTransportError::InvalidTerm(
-            "simplifications cannot have configuration rewrite bodies"
+            StateTermReason::ConfigurationSimplification
         ))
     ));
 
@@ -790,7 +791,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     assert!(matches!(
         host.validate(ItemKind::Simplification),
         Err(StateTransportError::InvalidTerm(
-            "simplifications cannot have configuration rewrite bodies"
+            StateTermReason::ConfigurationSimplification
         ))
     ));
 }
@@ -849,7 +850,7 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     assert!(matches!(
         structural_frame.validate(ItemKind::Rule),
         Err(StateTransportError::InvalidTerm(
-            "rule variable binding is not a term"
+            StateTermReason::RuleVariableBindingIsNotATerm
         ))
     ));
 

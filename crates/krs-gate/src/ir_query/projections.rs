@@ -205,7 +205,7 @@ pub(super) fn source_token(
         let Some(generated) = entry.generated() else {
             return false;
         };
-        let Some(origin) = krs_cli::exact_authored_range_from_origin(entry.origin()) else {
+        let Some(origin) = entry.origin().exact_authored_range() else {
             return false;
         };
         let authored_bytes = usize::try_from(origin.start_byte)

@@ -35,7 +35,7 @@ impl ConfigurationRoot {
     pub fn named(origin: NodeOrigin, name: impl Into<String>) -> Result<Self, StateShapeError> {
         Ok(Self::Named {
             origin,
-            name: checked_text("configuration root", name.into())?,
+            name: checked_text(crate::IrField::ConfigurationRoot, name.into())?,
         })
     }
 
@@ -72,7 +72,7 @@ impl CellColor {
     pub fn new(value: impl Into<String>) -> Result<Self, StateShapeError> {
         let value = value.into();
         if value.trim().is_empty() {
-            Err(StateShapeError::EmptyText("cell color"))
+            Err(StateShapeError::EmptyText(crate::IrField::CellColor))
         } else {
             Ok(Self(value))
         }
@@ -226,7 +226,7 @@ impl<S, C> FixedCell<S, C> {
         attributes: Vec<CellAttribute>,
         sort: S,
     ) -> Result<Self, StateShapeError> {
-        let name = checked_text("cell name", name.into())?;
+        let name = checked_text(crate::IrField::CellName, name.into())?;
         Ok(Self {
             origin,
             id,
@@ -248,9 +248,11 @@ impl<S, C> FixedCell<S, C> {
         attributes: Vec<CellAttribute>,
         children: Vec<Self>,
     ) -> Result<Self, StateShapeError> {
-        let name = checked_text("cell name", name.into())?;
+        let name = checked_text(crate::IrField::CellName, name.into())?;
         if children.is_empty() {
-            return Err(StateShapeError::EmptyCollection("nested cell children"));
+            return Err(StateShapeError::EmptyCollection(
+                crate::IrField::NestedCellChildren,
+            ));
         }
         Ok(Self {
             origin,
@@ -335,7 +337,10 @@ impl<S> FixedConfigurationVariable<S> {
         Ok(Self {
             origin,
             id,
-            external_name: checked_text("configuration variable name", external_name.into())?,
+            external_name: checked_text(
+                crate::IrField::ConfigurationVariableName,
+                external_name.into(),
+            )?,
             sort,
             main,
         })
@@ -403,7 +408,9 @@ impl<C, T> FixedInitializerCell<C, T> {
         children: Vec<Self>,
     ) -> Result<Self, StateShapeError> {
         if children.is_empty() {
-            return Err(StateShapeError::EmptyCollection("initializer children"));
+            return Err(StateShapeError::EmptyCollection(
+                crate::IrField::InitializerChildren,
+            ));
         }
         Ok(Self {
             origin,
@@ -485,10 +492,12 @@ where
         initializer: Vec<FixedInitializerCell<C, T>>,
     ) -> Result<Self, StateShapeError> {
         if let ConfigurationRoot::Named { name, .. } = &root {
-            checked_text("configuration root", name.clone())?;
+            checked_text(crate::IrField::ConfigurationRoot, name.clone())?;
         }
         if cells.is_empty() {
-            return Err(StateShapeError::EmptyCollection("top-level cells"));
+            return Err(StateShapeError::EmptyCollection(
+                crate::IrField::TopLevelCells,
+            ));
         }
         let mut cell_ids = BTreeSet::new();
         let mut cell_names = BTreeSet::new();
@@ -694,7 +703,7 @@ where
     ) -> Result<Self, StateShapeError> {
         if cells.is_empty() {
             return Err(StateShapeError::EmptyCollection(
-                "configuration pattern cells",
+                crate::IrField::ConfigurationPatternCells,
             ));
         }
         let mut mentioned = BTreeSet::new();
@@ -820,7 +829,7 @@ where
     ) -> Result<Self, StateShapeError> {
         if clauses.is_empty() {
             return Err(StateShapeError::EmptyCollection(
-                "configuration rewrite clauses",
+                crate::IrField::ConfigurationRewriteClauses,
             ));
         }
         let mut mentioned = BTreeSet::new();
@@ -975,9 +984,9 @@ impl SetOperation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateShapeError {
     /// Textual metadata was blank.
-    EmptyText(&'static str),
+    EmptyText(crate::IrField),
     /// A mandatory ordered collection was empty.
-    EmptyCollection(&'static str),
+    EmptyCollection(crate::IrField),
     /// A stable cell identity occurred twice.
     DuplicateCell,
     /// A globally resolved cell name occurred twice.
@@ -1030,7 +1039,7 @@ impl fmt::Display for StateShapeError {
 
 impl Error for StateShapeError {}
 
-fn checked_text(field: &'static str, value: String) -> Result<String, StateShapeError> {
+fn checked_text(field: crate::IrField, value: String) -> Result<String, StateShapeError> {
     if value.trim().is_empty() {
         Err(StateShapeError::EmptyText(field))
     } else {

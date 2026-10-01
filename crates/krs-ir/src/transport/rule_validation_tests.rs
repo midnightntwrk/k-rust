@@ -1,4 +1,8 @@
 use super::*;
+use crate::transport::detail::{
+    StateCellContentReason, StateTermReason, TransportField, TransportItemKind,
+};
+
 use crate::{
     CellTermField, DescriptorApplicationRef, DescriptorApplicationReference, DescriptorLiteral,
     HostApplicationReference, HostApplicationTarget, HostTypeKey,
@@ -84,7 +88,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &mut BTreeSet::new()
         ),
         Err(StateTransportError::InvalidTerm(
-            "invalid claim binder sort"
+            StateTermReason::InvalidClaimBinderSort
         ))
     );
     assert!(
@@ -131,8 +135,8 @@ fn rule_binding_catalog_preserves_descriptor_only_declared_sort_check() {
     assert_eq!(
         validate_rule_binding_catalog::<DescriptorStage>(&descriptor, &mut BTreeSet::new()),
         Err(StateTransportError::ItemKind {
-            field: "rule binding sort",
-            expected: "Sort",
+            field: TransportField::RuleBindingSort,
+            expected: TransportItemKind::Sort,
             actual: ItemKind::Constructor,
         })
     );
@@ -162,7 +166,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
     assert_eq!(
         check_term(&descriptor),
         Err(StateTransportError::InvalidTerm(
-            "invalid application target"
+            StateTermReason::InvalidApplicationTarget
         ))
     );
     assert!(check_term(&host).is_ok());
@@ -172,7 +176,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
     assert_eq!(
         check_term(&descriptor),
         Err(StateTransportError::InvalidTerm(
-            "configuration-rule term path and semantic keys disagree"
+            StateTermReason::RuleTermKeyMismatch
         ))
     );
 }
@@ -206,7 +210,7 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
     assert_eq!(
         check_term(&term),
         Err(StateTransportError::DuplicateValue(
-            "rule application record fields"
+            TransportField::RuleApplicationRecordFields
         )),
     );
     if let Term::Application { arguments, .. } = &mut term
@@ -220,7 +224,7 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
     assert_eq!(
         check_term(&term),
         Err(StateTransportError::InvalidTerm(
-            "integer literal is not canonical unsigned decimal"
+            StateTermReason::NonCanonicalIntegerLiteral
         )),
     );
 }
@@ -251,7 +255,9 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
     };
     assert_eq!(
         check_term(&descriptor),
-        Err(StateTransportError::InvalidTerm("invalid anonymous sort"))
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidAnonymousSort
+        ))
     );
     assert!(check_term(&host).is_ok());
     if let Term::Anonymous {
@@ -285,13 +291,13 @@ fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
     assert_eq!(
         check_term(&descriptor),
         Err(StateTransportError::InvalidTerm(
-            "fragment! requires a nonempty nominal cell declaration"
+            StateTermReason::EmptyOrNonNominalFragment
         ))
     );
     assert_eq!(
         check_term(&host),
         Err(StateTransportError::InvalidTerm(
-            "fragment! requires at least one child field"
+            StateTermReason::EmptyFragment
         ))
     );
     let field = || CellTermField {
@@ -318,7 +324,7 @@ fn fragments_preserve_stage_specific_declaration_and_empty_errors() {
     assert_eq!(
         check_term(&descriptor),
         Err(StateTransportError::InvalidTerm(
-            "fragment! requires a nonempty nominal cell declaration"
+            StateTermReason::EmptyOrNonNominalFragment
         ))
     );
     assert!(check_term(&host).is_ok());
@@ -413,8 +419,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             &mut BTreeSet::new()
         ),
         Err(StateTransportError::ItemKind {
-            field: "cell identity owner",
-            expected: "Configuration or Cell",
+            field: TransportField::CellIdentityOwner,
+            expected: TransportItemKind::ConfigurationOrCell,
             actual: ItemKind::Sort,
         })
     );
@@ -436,7 +442,9 @@ fn assert_duplicate_selected_cells<S: RuleValidationStage>(
             &mut RuleCounters::default(),
             &mut BTreeSet::new(),
         ),
-        Err(StateTransportError::DuplicateValue("selected rule cells")),
+        Err(StateTransportError::DuplicateValue(
+            TransportField::SelectedRuleCells
+        )),
     );
 }
 
@@ -505,7 +513,7 @@ fn context_aliases_preserve_stage_specific_early_checks() {
     assert_eq!(
         descriptor.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "context alias HERE binding must occur exactly once in cell content"
+            StateTermReason::AliasHereContentOccurrence
         ))
     );
     assert!(host.validate(ItemKind::ContextAlias).is_ok());
@@ -520,13 +528,13 @@ fn context_aliases_preserve_stage_specific_early_checks() {
     assert_eq!(
         duplicate_descriptor.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "duplicate context-alias binding"
+            StateTermReason::DuplicateAliasBinding
         ))
     );
     assert_eq!(
         duplicate_host.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "context alias must select exactly one ordinary HERE binding"
+            StateTermReason::AliasHereBindingCount
         ))
     );
     let mut wrong_kind = descriptor;
@@ -535,8 +543,8 @@ fn context_aliases_preserve_stage_specific_early_checks() {
     assert_eq!(
         wrong_kind.validate(ItemKind::ContextAlias),
         Err(StateTransportError::ItemKind {
-            field: "configuration rule type",
-            expected: "Configuration",
+            field: TransportField::ConfigurationRuleType,
+            expected: TransportItemKind::Configuration,
             actual: ItemKind::Sort,
         })
     );
@@ -569,13 +577,13 @@ fn ordinary_alias_duplicates_preserve_distinct_stage_errors() {
     assert_eq!(
         descriptor.validate(ItemKind::ContextAlias),
         Err(StateTransportError::InvalidTerm(
-            "duplicate context-alias binding"
+            StateTermReason::DuplicateAliasBinding
         )),
     );
     assert_eq!(
         host.validate(ItemKind::ContextAlias),
         Err(StateTransportError::DuplicateValue(
-            "context-alias bindings"
+            TransportField::ContextAliasBindings
         )),
     );
 }
@@ -676,7 +684,7 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
     host.result_configuration.configuration.authored_path = "ConfigAlias".to_owned();
     assert_eq!(host.validate(ItemKind::Rule), Ok(()));
     let mismatch = Err(StateTransportError::InvalidCellContent(
-        "rule subject and result configurations differ",
+        StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
     ));
     assert_eq!(descriptor.validate(ItemKind::Rule), mismatch);
     descriptor.result_configuration.configuration =

@@ -4,6 +4,9 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing;
+use krs_ir::transport::detail::{
+    GrammarApplicationReason, GrammarProductionReason, GrammarTermReason,
+};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
@@ -376,7 +379,7 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
     assert!(matches!(
         descriptor.validate_grammar_contract(),
         Err(GrammarTransportError::InvalidTerm(
-            "invalid explicit rule label"
+            GrammarTermReason::InvalidExplicitRuleLabel
         ))
     ));
 }
@@ -578,7 +581,7 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     assert!(matches!(
         descriptors[0].validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "constructor field declaration ordinals must be unique"
+            GrammarProductionReason::DuplicateConstructorFieldOrdinal
         ))
     ));
 }
@@ -625,7 +628,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
     assert!(matches!(
         descriptors[1].validate_grammar_contract(),
         Err(GrammarTransportError::InvalidApplication(
-            "a bare-reference constructor must have no arguments"
+            GrammarApplicationReason::BareConstructorArguments
         ))
     ));
 }
@@ -708,14 +711,14 @@ fn ordinary_map_references_have_closed_wire_shapes() {
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::default(), false),
         Err(GrammarTransportError::InvalidApplication(
-            "Map operation has invalid arity"
+            GrammarApplicationReason::MapOperationHasInvalidArity
         ))
     ));
 
     assert!(matches!(
         DescriptorApplicationRef::Map(MapOperation::Item).validate(),
         Err(GrammarTransportError::InvalidApplication(
-            "structural-only Map operation used as an application head"
+            GrammarApplicationReason::StructuralMapApplication
         ))
     ));
 }
@@ -822,7 +825,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),
         Err(GrammarTransportError::InvalidApplication(
-            "List operation has invalid arity"
+            GrammarApplicationReason::ListOperationHasInvalidArity
         ))
     ));
 }
@@ -1020,7 +1023,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     assert!(matches!(
         guarded_token.validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "nominal token regex cannot carry precede/follow guards"
+            GrammarProductionReason::NominalTokenRegexGuards
         ))
     ));
 
@@ -1034,7 +1037,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     assert!(matches!(
         regex_bracket.validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "bracket production cannot contain regex items"
+            GrammarProductionReason::BracketRegexItem
         ))
     ));
 
@@ -1048,7 +1051,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     assert!(matches!(
         wrong_field_bracket.validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "bracket nonterminal field must be `value`"
+            GrammarProductionReason::BracketFieldName
         ))
     ));
 
@@ -1059,7 +1062,7 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     assert!(matches!(
         wrong_sort_bracket.validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "bracket owner and result sorts must be identical"
+            GrammarProductionReason::BracketOwnerResultSortMismatch
         ))
     ));
 
@@ -1084,7 +1087,7 @@ fn format_requires_explicit_constructor_syntax() {
     assert!(matches!(
         descriptors[0].validate_grammar_contract(),
         Err(GrammarTransportError::InvalidProduction(
-            "format metadata requires explicit constructor syntax"
+            GrammarProductionReason::FormatWithoutConstructorSyntax
         ))
     ));
 }

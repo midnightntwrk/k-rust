@@ -1,7 +1,8 @@
 //! Renderer-independent diagnostics for every production KRS boundary.
 
 use krs_compiler::SourceMap;
-use krs_ir::{OriginFrame, RangedOriginKind, SourceMapKey, SourceRange};
+use krs_diagnostic::{Diagnostic, Location, Severity};
+use krs_ir::{SourceMapKey, SourceRange};
 use krs_k_rust::{DiagnosticSeverity as NativeSeverity, FrontendDiagnostic};
 use serde::{Deserialize, Serialize};
 
@@ -109,38 +110,33 @@ impl DiagnosticEnvelope {
     }
 }
 
-/// Return the exact authored range for one Definition source-map key.
-///
-/// This function fails closed: absent keys, absent authored frames, and
-/// multiple authored frames are not guessed or replaced with a sentence
-/// range.
+/// Builds the envelope view of a diagnostic with an exact authored range.
+/// Definition locations require the source map from the producing boundary.
+/// Diagnostics without one exact authored range remain available to prose renderers.
 #[must_use]
-pub fn exact_authored_range(source_map: &SourceMap, key: &SourceMapKey) -> Option<SourceRange> {
-    let entry = source_map
-        .entries()
-        .iter()
-        .find(|entry| entry.key() == key)?;
-    exact_authored_range_from_origin(entry.origin())
-}
-
-/// Return the sole exact authored range in an origin stack.
-///
-/// Multiple authored frames are rejected rather than resolved by proximity.
-#[must_use]
-pub fn exact_authored_range_from_origin(origin: &krs_ir::OriginStack) -> Option<SourceRange> {
-    let mut authored = origin.frames().iter().filter_map(|frame| match frame {
-        OriginFrame::Ranged {
-            kind: RangedOriginKind::Authored,
-            range,
-            ..
-        } => Some(range),
-        _ => None,
-    });
-    let range = authored.next()?.clone();
-    if authored.next().is_some() {
-        return None;
-    }
-    Some(range)
+pub fn diagnostic_envelope(
+    diagnostic: Diagnostic,
+    stage: DiagnosticStage,
+    source_map: Option<&SourceMap>,
+) -> Option<DiagnosticEnvelope> {
+    let authored_range = match diagnostic.primary.location {
+        Location::Source(range) => range,
+        Location::Definition(key) => source_map?.exact_authored_range(&key)?,
+        _ => return None,
+    };
+    Some(DiagnosticEnvelope {
+        schema_version: DIAGNOSTIC_SCHEMA_VERSION,
+        stage,
+        code: diagnostic.code.to_string(),
+        severity: match diagnostic.severity {
+            Severity::Error => DiagnosticSeverity::Error,
+            Severity::Warning => DiagnosticSeverity::Warning,
+        },
+        message: diagnostic.message,
+        authored_range,
+        generated_range: None,
+        notes: diagnostic.notes,
+    })
 }
 
 /// Translate a native diagnostic through an exact Definition source-map key.
@@ -154,7 +150,7 @@ pub fn translate_native_diagnostic(
     key: &SourceMapKey,
     diagnostic: &FrontendDiagnostic,
 ) -> Option<DiagnosticEnvelope> {
-    let authored_range = exact_authored_range(source_map, key)?;
+    let authored_range = source_map.exact_authored_range(key)?;
     let generated_range = diagnostic
         .location
         .map(|location| DiagnosticGeneratedRange {
@@ -209,7 +205,7 @@ pub fn translate_k_frontend_diagnostic(
     if matches.next().is_some() {
         return None;
     }
-    let authored_range = exact_authored_range(source_map, entry.key())?;
+    let authored_range = source_map.exact_authored_range(entry.key())?;
     Some(DiagnosticEnvelope {
         schema_version: DIAGNOSTIC_SCHEMA_VERSION,
         stage: DiagnosticStage::KFrontend,
@@ -236,6 +232,60 @@ mod tests {
         )
         .unwrap();
         SourceRange::new(file, 7, 16).unwrap()
+    }
+
+    #[test]
+    fn envelope_preserves_the_producers_message_severity_and_notes() {
+        let mut diagnostic = Diagnostic::error(
+            krs_diagnostic::codes::analysis::OVERLAPPING_RULE_HEADS,
+            "overlap",
+            Location::Source(range()),
+        )
+        .with_note("first rule: first")
+        .with_note("second rule: second");
+        diagnostic.severity = Severity::Warning;
+        let envelope = diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None).unwrap();
+        assert_eq!(envelope.code, "krs::analysis::overlapping-rule-heads");
+        assert_eq!(envelope.stage, DiagnosticStage::Analysis);
+        assert_eq!(envelope.severity, DiagnosticSeverity::Warning);
+        assert_eq!(envelope.message, "overlap");
+        assert_eq!(envelope.notes, ["first rule: first", "second rule: second"]);
+        assert_eq!(envelope.authored_range, range());
+        assert_eq!(envelope.generated_range, None);
+    }
+
+    #[test]
+    fn definition_locations_require_an_exact_source_map_entry() {
+        let key = SourceMapKey::new("diag.module").unwrap();
+        let source_map = serde_json::from_value::<SourceMap>(serde_json::json!({
+            "schema_version": 2,
+            "entries": [{
+                "key": key.as_str(),
+                "node_kind": "module",
+                "origin": OriginStack::authored(range()),
+            }],
+        }))
+        .unwrap();
+        let diagnostic = Diagnostic::error(
+            krs_diagnostic::codes::analysis::NAME_COLLISION,
+            "collision",
+            Location::Definition(key),
+        );
+        assert!(diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None).is_none());
+        assert_eq!(
+            diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, Some(&source_map))
+                .unwrap()
+                .authored_range,
+            range(),
+        );
+        let unlocated = Diagnostic::error(
+            krs_diagnostic::codes::analysis::NAME_COLLISION,
+            "collision",
+            Location::None,
+        );
+        assert!(
+            diagnostic_envelope(unlocated, DiagnosticStage::Analysis, Some(&source_map)).is_none()
+        );
     }
 
     #[test]
@@ -268,7 +318,7 @@ mod tests {
             }],
         }))
         .unwrap();
-        assert_eq!(exact_authored_range(&source_map, &key), Some(range()));
+        assert_eq!(source_map.exact_authored_range(&key), Some(range()));
 
         let diagnostic = FrontendDiagnostic {
             severity: NativeSeverity::Error,

@@ -20,7 +20,7 @@ pub use emit::{
     EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source, emit_k,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
-pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
+pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use reference::{
     ReferenceExpansionError, ReferenceSourceError, expand_package_reference_source,
     expand_reference_source,

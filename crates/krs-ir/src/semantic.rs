@@ -192,7 +192,7 @@ impl SemanticTheory {
             insert_unique(
                 &mut module_ids,
                 module.id.clone(),
-                "module",
+                crate::SemanticIdentityKind::Module,
                 module.id.as_str(),
             )?;
             insert_node::<SemanticLevel>(&mut node_keys, module.origin.key())?;
@@ -301,11 +301,15 @@ impl SemanticTheory {
             }
             if let Some(configuration) = &module.configuration {
                 configurations += 1;
-                insert_semantic_id(&mut semantic_ids, configuration.id(), "configuration")?;
+                insert_semantic_id(
+                    &mut semantic_ids,
+                    configuration.id(),
+                    crate::SemanticIdentityKind::Configuration,
+                )?;
                 insert_semantic_id(
                     &mut semantic_ids,
                     configuration.initializer_id(),
-                    "initializer",
+                    crate::SemanticIdentityKind::Initializer,
                 )?;
                 insert_node::<SemanticLevel>(&mut node_keys, configuration.origin().key())?;
                 insert_node::<SemanticLevel>(
@@ -1042,11 +1046,11 @@ pub enum SemanticValidationError {
     /// No module was supplied.
     EmptyTheory,
     /// A textual field was blank.
-    EmptyText(&'static str),
+    EmptyText(crate::IrField),
     /// A set-like identity was repeated.
     DuplicateId {
         /// Identity namespace.
-        kind: &'static str,
+        kind: crate::SemanticIdentityKind,
         /// Debug-stable identity text.
         id: String,
     },
@@ -1068,7 +1072,7 @@ pub enum SemanticValidationError {
     /// A grammar production contained no items.
     EmptyProduction(Box<StableItemId>),
     /// The same classified attribute family occurred more than once.
-    DuplicateProductionAttribute(&'static str),
+    DuplicateProductionAttribute(crate::ProductionAttributeFamily),
     /// Token metadata was attached to a non-regex production.
     InvalidTokenProduction,
     /// A regex terminal lacked token metadata.
@@ -1374,7 +1378,7 @@ fn validate_item_kind(
 fn insert_unique<T: Ord>(
     set: &mut BTreeSet<T>,
     value: T,
-    kind: &'static str,
+    kind: crate::SemanticIdentityKind,
     display: &str,
 ) -> Result<(), SemanticValidationError> {
     if set.insert(value) {
@@ -1393,7 +1397,7 @@ fn insert_declaration(
 ) -> Result<(), SemanticValidationError> {
     if map.insert(id.clone(), id.item_kind()).is_some() {
         return Err(SemanticValidationError::DuplicateId {
-            kind: "declaration",
+            kind: crate::SemanticIdentityKind::Declaration,
             id: id.to_string(),
         });
     }
@@ -1403,7 +1407,7 @@ fn insert_declaration(
 fn insert_semantic_id(
     set: &mut BTreeSet<SemanticId>,
     id: &SemanticId,
-    kind: &'static str,
+    kind: crate::SemanticIdentityKind,
 ) -> Result<(), SemanticValidationError> {
     if set.insert(id.clone()) {
         Ok(())

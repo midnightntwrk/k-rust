@@ -1,4 +1,8 @@
 use super::*;
+use crate::transport::detail::{
+    StateCellContentReason, StateTermReason, TransportField, TransportItemKind,
+};
+
 use crate::transport::grammar::{
     DescriptorApplicationRef, DescriptorApplicationReference, HostApplicationReference,
     HostApplicationTarget,
@@ -142,8 +146,8 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     assert_eq!(
         descriptor.validate(&item(ItemKind::Cell)),
         Err(StateTransportError::ItemKind {
-            field: "configuration descriptor",
-            expected: "Configuration",
+            field: TransportField::ConfigurationDescriptor,
+            expected: TransportItemKind::Configuration,
             actual: ItemKind::Cell,
         })
     );
@@ -184,15 +188,17 @@ fn stable_cell_identity_checks_precede_ownership_and_field_spelling() {
     assert_eq!(
         descriptor.validate(&item(ItemKind::Configuration)),
         Err(StateTransportError::ItemKind {
-            field: "cell identity owner",
-            expected: "Configuration or Cell",
+            field: TransportField::CellIdentityOwner,
+            expected: TransportItemKind::ConfigurationOrCell,
             actual: ItemKind::Sort,
         })
     );
     descriptor.fields[0].reference.cell.owner = item(ItemKind::Configuration);
     assert_eq!(
         descriptor.validate(&item(ItemKind::Configuration)),
-        Err(StateTransportError::InvalidText("Rust field identity"))
+        Err(StateTransportError::InvalidText(
+            TransportField::RustFieldIdentity
+        ))
     );
     descriptor.fields[0].reference.cell.field = "other".into();
     assert_eq!(
@@ -221,8 +227,8 @@ fn declaration_owner_kinds_precede_provenance_only_for_descriptors() {
     assert_eq!(
         descriptor.validate(&item(ItemKind::Sort)),
         Err(StateTransportError::ItemKind {
-            field: "cell declaration",
-            expected: "Configuration or Cell",
+            field: TransportField::CellDeclaration,
+            expected: TransportItemKind::ConfigurationOrCell,
             actual: ItemKind::Sort,
         })
     );
@@ -246,8 +252,8 @@ fn leaf_sorts_preserve_descriptor_only_kind_and_k_sequence_checks() {
     assert_eq!(
         DescriptorStage::validate_leaf_sort(CellWrapper::KCell, &descriptor),
         Err(StateTransportError::ItemKind {
-            field: "cell content sort",
-            expected: "Sort or builtin",
+            field: TransportField::CellContentSort,
+            expected: TransportItemKind::SortOrBuiltin,
             actual: ItemKind::Cell,
         })
     );
@@ -255,7 +261,7 @@ fn leaf_sorts_preserve_descriptor_only_kind_and_k_sequence_checks() {
     assert_eq!(
         DescriptorStage::validate_leaf_sort(CellWrapper::KCell, &descriptor),
         Err(StateTransportError::InvalidCellContent(
-            "KCell content sort must be builtin KSequence"
+            StateCellContentReason::KCellSortMismatch
         ))
     );
     descriptor.sort = DescriptorSortRef::Builtin(BuiltinSort::KSequence);
@@ -298,7 +304,7 @@ fn cell_sort_arguments_keep_stage_specific_target_checks() {
     assert_eq!(
         DescriptorStage::validate_sort_argument(&descriptor),
         Err(StateTransportError::InvalidTerm(
-            "invalid cell sort argument"
+            StateTermReason::InvalidCellSortArgument
         ))
     );
     descriptor.sort = DescriptorSortRef::Builtin(BuiltinSort::Int);
@@ -307,7 +313,7 @@ fn cell_sort_arguments_keep_stage_specific_target_checks() {
     assert_eq!(
         HostStage::validate_sort_argument(&host),
         Err(StateTransportError::InvalidText(
-            "cell sort argument diagnostic path"
+            TransportField::CellSortArgumentDiagnosticPath
         ))
     );
     host.target.authored_path = "Alias".into();
@@ -321,8 +327,8 @@ fn nested_targets_keep_distinct_declaration_and_initializer_checks() {
         declaration: item(ItemKind::Configuration),
     };
     let error = Err(StateTransportError::ItemKind {
-        field: "nested cell declaration",
-        expected: "Cell",
+        field: TransportField::NestedCellDeclaration,
+        expected: TransportItemKind::Cell,
         actual: ItemKind::Configuration,
     });
     assert_eq!(
@@ -352,7 +358,7 @@ fn nested_targets_keep_distinct_declaration_and_initializer_checks() {
     assert_eq!(
         HostStage::validate_nested_declaration(&host),
         Err(StateTransportError::InvalidText(
-            "nested cell diagnostic path"
+            TransportField::NestedCellDiagnosticPath
         ))
     );
     assert_eq!(HostStage::validate_nested_initializer(&host), Ok(()));
@@ -420,7 +426,7 @@ fn initializer_variable_sorts_are_checked_only_for_descriptors() {
     assert_eq!(
         validate_variables::<DescriptorStage>(&[variable(sort)], &mut BTreeSet::new()),
         Err(StateTransportError::InvalidCellContent(
-            "invalid variable sort"
+            StateCellContentReason::InvalidVariableSort
         ))
     );
     assert_eq!(
@@ -463,7 +469,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
             arguments: Vec::new(),
         }),
         Err(StateTransportError::InvalidTerm(
-            "invalid application target"
+            StateTermReason::InvalidApplicationTarget
         ))
     );
     assert_eq!(
@@ -489,7 +495,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             key: key(ProvenanceRole::InitializerTermPath)
         }),
         Err(StateTransportError::InvalidTerm(
-            "wildcards are not allowed in initializers"
+            StateTermReason::WildcardsAreNotAllowedInInitializers
         ))
     );
     assert_eq!(
@@ -500,7 +506,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             }],
         }),
         Err(StateTransportError::InvalidTerm(
-            "claim-only terms are not allowed in initializers"
+            StateTermReason::InitializerClaimTerm
         ))
     );
     assert_eq!(
@@ -519,7 +525,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             literal: DescriptorLiteral::Int("-1".into()),
         }),
         Err(StateTransportError::InvalidTerm(
-            "integer literal is not canonical unsigned decimal"
+            StateTermReason::NonCanonicalIntegerLiteral
         ))
     );
 }
@@ -547,7 +553,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),
         Err(StateTransportError::InvalidTerm(
-            "initializer syntax has no exact record-field provenance"
+            StateTermReason::InitializerRecordFieldProvenance
         ))
     );
     assert_eq!(
@@ -560,7 +566,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
             named(),
         ])),
         Err(StateTransportError::InvalidTerm(
-            "wildcards are not allowed in initializers"
+            StateTermReason::WildcardsAreNotAllowedInInitializers
         ))
     );
 }

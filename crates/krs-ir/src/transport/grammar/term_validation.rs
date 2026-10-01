@@ -9,6 +9,7 @@ use super::{
     validate_list_application_shape, validate_map_application_shape,
     validate_set_application_shape,
 };
+use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
 use crate::{BuiltinSort, DescriptorStage, ProductionFieldId, ProvenanceKey, StableItemId};
 
@@ -51,7 +52,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         reference.application.validate()?;
         if head_class == DescriptorApplicationHeadClass::BareReference && !arguments.is_empty() {
             return Err(GrammarTransportError::InvalidApplication(
-                "a bare-reference constructor must have no arguments",
+                GrammarApplicationReason::BareConstructorArguments,
             ));
         }
         validate_map_application_shape(head_class, &reference.application, arguments)?;
@@ -72,7 +73,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         require_key(key, self.provenance)?;
         if !self.allow_wildcards {
             return Err(GrammarTransportError::InvalidTerm(
-                "wildcards are allowed only in rule subjects",
+                GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
         }
         Ok(())
@@ -121,14 +122,14 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
                 require_key(key, self.provenance)?;
                 if !fields.insert(field.clone()) {
                     return Err(GrammarTransportError::InvalidApplication(
-                        "named field occurs more than once",
+                        GrammarApplicationReason::DuplicateNamedField,
                     ));
                 }
                 Ok(())
             }
             DescriptorTermArgument::Positional { .. } | DescriptorTermArgument::Named { .. } => {
                 Err(GrammarTransportError::InvalidApplication(
-                    "positional and named arguments are mixed",
+                    GrammarApplicationReason::MixedArgumentForms,
                 ))
             }
         }
@@ -226,7 +227,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
         let Some(role) = self.side.wildcard_role() else {
             return Err(GrammarTransportError::InvalidTerm(
-                "wildcards are allowed only in rule subjects",
+                GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
             ));
         };
         insert_exact(self.keys, key, role, self.counters.wildcard)?;
@@ -294,13 +295,13 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
 
 fn unsupported_claim_term() -> Result<(), GrammarTransportError> {
     Err(GrammarTransportError::InvalidTerm(
-        "claim-only term used outside a whole-configuration claim",
+        GrammarTermReason::UnexpectedClaimTerm,
     ))
 }
 
 fn unsupported_cell_term() -> Result<(), GrammarTransportError> {
     Err(GrammarTransportError::InvalidTerm(
-        "complete cell terms require configuration rules",
+        GrammarTermReason::CompleteCellTermsRequireConfigurationRules,
     ))
 }
 
@@ -371,7 +372,7 @@ mod tests {
         assert_eq!(
             term.validate(|_| true, &BTreeSet::new(), &mut BTreeSet::new(), true),
             Err(GrammarTransportError::InvalidApplication(
-                "named field occurs more than once"
+                GrammarApplicationReason::DuplicateNamedField
             )),
         );
     }

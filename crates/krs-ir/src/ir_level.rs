@@ -28,7 +28,7 @@ pub trait IrLevel: Clone + Debug + Eq + Ord + Sized {
     /// Constructs the level's reference to an intrinsic K sort.
     fn builtin_sort(sort: BuiltinSort) -> Self::Sort;
     /// Constructs the level's unchanged empty-text failure.
-    fn empty_text(field: &'static str) -> Self::Error;
+    fn empty_text(field: crate::IrField) -> Self::Error;
 }
 
 /// Resolved authored identities in the Semantic IR.
@@ -50,7 +50,7 @@ impl IrLevel for SemanticLevel {
         IrSortRef::Builtin(sort)
     }
 
-    fn empty_text(field: &'static str) -> Self::Error {
+    fn empty_text(field: crate::IrField) -> Self::Error {
         SemanticValidationError::EmptyText(field)
     }
 }
@@ -66,7 +66,7 @@ impl IrLevel for DefinitionLevel {
         IrSortRef::Builtin(sort)
     }
 
-    fn empty_text(field: &'static str) -> Self::Error {
+    fn empty_text(field: crate::IrField) -> Self::Error {
         DefinitionValidationError::EmptyText(field)
     }
 }
@@ -452,7 +452,7 @@ impl<L: IrLevel> IrTerm<L> {
     ) -> Result<Self, L::Error> {
         let value = value.into();
         if value.is_empty() {
-            return Err(L::empty_text("token value"));
+            return Err(L::empty_text(crate::IrField::TokenValue));
         }
         Ok(Self {
             origin,

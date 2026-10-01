@@ -538,7 +538,7 @@ fn bn128_hooks_require_a_unique_point_constructor_with_the_expected_sort_and_sig
             Err(DefinitionValidationError::InvalidBn128PointConstructor {
                 hook,
                 sort: sort.to_owned(),
-                expected_signature: "G1Point(Int, Int)",
+                expected_signature: krs_ir::Bn128PointSignature::G1,
                 matching_constructors: count,
             })
         );
@@ -553,7 +553,7 @@ fn bn128_hooks_require_a_unique_point_constructor_with_the_expected_sort_and_sig
         Err(DefinitionValidationError::InvalidBn128PointConstructor {
             hook: HookOperation::KryptoBn128Ate,
             sort: "G2Point".to_owned(),
-            expected_signature: "G2Point(Int, Int, Int, Int)",
+            expected_signature: krs_ir::Bn128PointSignature::G2,
             matching_constructors: 0,
         })
     );

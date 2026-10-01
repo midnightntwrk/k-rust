@@ -1,9 +1,10 @@
 //! Collector transport for readable rules completed at a computation-cell head.
 
-use serde::{Deserialize, Serialize};
-
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
+use super::detail::{StateTermReason, TransportField, TransportItemKind};
 use crate::stage::{protocol_shape, stage_shape};
 use crate::transport::grammar::{RuleCondition, Term};
 
@@ -223,7 +224,7 @@ fn validate_owise_priority(
             || priority.value != 200)
     {
         return Err(StateTransportError::InvalidTerm(
-            "head-rule ordered fallback priority",
+            StateTermReason::HeadRuleOrderedFallbackPriority,
         ));
     }
     Ok(())
@@ -238,7 +239,9 @@ fn validate_bindings<S, I, T>(
         .map(|binding| binding.name.as_str())
         .collect::<BTreeSet<_>>();
     if names.len() != bindings.len() || names.iter().any(|name| name.is_empty()) {
-        return Err(StateTransportError::DuplicateValue("head-rule bindings"));
+        return Err(StateTransportError::DuplicateValue(
+            TransportField::HeadRuleBindings,
+        ));
     }
     for extra in extras {
         let introduced = match extra {
@@ -248,7 +251,7 @@ fn validate_bindings<S, I, T>(
         };
         if !names.contains(introduced.as_str()) {
             return Err(StateTransportError::InvalidTerm(
-                "head-rule extra references an undeclared binding",
+                StateTermReason::UndeclaredHeadRuleExtraBinding,
             ));
         }
     }
@@ -266,8 +269,8 @@ impl HostHeadRule {
         let expected = sentence_item_kind(self.sentence_kind);
         if item_kind != expected {
             return Err(StateTransportError::ItemKind {
-                field: "head-anchored rule descriptor",
-                expected: "sentence-matching relational item",
+                field: TransportField::HeadAnchoredRuleDescriptor,
+                expected: TransportItemKind::SentenceMatchingRelationalItem,
                 actual: item_kind,
             });
         }
@@ -278,7 +281,7 @@ impl HostHeadRule {
             || self.result_key.ordinal() != 0
         {
             return Err(StateTransportError::InvalidTerm(
-                "head-rule structural provenance key",
+                StateTermReason::HeadRuleStructuralProvenanceKey,
             ));
         }
         match (
@@ -294,7 +297,7 @@ impl HostHeadRule {
                     && !cell.is_empty() => {}
             _ => {
                 return Err(StateTransportError::InvalidTerm(
-                    "head-rule header ownership",
+                    StateTermReason::HeadRuleHeaderOwnership,
                 ));
             }
         }
@@ -303,7 +306,7 @@ impl HostHeadRule {
             && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
         {
             return Err(StateTransportError::InvalidTerm(
-                "head-rule requires provenance key",
+                StateTermReason::HeadRuleRequiresProvenanceKey,
             ));
         }
         let mut cells = BTreeSet::new();
@@ -312,7 +315,7 @@ impl HostHeadRule {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. } => {
                     if cell.key.role() != ProvenanceRole::RuleLeftCellsField {
                         return Err(StateTransportError::InvalidTerm(
-                            "map read cell provenance key",
+                            StateTermReason::MapReadCellProvenanceKey,
                         ));
                     }
                     cell
@@ -320,7 +323,7 @@ impl HostHeadRule {
                 ProtocolHeadRuleExtra::UpdateMap { cell, .. } => {
                     if cell.key.role() != ProvenanceRole::RuleRightCellsField {
                         return Err(StateTransportError::InvalidTerm(
-                            "map update cell provenance key",
+                            StateTermReason::MapUpdateCellProvenanceKey,
                         ));
                     }
                     cell
@@ -332,14 +335,16 @@ impl HostHeadRule {
                         || result_key.role() != ProvenanceRole::RuleRightCellsField
                     {
                         return Err(StateTransportError::InvalidTerm(
-                            "ordinary cell rewrite provenance key",
+                            StateTermReason::OrdinaryCellRewriteProvenanceKey,
                         ));
                     }
                     cell
                 }
             };
             if cell.name.is_empty() || !cells.insert(cell.name.as_str()) {
-                return Err(StateTransportError::DuplicateValue("head-rule extra cells"));
+                return Err(StateTransportError::DuplicateValue(
+                    TransportField::HeadRuleExtraCells,
+                ));
             }
         }
         Ok(())
@@ -358,16 +363,16 @@ impl DescriptorHeadRule {
         let expected = sentence_item_kind(self.sentence_kind);
         if item_kind != expected {
             return Err(StateTransportError::ItemKind {
-                field: "head-anchored rule descriptor",
-                expected: "sentence-matching relational item",
+                field: TransportField::HeadAnchoredRuleDescriptor,
+                expected: TransportItemKind::SentenceMatchingRelationalItem,
                 actual: item_kind,
             });
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         if self.configuration.item_kind() != ItemKind::Configuration {
             return Err(StateTransportError::ItemKind {
-                field: "head-rule configuration",
-                expected: "Configuration",
+                field: TransportField::HeadRuleConfiguration,
+                expected: TransportItemKind::Configuration,
                 actual: self.configuration.item_kind(),
             });
         }
@@ -379,7 +384,7 @@ impl DescriptorHeadRule {
             && (requires.key.role() != ProvenanceRole::RuleRequires || requires.key.ordinal() != 0)
         {
             return Err(StateTransportError::InvalidTerm(
-                "head-rule requires provenance key",
+                StateTermReason::HeadRuleRequiresProvenanceKey,
             ));
         }
         let mut cells = BTreeSet::new();
@@ -396,7 +401,7 @@ impl DescriptorHeadRule {
             }
             if cell.cell == self.computation_cell.cell || !cells.insert(cell.cell.clone()) {
                 return Err(StateTransportError::DuplicateValue(
-                    "head-rule selected cells",
+                    TransportField::HeadRuleSelectedCells,
                 ));
             }
         }

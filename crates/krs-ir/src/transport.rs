@@ -8,6 +8,7 @@
 #[doc(hidden)]
 pub mod collector;
 pub mod configuration;
+pub mod detail;
 pub mod grammar;
 pub mod head_rule;
 pub mod rule;

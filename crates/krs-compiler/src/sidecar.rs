@@ -7,7 +7,7 @@ use krs_ir::{
     DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
     DisplayPath, FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell,
     FixedInitializerContent, LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack,
-    SourceMapKey, StableItemId, SymbolId, SymbolKind,
+    SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -594,6 +594,17 @@ impl SourceMap {
         };
         map.reject_path_leaks()?;
         Ok(map)
+    }
+
+    /// Returns the sole exact authored range for a Definition source-map key.
+    /// Missing keys and multiple authored frames must not be replaced with an inferred range.
+    #[must_use]
+    pub fn exact_authored_range(&self, key: &SourceMapKey) -> Option<SourceRange> {
+        self.entries()
+            .iter()
+            .find(|entry| entry.key() == key)?
+            .origin()
+            .exact_authored_range()
     }
 
     /// Returns entries in canonical source-map-key order.

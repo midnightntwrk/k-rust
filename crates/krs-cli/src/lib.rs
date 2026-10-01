@@ -21,8 +21,8 @@ pub use command::{
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity,
-    DiagnosticStage, exact_authored_range, exact_authored_range_from_origin,
-    translate_k_frontend_diagnostic, translate_native_diagnostic,
+    DiagnosticStage, diagnostic_envelope, translate_k_frontend_diagnostic,
+    translate_native_diagnostic,
 };
 pub use format::{FormatInput, discover_format_inputs};
 pub use generate::{GeneratedCollector, GenerationError};

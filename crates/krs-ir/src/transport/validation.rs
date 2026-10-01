@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use super::detail::StateTermReason;
 use crate::{
     BuiltinSort, DescriptorStage, HostStage, ItemKind, ProductionFieldId, ProvenanceKey, Stage,
 };
@@ -48,7 +49,7 @@ impl ValidationStage for HostStage {
     fn validate_fragment(_: &Self::Nominal, empty: bool) -> Result<(), StateTransportError> {
         if empty {
             Err(StateTransportError::InvalidTerm(
-                "fragment! requires at least one child field",
+                StateTermReason::EmptyFragment,
             ))
         } else {
             Ok(())
@@ -79,7 +80,7 @@ impl ValidationStage for DescriptorStage {
     ) -> Result<(), StateTransportError> {
         if declaration.item_kind() != ItemKind::Cell || empty {
             Err(StateTransportError::InvalidTerm(
-                "fragment! requires a nonempty nominal cell declaration",
+                StateTermReason::EmptyOrNonNominalFragment,
             ))
         } else {
             Ok(())
