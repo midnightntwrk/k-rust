@@ -1,51 +1,52 @@
-"""Helpers over the K definitions `krs emit-k` writes and the KORE K compiles."""
+"""Helpers for querying and slicing the source artifacts KRS emits."""
 
 from __future__ import annotations
 
 from pathlib import Path
-import re
+from typing import Mapping
 
-from support import GateError
-
-
-EMITTED_ARTIFACTS = (
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-)
-"""The exact file set one `krs emit-k` run writes for a definition without claims."""
-
-EMITTED_ARTIFACTS_WITH_SPEC = tuple(sorted((*EMITTED_ARTIFACTS, "spec.k")))
-"""The exact file set one `krs emit-k` run writes when the definition has claims."""
-
-_CLAIM_HEADER = re.compile(r"^  claim \[([^]]+)\]", re.MULTILINE)
+from support import GateError, krs_gate
 
 
-def emitted_claims(directory: Path, module: str, expected: int) -> tuple[list[str], str]:
-    """Read the claims `krs emit-k` wrote to `spec.k` beside `definition.k`.
+def emitted_files(directory: Path, gate: Path, *, environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """Require the exact Rust-owned emit-k file set and ownership marker."""
 
-    Checks the exact specification frame for main module `module` and returns
-    the claim labels in order and the claim sentences between the frame's
-    header and terminator. Exactly `expected` claims with distinct labels must
-    be present.
+    files = krs_gate.ir_query(gate, directory, {"kind": "files"}, environment=environment)
+    if files["actual"] != files["expected"] or not files["owned"]:
+        raise GateError(f"emit-k artifact set or ownership differs: {files!r}")
+    return tuple(files["expected"])
+
+
+def emitted_claims(
+    directory: Path, module: str, expected: int, *, gate: Path,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[list[str], str]:
+    """Return claim labels in emission order and their exact generated block.
+
+    The exact specification frame is a source-layout contract.
+    Claim identity, count, order, and byte ranges come from the Rust query.
     """
 
     path = directory / "spec.k"
     if not path.is_file():
         raise GateError(f"emit-k wrote no spec.k in {directory}")
-    source = path.read_text(encoding="utf-8")
-    header = f'requires "definition.k"\n\nmodule {module}-SPEC\n  imports {module}\n\n'
-    footer = "endmodule\n"
+    source = path.read_bytes()
+    header = f'requires "definition.k"\n\nmodule {module}-SPEC\n  imports {module}\n\n'.encode()
+    footer = b"endmodule\n"
     if not source.startswith(header) or not source.endswith(footer):
         raise GateError(f"spec.k does not have the exact {module}-SPEC frame")
-    claims = source[len(header) : -len(footer)]
-    labels = _CLAIM_HEADER.findall(claims)
+    rows = krs_gate.ir_query(
+        gate, directory, {"kind": "sentences", "sentence_kind": "claim"}, environment=environment,
+    )["rows"]
+    labels = [row["label"] for row in rows]
     if len(labels) != expected or len(set(labels)) != expected:
         raise GateError(f"expected {expected} emitted claims with distinct labels, found {labels!r}")
-    if not claims.startswith("  claim [") or "\nendmodule" in claims:
+    cursor = len(header)
+    for row in rows:
+        generated = row["generated"]
+        if generated is None or generated["artifact"] != "spec.k" or generated["start_byte"] != cursor:
+            raise GateError("spec.k claims do not form one contiguous generated block")
+        cursor = generated["end_byte"]
+    if cursor != len(source) - len(footer):
         raise GateError("spec.k holds more than its claim sentences")
-    return labels, claims
+    return labels, source[len(header):cursor].decode("utf-8")

@@ -29,7 +29,7 @@ from typing import Any, Callable, Mapping, Sequence
 from support import ROOT, GateError, behavior as behavior_module, krs_gate, lsp
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
-from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims
+from support.kdefinition import emitted_claims, emitted_files
 from support.krs import Invocation, build, fresh_deterministic_emissions
 from support.lock import k_version, krs_ir_schema, msrv
 from support.pins import Ledger, load_toml
@@ -109,7 +109,7 @@ class Hooks:
     spec: behavior_module.Specification
     kore_configuration: bool = False
     summary: Callable[[Port, int, int, bool], str] | None = None
-    definition_checks: Callable[[str], None] | None = None
+    definition_checks: Callable[[Path, Path, Mapping[str, str]], None] | None = None
     java_skips: Mapping[str, str] | None = None
 
 
@@ -209,6 +209,7 @@ def artifact_gate(
     workspace: Path,
     krs: Path,
     pins: Ledger,
+    gate: Path,
     environment: Mapping[str, str],
 ) -> Path:
     """Check, expand, and emit the port fresh twice; compile the expansion independently.
@@ -244,7 +245,7 @@ def artifact_gate(
     )
 
     emit_a, emit_b = fresh_deterministic_emissions(invocation, workspace, environment=environment)
-    for name, digest in exact_directory(emit_a, emit_b, EMITTED_ARTIFACTS_WITH_SPEC).items():
+    for name, digest in exact_directory(emit_a, emit_b, emitted_files(emit_a, gate, environment=environment)).items():
         pins.expect(("artifact_sha256", name), digest)
 
     expanded_output = workspace / "expanded-emit"
@@ -255,17 +256,51 @@ def artifact_gate(
         environment=expanded_env,
         timeout=900,
     )
-    readable = (emit_a / "definition.k").read_text(encoding="utf-8")
-    replacement = (expanded_output / "definition.k").read_text(encoding="utf-8")
-    if readable.split("\n  rule ", 1)[0] != replacement.split("\n  rule ", 1)[0]:
-        raise GateError("independently compiled expansion changed syntax or configuration")
-    sentence = re.compile(r"^  (rule|claim)(?: \[([^]]+)\])?", re.MULTILINE)
-    for name in ("definition.k", "spec.k"):
-        readable = (emit_a / name).read_text(encoding="utf-8")
-        replacement = (expanded_output / name).read_text(encoding="utf-8")
-        if sentence.findall(readable) != sentence.findall(replacement):
-            raise GateError("independently compiled expansion changed rule or claim identity transport")
+    with krs_gate.Session(gate, environment=environment) as session:
+        readable_shape = session.ir_query(emit_a, {"kind": "definition_shape"})
+        expanded_shape = session.ir_query(expanded_output, {"kind": "definition_shape"})
+        if readable_shape != expanded_shape:
+            raise GateError("independently compiled expansion changed the typed definition shape")
     return emit_a
+
+
+def definition_expectations(
+    artifacts: Path,
+    gate: Path,
+    expectations: Path,
+    environment: Mapping[str, str],
+) -> None:
+    """Require the query projections declared beside a port's pins.
+
+    Python compares flat Rust query rows with expectation data.
+    Nested application patterns are matched by Rust.
+    """
+
+    checks = load_toml(expectations)["check"]
+    with krs_gate.Session(gate, environment=environment) as session:
+        vocabulary = session.ir_query(artifacts, {"kind": "vocabulary"})
+        facets = {
+            name: set(vocabulary[name])
+            for name in ("sorts", "production_symbols", "terminals", "rule_labels", "imports")
+        }
+        facets["cell_names"] = {row["name"] for row in vocabulary["cells"]}
+        for check in checks:
+            for facet, expected in check.get("required", {}).items():
+                if not set(expected) <= facets[facet]:
+                    raise GateError(f"{check['message']}: missing {facet} {sorted(set(expected) - facets[facet])}")
+            for facet, forbidden in check.get("forbidden", {}).items():
+                if set(forbidden) & facets[facet]:
+                    raise GateError(f"{check['message']}: forbidden {facet} {sorted(set(forbidden) & facets[facet])}")
+            for facet in ("cells", "subsorts", "applied_operations"):
+                for expected in check.get(facet, []):
+                    if not any(
+                        all(row.get(name) == value for name, value in expected.items())
+                        for row in vocabulary[facet]
+                    ):
+                        raise GateError(f"{check['message']}: missing {facet} row {expected}")
+            for pattern in check.get("applications", []):
+                if not session.ir_query(artifacts, {"kind": "applications", **pattern})["rows"]:
+                    raise GateError(f"{check['message']}: missing application {pattern}")
 
 
 def native_definition(
@@ -385,7 +420,7 @@ def reference_definition(
     the emitted specification, whose claims are checked against `claim_count`.
     """
 
-    emitted_claims(artifacts, port.module, claim_count)
+    emitted_claims(artifacts, port.module, claim_count, gate=gate, environment=environment)
     semantics = workspace / "definition.k"
     shutil.copy2(artifacts / "definition.k", semantics)
     spec = workspace / "spec.k"
@@ -507,9 +542,9 @@ def run_port(port: Port, hooks: Hooks) -> int:
     krs, gate = rust_gate(port, environment)
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-gate-", dir=scratch_root()) as temporary:
         workspace = Path(temporary)
-        artifacts = artifact_gate(port, workspace, krs, pins, environment)
+        artifacts = artifact_gate(port, workspace, krs, pins, gate, environment)
         if hooks.definition_checks is not None:
-            hooks.definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
+            hooks.definition_checks(artifacts, gate, environment)
         definition_kore_sha256 = native_definition(workspace, artifacts, gate, pins, environment)
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")

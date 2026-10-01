@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import GateError, entry  # noqa: E402
+from support import GateError, entry, krs_gate  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
@@ -47,10 +47,37 @@ def artifacts(directory: Path) -> dict[str, bytes]:
     }
 
 
+def verify_definition_queries(first: Path, configured: Path, gate: Path, env: dict[str, str]) -> None:
+    expected = json.loads((HERE / "definition-checks.json").read_bytes())
+    with krs_gate.Session(gate, environment=env) as session:
+        descriptors = session.ir_query(first, {"kind": "descriptors"})["rows"]
+        packages = {row["cargo_name"] for row in descriptors}
+        if not set(expected["packages"]).issubset(packages):
+            raise GateError(f"composition does not contain both semantic packages: {packages}")
+        modules = session.ir_query(first, {"kind": "modules"})["rows"]
+        root = [row for row in modules if row["name"] == expected["root_module"]]
+        if len(root) != 1 or expected["base_module"] not in root[0]["imports"]:
+            raise GateError(f"composition omits its dependency import: {modules}")
+        productions = session.ir_query(first, {"kind": "productions"})["rows"]
+        facts = [{key: row[key] for key in ("sort", "symbol", "terminals")} for row in productions]
+        for production in expected["productions"]:
+            if production not in facts:
+                raise GateError(f"composition omits dependency syntax or stable identity: {production}")
+        rules = session.ir_query(first, {"kind": "sentences", "module": expected["root_module"], "sentence_kind": "rule"})["rows"]
+        if not any(row["body"] == expected["rule_body"] for row in rules):
+            raise GateError(f"composition omits the cross-package transition: {rules}")
+        configured_productions = session.ir_query(configured, {"kind": "productions"})["rows"]
+        normal_facts = [{key: row[key] for key in ("sort", "terminals")} for row in productions]
+        configured_facts = [{key: row[key] for key in ("sort", "terminals")} for row in configured_productions]
+        if expected["configured_production"] in normal_facts or expected["configured_production"] not in configured_facts:
+            raise GateError("cfg-selected production is not isolated to configured emission")
+
+
 def main() -> None:
     target = checkout_scratch() / "tour-composition-root-target"
     env = {**environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
+    gate = krs_gate.configured_or_build(target)
     check_packages("tour-composition", env=env, target_dir=target)
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
     run(command(binary, "check"), environment=env)
@@ -116,30 +143,7 @@ def main() -> None:
         configured = artifacts(configured_first)
         if configured != artifacts(configured_second):
             raise GateError("cfg-selected composed artifacts are nondeterministic")
-        bundle = json.loads(emitted["descriptor-bundle.json"])
-        packages = {
-            descriptor.get("id", {}).get("package", {}).get("cargo_name")
-            for descriptor in bundle.get("descriptors", [])
-        }
-        if not {"base-semantics", "root-semantics"}.issubset(packages):
-            raise GateError(f"composition does not contain both semantic packages: {packages}")
-        definition = emitted["definition.k"].decode("utf-8")
-        expected_composition = (
-            "imports ORG-KRS-COMPOSITION-BASE",
-            'syntax BaseCommon ::= "same" "-" "base" [symbol(baseSame)]',
-            "rule same - base => same - base",
-            'syntax RootCommon ::= "same" "-" "root" [symbol(rootSame)]',
-        )
-        missing = [sentence for sentence in expected_composition if sentence not in definition]
-        if missing:
-            raise GateError(
-                "emitted composition omits dependency syntax, stable identity, or the "
-                f"cross-package rule: {missing}"
-            )
-        configured_definition = configured["definition.k"].decode("utf-8")
-        cfg_production = 'syntax RootCommon ::= "extended" "-" "root"'
-        if cfg_production in definition or cfg_production not in configured_definition:
-            raise GateError("cfg-selected production is not isolated to configured emission")
+        verify_definition_queries(first, configured_first, gate, env)
     print("PASS emission: deterministic composition and dual cfg-value artifacts")
 
 

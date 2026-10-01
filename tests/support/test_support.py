@@ -288,23 +288,43 @@ class KDefinitionTests(unittest.TestCase):
     CLAIMS = "  claim [one]:\n    <k> a => a </k>\n  claim [two]: <k> a </k>\n"
     SPEC = f'requires "definition.k"\n\nmodule M-SPEC\n  imports M\n\n{CLAIMS}endmodule\n'
 
-    def emitted(self, spec: str) -> tuple[list[str], str]:
-        with tempfile.TemporaryDirectory() as directory:
+    def emitted(self, spec: str, labels: list[str] | None = None) -> tuple[list[str], str]:
+        labels = labels or ["one", "two"]
+        start = self.SPEC.index(self.CLAIMS)
+        split = self.CLAIMS.index("  claim [two]")
+        rows = [
+            {"label": labels[0], "generated": {"artifact": "spec.k", "start_byte": start, "end_byte": start + split}},
+            {"label": labels[1], "generated": {"artifact": "spec.k", "start_byte": start + split, "end_byte": start + len(self.CLAIMS)}},
+        ]
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(kdefinition.krs_gate, "ir_query", return_value={"rows": rows}):
             Path(directory, "spec.k").write_text(spec, encoding="utf-8")
-            return kdefinition.emitted_claims(Path(directory), "M", 2)
+            return kdefinition.emitted_claims(Path(directory), "M", 2, gate=Path("gate"))
 
-    def test_emitted_claims_returns_labels_and_sentences(self) -> None:
+    def test_emitted_claims_returns_labels_and_generated_sentences(self) -> None:
         self.assertEqual(self.emitted(self.SPEC), (["one", "two"], self.CLAIMS))
 
     def test_emitted_claims_counts_distinct_labels(self) -> None:
         with self.assertRaisesRegex(GateError, "distinct labels"):
-            self.emitted(self.SPEC.replace("[two]", "[one]"))
+            self.emitted(self.SPEC, ["one", "one"])
+
+    def test_emitted_claims_requires_contiguous_ranges(self) -> None:
+        with self.assertRaisesRegex(GateError, "more than its claim sentences"):
+            self.emitted(self.SPEC.replace("endmodule", "\nendmodule"))
 
     def test_emitted_claims_requires_the_exact_frame(self) -> None:
         with self.assertRaisesRegex(GateError, "exact M-SPEC frame"):
             self.emitted(self.SPEC.replace("imports M", "imports N"))
         with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(GateError, "no spec.k"):
-            kdefinition.emitted_claims(Path(directory), "M", 2)
+            kdefinition.emitted_claims(Path(directory), "M", 2, gate=Path("gate"))
+
+    def test_emitted_files_requires_exact_set_and_marker(self) -> None:
+        facts = {"actual": ["a"], "expected": ["a"], "owned": True}
+        with mock.patch.object(kdefinition.krs_gate, "ir_query", return_value=facts):
+            self.assertEqual(kdefinition.emitted_files(Path("artifacts"), Path("gate")), ("a",))
+            facts["owned"] = False
+            with self.assertRaisesRegex(GateError, "ownership differs"):
+                kdefinition.emitted_files(Path("artifacts"), Path("gate"))
+
 
 class LedgerTests(unittest.TestCase):
     TOML = (

@@ -4,12 +4,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import sys
 from typing import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, semantics, entry  # noqa: E402
+from support import ROOT, semantics, entry  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from kevm import native  # noqa: E402
 
@@ -104,17 +103,12 @@ HASKELL_BACKEND_GAPS: Mapping[str, str] = {
 }
 
 
-def definition_checks(readable: str) -> None:
-    """Require the emitted definition to use the builtin Bytes surface."""
+def definition_checks(artifacts: Path, gate: Path, environment: Mapping[str, str]) -> None:
+    """Require the typed constructs declared beside the corpus pins."""
 
-    if "  imports BYTES\n" not in readable:
-        raise GateError("emitted KEVM definition does not import pinned BYTES")
-    if "lengthBytes(" not in readable:
-        raise GateError("emitted KEVM definition omits functional lengthBytes syntax")
-    if re.search(r"V[0-9A-F]+:Bytes \[ V[0-9A-F]+:Int \]", readable) is None:
-        raise GateError("emitted KEVM definition omits builtin byte lookup syntax")
-    if "EvmProgram" in readable:
-        raise GateError("emitted KEVM definition retained the structured program adapter")
+    semantics.definition_expectations(
+        artifacts, gate, PORT.here / "definition-checks.toml", environment
+    )
 
 
 def summary(port: semantics.Port, executions: int, proofs: int, java_reference: bool) -> str:

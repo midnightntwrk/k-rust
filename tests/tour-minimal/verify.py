@@ -4,21 +4,17 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import json
 import os
 from pathlib import Path
 import re
 import sys
 import tempfile
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
-from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
-from support.lock import krs_ir_schema  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import checkout_scratch, rustfmt_dir, z3_environment  # noqa: E402
@@ -79,124 +75,72 @@ def verify_expansion(source: str) -> None:
         raise GateError("expanded reference surface must contain exactly one rule")
 
 
-def load_json(artifacts: dict[str, bytes], name: str) -> Any:
-    try:
-        return json.loads(artifacts[name])
-    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise GateError(f"{name} is not a valid emitted JSON artifact: {error}") from error
-
-
-def verify_artifacts(directory: Path) -> dict[str, bytes]:
-    names = tuple(sorted(path.name for path in directory.iterdir() if path.is_file()))
-    if names != tuple(sorted(EMITTED_ARTIFACTS)):
-        raise GateError(f"emit-k wrote {names}, expected {tuple(sorted(EMITTED_ARTIFACTS))}")
-    artifacts = {name: (directory / name).read_bytes() for name in EMITTED_ARTIFACTS}
-
-    marker = artifacts[".krs-artifacts"].decode("utf-8")
-    if marker != "KRS artifact directory schema 1; safe to update.\n":
-        raise GateError(f"unexpected artifact ownership marker: {marker!r}")
-
-    bundle = load_json(artifacts, "descriptor-bundle.json")
-    descriptors = bundle.get("descriptors")
-    if bundle.get("protocol_version") != krs_ir_schema() or not isinstance(descriptors, list):
-        raise GateError(f"descriptor bundle is not a KRS schema {krs_ir_schema()} document")
-    counts = Counter(
-        descriptor.get("id", {}).get("item_kind") for descriptor in descriptors
-    )
-    expected = Counter(
-        {"sort": 3, "constructor": 2, "grammar": 2, "configuration": 1, "rule": 1}
-    )
-    if counts != expected:
-        raise GateError(f"descriptor theory differs: {counts}")
-
-    semantic = load_json(artifacts, "semantic-ir.json")
-    modules = {module.get("id"): module for module in semantic.get("modules", [])}
-    tour = modules.get(MODULE)
-    if tour is None or set(modules) != {"KRS-FRAMEWORK", MODULE}:
-        raise GateError(f"unexpected semantic modules: {sorted(modules)}")
-    if len(tour.get("productions", [])) != 2 or len(tour.get("rules", [])) != 1:
-        raise GateError("tour semantic IR must contain two productions and one rule")
-    if not isinstance(tour.get("configuration"), dict):
-        raise GateError("tour semantic IR has no configuration")
-
-    symbols = load_json(artifacts, "symbols.json").get("entries", [])
-    emitted_productions = {
-        item.get("emitted_name")
-        for item in symbols
-        if item.get("symbol_kind") == "production"
-    }
-    labels = {
-        item.get("emitted_name")
-        for item in symbols
-        if item.get("identity", {}).get("identity_kind") == "label"
-    }
-    if emitted_productions != {"foo", "bar"} or labels != {"foo-to-bar"}:
-        raise GateError(
-            f"unexpected emitted productions/labels: {emitted_productions}, {labels}"
-        )
-
-    theory = artifacts["definition.k"].decode("utf-8")
-    productions = re.findall(
-        r'^\s*syntax ObjectTerm ::= "([^"]+)" \[[^\n]+\]$', theory, re.MULTILINE
-    )
-    if sorted(productions) != ["bar", "foo"]:
-        raise GateError(f"emitted ObjectTerm productions differ: {productions}")
-    required_lines = (
-        "syntax KItem ::= KResult",
-        "syntax KResult ::= ObjectTerm",
-        "imports KRS-FRAMEWORK",
-    )
-    if any(theory.count(line) != 1 for line in required_lines):
-        raise GateError("emitted theory changed its framework import or sort chain")
-    if len(re.findall(r"^\s*rule \[", theory, re.MULTILINE)) != 1:
-        raise GateError("emitted theory must contain exactly one transition")
-    if re.search(r"configuration\s+<k>\s+foo\s+</k>", theory) is None:
-        raise GateError("emitted theory does not initialize the computation with foo")
-    if re.search(
-        r"rule \[foo-to-bar\]:\s+<k>\s+foo => bar \.\.\.\s+</k>", theory
-    ) is None:
-        raise GateError("emitted theory does not contain the foo-to-bar transition")
-
+def verify_reference_theory() -> None:
     reference = REFERENCE_SOURCE.read_text(encoding="utf-8")
-    for source_name, source in (("tour-minimal", theory), ("reference theory", reference)):
-        if source.count('"foo"') != 1 or source.count('"bar"') != 1:
-            raise GateError(f"{source_name} does not define exactly one foo/bar terminal pair")
-        for edge in ("syntax KItem ::= KResult", "syntax KResult ::= ObjectTerm"):
-            if source.count(edge) != 1:
-                raise GateError(f"{source_name} does not contain exactly one {edge!r} edge")
-        if len(re.findall(r"configuration\s+<k>\s+foo\s+</k>", source)) != 1:
-            raise GateError(f"{source_name} does not contain exactly one foo initializer")
+    if reference.count('"foo"') != 1 or reference.count('"bar"') != 1:
+        raise GateError("reference theory does not define exactly one foo/bar terminal pair")
+    for edge in ("syntax KItem ::= KResult", "syntax KResult ::= ObjectTerm"):
+        if reference.count(edge) != 1:
+            raise GateError(f"reference theory does not contain exactly one {edge!r} edge")
+    if len(re.findall(r"configuration\s+<k>\s+foo\s+</k>", reference)) != 1:
+        raise GateError("reference theory does not contain exactly one foo initializer")
     if len(re.findall(r"^\s*rule foo => bar\s*$", reference, re.MULTILINE)) != 1:
         raise GateError("reference theory does not contain exactly one bare foo-to-bar transition")
 
-    sources = load_json(artifacts, "sources.json")
-    expected_digest = sha256_file(SOURCE)
-    attributed_kinds: set[str] = set()
-    for entry in sources.get("entries", []):
-        for frame in entry.get("origin", []):
-            file = frame.get("range", {}).get("file", {})
-            package = file.get("package", {})
-            if package.get("k_namespace") != MODULE:
-                continue
-            if package.get("cargo_name") != PACKAGE:
-                raise GateError("tour source map attributes a range to the wrong Cargo package")
-            if file.get("package_relative_path") != "src/lib.rs":
-                raise GateError("tour source map attributes a range outside the authored fixture")
-            if file.get("content_sha256") != expected_digest:
-                raise GateError("tour source map carries a stale authored-source digest")
-            attributed_kinds.add(entry.get("node_kind"))
-    required_attribution = {
-        "syntax_sort",
-        "production",
-        "configuration",
-        "initializer",
-        "rule",
-        "term",
-    }
-    if not required_attribution.issubset(attributed_kinds):
-        missing = sorted(required_attribution - attributed_kinds)
-        raise GateError(f"tour source map omits authored attribution for {missing}")
 
+def verify_artifacts(directory: Path, gate: Path, environment: dict[str, str]) -> dict[str, bytes]:
+    expected = json.loads((HERE / "definition-checks.json").read_bytes())
+    with krs_gate.Session(gate, environment=environment) as session:
+        files = session.ir_query(directory, {"kind": "files"})
+        if files["actual"] != files["expected"] or not files["owned"] or files["has_claims"]:
+            raise GateError(f"unexpected emitted artifact directory: {files}")
+        descriptors = session.ir_query(directory, {"kind": "descriptors"})
+        if descriptors["counts"]["item_kind"] != expected["descriptor_item_counts"]:
+            raise GateError(f"descriptor theory differs: {descriptors['counts']}")
+        modules = session.ir_query(directory, {"kind": "modules"})
+        if modules["main_module"] != MODULE or sorted(row["name"] for row in modules["rows"]) != expected["modules"]:
+            raise GateError(f"unexpected definition modules: {modules}")
+        tour = [row for row in modules["rows"] if row["name"] == MODULE][0]
+        if tour["imports"] != expected["imports"]:
+            raise GateError(f"unexpected framework imports: {tour}")
+        semantic = session.ir_query(directory, {"kind": "semantic_modules"})["rows"]
+        if sorted(row["name"] for row in semantic) != expected["modules"]:
+            raise GateError(f"unexpected semantic modules: {semantic}")
+        tour_semantic = [row for row in semantic if row["name"] == MODULE][0]
+        if tour_semantic["production_count"] != 2 or tour_semantic["rule_count"] != 1 or not tour_semantic["has_configuration"]:
+            raise GateError(f"unexpected tour semantic theory: {tour_semantic}")
+        configurations = session.ir_query(directory, {"kind": "sentences", "module": MODULE, "sentence_kind": "configuration"})["rows"]
+        if len(configurations) != 1 or configurations[0]["initializers"] != expected["initializer"]:
+            raise GateError(f"unexpected foo initializer: {configurations}")
+        productions = session.ir_query(directory, {"kind": "productions", "sort": "ObjectTerm"})["rows"]
+        facts = [{"symbol": row["symbol"], "terminals": row["terminals"]} for row in productions]
+        if sorted(facts, key=lambda row: row["symbol"]) != expected["productions"]:
+            raise GateError(f"unexpected ObjectTerm productions: {facts}")
+        rules = session.ir_query(directory, {"kind": "sentences", "module": MODULE, "sentence_kind": "rule"})["rows"]
+        if [row["label"] for row in rules] != expected["labels"] or rules[0]["body"] != expected["rule_body"]:
+            raise GateError(f"unexpected transition labels: {rules}")
+        vocabulary = session.ir_query(directory, {"kind": "vocabulary"})
+        for edge in expected["subsorts"]:
+            if vocabulary["subsorts"].count(edge) != 1:
+                raise GateError(f"unexpected subsort edge: {edge}")
+        production_symbols = session.ir_query(directory, {"kind": "symbols", "symbol_kind": "production"})["rows"]
+        label_symbols = session.ir_query(directory, {"kind": "symbols", "identity_kind": "label"})["rows"]
+        production_names = {row["emitted_name"] for row in production_symbols}
+        labels = {row["emitted_name"] for row in label_symbols}
+        if production_names != {row["symbol"] for row in expected["productions"]} or labels != set(expected["labels"]):
+            raise GateError(f"unexpected symbol-map productions/labels: {production_names}, {labels}")
+        sources = session.ir_query(directory, {"kind": "sources"})["rows"]
+        expected_digest = sha256_file(SOURCE)
+        attributed_kinds = set()
+        for row in sources:
+            authored = [frame for frame in row["authored"] if frame["k_namespace"] == MODULE]
+            for frame in authored:
+                if frame["cargo_name"] != PACKAGE or frame["package_relative_path"] != "src/lib.rs" or frame["content_sha256"] != expected_digest:
+                    raise GateError(f"unexpected tour source attribution: {frame}")
+                attributed_kinds.add(row["node_kind"])
+        if not set(expected["attributed_kinds"]).issubset(attributed_kinds):
+            raise GateError(f"tour source map omits authored attribution: {attributed_kinds}")
+    artifacts = {name: (directory / name).read_bytes() for name in files["expected"]}
     checkout = os.fsencode(ROOT)
     for name, contents in artifacts.items():
         if checkout in contents:
@@ -214,11 +158,13 @@ def main() -> int:
     arguments = parser.parse_args()
 
     verify_source_region()
+    verify_reference_theory()
     print("PASS source: stable Vocs definition region")
 
     target = checkout_scratch() / "tour-minimal-root-target"
     environment = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = production_binary(arguments.krs, environment)
+    gate = krs_gate.configured_or_build(target)
 
     before = SOURCE.read_bytes()
     format_environment = {
@@ -252,12 +198,12 @@ def main() -> int:
         second = workspace / "second"
         run(cli_command(binary, "emit-k", "--output", first), environment=environment)
         run(cli_command(binary, "emit-k", "--output", second), environment=environment)
-        first_artifacts = verify_artifacts(first)
-        second_artifacts = verify_artifacts(second)
+        first_artifacts = verify_artifacts(first, gate, environment)
+        second_artifacts = verify_artifacts(second, gate, environment)
         if first_artifacts != second_artifacts:
             changed = sorted(
                 name
-                for name in EMITTED_ARTIFACTS
+                for name in first_artifacts
                 if first_artifacts[name] != second_artifacts[name]
             )
             raise GateError(f"repeated emission differs byte-for-byte: {changed}")

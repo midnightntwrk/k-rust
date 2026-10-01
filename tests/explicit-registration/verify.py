@@ -25,11 +25,11 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
 
 
 FIXTURE = ROOT / "tests" / "tour-minimal"
@@ -272,12 +272,9 @@ def emit_bundle(
     return (output / BUNDLE).read_bytes()
 
 
-def descriptor_ids(bundle: bytes) -> list[str]:
-    document = json.loads(bundle)
-    return sorted(
-        json.dumps(descriptor["id"], sort_keys=True)
-        for descriptor in document["descriptors"]
-    )
+def descriptor_ids(directory: Path, gate: Path, environment: dict[str, str]) -> list[str]:
+    rows = krs_gate.ir_query(gate, directory, {"kind": "descriptors"}, environment=environment)["rows"]
+    return sorted(json.dumps(row["id"], sort_keys=True) for row in rows)
 
 
 def collect_both(
@@ -355,7 +352,7 @@ def verify_rejects_inventory(
 
 
 def verify_sensitivity(
-    binary: Path, base: dict[str, Any], environment: dict[str, str]
+    binary: Path, base: dict[str, Any], environment: dict[str, str], gate: Path
 ) -> tuple[str, str]:
     """Removes one table line and requires the parity comparison to fail.
 
@@ -382,7 +379,7 @@ def verify_sensitivity(
     if explicit_bundle == inventory_bundle:
         raise GateError(f"removing `{removed}` did not change the explicit bundle")
     missing = sorted(
-        set(descriptor_ids(inventory_bundle)) - set(descriptor_ids(explicit_bundle))
+        set(descriptor_ids(base["root"] / "sensitivity" / "inventory", gate, environment)) - set(descriptor_ids(base["root"] / "sensitivity" / "explicit", gate, environment))
     )
     return removed, f"explicit bundle lacks {len(missing)} descriptor(s)"
 
@@ -427,6 +424,7 @@ def main() -> int:
 
     environment = cli_environment()
     binary = production_binary(arguments.krs, environment)
+    gate = krs_gate.configured_or_build(checkout_scratch() / "explicit-registration-root-target")
 
     with tempfile.TemporaryDirectory(prefix="krs-explicit-registration-") as temporary:
         workspace = Path(temporary)
@@ -448,13 +446,13 @@ def main() -> int:
             "PASS fixture: the tabled copy differs from the unmodified fixture only in the src/lib.rs hash"
         )
 
-        removed, effect = verify_sensitivity(binary, base, environment)
+        removed, effect = verify_sensitivity(binary, base, environment, gate)
         print(f"PASS sensitivity: removing `{removed}` breaks parity ({effect})")
 
         hidden = parity(binary, workspace, "cfg", HIDDEN_CONSTRUCTOR, environment)
         if any("Hidden" in item["path"] for item in hidden["census"]["registrations"]):
             raise GateError("the cfg-disabled constructor was registered")
-        if descriptor_ids(hidden["bundle"]) != descriptor_ids(base["bundle"]):
+        if descriptor_ids(hidden["root"] / "out" / "inventory", gate, environment) != descriptor_ids(base["root"] / "out" / "inventory", gate, environment):
             raise GateError("the cfg-disabled constructor changed the descriptor set")
         print("PASS cfg: a cfg-disabled constructor is absent from both bundles")
 

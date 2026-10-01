@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
@@ -30,16 +29,6 @@ FIXTURE = HERE / "fixtures" / "foo-bar"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
 PACKAGE = "krs-cli-oracle-semantics"
-MODULE = "ORG-KRS-CLI-ORACLE"
-EXPECTED_K_FILES = {
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-}
 
 
 def build_cli(results: Results) -> Path | None:
@@ -89,7 +78,7 @@ def cli_command(
     return run(arguments, cwd=manifest.parent, environment=environment, check=False, text=False)
 
 
-def assert_no_leaks(name: str, document: Any, raw: bytes, forbidden_paths: list[Path]) -> None:
+def assert_no_leaks(name: str, raw: bytes, forbidden_paths: list[Path]) -> None:
     text = raw.decode("utf-8")
     forbidden_tokens = ("TypeId", "KCell::new")
     for token in forbidden_tokens:
@@ -104,18 +93,6 @@ def assert_no_leaks(name: str, document: Any, raw: bytes, forbidden_paths: list[
     for path in forbidden_paths:
         if str(path) in text:
             raise ValueError(f"{name} leaks absolute path {path}")
-
-    def visit(value: Any) -> None:
-        if isinstance(value, dict):
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-        elif isinstance(value, str) and Path(value).is_absolute():
-            raise ValueError(f"{name} contains absolute JSON path {value!r}")
-
-    visit(document)
 
 
 def verify_expanded_source(raw: bytes, forbidden_paths: list[Path]) -> None:
@@ -136,45 +113,36 @@ def verify_expanded_source(raw: bytes, forbidden_paths: list[Path]) -> None:
             raise ValueError(f"expand.rs leaks absolute path {path}")
 
 
-def verify_k_artifacts(directory: Path, forbidden_paths: list[Path]) -> dict[str, bytes]:
-    names = {path.name for path in directory.iterdir()}
-    if names != EXPECTED_K_FILES:
-        raise ValueError(f"emit-k wrote {sorted(names)}, expected {sorted(EXPECTED_K_FILES)}")
-    marker = (directory / ".krs-artifacts").read_text(encoding="utf-8")
-    if marker != "KRS artifact directory schema 1; safe to update.\n":
-        raise ValueError(f"unexpected artifact ownership marker: {marker!r}")
-    artifacts = {
-        name: (directory / name).read_bytes()
-        for name in sorted(EXPECTED_K_FILES - {".krs-artifacts"})
-    }
-    source = artifacts["definition.k"].decode("utf-8")
-    required = (
-        'syntax ObjectTerm ::= "bar" [symbol(bar)]',
-        'syntax ObjectTerm ::= "foo" [symbol(foo)]',
-        "syntax KItem ::= KResult",
-        "syntax KResult ::= ObjectTerm",
-        "<k> foo </k>",
-        "rule foo => bar",
-    )
-    missing = [line for line in required if line not in source]
-    if missing:
-        raise ValueError(f"canonical K omits expected theory lines: {missing}")
-    for name in (
-        "definition-ir.json",
-        "descriptor-bundle.json",
-        "semantic-ir.json",
-        "symbols.json",
-        "sources.json",
-    ):
-        document = json.loads(artifacts[name])
-        assert_no_leaks(name, document, artifacts[name], forbidden_paths)
-    for path in forbidden_paths:
-        if str(path) in source:
-            raise ValueError(f"definition.k leaks absolute path {path}")
+def verify_k_artifacts(directory: Path, forbidden_paths: list[Path], gate: Path) -> dict[str, bytes]:
+    expected = json.loads((HERE / "definition-checks.json").read_bytes())
+    with krs_gate.Session(gate, environment=z3_environment()) as session:
+        files = session.ir_query(directory, {"kind": "files"})
+        if files["actual"] != files["expected"] or not files["owned"] or files["has_claims"]:
+            raise GateError(f"unexpected emit-k artifact set: {files}")
+        modules = session.ir_query(directory, {"kind": "modules"})
+        if modules["main_module"] != expected["main_module"]:
+            raise GateError(f"unexpected main module: {modules}")
+        productions = session.ir_query(directory, {"kind": "productions", "sort": "ObjectTerm"})["rows"]
+        facts = [{"symbol": row["symbol"], "terminals": row["terminals"]} for row in productions]
+        if sorted(facts, key=lambda row: row["symbol"]) != expected["productions"]:
+            raise GateError(f"unexpected ObjectTerm productions: {facts}")
+        configurations = session.ir_query(directory, {"kind": "sentences", "sentence_kind": "configuration"})["rows"]
+        if len(configurations) != 1 or configurations[0]["initializers"] != expected["initializer"]:
+            raise GateError(f"unexpected foo initializer: {configurations}")
+        rules = session.ir_query(directory, {"kind": "sentences", "sentence_kind": "rule"})["rows"]
+        if not any(row["body"] == expected["rule_body"] for row in rules):
+            raise GateError(f"canonical theory omits the foo-to-bar transition: {rules}")
+        vocabulary = session.ir_query(directory, {"kind": "vocabulary"})
+        for edge in expected["subsorts"]:
+            if edge not in vocabulary["subsorts"]:
+                raise GateError(f"missing subsort edge: {edge}")
+    artifacts = {name: (directory / name).read_bytes() for name in files["expected"] if name != ".krs-artifacts"}
+    for name, contents in artifacts.items():
+        assert_no_leaks(name, contents, forbidden_paths)
     return artifacts
 
 
-def positive_run(binary: Path, workspace: Path, results: Results) -> dict[str, bytes] | None:
+def positive_run(binary: Path, workspace: Path, results: Results, gate: Path) -> dict[str, bytes] | None:
     language = workspace / "language"
     manifest = materialize(language)
     target = workspace / "target"
@@ -206,7 +174,7 @@ def positive_run(binary: Path, workspace: Path, results: Results) -> dict[str, b
     try:
         if emit.returncode != 0 or emit.stdout != expected_emit:
             raise ValueError(compact(emit))
-        artifacts = verify_k_artifacts(emitted, [ROOT, workspace, language, target])
+        artifacts = verify_k_artifacts(emitted, [ROOT, workspace, language, target], gate)
         results.add(f"{workspace.name}_emit_k", "PASS", "exact owned canonical K artifact set")
     except (OSError, ValueError, json.JSONDecodeError) as error:
         results.add(f"{workspace.name}_emit_k", "FAIL", str(error))
@@ -375,15 +343,16 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
     except (GateError, OSError) as error:
         results.add("reference_execution", "FAIL", str(error))
         return
+    main_module = krs_gate.ir_query(gate, workspace, {"kind": "modules"}, environment=z3_environment())["main_module"]
     definition = workspace / "compiled-definition"
     compile_process = run(
         [
             executables["kompile"],
             str(source),
             "--main-module",
-            MODULE,
+            main_module,
             "--syntax-module",
-            MODULE,
+            main_module,
             "--backend",
             "llvm",
             "--emit-json",
@@ -404,7 +373,7 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
         return
     try:
         with krs_gate.Session(gate, environment=z3_environment()) as session:
-            session.load(definition_ir, MODULE)
+            session.load(definition_ir, main_module)
             session.read(initial.stdout.decode("utf-8"), "initial")
             session.expect("initial", "k", text="foo ~> .K")
             session.read(final.stdout.decode("utf-8"), "final")
@@ -428,12 +397,13 @@ def main() -> int:
     binary = build_cli(results)
     if binary is None:
         return 1
+    gate = krs_gate.configured_or_build(workspace_debug_binary("krs").parents[1])
     with tempfile.TemporaryDirectory(prefix="krs-cli-oracle-a-") as first_raw, tempfile.TemporaryDirectory(prefix="krs-cli-oracle-relocated-b-") as second_raw:
         first_root = Path(first_raw)
         second_root = Path(second_raw) / "different" / "depth"
         second_root.mkdir(parents=True)
-        first = positive_run(binary, first_root / "run-a", results)
-        second = positive_run(binary, second_root / "run-b", results)
+        first = positive_run(binary, first_root / "run-a", results, gate)
+        second = positive_run(binary, second_root / "run-b", results, gate)
         if first is not None and second is not None:
             verify_relocation(results, first, second)
             verify_pins(results, pins, first)

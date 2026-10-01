@@ -11,9 +11,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-from support import GateError  # noqa: E402
+from support import GateError, krs_gate  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
+from support.tools import checkout_scratch, z3_environment  # noqa: E402
 from support.process import run  # noqa: E402
 
 
@@ -97,7 +98,8 @@ def main() -> int:
     if not verification_definition.joinpath("imp-verification.k").is_file():
         raise GateError("verification definition lacks imp-verification.k")
 
-    _, claims_text = emitted_claims(arguments.spec.parent, arguments.module, EMITTED_CLAIMS)
+    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
+    _, claims_text = emitted_claims(arguments.spec.parent, arguments.module, EMITTED_CLAIMS, gate=gate, environment=z3_environment())
     execution = arguments.spec.with_name("definition.k").read_bytes()
     claims = claims_text.encode("utf-8")
     mapped = spec[start:end]

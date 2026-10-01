@@ -154,8 +154,9 @@ class RouteWiringTests(unittest.TestCase):
                         patches.enter_context(mock.patch.object(semantics, "k_tool", side_effect=lambda name, _: name))
                         patches.enter_context(mock.patch.object(semantics, "k_version", return_value="7.1.337"))
                         has_checks = verifier.HOOKS.definition_checks is not None
+                        definition_checks = mock.Mock(side_effect=lambda *_: phases.append("checks"))
                         hooks = (
-                            replace(verifier.HOOKS, definition_checks=lambda _: phases.append("checks"))
+                            replace(verifier.HOOKS, definition_checks=definition_checks)
                             if has_checks
                             else verifier.HOOKS
                         )
@@ -165,6 +166,8 @@ class RouteWiringTests(unittest.TestCase):
                         with redirect_stdout(io.StringIO()):
                             self.assertEqual(semantics.run_port(verifier.PORT, hooks), 0)
                         native_gate.assert_called_once()
+                        if has_checks:
+                            definition_checks.assert_called_once_with(artifacts, root / "krs-gate", {})
                         self.assertEqual(
                             native_gate.call_args.args[2],
                             artifacts / "definition-ir.json",

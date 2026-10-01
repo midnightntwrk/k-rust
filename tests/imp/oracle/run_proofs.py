@@ -136,14 +136,14 @@ def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]]) ->
 
 
 def compile_definitions(
-    *, workspace: Path, kompile: str, expected_labels: Sequence[str], workers: int
+    *, workspace: Path, kompile: str, expected_labels: Sequence[str], workers: int, gate: Path
 ) -> tuple[Path, Path, Path]:
     artifacts = workspace / "artifacts"
     run(
         ["cargo", "run", "--locked", "--quiet", "--manifest-path", ARTIFACT_MANIFEST, "--", artifacts],
         timeout=WATCHDOG_SECONDS,
     )
-    labels, claims = emitted_claims(artifacts, ACTUAL_MODULE, len(expected_labels))
+    labels, claims = emitted_claims(artifacts, ACTUAL_MODULE, len(expected_labels), gate=gate, environment=z3_environment())
     if labels != list(expected_labels):
         raise GateError(f"emitted claims differ from ordered pin: {labels}")
     actual_source = workspace / "actual-execution.k"
@@ -407,13 +407,13 @@ def main() -> int:
     workers = worker_count("KRS_IMP_ORACLE_WORKERS", 4)
     cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]
+    support = build_support()
     reference_definition, actual_definition, actual_spec = compile_definitions(
-        workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers
+        workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers, gate=support
     )
     reference_policy = proof_policy(pins, "reference", cases)
     actual_policy = proof_policy(pins, "actual", cases)
 
-    support = build_support()
     with krs_gate.Session(support, environment=z3_environment()) as session:
         krs = arguments.krs.resolve(strict=True)
         native_definition, native_specs = build_native(workspace, krs, support, labels)

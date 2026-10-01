@@ -31,7 +31,7 @@ from support.hashing import (  # noqa: E402
     sha256_file,
     sha256_text,
 )
-from support.kdefinition import emitted_claims  # noqa: E402
+from support.kdefinition import emitted_claims, emitted_files  # noqa: E402
 from support.krs import Invocation, build, fresh_deterministic_emissions  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -549,16 +549,6 @@ def phase_rust(context: Context) -> RustBuild:
     return RustBuild(krs)
 
 
-ARTIFACT_NAMES = (
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "native-source.txt",
-    "semantic-ir.json",
-    "sources.json",
-    "spec.k",
-    "symbols.json",
-)
 NATIVE_ARTIFACTS = (".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore")
 
 
@@ -637,16 +627,7 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
         timeout=300, environment=env,
     )
     _verify_replacement_parity(emit_a, replacement)
-    emitted_names = (
-        ".krs-artifacts",
-        "definition-ir.json",
-        "definition.k",
-        "descriptor-bundle.json",
-        "semantic-ir.json",
-        "sources.json",
-        "spec.k",
-        "symbols.json",
-    )
+    emitted_names = emitted_files(emit_a, context.target / "release/krs-gate", environment=env)
     for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
         # The ownership marker is the same file `krs build` writes natively.
         table_name = "native_artifact_sha256" if name == ".krs-artifacts" else "artifact_sha256"
@@ -661,16 +642,9 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
             environment=env,
         )
         probes.append(output)
-    probe_hashes = exact_directory(probes[0], probes[1], ARTIFACT_NAMES)
-    for name in (
-        "definition-ir.json",
-        "definition.k",
-        "descriptor-bundle.json",
-        "semantic-ir.json",
-        "sources.json",
-        "spec.k",
-        "symbols.json",
-    ):
+    probe_names = tuple(name for name in emitted_names if name != ".krs-artifacts")
+    probe_hashes = exact_directory(probes[0], probes[1], (*probe_names, "native-source.txt"))
+    for name in probe_names:
         if emit_a.joinpath(name).read_bytes() != probes[0].joinpath(name).read_bytes():
             raise GateError(f"CLI and production API probe differ: {name}")
 
@@ -681,7 +655,7 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
-    labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT)
+    labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.target / "release/krs-gate", environment=context.environment)
     actual_source = context.workspace / "actual-execution.k"
     shutil.copy2(artifacts.paths / "definition.k", actual_source)
     if labels != context.pins.get("claim_labels"):
@@ -809,7 +783,7 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
     # require the comparator to merge only that one-import/claims-only KORE
     # module.
     execution_source = definitions.actual_execution_k
-    labels, claim_source = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT)
+    labels, claim_source = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT, gate=context.target / "release/krs-gate", environment=context.environment)
     if labels != context.pins.get("claim_labels"):
         raise GateError("native supplemental claim order differs")
     spec_module = str(native_policy.get("reference_claims_module"))
