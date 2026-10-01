@@ -1,10 +1,9 @@
-use std::fmt::Write as _;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-use krs_syntax::{RuleBlock, SourceRange, TriviaKind, TriviaTable};
-use pretty::RcDoc;
+use krs_syntax::{RuleBlock, SourceRange, TokenRange, TriviaKind, TriviaTable};
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
+use unicode_width::UnicodeWidthStr;
 
 use crate::{FormatError, FormatErrorKind};
 
@@ -38,7 +37,28 @@ struct ClauseSource<'source> {
 }
 
 #[derive(Clone, Debug)]
+struct TableRow {
+    label: String,
+    pattern: String,
+    result: String,
+    conditions: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+enum ClauseBody {
+    Row(TableRow),
+    Lines(Vec<String>),
+}
+
+#[derive(Clone, Debug)]
 struct RenderedClause {
+    leading: Vec<GapEvent>,
+    attributes: Vec<String>,
+    body: ClauseBody,
+    trailing: Option<String>,
+}
+
+struct AlignedClause {
     leading: Vec<GapEvent>,
     lines: Vec<String>,
     trailing: Option<String>,
@@ -67,7 +87,7 @@ pub(crate) fn format_rule_body(
             )
         })?;
     let clauses = clause_sources(&block)?;
-    let comments = line_comments(source, &trivia);
+    let comments = line_comments(&trivia);
     let first_clause = clauses.first().ok_or_else(|| {
         FormatError::new(
             FormatErrorKind::DslSyntax,
@@ -124,10 +144,11 @@ pub(crate) fn format_rule_body(
                 .filter_map(|comment| comment.text(source))
                 .map(|comment| GapEvent::Comment(comment.to_owned())),
         );
-        let lines = render_clause(source, clause_source, &comments, &block)?;
+        let (attributes, body) = render_clause(source, clause_source, &comments, &block)?;
         rendered.push(RenderedClause {
             leading,
-            lines,
+            attributes,
+            body,
             trailing: None,
         });
     }
@@ -140,6 +161,7 @@ pub(crate) fn format_rule_body(
             .expect("the parser guarantees one clause")
             .trailing = Some(comment);
     }
+    let mut rendered = align_single_clauses(rendered);
     align_trailing_comments(&mut rendered, trailing_style);
 
     let mut lines = header_lines;
@@ -159,30 +181,17 @@ pub(crate) fn format_rule_body(
         }
     }
 
-    let docs: Vec<RcDoc<'static, ()>> = lines
+    Ok(lines
         .into_iter()
         .map(|line| {
             if line.is_empty() {
-                RcDoc::nil()
+                line
             } else {
-                RcDoc::text(indent.to_owned()).append(RcDoc::text(line))
+                format!("{indent}{line}")
             }
         })
-        .collect();
-    let document = RcDoc::intersperse(docs, RcDoc::hardline());
-    let mut output = Vec::new();
-    document.render(100, &mut output).map_err(|error| {
-        FormatError::new(
-            FormatErrorKind::Io,
-            format!("cannot render a `k::rules!` body: {error}"),
-        )
-    })?;
-    String::from_utf8(output).map_err(|error| {
-        FormatError::new(
-            FormatErrorKind::Io,
-            format!("formatter produced non-UTF-8 bytes: {error}"),
-        )
-    })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatError> {
@@ -193,7 +202,7 @@ fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatErro
             let range = clause.source_range();
             let start = range.first().byte_range().start;
             let end = range.last().byte_range().end;
-            let name_start = clause.rule().item().sig.ident.span().byte_range().start;
+            let name_start = clause.layout().label.first().byte_range().start;
             if !(start <= name_start && name_start < end) {
                 return Err(FormatError::new(
                     FormatErrorKind::DslSyntax,
@@ -210,7 +219,7 @@ fn clause_sources(block: &RuleBlock) -> Result<Vec<ClauseSource<'_>>, FormatErro
         .collect()
 }
 
-fn line_comments(_source: &str, trivia: &TriviaTable) -> Vec<SourceRange> {
+fn line_comments(trivia: &TriviaTable) -> Vec<SourceRange> {
     trivia
         .trivia()
         .iter()
@@ -250,35 +259,47 @@ fn render_clause(
     clause_source: &ClauseSource<'_>,
     comments: &[SourceRange],
     block: &RuleBlock,
-) -> Result<Vec<String>, FormatError> {
+) -> Result<(Vec<String>, ClauseBody), FormatError> {
     let attributes = source_without_comments(
         source,
         clause_source.start,
         clause_source.name_start,
         comments,
     );
-    let mut attribute_lines = attributes
+    let attribute_lines = attributes
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    let tokens = TokenStream::from_str(&source[clause_source.name_start..clause_source.end])
+    let layout = clause_source.clause.layout();
+    let parts = ClauseParts {
+        label: clause_tokens(source, layout.label)?,
+        pattern: clause_tokens(source, layout.pattern)?,
+        result: clause_tokens(source, layout.result)?,
+        conditions: layout
+            .conditions
+            .map(|range| clause_tokens(source, range))
+            .transpose()?,
+    };
+    let body = if block.is_configuration() {
+        ClauseBody::Lines(render_machine_clause(&parts)?)
+    } else {
+        ClauseBody::Row(render_single_clause(&parts))
+    };
+    Ok((attribute_lines, body))
+}
+
+fn clause_tokens(source: &str, range: TokenRange) -> Result<Vec<TokenTree>, FormatError> {
+    let bytes = range.first().byte_range().start..range.last().byte_range().end;
+    TokenStream::from_str(&source[bytes])
+        .map(|stream| stream.into_iter().collect())
         .map_err(|error| {
             FormatError::new(
                 FormatErrorKind::DslSyntax,
-                format!("cannot tokenize a readable rule clause: {error}"),
+                format!("cannot tokenize a readable rule clause component: {error}"),
             )
-        })?;
-    let parts = split_clause(tokens)?;
-    let mut lines = if block.is_configuration() {
-        render_machine_clause(&parts)?
-    } else {
-        vec![render_single_clause(&parts)]
-    };
-    attribute_lines.append(&mut lines);
-    let _ = clause_source.clause;
-    Ok(attribute_lines)
+        })
 }
 
 struct ClauseParts {
@@ -288,67 +309,16 @@ struct ClauseParts {
     conditions: Option<Vec<TokenTree>>,
 }
 
-fn split_clause(stream: TokenStream) -> Result<ClauseParts, FormatError> {
-    let mut tokens = stream.into_iter().collect::<Vec<_>>();
-    if !matches!(tokens.last(), Some(TokenTree::Punct(punct)) if punct.as_char() == ';') {
-        return Err(FormatError::new(
-            FormatErrorKind::DslSyntax,
-            "a readable rule clause does not end in `;`",
-        ));
-    }
-    tokens.pop();
-    let colon = tokens
-        .iter()
-        .position(|token| matches!(token, TokenTree::Punct(punct) if punct.as_char() == ':'))
-        .ok_or_else(|| {
-            FormatError::new(
-                FormatErrorKind::DslSyntax,
-                "a readable rule clause has no label colon",
-            )
-        })?;
-    let arrow = tokens
-        .windows(2)
-        .position(|pair| {
-            matches!(&pair[0], TokenTree::Punct(punct) if punct.as_char() == '=')
-                && matches!(&pair[1], TokenTree::Punct(punct) if punct.as_char() == '>')
-        })
-        .ok_or_else(|| {
-            FormatError::new(
-                FormatErrorKind::DslSyntax,
-                "a readable rule clause has no `=>`",
-            )
-        })?;
-    if colon >= arrow {
-        return Err(FormatError::new(
-            FormatErrorKind::DslSyntax,
-            "a readable rule clause has an invalid label or arrow",
-        ));
-    }
-    let where_index = tokens[arrow + 2..]
-        .iter()
-        .position(|token| matches!(token, TokenTree::Ident(ident) if ident == "where"))
-        .map(|index| arrow + 2 + index);
-    let result_end = where_index.unwrap_or(tokens.len());
-    Ok(ClauseParts {
-        label: tokens[..colon].to_vec(),
-        pattern: tokens[colon + 1..arrow].to_vec(),
-        result: tokens[arrow + 2..result_end].to_vec(),
-        conditions: where_index.map(|index| tokens[index + 1..].to_vec()),
-    })
-}
-
-fn render_single_clause(parts: &ClauseParts) -> String {
-    // Padding is completed table-wide after all single-cell rows are known.
-    format!(
-        "{}\u{0}{}\u{0}{}\u{0}{}",
-        render_tokens(&parts.label),
-        render_tokens(&parts.pattern),
-        render_tokens(&parts.result),
-        parts
+fn render_single_clause(parts: &ClauseParts) -> TableRow {
+    TableRow {
+        label: render_tokens(&parts.label),
+        pattern: render_tokens(&parts.pattern),
+        result: render_tokens(&parts.result),
+        conditions: parts
             .conditions
             .as_ref()
-            .map_or_else(String::new, |tokens| render_tokens(tokens))
-    )
+            .map(|tokens| render_tokens(tokens)),
+    }
 }
 
 fn render_machine_clause(parts: &ClauseParts) -> Result<Vec<String>, FormatError> {
@@ -396,68 +366,56 @@ fn record_fields(tokens: &[TokenTree], context: &str) -> Result<Vec<String>, For
     Ok(fields)
 }
 
-fn align_single_clauses(clauses: &mut [RenderedClause]) {
-    let rows = clauses
-        .iter()
-        .filter_map(|clause| clause.lines.last())
-        .filter_map(|line| {
-            let mut parts = line.split('\u{0}');
-            Some((parts.next()?, parts.next()?, parts.next()?, parts.next()?))
+fn align_single_clauses(clauses: Vec<RenderedClause>) -> Vec<AlignedClause> {
+    let mut label_width = 0;
+    let mut pattern_width = 0;
+    let mut result_width = 0;
+    for clause in &clauses {
+        if let ClauseBody::Row(row) = &clause.body {
+            label_width = label_width.max(row.label.width());
+            pattern_width = pattern_width.max(row.pattern.width());
+            result_width = result_width.max(row.result.width());
+        }
+    }
+    clauses
+        .into_iter()
+        .map(|clause| {
+            let mut lines = clause.attributes;
+            match clause.body {
+                ClauseBody::Row(row) => {
+                    let mut rendered = format!(
+                        "{}{}: {}{} => {}",
+                        row.label,
+                        " ".repeat(label_width - row.label.width()),
+                        row.pattern,
+                        " ".repeat(pattern_width - row.pattern.width()),
+                        row.result,
+                    );
+                    if let Some(conditions) = row.conditions {
+                        rendered.push_str(&" ".repeat(result_width - row.result.width()));
+                        rendered.push_str(" where ");
+                        rendered.push_str(&conditions);
+                    }
+                    rendered.push(';');
+                    lines.push(rendered);
+                }
+                ClauseBody::Lines(body) => lines.extend(body),
+            }
+            AlignedClause {
+                leading: clause.leading,
+                lines,
+                trailing: clause.trailing,
+            }
         })
-        .collect::<Vec<_>>();
-    if rows.is_empty() {
-        return;
-    }
-    let label_width = rows
-        .iter()
-        .map(|row| row.0.chars().count())
-        .max()
-        .unwrap_or(0);
-    let pattern_width = rows
-        .iter()
-        .map(|row| row.1.chars().count())
-        .max()
-        .unwrap_or(0);
-    let result_width = rows
-        .iter()
-        .map(|row| row.2.chars().count())
-        .max()
-        .unwrap_or(0);
-    for clause in clauses {
-        let Some(line) = clause.lines.last_mut() else {
-            continue;
-        };
-        let fields = line.split('\u{0}').collect::<Vec<_>>();
-        if fields.len() != 4 {
-            continue;
-        }
-        let mut rendered = format!(
-            "{:<label_width$}: {:<pattern_width$} => {}",
-            fields[0], fields[1], fields[2]
-        );
-        if fields[3].is_empty() {
-            rendered.push(';');
-        } else {
-            write!(
-                rendered,
-                "{:<padding$} where {};",
-                "",
-                fields[3],
-                padding = result_width.saturating_sub(fields[2].chars().count())
-            )
-            .expect("writing to a String cannot fail");
-        }
-        *line = rendered;
-    }
+        .collect()
 }
 
-fn align_trailing_comments(clauses: &mut [RenderedClause], style: TrailingCommentStyle) {
-    align_single_clauses(clauses);
+fn align_trailing_comments(clauses: &mut [AlignedClause], style: TrailingCommentStyle) {
     let target = clauses
         .iter()
         .filter(|clause| clause.trailing.is_some())
         .filter_map(|clause| clause.lines.last())
-        .map(|line| line.chars().count())
+        .map(|line| line.width())
         .max()
         .unwrap_or(0)
         + 2;
@@ -469,7 +427,7 @@ fn align_trailing_comments(clauses: &mut [RenderedClause], style: TrailingCommen
             continue;
         };
         let spaces = match style {
-            TrailingCommentStyle::AlignedColumn => target.saturating_sub(line.chars().count()),
+            TrailingCommentStyle::AlignedColumn => target.saturating_sub(line.width()),
             TrailingCommentStyle::FixedGutter => 2,
         };
         line.push_str(&" ".repeat(spaces));
@@ -701,6 +659,62 @@ mod tests {
                 tiny  : A(x)           => x;
                 longer: Pair(lhs, rhs) => k![lhs, rhs] where lhs: Value;"]]
         .assert_eq(&actual);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)] // Decomposed labels exercise zero-width combining marks.
+    fn aligns_unicode_table_and_trailing_comments_by_display_width() {
+        // Term validation rejects string literals, so this test exercises rendering and alignment directly.
+        let tokens = |source: &str| {
+            TokenStream::from_str(source)
+                .expect("tokenize component")
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+        let row = |label, result, conditions: Option<&str>, comment: &str| RenderedClause {
+            leading: Vec::new(),
+            attributes: Vec::new(),
+            body: ClauseBody::Row(render_single_clause(&ClauseParts {
+                label: tokens(label),
+                pattern: tokens("A(x)"),
+                result: tokens(result),
+                conditions: conditions.map(tokens),
+            })),
+            trailing: Some(comment.to_owned()),
+        };
+        let mut clauses = align_single_clauses(vec![
+            row("wide", r#""漢字""#, Some("x: Value"), "// wide"),
+            row("café", "x", Some("x: Value"), "// combining"),
+            row("ascii", "x", None, "// ascii"),
+        ]);
+        align_trailing_comments(&mut clauses, TrailingCommentStyle::AlignedColumn);
+        let output = clauses
+            .into_iter()
+            .flat_map(|clause| clause.lines)
+            .collect::<Vec<_>>()
+            .join("\n");
+        expect_test::expect![[r#"
+            wide : A(x) => "漢字" where x: Value;  // wide
+            café : A(x) => x      where x: Value;  // combining
+            ascii: A(x) => x;                      // ascii"#]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)] // The parser must preserve the decomposed label.
+    fn formats_wide_and_combining_labels_by_display_width() {
+        let source = "for Expr;\n\
+                      漢字: A(x) => x where x: Value; // wide\n\
+                      cafe\u{301}: Pair(x, y) => y; // combining\n\
+                      ascii: A(x) => Pair(x, x) where x: Value; // ascii\n";
+        let output = format_rule_body(source, 0, "", TrailingCommentStyle::AlignedColumn)
+            .expect("format body");
+        expect_test::expect![[r"
+            for Expr;
+            漢字 : A(x)       => x          where x: Value;  // wide
+            café : Pair(x, y) => y;                          // combining
+            ascii: A(x)       => Pair(x, x) where x: Value;  // ascii"]]
+        .assert_eq(&output);
     }
 
     #[test]
