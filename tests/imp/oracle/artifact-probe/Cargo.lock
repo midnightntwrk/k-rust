@@ -463,9 +463,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-collector"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "krs-syntax",
+ "proc-macro2",
+ "serde_json",
+ "sha2 0.10.9",
+ "syn 2.0.119",
+ "toml_edit",
+]
+
+[[package]]
 name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
+ "krs-collector",
  "krs-ir",
  "krs-syntax",
  "prettyplease",
@@ -475,7 +489,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.119",
- "toml_edit",
 ]
 
 [[package]]
@@ -496,6 +509,7 @@ version = "0.0.0"
 dependencies = [
  "k-rust",
  "krs",
+ "krs-collector",
  "krs-compiler",
  "krs-imp-definition",
  "krs-ir",

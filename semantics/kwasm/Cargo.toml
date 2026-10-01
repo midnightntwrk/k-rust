@@ -15,6 +15,7 @@ path = "src/lib.rs"
 k = { package = "krs", path = "../../crates/krs" }
 
 [dev-dependencies]
+krs-collector = { path = "../../crates/krs-collector" }
 krs-compiler = { path = "../../crates/krs-compiler" }
 krs-ir = { path = "../../crates/krs-ir" }
 serde_json = "1.0.145"

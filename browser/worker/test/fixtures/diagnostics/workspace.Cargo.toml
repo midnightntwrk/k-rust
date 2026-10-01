@@ -9,7 +9,7 @@ version = "0.0.0"
 publish = false
 
 [workspace.dependencies]
-krs-compiler = { path = "../../../../crates/krs-compiler" }
+krs-collector = { path = "../../../../crates/krs-collector" }
 krs-ir = { path = "../../../../crates/krs-ir" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

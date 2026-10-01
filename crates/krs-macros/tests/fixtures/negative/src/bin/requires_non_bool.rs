@@ -1,8 +1,6 @@
 //@ check-pass
-use krs_compiler::{
-    DescriptorLoweringError, PackageContext, collect_host_descriptors_with_builtins,
-    lower_descriptor_bundle,
-};
+use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
+use krs_compiler::{DescriptorLoweringError, lower_descriptor_bundle};
 
 #[renamed_krs::sort]
 pub trait KItem {}

@@ -1,6 +1,6 @@
 [package]
 name = "krs-compiler"
-description = "Deterministic host collection and target-neutral semantic analysis for KRS"
+description = "Target-neutral semantic analysis, lowering, and K emission for KRS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ license.workspace = true
 test-support = ["krs-ir/test-support"]
 
 [dependencies]
+krs-collector = { path = "../krs-collector" }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 krs-syntax = { path = "../krs-syntax" }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
@@ -18,8 +19,7 @@ quote = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = { workspace = true }
-syn = { workspace = true, features = ["full", "parsing", "visit"] }
-toml_edit = { workspace = true, features = ["parse"] }
+syn = { workspace = true, features = ["full", "parsing"] }
 
 [lints]
 workspace = true
@@ -29,5 +29,3 @@ expect-test = { workspace = true }
 krs-compiler = { path = ".", features = ["test-support"] }
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
 krs-test-support = { path = "../krs-test-support" }
-proc-macro-crate = "3.4.0"
-tempfile = "3.27.0"

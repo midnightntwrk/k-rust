@@ -828,7 +828,7 @@ fn discover_runtime() -> Result<CollectorRuntime, CommandError> {
     let metadata = cargo_metadata(&manifest)?;
     Ok(CollectorRuntime {
         host_manifest: unique_manifest(&metadata, "krs")?,
-        compiler_manifest: unique_manifest(&metadata, "krs-compiler")?,
+        collector_manifest: unique_manifest(&metadata, "krs-collector")?,
     })
 }
 

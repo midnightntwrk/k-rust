@@ -22,8 +22,7 @@ use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
-use crate::CollectionError;
-use crate::facade::{AttributeResolver, FacadeAliases};
+use krs_collector::{AttributeResolver, CollectionError, FacadeAliases};
 
 /// Expands the one authored Rust module that defines a package's
 /// descriptors.

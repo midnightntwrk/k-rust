@@ -144,9 +144,9 @@ fn render_manifest(plan: &CollectorPlan, package_name: &str) -> Result<String, G
         )?;
         render_runtime_dependency(
             &mut output,
-            "__krs_compiler_runtime",
-            "krs-compiler",
-            &runtime.compiler_manifest,
+            "__krs_collector_runtime",
+            "krs-collector",
+            &runtime.collector_manifest,
             false,
         )?;
     }
@@ -241,7 +241,7 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
         "\nfn main() {\n    if let Err(error) = collect() {\n        eprintln!(\"KRS collector failed: {error}\");\n        std::process::exit(1);\n    }\n}\n\nfn collect() -> Result<(), Box<dyn std::error::Error>> {\n    let contexts = vec![\n",
     );
     for facet in plan.context_facets() {
-        output.push_str("        __krs_compiler_runtime::PackageContext::new(");
+        output.push_str("        __krs_collector_runtime::PackageContext::new(");
         for value in [
             facet.k_namespace.as_str(),
             facet.package_name.as_str(),
@@ -278,7 +278,7 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
     };
     // `run_collector` collects, writes the canonical bundle to stdout, and
     // records opt-in measurement out of band when `krs` asks for it.
-    output.push_str("    __krs_compiler_runtime::run_collector(\n        contexts,\n        || ");
+    output.push_str("    __krs_collector_runtime::run_collector(\n        contexts,\n        || ");
     output.push_str(descriptors);
     output.push_str(",\n        __krs_host_runtime::builtin_registry,\n    )\n}\n");
     output

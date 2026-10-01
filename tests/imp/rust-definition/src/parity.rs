@@ -247,9 +247,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use k::{HostDescriptor, HostDescriptorPayload, ItemKind};
+use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
 use krs_compiler::{
-    DescriptorLoweringError, PackageContext, collect_host_descriptors_with_builtins, emit_k,
-    expand_reference_source, lower_descriptor_bundle, lower_semantic_theory,
+    DescriptorLoweringError, emit_k, expand_reference_source, lower_descriptor_bundle,
+    lower_semantic_theory,
 };
 use krs_ir::{
     DescriptorBundle, DescriptorDeclaration, DescriptorPayload, RustVisibility, StableItemId,

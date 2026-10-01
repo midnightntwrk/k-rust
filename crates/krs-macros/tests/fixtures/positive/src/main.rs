@@ -940,7 +940,7 @@ mod tests {
     #[test]
     fn missing_and_ambiguous_implicit_rule_configuration() {
         let descriptors = sorted_descriptors();
-        let context = krs_compiler::PackageContext::new(
+        let context = krs_collector::PackageContext::new(
             "KRS-MACROS-POSITIVE",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
@@ -964,7 +964,7 @@ mod tests {
             })
             .cloned()
             .collect::<Vec<_>>();
-        let missing_configuration = krs_compiler::collect_host_descriptors_with_builtins(
+        let missing_configuration = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             implicit_head_rules.clone(),
             &language_host::builtin_registry(),
@@ -972,7 +972,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             missing_configuration.kind(),
-            krs_compiler::CollectionErrorKind::InvalidConfiguration
+            krs_collector::CollectionErrorKind::InvalidConfiguration
         );
         assert!(
             missing_configuration
@@ -997,7 +997,7 @@ mod tests {
                 .take(2)
                 .cloned(),
         );
-        let ambiguous_configuration = krs_compiler::collect_host_descriptors_with_builtins(
+        let ambiguous_configuration = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             ambiguous_descriptors,
             &language_host::builtin_registry(),
@@ -1039,7 +1039,7 @@ mod tests {
             })
             .cloned()
             .unwrap();
-        let local_is_not_ownership = krs_compiler::collect_host_descriptors_with_builtins(
+        let local_is_not_ownership = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             implicit_head_rules
                 .iter()
@@ -1070,7 +1070,7 @@ mod tests {
             })
             .cloned()
             .collect::<Vec<_>>();
-        let explicitly_owned_bundle = krs_compiler::collect_host_descriptors_with_builtins(
+        let explicitly_owned_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             explicitly_owned_descriptors,
             &language_host::builtin_registry(),
@@ -1125,7 +1125,7 @@ mod tests {
             .filter(|descriptor| descriptor.id.item_kind() == ItemKind::Sort)
             .cloned()
             .collect::<Vec<_>>();
-        let no_computation = krs_compiler::collect_host_descriptors_with_builtins(
+        let no_computation = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             sort_descriptors
                 .iter()
@@ -1148,7 +1148,7 @@ mod tests {
             .find(|descriptor| descriptor.id.item_name() == "TwoComputationMachine")
             .cloned()
             .unwrap();
-        let two_computations = krs_compiler::collect_host_descriptors_with_builtins(
+        let two_computations = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             sort_descriptors
                 .iter()
@@ -1180,7 +1180,7 @@ mod tests {
             .filter(|descriptor| !matches!(descriptor.payload, HostDescriptorPayload::HeadRule(_)))
             .cloned()
             .collect::<Vec<_>>();
-        let bundle = krs_compiler::collect_host_descriptors_with_builtins(
+        let bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             non_head_descriptors.clone(),
             &language_host::builtin_registry(),
@@ -1188,7 +1188,7 @@ mod tests {
         .unwrap();
         let mut reversed_descriptors = non_head_descriptors;
         reversed_descriptors.reverse();
-        let reversed_bundle = krs_compiler::collect_host_descriptors_with_builtins(
+        let reversed_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             reversed_descriptors,
             &language_host::builtin_registry(),
@@ -1337,7 +1337,7 @@ mod tests {
             })
             .cloned()
             .collect::<Vec<_>>();
-        let readable_bundle = krs_compiler::collect_host_descriptors_with_builtins(
+        let readable_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             readable_descriptors,
             &language_host::builtin_registry(),
@@ -2453,8 +2453,8 @@ mod tests {
         descriptors
     }
 
-    fn package_context() -> krs_compiler::PackageContext {
-        krs_compiler::PackageContext::new(
+    fn package_context() -> krs_collector::PackageContext {
+        krs_collector::PackageContext::new(
             "KRS-MACROS-POSITIVE",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
@@ -2482,7 +2482,7 @@ mod tests {
     }
 
     fn broad_bundle(descriptors: &[language_host::HostDescriptor]) -> krs_ir::DescriptorBundle {
-        krs_compiler::collect_host_descriptors_with_builtins(
+        krs_collector::collect_host_descriptors_with_builtins(
             [package_context()],
             descriptors
                 .iter()
@@ -2514,7 +2514,7 @@ mod tests {
             })
             .cloned()
             .collect::<Vec<_>>();
-        krs_compiler::collect_host_descriptors_with_builtins(
+        krs_collector::collect_host_descriptors_with_builtins(
             [package_context()],
             readable_descriptors,
             &language_host::builtin_registry(),

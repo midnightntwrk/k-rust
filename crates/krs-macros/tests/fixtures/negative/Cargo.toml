@@ -9,4 +9,5 @@ publish = false
 [dependencies]
 krs-macros = { path = "../../.." }
 renamed-krs = { package = "krs", path = "../../../../krs" }
+krs-collector = { path = "../../../../krs-collector" }
 krs-compiler = { path = "../../../../krs-compiler" }

@@ -22,7 +22,7 @@ A conflict is a bug in this folder and must not be interpreted around.
 
 ## Implementation status
 
-The readable IMP surface is implemented in `crates/krs-macros`, `crates/krs-syntax`, `crates/krs-compiler`, `crates/krs-fmt`, and `crates/krs-cli`.
+The readable IMP surface is implemented in `crates/krs-macros`, `crates/krs-syntax`, `crates/krs-collector`, `crates/krs-compiler`, `crates/krs-fmt`, and `crates/krs-cli`.
 The production acceptance specimen is `tests/imp/rust-definition/src/imp.rs`.
 
 - `k::sorts!` generates the selected `<Sort>Sort` membership trait plus the short `Term<dyn <Sort>Sort>` alias, with bracket and membership declarations from B1–B4.

@@ -35,7 +35,7 @@ def synthetic_profile(directory: Path) -> Path:
         }],
     }
     sidecar = {
-        "string_table": ["_start", "collector::main", "krs_compiler::collect::provenance::"
+        "string_table": ["_start", "collector::main", "krs_collector::collect::provenance::"
                          "materialize_descriptor_provenance::h0123456789abcdef"],
         "data": [{
             "debug_name": "collector", "code_id": "c1",
@@ -65,7 +65,7 @@ class FoldTests(unittest.TestCase):
         top = {row["function"]: row for row in process["top_self"]} if "top_self" in process else {}
         self.assertEqual(top, {})  # below the detail threshold
         self.assertIn("collector;_start;collector::main;"
-                      "krs_compiler::collect::provenance::materialize_descriptor_provenance 2\n", folded)
+                      "krs_collector::collect::provenance::materialize_descriptor_provenance 2\n", folded)
         self.assertTrue(any(line.endswith(";[libc.so.6+0x40] 1\n") for line in folded))
 
     def test_detail_tables_group_by_crate(self):

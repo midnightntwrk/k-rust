@@ -10335,10 +10335,8 @@ fn load_copy_tranche_stop(
 mod tests {
     use std::path::PathBuf;
 
-    use krs_compiler::{
-        PackageContext, collect_host_descriptors_with_builtins, emit_k, lower_descriptor_bundle,
-        lower_semantic_theory,
-    };
+    use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
+    use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
 
     fn package_context() -> PackageContext {
         PackageContext::new(

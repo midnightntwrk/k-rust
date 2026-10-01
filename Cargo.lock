@@ -533,6 +533,7 @@ name = "krs-cli"
 version = "0.1.0"
 dependencies = [
  "krs",
+ "krs-collector",
  "krs-compiler",
  "krs-fmt",
  "krs-ir",
@@ -550,24 +551,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-collector"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "krs-syntax",
+ "krs-test-support",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "sha2 0.10.9",
+ "syn 2.0.119",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-collector",
  "krs-compiler",
  "krs-ir",
  "krs-syntax",
  "krs-test-support",
  "prettyplease",
- "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "syn 2.0.119",
- "tempfile",
- "toml_edit",
 ]
 
 [[package]]

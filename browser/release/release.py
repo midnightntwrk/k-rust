@@ -229,14 +229,14 @@ def pkg_component(inv: Inventory, pkg: dict[str, Any], overrides: dict[str, dict
 
 
 def walk_pack_metadata(meta: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
-    """(shipped target packages, proc-macro packages, build-time packages) walked from krs and krs-compiler."""
+    """(shipped target packages, proc-macro packages, build-time packages) walked from krs and krs-collector."""
     pkgs = {p["id"]: p for p in meta["packages"]}
     nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
     is_pm = lambda pid: any("proc-macro" in t["kind"] for t in pkgs[pid]["targets"])
     root = next(p["id"] for p in meta["packages"] if p["name"] == "krs-browser-pack")
-    starts = [d["pkg"] for d in nodes[root]["deps"] if pkgs[d["pkg"]]["name"] in ("krs", "krs-compiler")]
+    starts = [d["pkg"] for d in nodes[root]["deps"] if pkgs[d["pkg"]]["name"] in ("krs", "krs-collector")]
     if len(starts) != 2:
-        die("pack metadata: krs-browser-pack does not depend on both krs and krs-compiler")
+        die("pack metadata: krs-browser-pack does not depend on both krs and krs-collector")
     shipped, proc_macros, build_roots = set(), set(), set()
     stack = list(starts)
     while stack:
@@ -336,7 +336,7 @@ def licenses(args: argparse.Namespace) -> int:
     if f"commit-hash: {fork_revision}" not in twin_vv:
         die(f"{fork_build} twin is not at {fork_revision}")
 
-    # --- pack: cargo metadata walked from krs and krs-compiler (ticket command), checked against the artifacts
+    # --- pack: cargo metadata walked from krs and krs-collector (ticket command), checked against the artifacts
     meta_raw = cargo(["metadata", "--offline", "--locked", "--format-version", "1", "--filter-platform", "wasm32-wasip1",
                       "--manifest-path", str(repo / "browser/pack/Cargo.toml")], repo)
     inputs.append({"name": "pack cargo metadata", "command": "cargo +stable metadata --offline --locked --format-version 1 --filter-platform wasm32-wasip1 --manifest-path browser/pack/Cargo.toml", "stdout_sha256": sha256_bytes(meta_raw)})

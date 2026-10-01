@@ -96,10 +96,10 @@ collector_flags = "array of strings: additional flags for the collector binary (
 framework_sources = "array of virtual paths the collector reads at run time; each is served from the framework-source artifact whose virtual_path matches"
 
 [tables."direct_rustc.externs"]
-description = "Crate aliases to pack paths. Keys: k (the lesson's facade), __krs_host_runtime and __krs_compiler_runtime (the generated collector)."
+description = "Crate aliases to pack paths. Keys: k (the lesson's facade), __krs_host_runtime and __krs_compiler_runtime (the generated collector, backed by krs-collector)."
 k = "pack path of the krs rlib"
 __krs_host_runtime = "pack path of the krs rlib"
-__krs_compiler_runtime = "pack path of the krs_compiler rlib"
+__krs_compiler_runtime = "pack path of the krs_collector rlib"
 
 [tables.checks]
 description = "Build-time assertions; build.sh fails before writing the manifest if any is violated."

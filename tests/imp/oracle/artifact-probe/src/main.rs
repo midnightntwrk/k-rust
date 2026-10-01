@@ -3,10 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_compiler::{
-    PackageContext, collect_host_descriptors_with_builtins, emit_k, lower_descriptor_bundle,
-    lower_semantic_theory,
-};
+use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
+use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
 use krs_k_rust::adapt_definition;
 
 fn write(path: &Path, value: impl AsRef<[u8]>) -> Result<(), Box<dyn std::error::Error>> {

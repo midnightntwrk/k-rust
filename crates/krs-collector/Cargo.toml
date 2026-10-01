@@ -1,0 +1,26 @@
+[package]
+name = "krs-collector"
+description = "Deterministic host descriptor collection for KRS generated collectors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
+krs-syntax = { path = "../krs-syntax" }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+serde_json.workspace = true
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing", "visit"] }
+toml_edit = { workspace = true, features = ["parse"] }
+
+[dev-dependencies]
+krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-test-support = { path = "../krs-test-support" }
+proc-macro-crate = "3.4.0"
+quote = { workspace = true }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

@@ -1,5 +1,5 @@
 use crate::metadata::{CargoMetadata, MetadataNode, MetadataPackage, MetadataTarget};
-use krs_compiler::PackageContext;
+use krs_collector::PackageContext;
 use krs_syntax::keyword;
 use serde::Serialize;
 use serde_json::Value;
@@ -87,8 +87,8 @@ pub struct DefinitionRequest {
 pub struct CollectorRuntime {
     /// Manifest of the author-facing `krs` host crate.
     pub host_manifest: PathBuf,
-    /// Manifest of the `krs-compiler` crate.
-    pub compiler_manifest: PathBuf,
+    /// Manifest of the `krs-collector` crate.
+    pub collector_manifest: PathBuf,
 }
 
 /// How the generated production collector enumerates host descriptors.
@@ -420,7 +420,7 @@ impl CollectorPlan {
         runtime: CollectorRuntime,
     ) -> Result<Self, PlanningError> {
         validate_runtime_manifest(&runtime.host_manifest, "krs")?;
-        validate_runtime_manifest(&runtime.compiler_manifest, "krs-compiler")?;
+        validate_runtime_manifest(&runtime.collector_manifest, "krs-collector")?;
         let selection = Self::resolve_selection(
             metadata,
             &request.root,

@@ -56,7 +56,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
         },
         CollectorRuntime {
             host_manifest: PathBuf::from("/tool/krs/Cargo.toml"),
-            compiler_manifest: PathBuf::from("/tool/krs-compiler/Cargo.toml"),
+            collector_manifest: PathBuf::from("/tool/krs-collector/Cargo.toml"),
         },
     )
     .unwrap();
@@ -69,7 +69,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
     let selection = String::from_utf8(generated.canonical_selection).unwrap();
 
     assert!(manifest.contains("__krs_host_runtime = { package = \"krs\""));
-    assert!(manifest.contains("__krs_compiler_runtime = { package = \"krs-compiler\""));
+    assert!(manifest.contains("__krs_collector_runtime = { package = \"krs-collector\""));
     assert!(manifest.ends_with("\n[workspace]\n\n[profile.dev]\ndebug = 0\n"));
     let package_name = manifest
         .lines()
@@ -79,7 +79,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
     assert_ne!(package_name, "name = \"krs-generated-collector\"");
     assert!(source.contains("__krs_host_runtime::host_descriptors()"));
     assert!(source.contains("__krs_host_runtime::builtin_registry,"));
-    assert!(source.contains("__krs_compiler_runtime::run_collector("));
+    assert!(source.contains("__krs_collector_runtime::run_collector("));
     assert!(!source.contains("SELECTED_FACETS"));
     assert!(!selection.contains("/language"));
     assert!(!selection.contains("/tool"));
@@ -99,7 +99,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
         },
         CollectorRuntime {
             host_manifest: PathBuf::from("/tool/krs/Cargo.toml"),
-            compiler_manifest: PathBuf::from("/tool/krs-compiler/Cargo.toml"),
+            collector_manifest: PathBuf::from("/tool/krs-collector/Cargo.toml"),
         },
     )
     .unwrap();
@@ -140,7 +140,7 @@ fn assert_cargo_config(metadata: &CargoMetadata, generated: &GeneratedCollector)
         },
         CollectorRuntime {
             host_manifest: PathBuf::from("/tool/krs/Cargo.toml"),
-            compiler_manifest: PathBuf::from("/tool/krs-compiler/Cargo.toml"),
+            collector_manifest: PathBuf::from("/tool/krs-collector/Cargo.toml"),
         },
     )
     .unwrap();
@@ -232,7 +232,7 @@ fn explicit_plan(metadata: &CargoMetadata) -> CollectorPlan {
         },
         CollectorRuntime {
             host_manifest: PathBuf::from("/tool/krs/Cargo.toml"),
-            compiler_manifest: PathBuf::from("/tool/krs-compiler/Cargo.toml"),
+            collector_manifest: PathBuf::from("/tool/krs-collector/Cargo.toml"),
         },
     )
     .unwrap()
@@ -254,7 +254,7 @@ fn explicit_registration_collector_reads_semantics_tables_without_inventory() {
         "__krs_host_runtime = { package = \"krs\", path = \"/tool/krs\", default-features = false }"
     ));
     assert!(manifest.contains(
-        "__krs_compiler_runtime = { package = \"krs-compiler\", path = \"/tool/krs-compiler\" }"
+        "__krs_collector_runtime = { package = \"krs-collector\", path = \"/tool/krs-collector\" }"
     ));
     assert!(source.contains(
         "let tables: &[&__krs_host_runtime::__private::RegistrationTable] = &[\n        &language::__KRS_REGISTRATIONS,\n    ];\n"

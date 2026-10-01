@@ -97,19 +97,16 @@ name = "krs-browser-pack"
 version = "0.0.0"
 dependencies = [
  "krs",
- "krs-compiler",
+ "krs-collector",
 ]
 
 [[package]]
-name = "krs-compiler"
+name = "krs-collector"
 version = "0.1.0"
 dependencies = [
  "krs-ir",
  "krs-syntax",
- "prettyplease",
  "proc-macro2",
- "quote",
- "serde",
  "serde_json",
  "sha2",
  "syn 2.0.119",
@@ -170,16 +167,6 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "prettyplease"
-version = "0.2.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
-dependencies = [
- "proc-macro2",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "proc-macro-crate"

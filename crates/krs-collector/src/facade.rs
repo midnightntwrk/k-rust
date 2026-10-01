@@ -35,13 +35,17 @@ const FACADE_PACKAGE: &str = "krs";
 
 /// The names under which one package's authored sources name the facade.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct FacadeAliases {
+pub struct FacadeAliases {
     aliases: BTreeSet<String>,
 }
 
 impl FacadeAliases {
     /// Reads the facade aliases of the package whose manifest is `manifest`.
-    pub(crate) fn from_manifest(manifest: &Path) -> Result<Self, CollectionError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns a collection error if a required manifest cannot be read or parsed.
+    pub fn from_manifest(manifest: &Path) -> Result<Self, CollectionError> {
         let document = read_manifest(manifest)?;
         let table = document.as_table();
         let package = table
@@ -115,13 +119,15 @@ impl FacadeAliases {
 
 /// Resolves the attributes of one module of an authored source file.
 #[derive(Clone, Debug)]
-pub(crate) struct AttributeResolver<'a> {
+pub struct AttributeResolver<'a> {
     facade: FacadeAliases,
     display_file: &'a str,
 }
 
 impl<'a> AttributeResolver<'a> {
-    pub(crate) fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
+    /// Creates a resolver using the package aliases and a diagnostic display filename.
+    #[must_use]
+    pub fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
         Self {
             facade: facade.clone(),
             display_file,
@@ -136,7 +142,8 @@ impl<'a> AttributeResolver<'a> {
     /// the type namespace (`use`, `extern crate`, or `mod`) removes it.
     /// Names are inherited into nested inline modules, where rustc accepts
     /// them only through an import of the outer binding.
-    pub(crate) fn scoped(&self, items: &[syn::Item]) -> Self {
+    #[must_use]
+    pub fn scoped(&self, items: &[syn::Item]) -> Self {
         let mut added = BTreeSet::new();
         let mut shadowed = BTreeSet::new();
         for item in items {
@@ -227,7 +234,9 @@ impl<'a> AttributeResolver<'a> {
         self.facade.resolve(attribute.path()) == Some(Entry::Attribute(entry))
     }
 
-    pub(crate) fn resolve_macro(&self, path: &syn::Path) -> Option<FunctionMacro> {
+    /// Returns the function macro entry point invoked by a path under a facade alias.
+    #[must_use]
+    pub fn resolve_macro(&self, path: &syn::Path) -> Option<FunctionMacro> {
         match self.facade.resolve(path) {
             Some(Entry::Function(entry)) => Some(entry),
             _ => None,
@@ -533,7 +542,7 @@ mod tests {
     fn aliases(manifest: &str) -> BTreeSet<String> {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
-            "krs-compiler-facade-{}-{}",
+            "krs-collector-facade-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));

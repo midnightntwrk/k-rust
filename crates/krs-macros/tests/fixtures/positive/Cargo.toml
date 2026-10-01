@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 krs-macros = { path = "../../.." }
 language-host = { package = "krs", path = "../../../../krs" }
+krs-collector = { path = "../../../../krs-collector" }
 krs-compiler = { path = "../../../../krs-compiler" }
 krs-ir = { path = "../../../../krs-ir" }
 

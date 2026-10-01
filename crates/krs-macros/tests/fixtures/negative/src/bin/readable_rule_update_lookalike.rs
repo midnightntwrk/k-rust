@@ -1,5 +1,5 @@
 //@ check-pass
-use krs_compiler::{PackageContext, collect_host_descriptors_with_builtins};
+use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
 use renamed_krs::builtin::{KSequence, Map};
 
 #[renamed_krs::sort]

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_compiler::{CollectionErrorKind, PackageContext, collect_host_descriptors};
+use krs_collector::{CollectionErrorKind, PackageContext, collect_host_descriptors};
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
@@ -799,7 +799,7 @@ fn fixture() {
 }
 
 fn assert_kind(
-    result: Result<krs_ir::DescriptorBundle, krs_compiler::CollectionError>,
+    result: Result<krs_ir::DescriptorBundle, krs_collector::CollectionError>,
     expected: CollectionErrorKind,
 ) {
     assert_eq!(result.unwrap_err().kind(), expected);

@@ -1,14 +1,11 @@
-//! Deterministic collection and target-neutral semantic analysis for KRS.
+//! Target-neutral semantic analysis, lowering, and K emission for KRS.
 //!
-//! This crate owns the sole conversion from process-local
-//! [`krs_ir::HostDescriptor`] values to a serializable
-//! [`krs_ir::DescriptorBundle`]. Cargo orchestration remains in `krs-cli`, and
-//! adapters consume only the stable bundle or later IRs.
+//! Host descriptor collection belongs to `krs-collector`.
+//! This crate consumes the stable descriptor bundle
+//! and produces the Semantic IR, the Definition IR, and the emitted K.
 
-mod collect;
 mod emit;
 mod error;
-mod facade;
 mod lowering;
 mod overlap;
 mod reference;
@@ -17,12 +14,8 @@ mod sidecar;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
-pub use collect::{
-    PackageContext, collect_host_descriptors, collect_host_descriptors_with_builtins,
-    collect_host_descriptors_with_builtins_timed, run_collector,
-};
 pub use emit::{DEFINITION_ARTIFACT, EmitError, EmittedK, EmittedSpec, SPEC_ARTIFACT, emit_k};
-pub use error::{AnalysisError, AnalysisErrorKind, CollectionError, CollectionErrorKind};
+pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use reference::{
     ReferenceExpansionError, ReferenceSourceError, expand_package_reference_source,

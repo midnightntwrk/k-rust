@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use krs_compiler::{PackageContext, collect_host_descriptors};
+use krs_collector::{PackageContext, collect_host_descriptors};
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostDeclarationIdentity, HostDescriptor,
     HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance, HostSortDescriptor,
