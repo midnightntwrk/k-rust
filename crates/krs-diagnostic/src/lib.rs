@@ -65,19 +65,22 @@ pub enum Severity {
 pub enum Location {
     /// The producer has no location.
     None,
-    /// A procedural-macro span retained for a macro renderer.
+    /// A procedural-macro span in the producer's token-stream coordinates, retained for a macro renderer.
     #[cfg(feature = "proc-macro2")]
     Span(proc_macro2::Span),
-    /// A byte range in a package-relative display file.
+    /// A half-open UTF-8 byte range in the exact input text given to the producer.
+    /// The caller must supply the file containing that input text through [`Diagnostic::with_file`].
+    Range(ByteRange),
+    /// A half-open UTF-8 byte range within a file named by its package-relative display path.
     File {
         /// Normalized display path of the file.
         path: DisplayPath,
         /// Half-open UTF-8 byte range within the file.
         range: ByteRange,
     },
-    /// A byte range in one exact source-file revision.
+    /// A half-open UTF-8 byte range within the exact source-file revision identified by the range.
     Source(SourceRange),
-    /// A key resolved against a Definition source map by the renderer.
+    /// A key in the Definition source map supplied to the renderer.
     Definition(SourceMapKey),
 }
 
@@ -137,6 +140,22 @@ impl Diagnostic {
             secondary: Vec::new(),
             notes: Vec::new(),
         }
+    }
+
+    /// Attaches the file containing the producer's input text to all input-relative ranges.
+    /// Primary and secondary [`Location::Range`] labels become [`Location::File`] labels.
+    /// Other locations retain their producer coordinates and file identities.
+    #[must_use]
+    pub fn with_file(mut self, path: &DisplayPath) -> Self {
+        for label in std::iter::once(&mut self.primary).chain(&mut self.secondary) {
+            if let Location::Range(range) = label.location {
+                label.location = Location::File {
+                    path: path.clone(),
+                    range,
+                };
+            }
+        }
+        self
     }
 
     /// Appends an explanatory note.

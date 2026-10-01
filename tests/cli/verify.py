@@ -291,7 +291,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         broken_ok = broken.returncode != 0 and any(
             diagnostic.schema_version == 1
             and diagnostic.stage == "rust-expansion"
-            and diagnostic.code == "rust-expansion-error"
+            and diagnostic.code == "krs::rust-expansion::uncoded-error"
             and diagnostic.severity == "error"
             and "KRS CLI oracle induced Cargo failure" in diagnostic.message
             and diagnostic.authored_range is not None

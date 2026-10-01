@@ -529,6 +529,7 @@ dependencies = [
  "krs",
  "krs-collector",
  "krs-compiler",
+ "krs-diagnostic",
  "krs-fmt",
  "krs-ir",
  "krs-k-rust",
@@ -711,6 +712,7 @@ name = "krs-syntax"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-diagnostic",
  "krs-ir",
  "krs-test-support",
  "proc-macro2",

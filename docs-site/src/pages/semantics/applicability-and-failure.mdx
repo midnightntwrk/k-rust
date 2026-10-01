@@ -35,7 +35,7 @@ This negative fixture deliberately gives two rules the same `Foo()` head:
 // [!include ~/snippets/overlapping-rules.rs]
 ```
 
-`krs check` returns one schema-1 analysis diagnostic with code `overlapping-rule-heads`.
+`krs check` returns one schema-1 analysis diagnostic with code `krs::analysis::overlapping-rule-heads`.
 Its authored range selects exactly the `Foo` token in `second_foo`, and its notes retain both stable rule identities.
 The diagnostic does not guess that source order makes `first_foo` win.
 

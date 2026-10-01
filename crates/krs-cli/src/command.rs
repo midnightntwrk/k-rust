@@ -8,6 +8,7 @@ use krs_compiler::{
     ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_package_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
+use krs_diagnostic::{Code, codes};
 use krs_ir::measure::{
     COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV, CollectorMeasureDocument, CollectorReadSet,
     Counters, Measurement, unix_seconds,
@@ -505,7 +506,7 @@ fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, C
         {
             let mut diagnostic = DiagnosticEnvelope::error(
                 DiagnosticStage::Analysis,
-                "overlapping-rule-heads",
+                codes::analysis::OVERLAPPING_RULE_HEADS.as_str(),
                 error.to_string(),
                 range,
             );
@@ -532,13 +533,13 @@ fn lower_definition(
             && let Some(range) = exact_authored_range_from_origin(second_origin)
         {
             let code = if *namespace == "emitted symbol" {
-                "symbol-name-collision"
+                codes::analysis::SYMBOL_NAME_COLLISION
             } else {
-                "name-collision"
+                codes::analysis::NAME_COLLISION
             };
             return CommandError::Diagnostics(vec![DiagnosticEnvelope::error(
                 DiagnosticStage::Analysis,
-                code,
+                code.as_str(),
                 error.to_string(),
                 range,
             )]);
@@ -978,14 +979,15 @@ fn rust_diagnostics(stdout: &[u8], metadata: &CargoMetadata) -> Vec<DiagnosticEn
         let Some(manifest) = message.manifest_path.as_deref() else {
             continue;
         };
+        let code = diagnostic.code.as_ref().map_or_else(
+            || codes::rust_expansion::UNCODED_ERROR,
+            |code| Code::foreign(code.code.clone()),
+        );
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(metadata, manifest, span) {
                 diagnostics.push(DiagnosticEnvelope::error(
                     DiagnosticStage::RustExpansion,
-                    diagnostic.code.as_ref().map_or_else(
-                        || "rust-expansion-error".to_owned(),
-                        |code| code.code.clone(),
-                    ),
+                    code.as_str(),
                     diagnostic.message.clone(),
                     range,
                 ));

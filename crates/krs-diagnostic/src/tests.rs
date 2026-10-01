@@ -24,7 +24,7 @@ fn registered_spellings_are_well_formed_and_unique() {
         assert!(!info.summary.is_empty());
         assert!(!info.summary.contains(['\n', '\r']));
     }
-    assert_eq!(seen.len(), 27);
+    assert_eq!(seen.len(), 71);
 }
 
 #[test]
@@ -133,4 +133,44 @@ fn macro_span_location_preserves_the_producer_span() {
         panic!("macro span lost");
     };
     assert_eq!(actual.byte_range(), span.byte_range());
+}
+
+#[test]
+fn supplying_a_file_resolves_all_input_ranges_and_preserves_other_locations() {
+    let path = DisplayPath::new("src/input.rs").unwrap();
+    let existing_path = DisplayPath::new("src/other.rs").unwrap();
+    let primary_range = ByteRange::new(3, 8).unwrap();
+    let secondary_range = ByteRange::new(10, 15).unwrap();
+    let diagnostic = Diagnostic::error(
+        codes::syntax::INVALID_TRIVIA,
+        "invalid source",
+        Location::Range(primary_range),
+    )
+    .with_secondary(Label::new(Location::Range(secondary_range)).with_message("related"))
+    .with_secondary(Label::new(Location::File {
+        path: existing_path.clone(),
+        range: secondary_range,
+    }))
+    .with_secondary(Label::new(Location::None))
+    .with_secondary(Label::new(Location::Definition(
+        SourceMapKey::new("definition.item").unwrap(),
+    )))
+    .with_file(&path);
+    for (label, expected_path, expected_range) in [
+        (&diagnostic.primary, &path, primary_range),
+        (&diagnostic.secondary[0], &path, secondary_range),
+        (&diagnostic.secondary[1], &existing_path, secondary_range),
+    ] {
+        let Location::File { path, range } = &label.location else {
+            panic!("expected file coordinates");
+        };
+        assert_eq!(path, expected_path);
+        assert_eq!(*range, expected_range);
+    }
+    assert_eq!(diagnostic.secondary[0].message.as_deref(), Some("related"));
+    assert!(matches!(diagnostic.secondary[2].location, Location::None));
+    assert!(matches!(
+        diagnostic.secondary[3].location,
+        Location::Definition(_)
+    ));
 }

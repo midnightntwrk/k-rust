@@ -113,7 +113,7 @@ export const CASES: DiagnosticCase[] = [
     contentSha256: "fc9f489244b8ad0423f0a3e40b29800359a83a59834a465201c2da74ca6a835c",
     nativeStage: "lowering",
     nativeLoweringOfBrowserBundle: true,
-    note: "DiagnosticEnvelope overlapping-rule-heads (stage analysis) from krs-cli prepare()",
+    note: "DiagnosticEnvelope krs::analysis::overlapping-rule-heads (stage analysis) from krs-cli prepare()",
   },
   {
     id: "D009",

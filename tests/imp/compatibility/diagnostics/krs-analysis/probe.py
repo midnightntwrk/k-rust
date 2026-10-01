@@ -74,7 +74,7 @@ def main() -> int:
     start, end, line, column, length = expected_anchor()
     matching = [
         diagnostic for diagnostic in diagnostics
-        if diagnostic.code == "symbol-name-collision" and has_expected_range(diagnostic)
+        if diagnostic.code == "krs::analysis::symbol-name-collision" and has_expected_range(diagnostic)
     ]
     if len(matching) != 1:
         raise GateError(

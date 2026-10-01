@@ -67,7 +67,7 @@ def check_overlap(binary: Path) -> None:
     expected = {
         "schema_version": 1,
         "stage": "analysis",
-        "code": "overlapping-rule-heads",
+        "code": "krs::analysis::overlapping-rule-heads",
         "severity": "error",
     }
     for field, value in expected.items():

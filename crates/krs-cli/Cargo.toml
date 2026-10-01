@@ -19,6 +19,7 @@ z3-inference = ["krs-k-rust/z3-inference"]
 krs = { path = "../krs" }
 krs-collector = { path = "../krs-collector" }
 krs-compiler = { path = "../krs-compiler" }
+krs-diagnostic = { path = "../krs-diagnostic" }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }

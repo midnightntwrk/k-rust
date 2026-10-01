@@ -242,7 +242,7 @@ mod tests {
     fn envelope_is_one_canonical_json_line() {
         let envelope = DiagnosticEnvelope::error(
             DiagnosticStage::Analysis,
-            "symbol-name-collision",
+            krs_diagnostic::codes::analysis::SYMBOL_NAME_COLLISION.as_str(),
             "collision",
             range(),
         );

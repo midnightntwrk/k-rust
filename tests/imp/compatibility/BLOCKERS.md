@@ -29,9 +29,7 @@ blocker in this fixture surface.
 
 - Rust expansion: rustc and rust-analyzer both select the exact authored
   `syntax` token; this boundary is green.
-- KRS analysis: the two locally valid `Collision` declarations produce one
-  schema-1 `analysis`/`symbol-name-collision` envelope at the exact second
-  authored `Collision` range, with no generated collector path.
+- KRS analysis: the two locally valid `Collision` declarations produce one schema-1 `analysis`/`krs::analysis::symbol-name-collision` envelope at the exact second authored `Collision` range, with no generated collector path.
 - K frontend: mutating the unique `spec.k` range mapped from authored
   `bool::and` produces K `Location(65,14,...)`, and the schema-2 sidecar maps
   it to the exact hash-checked `src/claims.rs` bytes 12765..12774. The reusable

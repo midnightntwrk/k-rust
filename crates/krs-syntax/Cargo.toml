@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+krs-diagnostic = { path = "../krs-diagnostic", features = ["proc-macro2"] }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }

@@ -136,6 +136,7 @@ name = "krs-diagnostic"
 version = "0.1.0"
 dependencies = [
  "krs-ir",
+ "proc-macro2",
  "serde",
 ]
 
@@ -191,6 +192,7 @@ dependencies = [
 name = "krs-syntax"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-ir",
  "proc-macro2",
  "quote",

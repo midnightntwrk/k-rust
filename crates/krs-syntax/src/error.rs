@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
+use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic, codes};
 use proc_macro2::Span;
 
 use crate::SourceRange;
@@ -204,6 +205,79 @@ pub enum SyntaxErrorKind {
     },
 }
 
+impl SyntaxErrorKind {
+    /// Returns the registered code for this syntax category.
+    #[must_use]
+    pub const fn code(&self) -> Code {
+        match self {
+            Self::RustSyntax(_) => codes::syntax::RUST_SYNTAX,
+            Self::UnexpectedAttributePayload { .. } => codes::syntax::UNEXPECTED_ATTRIBUTE_PAYLOAD,
+            Self::UnknownArgument { .. } => codes::syntax::UNKNOWN_ARGUMENT,
+            Self::DuplicateArgument { .. } => codes::syntax::DUPLICATE_ARGUMENT,
+            Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
+            Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
+            Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
+            Self::UnsupportedSortDeclaration { .. } => codes::syntax::UNSUPPORTED_SORT_DECLARATION,
+            Self::UnsupportedConstructorDeclaration { .. } => {
+                codes::syntax::UNSUPPORTED_CONSTRUCTOR_DECLARATION
+            }
+            Self::UnsupportedEnumConstructorDeclaration { .. } => {
+                codes::syntax::UNSUPPORTED_ENUM_CONSTRUCTOR_DECLARATION
+            }
+            Self::UnsupportedTokenDeclaration { .. } => {
+                codes::syntax::UNSUPPORTED_TOKEN_DECLARATION
+            }
+            Self::UnsupportedSubsortDeclaration { .. } => {
+                codes::syntax::UNSUPPORTED_SUBSORT_DECLARATION
+            }
+            Self::InvalidSyntaxTemplate { .. } => codes::syntax::INVALID_SYNTAX_TEMPLATE,
+            Self::UnknownTemplateField { .. } => codes::syntax::UNKNOWN_TEMPLATE_FIELD,
+            Self::InvalidTemplateFieldOccurrence { .. } => {
+                codes::syntax::INVALID_TEMPLATE_FIELD_OCCURRENCE
+            }
+            Self::InvalidTokenRegex { .. } => codes::syntax::INVALID_TOKEN_REGEX,
+            Self::InvalidFormat { .. } => codes::syntax::INVALID_FORMAT,
+            Self::InvalidStrictness { .. } => codes::syntax::INVALID_STRICTNESS,
+            Self::InvalidGrammarMacro { .. } => codes::syntax::INVALID_GRAMMAR_MACRO,
+            Self::InvalidEnumPrecedence { .. } => codes::syntax::INVALID_ENUM_PRECEDENCE,
+            Self::UnsupportedConfigurationDeclaration { .. } => {
+                codes::syntax::UNSUPPORTED_CONFIGURATION_DECLARATION
+            }
+            Self::UnsupportedConfigurationField { .. } => {
+                codes::syntax::UNSUPPORTED_CONFIGURATION_FIELD
+            }
+            Self::UnsupportedInitializerSignature { .. } => {
+                codes::syntax::UNSUPPORTED_INITIALIZER_SIGNATURE
+            }
+            Self::UnsupportedConfigurationVariable { .. } => {
+                codes::syntax::UNSUPPORTED_CONFIGURATION_VARIABLE
+            }
+            Self::AmbiguousMainConfigurationVariable => {
+                codes::syntax::AMBIGUOUS_MAIN_CONFIGURATION_VARIABLE
+            }
+            Self::UnsupportedInitializerBody { .. } => codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
+            Self::MissingConfigurationField { .. } => codes::syntax::MISSING_CONFIGURATION_FIELD,
+            Self::DuplicateConfigurationField { .. } => {
+                codes::syntax::DUPLICATE_CONFIGURATION_FIELD
+            }
+            Self::InvalidCellAttribute { .. } => codes::syntax::INVALID_CELL_ATTRIBUTE,
+            Self::InvalidStateMacro { .. } => codes::syntax::INVALID_STATE_MACRO,
+            Self::InvalidTrivia { .. } => codes::syntax::INVALID_TRIVIA,
+            Self::UnsupportedDslBlockComment { .. } => codes::syntax::UNSUPPORTED_DSL_BLOCK_COMMENT,
+            Self::UnsupportedRuleSignature { .. } => codes::syntax::UNSUPPORTED_RULE_SIGNATURE,
+            Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
+            Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
+            Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
+            Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
+            Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
+            Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
+            Self::TooManyProvenanceOccurrences { .. } => {
+                codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
+            }
+        }
+    }
+}
+
 /// A structured parser error carrying the most specific available source span.
 #[derive(Clone, Debug)]
 pub struct SyntaxError {
@@ -225,9 +299,7 @@ impl SyntaxError {
 
     /// Adds a byte-exact range in the source string passed to a `_source` API.
     ///
-    /// Comments have no `proc_macro2::Span`, so source-reparse diagnostics use
-    /// this range while retaining [`Self::span`] for compatibility with callers
-    /// that consume `syn::Error`.
+    /// Comments have no `proc_macro2::Span`, so source-reparse diagnostics use this range while retaining [`Self::span`] for compatibility with callers that consume `syn::Error`.
     #[must_use]
     pub const fn with_source_range(mut self, source_range: SourceRange) -> Self {
         self.source_range = Some(source_range);
@@ -250,6 +322,15 @@ impl SyntaxError {
     #[must_use]
     pub const fn source_range(&self) -> Option<SourceRange> {
         self.source_range
+    }
+}
+
+impl ToDiagnostic for SyntaxError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let location = self
+            .source_range
+            .map_or_else(|| Location::Span(self.span), Location::Range);
+        Diagnostic::error(self.kind.code(), self.to_string(), location)
     }
 }
 
@@ -413,3 +494,6 @@ impl From<syn::Error> for SyntaxError {
         Self::new(SyntaxErrorKind::RustSyntax(error.to_string()), error.span())
     }
 }
+
+#[cfg(test)]
+mod tests;
