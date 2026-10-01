@@ -29,6 +29,72 @@ const JAVA_BACKED_DIFFERENTIAL_SCRIPTS: [&str; 6] = [
     MIR_EXECUTION_SCRIPT,
 ];
 
+/// The command that starts at `start`: its line and every line a trailing backslash continues.
+fn shell_command_at(script: &str, start: usize) -> &str {
+    let mut end = start;
+    loop {
+        let line_end = script[end..]
+            .find('\n')
+            .map_or(script.len(), |offset| end + offset);
+        if !script[end..line_end].trim_end().ends_with('\\') || line_end == script.len() {
+            return &script[start..line_end];
+        }
+        end = line_end + 1;
+    }
+}
+
+/// The kompile invariant checkers exist in a release binary only under the
+/// `kompile-invariant-checks` feature, so every gate that builds or runs `krust` must pass the
+/// gate cargo arguments of `reference-memory-guard.sh`: the feature, and a target directory of
+/// its own so the checked binary never replaces the `target/release/krust` that
+/// `scripts/benchmark.sh` measures. A gate that builds `krust` executes the binary those
+/// arguments write, never one under `CARGO_TARGET_DIR`.
+#[test]
+fn every_gate_builds_krust_with_the_gate_cargo_arguments() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let guard = fs::read_to_string(workspace.join("scripts/reference-memory-guard.sh"))
+        .expect("read the memory guard");
+    assert!(guard.contains("krust_gate_cargo_args+=(--features kompile-invariant-checks)"));
+    assert!(guard.contains("/target/gates\"}"));
+    for script in [
+        "scripts/conformance-ratchet.sh",
+        "scripts/reference-differential.sh",
+        "scripts/reference-kast-differential.sh",
+        "scripts/reference-non-imp-execution-differential.sh",
+        "scripts/reference-proof-differential.sh",
+        "scripts/reference-rpc-differential.sh",
+        "scripts/reference-mir-execution-differential.sh",
+        SYMBOLIC_EXECUTION_SCRIPT_PATH,
+    ] {
+        let text = fs::read_to_string(workspace.join(script)).expect("read gate script");
+        let mut krust_commands = 0;
+        for subcommand in ["cargo run ", "cargo build "] {
+            for (start, _) in text.match_indices(subcommand) {
+                let command = shell_command_at(&text, start);
+                if !command.contains("--bin krust") {
+                    continue;
+                }
+                krust_commands += 1;
+                assert!(
+                    command.contains("--release \"${krust_gate_cargo_args[@]}\""),
+                    "{script} builds krust without the gate cargo arguments:\n{command}"
+                );
+                if subcommand == "cargo build " {
+                    assert!(
+                        text.contains("$krust_gate_binary"),
+                        "{script} builds the gate krust but does not execute it"
+                    );
+                }
+            }
+        }
+        assert!(krust_commands > 0, "{script} no longer builds krust");
+        assert!(
+            !text.contains("/release/krust"),
+            "{script} executes a krust outside the gate target directory"
+        );
+    }
+}
+
 #[test]
 fn differential_manifest_schema_is_complete() {
     let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
@@ -2003,7 +2069,7 @@ fn symbolic_gate_scopes_haskell_runtime_options_to_the_reference_backend() {
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("K_KORE_EXEC", &fake_kore_exec)
-            .env("CARGO_TARGET_DIR", &target)
+            .env("KRUST_GATE_TARGET_DIR", &target)
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
             .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as");
         match ghcrts {

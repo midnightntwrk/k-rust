@@ -17,7 +17,6 @@ reference_port=${REFERENCE_RPC_PORT:-31347}
 rust_port=${RUST_RPC_PORT:-31348}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-12582912}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
-cargo_target_dir=${CARGO_TARGET_DIR:-"$workspace/target"}
 reference_retries=${REFERENCE_EXECUTION_RETRIES:-3}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
@@ -387,7 +386,7 @@ compare_simplified_implication() {
         "$input" >"$stem-$side-$part.json"
       (
         ulimit -v "$rust_memory_kib"
-        "$cargo_target_dir/release/krust" kore-simplify \
+        "$krust_gate_binary" kore-simplify \
           "$work/kompiled/definition.kore" \
           --module "$main_module" \
           --pattern "$stem-$side-$part.json" \
@@ -575,17 +574,18 @@ for reference_oracle in "${reference_oracles[@]}"; do
 done
 
 echo "[$name:rpc] building the Rust RPC server"
+reference_announce_krust_gate_build
 (
   ulimit -v "$rust_memory_kib"
   export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-  cargo build --quiet --release --manifest-path "$workspace/Cargo.toml" \
-    -p k-rust --bin krust
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" \
+    --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 )
 
 echo "[$name:rpc] collecting Rust responses"
 (
   ulimit -v "$rust_memory_kib"
-  exec "$cargo_target_dir/release/krust" kore-rpc "$work/kompiled/definition.kore" \
+  exec "$krust_gate_binary" kore-rpc "$work/kompiled/definition.kore" \
     --module "$main_module" \
     --server-port "$rust_port"
 ) >"$work/server.log" 2>&1 &

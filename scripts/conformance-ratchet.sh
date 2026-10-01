@@ -278,9 +278,10 @@ krust=${CONFORMANCE_KRUST:-}
 if [[ -z "$krust" ]]; then
   command -v cargo >/dev/null || die "cargo is required to build krust"
   echo "[conformance] building the release krust binary"
-  cargo build --quiet --release --manifest-path "$workspace/Cargo.toml" \
-    -p k-rust --bin krust
-  krust="$cargo_target_dir/release/krust"
+  reference_announce_krust_gate_build
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" \
+    --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
+  krust=$krust_gate_binary
 fi
 [[ -x "$krust" ]] || die "krust executable is not executable: $krust"
 

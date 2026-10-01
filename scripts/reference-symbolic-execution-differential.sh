@@ -11,7 +11,6 @@ kore_exec=${K_KORE_EXEC:-}
 kore_parser=${K_KORE_PARSER:-}
 reference_memory_kib=${REFERENCE_EXECUTION_MEMORY_KIB:-8388608}
 rust_memory_kib=${RUST_DIFFERENTIAL_MEMORY_KIB:-6291456}
-cargo_target_dir=${CARGO_TARGET_DIR:-"$workspace/target"}
 reference_k_opts=${REFERENCE_DIFFERENTIAL_K_OPTS:-$reference_default_k_opts}
 manifest_json=$(
   WORKSPACE="$workspace" K_CHECKOUT="$k_checkout" \
@@ -81,13 +80,14 @@ run_reference_backend() (
 )
 
 echo "[symbolic] building the Rust execution frontend"
+reference_announce_krust_gate_build
 (
   ulimit -v "$rust_memory_kib"
   export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-  cargo build --quiet --release --manifest-path "$workspace/Cargo.toml" \
-    -p k-rust --bin krust
+  cargo build --quiet --release "${krust_gate_cargo_args[@]}" \
+    --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust
 )
-krust="$cargo_target_dir/release/krust"
+krust=$krust_gate_binary
 
 for name in "${selected[@]}"; do
   suite=$(jq -c --arg name "$name" '.symbolic[] | select(.name == $name)' <<<"$manifest_json")

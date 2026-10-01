@@ -80,6 +80,7 @@ mapfile -t cases < <(
 )
 selected_count=0
 
+reference_announce_krust_gate_build
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source main_module parser_module include selector syntax_module hook_namespaces <<<"$fixture"
   selected=true
@@ -203,7 +204,7 @@ for fixture in "${cases[@]}"; do
   done
 
   echo "[$name] parsing the corpus with one krust kast frontend session"
-  reference_run_rust_frontend cargo run --quiet --release \
+  reference_run_rust_frontend cargo run --quiet --release "${krust_gate_cargo_args[@]}" \
     --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
     kast "$source" \
     --module "$parser_module" \

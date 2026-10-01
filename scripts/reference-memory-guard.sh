@@ -5,6 +5,39 @@ reference_job_memory_high_kib=${REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB:-1677
 reference_job_memory_max_kib=${REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB:-16777216}
 reference_job_fallback_virtual_memory_kib=${REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB:-25165824}
 
+# The cargo arguments of every build or run of `krust` in a conformance or reference
+# gate. The kompile invariant checkers are compiled only under debug assertions or the
+# `kompile-invariant-checks` feature, and the gates build release binaries, so without
+# the feature the checkers never see the corpus these gates compile. The checked
+# binary goes to its own target directory: scripts/benchmark.sh measures
+# target/release/krust and scripts/profile.sh target/profiling/krust, and a gate must
+# never replace either with a binary that runs the checkers. KRUST_GATE_TARGET_DIR
+# moves that directory; KRUST_GATE_INVARIANT_CHECKS=0 builds without the feature.
+krust_gate_target_dir=${KRUST_GATE_TARGET_DIR:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/target/gates"}
+if [[ "$krust_gate_target_dir" != /* ]]; then
+  krust_gate_target_dir=$PWD/$krust_gate_target_dir
+fi
+krust_gate_cargo_args=(--target-dir "$krust_gate_target_dir")
+case ${KRUST_GATE_INVARIANT_CHECKS:-1} in
+  1)
+    krust_gate_cargo_args+=(--features kompile-invariant-checks)
+    krust_gate_build_description="with kompile-invariant-checks"
+    ;;
+  0)
+    krust_gate_build_description="without kompile-invariant-checks (KRUST_GATE_INVARIANT_CHECKS=0)"
+    ;;
+  *)
+    echo "error: KRUST_GATE_INVARIANT_CHECKS must be 0 or 1" >&2
+    return 2
+    ;;
+esac
+# The release binary that `cargo build --release "${krust_gate_cargo_args[@]}"` writes.
+krust_gate_binary="$krust_gate_target_dir/release/krust"
+
+reference_announce_krust_gate_build() {
+  echo "[gate] krust is built $krust_gate_build_description into $krust_gate_target_dir"
+}
+
 reference_require_positive_kib() {
   local name=$1
   local value=$2

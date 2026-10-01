@@ -134,6 +134,7 @@ if (($#)); then
   selected=("$@")
 fi
 
+reference_announce_krust_gate_build
 for name in "${selected[@]}"; do
   if ! printf '%s\n' "${available[@]}" | grep -Fxq "$name"; then
     echo "error: unknown runnable local execution case: $name" >&2
@@ -209,7 +210,7 @@ for name in "${selected[@]}"; do
     (
       ulimit -v "$rust_memory_kib"
       export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
         -p k-rust --bin krust -- \
         krun "$source" \
         --main-module "$main_module" \
@@ -307,7 +308,7 @@ for name in "${selected[@]}"; do
     (
       ulimit -v "$rust_memory_kib"
       export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
         -p k-rust --bin krust -- \
         krun "$source" \
         --main-module "$main_module" \
@@ -356,7 +357,7 @@ for name in "${selected[@]}"; do
     (
       ulimit -v "$rust_memory_kib"
       export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-      cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+      cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
         -p k-rust --bin krust -- \
         krun "$source" \
         --main-module "$main_module" \

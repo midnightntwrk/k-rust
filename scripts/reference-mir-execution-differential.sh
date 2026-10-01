@@ -79,7 +79,8 @@ echo "[mir] compiling the pinned concrete Haskell definition"
 )
 
 echo "[mir] compiling the same concrete definition with k-rust"
-cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+reference_announce_krust_gate_build
+cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
   -p k-rust --bin krust -- \
   kcompile "$source_path" \
   --main-module KMIR \
@@ -106,7 +107,7 @@ echo "[mir] executing the shared pattern with the pinned Haskell backend"
 ) >"$reference_result"
 
 echo "[mir] executing the shared pattern with k-rust"
-cargo run --quiet --release --manifest-path "$workspace/Cargo.toml" \
+cargo run --quiet --release "${krust_gate_cargo_args[@]}" --manifest-path "$workspace/Cargo.toml" \
   -p k-rust --bin krust -- \
   kore-exec "$rust_definition/definition.kore" \
   --module KMIR \

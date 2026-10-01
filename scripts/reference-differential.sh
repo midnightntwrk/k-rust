@@ -129,6 +129,7 @@ mapfile -t cases < <(
 )
 selected_count=0
 
+reference_announce_krust_gate_build
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
     comparisons pairings expect reason reference_error <<<"$fixture"
@@ -236,7 +237,7 @@ for fixture in "${cases[@]}"; do
     reference_status=$?
 
     echo "[$name:$pairing] compiling with k-rust"
-    reference_run_rust_frontend cargo run --quiet --release \
+    reference_run_rust_frontend cargo run --quiet --release "${krust_gate_cargo_args[@]}" \
       --manifest-path "$workspace/Cargo.toml" -p k-rust --bin krust -- \
       kcompile "$source" \
       --main-module "$module" \
