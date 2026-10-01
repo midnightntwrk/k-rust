@@ -25,7 +25,8 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, FlatImport, ProductionItem, ResolvedDefinition, Sentence,
+        Attributes, Definition, FlatImport, ProductionCatalog, ProductionItem, ResolvedDefinition,
+        Sentence, SortCatalog,
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, Label, Sort, Term, WellKnownModule, parser::parse_sort},
@@ -75,6 +76,7 @@ pub(crate) fn resolve_strict_pass(
     let main = resolved.main_module_id();
     let aliases = labeled_sentences(resolved, main);
     let bool_module = resolved.module_id(WellKnownModule::Bool.as_str());
+    let views = resolved.views();
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
 
@@ -96,7 +98,17 @@ pub(crate) fn resolve_strict_pass(
                 if !attributes.has(key) {
                     continue;
                 }
-                match resolve_production(sentence, key, sequential, &module.name, &aliases) {
+                match resolve_production(
+                    sentence,
+                    key,
+                    sequential,
+                    &module.name,
+                    &aliases,
+                    (
+                        views.production_catalog(module_id),
+                        views.sort_catalog(module_id),
+                    ),
+                ) {
                     Ok(sentences) => extend_unique(&mut generated, sentences),
                     Err(mut errors) => diagnostics.append(&mut errors),
                 }
@@ -153,6 +165,7 @@ fn resolve_production(
     sequential: bool,
     module_name: &str,
     labeled: &BTreeMap<String, Vec<&Sentence>>,
+    catalogs: (&ProductionCatalog<'_>, &SortCatalog<'_>),
 ) -> Result<Vec<Sentence>, Vec<Diagnostic>> {
     let Sentence::Production {
         label,
@@ -194,6 +207,7 @@ fn resolve_production(
             &nonterminals,
             attributes,
             module_name,
+            catalogs,
         )?;
         all_positions.extend(positions);
     } else {
@@ -225,6 +239,7 @@ fn resolve_production(
                 &nonterminals,
                 attributes,
                 module_name,
+                catalogs,
             )?;
             all_positions.extend(positions);
         } else if components.len().is_multiple_of(2) {
@@ -241,6 +256,7 @@ fn resolve_production(
                     &nonterminals,
                     attributes,
                     module_name,
+                    catalogs,
                 )?;
                 all_positions.extend(positions);
             }
@@ -254,14 +270,40 @@ fn resolve_production(
 
     if attributes.has(AttributeKey::Hybrid) {
         let hybrid = attribute_text(attributes, AttributeKey::Hybrid).unwrap_or_default();
-        let predicates = if hybrid.is_empty() {
-            vec!["isKResult".to_owned()]
+        let hybrid_sorts = if hybrid.is_empty() {
+            vec![FrontendSort::KResult.as_str()]
         } else {
             java_split(&hybrid, ',')
                 .into_iter()
-                .map(|sort| Label::sort_predicate(&Sort::new(sort.trim())).name)
+                .map(str::trim)
                 .collect()
         };
+        // The generated rules mention `isS` for every hybrid sort `S`, so each must exist in
+        // the module; a declared sort without K terms (a numeral, a `#` sort) has none.
+        let missing = hybrid_sorts
+            .iter()
+            .filter_map(|sort| {
+                let predicate = Label::sort_predicate(&Sort::new(*sort)).name;
+                super::sort_predicate_in_module(catalogs.0, catalogs.1, sort)
+                    .err()
+                    .map(|missing| {
+                        error_at(
+                            format!(
+                                "Definition is missing function {predicate} required by the hybrid attribute. {}",
+                                missing.remedy(sort, &predicate)
+                            ),
+                            attributes,
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(missing);
+        }
+        let predicates = hybrid_sorts
+            .iter()
+            .map(|sort| Label::sort_predicate(&Sort::new(*sort)).name)
+            .collect::<Vec<_>>();
         for predicate in predicates {
             let arguments = nonterminals
                 .iter()
@@ -314,6 +356,7 @@ fn generate_contexts(
     nonterminals: &[Sort],
     production_attributes: &Attributes,
     module_name: &str,
+    catalogs: (&ProductionCatalog<'_>, &SortCatalog<'_>),
 ) -> Result<(), Vec<Diagnostic>> {
     // Invariant: `generated` holds, for every position of `positions` before `position_index`, one context per alias of `aliases`; each iteration consumes one position, and the inner loop over `aliases` makes the work O(`positions` * `aliases`).
     for (position_index, position) in positions.iter().copied().enumerate() {
@@ -353,6 +396,31 @@ fn generate_contexts(
                 .iter()
                 .chain(positions[..position_index].iter())
                 .copied();
+            // A sequential context requires `isR` of the alias's result sort `R` on every prior
+            // position, so `isR` must exist in the module; a declared sort without K terms (a
+            // numeral, a `#` sort) has none. The heat/cool pass checks the predicate of the
+            // context's own `result` attribute, which is `R` unless the alias names no result and
+            // the production does; only that case is checked here.
+            let context_result = attribute_text(&alias.attributes, AttributeKey::Result)
+                .or_else(|| attribute_text(production_attributes, AttributeKey::Result))
+                .unwrap_or_else(|| FrontendSort::KResult.as_str().into());
+            if sequential
+                && context_result != result_text
+                && prior_positions.clone().next().is_some()
+            {
+                let predicate = Label::sort_predicate(&result).name;
+                if let Err(missing) =
+                    super::sort_predicate_in_module(catalogs.0, catalogs.1, &result_text)
+                {
+                    return Err(vec![error_at(
+                        format!(
+                            "Definition is missing function {predicate} required by sequential strictness. {}",
+                            missing.remedy(&result_text, &predicate)
+                        ),
+                        &alias.attributes,
+                    )]);
+                }
+            }
             let side_condition = reduce_and(prior_positions.map(|prior| Term::Apply {
                 label: Label::sort_predicate(&result),
                 arguments: vec![Term::variable(format!("K{}", prior - 1))],

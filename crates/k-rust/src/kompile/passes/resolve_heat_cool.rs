@@ -7,7 +7,7 @@ use std::{fmt, mem};
 
 use crate::definition::AttributeKey;
 use crate::{
-    definition::{Definition, LabelHead, Sentence},
+    definition::{Definition, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{FrontendSort, Label, Sort, Term},
     provenance::GeneratingPass,
@@ -90,18 +90,14 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 .string(AttributeKey::Result)
                 .unwrap_or(FrontendSort::KResult.as_str());
             let predicate_label = Label::sort_predicate(&Sort::new(result_sort)).name;
-            let predicate_exists = !productions
-                .productions_for(&LabelHead::new(predicate_label.clone()))
-                .is_empty()
-                || sorts
-                    .all_sorts()
-                    .iter()
-                    .any(|sort| sort.to_string() == result_sort);
-            if !predicate_exists {
+            // A declared result sort whose role has no sort predicate (a numeral, a `#` sort) has
+            // no K terms, so no strict argument can ever cool to it.
+            if let Err(missing) = super::sort_predicate_in_module(productions, sorts, result_sort) {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::InvalidHeatCool,
                     format!(
-                        "Definition is missing function {predicate_label} required for strictness. Please either declare sort {result_sort} or declare 'syntax Bool ::= {predicate_label}(K) [symbol({predicate_label}), function]'"
+                        "Definition is missing function {predicate_label} required for strictness. {}",
+                        missing.remedy(result_sort, &predicate_label)
                     ),
                     sentence,
                 ));

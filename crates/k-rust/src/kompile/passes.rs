@@ -60,7 +60,7 @@ pub(crate) use finalize::{
 };
 pub(crate) use generate_sort_helpers::{
     SoleGenerator, generate_sort_predicate_syntax_pass, generate_sort_projections_pass,
-    regenerate_sort_predicate_syntax_pass,
+    regenerate_sort_predicate_syntax_pass, sort_predicate_in_module,
 };
 pub use generate_sort_helpers::{
     generate_sort_predicate_syntax, generate_sort_projections, regenerate_sort_predicate_syntax,

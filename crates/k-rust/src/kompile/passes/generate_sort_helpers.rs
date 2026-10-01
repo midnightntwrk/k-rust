@@ -37,8 +37,8 @@ use crate::kast::ProductionIdentity;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence,
-        extend_with_new_sentences, retain_new_sentences,
+        Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
+        Sentence, SortCatalog, extend_with_new_sentences, retain_new_sentences,
     },
     kast::{Label, Sort, Term},
     provenance::GeneratingPass,
@@ -500,6 +500,60 @@ fn sole_generator(
         .production_catalog(main_generators.main)
         .lookup(&source)?;
     (main_generators.sole_generator(sort) == Some(source)).then_some(SoleGenerator(()))
+}
+
+/// Why a module has no sort predicate `isS` for a sort that a sentence names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MissingSortPredicate {
+    /// The module has no sort `S`.
+    UnknownSort,
+    /// `S` is a sort of the module whose role has no sort predicate: it has no K terms.
+    NoKTerms,
+}
+
+impl MissingSortPredicate {
+    /// What the definition can do about the missing `predicate_label` of `sort`.
+    pub(crate) fn remedy(self, sort: &str, predicate_label: &str) -> String {
+        match self {
+            Self::UnknownSort => format!(
+                "Please either declare sort {sort} or declare 'syntax Bool ::= {predicate_label}(K) [symbol({predicate_label}), function]'"
+            ),
+            Self::NoKTerms => format!(
+                "Sort {sort} has no sort predicate because it has no K terms; name a sort of K terms instead or declare 'syntax Bool ::= {predicate_label}(K) [symbol({predicate_label}), function]'"
+            ),
+        }
+    }
+}
+
+/// Whether the module of `productions` and `sorts` has the sort predicate `isS` of the sort
+/// spelled `sort`, so that a generated sentence may mention it.
+///
+/// `isS` exists when a production of the module carries its label (declared in the definition or
+/// already generated), or when `S` is a sort of the module whose role has a sort predicate: the
+/// predicate generator declares `isS` for exactly those sorts. Reading the same role predicate as
+/// the generator lets a pass that runs before it, or standalone, decide the same way, so a sentence
+/// mentions `isS` only when compilation declares it.
+pub(crate) fn sort_predicate_in_module(
+    productions: &ProductionCatalog<'_>,
+    sorts: &SortCatalog<'_>,
+    sort: &str,
+) -> Result<(), MissingSortPredicate> {
+    let label = Label::sort_predicate(&Sort::new(sort)).name;
+    if !productions
+        .productions_for(&LabelHead::new(label))
+        .is_empty()
+    {
+        return Ok(());
+    }
+    match sorts
+        .all_sorts()
+        .iter()
+        .find(|declared| declared.to_string() == sort)
+    {
+        Some(declared) if declared.role().has_sort_predicate() => Ok(()),
+        Some(_) => Err(MissingSortPredicate::NoKTerms),
+        None => Err(MissingSortPredicate::UnknownSort),
+    }
 }
 
 fn truth() -> Term {

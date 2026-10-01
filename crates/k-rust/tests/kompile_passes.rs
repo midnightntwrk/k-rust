@@ -2606,6 +2606,97 @@ fn heat_cool_still_rejects_rules_and_contexts_without_result_predicates() {
     }
 }
 
+/// A declared result sort whose role has no sort predicate (a numeral, a `#` sort) has no K
+/// terms, so `isS` is never declared for it and no strict argument can cool to it; the result
+/// predicate lookup reads the same role predicate as the generator. A defined sort is the control.
+#[test]
+fn heat_cool_rejects_a_declared_result_sort_without_a_sort_predicate() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax 8 ::= "eight"
+          syntax #Foo ::= "foo"
+          syntax Val ::= "v"
+          syntax Exp ::= "heat" [symbol(heat)]
+                       | "cool" [symbol(cool)]
+          rule heat => cool [heat, result(8)]
+          rule cool => heat [cool, result(#Foo)]
+          rule heat => heat [heat, result(Val)]
+        endmodule
+    "#};
+    let error = resolve_heat_cool_attributes(&parsed(source)).unwrap_err();
+    let messages = error
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            assert_eq!(
+                diagnostic.code,
+                k_rust::diagnostic::DiagnosticCode::InvalidHeatCool
+            );
+            diagnostic.message.clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert!(
+        messages[0].starts_with(
+            "Definition is missing function is8 required for strictness. Sort 8 has no sort predicate"
+        ),
+        "{messages:?}"
+    );
+    assert!(
+        messages[1].starts_with(
+            "Definition is missing function is#Foo required for strictness. Sort #Foo has no sort predicate"
+        ),
+        "{messages:?}"
+    );
+}
+
+/// Through the whole pipeline, `[strict, result(8)]` is rejected by the heat/cool stage with the
+/// `InvalidHeatCool` diagnostic, before any later stage looks for the undeclared `is8`.
+#[test]
+fn a_strict_result_sort_without_a_sort_predicate_is_an_invalid_heat_cool_diagnostic() {
+    let source = indoc! {r#"
+        module MAIN
+          imports BOOL
+          syntax 8 ::= "eight"
+          syntax KResult
+          syntax Exp ::= foo(Exp) [strict, result(8)] | "e"
+        endmodule
+    "#};
+    let prelude = embedded("prelude.md").unwrap();
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("res8.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let error = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap_err();
+    assert_eq!(error.stage, "resolve heat/cool attributes", "{error}");
+    // One diagnostic for the strict position's heating rule and one for its cooling rule.
+    assert_eq!(error.diagnostics.len(), 2, "{error}");
+    for diagnostic in &error.diagnostics {
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidHeatCool
+        );
+        assert!(
+            diagnostic
+                .message
+                .starts_with("Definition is missing function is8 required for strictness."),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
     let source = indoc! {r#"
@@ -6479,6 +6570,61 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
 /// `#Layout` is parser scaffolding, not a set of K terms, so compilation declares no sort
 /// predicate for it even when the main module declares it, and nothing injects it into `K`; the
 /// defined sort next to it keeps its predicate.
+/// A sort whose predicate exists but which is not placeable at `K` in its module gets only the
+/// `owise` rule `isS(K) => false`: no term of the sort can be the `K` argument. Of the roles with
+/// a predicate, only `KConfigVar` is not below `KItem` by its role, so it is the one sort that can
+/// reach this branch: in a module that declares it without `syntax KItem ::= KConfigVar`.
+#[test]
+fn an_unplaceable_sort_with_a_predicate_keeps_only_the_false_predicate_rule() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax K
+          syntax KItem
+          syntax KConfigVar [token]
+          syntax Foo ::= "foo"
+        endmodule
+    "#};
+    let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let transformed = generate_sort_predicate_rules(&definition).unwrap();
+    let rules = |predicate: &str| {
+        transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Rule {
+                    body, attributes, ..
+                } if Printer::new()
+                    .print_term(body)
+                    .starts_with(&format!("{predicate}(")) =>
+                {
+                    Some((
+                        Printer::new().print_term(body),
+                        attributes.get("owise").is_some(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rules("isKConfigVar"),
+        [(
+            "isKConfigVar(K)=>#token(\"false\",\"Bool\")".to_owned(),
+            true
+        )]
+    );
+    // Control: a defined sort is below `KItem` by its role, so it is placeable at `K`.
+    assert_eq!(
+        rules("isFoo"),
+        [
+            ("isFoo(Foo)=>#token(\"true\",\"Bool\")".to_owned(), false),
+            ("isFoo(K)=>#token(\"false\",\"Bool\")".to_owned(), true)
+        ]
+    );
+}
+
 #[test]
 fn a_scaffolding_sort_declared_in_the_main_module_has_no_sort_predicate() {
     let source = indoc! {r#"
@@ -7475,11 +7621,17 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
         ],
         attributes: attributes(&[("seqstrict", json!("custom;1,2")), ("hybrid", json!("Foo"))]),
     };
+    // The hybrid rules mention `isFoo`, which exists because `Foo` is a defined sort.
+    let foo = Sentence::SyntaxSort {
+        parameters: Vec::new(),
+        sort: Sort::new("Foo"),
+        attributes: Attributes::default(),
+    };
     let definition = Definition {
         main_module: "MAIN".into(),
         modules: vec![
             module("BOOL", Vec::new()),
-            module("MAIN", vec![alias, strict]),
+            module("MAIN", vec![foo, alias, strict]),
         ],
         attributes: Attributes::default(),
     };
@@ -7517,6 +7669,85 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
                 && Printer::new().print_term(requires).contains("isFoo(K0)")
                 && Printer::new().print_term(requires).contains("isFoo(K1)"))
     }));
+}
+
+/// The rules a `hybrid(S)` attribute generates mention `isS`, so the attribute is rejected when
+/// the module has no `isS`: `S` is undeclared, or `S` is a declared sort without K terms (a
+/// numeral, a `#` sort). A defined sort is the control.
+#[test]
+fn rejects_a_hybrid_sort_without_a_sort_predicate() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module MAIN
+          imports BOOL
+          syntax 8 ::= "eight"
+          syntax #Foo ::= "foo"
+          syntax Val ::= "v"
+          syntax Exp ::= Val
+          syntax Exp ::= a(Exp) [strict, hybrid(8), symbol(a)]
+                       | b(Exp) [strict, hybrid(#Foo), symbol(b)]
+                       | c(Exp) [strict, hybrid(Undef), symbol(c)]
+                       | d(Exp) [strict, hybrid(Val), symbol(d)]
+        endmodule
+    "#};
+    let error = resolve_strict(&parsed(source)).unwrap_err();
+    let messages = error
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            assert_eq!(
+                diagnostic.code,
+                k_rust::diagnostic::DiagnosticCode::InvalidStrictness
+            );
+            diagnostic.message.as_str()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        messages,
+        BTreeSet::from([
+            "Definition is missing function is#Foo required by the hybrid attribute. Sort #Foo has no sort predicate because it has no K terms; name a sort of K terms instead or declare 'syntax Bool ::= is#Foo(K) [symbol(is#Foo), function]'",
+            "Definition is missing function is8 required by the hybrid attribute. Sort 8 has no sort predicate because it has no K terms; name a sort of K terms instead or declare 'syntax Bool ::= is8(K) [symbol(is8), function]'",
+            "Definition is missing function isUndef required by the hybrid attribute. Please either declare sort Undef or declare 'syntax Bool ::= isUndef(K) [symbol(isUndef), function]'",
+        ])
+    );
+}
+
+/// A sequential context requires `isR` of its alias's result sort `R` on the positions before
+/// its own. When the alias names no result and the production names one, the context's `result`
+/// attribute (which the heat/cool pass checks) is the production's, while the side condition
+/// mentions `isKResult`, so strictness resolution checks that `isKResult` exists. With `KResult`
+/// declared the definition is accepted.
+#[test]
+fn rejects_a_sequential_context_alias_whose_side_condition_predicate_is_missing() {
+    for (declarations, error) in [
+        (
+            "",
+            Some(
+                "Definition is missing function isKResult required by sequential strictness. Please either declare sort KResult or declare 'syntax Bool ::= isKResult(K) [symbol(isKResult), function]'",
+            ),
+        ),
+        ("  syntax KResult\n", None),
+    ] {
+        let source = format!(
+            "module BOOL\nendmodule\nmodule MAIN\n  imports BOOL\n{declarations}  syntax Val ::= \"v\"\n  syntax Exp ::= Val | foo(Exp, Exp) [seqstrict(c), result(Val), symbol(foo)]\n  context alias [c]: HERE\nendmodule\n"
+        );
+        let resolved = resolve_strict(&parsed(&source));
+        match error {
+            Some(message) => {
+                let error = resolved.unwrap_err();
+                assert_eq!(error.diagnostics.len(), 1, "{:?}", error.diagnostics);
+                assert_eq!(
+                    error.diagnostics[0].code,
+                    k_rust::diagnostic::DiagnosticCode::InvalidStrictness
+                );
+                assert_eq!(error.diagnostics[0].message, message);
+            }
+            None => {
+                resolved.unwrap();
+            }
+        }
+    }
 }
 
 #[test]
