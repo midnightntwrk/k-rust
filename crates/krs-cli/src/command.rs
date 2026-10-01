@@ -900,16 +900,16 @@ fn build_collector(
             source,
         })?;
     if !output.status.success() {
-        let diagnostics = rust_diagnostics(&output.stdout, plan)?;
-        return if diagnostics.is_empty() {
-            Err(CommandError::ProcessFailed {
+        // Rustc's own report stays the failure whenever its spans cannot be
+        // translated into authored ranges.
+        return Err(match rust_diagnostics(&output.stdout, plan) {
+            Ok(diagnostics) if !diagnostics.is_empty() => CommandError::Diagnostics(diagnostics),
+            _ => CommandError::ProcessFailed {
                 stage: "collector build",
                 status: output.status.code(),
                 stderr: cargo_failure_text(&output),
-            })
-        } else {
-            Err(CommandError::Diagnostics(diagnostics))
-        };
+            },
+        });
     }
     let executables = output
         .stdout
