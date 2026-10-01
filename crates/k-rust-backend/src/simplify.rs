@@ -53,7 +53,8 @@ use crate::{
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
-    definedness::{ceil_term, condition_definedness, ground_terms_structurally_distinct},
+    condition::{Condition, InstantiatedCondition},
+    definedness::{ceil_term, ground_terms_structurally_distinct},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -866,113 +867,6 @@ fn simplify_rule_predicates(
     )
 }
 
-/// Simplify an instantiated rule or equation condition with the definedness of its Boolean
-/// terms explicit (`definedness::condition_definedness`).
-///
-/// `simplify(conditions, known, first_attempt)` simplifies under `known`; `definedness_known`
-/// are the predicates the stated obligations are deduplicated against (a superset of `known`).
-///
-/// A condition without free variables is first simplified as it is, under no known predicate.
-/// If that decides it syntactically (`true` or `false`), the decision is exact and is returned.
-/// The simplifier evaluates a variable-free condition innermost first, and every step it takes
-/// is an equivalence that keeps the definedness of what it consumes: a builtin hook returns its
-/// arguments' obligations with its value, an equation carries the definedness of the terms it
-/// binds and decides its own requires with their definedness stated, and a partial function
-/// with no applicable equation stays an application, whose obligation keeps the atom from being
-/// `true` or `false`. So a `true` means every partial subterm evaluated to a value and is
-/// defined, and a `false` refutes the condition with or without the obligations. With no known
-/// predicate the decision rests on evaluation alone, never on an assumption about a term the
-/// evaluation left unevaluated. The solver sees nothing in this attempt except equation
-/// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and a
-/// failure of the first attempt take the general path: the obligations are stated and the
-/// condition is simplified under `known`. A stop of the first attempt ends the condition with
-/// the stop, on the outer layer: the attempt has no answer, and the general path would answer in
-/// its place. The diagnostics of a discarded attempt are dropped, since the general path redoes
-/// and reports its work.
-pub(crate) fn simplify_condition(
-    definition: &BackendDefinition,
-    conditions: Vec<Predicate>,
-    known: &[Predicate],
-    definedness_known: &[Predicate],
-    mut simplify: impl FnMut(
-        Vec<Predicate>,
-        &[Predicate],
-        bool,
-    ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>>,
-) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
-    simplify_condition_within(
-        definition,
-        conditions,
-        known,
-        definedness_known,
-        |conditions, known, first_attempt| Ok(simplify(conditions, known, first_attempt)??),
-    )
-    .layered()
-}
-
-/// [`simplify_condition`] for the simplifier's own equation conditions, whose simplification
-/// returns inside this module.
-fn simplify_condition_within(
-    definition: &BackendDefinition,
-    conditions: Vec<Predicate>,
-    known: &[Predicate],
-    definedness_known: &[Predicate],
-    mut simplify: impl FnMut(Vec<Predicate>, &[Predicate], bool) -> SimplifyResult<Vec<Predicate>>,
-) -> SimplifyResult<Vec<Predicate>> {
-    let mut ceil_free = true;
-    let mut ground = true;
-    for condition in &conditions {
-        condition.visit_terms(&mut |term| {
-            ceil_free &= term.attributes().ceil_free();
-            ground &= term.attributes().variables.is_empty();
-        });
-    }
-    if ceil_free {
-        return simplify(conditions, known, false);
-    }
-    if ground && !GENERAL_CONDITION_PATH.with(Cell::get) {
-        let decided = |result: &SimplifyResult<Vec<Predicate>>| {
-            result
-                .as_ref()
-                .is_ok_and(|simplified| predicates_truth(simplified) != Truth::Unknown)
-        };
-        match diagnostic::attempt(|| simplify(conditions.clone(), &[], true), decided) {
-            Ok(simplified) if predicates_truth(&simplified) != Truth::Unknown => {
-                return Ok(simplified);
-            }
-            // A stop is handled first: the attempt has no answer, and the general path below
-            // would answer in its place.
-            Err(Unwind::Stop(stop)) => return Err(Unwind::Stop(stop)),
-            Ok(_) | Err(Unwind::Fail(_)) => {}
-        }
-        // The general path redoes the nested conditions the attempt met; they take the general
-        // path too, so a chain of nested conditions costs at most twice the general path
-        // instead of doubling at every level.
-        struct Restore(bool);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                GENERAL_CONDITION_PATH.with(|flag| flag.set(self.0));
-            }
-        }
-        let _restore = Restore(GENERAL_CONDITION_PATH.with(|flag| flag.replace(true)));
-        return simplify(
-            condition_definedness(definition, conditions, definedness_known),
-            known,
-            false,
-        );
-    }
-    simplify(
-        condition_definedness(definition, conditions, definedness_known),
-        known,
-        false,
-    )
-}
-
-thread_local! {
-    /// Set while `simplify_condition` redoes a condition on the general path.
-    static GENERAL_CONDITION_PATH: Cell<bool> = const { Cell::new(false) };
-}
-
 /// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
 /// them unsimplified when simplification fails.
 ///
@@ -1051,7 +945,7 @@ fn evaluate_rule_condition(
     definition: &BackendDefinition,
     rule_id: &str,
     anchor: Option<&Term>,
-    requires: Vec<Predicate>,
+    requires: InstantiatedCondition,
     bound_definedness: &[Predicate],
     known_predicates: &[Predicate],
     options: SimplificationOptions,
@@ -1071,9 +965,8 @@ fn evaluate_rule_condition(
     };
     let definedness_known = definedness_known.as_deref().unwrap_or(known_predicates);
     let predicates = if let Some(anchor) = anchor {
-        simplify_condition_within(
+        requires.simplify(
             definition,
-            requires,
             known_predicates,
             definedness_known,
             |predicates, known, first_attempt| {
@@ -1087,6 +980,7 @@ fn evaluate_rule_condition(
                         active_conditions,
                         solver,
                     )
+                    .layered()
                 } else {
                     simplify_rule_predicates_or_keep(
                         definition,
@@ -1098,11 +992,12 @@ fn evaluate_rule_condition(
                         active_conditions,
                         solver,
                     )
+                    .layered()
                 }
             },
-        )?
+        )??
     } else {
-        condition_definedness(definition, requires, definedness_known)
+        requires.with_definedness(definition, definedness_known)
     };
     decide_rule_condition(rule_id, &predicates, known_predicates, solver)
 }
@@ -3548,7 +3443,7 @@ fn scan_group<R, T>(
 /// The conditions an equation must discharge once its left-hand side has matched.
 struct EquationConditions {
     /// The equation's own `requires`, instantiated by the match.
-    requires: Vec<Predicate>,
+    requires: InstantiatedCondition,
     /// Definedness of every term bound to an element variable.
     ///
     /// An element variable ranges over elements, so binding it to a term `t` asserts `\ceil(t)`;
@@ -3633,10 +3528,10 @@ pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution)
 
 fn equation_match_conditions(
     definition: &BackendDefinition,
-    requires: &[Predicate],
+    requires: &Condition,
     substitution: &Substitution,
 ) -> EquationConditions {
-    let requires = substitute_predicates(requires, substitution);
+    let requires = requires.instantiate(substitution);
     let mut definedness = Vec::new();
     for (variable, value) in substitution {
         if variable.kind == VariableKind::Element {
@@ -3776,12 +3671,7 @@ fn apply_equation(
             alternatives
                 .iter()
                 .map(|alternative| {
-                    let mut ensures = rule.ensures.clone();
-                    for predicate in &alternative.ensures {
-                        if !ensures.contains(predicate) {
-                            ensures.push(predicate.clone());
-                        }
-                    }
+                    let ensures = rule.ensures.merged(&alternative.ensures);
                     (substitute(&alternative.term, &substitution), ensures, false)
                 })
                 .collect(),
@@ -3894,16 +3784,15 @@ fn evaluate_ensures(
     rule: &RewriteRule,
     term: &Term,
     substitution: &Substitution,
-    ensures: &[Predicate],
+    ensures: &Condition,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EnsuresVerdict> {
     // An `ensures` constrains the result only where its terms are defined.
-    let ensures = simplify_condition_within(
+    let ensures = ensures.instantiate(substitution).simplify(
         definition,
-        substitute_predicates(ensures, substitution),
         known_predicates,
         known_predicates,
         |ensures, known, first_attempt| {
@@ -3917,6 +3806,7 @@ fn evaluate_ensures(
                     active_conditions,
                     solver,
                 )
+                .layered()
             } else {
                 simplify_rule_predicates_or_keep(
                     definition,
@@ -3928,9 +3818,10 @@ fn evaluate_ensures(
                     active_conditions,
                     solver,
                 )
+                .layered()
             }
         },
-    )?;
+    )??;
     // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
     // and an inconsistent path condition, which under the path condition alone says nothing

@@ -9,6 +9,7 @@ mod verify;
 pub mod builtin;
 pub mod cancellation;
 pub mod claim;
+pub mod condition;
 pub mod definedness;
 pub mod definition;
 pub mod diagnostic;

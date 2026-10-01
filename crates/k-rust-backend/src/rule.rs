@@ -63,6 +63,7 @@ use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
+    condition::Condition,
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
     term::{
@@ -164,8 +165,8 @@ pub struct RewriteRule {
     pub lhs: Term,
     pub lhs_alternative: Option<usize>,
     pub rhs: RuleRhs,
-    pub requires: Vec<Predicate>,
-    pub ensures: Vec<Predicate>,
+    pub requires: Condition,
+    pub ensures: Condition,
     pub attributes: RuleAttributes,
     pub computed_attributes: ComputedRuleAttributes,
     pub existentials: BTreeSet<Variable>,
@@ -175,7 +176,7 @@ pub struct RewriteRule {
 pub struct PredicateRewriteRule {
     pub lhs: Predicate,
     pub rhs: Vec<Predicate>,
-    pub requires: Vec<Predicate>,
+    pub requires: Condition,
     pub attributes: RuleAttributes,
     /// The variable sets `rename_predicate_rule_apart` tests, computed once from the three
     /// parts above by [`PredicateRewriteRule::new`].
@@ -194,17 +195,17 @@ impl PredicateRewriteRule {
     pub fn new(
         lhs: Predicate,
         rhs: Vec<Predicate>,
-        requires: Vec<Predicate>,
+        requires: Condition,
         attributes: RuleAttributes,
     ) -> Self {
         let mut all = BTreeSet::new();
         collect_all_variables(std::slice::from_ref(&lhs), &mut all);
         collect_all_variables(&rhs, &mut all);
-        collect_all_variables(&requires, &mut all);
+        collect_all_variables(requires.iter(), &mut all);
         let bound = lhs.free_variables();
         let unbound = free_variables_of(&rhs)
             .into_iter()
-            .chain(free_variables_of(&requires))
+            .chain(free_variables_of(requires.iter()))
             .filter(|variable| !bound.contains(variable))
             .collect();
         Self {
@@ -220,7 +221,7 @@ impl PredicateRewriteRule {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RhsAlternative {
     pub term: Term,
-    pub ensures: Vec<Predicate>,
+    pub ensures: Condition,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1251,7 +1252,7 @@ pub fn internalize_axiom(
                     PredicateRewriteRule::new(
                         lhs.pop().expect("one predicate was internalized"),
                         rename_predicates(&rhs, rename),
-                        rename_predicates(&requires, rename),
+                        Condition::new(rename_predicates(&requires, rename)),
                         attributes.clone(),
                     ),
                 )]);
@@ -1393,6 +1394,7 @@ pub fn internalize_axiom(
                 computed_attributes.variables,
                 computed_attributes.unbound_variables,
             ) = rule_variable_sets(&lhs, &rhs, &requires, &[], &BTreeSet::new());
+            let requires = Condition::new(requires);
             Ok(vec![InternalizedRule::Term(
                 RuleKind::Ceil,
                 RewriteRule {
@@ -1400,7 +1402,7 @@ pub fn internalize_axiom(
                     lhs_alternative: None,
                     rhs,
                     requires,
-                    ensures: Vec::new(),
+                    ensures: Condition::default(),
                     attributes: attributes.clone(),
                     computed_attributes,
                     existentials: BTreeSet::new(),
@@ -1903,7 +1905,10 @@ fn internalize_term_rhs(
                             sort_parameters,
                             subsort_validation,
                         )?;
-                        Ok(RhsAlternative { term, ensures })
+                        Ok(RhsAlternative {
+                            term,
+                            ensures: Condition::new(ensures),
+                        })
                     })
                     .collect::<Result<Vec<_>, DefinitionError>>()?,
             ),
@@ -2277,8 +2282,8 @@ fn make_rule(
         lhs,
         lhs_alternative,
         rhs,
-        requires,
-        ensures,
+        requires: Condition::new(requires),
+        ensures: Condition::new(ensures),
         attributes,
         computed_attributes,
         existentials,
@@ -2380,7 +2385,7 @@ fn rename_rhs(rhs: RuleRhs, rename: impl Copy + Fn(&Variable) -> Variable) -> Ru
                 .into_iter()
                 .map(|alternative| RhsAlternative {
                     term: rename_term(&alternative.term, rename),
-                    ensures: rename_predicates(&alternative.ensures, rename),
+                    ensures: alternative.ensures.rename(rename),
                 })
                 .collect(),
         ),
@@ -2390,7 +2395,7 @@ fn rename_rhs(rhs: RuleRhs, rename: impl Copy + Fn(&Variable) -> Variable) -> Ru
     }
 }
 
-fn rename_predicates(
+pub(crate) fn rename_predicates(
     predicates: &[Predicate],
     rename: impl Copy + Fn(&Variable) -> Variable,
 ) -> Vec<Predicate> {
@@ -2550,8 +2555,8 @@ pub(crate) fn rename_apart(
         lhs: rename_term(&rule.lhs, rename),
         lhs_alternative: rule.lhs_alternative,
         rhs,
-        requires: rename_predicates(&rule.requires, rename),
-        ensures: rename_predicates(&rule.ensures, rename),
+        requires: rule.requires.rename(rename),
+        ensures: rule.ensures.rename(rename),
         attributes: rename_concreteness(&rule.attributes, &renaming),
         computed_attributes: ComputedRuleAttributes {
             contains_ac_symbols: computed.contains_ac_symbols,
@@ -2600,7 +2605,7 @@ pub(crate) fn rename_predicate_rule_apart(
     let renamed = PredicateRewriteRule {
         lhs: rename_predicate(&rule.lhs, rename),
         rhs: rename_predicates(&rule.rhs, rename),
-        requires: rename_predicates(&rule.requires, rename),
+        requires: rule.requires.rename(rename),
         attributes: rename_concreteness(&rule.attributes, &renaming),
         variables: PredicateRuleVariables {
             all: rename_set(variables),
@@ -2635,9 +2640,11 @@ fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
     }
 }
 
-fn free_variables_of(predicates: &[Predicate]) -> BTreeSet<Variable> {
+fn free_variables_of<'a>(
+    predicates: impl IntoIterator<Item = &'a Predicate>,
+) -> BTreeSet<Variable> {
     predicates
-        .iter()
+        .into_iter()
         .flat_map(Predicate::free_variables)
         .collect()
 }
@@ -2689,8 +2696,8 @@ pub(crate) fn rule_variable_sets(
         RuleRhs::Disjunction(alternatives) => {
             for alternative in alternatives {
                 free.extend(alternative.term.attributes().variables.iter().cloned());
-                free.extend(free_variables_of(&alternative.ensures));
-                collect_all_variables(&alternative.ensures, &mut all);
+                free.extend(free_variables_of(alternative.ensures.iter()));
+                collect_all_variables(alternative.ensures.iter(), &mut all);
             }
         }
         RuleRhs::Predicates(predicates) => {
@@ -2715,7 +2722,10 @@ pub(crate) fn rule_variable_sets(
 }
 
 /// Every variable of `predicates`, free or bound by a quantifier.
-pub(crate) fn collect_all_variables(predicates: &[Predicate], variables: &mut BTreeSet<Variable>) {
+pub(crate) fn collect_all_variables<'a>(
+    predicates: impl IntoIterator<Item = &'a Predicate>,
+    variables: &mut BTreeSet<Variable>,
+) {
     for predicate in predicates {
         predicate.visit_terms(&mut |term| {
             variables.extend(term.attributes().variables.iter().cloned());
@@ -3775,7 +3785,15 @@ mod tests {
             rename_apart(rule, &subject, &path).expect("the path mentions the rule's Eq#Y");
 
         assert_eq!(renaming.keys().collect::<Vec<_>>(), [&y]);
-        assert!(!renamed.requires[0].free_variables().contains(&y));
+        assert!(
+            !renamed
+                .requires
+                .iter()
+                .next()
+                .expect("one requires")
+                .free_variables()
+                .contains(&y)
+        );
     }
 
     #[test]
@@ -3795,7 +3813,7 @@ mod tests {
         let rule = PredicateRewriteRule::new(
             lhs,
             rhs,
-            vec![],
+            Condition::default(),
             RuleAttributes {
                 priority: 50,
                 label: None,

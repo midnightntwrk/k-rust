@@ -48,7 +48,8 @@ pub use evidence::{Counterexample, ObligationRefuted};
 use evidence::{Everywhere, OutsideEvidence};
 
 use crate::{
-    definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
+    condition::{eliminate_bindings, instantiate_constraints},
+    definedness::{ceil_term, pattern_knowledge},
     definition::{Admitted, BackendDefinition},
     fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
@@ -306,29 +307,22 @@ pub fn check_negated_consequent(
     // a negation `⊤`, which a solver reading a partial function as a total operation would not see.
     let mut conjunction = Pattern {
         term: substitute(&antecedent.term, &substitution),
-        constraints: condition_definedness(
-            definition,
-            substitute_predicates(&antecedent.constraints, &substitution),
-            &[],
-        ),
+        constraints: instantiate_constraints(&antecedent.constraints, &substitution)
+            .with_definedness(definition, &[]),
     };
     // The bindings' values must denote values too, even where the term no longer mentions them.
     let definedness = substitution
         .values()
         .flat_map(|value| ceil_term(definition, value))
         .collect::<Vec<_>>();
-    for predicate in condition_definedness(
-        definition,
-        substitute_predicates(&negated.constraints, &substitution),
-        &conjunction.constraints,
-    )
-    .into_iter()
-    .chain(condition_definedness(
-        definition,
-        substitute_predicates(&constraints, &substitution),
-        &conjunction.constraints,
-    ))
-    .chain(definedness)
+    for predicate in instantiate_constraints(&negated.constraints, &substitution)
+        .with_definedness(definition, &conjunction.constraints)
+        .into_iter()
+        .chain(
+            instantiate_constraints(&constraints, &substitution)
+                .with_definedness(definition, &conjunction.constraints),
+        )
+        .chain(definedness)
     {
         if !conjunction.constraints.contains(&predicate) {
             conjunction.constraints.push(predicate);
@@ -2132,11 +2126,9 @@ fn implication_obligations(
     // The consequent's constraints under the match are a condition on the antecedent's instances
     // (I1): an atom over a term undefined on some of them is `⊥` there, so its definedness is
     // stated before the condition is simplified or decided, except where `known` holds it.
-    for predicate in condition_definedness(
-        definition,
-        substitute_predicates(&consequent.constraints, substitution),
-        known,
-    ) {
+    for predicate in instantiate_constraints(&consequent.constraints, substitution)
+        .with_definedness(definition, known)
+    {
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
         }

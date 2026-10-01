@@ -45,7 +45,8 @@ use k_rust_kore::{
 
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
-    definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
+    condition::{eliminate_bindings, instantiate_constraints},
+    definedness::{ceil_term, pattern_knowledge},
     definition::BackendDefinition,
     fresh::fresh_name,
     implication::{
@@ -1393,11 +1394,8 @@ fn apply_claim(
     // simplified or decided, since a solver reads a partial function as a total operation.
     let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
-    let requires = condition_definedness(
-        definition,
-        substitute_predicates(&claim.lhs.constraints, &substitution),
-        &match_knowledge,
-    );
+    let requires = instantiate_constraints(&claim.lhs.constraints, &substitution)
+        .with_definedness(definition, &match_knowledge);
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -1555,11 +1553,8 @@ fn apply_claim(
                 let mut constraints = covered_knowledge.clone();
                 // An equivalence (I1): the successor states the definedness its constraints
                 // imply, so later decisions on it do not read a partial term as total.
-                let rhs_constraints = condition_definedness(
-                    definition,
-                    substitute_predicates(&rhs.constraints, &substitution),
-                    &constraints,
-                );
+                let rhs_constraints = instantiate_constraints(&rhs.constraints, &substitution)
+                    .with_definedness(definition, &constraints);
                 extend_unique(&mut constraints, rhs_constraints);
                 Pattern {
                     term: substitute(&rhs.term, &substitution),

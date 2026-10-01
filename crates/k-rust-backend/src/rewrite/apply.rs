@@ -38,6 +38,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
+    condition::{Condition, InstantiatedCondition},
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
@@ -48,8 +49,8 @@ use crate::{
     simplify::{
         BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
         SimplificationError, SimplificationOptions, binds_element_variable_to_set_pattern,
-        decide_condition, simplify_condition, simplify_in_execution_with_solver,
-        simplify_predicates_with_solver, simplify_with_solver,
+        decide_condition, simplify_in_execution_with_solver, simplify_predicates_with_solver,
+        simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     stop::{Stop, Stoppable},
@@ -887,7 +888,7 @@ fn recover_by_unification(
             }
             let requires = match simplify_rule_condition(
                 definition,
-                substitute_predicates(&rule.requires, &substitution),
+                rule.requires.instantiate(&substitution),
                 inherited_knowledge,
                 context.simplification_options,
                 context.solver,
@@ -1094,7 +1095,7 @@ fn requires(
     // simplifier or a solver can answer for instances where they are not.
     let requires = match simplify_rule_condition(
         context.definition,
-        substitute_predicates(&rule.requires, substitution),
+        rule.requires.instantiate(substitution),
         &match_knowledge,
         context.simplification_options,
         context.solver,
@@ -1137,17 +1138,16 @@ fn requires(
 }
 
 /// A rewrite rule's `requires` or `ensures`, instantiated, simplified under `known` with the
-/// definedness of its Boolean terms explicit (`simplify::simplify_condition`).
+/// definedness of its Boolean terms explicit (`InstantiatedCondition::simplify`).
 fn simplify_rule_condition(
     definition: &BackendDefinition,
-    conditions: Vec<Predicate>,
+    conditions: InstantiatedCondition,
     known: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
-    simplify_condition(
+    conditions.simplify(
         definition,
-        conditions,
         known,
         known,
         |conditions, known, first_attempt| {
@@ -1290,10 +1290,10 @@ fn instantiate(
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
     let alternatives = match &rule.rhs {
-        RuleRhs::Term(rhs) => vec![(rhs, rule.ensures.as_slice())],
+        RuleRhs::Term(rhs) => vec![(rhs, &rule.ensures)],
         RuleRhs::Disjunction(alternatives) => alternatives
             .iter()
-            .map(|alternative| (&alternative.term, alternative.ensures.as_slice()))
+            .map(|alternative| (&alternative.term, &alternative.ensures))
             .collect(),
         RuleRhs::Top => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         RuleRhs::Bottom => {
@@ -1319,8 +1319,7 @@ fn instantiate(
     let mut trivial = Vec::new();
     let mut trivial_work = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
-        let mut ensures = rule.ensures.clone();
-        extend_unique(&mut ensures, alternative_ensures.iter().cloned());
+        let ensures = rule.ensures.merged(alternative_ensures);
         let (attempt, own_diagnostics) = context.nested(|| {
             diagnostic::collect_unit(|| {
                 apply_rhs_alternative(
@@ -1456,7 +1455,7 @@ fn apply_rhs_alternative(
     rule: &RewriteRule,
     pattern: &Pattern,
     rhs: &Term,
-    ensures: &[Predicate],
+    ensures: &Condition,
     substitution: &Substitution,
     existential_substitution: &Substitution,
     condition_knowledge: &[Predicate],
@@ -1560,11 +1559,10 @@ fn apply_rhs_alternative(
             ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
     }
-    let ensures = substitute_predicates(
-        &substitute_predicates(ensures, substitution),
-        existential_substitution,
-    );
-    let reported_ensures = conjunction(&ensures);
+    let ensures = ensures
+        .instantiate(substitution)
+        .rename(existential_substitution);
+    let reported_ensures = ensures.report();
     // An `ensures` constrains the successor only where its terms are defined, as a `requires`
     // constrains the instance.
     let mut ensures = match simplify_rule_condition(

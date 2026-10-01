@@ -42,7 +42,6 @@ use crate::{
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
     smt::NoSolver,
-    substitution::Substitution,
     term::{
         FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind,
         head::certified_ground_normal_form,
@@ -460,34 +459,6 @@ pub(crate) fn pattern_knowledge<'a>(
         }
     }
     Cow::Owned(knowledge)
-}
-
-/// `predicates` under `bindings`, followed by `ceil_term` of each value bound to an element
-/// variable (I2), minus the predicates in `known` or already among the result.
-///
-/// For an element variable `x` and a functional term `t`, `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`:
-/// an element variable denotes a defined element, so no `x` equals `t` where `t` is undefined.
-/// Replacing `x` by `t` without `⌈t⌉` would assert `ψ[t/x]` also where `t` is undefined, where the
-/// binding has no instance. A set variable denotes any set of elements, `\bottom` included, so its
-/// binding states nothing.
-pub(crate) fn eliminate_bindings(
-    definition: &BackendDefinition,
-    predicates: &[Predicate],
-    bindings: &Substitution,
-    known: &[Predicate],
-) -> Vec<Predicate> {
-    let mut result = substitute_predicates(predicates, bindings);
-    for (variable, value) in bindings {
-        if variable.kind != VariableKind::Element || value.attributes().ceil_free() {
-            continue;
-        }
-        for predicate in ceil_term(definition, value) {
-            if !known.contains(&predicate) && !result.contains(&predicate) {
-                result.push(predicate);
-            }
-        }
-    }
-    result
 }
 
 /// The Boolean term an atom asserts to equal a defined value, if any.

@@ -80,14 +80,15 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    definedness::{condition_definedness, eliminate_bindings, pattern_knowledge},
+    condition::{eliminate_bindings, instantiate_constraints},
+    definedness::pattern_knowledge,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
         TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
-        simplify_result_pattern, substitute_predicates,
+        simplify_result_pattern,
     },
     rule::Predicate,
     simplify::{
@@ -2279,11 +2280,10 @@ fn match_pattern_with_variables(
     // `\bottom`: the solver reads a partial function as a total one and would give it a value.
     let subject_knowledge = pattern_knowledge(definition, subject);
     let mut constraints = subject.constraints.clone();
-    constraints.extend(condition_definedness(
-        definition,
-        substitute_predicates(&target.constraints, &substitution),
-        &subject_knowledge,
-    ));
+    constraints.extend(
+        instantiate_constraints(&target.constraints, &substitution)
+            .with_definedness(definition, &subject_knowledge),
+    );
     // The knowledge the subject's constraints do not already carry is decided with the match
     // condition, not reported in it: it holds on every instance of the subject, which the
     // match's state carries. The subject's constraints themselves travel in the condition, and
