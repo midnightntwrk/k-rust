@@ -1,0 +1,166 @@
+//! Located diagnostics shared by KRS producers and their renderers.
+//!
+//! This crate depends on `krs-ir` without features because that crate owns source coordinates.
+//! `krs-ir` must not depend on this crate; implementations of [`ToDiagnostic`] for its errors belong here.
+//! The optional `proc-macro2` feature preserves macro spans without requiring them for other hosts.
+
+use std::borrow::Cow;
+use std::fmt;
+
+use krs_ir::{ByteRange, DisplayPath, SourceMapKey, SourceRange};
+use serde::Serialize;
+
+pub mod codes;
+
+/// An opaque diagnostic code, serialized as its string spelling.
+///
+/// KRS-owned codes must come from [`codes`].
+/// Registered codes borrow static spellings and do not allocate when cloned.
+/// Forwarded codes must use [`Code::foreign`] and are not registered.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct Code(Cow<'static, str>);
+
+impl Code {
+    const fn registered(spelling: &'static str) -> Self {
+        Self(Cow::Borrowed(spelling))
+    }
+
+    /// Carries a code owned by another producer, such as rustc or a native frontend.
+    ///
+    /// The spelling is forwarded unchanged and is not added to the KRS registry.
+    #[must_use]
+    pub fn foreign(spelling: impl Into<Cow<'static, str>>) -> Self {
+        Self(spelling.into())
+    }
+
+    /// Returns the spelling for renderers and existing string-based records.
+    #[must_use]
+    pub const fn as_str(&self) -> &str {
+        match &self.0 {
+            Cow::Borrowed(spelling) => spelling,
+            Cow::Owned(spelling) => spelling.as_str(),
+        }
+    }
+}
+
+impl fmt::Display for Code {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// The importance of a diagnostic.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// A failure that prevents the requested operation.
+    Error,
+    /// A concern that does not prevent the requested operation.
+    Warning,
+}
+
+/// A diagnostic location retained in the producer's coordinate system.
+#[derive(Clone, Debug)]
+pub enum Location {
+    /// The producer has no location.
+    None,
+    /// A procedural-macro span retained for a macro renderer.
+    #[cfg(feature = "proc-macro2")]
+    Span(proc_macro2::Span),
+    /// A byte range in a package-relative display file.
+    File {
+        /// Normalized display path of the file.
+        path: DisplayPath,
+        /// Half-open UTF-8 byte range within the file.
+        range: ByteRange,
+    },
+    /// A byte range in one exact source-file revision.
+    Source(SourceRange),
+    /// A key resolved against a Definition source map by the renderer.
+    Definition(SourceMapKey),
+}
+
+/// A location and optional explanation attached to a diagnostic.
+#[derive(Clone, Debug)]
+pub struct Label {
+    /// The location in the producer's coordinate system.
+    pub location: Location,
+    /// An explanation specific to this location.
+    pub message: Option<String>,
+}
+
+impl Label {
+    /// Creates a label without a location-specific explanation.
+    #[must_use]
+    pub const fn new(location: Location) -> Self {
+        Self {
+            location,
+            message: None,
+        }
+    }
+
+    /// Adds a location-specific explanation.
+    #[must_use]
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+}
+
+/// A diagnostic independent of any renderer or wire format.
+#[derive(Clone, Debug)]
+pub struct Diagnostic {
+    /// Stable code supplied by the producer.
+    pub code: Code,
+    /// Whether the diagnostic prevents the operation.
+    pub severity: Severity,
+    /// The principal explanation.
+    pub message: String,
+    /// The principal location.
+    pub primary: Label,
+    /// Additional locations, in producer order.
+    pub secondary: Vec<Label>,
+    /// Additional explanations, in producer order.
+    pub notes: Vec<String>,
+}
+
+impl Diagnostic {
+    /// Creates an error with one primary location.
+    #[must_use]
+    pub fn error(code: Code, message: impl Into<String>, location: Location) -> Self {
+        Self {
+            code,
+            severity: Severity::Error,
+            message: message.into(),
+            primary: Label::new(location),
+            secondary: Vec::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    /// Appends an explanatory note.
+    #[must_use]
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    /// Appends a secondary location and its optional explanation.
+    #[must_use]
+    pub fn with_secondary(mut self, label: Label) -> Self {
+        self.secondary.push(label);
+        self
+    }
+}
+
+/// Converts a user-facing error to the shared diagnostic model.
+///
+/// Every user-facing error type must implement this trait so that its code and location are properties of the type, rather than choices made by its caller.
+pub trait ToDiagnostic {
+    /// Returns the error's code, severity, message, and locations.
+    fn to_diagnostic(&self) -> Diagnostic;
+}
+
+#[cfg(test)]
+mod tests;

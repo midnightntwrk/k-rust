@@ -55,30 +55,60 @@ use crate::sink::{
 pub const RECURSION_LIMIT: usize = 128;
 
 /// The authored file does not lex or parse as a Rust file.
-pub const PARSE: &str = "krs::expand::parse";
+pub const PARSE: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PARSE;
+    CODE.as_str()
+};
 /// The authored file starts with a byte order mark or a shebang line, which
 /// rustc strips and the fallback lexer does not.
-pub const UNSUPPORTED_SOURCE: &str = "krs::expand::unsupported-source";
+pub const UNSUPPORTED_SOURCE: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::UNSUPPORTED_SOURCE;
+    CODE.as_str()
+};
 /// A KRS attribute follows an attribute that rustc would expand first.
-pub const ATTRIBUTE_ORDER: &str = "krs::expand::attribute-order";
+pub const ATTRIBUTE_ORDER: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::ATTRIBUTE_ORDER;
+    CODE.as_str()
+};
 /// A KRS attribute has a `key = value` form, which rustc rejects for
 /// attribute macros.
-pub const ATTRIBUTE_FORM: &str = "krs::expand::attribute-form";
+pub const ATTRIBUTE_FORM: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::ATTRIBUTE_FORM;
+    CODE.as_str()
+};
 /// The first expandable attribute names a facade item that is not a KRS
 /// attribute macro.
-pub const NOT_AN_ATTRIBUTE_MACRO: &str = "krs::expand::not-an-attribute-macro";
+pub const NOT_AN_ATTRIBUTE_MACRO: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::NOT_AN_ATTRIBUTE_MACRO;
+    CODE.as_str()
+};
 /// An expansion emitted a KRS attribute invocation, which this driver does
 /// not expand.
-pub const NESTED_ATTRIBUTE: &str = "krs::expand::nested-attribute";
+pub const NESTED_ATTRIBUTE: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::NESTED_ATTRIBUTE;
+    CODE.as_str()
+};
 /// Rescanned invocations nest deeper than [`RECURSION_LIMIT`].
-pub const RECURSION: &str = "krs::expand::recursion-limit";
+pub const RECURSION: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::RECURSION;
+    CODE.as_str()
+};
 /// A descriptor factory is defined where the crate-root registration table
 /// cannot name it.
-pub const REGISTRATION_SCOPE: &str = "krs::expand::registration-scope";
+pub const REGISTRATION_SCOPE: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::REGISTRATION_SCOPE;
+    CODE.as_str()
+};
 /// An explicitly selected invocation does not match a discovered one.
-pub const SELECTION: &str = "krs::expand::selection";
+pub const SELECTION: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::SELECTION;
+    CODE.as_str()
+};
 /// An expansion cannot be printed as text without changing its tokens.
-pub const PRINT: &str = "krs::expand::print";
+pub const PRINT: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PRINT;
+    CODE.as_str()
+};
 
 /// Name of the crate-root registration table, which replaces `inventory`
 /// collection where link-time constructors do not run (the browser rustc).

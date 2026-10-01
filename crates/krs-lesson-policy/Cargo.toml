@@ -16,6 +16,7 @@ default = ["abi"]
 abi = ["dep:krs-wasm-abi"]
 
 [dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
 krs-syntax = { path = "../krs-syntax" }
 krs-wasm-abi = { path = "../krs-wasm-abi", optional = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }

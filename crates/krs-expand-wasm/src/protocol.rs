@@ -107,7 +107,10 @@ use sha2::{Digest, Sha256};
 pub const SCHEMA: u32 = 1;
 
 /// The request is not a valid schema-1 request.
-pub const PROTOCOL_ERROR: &str = "krs::expand::protocol";
+pub const PROTOCOL_ERROR: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::expand::PROTOCOL_ERROR;
+    CODE.as_str()
+};
 
 /// One expansion request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -132,9 +132,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-diagnostic"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "serde",
+]
+
+[[package]]
 name = "krs-expand"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
  "proc-macro2",

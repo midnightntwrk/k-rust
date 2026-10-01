@@ -39,7 +39,10 @@ use crate::{LessonPolicy, PolicyDiagnostic, check_request};
 pub const SCHEMA: u32 = 1;
 
 /// The request was not a valid schema-1 request.
-pub const PROTOCOL_ERROR: &str = "krs::policy::protocol";
+pub const PROTOCOL_ERROR: &str = {
+    const CODE: &krs_diagnostic::Code = &krs_diagnostic::codes::policy::PROTOCOL_ERROR;
+    CODE.as_str()
+};
 
 /// One policy request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -10,6 +10,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
 krs-expand = { path = "../krs-expand" }
 krs-ir = { path = "../krs-ir" }
 # Without the default `abi` feature, so this module does not re-export the

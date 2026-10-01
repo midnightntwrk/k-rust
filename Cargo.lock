@@ -581,10 +581,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-diagnostic"
+version = "0.1.0"
+dependencies = [
+ "krs-ir",
+ "proc-macro2",
+ "serde",
+]
+
+[[package]]
 name = "krs-expand"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
  "prettyplease",
@@ -599,6 +609,7 @@ dependencies = [
 name = "krs-expand-wasm"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-expand",
  "krs-ir",
  "krs-lesson-policy",
@@ -670,6 +681,7 @@ dependencies = [
 name = "krs-lesson-policy"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-syntax",
  "krs-wasm-abi",
  "proc-macro2",
