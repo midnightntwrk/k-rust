@@ -585,8 +585,14 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
     if !FRONTEND_CAPABILITIES.supports_backend(backend) {
         return Err(CommandError::UnsupportedBackend(backend));
     }
-    adapt_definition(prepared.lowered.definition())
-        .map_err(|error| CommandError::Native(DefinitionCompileError::Adapter(error)))?;
+    // Structural adaptation checks the selected target-neutral definition
+    // without claiming that the unavailable preparation seam can compile it.
+    adapt_definition(prepared.lowered.definition()).map_err(|error| {
+        native_command_error(
+            prepared.lowered.source_map(),
+            DefinitionCompileError::Adapter(error),
+        )
+    })?;
     Ok(CommandOutcome {
         warnings: crate::DiagnosticReports::default(),
         stdout: format!(
