@@ -8,7 +8,7 @@ use krs_diagnostic::{Diagnostic, Location, Severity};
 use krs_ir::{LineIndex, PackageId, Sha256Digest, SourceRange};
 use sha2::{Digest, Sha256};
 
-use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity};
+use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticGeneratedRange};
 
 /// Selected package roots available for rendering authored source.
 /// Source text must match the diagnostic's digest before it is displayed.
@@ -42,10 +42,7 @@ impl DiagnosticSources {
     /// `color` must be true only when the output terminal permits ANSI styles.
     #[must_use]
     pub fn render_envelope(&self, envelope: &DiagnosticEnvelope, color: bool) -> String {
-        let level = match envelope.severity {
-            DiagnosticSeverity::Error => Level::ERROR,
-            DiagnosticSeverity::Warning => Level::WARNING,
-        };
+        let level = diagnostic_level(envelope.severity.into());
         self.render(
             level,
             &envelope.code,
@@ -61,10 +58,7 @@ impl DiagnosticSources {
     /// Only exact authored locations may display source text.
     #[must_use]
     pub fn render_diagnostic(&self, diagnostic: &Diagnostic, color: bool) -> String {
-        let level = match diagnostic.severity {
-            Severity::Error => Level::ERROR,
-            Severity::Warning => Level::WARNING,
-        };
+        let level = diagnostic_level(diagnostic.severity);
         let range = match &diagnostic.primary.location {
             Location::Source(range) => Some(range),
             _ => None,
@@ -157,6 +151,13 @@ impl DiagnosticSources {
     }
 }
 
+fn diagnostic_level(severity: Severity) -> Level<'static> {
+    match severity {
+        Severity::Error => Level::ERROR,
+        Severity::Warning => Level::WARNING,
+    }
+}
+
 fn unavailable_source<'a>(group: Group<'a>, range: &SourceRange, reason: &'a str) -> Group<'a> {
     group
         .element(Origin::path(format!(
@@ -171,7 +172,7 @@ fn unavailable_source<'a>(group: Group<'a>, range: &SourceRange, reason: &'a str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DiagnosticStage;
+    use crate::{DiagnosticSeverity, DiagnosticStage};
     use expect_test::expect;
     use krs_diagnostic::codes::analysis::OVERLAPPING_RULE_HEADS;
     use krs_ir::SourceFileId;

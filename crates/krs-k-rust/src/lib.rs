@@ -336,6 +336,24 @@ pub enum DiagnosticSeverity {
     Warning,
 }
 
+impl From<DiagnosticSeverity> for Severity {
+    fn from(severity: DiagnosticSeverity) -> Self {
+        match severity {
+            DiagnosticSeverity::Error => Self::Error,
+            DiagnosticSeverity::Warning => Self::Warning,
+        }
+    }
+}
+
+impl From<NativeSeverity> for DiagnosticSeverity {
+    fn from(severity: NativeSeverity) -> Self {
+        match severity {
+            NativeSeverity::Error => Self::Error,
+            NativeSeverity::Warning => Self::Warning,
+        }
+    }
+}
+
 /// One-based source location reported by the native frontend.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct SourceLocation {
@@ -371,10 +389,7 @@ pub struct FrontendDiagnostic {
 impl From<&NativeDiagnostic> for FrontendDiagnostic {
     fn from(diagnostic: &NativeDiagnostic) -> Self {
         Self {
-            severity: match diagnostic.severity {
-                NativeSeverity::Error => DiagnosticSeverity::Error,
-                NativeSeverity::Warning => DiagnosticSeverity::Warning,
-            },
+            severity: diagnostic.severity.into(),
             code: native_diagnostic_code(diagnostic.code),
             message: diagnostic.message.clone(),
             source: diagnostic.source.clone(),
@@ -399,10 +414,7 @@ impl ToDiagnostic for FrontendDiagnostic {
                 .clone()
                 .map_or(Location::None, Location::Definition),
         );
-        diagnostic.severity = match self.severity {
-            DiagnosticSeverity::Error => Severity::Error,
-            DiagnosticSeverity::Warning => Severity::Warning,
-        };
+        diagnostic.severity = self.severity.into();
         if let Some(location) = self.location {
             diagnostic
                 .secondary

@@ -31,6 +31,24 @@ pub enum DiagnosticSeverity {
     Warning,
 }
 
+impl From<Severity> for DiagnosticSeverity {
+    fn from(severity: Severity) -> Self {
+        match severity {
+            Severity::Error => Self::Error,
+            Severity::Warning => Self::Warning,
+        }
+    }
+}
+
+impl From<DiagnosticSeverity> for Severity {
+    fn from(severity: DiagnosticSeverity) -> Self {
+        match severity {
+            DiagnosticSeverity::Error => Self::Error,
+            DiagnosticSeverity::Warning => Self::Warning,
+        }
+    }
+}
+
 /// An honest location in a generated artifact or downstream frontend.
 ///
 /// Lines and columns are one-based and inclusive at the start.
@@ -151,10 +169,7 @@ pub fn diagnostic_envelope(
         schema_version: DIAGNOSTIC_SCHEMA_VERSION,
         stage,
         code: diagnostic.code.to_string(),
-        severity: match diagnostic.severity {
-            Severity::Error => DiagnosticSeverity::Error,
-            Severity::Warning => DiagnosticSeverity::Warning,
-        },
+        severity: diagnostic.severity.into(),
         message: diagnostic.message,
         authored_range,
         generated_range,

@@ -61,10 +61,7 @@ impl ToDiagnostic for UnlocatedDiagnostic {
             self.message.clone(),
             krs_diagnostic::Location::None,
         );
-        diagnostic.severity = match self.severity {
-            DiagnosticSeverity::Error => krs_diagnostic::Severity::Error,
-            DiagnosticSeverity::Warning => krs_diagnostic::Severity::Warning,
-        };
+        diagnostic.severity = self.severity.into();
         diagnostic.notes.clone_from(&self.notes);
         if let Some(range) = &self.generated_range {
             diagnostic.secondary.push(krs_diagnostic::Label::new(
@@ -114,10 +111,7 @@ impl DiagnosticReports {
                         });
                 reports.unlocated.push(UnlocatedDiagnostic {
                     code: model.code.to_string(),
-                    severity: match model.severity {
-                        krs_diagnostic::Severity::Error => DiagnosticSeverity::Error,
-                        krs_diagnostic::Severity::Warning => DiagnosticSeverity::Warning,
-                    },
+                    severity: model.severity.into(),
                     message: model.message,
                     source: diagnostic.source.clone(),
                     generated_range,
