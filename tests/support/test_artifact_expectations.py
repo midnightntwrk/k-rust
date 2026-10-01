@@ -53,6 +53,15 @@ class ArtifactExpectationTests(unittest.TestCase):
                 with self.assertRaisesRegex(GateError, "missing.*row"):
                     self.check({facet: [wrong]}, self.vocabulary())
 
+    def test_checks_are_a_closed_schema_with_a_message(self) -> None:
+        with self.assertRaisesRegex(GateError, "unknown keys.*applied_operation"):
+            self.check({"applied_operation": [{"operation": "int_add"}]}, self.vocabulary())
+        with ExitStack() as patches:
+            patches.enter_context(mock.patch.object(semantics, "load_toml", return_value={"check": [{"cells": []}]}))
+            patches.enter_context(mock.patch.object(semantics.krs_gate, "Session"))
+            with self.assertRaisesRegex(GateError, "malformed check"):
+                semantics.definition_expectations(Path("artifacts"), Path("gate"), Path("checks.toml"), {})
+
     def test_nested_pattern_is_forwarded_to_rust(self) -> None:
         pattern = {"symbol": "pair", "arguments": [{"token": "1"}, {}]}
         calls = self.check({"applications": [pattern]}, self.vocabulary(), applications=[{"symbol": "pair"}])

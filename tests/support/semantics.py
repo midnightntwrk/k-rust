@@ -264,6 +264,11 @@ def artifact_gate(
     return emit_a
 
 
+EXPECTATION_KEYS = frozenset(
+    {"message", "required", "forbidden", "cells", "subsorts", "applied_operations", "applications"}
+)
+
+
 def definition_expectations(
     artifacts: Path,
     gate: Path,
@@ -285,6 +290,9 @@ def definition_expectations(
         }
         facets["cell_names"] = {row["name"] for row in vocabulary["cells"]}
         for check in checks:
+            unknown = set(check) - EXPECTATION_KEYS
+            if unknown or not isinstance(check.get("message"), str):
+                raise GateError(f"{expectations}: malformed check {check!r}; unknown keys {sorted(unknown)}")
             for facet, expected in check.get("required", {}).items():
                 if not set(expected) <= facets[facet]:
                     raise GateError(f"{check['message']}: missing {facet} {sorted(set(expected) - facets[facet])}")

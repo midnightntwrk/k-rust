@@ -133,8 +133,8 @@ def verify_artifacts(directory: Path, gate: Path, environment: dict[str, str]) -
         expected_digest = sha256_file(SOURCE)
         attributed_kinds = set()
         for row in sources:
-            authored = [frame for frame in row["authored"] if frame["k_namespace"] == MODULE]
-            for frame in authored:
+            ranged = [frame for frame in row["ranged"] if frame["k_namespace"] == MODULE]
+            for frame in ranged:
                 if frame["cargo_name"] != PACKAGE or frame["package_relative_path"] != "src/lib.rs" or frame["content_sha256"] != expected_digest:
                     raise GateError(f"unexpected tour source attribution: {frame}")
                 attributed_kinds.add(row["node_kind"])
