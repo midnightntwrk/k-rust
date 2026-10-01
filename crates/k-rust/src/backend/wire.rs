@@ -2131,7 +2131,7 @@ mod tests {
     }
 
     /// Answers every condition query as undecided, cancelling the request while it answers.
-    struct CancellingSolver(k_rust_backend::cancellation::CancellationToken);
+    struct CancellingSolver(k_rust_backend::stop::CancellationToken);
 
     impl k_rust_backend::smt::SmtSolver for CancellingSolver {
         fn is_sat(
@@ -2199,7 +2199,7 @@ mod tests {
             )
             .internalize_pattern()
             .unwrap();
-        let token = k_rust_backend::cancellation::CancellationToken::new();
+        let token = k_rust_backend::stop::CancellationToken::new();
         let solver = CancellingSolver(token.clone());
 
         let result = token.scope(|| {
@@ -2223,7 +2223,7 @@ mod tests {
     /// Cancels the request during its first query and polls for a stop before answering, as a
     /// solver polls before each attempt, so under the cancelled request that query and every
     /// later one return the cancellation's stop.
-    struct CancelledSolver(k_rust_backend::cancellation::CancellationToken);
+    struct CancelledSolver(k_rust_backend::stop::CancellationToken);
 
     impl k_rust_backend::smt::SmtSolver for CancelledSolver {
         fn is_sat(
@@ -2277,7 +2277,7 @@ mod tests {
             )
             .internalize_pattern()
             .unwrap();
-        let token = k_rust_backend::cancellation::CancellationToken::new();
+        let token = k_rust_backend::stop::CancellationToken::new();
         let solver = CancelledSolver(token.clone());
 
         let result = token.scope(|| {

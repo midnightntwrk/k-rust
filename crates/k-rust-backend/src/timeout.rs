@@ -13,24 +13,6 @@ const DEFAULT_MOVING_AVERAGE: Duration = Duration::from_secs(3);
 #[cfg(not(target_arch = "wasm32"))]
 const PREVIOUS_WEIGHT: f64 = 0.95;
 
-/// Return whether the request was cancelled, a solver prelude failed, or the active rewrite/proof
-/// step has exhausted its deadline: whether any signal of the `stop` registry is raised.
-///
-/// No production code calls this predicate: native hooks and the simplifier's fixed-point loops
-/// poll `stop::check`. It is kept for its tests until CBC-04-T11. The deadline is armed by
-/// `StepTimeoutController::begin_step` in the thread-local registry, and nested timers restore
-/// the previous deadline when they leave scope.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no production caller once hooks poll `stop::check`; deleted with its shim by CBC-04-T11"
-    )
-)]
-pub(crate) fn interruption_requested() -> bool {
-    crate::stop::legacy_interruption_requested()
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StepTimeoutMode {
     Manual(Duration),
@@ -211,16 +193,26 @@ mod tests {
 
     #[test]
     fn exposes_and_restores_the_active_step_deadline() {
-        assert!(!interruption_requested());
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Ok(())
+        );
         let controller = StepTimeoutController::new(StepTimeoutOptions {
             manual: Some(Duration::ZERO),
             moving_average: false,
         });
         {
             let _timer = controller.begin_step();
-            assert!(interruption_requested());
+            assert!(
+                crate::stop::check()
+                    .map_err(crate::stop::Stop::into_cause)
+                    .is_err()
+            );
         }
-        assert!(!interruption_requested());
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Ok(())
+        );
     }
 
     #[test]
@@ -232,11 +224,23 @@ mod tests {
         let inner = StepTimeoutController::new(StepTimeoutOptions::default());
 
         let _outer_timer = outer.begin_step();
-        assert!(interruption_requested());
+        assert!(
+            crate::stop::check()
+                .map_err(crate::stop::Stop::into_cause)
+                .is_err()
+        );
         {
             let _inner_timer = inner.begin_step();
-            assert!(interruption_requested());
+            assert!(
+                crate::stop::check()
+                    .map_err(crate::stop::Stop::into_cause)
+                    .is_err()
+            );
         }
-        assert!(interruption_requested());
+        assert!(
+            crate::stop::check()
+                .map_err(crate::stop::Stop::into_cause)
+                .is_err()
+        );
     }
 }

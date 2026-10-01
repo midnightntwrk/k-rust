@@ -7,7 +7,6 @@ mod ite;
 mod verify;
 
 pub mod builtin;
-pub mod cancellation;
 pub mod claim;
 pub mod condition;
 pub mod definedness;

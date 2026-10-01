@@ -593,8 +593,7 @@ mod tests {
     use super::*;
     use crate::{
         builtin::HookResult,
-        cancellation::CancellationToken,
-        stop::{StopCause, Unwind},
+        stop::{CancellationToken, StopCause, Unwind},
         term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, SymbolType, Variable},
     };
 

@@ -4590,7 +4590,7 @@ mod tests {
     /// Cancels the request at its first query and polls for a stop before answering, as a
     /// solver polls before each attempt, so under the cancelled request that query and every
     /// later one return the cancellation's stop.
-    struct CancellingSolver(crate::cancellation::CancellationToken);
+    struct CancellingSolver(crate::stop::CancellationToken);
 
     impl SmtSolver for CancellingSolver {
         fn is_sat(
@@ -4622,13 +4622,13 @@ mod tests {
         let claim = claim_with_label(&definition, "one-a-a");
 
         // Cancelled before the proof starts: the loop head observes it.
-        let token = crate::cancellation::CancellationToken::new();
+        let token = crate::stop::CancellationToken::new();
         token.cancel();
         let before = token
             .scope(|| prove_claim(&definition, claim, ProofOptions::default(), &NoSolver))
             .unwrap();
         // Cancelled by the solver during the state's step: the poll after the phase observes it.
-        let token = crate::cancellation::CancellationToken::new();
+        let token = crate::stop::CancellationToken::new();
         let during = token
             .scope(|| {
                 prove_claim(
@@ -4656,13 +4656,13 @@ mod tests {
     /// so under the cancelled request that query and every later one return the cancellation's
     /// stop. Counts the queries it was asked.
     struct CancelAtQuery {
-        token: crate::cancellation::CancellationToken,
+        token: crate::stop::CancellationToken,
         at: usize,
         queries: std::sync::atomic::AtomicUsize,
     }
 
     impl CancelAtQuery {
-        fn new(token: crate::cancellation::CancellationToken, at: usize) -> Self {
+        fn new(token: crate::stop::CancellationToken, at: usize) -> Self {
             Self {
                 token,
                 at,
@@ -4796,8 +4796,7 @@ mod tests {
         ];
         for (name, definition, options, decided) in cases {
             let claim = claim_with_label(definition, "refined");
-            let uncancelled =
-                CancelAtQuery::new(crate::cancellation::CancellationToken::new(), usize::MAX);
+            let uncancelled = CancelAtQuery::new(crate::stop::CancellationToken::new(), usize::MAX);
             let complete = prove_claim(definition, claim, options, &uncancelled).unwrap();
             assert_eq!(complete.stopped, None, "{name}: {complete:#?}");
             assert!(
@@ -4812,7 +4811,7 @@ mod tests {
             // leaf whose outcome is decided is being refined.
             let mut cancelled_after_a_decision = 0;
             for at in 1..=queries {
-                let token = crate::cancellation::CancellationToken::new();
+                let token = crate::stop::CancellationToken::new();
                 let solver = CancelAtQuery::new(token.clone(), at);
                 let result = token
                     .scope(|| prove_claim(definition, claim, options, &solver))
@@ -4886,7 +4885,7 @@ mod tests {
         };
 
         assert_eq!(check(), Ok(false));
-        let token = crate::cancellation::CancellationToken::new();
+        let token = crate::stop::CancellationToken::new();
         token.cancel();
         assert_eq!(token.scope(check), Err(StopCause::Cancelled));
     }
@@ -4937,7 +4936,7 @@ mod tests {
     /// token, the request's, and polls for a stop, as a solver polls before each attempt;
     /// without, it returns a stop of its own that no later poll observes. Counts those queries.
     struct StopsAtBottomCheck {
-        request: Option<crate::cancellation::CancellationToken>,
+        request: Option<crate::stop::CancellationToken>,
         stops: bool,
         bottom_checks: std::sync::atomic::AtomicUsize,
     }
@@ -4958,7 +4957,7 @@ mod tests {
                 match &self.request {
                     Some(request) => request.cancel(),
                     None => {
-                        let own = crate::cancellation::CancellationToken::new();
+                        let own = crate::stop::CancellationToken::new();
                         own.cancel();
                         own.scope(crate::stop::check)?;
                     }
@@ -5013,7 +5012,7 @@ mod tests {
             1
         );
 
-        for request in [Some(crate::cancellation::CancellationToken::new()), None] {
+        for request in [Some(crate::stop::CancellationToken::new()), None] {
             let token = request.clone().unwrap_or_default();
             let stopping = solver(request, true);
             let result = token
@@ -5036,7 +5035,7 @@ mod tests {
     /// later one return the cancellation's stop; answers every other query as satisfiable or
     /// contingent. Counts the `gtInt` queries.
     struct CancelOnCondition {
-        token: crate::cancellation::CancellationToken,
+        token: crate::stop::CancellationToken,
         cancels: bool,
         condition_queries: std::sync::atomic::AtomicUsize,
     }
@@ -5106,7 +5105,7 @@ mod tests {
             },
         };
         let prove = |cancels| {
-            let token = crate::cancellation::CancellationToken::new();
+            let token = crate::stop::CancellationToken::new();
             let solver = CancelOnCondition {
                 token: token.clone(),
                 cancels,

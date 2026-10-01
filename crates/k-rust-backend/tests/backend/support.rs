@@ -3,11 +3,10 @@
 use std::{cell::RefCell, collections::VecDeque};
 
 use k_rust_backend::{
-    cancellation::CancellationToken,
     definition::BackendDefinition,
     rule::Predicate,
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
-    stop::{self, Stoppable},
+    stop::{self, CancellationToken, Stoppable},
     substitution::Substitution,
     term::Term,
 };

@@ -2063,7 +2063,7 @@ mod session {
         thread,
     };
 
-    use k_rust_backend::cancellation::CancellationToken;
+    use k_rust_backend::stop::CancellationToken;
     use serde_json::Value;
 
     use super::{CONNECTION_STACK_SIZE, RpcService, cancellation_response, write_response};
@@ -2169,7 +2169,7 @@ mod session {
                     #[cfg(feature = "measure")]
                     let _default = tracing::dispatcher::set_default(&dispatch);
                     for (message, control) in receiver {
-                        // A request cancelled before it runs (its session ended while it was
+                        // A request that was cancelled before it runs (its session ended while it was
                         // queued, or while this worker waited for another connection's request)
                         // is not run.
                         let response = if control.is_cancelled() {
@@ -2366,7 +2366,7 @@ mod session {
             client.read_to_string(&mut answer).unwrap();
             assert!(
                 answer.is_empty(),
-                "a request cancelled by the end of its session is not answered: {answer}"
+                "a request that was cancelled by the end of its session is not answered: {answer}"
             );
         }
 
@@ -5957,7 +5957,7 @@ endmodule
             .expect("the server must close the connection after its session ends");
         assert!(
             answer.is_empty(),
-            "a request cancelled by the end of its session is not answered: {answer}"
+            "a request that was cancelled by the end of its session is not answered: {answer}"
         );
         finished
             .recv_timeout(WATCHDOG)

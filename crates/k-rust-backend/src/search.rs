@@ -2681,7 +2681,7 @@ mod tests {
     #[test]
     fn cancellation_is_not_reported_as_a_simplifier_failure() {
         let definition = definition();
-        let token = crate::cancellation::CancellationToken::new();
+        let token = crate::stop::CancellationToken::new();
         token.cancel();
         let result = token
             .scope(|| search_graph(&definition, initial(&definition), SearchOptions::default()));
@@ -3068,7 +3068,7 @@ mod tests {
             expected: 2,
             actual: 1,
         });
-        let token = crate::cancellation::CancellationToken::new();
+        let token = crate::stop::CancellationToken::new();
         token.cancel();
         token.scope(|| {
             assert_eq!(

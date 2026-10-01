@@ -10,7 +10,6 @@ use std::{
 use k_rust_backend::substitution::substitute;
 use k_rust_backend::{
     builtin::{BuiltinEffect, UnsupportedHookReason},
-    cancellation::CancellationToken,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     rewrite::*,
@@ -21,7 +20,7 @@ use k_rust_backend::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
-    stop::{Stop, StopCause, Stoppable},
+    stop::{CancellationToken, Stop, StopCause, Stoppable},
     substitution::Substitution,
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,

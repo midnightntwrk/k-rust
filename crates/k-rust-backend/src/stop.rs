@@ -317,28 +317,6 @@ pub fn check() -> Result<(), Stop> {
     }
 }
 
-/// Legacy predicate behind `cancellation::cancellation_requested`: the request was cancelled or
-/// an installed solver prelude failed. Deleted with its shim by CBC-04-T11.
-pub(crate) fn legacy_cancellation_requested() -> bool {
-    REGISTRY.with(|registry| {
-        let registry = registry.borrow();
-        registry.request_cancelled() || registry.raised_prelude().is_some()
-    })
-}
-
-/// Legacy predicate behind `timeout::interruption_requested`: any signal of the registry is
-/// raised. Deleted with its shim by CBC-04-T11.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no production caller once hooks poll `stop::check`; deleted with its shim by CBC-04-T11"
-    )
-)]
-pub(crate) fn legacy_interruption_requested() -> bool {
-    REGISTRY.with(|registry| registry.borrow().raised().is_some())
-}
-
 /// Bytes of native stack that must remain when the simplifier enters a round of
 /// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
 /// checks the stack.
@@ -482,7 +460,7 @@ pub(crate) fn with_prelude_signal<T>(signal: &PreludeSignal, body: impl FnOnce()
 ///
 /// Installs `solver`'s prelude signal for `body` unless it is already installed (pointer
 /// equality), so every loop inside observes a prelude failure found by any operation sharing the
-/// solver. Polls on entry: a request cancelled before it starts, or a solver whose prelude
+/// solver. Polls on entry: a request that was cancelled before it starts, or a solver whose prelude
 /// already failed, does not run. On exit it polls the solver's prelude signal, so a prelude
 /// failure found during a refinement whose stop was dismissed is still the operation's result;
 /// `body`'s value is then discarded, so `body` publishes its own stops in-band rather than
@@ -662,6 +640,93 @@ mod tests {
         substitution::Substitution,
     };
 
+    #[test]
+    fn scopes_and_restores_active_tokens() {
+        let outer = CancellationToken::new();
+        let inner = CancellationToken::new();
+        outer.cancel();
+
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Ok(())
+        );
+        outer.scope(|| {
+            assert!(
+                crate::stop::check()
+                    .map_err(crate::stop::Stop::into_cause)
+                    .is_err()
+            );
+            inner.scope(|| {
+                assert_eq!(
+                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
+                    Ok(())
+                )
+            });
+            assert!(
+                crate::stop::check()
+                    .map_err(crate::stop::Stop::into_cause)
+                    .is_err()
+            );
+        });
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn cloned_tokens_signal_across_threads() {
+        let token = CancellationToken::new();
+        let signal = token.clone();
+        std::thread::spawn(move || signal.cancel()).join().unwrap();
+
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn prelude_signal_composes_with_outer_cancellation_and_does_not_leak() {
+        let outer = CancellationToken::new();
+        let operation = PreludeSignal::default();
+        outer.scope(|| {
+            with_prelude_signal(&operation, || {
+                assert_eq!(
+                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
+                    Ok(())
+                );
+                operation.raise(PreludeFailure::Inconsistent);
+                assert!(
+                    crate::stop::check()
+                        .map_err(crate::stop::Stop::into_cause)
+                        .is_err()
+                );
+                assert!(!outer.is_cancelled());
+            });
+            assert_eq!(
+                crate::stop::check().map_err(crate::stop::Stop::into_cause),
+                Ok(())
+            );
+            let next = PreludeSignal::default();
+            with_prelude_signal(&next, || {
+                assert_eq!(
+                    crate::stop::check().map_err(crate::stop::Stop::into_cause),
+                    Ok(())
+                )
+            });
+            outer.cancel();
+            with_prelude_signal(&next, || {
+                assert!(
+                    crate::stop::check()
+                        .map_err(crate::stop::Stop::into_cause)
+                        .is_err()
+                )
+            });
+        });
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Ok(())
+        );
+    }
+
     /// The cause `check` reports, published so that no stop is dropped armed.
     fn polled() -> Option<StopCause> {
         check().err().map(Stop::into_cause)
@@ -701,8 +766,6 @@ mod tests {
     fn check_is_ok_with_an_empty_registry() {
         assert!(registry_is_empty());
         assert_eq!(polled(), None);
-        assert!(!legacy_cancellation_requested());
-        assert!(!legacy_interruption_requested());
     }
 
     #[test]
