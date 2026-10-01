@@ -53,7 +53,7 @@ use crate::{
         evaluate_in_definition as evaluate_builtin,
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
-    condition::{Condition, InstantiatedCondition},
+    condition::{DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation},
     definedness::{ceil_term, ground_terms_structurally_distinct},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
@@ -63,7 +63,7 @@ use crate::{
     },
     rewrite::{
         Pattern, Truth, check_concreteness, normalize_pattern_substitution, predicates_truth,
-        retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
+        retain_substitution_predicates, violates_finite_constructor_domain,
     },
     rule::{
         Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs, Theory,
@@ -958,22 +958,36 @@ pub(crate) enum RuleCondition {
     Indeterminate(ConditionIndeterminacy),
 }
 
+/// The verdict on an equation instance's `requires`.
+#[must_use]
+enum EquationCondition {
+    /// The `requires` holds; the instance, with its binding obligations still to decide.
+    Satisfied(MatchedEquation),
+    Refuted,
+    Indeterminate(ConditionIndeterminacy),
+}
+
+/// Decide the `requires` of an equation `instance` under the path condition. It is simplified
+/// first, keyed by `anchor` against re-entry, and a verdict the solver could not reach is
+/// reported as a diagnostic of `rule_id`; without an anchor the definedness of its terms is
+/// stated and it is decided as it is.
 #[allow(clippy::too_many_arguments)]
-fn evaluate_rule_condition(
+fn evaluate_equation_condition(
     definition: &BackendDefinition,
     rule_id: &str,
     anchor: Option<&Term>,
-    requires: InstantiatedCondition,
-    bound_definedness: &[Predicate],
+    instance: EquationInstance,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<RuleCondition> {
+) -> SimplifyResult<EquationCondition> {
+    let (requires, matched) = instance.into_requires();
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
     // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
     // as known and not restated as a requires.
+    let bound_definedness = matched.bindings().as_known();
     let definedness_known = if bound_definedness.is_empty() {
         None
     } else {
@@ -1017,7 +1031,13 @@ fn evaluate_rule_condition(
     } else {
         requires.with_definedness(definition, definedness_known)
     };
-    decide_rule_condition(rule_id, &predicates, known_predicates, solver)
+    Ok(
+        match decide_rule_condition(rule_id, &predicates, known_predicates, solver)? {
+            RuleCondition::Satisfied => EquationCondition::Satisfied(matched),
+            RuleCondition::Refuted => EquationCondition::Refuted,
+            RuleCondition::Indeterminate(reason) => EquationCondition::Indeterminate(reason),
+        },
+    )
 }
 
 /// Decide already simplified condition predicates under the path condition, reporting a
@@ -1629,24 +1649,23 @@ fn apply_ceil_equation(
         ));
     }
 
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
-    match evaluate_rule_condition(
+    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        conditions.requires,
-        &conditions.definedness,
+        instance,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate(reason) => {
+        EquationCondition::Satisfied(matched) => matched,
+        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-    }
+    };
 
     let RuleRhs::Predicates(rhs) = &rule.rhs else {
         return Ok(EquationAttempt::NotApplicable);
@@ -1655,23 +1674,21 @@ fn apply_ceil_equation(
     // `\ceil(\bottom)` is `\bottom`. So `\ceil(f(t)) = \ceil(t) /\ q[t]` under the equation
     // `\ceil(f(X)) = q[X]`, an open obligation is conjoined to the result and a refuted one
     // makes the subject `\bottom`.
-    let mut result = substitute_predicates(rhs, &substitution);
-    match decide_definedness(
+    let defined = match decide_equation_bindings(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        conditions.definedness,
+        matched,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        DefinednessVerdict::Discharged => {}
-        DefinednessVerdict::Open(obligations) => result.extend(obligations),
-        DefinednessVerdict::Refuted => return Ok(EquationAttempt::Applied(Predicate::False)),
-    }
+        DecidedEquation::Defined(defined) => defined,
+        DecidedEquation::Refuted(_) => return Ok(EquationAttempt::Applied(Predicate::False)),
+    };
     Ok(EquationAttempt::Applied(normalize_predicate(
-        Predicate::And(result),
+        Predicate::And(defined.into_result(rhs)),
     )))
 }
 
@@ -1746,25 +1763,23 @@ fn apply_predicate_equation(
             ConditionIndeterminacy::NonFunctionalBinding,
         ));
     }
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
-    match evaluate_rule_condition(
+    let instance = EquationInstance::new(definition, &rule.requires, substitution);
+    let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
         first_predicate_term(predicate),
-        conditions.requires,
-        &conditions.definedness,
+        instance,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
-        RuleCondition::Indeterminate(reason) => {
+        EquationCondition::Satisfied(matched) => matched,
+        EquationCondition::Refuted => return Ok(EquationAttempt::NotApplicable),
+        EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-    }
-    let mut result = substitute_predicates(&rule.rhs, &substitution);
+    };
     // The equation `p[X] = q[X] requires R[X]` is an axiom over every element `X`, and the
     // subject `p[t]` equals `\ceil(t) /\ q[t]` only when `p` is strict in `X`, that is
     // `p[\bottom]` is `\bottom`: a functional `t` is either empty, where the strict `p[t]` and
@@ -1775,42 +1790,51 @@ fn apply_predicate_equation(
     // open or refuted obligation is therefore used only when `p` is strict in every element
     // variable whose binding raised it (`strict_variables`); otherwise the attempt stays
     // indeterminate on an open obligation and does not apply on a refuted one.
-    let obligated = obligated_variables(definition, &substitution, &conditions.definedness);
-    match decide_definedness(
+    let obligated = obligated_variables(
+        definition,
+        matched.substitution(),
+        matched.bindings().as_known(),
+    );
+    match decide_equation_bindings(
         definition,
         &rule.attributes.unique_id,
         first_predicate_term(predicate),
-        conditions.definedness,
+        matched,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        DefinednessVerdict::Discharged => {}
-        DefinednessVerdict::Open(obligations) => {
-            let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
-            if !obligated.is_subset(&strict) {
-                return Ok(EquationAttempt::Indeterminate(
-                    ConditionIndeterminacy::ImplicationIndeterminate,
-                ));
+        DecidedEquation::Defined(defined) => {
+            if !defined.is_discharged() {
+                let strict = strict_variables(
+                    definition,
+                    &rule.lhs,
+                    defined.substitution(),
+                    known_predicates,
+                );
+                if !obligated.is_subset(&strict) {
+                    return Ok(EquationAttempt::Indeterminate(
+                        ConditionIndeterminacy::ImplicationIndeterminate,
+                    ));
+                }
             }
-            result.extend(obligations);
+            Ok(EquationAttempt::Applied(normalize_predicate(
+                Predicate::And(defined.into_result(&rule.rhs)),
+            )))
         }
-        DefinednessVerdict::Refuted => {
+        DecidedEquation::Refuted(substitution) => {
             let strict = strict_variables(definition, &rule.lhs, &substitution, known_predicates);
             if !obligated.is_subset(&strict) {
                 return Ok(EquationAttempt::NotApplicable);
             }
-            return Ok(EquationAttempt::Applied(Predicate::False));
+            Ok(EquationAttempt::Applied(Predicate::False))
         }
     }
-    Ok(EquationAttempt::Applied(normalize_predicate(
-        Predicate::And(result),
-    )))
 }
 
 /// The element variables of `substitution` whose binding raised one of the obligations in
-/// `definedness` (`EquationConditions::definedness`): those bound to a term that may be empty
+/// `definedness` (`BindingDefinedness::as_known`): those bound to a term that may be empty
 /// under the path condition.
 fn obligated_variables(
     definition: &BackendDefinition,
@@ -2744,40 +2768,36 @@ fn matches_top_equation(
             {
                 continue;
             }
-            let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
-            if !matches!(
-                evaluate_rule_condition(
-                    definition,
-                    &rule.attributes.unique_id,
-                    Some(term),
-                    conditions.requires,
-                    &conditions.definedness,
-                    known_predicates,
-                    options,
-                    active_conditions,
-                    solver,
-                )?,
-                RuleCondition::Satisfied
-            ) {
+            let instance = EquationInstance::new(definition, &rule.requires, substitution);
+            let EquationCondition::Satisfied(matched) = evaluate_equation_condition(
+                definition,
+                &rule.attributes.unique_id,
+                Some(term),
+                instance,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )?
+            else {
                 continue;
-            }
+            };
             // The operand `f(t)` of a term-level `\and` is strict in every `t` bound to an
             // element variable, so `u /\ f(t) = u /\ \ceil(t)` under `f(X) = \top`: an open
             // obligation becomes a constraint of the conjunction and a refuted one makes it
             // `\bottom`.
-            let constraints = match decide_definedness(
+            let constraints = match decide_equation_bindings(
                 definition,
                 &rule.attributes.unique_id,
                 Some(term),
-                conditions.definedness,
+                matched,
                 known_predicates,
                 options,
                 active_conditions,
                 solver,
             )? {
-                DefinednessVerdict::Discharged => Vec::new(),
-                DefinednessVerdict::Open(obligations) => obligations,
-                DefinednessVerdict::Refuted => vec![Predicate::False],
+                DecidedEquation::Defined(defined) => defined.into_carried().into_predicates(),
+                DecidedEquation::Refuted(_) => vec![Predicate::False],
             };
             return Ok(Some((rule.attributes.unique_id.clone(), constraints)));
         }
@@ -3331,69 +3351,43 @@ fn scan_group<R, T>(
     })
 }
 
-/// The conditions an equation must discharge once its left-hand side has matched.
-struct EquationConditions {
-    /// The equation's own `requires`, instantiated by the match.
-    requires: InstantiatedCondition,
-    /// Definedness of every term bound to an element variable.
-    ///
-    /// An element variable ranges over elements, so binding it to a term `t` asserts `\ceil(t)`;
-    /// a set variable binds an arbitrary pattern and imposes no obligation. `ceil_term` already
-    /// discharges constructors, total symbols, and element variables, so this list names only
-    /// partial applications, set variables, and collection distinctness.
-    definedness: Vec<Predicate>,
-}
-
-/// The verdict on `EquationConditions::definedness` under the path condition.
-enum DefinednessVerdict {
-    /// Every obligation holds: the bound terms are defined.
-    Discharged,
-    /// The residual obligations the path condition does not decide; the equation's caller
-    /// carries them, because they keep the `\ceil(t)` factor of the instance explicit.
-    Open(Vec<Predicate>),
-    /// An obligation is refuted: a bound term is empty under the path condition.
-    Refuted,
-}
-
-/// Decide the definedness obligations of an equation's element-variable bindings, after the
-/// equation's own `requires` has been decided separately. The obligations are simplified under
-/// the path condition first, keyed by `anchor` against re-entry as `evaluate_rule_condition`
-/// does, and a verdict the solver could not reach is reported as a diagnostic of `rule_id`.
+/// Decide the binding obligations of an equation instance whose `requires` holds
+/// ([`MatchedEquation::decide`]). The obligations are simplified under the path condition first,
+/// keyed by `anchor` against re-entry as `evaluate_equation_condition` does, and a verdict the
+/// solver could not reach is reported as a diagnostic of `rule_id`.
 #[allow(clippy::too_many_arguments)]
-fn decide_definedness(
+fn decide_equation_bindings(
     definition: &BackendDefinition,
     rule_id: &str,
     anchor: Option<&Term>,
-    definedness: Vec<Predicate>,
+    matched: MatchedEquation,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<DefinednessVerdict> {
-    if definedness.is_empty() {
-        return Ok(DefinednessVerdict::Discharged);
-    }
-    let definedness = if let Some(anchor) = anchor {
-        simplify_rule_predicates_or_keep(
-            definition,
-            rule_id,
-            anchor,
-            definedness,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        )?
-    } else {
-        definedness
-    };
-    Ok(
-        match decide_rule_condition(rule_id, &definedness, known_predicates, solver)? {
-            RuleCondition::Satisfied => DefinednessVerdict::Discharged,
-            RuleCondition::Refuted => DefinednessVerdict::Refuted,
-            RuleCondition::Indeterminate(_) => DefinednessVerdict::Open(definedness),
-        },
-    )
+) -> SimplifyResult<DecidedEquation> {
+    let decided = matched.decide(|obligations| {
+        let decide = || {
+            let obligations = if let Some(anchor) = anchor {
+                simplify_rule_predicates_or_keep(
+                    definition,
+                    rule_id,
+                    anchor,
+                    obligations,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )?
+            } else {
+                obligations
+            };
+            let verdict = decide_rule_condition(rule_id, &obligations, known_predicates, solver)?;
+            Ok((verdict, obligations))
+        };
+        decide().layered()
+    })??;
+    Ok(decided)
 }
 
 /// Whether `substitution` binds an element variable to a pattern containing a set variable.
@@ -3415,28 +3409,6 @@ pub(crate) fn binds_element_variable_to_set_pattern(substitution: &Substitution)
                 .iter()
                 .any(|bound| bound.kind == VariableKind::Set)
     })
-}
-
-fn equation_match_conditions(
-    definition: &BackendDefinition,
-    requires: &Condition,
-    substitution: &Substitution,
-) -> EquationConditions {
-    let requires = requires.instantiate(substitution);
-    let mut definedness = Vec::new();
-    for (variable, value) in substitution {
-        if variable.kind == VariableKind::Element {
-            for predicate in ceil_term(definition, value) {
-                if !requires.contains(&predicate) && !definedness.contains(&predicate) {
-                    definedness.push(predicate);
-                }
-            }
-        }
-    }
-    EquationConditions {
-        requires,
-        definedness,
-    }
 }
 
 fn apply_equation(
@@ -3504,7 +3476,7 @@ fn apply_equation(
             ConditionIndeterminacy::NonFunctionalBinding,
         ));
     }
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+    let instance = EquationInstance::new(definition, &rule.requires, substitution);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
@@ -3512,23 +3484,22 @@ fn apply_equation(
     // narrow the subject to the part where `R` holds. A refuted `R[t]` remains context dependent:
     // it permits lower-priority equations in this scan but cannot justify caching the term across
     // simplifier calls with different path conditions.
-    match evaluate_rule_condition(
+    let matched = match evaluate_equation_condition(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        conditions.requires,
-        &conditions.definedness,
+        instance,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        RuleCondition::Satisfied => {}
-        RuleCondition::Refuted => return Ok(EquationAttempt::ContextDependent),
-        RuleCondition::Indeterminate(reason) => {
+        EquationCondition::Satisfied(matched) => matched,
+        EquationCondition::Refuted => return Ok(EquationAttempt::ContextDependent),
+        EquationCondition::Indeterminate(reason) => {
             return Ok(EquationAttempt::Indeterminate(reason));
         }
-    }
+    };
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
     // the `\ceil(t)` factor of the equality explicit. A refuted obligation means `t` is empty
@@ -3536,19 +3507,18 @@ fn apply_equation(
     // injections, collections, and `\and`, all strict, so the subject is empty whichever
     // equation is tried; the result reports it as `\bottom`. Only the equation's own `requires`,
     // decided above, says nothing about the subject when refuted.
-    let definedness = match decide_definedness(
+    let defined = match decide_equation_bindings(
         definition,
         &rule.attributes.unique_id,
         Some(term),
-        conditions.definedness,
+        matched,
         known_predicates,
         options,
         active_conditions,
         solver,
     )? {
-        DefinednessVerdict::Discharged => Vec::new(),
-        DefinednessVerdict::Open(obligations) => obligations,
-        DefinednessVerdict::Refuted => {
+        DecidedEquation::Defined(defined) => defined,
+        DecidedEquation::Refuted(_) => {
             return Ok(EquationAttempt::Applied(Simplification::bottom_subject(
                 rule, term,
             )));
@@ -3556,7 +3526,11 @@ fn apply_equation(
     };
     let (alternatives, is_disjunction) = match &rule.rhs {
         RuleRhs::Term(rhs) => (
-            vec![(substitute(rhs, &substitution), rule.ensures.clone(), false)],
+            vec![(
+                substitute(rhs, defined.substitution()),
+                rule.ensures.clone(),
+                false,
+            )],
             false,
         ),
         RuleRhs::Bottom => (vec![(term.clone(), rule.ensures.clone(), true)], false),
@@ -3565,7 +3539,11 @@ fn apply_equation(
                 .iter()
                 .map(|alternative| {
                     let ensures = rule.ensures.merged(&alternative.ensures);
-                    (substitute(&alternative.term, &substitution), ensures, false)
+                    (
+                        substitute(&alternative.term, defined.substitution()),
+                        ensures,
+                        false,
+                    )
                 })
                 .collect(),
             true,
@@ -3584,8 +3562,7 @@ fn apply_equation(
             definition,
             rule,
             term,
-            &substitution,
-            &ensures,
+            defined.instantiate_ensures(&ensures),
             known_predicates,
             options,
             active_conditions,
@@ -3624,7 +3601,7 @@ fn apply_equation(
                 rule,
                 term,
                 ensures,
-                definedness,
+                defined.into_carried(),
             )))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
@@ -3646,15 +3623,14 @@ fn evaluate_ensures(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     term: &Term,
-    substitution: &Substitution,
-    ensures: &Condition,
+    ensures: InstantiatedCondition,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EnsuresVerdict> {
     // An `ensures` constrains the result only where its terms are defined.
-    let ensures = ensures.instantiate(substitution).simplify(
+    let ensures = ensures.simplify(
         definition,
         known_predicates,
         known_predicates,

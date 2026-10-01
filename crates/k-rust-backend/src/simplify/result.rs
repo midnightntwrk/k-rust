@@ -11,7 +11,7 @@
 
 use crate::{
     builtin::BuiltinEffect,
-    condition::ResultConditions,
+    condition::{CarriedObligations, ResultConditions},
     definition::BackendDefinition,
     rule::{Predicate, RewriteRule},
     term::Term,
@@ -155,17 +155,18 @@ impl Simplification {
     }
 
     /// The result `term` of the function equation `rule`, with what its instance leaves of its
-    /// `ensures` and its open binding obligations `definedness`; the conditions are built here by
+    /// `ensures` and its open binding obligations `carried`, which exist only once the instance's
+    /// bindings are decided (`MatchedEquation::decide`); the conditions are built here by
     /// [`ResultConditions::equation`], which records the `ensures` as assumptions.
     pub(super) fn equation(
         rule: &RewriteRule,
         term: Term,
         ensures: Vec<Predicate>,
-        definedness: Vec<Predicate>,
+        carried: CarriedObligations,
     ) -> Self {
         Self {
             term,
-            conditions: ResultConditions::equation(ensures, definedness),
+            conditions: ResultConditions::equation(ensures, carried),
             applied_rules: vec![rule.attributes.unique_id.clone()],
             effects: Vec::new(),
             exhausted: None,

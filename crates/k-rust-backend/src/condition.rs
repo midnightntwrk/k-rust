@@ -32,7 +32,7 @@ use crate::{
     diagnostic,
     rewrite::{Truth, predicates_truth, substitute_predicates},
     rule::{Predicate, rename_predicates},
-    simplify::{SimplificationError, hook_argument_definedness},
+    simplify::{RuleCondition, SimplificationError, hook_argument_definedness},
     stop::Stoppable,
     substitution::Substitution,
     term::{Term, TermKind, Variable, VariableKind},
@@ -143,12 +143,6 @@ impl InstantiatedCondition {
             "an instantiated condition is renamed only to variables"
         );
         Self(substitute_predicates(&self.0, renaming))
-    }
-
-    /// Whether `predicate` is a conjunct of the instance as written: a binding's definedness
-    /// that the instance already states is not restated beside it.
-    pub(crate) fn contains(&self, predicate: &Predicate) -> bool {
-        self.0.contains(predicate)
     }
 
     /// The instance as one conjunction, as written, for a diagnostic that names a refuted
@@ -291,6 +285,180 @@ pub(crate) fn eliminate_bindings(
     result
 }
 
+/// The instance of an equation's left-hand side under its match (I1, I2): the equation's
+/// `requires` under the match, and what the equation's use needs once that is decided.
+///
+/// An equation `f(X) = r requires R` is an axiom over every element `X`. A term `t` bound to `X`
+/// is a functional pattern (at most one element), so the instance at `t` is
+/// `f(t) = \ceil(t) /\ r[t]` where `R[t]` holds: both sides are empty where `t` is, and the
+/// axiom applies on the one element otherwise. The `\ceil(t)` factors are the binding
+/// obligations ([`BindingDefinedness`]); the right-hand side is reachable only after they are
+/// decided ([`MatchedEquation::decide`]), and then only together with those that stay open
+/// ([`DefinedEquation::into_result`], [`DefinedEquation::into_carried`]).
+pub(crate) struct EquationInstance {
+    requires: InstantiatedCondition,
+    matched: MatchedEquation,
+}
+
+impl EquationInstance {
+    /// The instance of `requires` under `substitution`, and the definedness of every term
+    /// `substitution` binds to an element variable, minus what the instantiated `requires`
+    /// already states.
+    ///
+    /// An element variable ranges over elements, so binding it to a term `t` asserts `\ceil(t)`;
+    /// a set variable binds an arbitrary pattern and imposes no obligation. `ceil_term` already
+    /// discharges constructors, total symbols and element variables, so the obligations name
+    /// only partial applications, set variables and collection distinctness.
+    pub(crate) fn new(
+        definition: &BackendDefinition,
+        requires: &Condition,
+        substitution: Substitution,
+    ) -> Self {
+        let requires = requires.instantiate(&substitution);
+        let mut definedness = Vec::new();
+        for (variable, value) in &substitution {
+            if variable.kind == VariableKind::Element {
+                for predicate in ceil_term(definition, value) {
+                    if !requires.0.contains(&predicate) && !definedness.contains(&predicate) {
+                        definedness.push(predicate);
+                    }
+                }
+            }
+        }
+        Self {
+            requires,
+            matched: MatchedEquation {
+                substitution,
+                bindings: BindingDefinedness(definedness),
+            },
+        }
+    }
+
+    /// The `requires` to decide, during which the binding obligations are taken as known
+    /// (`matched.bindings().as_known()`): they are the `\ceil(t)` factor of the instance, carried
+    /// rather than decided by the `requires`. And the instance, whose use needs them decided.
+    pub(crate) fn into_requires(self) -> (InstantiatedCondition, MatchedEquation) {
+        (self.requires, self.matched)
+    }
+}
+
+/// An equation instance whose `requires` is to be, or has been, decided; its binding
+/// obligations are not decided yet, so nothing its right-hand side instantiates is reachable.
+#[must_use]
+pub(crate) struct MatchedEquation {
+    substitution: Substitution,
+    bindings: BindingDefinedness,
+}
+
+impl MatchedEquation {
+    pub(crate) fn substitution(&self) -> &Substitution {
+        &self.substitution
+    }
+
+    pub(crate) fn bindings(&self) -> &BindingDefinedness {
+        &self.bindings
+    }
+
+    /// Decide the binding obligations under the path condition, the only way to the instance's
+    /// right-hand side.
+    ///
+    /// `decide(obligations)` simplifies the obligations and decides them, returning the verdict
+    /// with the obligations as simplified. With no obligation the instance is defined as it
+    /// stands and `decide` is not called. A satisfied verdict discharges the obligations, a
+    /// refuted one makes a bound term empty under the path condition ([`DecidedEquation::Refuted`]),
+    /// and an undecided one leaves the simplified obligations open, carried by the result.
+    pub(crate) fn decide(
+        self,
+        decide: impl FnOnce(
+            Vec<Predicate>,
+        )
+            -> Stoppable<Result<(RuleCondition, Vec<Predicate>), SimplificationError>>,
+    ) -> Stoppable<Result<DecidedEquation, SimplificationError>> {
+        let Self {
+            substitution,
+            bindings: BindingDefinedness(obligations),
+        } = self;
+        let open = if obligations.is_empty() {
+            Vec::new()
+        } else {
+            match decide(obligations)? {
+                Err(failure) => return Ok(Err(failure)),
+                Ok((RuleCondition::Satisfied, _)) => Vec::new(),
+                Ok((RuleCondition::Refuted, _)) => {
+                    return Ok(Ok(DecidedEquation::Refuted(substitution)));
+                }
+                Ok((RuleCondition::Indeterminate(_), simplified)) => simplified,
+            }
+        };
+        Ok(Ok(DecidedEquation::Defined(DefinedEquation {
+            substitution,
+            carried: CarriedObligations(open.into_iter().map(Obligation).collect()),
+        })))
+    }
+}
+
+/// `\ceil(t)` for every term `t` an equation's match binds to an element variable (I2), minus
+/// what the instantiated `requires` already states.
+#[must_use]
+pub(crate) struct BindingDefinedness(Vec<Predicate>);
+
+impl BindingDefinedness {
+    /// The obligations as stated: taken as known while the equation's `requires` is decided,
+    /// and read by the predicate-equation strictness test (`obligated_variables`).
+    pub(crate) fn as_known(&self) -> &[Predicate] {
+        &self.0
+    }
+}
+
+/// The binding obligations of an equation instance, decided.
+#[must_use]
+pub(crate) enum DecidedEquation {
+    /// The obligations are discharged or open; the instance is usable.
+    Defined(DefinedEquation),
+    /// A bound term is empty under the path condition. The match serves the predicate-equation
+    /// strictness test (`strict_variables`).
+    Refuted(Substitution),
+}
+
+/// An equation instance whose binding obligations are decided and not refuted.
+#[must_use]
+pub(crate) struct DefinedEquation {
+    substitution: Substitution,
+    carried: CarriedObligations,
+}
+
+impl DefinedEquation {
+    pub(crate) fn substitution(&self) -> &Substitution {
+        &self.substitution
+    }
+
+    /// Whether no binding obligation stays open.
+    pub(crate) fn is_discharged(&self) -> bool {
+        self.carried.is_empty()
+    }
+
+    /// The equation's `ensures` under the instance, a condition over the instance (I1).
+    pub(crate) fn instantiate_ensures(&self, ensures: &Condition) -> InstantiatedCondition {
+        ensures.instantiate(&self.substitution)
+    }
+
+    /// The right-hand side `predicates` of a ceil or predicate equation under the instance,
+    /// followed by the open binding obligations: the instance is `\ceil(t) /\ q[t]`. It is the
+    /// only view of the instantiated right-hand side, so the open obligations cannot be left
+    /// out of it.
+    pub(crate) fn into_result(self, predicates: &[Predicate]) -> Vec<Predicate> {
+        let mut result = substitute_predicates(predicates, &self.substitution);
+        result.extend(self.carried.into_predicates());
+        result
+    }
+
+    /// The open binding obligations of a function or `\top` equation's instance, which its
+    /// result carries.
+    pub(crate) fn into_carried(self) -> CarriedObligations {
+        self.carried
+    }
+}
+
 /// A conjunct of a simplification result that is part of the condition for the result to exist
 /// (I4): the definedness of a term an equation binds or of an argument of an evaluated hooked
 /// application, or a refutation.
@@ -307,6 +475,26 @@ impl Obligation {
 
     pub fn into_predicate(self) -> Predicate {
         self.0
+    }
+}
+
+/// The open binding obligations of an equation instance (I2): the `\ceil(t)` factors its
+/// binding obligations' decision left undecided, which the instance's result carries.
+///
+/// It has no `Default` and no constructor outside this module: its only source is
+/// [`MatchedEquation::decide`], so an equation's result cannot be built without deciding its
+/// bindings.
+#[must_use]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CarriedObligations(Vec<Obligation>);
+
+impl CarriedObligations {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn into_predicates(self) -> Vec<Predicate> {
+        self.0.into_iter().map(Obligation::into_predicate).collect()
     }
 }
 
@@ -391,12 +579,12 @@ impl ResultConditions {
     /// The conditions of an applied function equation's result, the only producer of
     /// assumptions.
     ///
-    /// `ensures` is what the equation's instance leaves of its `ensures`, and `definedness` its
-    /// open binding obligations (I2). A `\bottom` among `ensures` (a refuted `ensures` or a bottom
+    /// `ensures` is what the equation's instance leaves of its `ensures`, and `carried` its open
+    /// binding obligations (I2). A `\bottom` among `ensures` (a refuted `ensures` or a bottom
     /// right-hand side) is the subject's own emptiness: the conjuncts are `ensures` alone, with no
     /// assumption and no binding obligation. Otherwise the open `ensures` are the assumptions, and
     /// the binding obligations not among them follow as obligations.
-    pub(crate) fn equation(ensures: Vec<Predicate>, definedness: Vec<Predicate>) -> Self {
+    pub(crate) fn equation(ensures: Vec<Predicate>, carried: CarriedObligations) -> Self {
         let mut conjuncts = ensures;
         if conjuncts.contains(&Predicate::False) {
             return Self {
@@ -405,7 +593,7 @@ impl ResultConditions {
             };
         }
         let assumptions = (0..conjuncts.len()).map(conjunct_index).collect();
-        for predicate in definedness {
+        for predicate in carried.into_predicates() {
             if !conjuncts.contains(&predicate) {
                 conjuncts.push(predicate);
             }
@@ -480,6 +668,11 @@ mod tests {
         )))
     }
 
+    /// Open binding obligations, as `MatchedEquation::decide` leaves them.
+    fn carried(predicates: Vec<Predicate>) -> CarriedObligations {
+        CarriedObligations(predicates.into_iter().map(Obligation).collect())
+    }
+
     fn obligations(conditions: &ResultConditions) -> Vec<Predicate> {
         conditions
             .obligations()
@@ -492,7 +685,7 @@ mod tests {
         let ensures = atom("Ensured");
         let obligation = atom("Defined");
         let mut conditions =
-            ResultConditions::equation(vec![ensures.clone()], vec![obligation.clone()]);
+            ResultConditions::equation(vec![ensures.clone()], carried(vec![obligation.clone()]));
         assert_eq!(conditions.as_slice(), [ensures.clone(), obligation.clone()]);
         assert_eq!(obligations(&conditions), std::slice::from_ref(&obligation));
         assert!(conditions.asserts(&ensures));
@@ -521,7 +714,10 @@ mod tests {
         );
 
         // A part with assumptions has its indices shifted past the conjuncts before it.
-        conditions.append(ResultConditions::equation(vec![atom("Later")], Vec::new()));
+        conditions.append(ResultConditions::equation(
+            vec![atom("Later")],
+            carried(Vec::new()),
+        ));
         assert_eq!(conditions.assumptions, [0, 4]);
         assert!(conditions.asserts(&atom("Later")));
         assert_eq!(obligations(&conditions), [obligation, atom("Bound")]);
@@ -532,7 +728,7 @@ mod tests {
         let ensures = atom("Ensured");
         let conditions = ResultConditions::equation(
             vec![ensures.clone()],
-            vec![ensures.clone(), atom("Defined")],
+            carried(vec![ensures.clone(), atom("Defined")]),
         );
         assert_eq!(conditions.as_slice(), [ensures, atom("Defined")]);
         assert_eq!(obligations(&conditions), [atom("Defined")]);
@@ -542,7 +738,7 @@ mod tests {
     fn a_refuted_equation_result_has_no_assumption_and_no_binding_obligation() {
         let conditions = ResultConditions::equation(
             vec![atom("Ensured"), Predicate::False],
-            vec![atom("Defined")],
+            carried(vec![atom("Defined")]),
         );
         assert_eq!(conditions.as_slice(), [atom("Ensured"), Predicate::False]);
         assert!(conditions.assumptions.is_empty());
