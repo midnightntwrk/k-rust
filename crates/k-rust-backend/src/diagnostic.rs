@@ -9,7 +9,7 @@ use std::{
 use crate::{
     builtin::UnsupportedHookReason,
     rule::Predicate,
-    simplify::{BudgetSubject, ConditionIndeterminacy},
+    simplify::{BudgetSubject, ConditionIndeterminacy, SimplificationError},
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -35,6 +35,16 @@ pub enum BackendDiagnostic {
     /// subject `Predicates` that it qualifies; in an execution path's list, which keeps each
     /// distinct diagnostic once, it follows that exhaustion but not necessarily directly.
     RuleConditionUnsimplified { rule_id: String, limit: usize },
+    /// Simplifying the side conditions of an application attempt of the rule `rule_id` failed
+    /// with `failure`, so they were decided in their unsimplified form. They are the same
+    /// condition, so the decision is sound, but it may be weaker: the rule may be left unapplied
+    /// because simplifying its condition failed rather than because the condition is open.
+    /// Recorded once per rule and failure in a collection, as every attempt of the rule on the
+    /// same instance fails the same way.
+    RuleConditionFailed {
+        rule_id: String,
+        failure: SimplificationError,
+    },
     UnsupportedHookUnevaluated {
         hook: String,
         reason: UnsupportedHookReason,
@@ -140,7 +150,8 @@ pub(crate) fn next_position() -> u64 {
 /// Append `emission` to a collection under the collection's rules: an unevaluated hook is
 /// reported once per hook, whatever the reason given at later calls; a rule-condition budget
 /// exhaustion once per rule and limit (a `RuleConditionUnsimplified` already in the collection,
-/// however emitted, reports it); every other diagnostic is appended as emitted.
+/// however emitted, reports it); a rule-condition failure once per rule and failure; every other
+/// diagnostic is appended as emitted.
 fn record(emissions: &mut Vec<Emission>, emission: Emission) {
     let duplicate = match &emission.kind {
         EmissionKind::Single(BackendDiagnostic::UnsupportedHookUnevaluated { hook, .. }) => {
@@ -157,6 +168,11 @@ fn record(emissions: &mut Vec<Emission>, emission: Emission) {
         EmissionKind::RuleConditionBudgetExhausted { rule_id, limit } => emissions
             .iter()
             .any(|existing| existing.kind.records_rule_condition(rule_id, *limit)),
+        EmissionKind::Single(failed @ BackendDiagnostic::RuleConditionFailed { .. }) => {
+            emissions.iter().any(
+                |existing| matches!(&existing.kind, EmissionKind::Single(other) if other == failed),
+            )
+        }
         EmissionKind::Single(_) => false,
     };
     if !duplicate {
@@ -512,6 +528,45 @@ mod tests {
         UnsupportedHookReason::ArgumentOutOfRange {
             detail: "second call".to_owned(),
         }
+    }
+
+    fn condition_failed(rule_id: &str, alternatives: usize) -> BackendDiagnostic {
+        BackendDiagnostic::RuleConditionFailed {
+            rule_id: rule_id.to_owned(),
+            failure: SimplificationError::DisjunctiveResult {
+                rule_id: "or-equation".to_owned(),
+                alternatives,
+            },
+        }
+    }
+
+    /// Repeated attempts of a rule whose condition fails the same way report one fact; another
+    /// rule, or another failure of the same rule, is another fact. Forwarding a nested collection
+    /// applies the same rule.
+    #[test]
+    fn a_rule_condition_failure_is_recorded_once_per_rule_and_failure() {
+        let emit_failures = || {
+            emit(condition_failed("r1", 2));
+            emit(condition_failed("r1", 2));
+            emit(condition_failed("r2", 2));
+            emit(condition_failed("r1", 3));
+            emit(condition_failed("r2", 2));
+        };
+        let expected = [
+            condition_failed("r1", 2),
+            condition_failed("r2", 2),
+            condition_failed("r1", 3),
+        ];
+
+        let ((), direct) = collect(emit_failures);
+        assert_eq!(direct, expected);
+
+        let (((), inner), outer) = collect(|| {
+            emit(condition_failed("r1", 2));
+            collect(emit_failures)
+        });
+        assert_eq!(inner, expected);
+        assert_eq!(outer, expected);
     }
 
     /// The emissions every nesting below performs, in order: two batches, each of which a nested

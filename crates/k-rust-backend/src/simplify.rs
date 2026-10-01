@@ -250,7 +250,7 @@ pub(crate) struct PatternSimplification {
 ///
 /// let _ = SimplificationError::TopEquationOutsideConjunction { rule_id: "rule".into() };
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SimplificationError {
     Builtin(BuiltinError),
     DisjunctiveResult {
@@ -872,13 +872,14 @@ fn simplify_rule_predicates(
 ///
 /// The unsimplified predicates are the same condition, so deciding them instead is sound; it
 /// is only weaker, and may leave the condition undecided where the simplified form would have
-/// been decided. When the weakening comes from the iteration budget it is recorded, because
-/// otherwise an equation left unapplied for lack of budget is indistinguishable from one whose
-/// condition is open (`diagnostic::emit_rule_condition_budget_exhausted`).
+/// been decided. Every weakening is recorded with its cause (`record_rule_condition_failure`),
+/// because otherwise an equation left unapplied because simplifying its condition failed is
+/// indistinguishable from one whose condition is open.
 ///
 /// A stop is matched first and propagates; the fallback matches failures only (`Unwind::Fail`).
-/// The budget is a bound the simplifier chose, and a weaker condition is a fit answer to it; a
-/// cancelled request, a passed deadline, a failed solver prelude, or an exhausted stack says
+/// A failure is a fact about simplifying this condition (the budget is a bound the simplifier
+/// chose, a hook or a solver query that cannot be evaluated is a limit of the backend), and a
+/// weaker condition is a fit answer to it; a cancelled request, a passed deadline, a failed solver prelude, or an exhausted stack says
 /// nothing about the condition, and deciding the unsimplified predicates would leave the equation
 /// blocked and report a silent `Stuck` one level up, a wrong answer in place of the stop.
 ///
@@ -907,14 +908,49 @@ fn simplify_rule_predicates_or_keep(
     ) {
         Ok(simplified) => Ok(simplified),
         Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
-        Err(Unwind::Fail(
-            SimplificationError::IterationLimit { limit, .. }
-            | SimplificationError::PredicateIterationLimit { limit, .. },
-        )) => {
-            diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
+        Err(Unwind::Fail(failure)) => {
+            record_rule_condition_failure(rule_id, failure);
             Ok(predicates)
         }
-        Err(Unwind::Fail(_)) => Ok(predicates),
+    }
+}
+
+/// Record why the side conditions of an application attempt of `rule_id` are kept unsimplified,
+/// so that an equation left unapplied because of `failure` is distinguishable from one whose
+/// condition is open.
+///
+/// Every failure is disposed of by name: the match is on the plain enum, where
+/// `clippy::wildcard_enum_match_arm` sees a wildcard arm, so a new failure kind must be given its
+/// diagnostic here instead of being absorbed silently.
+///
+/// - The iteration budget is a bound the simplifier chose: the budget exhaustion over
+///   `Predicates` qualified by `RuleConditionUnsimplified`.
+/// - An unsupported hook on constructor-like arguments is the hook left unevaluated, the
+///   diagnostic the hook gets on symbolic arguments.
+/// - Every other failure is a `RuleConditionFailed` carrying it.
+#[deny(clippy::wildcard_enum_match_arm)]
+#[cold]
+#[inline(never)]
+fn record_rule_condition_failure(rule_id: &str, failure: SimplificationError) {
+    match failure {
+        SimplificationError::IterationLimit { limit, .. }
+        | SimplificationError::PredicateIterationLimit { limit, .. } => {
+            diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
+        }
+        SimplificationError::UnsupportedHook { hook, reason, .. } => {
+            diagnostic::emit(BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason });
+        }
+        failure @ (SimplificationError::Smt { .. }
+        | SimplificationError::SmtPredicate { .. }
+        | SimplificationError::Builtin(..)
+        | SimplificationError::DisjunctiveResult { .. }
+        | SimplificationError::TopEquationOutsideConjunction { .. }
+        | SimplificationError::InvalidBuiltinResultSymbol { .. }) => {
+            diagnostic::emit(BackendDiagnostic::RuleConditionFailed {
+                rule_id: rule_id.to_owned(),
+                failure,
+            });
+        }
     }
 }
 

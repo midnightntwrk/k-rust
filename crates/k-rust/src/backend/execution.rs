@@ -272,6 +272,9 @@ fn report_diagnostics<'a>(
             BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => eprintln!(
                 "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} after budget {limit} was exhausted"
             ),
+            BackendDiagnostic::RuleConditionFailed { rule_id, failure } => eprintln!(
+                "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} because simplifying it failed ({failure}); the rule may have been left unapplied"
+            ),
             BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => eprintln!(
                 "warning: hook {hook} was left unevaluated at depth {depth} ({reason}); the result may not be fully simplified"
             ),

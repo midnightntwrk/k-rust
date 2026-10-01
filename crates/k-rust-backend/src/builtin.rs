@@ -52,7 +52,7 @@ pub(crate) type HookResult<T> = Result<T, Unwind<BuiltinError>>;
 /// use k_rust_backend::builtin::BuiltinError;
 /// let _ = BuiltinError::WrongArity { hook: "INT.add".into(), expected: 2, actual: 1 };
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BuiltinError {
     WrongArity {
         hook: String,

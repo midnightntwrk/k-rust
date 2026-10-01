@@ -968,7 +968,7 @@ pub enum ModelResult {
 /// A failure of one solver query: a fact about the query and the backend's capabilities. A stop
 /// is not a failure (design CBC-04): a failed solver prelude, in particular, is
 /// `stop::StopCause::SolverPrelude`, because it belongs to every operation using the solver.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SmtError {
     Translation(TranslationError),
     Unavailable,

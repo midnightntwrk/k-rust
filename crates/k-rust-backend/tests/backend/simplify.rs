@@ -1,7 +1,7 @@
 //! Public contracts of `k_rust_backend::simplify`.
 
 use k_rust_backend::{
-    builtin::BuiltinEffect,
+    builtin::{BuiltinEffect, UnsupportedHookReason},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     rewrite::Pattern,
@@ -591,6 +591,96 @@ fn equation_rhs_disjunction_with_two_live_alternatives_is_an_explicit_error() {
         format!("{error:?}").contains("DisjunctiveResult"),
         "{error:?}"
     );
+}
+
+/// The function equation `guarded`, `f(X) = wrap(X)` under `requires` `condition`, whose
+/// simplification fails on a ground instance.
+fn guarded_equation_definition(declarations: &str, condition: &str) -> BackendDefinition {
+    definition(&format!(
+        r#"
+            {declarations}
+            axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    {condition},
+                    \and{{R}}(\in{{SortS{{}}, R}}(X0:SortS{{}}, X:SortS{{}}), \top{{R}}())
+                ),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}(X0:SortS{{}}),
+                    \and{{SortS{{}}}}(wrap{{}}(X:SortS{{}}), \top{{SortS{{}}}}())
+                )
+            ) [label{{}}("guarded")]
+            "#
+    ))
+}
+
+/// Simplify `f("value")` under `definition`, collecting the diagnostics.
+fn simplify_guarded_application(
+    definition: &BackendDefinition,
+) -> (Term, Term, Vec<BackendDiagnostic>) {
+    let input = term(definition, r#"f{}(\dv{SortS{}}("value"))"#);
+    let (result, diagnostics) =
+        diagnostic::collect(|| simplify(definition, &input, SimplificationOptions::default()));
+    let result = result.expect("a failed side condition is kept, not raised");
+    (input, result.term, diagnostics)
+}
+
+/// A `requires` that calls a hook with no evaluator on constructor-like arguments cannot be
+/// simplified; it is kept as it is, so the equation is not applied, and the result says that
+/// the hook was left unevaluated, which an open condition would not.
+#[test]
+fn a_requires_on_an_unsupported_hook_leaves_the_equation_unapplied_with_its_hook_diagnosed() {
+    let definition = guarded_equation_definition(
+        r#"
+            hooked-symbol missingPred{}(SortS{}) : SortBool{}
+                [function{}(), total{}(), hook{}("TEST.missingPred")]
+            "#,
+        r#"\equals{SortBool{}, R}(missingPred{}(X:SortS{}), \dv{SortBool{}}("true"))"#,
+    );
+
+    let (input, result, diagnostics) = simplify_guarded_application(&definition);
+
+    assert_eq!(result, input, "the guarded equation must stay unapplied");
+    assert_eq!(
+        diagnostics,
+        [BackendDiagnostic::UnsupportedHookUnevaluated {
+            hook: "TEST.missingPred".to_owned(),
+            reason: UnsupportedHookReason::NotImplemented,
+        }]
+    );
+}
+
+/// A `requires` whose simplification meets an equation with two live right-hand-side
+/// alternatives cannot be simplified; it is kept as it is, and the result names the rule whose
+/// condition failed and the failure.
+#[test]
+fn a_requires_with_a_disjunctive_result_records_the_rule_condition_failure() {
+    let definition = guarded_equation_definition(
+        r#"
+            symbol a{}() : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol choice{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    choice{}(X:SortS{}),
+                    \and{SortS{}}(\or{SortS{}}(X:SortS{}, a{}()), \top{SortS{}}())
+                )
+            ) [label{}("or-equation"), simplification{}()]
+            "#,
+        r#"\equals{SortS{}, R}(choice{}(X:SortS{}), \dv{SortS{}}("value"))"#,
+    );
+
+    let (input, result, diagnostics) = simplify_guarded_application(&definition);
+
+    assert_eq!(result, input, "the guarded equation must stay unapplied");
+    let failed = BackendDiagnostic::RuleConditionFailed {
+        rule_id: "guarded".to_owned(),
+        failure: SimplificationError::DisjunctiveResult {
+            rule_id: "or-equation".to_owned(),
+            alternatives: 2,
+        },
+    };
+    assert_eq!(diagnostics, [failed]);
 }
 
 const TOP_RHS_EQUATION: &str = r#"

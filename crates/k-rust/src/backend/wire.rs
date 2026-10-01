@@ -426,6 +426,13 @@ pub enum BackendDiagnosticOutput<K = Value> {
         rule_id: String,
         limit: usize,
     },
+    /// Simplifying the rule's side conditions failed with `failure`, so they were decided in
+    /// their unsimplified form, and the rule may be left unapplied because of that failure.
+    RuleConditionFailed {
+        #[serde(rename = "ruleId")]
+        rule_id: String,
+        failure: SearchFailureOutput<K>,
+    },
     UnsupportedHookUnevaluated {
         hook: String,
         reason: String,
@@ -1170,6 +1177,12 @@ fn diagnostic_output<K: WireKore>(
         }
         BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => {
             BackendDiagnosticOutput::RuleConditionUnsimplified { rule_id, limit }
+        }
+        BackendDiagnostic::RuleConditionFailed { rule_id, failure } => {
+            BackendDiagnosticOutput::RuleConditionFailed {
+                rule_id,
+                failure: simplification_failure_output(failure, result_sort)?,
+            }
         }
         BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => {
             BackendDiagnosticOutput::UnsupportedHookUnevaluated {
@@ -1980,6 +1993,7 @@ mod tests {
             serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"term"}),
             serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"predicates"}),
             serde_json::json!({"kind":"rule-condition-unsimplified","ruleId":"r","limit":3}),
+            serde_json::json!({"kind":"rule-condition-failed","ruleId":"r","failure":{"kind":"conflicting-results","rules":["e","e"]}}),
             serde_json::json!({"kind":"unsupported-hook-unevaluated","hook":"H.f","reason":"no evaluator"}),
         ];
         for reason in reasons {
@@ -1996,6 +2010,57 @@ mod tests {
                 "kind":"simplification-budget-exhausted","limit":3,"subject":"term","extra":true
             }))
             .is_err()
+        );
+    }
+
+    /// A rule condition whose simplification failed is reported with the rule and the failure in
+    /// the simplification-failure encoding, and decodes to the same output.
+    #[test]
+    fn rule_condition_failed_round_trips_through_the_wire() {
+        use k_rust_backend::{rule::Predicate, smt::SmtError};
+
+        let sort = Sort::simple("SortS");
+        let cases = [
+            (
+                SimplificationError::DisjunctiveResult {
+                    rule_id: "or-equation".into(),
+                    alternatives: 2,
+                },
+                serde_json::json!({"kind":"conflicting-results","rules":["or-equation","or-equation"]}),
+            ),
+            (
+                SimplificationError::SmtPredicate {
+                    predicate: Box::new(Predicate::True),
+                    error: SmtError::Unavailable,
+                },
+                serde_json::json!({
+                    "kind":"smt-predicate",
+                    "predicate":encode_predicate::<Value>(&Predicate::True, &sort).unwrap(),
+                    "error":{"kind":"unavailable"}
+                }),
+            ),
+        ];
+        for (failure, encoded) in cases {
+            let output = diagnostic_output::<Value>(
+                BackendDiagnostic::RuleConditionFailed {
+                    rule_id: "guarded".into(),
+                    failure,
+                },
+                &sort,
+            )
+            .unwrap();
+            let value = serde_json::to_value(&output).unwrap();
+            assert_eq!(
+                value,
+                serde_json::json!({"kind":"rule-condition-failed","ruleId":"guarded","failure":encoded})
+            );
+            let decoded: BackendDiagnosticOutput = serde_json::from_value(value).unwrap();
+            assert_eq!(decoded, output);
+        }
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "rule-condition-failed",
+            &["ruleId", "failure"],
         );
     }
 
