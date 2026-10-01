@@ -13,6 +13,7 @@ proc-macro2 = ["dep:proc-macro2"]
 krs-ir = { path = "../krs-ir", default-features = false }
 proc-macro2 = { workspace = true, optional = true }
 serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

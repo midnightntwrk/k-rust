@@ -34,6 +34,36 @@ macro_rules! register_codes {
 }
 
 register_codes! {
+    /// Diagnostics from host descriptor collection.
+    collect {
+        INVALID_PACKAGE_CONTEXT: "krs::collect::invalid-package-context" => "Caller-supplied package metadata was invalid.",
+        HOST_IO: "krs::collect::host-io" => "A host path could not be canonicalized or read.",
+        DUPLICATE_PACKAGE_CONTEXT: "krs::collect::duplicate-package-context" => "More than one context claimed the same host package lookup key.",
+        DUPLICATE_KNAMESPACE: "krs::collect::duplicate-knamespace" => "More than one package claimed the same immutable K namespace.",
+        UNSUPPORTED_SCHEMA_VERSION: "krs::collect::unsupported-schema-version" => "A descriptor carried a schema version other than the current one.",
+        INVALID_BUILTIN_REGISTRY: "krs::collect::invalid-builtin-registry" => "The compiler-provided builtin marker catalog was incomplete or ambiguous.",
+        PACKAGE_NOT_SELECTED: "krs::collect::package-not-selected" => "No selected Cargo package matched a descriptor's host lookup key.",
+        CRATE_ROOT_MISMATCH: "krs::collect::crate-root-mismatch" => "The first `module_path!()` segment did not match the selected target.",
+        INVALID_STABLE_IDENTITY: "krs::collect::invalid-stable-identity" => "A host item could not become a stable item identity.",
+        DUPLICATE_ITEM_ID: "krs::collect::duplicate-item-id" => "Two declarations produced the same final stable identity.",
+        ITEM_KIND_MISMATCH: "krs::collect::item-kind-mismatch" => "A descriptor payload did not agree with its declared item kind.",
+        DUPLICATE_TYPE_DECLARATION: "krs::collect::duplicate-type-declaration" => "Two declarations exposed the same build-local Rust `TypeId`.",
+        DECLARATION_BUILTIN_COLLISION: "krs::collect::declaration-builtin-collision" => "A Rust identity was assigned to both an authored declaration and a builtin.",
+        MISSING_TYPE_DECLARATION: "krs::collect::missing-type-declaration" => "A sort or constructor declaration exposed no build-local Rust `TypeId`.",
+        UNRESOLVED_TYPE_REFERENCE: "krs::collect::unresolved-type-reference" => "A Rust type reference had no declaration in the selected collection.",
+        REFERENCE_KIND_MISMATCH: "krs::collect::reference-kind-mismatch" => "A resolved declaration had the wrong semantic item kind.",
+        INVALID_CONFIGURATION: "krs::collect::invalid-configuration" => "A fixed configuration, cell, or configuration rule descriptor was malformed.",
+        INVALID_DISPLAY_FILE: "krs::collect::invalid-display-file" => "A display filename was not a normalized relative source hint.",
+        SOURCE_OUTSIDE_PACKAGE: "krs::collect::source-outside-package" => "A resolved source escaped its canonical package directory.",
+        AMBIGUOUS_SOURCE_PATH: "krs::collect::ambiguous-source-path" => "A display hint resolved to multiple distinct files in the package.",
+        SOURCE_POSITION_OUT_OF_BOUNDS: "krs::collect::source-position-out-of-bounds" => "A line or Unicode-scalar column was outside the exact source revision.",
+        IMPRECISE_AUTHORED_ANCHOR: "krs::collect::imprecise-authored-anchor" => "A semantic node used an invocation-fallback rather than exact leaves.",
+        SOURCE_SYNTAX: "krs::collect::source-syntax" => "The exact source no longer parses under the shared KRS parser.",
+        UNRESOLVED_ATTRIBUTE: "krs::collect::unresolved-attribute" => "An authored attribute or item macro names a KRS entry point but does not invoke it under the package's facade alias.",
+        STALE_ANCHOR: "krs::collect::stale-anchor" => "A host anchor did not match the corresponding reparsed semantic node.",
+        AMBIGUOUS_ANCHOR: "krs::collect::ambiguous-anchor" => "More than one reparsed invocation matched a host descriptor.",
+        PROVENANCE_MISMATCH: "krs::collect::provenance-mismatch" => "The macro and shared parser disagreed about the complete anchor set.",
+    }
     /// Diagnostics from semantic analysis and definition lowering.
     analysis {
         DUPLICATE_ITEM_ID: "krs::analysis::duplicate-item-id" => "Two declarations use the same stable identity.",

@@ -100,16 +100,23 @@ pub(super) fn load_source_document(
             )
         })?;
     let syntax = syn::parse_file(&text).map_err(|error| {
+        let span = error.span();
         CollectionError::new(
             CollectionErrorKind::SourceSyntax,
             format!("cannot parse authored Rust source `{display_hint}`: {error}"),
         )
+        .with_span(span)
+        .with_source_file(&file)
     })?;
     let resolver = AttributeResolver::new(&context.facade, display_hint);
-    resolver.check_items(&syntax.items)?;
-    validate_dsl_trivia(&syntax, &text, &line_index, &resolver)?;
+    resolver
+        .check_items(&syntax.items)
+        .map_err(|error| error.with_source_file(&file))?;
+    validate_dsl_trivia(&syntax, &text, &line_index, &resolver)
+        .map_err(|error| error.with_source_file(&file))?;
     let mut invocations = Vec::new();
-    collect_invocations(&syntax.items, &resolver, &mut invocations)?;
+    collect_invocations(&syntax.items, &resolver, &mut invocations)
+        .map_err(|error| error.with_source_file(&file))?;
     Ok(SourceDocument {
         line_index,
         file,

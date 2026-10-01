@@ -27,6 +27,8 @@ The default aligned trailing-comment layout is provisional; `--trailing-comments
 
 `check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
+Located collector failures use schema-1 JSON envelopes on stderr, with stage `analysis`, a `krs::collect::*` code, and the exact authored file revision and byte range.
+Failures without an exact authored location retain the collector process status and human stderr detail.
 Run ordinary `cargo check` when you want Rust-only feedback on names, types, imports, and macro expansion while editing.
 
 ## Inspect the lowering

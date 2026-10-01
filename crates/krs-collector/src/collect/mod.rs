@@ -353,6 +353,7 @@ fn resolve_pending_descriptors(
         let payload = match payload {
             Ok(value) => value,
             Err(error) => {
+                let error = error.with_provenance(&provenance);
                 loop_failure = Some(("collector.resolve.payload", error));
                 break;
             }

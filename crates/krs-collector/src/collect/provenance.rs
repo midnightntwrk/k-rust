@@ -50,7 +50,16 @@ pub(super) fn materialize_descriptor_provenance(
         contexts,
         source_cache,
     })?;
-    validate_reparsed_payload(payload, &parsed, id)?;
+    validate_reparsed_payload(payload, &parsed, id).map_err(|error| {
+        let range = origins
+            .iter()
+            .find(|origin| origin.key == primary)
+            .and_then(|origin| origin.origin.exact_authored_range());
+        match range {
+            Some(range) => error.with_source_range(range),
+            None => error,
+        }
+    })?;
 
     let provenance = DescriptorProvenance::new(primary, origins).map_err(|error| {
         CollectionError::new(
@@ -98,14 +107,26 @@ fn materialize_invocation(
     context: &mut MaterializationContext<'_>,
 ) -> Result<(ParsedInvocation, Vec<DescriptorNodeOrigin>), CollectionError> {
     let loaded = context.load_sources()?;
-    let (primary_invocation_index, invocation, primary_cache_key) =
-        context.reparse_primary(&loaded)?;
-    context.verify_authored(
-        &loaded,
-        primary_cache_key,
-        primary_invocation_index,
-        invocation,
-    )?;
+    let (primary_invocation_index, invocation, primary_cache_key) = context
+        .reparse_primary(&loaded)
+        .map_err(|error| match loaded.materialized.get(context.primary_key) {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        })?;
+    context
+        .verify_authored(
+            &loaded,
+            primary_cache_key,
+            primary_invocation_index,
+            invocation,
+        )
+        .map_err(|error| {
+            if error.source_range().is_some() {
+                error
+            } else {
+                error.with_source_range(loaded.materialized[context.primary_key].clone())
+            }
+        })?;
     let origins = build_origins(
         loaded.materialized,
         &loaded.invocation_range,
@@ -298,7 +319,8 @@ impl MaterializationContext<'_> {
                             authored.key().ordinal(),
                             self.id
                         ),
-                    ));
+                    )
+                    .with_source_range(loaded.materialized[authored.key()].clone()));
                 }
                 [candidate] => *candidate,
                 _ => {
@@ -310,7 +332,8 @@ impl MaterializationContext<'_> {
                             authored.key().ordinal(),
                             self.id
                         ),
-                    ));
+                    )
+                    .with_source_range(loaded.materialized[authored.key()].clone()));
                 }
             };
             if matched_invocations.insert((authored_cache_key.clone(), invocation_index)) {

@@ -11,6 +11,7 @@ use krs_ir::{ByteRange, DisplayPath, SourceMapKey, SourceRange};
 use serde::Serialize;
 
 pub mod codes;
+pub mod envelope;
 
 /// An opaque diagnostic code, serialized as its string spelling.
 ///

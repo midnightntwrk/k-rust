@@ -276,8 +276,8 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
             "__krs_host_runtime::host_descriptors_from(tables)"
         }
     };
-    // `run_collector` collects, writes the canonical bundle to stdout, and
-    // records opt-in measurement out of band when `krs` asks for it.
+    // `run_collector` writes descriptor bytes to stdout and diagnostics and
+    // opt-in measurements to the sidecars selected by `krs`.
     output.push_str("    __krs_collector_runtime::run_collector(\n        contexts,\n        || ");
     output.push_str(descriptors);
     output.push_str(",\n        __krs_host_runtime::builtin_registry,\n    )\n}\n");

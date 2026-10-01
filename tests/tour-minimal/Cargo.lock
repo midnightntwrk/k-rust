@@ -55,6 +55,7 @@ dependencies = [
  "krs-ir",
  "proc-macro2",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

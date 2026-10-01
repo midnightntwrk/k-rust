@@ -366,6 +366,8 @@ struct Resolver<'a> {
     head_targets: &'a [HeadRuleTarget],
     head_selection: Option<HeadRuleSelection<'a>>,
     allow_builtin_application: bool,
+    parent_ordinal: u32,
+    field_ordinal: u32,
 }
 
 impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
@@ -376,6 +378,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         reference: HostSortReference,
     ) -> Result<DescriptorSortReference, Self::Error> {
         resolve_sort_reference(&reference, self.declarations, self.builtins)
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn application(
@@ -388,6 +391,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             self.builtins,
             self.allow_builtin_application,
         )
+        .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn nominal(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
@@ -399,8 +403,10 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         reference: krs_ir::HostContextAliasReference,
     ) -> Result<krs_ir::DescriptorContextAliasReference, Self::Error> {
         Ok(krs_ir::DescriptorContextAliasReference {
-            key: reference.key,
-            alias: self.item(reference.alias)?,
+            key: reference.key.clone(),
+            alias: self
+                .item(reference.alias)
+                .map_err(|error| error.with_reference_key(reference.key))?,
         })
     }
 
@@ -415,6 +421,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             });
         }
         resolve_configuration_reference(&reference, self.declarations)
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn cell(
@@ -422,6 +429,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         reference: krs_ir::HostCellReference,
     ) -> Result<krs_ir::DescriptorCellReference, Self::Error> {
         resolve_cell_reference(&reference, self.cell_fields)
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn head_rule_cell(
@@ -486,6 +494,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         reference: krs_ir::HostCellDeclarationReference,
     ) -> Result<krs_ir::DescriptorCellDeclarationReference, Self::Error> {
         resolve_cell_declaration_reference(&reference, self.declarations)
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn initializer_owner(
@@ -501,7 +510,10 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
     }
 
     fn parent(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
+        let key = krs_ir::ProvenanceRole::SortParent.key(self.parent_ordinal);
+        self.parent_ordinal += 1;
         resolve_nominal_reference(&reference, ItemKind::Sort, self.declarations)
+            .map_err(|error| error.with_reference_key(key))
     }
 
     fn constructor_sort(
@@ -515,7 +527,11 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         &mut self,
         reference: HostTypeReference,
     ) -> Result<Option<DescriptorSortRef>, Self::Error> {
-        resolve_constructor_field_sort(&reference, self.declarations, self.builtins).map(Some)
+        let key = krs_ir::ProvenanceRole::ConstructorFieldSort.key(self.field_ordinal);
+        self.field_ordinal += 1;
+        resolve_constructor_field_sort(&reference, self.declarations, self.builtins)
+            .map(Some)
+            .map_err(|error| error.with_reference_key(key))
     }
 }
 
@@ -560,6 +576,8 @@ pub(super) fn resolve_payload(
         head_targets,
         head_selection: None,
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
+        parent_ordinal: 0,
+        field_ordinal: 0,
     };
     payload
         .clone()
@@ -1165,6 +1183,8 @@ mod tests {
             head_targets: &[],
             head_selection: None,
             allow_builtin_application: true,
+            parent_ordinal: 0,
+            field_ordinal: 0,
         };
         let error = cell
             .try_map_refs(

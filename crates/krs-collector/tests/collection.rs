@@ -257,6 +257,11 @@ fn changed_semantic_source_is_rejected_as_stale() {
     let error =
         collect_host_descriptors([package.context("ORG-CHANGED")], [descriptor]).unwrap_err();
     assert_eq!(error.kind(), CollectionErrorKind::StaleAnchor);
+    let range = error.source_range().expect("located stale anchor");
+    assert_eq!(range.file.package().k_namespace(), "ORG-CHANGED");
+    assert_eq!(range.file.package_relative_path(), "src/lib.rs");
+    assert_eq!(range.start_byte, 21);
+    assert_eq!(range.end_byte, 25);
 }
 
 #[test]
@@ -720,6 +725,9 @@ fn fixture() {
         assert_eq!(error.kind(), CollectionErrorKind::SourceSyntax);
         let start = source.find("/*krs-f7-block*/").unwrap();
         let end = start + "/*krs-f7-block*/".len();
+        let range = error.source_range().expect("located trivia failure");
+        assert_eq!(range.start_byte as usize, start);
+        assert_eq!(range.end_byte as usize, end);
         assert!(
             error.detail().contains(&format!("bytes {start}..{end}")),
             "{}",

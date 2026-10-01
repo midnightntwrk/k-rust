@@ -8,6 +8,7 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{DefinitionIr, DescriptorBundle, SemanticTheory};
 use krs_test_support::{fixture_target, krs_command, temp_dir};
+use sha2::{Digest, Sha256};
 
 const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
@@ -201,7 +202,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
 }
 
 #[test]
-fn failed_collector_removes_scratch_files() {
+fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     let temporary = temp_dir();
     let source = FOO_BAR.replace(
         "pub trait Obj: KResult {}",
@@ -232,7 +233,22 @@ fn failed_collector_removes_scratch_files() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stderr}");
-    assert!(stderr.contains("collector execution failed"), "{stderr}");
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.code, "krs::collect::unresolved-type-reference");
+    assert_eq!(diagnostic.stage, krs_cli::DiagnosticStage::Analysis);
+    let range = &diagnostic.authored_range;
+    assert_eq!(range.file.package().k_namespace(), "ORG-KRS-CLI-FOO-BAR");
+    assert_eq!(range.file.package_relative_path(), "src/lib.rs");
+    assert_eq!(
+        range.file.content_sha256(),
+        &krs_ir::Sha256Digest::from_bytes(Sha256::digest(source.as_bytes()).into())
+    );
+    let start = source.find("Send").unwrap();
+    assert_eq!(range.start_byte as usize, start);
+    assert_eq!(range.end_byte as usize, start + "Send".len());
+    assert!(output.stdout.is_empty());
     assert!(
         stderr.contains("Rust path `Send` does not resolve to a selected KRS type declaration"),
         "{stderr}"
@@ -245,6 +261,7 @@ fn failed_collector_removes_scratch_files() {
         .filter(|name| {
             name.starts_with("krs-collector-read-set-")
                 || name.starts_with("krs-collector-measure-")
+                || name.starts_with("krs-collector-diagnostics-")
         })
         .collect::<Vec<_>>();
     assert!(

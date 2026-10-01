@@ -12,6 +12,7 @@ use krs_syntax::{
     TokenRange, parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
+use syn::spanned::Spanned;
 use syn::{Attribute, ImplItem, Item, Meta};
 
 use super::provenance::{Coordinates, token_coordinates};
@@ -108,7 +109,7 @@ fn collect_trait_invocations(
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
                 "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
-            ));
+            ).with_span(attribute.span()));
         }
         let mut anchors = if let Some(alias) = sort_attribute.alias() {
             let mut anchors = vec![ProvenanceAnchor::new(
@@ -122,6 +123,7 @@ fn collect_trait_invocations(
                         CollectionErrorKind::SourceSyntax,
                         "reference sort has too many semantic parents",
                     )
+                    .with_span(parent.span())
                 })?;
                 anchors.push(ProvenanceAnchor::new(
                     ProvenanceRole::SortParent,
@@ -941,6 +943,13 @@ fn parsed_anchor_map(
                     key.role().as_str(),
                     key.ordinal()
                 ),
+            )
+            .with_input_range(
+                krs_ir::ByteRange::new(
+                    anchor.range().first().byte_range().start,
+                    anchor.range().last().byte_range().end,
+                )
+                .expect("ordered semantic token range"),
             ));
         }
     }
@@ -1039,7 +1048,8 @@ fn attribute_tokens(attribute: &Attribute) -> Result<TokenStream, CollectionErro
                 "KRS attribute `{}` must use path or list syntax",
                 path_text(attribute.path())
             ),
-        )),
+        )
+        .with_span(attribute.span())),
     }
 }
 
@@ -1059,6 +1069,7 @@ pub(super) fn declaration_metadata(
                     CollectionErrorKind::SourceSyntax,
                     format!("invalid Rust declaration visibility: {error}"),
                 )
+                .with_span(restricted.span())
             })?
         }
     };
@@ -1094,7 +1105,7 @@ pub(super) fn declaration_metadata(
                     format!(
                         "{symbol_spelling} requires exactly one {target_spelling} target on its declaration"
                     ),
-                ));
+                ).with_span(symbol.span()));
             };
             if symbol_index.checked_add(1) != Some(*target_index) {
                 return Err(CollectionError::new(
@@ -1102,7 +1113,7 @@ pub(super) fn declaration_metadata(
                     format!(
                         "{symbol_spelling} must immediately precede {target_spelling} so attribute order is unambiguous"
                     ),
-                ));
+                ).with_span(symbol.span()));
             }
             Some(
                 krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol)?)
@@ -1113,7 +1124,8 @@ pub(super) fn declaration_metadata(
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
                 format!("a declaration may carry only one {symbol_spelling} attribute"),
-            ));
+            )
+            .with_span(symbols[1].1.span()));
         }
     };
     Ok((visibility, symbol))
@@ -1152,7 +1164,27 @@ pub(super) fn source_syntax_at(
             )
         },
     );
-    CollectionError::new(CollectionErrorKind::SourceSyntax, detail)
+    let diagnostic = krs_diagnostic::ToDiagnostic::to_diagnostic(&error);
+    let range = match diagnostic.primary.location {
+        krs_diagnostic::Location::Range(range) => Some(range),
+        krs_diagnostic::Location::Span(span) => {
+            let range = span.byte_range();
+            krs_ir::ByteRange::new(range.start, range.end).ok()
+        }
+        _ => None,
+    }
+    .and_then(|range| {
+        krs_ir::ByteRange::new(
+            byte_offset.checked_add(range.start())?,
+            byte_offset.checked_add(range.end())?,
+        )
+        .ok()
+    });
+    let error = CollectionError::new(CollectionErrorKind::SourceSyntax, detail);
+    match range {
+        Some(range) => error.with_input_range(range),
+        None => error,
+    }
 }
 
 #[cfg(test)]
@@ -1161,6 +1193,41 @@ mod tests {
 
     use super::*;
     use crate::facade::FacadeAliases;
+
+    #[test]
+    fn syntax_locations_use_span_fallback_and_offset_trivia_ranges() {
+        let item = syn::parse_str::<syn::ItemTrait>("pub trait Expr {}").unwrap();
+        let error = krs_syntax::SyntaxError::new(
+            krs_syntax::SyntaxErrorKind::InvalidTermType,
+            item.ident.span(),
+        );
+        let detail = format!("shared KRS source parser rejected authored source: {error}");
+        let file = krs_ir::SourceFileId::new(
+            krs_ir::PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let collected = source_syntax_at(error.clone(), 0).with_source_file(&file);
+        assert_eq!(collected.detail(), detail);
+        assert_eq!(
+            (
+                collected.source_range().unwrap().start_byte,
+                collected.source_range().unwrap().end_byte
+            ),
+            (10, 14)
+        );
+        let error = error.with_source_range(krs_ir::ByteRange::new(3, 8).unwrap());
+        let collected = source_syntax_at(error, 20).with_source_file(&file);
+        assert_eq!(
+            (
+                collected.source_range().unwrap().start_byte,
+                collected.source_range().unwrap().end_byte
+            ),
+            (23, 28)
+        );
+        assert!(collected.detail().contains("bytes 23..28"));
+    }
 
     #[test]
     fn framework_catalogue_entry_collects_the_two_readable_sorts() {

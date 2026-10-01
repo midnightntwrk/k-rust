@@ -466,6 +466,7 @@ dependencies = [
 name = "krs-collector"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
  "proc-macro2",
@@ -499,6 +500,7 @@ dependencies = [
  "krs-ir",
  "proc-macro2",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

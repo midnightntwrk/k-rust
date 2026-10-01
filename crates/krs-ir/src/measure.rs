@@ -146,7 +146,11 @@ pub const TIMINGS_SCHEMA: &str = "krs-timings/1";
 pub const COUNTERS_SCHEMA: &str = "krs-counters/1";
 /// Schema identifier of [`CollectorMeasureDocument`].
 pub const COLLECTOR_MEASURE_SCHEMA: &str = "krs-collector-measure/1";
-/// Environment variable naming the collector's measurement sidecar path.
+/// Environment variable naming the collector diagnostic JSON-lines sidecar path.
+/// Located collection failures use schema-versioned analysis envelopes.
+pub const COLLECTOR_DIAGNOSTIC_ENV: &str = "KRS_COLLECTOR_DIAGNOSTIC";
+
+/// Environment variable naming the collector measurement sidecar path.
 pub const COLLECTOR_MEASURE_ENV: &str = "KRS_COLLECTOR_MEASURE";
 /// Environment variable naming the collector's source read-set sidecar.
 pub const COLLECTOR_READ_SET_ENV: &str = "KRS_COLLECTOR_READ_SET";

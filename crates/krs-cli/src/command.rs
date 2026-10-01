@@ -10,8 +10,8 @@ use krs_compiler::{
 };
 use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::measure::{
-    COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV, CollectorMeasureDocument, CollectorReadSet,
-    Counters, Measurement, unix_seconds,
+    COLLECTOR_DIAGNOSTIC_ENV, COLLECTOR_MEASURE_ENV, COLLECTOR_READ_SET_ENV,
+    CollectorMeasureDocument, CollectorReadSet, Counters, Measurement, unix_seconds,
 };
 use krs_ir::{
     DefinitionSentence, DescriptorBundle, PackageId, Sha256Digest, SourceFileId, SourceRange,
@@ -235,7 +235,7 @@ pub fn execute_command_measured(
         })
     })?;
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
-    let executable = build_collector_measured(&collector_directory, &metadata, measurement)?;
+    let executable = build_collector_measured(&collector_directory, &plan, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
     if request.command.kind() != CommandKind::Expand
         && !request.no_reuse
@@ -360,10 +360,12 @@ fn run_collector(
     measurement: &mut Measurement,
 ) -> Result<(Vec<u8>, CollectorReadSet), CommandError> {
     let read_set = scratch_file("krs-collector-read-set-")?;
+    let diagnostics = scratch_file("krs-collector-diagnostics-")?;
     let mut command = ProcessCommand::new(executable);
     command
         .current_dir(collector_directory)
-        .env(COLLECTOR_READ_SET_ENV, read_set.path());
+        .env(COLLECTOR_READ_SET_ENV, read_set.path())
+        .env(COLLECTOR_DIAGNOSTIC_ENV, diagnostics.path());
     let sidecar = measurement
         .is_enabled()
         .then(|| scratch_file("krs-collector-measure-"))
@@ -390,13 +392,31 @@ fn run_collector(
             }
         }
     }
-    let output = output?;
+    let output = collector_result(output, diagnostics.path())?;
     let bytes = fs::read(read_set.path()).map_err(|source| CommandError::Io {
         path: read_set.path().to_path_buf(),
         source,
     });
     let read_set = serde_json::from_slice(&bytes?).map_err(CommandError::Serialization)?;
     Ok((output.stdout, read_set))
+}
+
+fn collector_result(
+    output: Result<Output, CommandError>,
+    path: &Path,
+) -> Result<Output, CommandError> {
+    if matches!(output, Err(CommandError::ProcessFailed { .. })) {
+        let text = fs::read_to_string(path).map_err(|source| CommandError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let diagnostics =
+            DiagnosticEnvelope::from_json_lines(&text).map_err(CommandError::DiagnosticProtocol)?;
+        if !diagnostics.is_empty() {
+            return Err(CommandError::Diagnostics(diagnostics));
+        }
+    }
+    output
 }
 
 /// A JSON scratch file in the system temporary directory, removed on drop.
@@ -413,7 +433,7 @@ fn scratch_file(prefix: &str) -> Result<tempfile::NamedTempFile, CommandError> {
 
 fn build_collector_measured(
     collector_directory: &Path,
-    metadata: &CargoMetadata,
+    plan: &CollectorPlan,
     measurement: &mut Measurement,
 ) -> Result<PathBuf, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
@@ -426,7 +446,7 @@ fn build_collector_measured(
         .args(["--message-format", "json-diagnostic-rendered-ansi"]);
     measurement
         .timings
-        .try_span("collector.build", |_| build_collector(&mut build, metadata))
+        .try_span("collector.build", |_| build_collector(&mut build, plan))
 }
 
 fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, bytes: usize) {
@@ -822,7 +842,7 @@ fn rustc_host_target() -> Result<String, CommandError> {
 
 fn build_collector(
     command: &mut ProcessCommand,
-    metadata: &CargoMetadata,
+    plan: &CollectorPlan,
 ) -> Result<PathBuf, CommandError> {
     let output = command
         .output()
@@ -831,7 +851,7 @@ fn build_collector(
             source,
         })?;
     if !output.status.success() {
-        let diagnostics = rust_diagnostics(&output.stdout, metadata);
+        let diagnostics = rust_diagnostics(&output.stdout, plan)?;
         return if diagnostics.is_empty() {
             Err(CommandError::ProcessFailed {
                 stage: "collector build",
@@ -918,7 +938,10 @@ struct RustDiagnosticSpan {
     is_primary: bool,
 }
 
-fn rust_diagnostics(stdout: &[u8], metadata: &CargoMetadata) -> Vec<DiagnosticEnvelope> {
+fn rust_diagnostics(
+    stdout: &[u8],
+    plan: &CollectorPlan,
+) -> Result<Vec<DiagnosticEnvelope>, CommandError> {
     let mut diagnostics = Vec::new();
     for line in stdout.split(|byte| *byte == b'\n') {
         let Ok(message) = serde_json::from_slice::<CargoCompilerMessage>(line) else {
@@ -938,7 +961,7 @@ fn rust_diagnostics(stdout: &[u8], metadata: &CargoMetadata) -> Vec<DiagnosticEn
             |code| Code::foreign(code.code.clone()),
         );
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
-            if let Some(range) = rust_source_range(metadata, manifest, span) {
+            if let Some(range) = rust_source_range(plan, manifest, span)? {
                 let view = diagnostic_envelope(
                     Diagnostic::error(
                         code.clone(),
@@ -956,52 +979,64 @@ fn rust_diagnostics(stdout: &[u8], metadata: &CargoMetadata) -> Vec<DiagnosticEn
         (&left.code, &left.authored_range).cmp(&(&right.code, &right.authored_range))
     });
     diagnostics.dedup();
-    diagnostics
+    Ok(diagnostics)
 }
 
 fn rust_source_range(
-    metadata: &CargoMetadata,
+    plan: &CollectorPlan,
     manifest: &str,
     span: &RustDiagnosticSpan,
-) -> Option<SourceRange> {
-    let package = metadata
-        .packages
+) -> Result<Option<SourceRange>, CommandError> {
+    let Some(facet) = plan
+        .facets()
         .iter()
-        .find(|package| package.manifest_path == manifest)?;
-    package.metadata.get("krs")?.get("definitions")?;
-    let manifest_directory = Path::new(manifest).parent()?;
+        .find(|facet| facet.manifest_path == Path::new(manifest))
+    else {
+        return Ok(None);
+    };
+    let manifest_directory = facet.manifest_path.parent().ok_or_else(|| {
+        CommandError::InvalidMetadata("selected package manifest has no parent".to_owned())
+    })?;
     let path = Path::new(&span.file_name);
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
         manifest_directory.join(path)
     };
-    let source = fs::read(&path).ok()?;
-    if usize::try_from(span.byte_end).ok()? > source.len() {
-        return None;
+    let Ok(relative) = path.strip_prefix(manifest_directory) else {
+        return Ok(None);
+    };
+    let relative = relative
+        .to_str()
+        .ok_or_else(|| {
+            CommandError::InvalidMetadata("Rust diagnostic source path is not UTF-8".to_owned())
+        })?
+        .replace('\\', "/");
+    let source = fs::read(&path).map_err(|source| CommandError::Io {
+        path: path.clone(),
+        source,
+    })?;
+    if span.byte_end as usize > source.len() {
+        return Err(CommandError::InvalidMetadata(
+            "Rust diagnostic range exceeds its source revision".to_owned(),
+        ));
     }
-    let relative = path.strip_prefix(manifest_directory).ok()?;
-    let relative = relative.to_str()?.replace('\\', "/");
-    let namespace = package
-        .metadata
-        .get("krs")
-        .and_then(|value| value.get("k-namespace"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(&package.name);
-    let package_id = PackageId::new(
-        namespace,
-        &package.name,
-        &package.version,
-        package.source.as_deref().unwrap_or("workspace"),
+    let package = PackageId::new(
+        &facet.k_namespace,
+        &facet.package_name,
+        &facet.package_version,
+        &facet.cargo_source,
     )
-    .ok()?;
+    .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
     let file = SourceFileId::new(
-        package_id,
+        package,
         relative,
         Sha256Digest::from_bytes(Sha256::digest(&source).into()),
     )
-    .ok()?;
-    SourceRange::new(file, span.byte_start, span.byte_end).ok()
+    .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
+    SourceRange::new(file, span.byte_start, span.byte_end)
+        .map(Some)
+        .map_err(|error| CommandError::InvalidMetadata(error.to_string()))
 }
 
 fn cargo(stage: &'static str, command: &mut ProcessCommand) -> Result<Output, CommandError> {
@@ -1056,6 +1091,8 @@ pub enum CommandError {
     Diagnostics(Vec<DiagnosticEnvelope>),
     /// Collector stdout was not a current canonical descriptor protocol.
     DescriptorProtocol(serde_json::Error),
+    /// Collector diagnostics were malformed or used an unsupported schema.
+    DiagnosticProtocol(serde_json::Error),
     /// Descriptor-to-semantic lowering failed.
     DescriptorLowering(DescriptorLoweringError),
     /// Semantic-to-Definition lowering failed.
@@ -1070,7 +1107,7 @@ pub enum CommandError {
     UnsupportedBackend(Backend),
     /// Canonical JSON serialization failed.
     Serialization(serde_json::Error),
-    /// Artifact filesystem operation failed.
+    /// A filesystem operation failed.
     Io {
         /// Affected path.
         path: PathBuf,
@@ -1108,6 +1145,10 @@ impl fmt::Display for CommandError {
                 "compilation failed with {} structured diagnostic{}",
                 diagnostics.len(),
                 if diagnostics.len() == 1 { "" } else { "s" }
+            ),
+            Self::DiagnosticProtocol(error) => write!(
+                formatter,
+                "collector returned invalid diagnostic protocol: {error}"
             ),
             Self::DescriptorProtocol(error) => {
                 write!(
@@ -1152,7 +1193,9 @@ impl Error for CommandError {
             Self::Planning(error) => Some(error),
             Self::Generation(error) => Some(error),
             Self::ProcessStart { source, .. } | Self::Io { source, .. } => Some(source),
-            Self::DescriptorProtocol(error) | Self::Serialization(error) => Some(error),
+            Self::DescriptorProtocol(error)
+            | Self::DiagnosticProtocol(error)
+            | Self::Serialization(error) => Some(error),
             Self::DescriptorLowering(error) => Some(error),
             Self::Lowering(error) => Some(error),
             Self::Emission(error) => Some(error),
@@ -1284,6 +1327,123 @@ mod tests {
         let unlocated = CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
         assert!(unlocated.diagnostics().is_none());
         assert_eq!(unlocated.to_string(), "invalid lowered sidecar: detail");
+    }
+
+    #[test]
+    fn rust_spans_use_validated_facet_identity_and_do_not_hide_selected_source_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let manifest = directory.path().join("Cargo.toml");
+        fs::create_dir(directory.path().join("src")).unwrap();
+        let source = "pub trait Expr {}\n";
+        fs::write(directory.path().join("src/lib.rs"), source).unwrap();
+        let metadata = CargoMetadata::from_json(&serde_json::to_vec(&serde_json::json!({
+            "packages": [{
+                "id": "language", "name": "language", "version": "0.1.0", "source": null,
+                "manifest_path": manifest,
+                "metadata": { "krs": { "k-namespace": "ORG-LANGUAGE", "definitions": { "main": {} } } },
+                "targets": [{ "name": "language", "kind": ["lib"], "crate_types": ["lib"] }],
+            }],
+            "resolve": { "nodes": [{ "id": "language", "features": [], "dependencies": [] }] },
+            "workspace_members": ["language"],
+        })).unwrap()).unwrap();
+        let plan = CollectorPlan::resolve_definition(
+            &metadata,
+            &DefinitionRequest {
+                root: FacetSelector {
+                    package: PackageSelector::Name("language".to_owned()),
+                    definition: "main".to_owned(),
+                },
+                dependencies: vec![],
+                host_target: "x86_64-unknown-linux-gnu".to_owned(),
+                cfg: vec![],
+            },
+            CollectorRuntime {
+                host_manifest: "/tool/krs/Cargo.toml".into(),
+                collector_manifest: "/tool/krs-collector/Cargo.toml".into(),
+            },
+        )
+        .unwrap();
+        let mut span = RustDiagnosticSpan {
+            file_name: "src/lib.rs".to_owned(),
+            byte_start: 10,
+            byte_end: 14,
+            is_primary: true,
+        };
+        let range = rust_source_range(&plan, manifest.to_str().unwrap(), &span)
+            .unwrap()
+            .unwrap();
+        assert_eq!(range.file.package().k_namespace(), "ORG-LANGUAGE");
+        assert_eq!(range.file.package_relative_path(), "src/lib.rs");
+        assert_eq!(
+            range.file.content_sha256(),
+            &Sha256Digest::from_bytes(Sha256::digest(source.as_bytes()).into())
+        );
+        assert_eq!((range.start_byte, range.end_byte), (10, 14));
+        assert!(
+            rust_source_range(&plan, "/outside/Cargo.toml", &span)
+                .unwrap()
+                .is_none()
+        );
+        span.byte_end = 100;
+        assert!(matches!(
+            rust_source_range(&plan, manifest.to_str().unwrap(), &span),
+            Err(CommandError::InvalidMetadata(_))
+        ));
+        span.file_name = "src/missing.rs".to_owned();
+        assert!(matches!(
+            rust_source_range(&plan, manifest.to_str().unwrap(), &span),
+            Err(CommandError::Io { .. })
+        ));
+    }
+
+    #[test]
+    fn collector_failure_sidecar_is_validated_before_forwarding() {
+        let sidecar = tempfile::NamedTempFile::new().unwrap();
+        let failure = || {
+            Err(CommandError::ProcessFailed {
+                stage: "collector execution",
+                status: Some(1),
+                stderr: "human detail".to_owned(),
+            })
+        };
+        assert!(matches!(
+            collector_result(failure(), sidecar.path()),
+            Err(CommandError::ProcessFailed { .. })
+        ));
+        let file = SourceFileId::new(
+            PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let envelope = DiagnosticEnvelope::error(
+            DiagnosticStage::Analysis,
+            "krs::collect::source-syntax",
+            "detail",
+            SourceRange::new(file, 7, 16).unwrap(),
+        );
+        let json = envelope.to_json_line().unwrap();
+        fs::write(sidecar.path(), json.repeat(2)).unwrap();
+        let error = collector_result(failure(), sidecar.path()).unwrap_err();
+        assert_eq!(
+            error.diagnostics().unwrap().as_ref(),
+            &[envelope.clone(), envelope.clone()]
+        );
+        for invalid in [
+            "not json".to_owned(),
+            json.replace("\"schema_version\":1", "\"schema_version\":2"),
+            json.replace(
+                "\"schema_version\":1",
+                "\"unknown\":true,\"schema_version\":1",
+            ),
+            format!("{json}not json\n"),
+        ] {
+            fs::write(sidecar.path(), invalid).unwrap();
+            assert!(matches!(
+                collector_result(failure(), sidecar.path()),
+                Err(CommandError::DiagnosticProtocol(_))
+            ));
+        }
     }
 
     #[test]
