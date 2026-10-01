@@ -20,9 +20,14 @@ pub struct FormatInput {
 /// Discovers Rust files from workspace targets or explicit paths.
 ///
 /// Without paths, every workspace member target contributes its crate root
-/// and the files of its out-of-line modules, as `cargo fmt` selects them:
+/// and the files of its out-of-line modules, as `cargo fmt --all` selects them:
 /// `mod name;` resolves to `name.rs` or `name/mod.rs` by Rust's module path rules,
-/// including `#[path]` and inline module nesting.
+/// including `#[path]` and inline module nesting,
+/// and finding both files is an error, as in rustc.
+/// Without `#[path]`, every existing file named by a `#[cfg_attr(..., path = "...")]`
+/// of the declaration is an input too, as in rustfmt,
+/// and the default file may then be absent.
+/// Modules declared inside macro invocations, such as `cfg_if!`, are not followed.
 /// Other files near a target, such as test fixtures, are not inputs,
 /// and a file that does not parse is an input whose modules are not followed.
 /// An explicit file must be a `.rs` file of a workspace member.
@@ -31,6 +36,9 @@ pub struct FormatInput {
 /// and contributes only the files owned by a workspace member;
 /// a directory that contributes none is an error.
 /// Each file takes the edition of the target whose source directory most specifically contains it.
+/// Without paths, only the targets that reach a file count,
+/// so a file reached through `#[path]` from outside the source directory of every such target
+/// takes the edition of the first target, in Cargo's order, that reached it.
 ///
 /// # Errors
 ///
@@ -73,10 +81,14 @@ pub fn discover_format_inputs(
                 let mut files = BTreeSet::new();
                 module_files(&source, &mut files)?;
                 for file in files {
-                    // A more specific target source directory selects the edition.
-                    // Equal directories use Cargo's target order.
-                    let specificity = root.components().count();
-                    let entry = selected.entry(file).or_insert((0, edition));
+                    // A more specific containing target source directory selects the edition.
+                    // Equal or no containing directories use Cargo's target order.
+                    let specificity = if file.starts_with(root) {
+                        root.components().count()
+                    } else {
+                        0
+                    };
+                    let entry = selected.entry(file).or_insert((specificity, edition));
                     if specificity > entry.0 {
                         *entry = (specificity, edition);
                     }
@@ -299,21 +311,43 @@ fn module_items(
         let base = directory.children();
         let flat = base.join(format!("{name}.rs"));
         let nested = base.join(&name).join("mod.rs");
-        if flat.is_file() {
-            let child = ModuleDirectory {
-                path: base,
-                relative: Some(name),
-            };
-            module_file(&flat, &child, files)?;
-        } else if nested.is_file() {
-            module_file(&nested, &ModuleDirectory::owned(&base.join(&name)), files)?;
-        } else {
-            return Err(format!(
-                "cannot find `{}` or `{}` for `mod {name};` in `{}`",
-                flat.display(),
-                nested.display(),
-                file.display()
-            ));
+        let conditional = module_cfg_attr_paths(module)
+            .into_iter()
+            .map(|path| directory.path.join(path))
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        match (flat.is_file(), nested.is_file()) {
+            (true, true) => {
+                return Err(format!(
+                    "file for `mod {name};` in `{}` found at both `{}` and `{}`; delete or rename one of them",
+                    file.display(),
+                    flat.display(),
+                    nested.display()
+                ));
+            }
+            (true, false) => {
+                let child = ModuleDirectory {
+                    path: base,
+                    relative: Some(name),
+                };
+                module_file(&flat, &child, files)?;
+            }
+            (false, true) => {
+                module_file(&nested, &ModuleDirectory::owned(&base.join(&name)), files)?;
+            }
+            (false, false) if conditional.is_empty() => {
+                return Err(format!(
+                    "cannot find `{}` or `{}` for `mod {name};` in `{}`",
+                    flat.display(),
+                    nested.display(),
+                    file.display()
+                ));
+            }
+            (false, false) => {}
+        }
+        for child in conditional {
+            let parent = child.parent().unwrap_or(&directory.path).to_path_buf();
+            module_file(&child, &ModuleDirectory::owned(&parent), files)?;
         }
     }
     Ok(())
@@ -321,21 +355,60 @@ fn module_items(
 
 /// Returns the value of a module's `#[path = "..."]` attribute.
 fn module_path_attribute(module: &syn::ItemMod) -> Option<String> {
-    module.attrs.iter().find_map(|attribute| {
-        let syn::Meta::NameValue(meta) = &attribute.meta else {
-            return None;
-        };
-        if !meta.path.is_ident("path") {
-            return None;
+    module
+        .attrs
+        .iter()
+        .find_map(|attribute| path_value(&attribute.meta))
+}
+
+/// Returns every `path` value that a module's `#[cfg_attr]` attributes may apply,
+/// including through nested `cfg_attr`.
+fn module_cfg_attr_paths(module: &syn::ItemMod) -> Vec<String> {
+    let mut paths = Vec::new();
+    for attribute in &module.attrs {
+        cfg_attr_paths(&attribute.meta, &mut paths);
+    }
+    paths
+}
+
+fn cfg_attr_paths(meta: &syn::Meta, paths: &mut Vec<String>) {
+    let syn::Meta::List(list) = meta else {
+        return;
+    };
+    if !list.path.is_ident("cfg_attr") {
+        return;
+    }
+    // rustc reports a malformed `cfg_attr`; it applies no path here.
+    let Ok(arguments) = list.parse_args_with(
+        syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+    ) else {
+        return;
+    };
+    // The first argument is the configuration predicate.
+    for argument in arguments.iter().skip(1) {
+        if let Some(path) = path_value(argument) {
+            paths.push(path);
+        } else {
+            cfg_attr_paths(argument, paths);
         }
-        match &meta.value {
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(path),
-                ..
-            }) => Some(path.value()),
-            _ => None,
-        }
-    })
+    }
+}
+
+/// Returns the string of a `path = "..."` meta item.
+fn path_value(meta: &syn::Meta) -> Option<String> {
+    let syn::Meta::NameValue(meta) = meta else {
+        return None;
+    };
+    if !meta.path.is_ident("path") {
+        return None;
+    }
+    match &meta.value {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(path),
+            ..
+        }) => Some(path.value()),
+        _ => None,
+    }
 }
 
 fn nearest_manifest_root(path: &Path) -> Option<PathBuf> {
@@ -454,35 +527,49 @@ mod tests {
     fn workspace_discovery_follows_module_declarations_only() {
         let temporary = temp_dir();
         let root = temporary.path();
-        for directory in [
-            "src/flat",
-            "src/outer/deep",
-            "src/moved",
-            "shared",
-            "tests/suite",
-            "tests/fixtures/broken",
-        ] {
-            fs::create_dir_all(root.join(directory)).unwrap();
-        }
         fs::write(
             root.join("Cargo.toml"),
-            "[package]\nname = \"format-modules\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n",
+            "[package]\nname = \"format-modules\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n\n[[bin]]\nname = \"tool\"\npath = \"src/bin/tool/main.rs\"\nedition = \"2021\"\n",
         )
         .unwrap();
         let sources = [
             (
                 "src/lib.rs",
-                "mod flat;\nmod r#async;\nmod outer { mod deep; }\n#[path = \"moved/renamed.rs\"]\nmod moved;\n#[path = \"../shared/common.rs\"]\nmod common;\n",
+                concat!(
+                    "mod flat;\nmod r#async;\nmod outer { mod deep; }\nmod tree;\n",
+                    "#[path = \"moved/renamed.rs\"]\nmod moved;\n",
+                    "#[path = \"../shared/common.rs\"]\nmod common;\n",
+                    "#[path = \"elsewhere\"]\nmod inline { mod leaf; }\n",
+                    "#[cfg_attr(unix, path = \"platform/unix.rs\")]\n",
+                    "#[cfg_attr(unix, cfg_attr(target_os = \"linux\", path = \"platform/linux.rs\"))]\n",
+                    "#[cfg_attr(windows, path = \"platform/absent.rs\")]\nmod platform;\n",
+                    "#[cfg_attr(test, path = \"alternate.rs\")]\nmod defaulted;\n",
+                ),
             ),
-            // A non-`mod.rs` file owns the directory named by its stem.
-            ("src/flat.rs", "mod inner;\n"),
+            // A non-`mod.rs` file owns the directory named by its stem,
+            // and its inline modules nest below it.
+            ("src/flat.rs", "mod inner;\nmod nest { mod item; }\n"),
             ("src/flat/inner.rs", "\n"),
+            ("src/flat/nest/item.rs", "\n"),
             ("src/async.rs", "\n"),
             ("src/outer/deep.rs", "\n"),
+            ("src/tree/mod.rs", "mod branch;\n"),
+            ("src/tree/branch.rs", "\n"),
             // A `#[path]` file owns its own directory, like `mod.rs`.
             ("src/moved/renamed.rs", "mod sibling;\n"),
             ("src/moved/sibling.rs", "\n"),
+            ("src/elsewhere/leaf.rs", "\n"),
             ("shared/common.rs", "\n"),
+            // Every existing `cfg_attr` path is an input, and the default file may be absent.
+            ("src/platform/unix.rs", "\n"),
+            ("src/platform/linux.rs", "\n"),
+            ("src/defaulted.rs", "\n"),
+            ("src/alternate.rs", "\n"),
+            // The binary reaches a file inside the library's source directory.
+            (
+                "src/bin/tool/main.rs",
+                "#[path = \"../../outer/deep.rs\"]\nmod deep;\nfn main() {}\n",
+            ),
             // A file that does not parse is still an input; its declarations are not followed.
             ("tests/suite.rs", "mod helper;\nfn broken( {\n"),
             ("tests/suite/helper.rs", "\n"),
@@ -490,35 +577,78 @@ mod tests {
             ("src/unused.rs", "\n"),
         ];
         for (file, source) in sources {
-            fs::write(root.join(file), source).unwrap();
+            let file = root.join(file);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, source).unwrap();
         }
         let root = root.canonicalize().unwrap();
         let manifest = root.join("Cargo.toml");
-        let selected = discover_format_inputs(Some(&manifest), &[])
-            .unwrap()
-            .into_iter()
-            .map(|input| input.path)
+        let inputs = discover_format_inputs(Some(&manifest), &[]).unwrap();
+        let selected = inputs
+            .iter()
+            .map(|input| input.path.clone())
             .collect::<BTreeSet<_>>();
         let expected = [
             "shared/common.rs",
+            "src/alternate.rs",
             "src/async.rs",
+            "src/bin/tool/main.rs",
+            "src/defaulted.rs",
+            "src/elsewhere/leaf.rs",
             "src/flat.rs",
             "src/flat/inner.rs",
+            "src/flat/nest/item.rs",
             "src/lib.rs",
             "src/moved/renamed.rs",
             "src/moved/sibling.rs",
             "src/outer/deep.rs",
+            "src/platform/linux.rs",
+            "src/platform/unix.rs",
+            "src/tree/branch.rs",
+            "src/tree/mod.rs",
             "tests/suite.rs",
         ]
         .into_iter()
         .map(|file| root.join(file))
         .collect::<BTreeSet<_>>();
         assert_eq!(selected, expected);
+        let edition = |file: &str| {
+            inputs
+                .iter()
+                .find(|input| input.path == root.join(file))
+                .unwrap()
+                .edition
+        };
+        assert_eq!(edition("src/bin/tool/main.rs"), Edition::E2021);
+        // The library's directory contains the file; the deeper binary directory does not.
+        assert_eq!(edition("src/outer/deep.rs"), Edition::E2024);
+    }
 
-        fs::write(root.join("src/flat.rs"), "mod missing;\n").unwrap();
+    #[test]
+    fn workspace_discovery_rejects_missing_and_ambiguous_module_files() {
+        let temporary = temp_dir();
+        let root = temporary.path();
+        fs::create_dir_all(root.join("src/tree")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"format-module-errors\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "mod tree;\n").unwrap();
+        fs::write(root.join("src/tree.rs"), "\n").unwrap();
+        fs::write(root.join("src/tree/mod.rs"), "\n").unwrap();
+        let manifest = root.join("Cargo.toml");
+        let error = discover_format_inputs(Some(&manifest), &[]).unwrap_err();
+        assert!(error.contains("mod tree;"), "{error}");
+        assert!(error.contains("found at both"), "{error}");
+        assert!(error.contains("src/tree.rs"), "{error}");
+        assert!(error.contains("src/tree/mod.rs"), "{error}");
+
+        fs::remove_file(root.join("src/tree/mod.rs")).unwrap();
+        fs::write(root.join("src/tree.rs"), "mod missing;\n").unwrap();
         let error = discover_format_inputs(Some(&manifest), &[]).unwrap_err();
         assert!(error.contains("mod missing;"), "{error}");
-        assert!(error.contains("src/flat/missing.rs"), "{error}");
+        assert!(error.contains("src/tree/missing.rs"), "{error}");
     }
 
     #[test]

@@ -71,7 +71,7 @@ fn file_formatting_uses_rustfmt_config_in_the_file_directory() {
 }
 
 #[test]
-fn workspace_check_skips_the_configured_target_directory_but_not_build_modules() {
+fn check_selects_module_files_and_skips_the_configured_target_directory() {
     let temporary = temp_dir();
     let root = temporary.path();
     for directory in ["src/build", ".cargo", "out", "tests/fixtures/nested/src"] {
@@ -99,22 +99,30 @@ fn workspace_check_skips_the_configured_target_directory_but_not_build_modules()
     let unformatted = "pub fn f( ) {}\n";
     for file in [
         "src/build/mod.rs",
+        "src/fixture.rs",
         "out/generated.rs",
         "tests/fixtures/nested/src/lib.rs",
     ] {
         fs::write(root.join(file), unformatted).unwrap();
     }
-    // The configured target directory is observed only without an environment override.
-    let check = krs_command!()
-        .current_dir(root)
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("CARGO_BUILD_TARGET_DIR")
-        .args(["fmt", "--check"])
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&check.stderr);
-    assert!(!check.status.success(), "{stderr}");
-    assert!(stderr.contains("src/build/mod.rs"), "{stderr}");
-    assert!(!stderr.contains("generated.rs"), "{stderr}");
-    assert!(!stderr.contains("nested"), "{stderr}");
+    // Without paths, only declared modules are inputs.
+    // With the package directory, every owned file is an input
+    // except those under the configured target directory and in nested packages,
+    // which is observed only without an environment override.
+    for (paths, fixture) in [(&[][..], false), (&["."][..], true)] {
+        let check = krs_command!()
+            .current_dir(root)
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_TARGET_DIR")
+            .args(["fmt", "--check"])
+            .args(paths)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        assert!(!check.status.success(), "{stderr}");
+        assert!(stderr.contains("src/build/mod.rs"), "{stderr}");
+        assert_eq!(stderr.contains("fixture.rs"), fixture, "{stderr}");
+        assert!(!stderr.contains("generated.rs"), "{stderr}");
+        assert!(!stderr.contains("nested"), "{stderr}");
+    }
 }
