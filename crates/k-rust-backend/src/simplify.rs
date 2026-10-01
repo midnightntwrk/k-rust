@@ -76,6 +76,11 @@ use crate::{
     transition::ExecutionEvaluationContext,
 };
 
+mod result;
+
+use result::{Accumulated, HookOutcome};
+pub use result::{Simplification, SimplificationParts};
+
 /// Default equation iterations allowed for each simplification fixed point.
 ///
 /// The budget counts the rounds of one lineage whose root rewrite is a simplification rule, a
@@ -138,30 +143,6 @@ impl SimplificationOptions {
             budget: BudgetPolicy::KeepPartial,
         }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Simplification {
-    pub term: Term,
-    pub constraints: Vec<Predicate>,
-    pub applied_rules: Vec<String>,
-    pub effects: Vec<BuiltinEffect>,
-    pub exhausted: Option<BudgetExhaustion>,
-    /// The innermost partial builtin application that evaluated to bottom, or the innermost
-    /// set or map that holds an element or key twice (`simplify_root`).
-    ///
-    /// Rewrite execution uses this provenance to report the exact definedness
-    /// obligation that made a successor empty. It is deliberately separate from
-    /// `constraints`: other simplification paths can also produce `false`.
-    pub undefined_term: Option<Term>,
-    /// The members of `constraints` that an applied equation's `ensures` contributed: facts the
-    /// definition asserts wherever it applies the equation, trusted as its axioms, and not
-    /// conditions for the term to be defined (those are the other members). Execution keeps
-    /// both kinds on the successor, but only the other kind can leave a step undefined.
-    pub assumed: Vec<Predicate>,
-    /// Set together with `undefined_term` when the undefined term arose in the result of an
-    /// equation for a symbol declared `total` (or `functional`): see [`ContradictedTotal`].
-    pub contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
 /// An application of a symbol the definition declares `total` (or `functional`) that one of the
@@ -427,9 +408,10 @@ fn simplify_pattern_details(
         options,
         solver,
         None,
-    )?;
+    )?
+    .into_parts();
     let mut constraints = pattern.constraints;
-    for constraint in simplified.constraints {
+    for constraint in simplified.conditions {
         if !constraints.contains(&constraint) {
             constraints.push(constraint);
         }
@@ -1255,9 +1237,9 @@ fn simplify_predicate_with_budget(
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
         Predicate::Term(term) => {
-            let simplified = simplify_term(term)?;
+            let simplified = simplify_term(term)?.into_parts();
             with_simplification_constraints(
-                simplified.constraints,
+                simplified.conditions.into_predicates(),
                 Predicate::Term(simplified.term),
             )
         }
@@ -1276,25 +1258,27 @@ fn simplify_predicate_with_budget(
                 })
             };
             let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
-                if simplified.constraints.is_empty() {
+                if simplified.conditions().is_empty() {
                     simplified.term.clone()
                 } else {
                     original.clone()
                 }
             };
-            let use_left = simplified_left.constraints.is_empty()
+            let use_left = simplified_left.conditions().is_empty()
                 || provably_defined(&witness(right, &simplified_right));
-            let use_right = simplified_right.constraints.is_empty()
+            let use_right = simplified_right.conditions().is_empty()
                 || provably_defined(&witness(left, &simplified_left));
             let mut constraints = Vec::new();
             let left = if use_left {
-                constraints.extend(simplified_left.constraints);
+                let simplified_left = simplified_left.into_parts();
+                constraints.extend(simplified_left.conditions);
                 simplified_left.term
             } else {
                 left.clone()
             };
             let right = if use_right {
-                constraints.extend(simplified_right.constraints);
+                let simplified_right = simplified_right.into_parts();
+                constraints.extend(simplified_right.conditions);
                 simplified_right.term
             } else {
                 right.clone()
@@ -1313,20 +1297,20 @@ fn simplify_predicate_with_budget(
             with_simplification_constraints(constraints, equality)
         }
         Predicate::Ceil(term) => {
-            let simplified = simplify_term(term)?;
+            let simplified = simplify_term(term)?.into_parts();
             let unchanged = Predicate::Ceil(simplified.term.clone());
             let mut expanded = ceil_term(definition, &simplified.term);
             // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
             // add child ceils already supplied by the surrounding conjunction.
             expanded.retain(|predicate| !assumptions.contains(predicate));
             if expanded.as_slice() == [unchanged.clone()] {
-                with_simplification_constraints(simplified.constraints, unchanged)
+                with_simplification_constraints(simplified.conditions.into_predicates(), unchanged)
             } else {
                 // The expansion supplies the definedness of the subterms as sibling conjuncts,
                 // and a conditional ceil equation on the parent is decided under them only by
                 // a further pass over the conjunction. Take that pass here, so that an entry
                 // without a surrounding conjunction fixed point reaches the equation too.
-                let mut constraints = simplified.constraints;
+                let mut constraints = simplified.conditions.into_predicates();
                 constraints.extend(expanded);
                 let conjunction = Predicate::And(constraints);
                 if *remaining == 0 {
@@ -1352,17 +1336,17 @@ fn simplify_predicate_with_budget(
             let simplified = simplify_term(term)?;
             // `\floor(C /\ t')` is `\not C \/ \floor(t')`, not `C /\ \floor(t')`, because
             // `\floor(\bottom)` is `\top`; a rewrite that carries constraints is not used.
-            if simplified.constraints.is_empty() {
+            if simplified.conditions().is_empty() {
                 Predicate::Floor(simplified.term)
             } else {
                 Predicate::Floor(term.clone())
             }
         }
         Predicate::In(left, right) => {
-            let left = simplify_term(left)?;
-            let right = simplify_term(right)?;
-            let mut constraints = left.constraints;
-            constraints.extend(right.constraints);
+            let left = simplify_term(left)?.into_parts();
+            let right = simplify_term(right)?.into_parts();
+            let mut constraints = left.conditions.into_predicates();
+            constraints.extend(right.conditions);
             with_simplification_constraints(constraints, Predicate::In(left.term, right.term))
         }
         Predicate::Not(inner) => {
@@ -2475,20 +2459,14 @@ fn simplify_with_budget(
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
     let mut term = term.clone();
-    let mut constraints = Vec::new();
-    let mut assumed = Vec::new();
-    let mut applied_rules = Vec::new();
-    let mut effects = Vec::new();
-    let mut exhausted = None;
-    let mut undefined_term = None;
-    let mut contradicted_total = None;
+    let mut accumulated = Accumulated::default();
     // The last equation applied in this lineage to an application of a `total` symbol, before
     // any undefined term appeared: an undefined term reached afterwards lies in that equation's
     // result, whose arguments were defined when it fired (`ContradictedTotal`).
     let mut total_step: Option<(Term, Arc<RewriteRule>)> = None;
     // Each round simplifies the children then the root; the loop exits on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` never grows.
-    // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
+    // Invariant: `term` equals the input modulo `applied_rules` under the accumulated conditions.
     loop {
         measure::bump(Counter::SimplifyRounds);
         // Neither the request's cancellation nor the step's deadline is bounded by the iteration
@@ -2497,30 +2475,12 @@ fn simplify_with_budget(
         stop::check_stack()?;
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok(Simplification {
-                term,
-                constraints,
-                applied_rules,
-                effects,
-                exhausted,
-                undefined_term,
-                assumed,
-                contradicted_total,
-            });
+            return Ok(accumulated.finish(term));
         }
         term = assumptions.path_condition.apply(&term);
         if term.attributes().evaluated {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
-            return Ok(Simplification {
-                term,
-                constraints,
-                applied_rules,
-                effects,
-                exhausted,
-                undefined_term,
-                assumed,
-                contradicted_total,
-            });
+            return Ok(accumulated.finish(term));
         }
         let children = simplify_children(
             definition,
@@ -2541,16 +2501,9 @@ fn simplify_with_budget(
             solver,
             execution.as_deref_mut(),
         )?;
-        constraints.extend(children.constraints);
-        constraints.extend(root.constraints);
-        assumed.extend(children.assumed);
-        assumed.extend(root.assumed);
-        applied_rules.extend(children.applied_rules);
-        applied_rules.extend(root.applied_rules);
-        effects.extend(children.effects);
-        effects.extend(root.effects);
-        exhausted = exhausted.or(children.exhausted).or(root.exhausted);
-        if undefined_term.is_none() {
+        let children = accumulated.absorb(children);
+        let root = accumulated.absorb(root);
+        if accumulated.undefined_term.is_none() {
             // A child's own report comes first: it names the innermost equation. Otherwise the
             // undefined term arose in this lineage, after the last `total` step if there was one.
             // The root step of this round is not that step's cause: an equation's result carries
@@ -2560,15 +2513,15 @@ fn simplify_with_budget(
                 None => (root.undefined_term, None),
             };
             if let Some(undefined) = &undefined {
-                contradicted_total = contradicted.or_else(|| {
+                accumulated.contradicted_total = contradicted.or_else(|| {
                     total_step.as_ref().map(|(application, rule)| {
                         ContradictedTotal::new(application.clone(), rule, undefined.clone())
                     })
                 });
             }
-            undefined_term = undefined;
+            accumulated.undefined_term = undefined;
         }
-        if undefined_term.is_none()
+        if accumulated.undefined_term.is_none()
             && let Some(rule) = root_equation
             && is_total_application(&children.term)
         {
@@ -2578,16 +2531,7 @@ fn simplify_with_budget(
             || root.term == children.term
             || root.term.attributes().evaluated
         {
-            return Ok(Simplification {
-                term: root.term,
-                constraints,
-                applied_rules,
-                effects,
-                exhausted,
-                undefined_term,
-                assumed,
-                contradicted_total,
-            });
+            return Ok(accumulated.finish(root.term));
         }
         // A determined function step is the definition's own computation, not a rewrite the
         // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
@@ -2599,32 +2543,17 @@ fn simplify_with_budget(
                     term: root.term,
                 }
                 .into()),
-                BudgetPolicy::KeepPartial => Ok(Simplification {
-                    term: root.term,
-                    constraints,
-                    applied_rules,
-                    effects,
-                    exhausted: Some(BudgetExhaustion {
+                BudgetPolicy::KeepPartial => {
+                    accumulated.exhausted = Some(BudgetExhaustion {
                         limit: options.max_iterations,
                         subject: BudgetSubject::Term,
-                    }),
-                    undefined_term,
-                    assumed,
-                    contradicted_total,
-                }),
+                    });
+                    Ok(accumulated.finish(root.term))
+                }
             };
         }
-        if exhausted.is_some() {
-            return Ok(Simplification {
-                term: root.term,
-                constraints,
-                applied_rules,
-                effects,
-                exhausted,
-                undefined_term,
-                assumed,
-                contradicted_total,
-            });
+        if accumulated.exhausted.is_some() {
+            return Ok(accumulated.finish(root.term));
         }
         if charged {
             *remaining -= 1;
@@ -2867,13 +2796,7 @@ fn simplify_children(
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> SimplifyResult<Simplification> {
-    let mut constraints = Vec::new();
-    let mut assumed = Vec::new();
-    let mut applied_rules = Vec::new();
-    let mut effects = Vec::new();
-    let mut exhausted = None;
-    let mut undefined_term = None;
-    let mut contradicted_total = None;
+    let mut accumulated = Accumulated::default();
     let children_unchanged = Cell::new(true);
     let mut child = |term: &Term| {
         if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
@@ -2895,14 +2818,10 @@ fn simplify_children(
             solver,
             execution.as_deref_mut(),
         )?;
-        constraints.extend(result.constraints);
-        assumed.extend(result.assumed);
-        applied_rules.extend(result.applied_rules);
-        effects.extend(result.effects);
-        exhausted = exhausted.or(result.exhausted);
-        if undefined_term.is_none() {
-            undefined_term = result.undefined_term;
-            contradicted_total = result.contradicted_total;
+        let result = accumulated.absorb(result);
+        if accumulated.undefined_term.is_none() {
+            accumulated.undefined_term = result.undefined_term;
+            accumulated.contradicted_total = result.contradicted_total;
         }
         children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
         Ok::<_, Unwind<SimplificationError>>(result.term)
@@ -2929,15 +2848,13 @@ fn simplify_children(
                 (Some((rule_id, obligations)), None) => {
                     children_unchanged.set(false);
                     let retained = child(right)?;
-                    applied_rules.push(rule_id);
-                    constraints.extend(obligations);
+                    accumulated.top_equation(rule_id, obligations);
                     retained
                 }
                 (None, Some((rule_id, obligations))) => {
                     children_unchanged.set(false);
                     let retained = child(left)?;
-                    applied_rules.push(rule_id);
-                    constraints.extend(obligations);
+                    accumulated.top_equation(rule_id, obligations);
                     retained
                 }
                 (None, None) => Term::and(child(left)?, child(right)?),
@@ -3018,16 +2935,7 @@ fn simplify_children(
     } else {
         rebuilt
     };
-    Ok(Simplification {
-        term,
-        constraints,
-        applied_rules,
-        effects,
-        exhausted,
-        undefined_term,
-        assumed,
-        contradicted_total,
-    })
+    Ok(accumulated.finish(term))
 }
 
 /// What produced the result of `simplify_root`, as far as the iteration budget is concerned.
@@ -3062,9 +2970,9 @@ enum RootStep {
 /// #else b #fi`, `M <=Map M`) would otherwise yield a value defined on instances where the
 /// application is not. A hook returns a value only where its own domain condition holds on the
 /// arguments it was given; what it cannot establish without inspecting an argument is that
-/// argument's definedness. That definedness is returned as constraints
-/// (`hook_argument_definedness`), which every caller conjoins as it conjoins the open definedness
-/// obligations of a function equation.
+/// argument's definedness. That definedness is returned as obligations of the result
+/// (`Simplification::hook`, which states them through `ResultConditions::hook_arguments`), which
+/// every caller conjoins as it conjoins the open definedness obligations of a function equation.
 ///
 /// Every hook is strict in every argument, `BOOL.andThen`, `BOOL.orElse` and `KEQUAL.ite`
 /// included: ground simplification already is, since children are simplified before the root and
@@ -3091,16 +2999,7 @@ fn simplify_root(
     // elements and keys, so only other collections are scanned.
     if !term.attributes().ceil_free() && term.repeated_collection_key().is_some() {
         return Ok((
-            Simplification {
-                term: term.clone(),
-                constraints: vec![Predicate::False],
-                applied_rules: Vec::new(),
-                effects: Vec::new(),
-                exhausted: None,
-                undefined_term: Some(term.clone()),
-                assumed: Vec::new(),
-                contradicted_total: None,
-            },
+            Simplification::repeated_collection(term),
             RootStep::Other,
             None,
         ));
@@ -3118,45 +3017,21 @@ fn simplify_root(
             let TermKind::Application { symbol, .. } = term.kind() else {
                 unreachable!("only applications have builtin hooks")
             };
-            let (term, constraints, effects, undefined_term) = match builtin {
-                BuiltinResult::Value(result) => (
-                    result,
-                    hook_argument_definedness(definition, term, known_predicates),
-                    Vec::new(),
-                    None,
-                ),
-                BuiltinResult::Bottom => (
-                    term.clone(),
-                    vec![Predicate::False],
-                    Vec::new(),
-                    Some(term.clone()),
-                ),
-                BuiltinResult::Effect(effect) => (
-                    builtin_effect_result(definition, term, &effect)?,
-                    hook_argument_definedness(definition, term, known_predicates),
-                    vec![effect],
-                    None,
-                ),
+            let outcome = match builtin {
+                BuiltinResult::Value(result) => HookOutcome::Value(result),
+                BuiltinResult::Bottom => HookOutcome::Bottom,
+                BuiltinResult::Effect(effect) => {
+                    HookOutcome::Effect(builtin_effect_result(definition, term, &effect)?, effect)
+                }
                 BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
             };
+            let hook = symbol
+                .attributes
+                .hook
+                .as_deref()
+                .expect("evaluated builtin has a hook");
             return Ok((
-                Simplification {
-                    term,
-                    constraints,
-                    applied_rules: vec![format!(
-                        "builtin:{}",
-                        symbol
-                            .attributes
-                            .hook
-                            .as_deref()
-                            .expect("evaluated builtin has a hook")
-                    )],
-                    effects,
-                    exhausted: None,
-                    undefined_term,
-                    assumed: Vec::new(),
-                    contradicted_total: None,
-                },
+                Simplification::hook(definition, term, outcome, hook, known_predicates),
                 RootStep::Other,
                 None,
             ));
@@ -3172,7 +3047,7 @@ fn simplify_root(
         solver,
     )? {
         TheoryScan::Applied(result, rule) => {
-            let step = if term.attributes().variables.is_empty() && result.constraints.is_empty() {
+            let step = if term.attributes().variables.is_empty() && result.conditions().is_empty() {
                 RootStep::DeterminedFunctionStep
             } else {
                 RootStep::Other
@@ -3202,16 +3077,7 @@ fn simplify_root(
     else {
         debug_assert!(unsupported.is_none());
         return Ok((
-            Simplification {
-                term: term.clone(),
-                constraints: Vec::new(),
-                applied_rules: Vec::new(),
-                effects: Vec::new(),
-                exhausted: None,
-                undefined_term: None,
-                assumed: Vec::new(),
-                contradicted_total: None,
-            },
+            Simplification::irreducible(term.clone()),
             RootStep::Other,
             None,
         ));
@@ -3257,20 +3123,7 @@ fn simplify_root(
         } else {
             term.clone()
         };
-    Ok((
-        Simplification {
-            term,
-            constraints: Vec::new(),
-            applied_rules: Vec::new(),
-            effects: Vec::new(),
-            exhausted: None,
-            undefined_term: None,
-            assumed: Vec::new(),
-            contradicted_total: None,
-        },
-        RootStep::Other,
-        None,
-    ))
+    Ok((Simplification::irreducible(term), RootStep::Other, None))
 }
 
 /// The definedness of the arguments of a hooked application the hook has evaluated: the
@@ -3280,8 +3133,10 @@ fn simplify_root(
 /// The obligations are open, not a refutation: the application is not `\bottom`, so no
 /// `undefined_term` is reported. A `ceil_free` argument contributes nothing, so evaluation over
 /// values and constructor terms is unchanged. An obligation whose term also occurs in the
-/// hook's value is kept: it is redundant there, and a redundant conjunct is sound.
-fn hook_argument_definedness(
+/// hook's value is kept: it is redundant there, and a redundant conjunct is sound. A hook's
+/// result receives them only through `condition::ResultConditions::hook_arguments`, which records
+/// every member as an obligation.
+pub(crate) fn hook_argument_definedness(
     definition: &BackendDefinition,
     application: &Term,
     known_predicates: &[Predicate],
@@ -3694,7 +3549,9 @@ fn apply_equation(
         DefinednessVerdict::Discharged => Vec::new(),
         DefinednessVerdict::Open(obligations) => obligations,
         DefinednessVerdict::Refuted => {
-            return Ok(EquationAttempt::Applied(bottom_subject(rule, term)));
+            return Ok(EquationAttempt::Applied(Simplification::bottom_subject(
+                rule, term,
+            )));
         }
     };
     let (alternatives, is_disjunction) = match &rule.rhs {
@@ -3756,55 +3613,25 @@ fn apply_equation(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
+        0 => Ok(EquationAttempt::Applied(Simplification::bottom_subject(
+            rule, term,
+        ))),
         1 => {
-            let (term, mut constraints) = live.pop().expect("one live alternative");
+            let (term, ensures) = live.pop().expect("one live alternative");
             // The open `ensures` is what the equation asserts of its result; a `\bottom` here
             // is a refuted `ensures` or a bottom right-hand side, the subject's own emptiness.
-            let assumed = if constraints.contains(&Predicate::False) {
-                Vec::new()
-            } else {
-                constraints.clone()
-            };
-            if !constraints.contains(&Predicate::False) {
-                for predicate in definedness {
-                    if !constraints.contains(&predicate) {
-                        constraints.push(predicate);
-                    }
-                }
-            }
-            Ok(EquationAttempt::Applied(Simplification {
+            Ok(EquationAttempt::Applied(Simplification::equation(
+                rule,
                 term,
-                constraints,
-                applied_rules: vec![rule.attributes.unique_id.clone()],
-                effects: Vec::new(),
-                exhausted: None,
-                undefined_term: None,
-                assumed,
-                contradicted_total: None,
-            }))
+                ensures,
+                definedness,
+            )))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
             rule_id: rule.attributes.unique_id.clone(),
             alternatives,
         }
         .into()),
-    }
-}
-
-/// The result of `rule` on a subject `term` that is empty under the path condition: the subject
-/// is retained and `\bottom` is its only constraint, so the caller merges it as it merges any
-/// other constraint set and the pattern becomes `\bottom` as a whole.
-fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
-    Simplification {
-        term: term.clone(),
-        constraints: vec![Predicate::False],
-        applied_rules: vec![rule.attributes.unique_id.clone()],
-        effects: Vec::new(),
-        exhausted: None,
-        undefined_term: None,
-        assumed: Vec::new(),
-        contradicted_total: None,
     }
 }
 
@@ -4117,7 +3944,10 @@ mod tests {
         ))
         .expect("the equation should apply");
         assert_eq!(result.term, done);
-        assert_eq!(result.constraints, vec![Predicate::Ceil(argument.clone())]);
+        assert_eq!(
+            result.constraints(),
+            vec![Predicate::Ceil(argument.clone())]
+        );
         assert_eq!(result.applied_rules, vec!["discard".to_owned()]);
 
         // A path condition that already carries the obligation discharges it.
@@ -4130,7 +3960,7 @@ mod tests {
         ))
         .expect("the equation should apply");
         assert_eq!(result.term, done);
-        assert!(result.constraints.is_empty());
+        assert!(result.constraints().is_empty());
     }
 
     #[test]
@@ -4148,7 +3978,7 @@ mod tests {
         ))
         .expect("an indeterminate equation retains the subject");
         assert_eq!(result.term, input);
-        assert!(result.constraints.is_empty());
+        assert!(result.constraints().is_empty());
         assert!(result.applied_rules.is_empty());
 
         // Positive control: the equation itself applies once `requires` is decided.
@@ -4160,7 +3990,7 @@ mod tests {
         ))
         .expect("the guarded equation should apply");
         assert_eq!(result.term, done);
-        assert!(result.constraints.is_empty());
+        assert!(result.constraints().is_empty());
     }
 
     #[test]

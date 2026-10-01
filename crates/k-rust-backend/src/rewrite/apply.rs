@@ -38,7 +38,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    condition::{Condition, InstantiatedCondition},
+    condition::{Condition, InstantiatedCondition, ResultConditions},
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
@@ -1476,9 +1476,9 @@ fn apply_rhs_alternative(
     });
     let mut condition_knowledge = condition_knowledge.to_vec();
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
-    let (rhs, mut rhs_constraints, effects, undefined_term, assumed, contradicted_total) =
+    let (rhs, rhs_conditions, effects, undefined_term, contradicted_total) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
-            (rhs, Vec::new(), Vec::new(), None, Vec::new(), None)
+            (rhs, ResultConditions::default(), Vec::new(), None, None)
         } else {
             let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
@@ -1498,14 +1498,16 @@ fn apply_rhs_alternative(
                 ),
             }?;
             match simplified {
-                Ok(simplified) => (
-                    simplified.term,
-                    simplified.constraints,
-                    simplified.effects,
-                    simplified.undefined_term,
-                    simplified.assumed,
-                    simplified.contradicted_total,
-                ),
+                Ok(simplified) => {
+                    let simplified = simplified.into_parts();
+                    (
+                        simplified.term,
+                        simplified.conditions,
+                        simplified.effects,
+                        simplified.undefined_term,
+                        simplified.contradicted_total,
+                    )
+                }
                 Err(error) => {
                     return Ok(RhsAlternativeAttempt::Simplification(error));
                 }
@@ -1518,14 +1520,21 @@ fn apply_rhs_alternative(
             contradicted_total,
         });
     }
-    if predicates_truth(&rhs_constraints) == Truth::False {
+    if predicates_truth(rhs_conditions.as_slice()) == Truth::False {
         return Ok(RhsAlternativeAttempt::Trivial {
-            obligation: conjunction(&rhs_constraints),
+            obligation: conjunction(rhs_conditions.as_slice()),
             effects,
             contradicted_total: None,
         });
     }
-    extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
+    extend_unique(
+        &mut condition_knowledge,
+        rhs_conditions.as_slice().iter().cloned(),
+    );
+    // The definedness of the instantiated right-hand side that the condition knowledge leaves
+    // open: obligations the result carries after the right-hand side's own conditions (those it
+    // repeats are not restated).
+    let mut rhs_definedness = Vec::new();
     if !rule.computed_attributes.undefined_symbols.is_empty() {
         let obligations = ceil_term(definition, &rhs);
         let reported_obligation = undefined_term
@@ -1556,7 +1565,7 @@ fn apply_rhs_alternative(
                     contradicted_total: None,
                 });
             }
-            ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
+            ObligationVerdict::Carried => rhs_definedness = obligations,
         }
     }
     let ensures = ensures
@@ -1606,17 +1615,25 @@ fn apply_rhs_alternative(
     extend_unique(&mut rule_predicates, match_conditions.iter().cloned());
     extend_unique(&mut rule_predicates, unclear_requires.iter().cloned());
     let applicability_conditions = rule_predicates.len();
-    extend_unique(&mut rule_predicates, rhs_constraints);
+    extend_unique(
+        &mut rule_predicates,
+        rhs_conditions
+            .as_slice()
+            .iter()
+            .cloned()
+            .chain(rhs_definedness),
+    );
     extend_unique(&mut rule_predicates, ensures);
     // What the result adds to the applicability: the right-hand side's simplification
-    // constraints, its carried definedness obligations and the carried `ensures`. The instances
-    // of the applicability where it fails have no result from this alternative. An `ensures` of
-    // an equation the right-hand side's simplification applied (`assumed`) is not among them:
-    // it is what the definition asserts of that equation's result wherever the equation applies,
-    // a trusted axiom rather than a condition for the result to exist. The successor keeps it.
+    // conditions, its carried definedness obligations and the carried `ensures`. The instances
+    // of the applicability where it fails have no result from this alternative. A predicate an
+    // assumption of the right-hand side's simplification asserts (an applied equation's open
+    // `ensures`, `ResultConditions::asserts`) is not among them: it is what the definition asserts
+    // of that equation's result wherever the equation applies, a trusted axiom rather than a
+    // condition for the result to exist. The successor keeps it.
     let added = rule_predicates[applicability_conditions..]
         .iter()
-        .filter(|predicate| **predicate != Predicate::True && !assumed.contains(predicate))
+        .filter(|predicate| **predicate != Predicate::True && !rhs_conditions.asserts(predicate))
         .cloned()
         .collect::<Vec<_>>();
     let carried = (!added.is_empty()).then(|| conjunction(&added));

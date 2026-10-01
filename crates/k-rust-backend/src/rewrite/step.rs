@@ -489,8 +489,9 @@ fn fold_lower_priority_groups(
             extend_distinct(&mut current.diagnostics, &diagnostics);
             match simplified? {
                 Ok(simplified) => {
+                    let simplified = simplified.into_parts();
                     current.pattern.term = simplified.term;
-                    extend_unique(&mut current.pattern.constraints, simplified.constraints);
+                    extend_unique(&mut current.pattern.constraints, simplified.conditions);
                     let effects = simplified.effects;
                     let applied_rules = simplified.applied_rules;
                     current.effects.extend(effects.iter().cloned());

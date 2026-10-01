@@ -1219,12 +1219,13 @@ fn establish_disjunction(
                 &antecedent.constraints,
                 options,
                 solver,
-            )??;
+            )??
+            .into_parts();
             let simplified = Pattern {
                 term: simplified.term,
                 constraints: merge_predicates(
                     antecedent.constraints.clone(),
-                    simplified.constraints,
+                    simplified.conditions.into_predicates(),
                 ),
             };
             if simplified != antecedent {
@@ -1343,12 +1344,13 @@ fn check_established(
                         &antecedent.constraints,
                         options,
                         solver,
-                    )??;
+                    )??
+                    .into_parts();
                     let simplified = Pattern {
                         term: simplified.term,
                         constraints: merge_predicates(
                             antecedent.constraints.clone(),
-                            simplified.constraints,
+                            simplified.conditions.into_predicates(),
                         ),
                     };
                     if simplified == antecedent {
@@ -1602,10 +1604,16 @@ fn simplify_consequent(
         options,
         solver,
     )? {
-        Ok(simplified) => Ok(Pattern {
-            term: simplified.term,
-            constraints: merge_predicates(consequent.constraints, simplified.constraints),
-        }),
+        Ok(simplified) => {
+            let simplified = simplified.into_parts();
+            Ok(Pattern {
+                term: simplified.term,
+                constraints: merge_predicates(
+                    consequent.constraints,
+                    simplified.conditions.into_predicates(),
+                ),
+            })
+        }
         Err(_) => Ok(consequent),
     }
 }

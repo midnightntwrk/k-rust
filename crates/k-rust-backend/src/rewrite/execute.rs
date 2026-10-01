@@ -481,10 +481,11 @@ impl<'a> Execution<'a> {
         let mut state = self.check_interrupted(state)?;
         let (undefined_term, contradicted_total) = match simplified {
             Ok(simplified) => {
+                let simplified = simplified.into_parts();
                 let undefined_term = simplified.undefined_term.clone();
                 let contradicted_total = simplified.contradicted_total.clone();
                 state.pattern.term = simplified.term;
-                state.pattern.constraints.extend(simplified.constraints);
+                state.pattern.constraints.extend(simplified.conditions);
                 normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
                 state.observation = self.observation_log.append_simplification(
                     state.observation,

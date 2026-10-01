@@ -111,14 +111,14 @@ fn recover_by_simplifying_pairs(
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
         let simplified_pattern =
-            simplify_with_solver(definition, &pattern, &knowledge, options, solver)??;
-        extend_unique(&mut conditions, simplified_pattern.constraints);
+            simplify_with_solver(definition, &pattern, &knowledge, options, solver)??.into_parts();
+        extend_unique(&mut conditions, simplified_pattern.conditions);
         let simplified_pattern = simplified_pattern.term;
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
         let simplified_subject =
-            simplify_with_solver(definition, &subject, &knowledge, options, solver)??;
-        extend_unique(&mut conditions, simplified_subject.constraints);
+            simplify_with_solver(definition, &subject, &knowledge, options, solver)??.into_parts();
+        extend_unique(&mut conditions, simplified_subject.conditions);
         let simplified_subject = simplified_subject.term;
 
         if !simplified_pattern
@@ -222,8 +222,9 @@ fn recover_by_simplifying_pairs(
             &witness_knowledge,
             options,
             solver,
-        )??;
-        extend_unique(&mut conditions, candidate_pattern.constraints);
+        )??
+        .into_parts();
+        extend_unique(&mut conditions, candidate_pattern.conditions);
         match match_terms_in_definition(
             MatchMode::Rewrite,
             definition,

@@ -809,8 +809,9 @@ fn search_graph_collecting(
         diagnostics.extend(&emitted);
         match simplified_term {
             Ok(Ok(simplified)) => {
+                let simplified = simplified.into_parts();
                 state.pattern.term = simplified.term;
-                state.pattern.constraints.extend(simplified.constraints);
+                state.pattern.constraints.extend(simplified.conditions);
                 observation_head = observation_log.append_simplification(
                     observation_head,
                     definition,
@@ -1510,11 +1511,9 @@ fn search_paths_collecting(
         path.diagnostics.extend(&emitted);
         match simplified_term {
             Ok(Ok(simplified)) => {
+                let simplified = simplified.into_parts();
                 path.state.pattern.term = simplified.term;
-                path.state
-                    .pattern
-                    .constraints
-                    .extend(simplified.constraints);
+                path.state.pattern.constraints.extend(simplified.conditions);
                 path.observation = observation_log.append_simplification(
                     path.observation,
                     definition,

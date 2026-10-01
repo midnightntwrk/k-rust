@@ -441,7 +441,7 @@ pub fn prove_claim(
         };
         finish_if_interrupted!();
         let simplified = match simplified {
-            Ok(simplified) => simplified,
+            Ok(simplified) => simplified.into_parts(),
             Err(error) => {
                 record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
                     ProofIndeterminateReason::Simplification(error),
@@ -451,7 +451,10 @@ pub fn prove_claim(
         };
         let contradicted_total = simplified.contradicted_total;
         state.pattern.term = simplified.term;
-        extend_unique(&mut state.pattern.constraints, simplified.constraints);
+        extend_unique(
+            &mut state.pattern.constraints,
+            simplified.conditions.into_predicates(),
+        );
         state.trace.extend(
             simplified
                 .applied_rules

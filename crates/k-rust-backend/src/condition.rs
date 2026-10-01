@@ -17,6 +17,12 @@
 //!
 //! [`eliminate_bindings`] is the other half: eliminating a binding `x = t` of an element variable
 //! keeps `\ceil(t)`.
+//!
+//! The conditions a simplification conjoins to its term, `t = C ∧ t'`, carry their role in
+//! [`ResultConditions`], recorded where they are produced: each conjunct of `C` is an
+//! [`Obligation`], part of the condition for `t'` to exist, or an assumption, an applied
+//! equation's open `ensures`, which the definition asserts wherever that equation's instance
+//! exists.
 
 use std::cell::Cell;
 
@@ -26,10 +32,10 @@ use crate::{
     diagnostic,
     rewrite::{Truth, predicates_truth, substitute_predicates},
     rule::{Predicate, rename_predicates},
-    simplify::SimplificationError,
+    simplify::{SimplificationError, hook_argument_definedness},
     stop::Stoppable,
     substitution::Substitution,
-    term::{TermKind, Variable, VariableKind},
+    term::{Term, TermKind, Variable, VariableKind},
 };
 
 /// The `requires` or `ensures` of a rule, an equation or a right-hand-side alternative as
@@ -283,4 +289,267 @@ pub(crate) fn eliminate_bindings(
         }
     }
     result
+}
+
+/// A conjunct of a simplification result that is part of the condition for the result to exist
+/// (I4): the definedness of a term an equation binds or of an argument of an evaluated hooked
+/// application, or a refutation.
+///
+/// It is produced only by [`ResultConditions::obligations`], which leaves out the assumptions.
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Obligation(Predicate);
+
+impl Obligation {
+    pub fn as_predicate(&self) -> &Predicate {
+        &self.0
+    }
+
+    pub fn into_predicate(self) -> Predicate {
+        self.0
+    }
+}
+
+/// The conjuncts `C` a simplification `t = C ∧ t'` conjoins to its term, in the order they were
+/// produced, each an obligation or an assumption (I4).
+///
+/// Obligations (the definedness of a term an equation binds or of an argument of an evaluated
+/// hooked application, a refutation) conjoin to where `t'` exists. Assumptions (an applied
+/// equation's open `ensures`) are what the definition asserts of that equation's result wherever
+/// its instance exists, so they hold where the result's obligations hold and decide nothing about
+/// existence. A successor keeps both kinds.
+///
+/// The role is recorded once, where the conjunct is produced (the constructors below), as an index
+/// into the one conjunct list: no copy of the assumptions exists that a transformation of the list
+/// could leave behind, and outside this module conjuncts join a result only through
+/// [`ResultConditions::append`], which keeps every role.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ResultConditions {
+    conjuncts: Vec<Predicate>,
+    /// Strictly ascending indices into `conjuncts` of the assumptions.
+    assumptions: Vec<u32>,
+}
+
+impl ResultConditions {
+    /// Every conjunct, in order: what a successor keeps.
+    pub fn as_slice(&self) -> &[Predicate] {
+        &self.conjuncts
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.conjuncts.is_empty()
+    }
+
+    /// Every conjunct, in order, moved out.
+    pub fn into_predicates(self) -> Vec<Predicate> {
+        self.conjuncts
+    }
+
+    /// The conjuncts that decide whether the result exists: every conjunct equal to no
+    /// assumption. An obligation equal to an assumption of the same result is discharged by it,
+    /// because the assumption holds wherever the result's other obligations hold.
+    pub fn obligations(&self) -> impl Iterator<Item = Obligation> + '_ {
+        self.conjuncts
+            .iter()
+            .filter(|predicate| !self.asserts(predicate))
+            .cloned()
+            .map(Obligation)
+    }
+
+    /// Whether an assumption of this result equals `predicate`.
+    pub fn asserts(&self, predicate: &Predicate) -> bool {
+        self.assumptions
+            .iter()
+            .any(|&index| self.conjuncts[index as usize] == *predicate)
+    }
+
+    /// `\bottom`: the result's subject is empty. A refutation is an obligation.
+    pub(crate) fn refuted() -> Self {
+        Self {
+            conjuncts: vec![Predicate::False],
+            assumptions: Vec::new(),
+        }
+    }
+
+    /// The argument definedness of an evaluated hooked application (I3). A hooked symbol is a
+    /// function symbol and its application is strict, so a hook's value `v` for
+    /// `f(t1, .., tn)` holds as `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`; every member is an
+    /// obligation. The obligations are computed here from the application
+    /// (`simplify::hook_argument_definedness`, minus those in `known`), so a hook's result cannot
+    /// carry an empty or a foreign list.
+    pub(crate) fn hook_arguments(
+        definition: &BackendDefinition,
+        application: &Term,
+        known: &[Predicate],
+    ) -> Self {
+        Self {
+            conjuncts: hook_argument_definedness(definition, application, known),
+            assumptions: Vec::new(),
+        }
+    }
+
+    /// The conditions of an applied function equation's result, the only producer of
+    /// assumptions.
+    ///
+    /// `ensures` is what the equation's instance leaves of its `ensures`, and `definedness` its
+    /// open binding obligations (I2). A `\bottom` among `ensures` (a refuted `ensures` or a bottom
+    /// right-hand side) is the subject's own emptiness: the conjuncts are `ensures` alone, with no
+    /// assumption and no binding obligation. Otherwise the open `ensures` are the assumptions, and
+    /// the binding obligations not among them follow as obligations.
+    pub(crate) fn equation(ensures: Vec<Predicate>, definedness: Vec<Predicate>) -> Self {
+        let mut conjuncts = ensures;
+        if conjuncts.contains(&Predicate::False) {
+            return Self {
+                conjuncts,
+                assumptions: Vec::new(),
+            };
+        }
+        let assumptions = (0..conjuncts.len()).map(conjunct_index).collect();
+        for predicate in definedness {
+            if !conjuncts.contains(&predicate) {
+                conjuncts.push(predicate);
+            }
+        }
+        let conditions = Self {
+            conjuncts,
+            assumptions,
+        };
+        debug_assert!(conditions.assumptions_are_indices());
+        conditions
+    }
+
+    /// The open binding obligations of a `\top` equation applied to an operand of a term-level
+    /// `\and`: under `f(X) = \top`, `u /\ f(t)` is `u /\ \ceil(t)` (I2), and every member is an
+    /// obligation.
+    pub(crate) fn top_equation(obligations: Vec<Predicate>) -> Self {
+        Self {
+            conjuncts: obligations,
+            assumptions: Vec::new(),
+        }
+    }
+
+    /// `other`'s conjuncts after this result's, each keeping its role.
+    pub(crate) fn append(&mut self, other: Self) {
+        let Self {
+            conjuncts,
+            assumptions,
+        } = other;
+        if !assumptions.is_empty() {
+            let offset = conjunct_index(self.conjuncts.len());
+            self.assumptions
+                .extend(assumptions.into_iter().map(|index| index + offset));
+        }
+        self.conjuncts.extend(conjuncts);
+        debug_assert!(self.assumptions_are_indices());
+    }
+
+    /// The container invariant: the assumption indices ascend strictly and name conjuncts.
+    fn assumptions_are_indices(&self) -> bool {
+        self.assumptions.windows(2).all(|pair| pair[0] < pair[1])
+            && self
+                .assumptions
+                .last()
+                .is_none_or(|&last| (last as usize) < self.conjuncts.len())
+    }
+}
+
+impl IntoIterator for ResultConditions {
+    type Item = Predicate;
+    type IntoIter = std::vec::IntoIter<Predicate>;
+
+    /// Every conjunct, in order (`into_predicates`).
+    fn into_iter(self) -> Self::IntoIter {
+        self.conjuncts.into_iter()
+    }
+}
+
+fn conjunct_index(index: usize) -> u32 {
+    u32::try_from(index).expect("a simplification result has fewer than 2^32 conjuncts")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::term::Sort;
+
+    /// The Boolean atom `name`, a predicate distinct from every other name's.
+    fn atom(name: &str) -> Predicate {
+        Predicate::Term(Term::variable(Variable::new(
+            name,
+            Sort::simple("SortBool"),
+        )))
+    }
+
+    fn obligations(conditions: &ResultConditions) -> Vec<Predicate> {
+        conditions
+            .obligations()
+            .map(Obligation::into_predicate)
+            .collect()
+    }
+
+    #[test]
+    fn an_equation_result_records_its_ensures_as_assumptions_and_its_bindings_as_obligations() {
+        let ensures = atom("Ensured");
+        let obligation = atom("Defined");
+        let mut conditions =
+            ResultConditions::equation(vec![ensures.clone()], vec![obligation.clone()]);
+        assert_eq!(conditions.as_slice(), [ensures.clone(), obligation.clone()]);
+        assert_eq!(obligations(&conditions), std::slice::from_ref(&obligation));
+        assert!(conditions.asserts(&ensures));
+        assert!(!conditions.asserts(&obligation));
+        assert_eq!(conditions.assumptions, [0]);
+
+        // A part without assumptions is appended after the conjuncts, and the assumption
+        // indices stay as they are. Its obligation equal to the assumption is discharged by it.
+        conditions.append(ResultConditions::top_equation(vec![
+            ensures.clone(),
+            atom("Bound"),
+        ]));
+        assert_eq!(
+            conditions.as_slice(),
+            [
+                ensures.clone(),
+                obligation.clone(),
+                ensures.clone(),
+                atom("Bound")
+            ]
+        );
+        assert_eq!(conditions.assumptions, [0]);
+        assert_eq!(
+            obligations(&conditions),
+            [obligation.clone(), atom("Bound")]
+        );
+
+        // A part with assumptions has its indices shifted past the conjuncts before it.
+        conditions.append(ResultConditions::equation(vec![atom("Later")], Vec::new()));
+        assert_eq!(conditions.assumptions, [0, 4]);
+        assert!(conditions.asserts(&atom("Later")));
+        assert_eq!(obligations(&conditions), [obligation, atom("Bound")]);
+    }
+
+    #[test]
+    fn an_equation_obligation_equal_to_its_ensures_is_not_restated() {
+        let ensures = atom("Ensured");
+        let conditions = ResultConditions::equation(
+            vec![ensures.clone()],
+            vec![ensures.clone(), atom("Defined")],
+        );
+        assert_eq!(conditions.as_slice(), [ensures, atom("Defined")]);
+        assert_eq!(obligations(&conditions), [atom("Defined")]);
+    }
+
+    #[test]
+    fn a_refuted_equation_result_has_no_assumption_and_no_binding_obligation() {
+        let conditions = ResultConditions::equation(
+            vec![atom("Ensured"), Predicate::False],
+            vec![atom("Defined")],
+        );
+        assert_eq!(conditions.as_slice(), [atom("Ensured"), Predicate::False]);
+        assert!(conditions.assumptions.is_empty());
+        assert_eq!(
+            obligations(&conditions),
+            [atom("Ensured"), Predicate::False]
+        );
+        assert_eq!(ResultConditions::refuted().as_slice(), [Predicate::False]);
+    }
 }

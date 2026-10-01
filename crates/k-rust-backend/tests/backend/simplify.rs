@@ -747,12 +747,12 @@ fn top_equations_carry_the_definedness_of_the_erased_operand() {
 
     let open = simplify_with(&NoSolver);
     assert_eq!(open.term, retained);
-    assert_eq!(open.constraints, vec![Predicate::Ceil(argument.clone())]);
+    assert_eq!(open.constraints(), vec![Predicate::Ceil(argument.clone())]);
     assert_eq!(open.applied_rules, ["erase-f"]);
 
     let refuted = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(refuted.term, retained);
-    assert_eq!(refuted.constraints, vec![Predicate::False]);
+    assert_eq!(refuted.constraints(), vec![Predicate::False]);
     assert_eq!(refuted.applied_rules, ["erase-f"]);
 
     // A path condition that carries the obligation discharges it.
@@ -765,7 +765,7 @@ fn top_equations_carry_the_definedness_of_the_erased_operand() {
     )
     .expect("the top equation should apply");
     assert_eq!(discharged.term, retained);
-    assert!(discharged.constraints.is_empty());
+    assert!(discharged.constraints().is_empty());
 
     // Negative control: an undecided `requires` still refuses, obligation or not.
     let guarded = self::definition(
@@ -790,7 +790,7 @@ fn top_equations_carry_the_definedness_of_the_erased_operand() {
     let result = simplify(&guarded, &input, SimplificationOptions::default())
         .expect("an undecided top equation retains the conjunction");
     assert_eq!(result.term, input);
-    assert!(result.constraints.is_empty());
+    assert!(result.constraints().is_empty());
     assert!(result.applied_rules.is_empty());
 }
 
@@ -850,7 +850,7 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
         let expected_term = if expected_term_is_done { &done } else { &input };
         assert_eq!(&result.term, expected_term, "{operand}");
-        assert_eq!(result.constraints, constraints, "{operand}");
+        assert_eq!(result.constraints(), constraints, "{operand}");
         assert_eq!(result.applied_rules, ["discard"], "{operand}");
     }
 
@@ -865,7 +865,7 @@ fn equations_carry_open_element_binding_definedness_as_constraints() {
     )
     .unwrap();
     assert_eq!(result.term, done);
-    assert!(result.constraints.is_empty());
+    assert!(result.constraints().is_empty());
 }
 
 #[test]
@@ -892,7 +892,7 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
     // strictness, whichever equation is tried; the subject is retained under `\bottom`.
     let (refuted, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(refuted.term, input);
-    assert_eq!(refuted.constraints, vec![Predicate::False]);
+    assert_eq!(refuted.constraints(), vec![Predicate::False]);
     assert_eq!(refuted.applied_rules, ["discard"]);
     assert!(diagnostics.is_empty());
 
@@ -900,13 +900,13 @@ fn a_refuted_element_binding_definedness_makes_the_subject_bottom() {
     // path condition carries it too and is reported, because the solver did not answer.
     let (open, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Contingent));
     assert_eq!(open.term, done);
-    assert_eq!(open.constraints, vec![obligation.clone()]);
+    assert_eq!(open.constraints(), vec![obligation.clone()]);
     assert!(diagnostics.is_empty());
 
     let (inconsistent, diagnostics) =
         simplify_with(&FixedValiditySolver(Validity::InconsistentGroundTruth));
     assert_eq!(inconsistent.term, done);
-    assert_eq!(inconsistent.constraints, vec![obligation.clone()]);
+    assert_eq!(inconsistent.constraints(), vec![obligation.clone()]);
     assert_eq!(
         diagnostics,
         [BackendDiagnostic::UndecidedCondition {
@@ -948,7 +948,7 @@ fn equation_set_variable_bindings_do_not_require_definedness() {
     let input = term(&definition, "discard{}(f{}(X:SortS{}))");
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
     assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
-    assert!(result.constraints.is_empty());
+    assert!(result.constraints().is_empty());
 }
 
 #[test]
@@ -983,7 +983,7 @@ fn element_variable_bindings_to_set_patterns_are_indeterminate() {
     let result = simplify(&definition, &input, SimplificationOptions::default())
         .expect("a non-functional binding is not an error");
     assert_eq!(result.term, input);
-    assert!(result.constraints.is_empty());
+    assert!(result.constraints().is_empty());
     assert!(result.applied_rules.is_empty());
 
     // Positive control: an element variable is one element, so the equation applies.
@@ -1053,7 +1053,7 @@ fn simplifies_children_before_their_parent_to_a_fixed_point() {
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
     assert_eq!(result.term, expected);
     assert_eq!(result.applied_rules, vec!["identity", "identity"]);
-    assert!(result.constraints.is_empty());
+    assert!(result.constraints().is_empty());
 }
 
 #[test]
@@ -1392,8 +1392,8 @@ fn keeps_unknown_ensures_as_result_constraints() {
     let input = term(&definition, r#"f{}(\dv{SortS{}}("value"))"#);
 
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
-    assert_eq!(result.constraints.len(), 1);
-    assert!(matches!(result.constraints[0], Predicate::Equals(..)));
+    assert_eq!(result.constraints().len(), 1);
+    assert!(matches!(result.constraints()[0], Predicate::Equals(..)));
 }
 
 #[test]
@@ -1421,7 +1421,7 @@ fn refuted_ensures_make_the_equation_result_bottom() {
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
 
     assert_eq!(result.term, value);
-    assert_eq!(result.constraints, [Predicate::False]);
+    assert_eq!(result.constraints(), [Predicate::False]);
     assert_eq!(result.applied_rules, ["contradictory-result"]);
 }
 
@@ -1461,13 +1461,13 @@ fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
 
     let (valid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Valid));
     assert_eq!(valid.term, value);
-    assert!(valid.constraints.is_empty());
+    assert!(valid.constraints().is_empty());
     assert_eq!(valid.applied_rules, ["constrained"]);
     assert!(diagnostics.is_empty());
 
     let (invalid, diagnostics) = simplify_with(&FixedValiditySolver(Validity::Refuted));
     assert_eq!(invalid.term, value);
-    assert_eq!(invalid.constraints, [Predicate::False]);
+    assert_eq!(invalid.constraints(), [Predicate::False]);
     assert_eq!(invalid.applied_rules, ["constrained"]);
     assert!(diagnostics.is_empty());
 
@@ -1481,11 +1481,11 @@ fn ensures_verdicts_of_the_solver_are_mapped_per_site() {
     for solver in carried {
         let (open, diagnostics) = simplify_with(solver);
         assert_eq!(open.term, value);
-        assert_eq!(open.constraints.len(), 1, "{:?}", open.constraints);
+        assert_eq!(open.constraints().len(), 1, "{:?}", open.constraints());
         assert!(
-            matches!(&open.constraints[0], Predicate::Equals(left, _) if *left == value),
+            matches!(&open.constraints()[0], Predicate::Equals(left, _) if *left == value),
             "{:?}",
-            open.constraints
+            open.constraints()
         );
         assert_eq!(open.applied_rules, ["constrained"]);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -1521,8 +1521,8 @@ fn predicate_term_simplification_preserves_result_constraints() {
     )
     .unwrap();
 
-    assert_eq!(term_result.constraints.len(), 1);
-    assert_eq!(predicate_result, term_result.constraints[0]);
+    assert_eq!(term_result.constraints().len(), 1);
+    assert_eq!(predicate_result, term_result.constraints()[0]);
 }
 
 #[test]
@@ -1790,7 +1790,7 @@ fn a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built() {
         let input = term(&definition, source);
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
         assert!(
-            result.constraints.contains(&Predicate::False) && result.undefined_term.is_some(),
+            result.constraints().contains(&Predicate::False) && result.undefined_term.is_some(),
             "{source}: {result:#?}"
         );
         assert_eq!(
@@ -1833,7 +1833,7 @@ fn a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built() {
     let input = term(&definition, r#"dup{}(X:SortKey{}, Y:SortKey{})"#);
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
     assert!(
-        result.constraints.is_empty() && result.undefined_term.is_none(),
+        result.constraints().is_empty() && result.undefined_term.is_none(),
         "{result:#?}"
     );
     assert!(matches!(result.term.kind(), TermKind::Map { entries, .. } if entries.len() == 2));
@@ -2969,7 +2969,7 @@ fn represents_undefined_partial_builtins_as_bottom_constraints() {
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
 
     assert_eq!(result.term, input);
-    assert_eq!(result.constraints, [Predicate::False]);
+    assert_eq!(result.constraints(), [Predicate::False]);
     assert_eq!(result.applied_rules, ["builtin:INT.tdiv"]);
 }
 
@@ -3750,7 +3750,7 @@ fn untranslatable_definedness_obligation_is_carried() {
     let result = result.expect("an untranslatable obligation should not be an error");
 
     assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("done")"#));
-    assert_eq!(result.constraints, vec![obligation.clone()]);
+    assert_eq!(result.constraints(), vec![obligation.clone()]);
     assert_eq!(
         diagnostics,
         [BackendDiagnostic::UndecidedCondition {
@@ -4314,7 +4314,7 @@ fn assert_hook_keeps_argument_definedness(source: &str, expected: &str) {
         result.applied_rules
     );
     assert_eq!(
-        result.constraints,
+        result.constraints(),
         [Predicate::Ceil(term(&definition, TEN_BY_X))],
         "input: {source}"
     );
@@ -4386,7 +4386,7 @@ fn hook_argument_definedness_is_not_repeated_when_known_or_ground() {
     )
     .unwrap();
     assert_eq!(known.term, term(&definition, TRUE));
-    assert!(known.constraints.is_empty(), "{:?}", known.constraints);
+    assert!(known.constraints().is_empty(), "{:?}", known.constraints());
 
     let ground = term(
         &definition,
@@ -4394,7 +4394,11 @@ fn hook_argument_definedness_is_not_repeated_when_known_or_ground() {
     );
     let ground = simplify(&definition, &ground, SimplificationOptions::default()).unwrap();
     assert_eq!(ground.term, term(&definition, TRUE));
-    assert!(ground.constraints.is_empty(), "{:?}", ground.constraints);
+    assert!(
+        ground.constraints().is_empty(),
+        "{:?}",
+        ground.constraints()
+    );
 
     let undefined = term(
         &definition,
@@ -4402,7 +4406,7 @@ fn hook_argument_definedness_is_not_repeated_when_known_or_ground() {
     );
     let undefined = simplify(&definition, &undefined, SimplificationOptions::default()).unwrap();
     assert!(
-        undefined.constraints.contains(&Predicate::False),
+        undefined.constraints().contains(&Predicate::False),
         "a ground undefined branch makes the conditional bottom: {undefined:?}"
     );
 }
