@@ -297,7 +297,8 @@ impl<'a> AttributeResolver<'a> {
                     entry,
                     self.facade.suggest(&entry, false),
                 ),
-            ).with_span(attribute.span()));
+            )
+            .with_span(attribute.span()));
         }
         Ok(())
     }
@@ -338,7 +339,8 @@ impl<'a> AttributeResolver<'a> {
                 name,
                 self.facade.suggest(&name, true),
             ),
-        ).with_span(invocation.path.span()))
+        )
+        .with_span(invocation.path.span()))
     }
 }
 

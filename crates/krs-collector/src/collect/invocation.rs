@@ -109,7 +109,8 @@ fn collect_trait_invocations(
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
                 "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
-            ).with_span(attribute.span()));
+            )
+            .with_span(attribute.span()));
         }
         let mut anchors = if let Some(alias) = sort_attribute.alias() {
             let mut anchors = vec![ProvenanceAnchor::new(
@@ -1105,7 +1106,8 @@ pub(super) fn declaration_metadata(
                     format!(
                         "{symbol_spelling} requires exactly one {target_spelling} target on its declaration"
                     ),
-                ).with_span(symbol.span()));
+                )
+                .with_span(symbol.span()));
             };
             if symbol_index.checked_add(1) != Some(*target_index) {
                 return Err(CollectionError::new(
@@ -1113,7 +1115,8 @@ pub(super) fn declaration_metadata(
                     format!(
                         "{symbol_spelling} must immediately precede {target_spelling} so attribute order is unambiguous"
                     ),
-                ).with_span(symbol.span()));
+                )
+                .with_span(symbol.span()));
             }
             Some(
                 krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol)?)

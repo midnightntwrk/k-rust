@@ -141,7 +141,8 @@ pub(crate) fn function(
                     krs_ir::HookOperation::KryptoBn128Ate
                 }
                 _ => {
-                    return Err(ExpandError::new(expand::UNKNOWN_HOOK,
+                    return Err(ExpandError::new(
+                        expand::UNKNOWN_HOOK,
                         path.span(),
                         "unknown KRS hook; expected `krypto::keccak256_raw`, `krypto::sha256_raw`, `krypto::ripemd160_raw`, `krypto::ecdsa_recover`, `krypto::bn128_valid`, `krypto::bn128_add`, `krypto::bn128_mul`, `krypto::bn128_g2_valid`, or `krypto::bn128_ate`",
                     ));
@@ -151,8 +152,7 @@ pub(crate) fn function(
                 ProvenanceAnchor::new(
                     ProvenanceRole::FunctionHook,
                     0,
-                    TokenRange::for_tokens(path)
-                        ?,
+                    TokenRange::for_tokens(path)?,
                 ),
                 operation,
             ))

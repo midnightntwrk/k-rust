@@ -352,17 +352,17 @@ fn collect_registrations(
                 matches!((scope, depth), (Scope::Module(modules), 0) if modules.is_empty());
             if !at_crate_root {
                 diagnostics.push(ExpandDiagnostic::located(
-REGISTRATION_SCOPE,
-format!(
+                    REGISTRATION_SCOPE,
+                    format!(
                         "descriptor factory `{factory}` is not defined at the crate root, so the crate-root registration table cannot name it"
                     ),
-MappingClass::InvocationLevel,
-authored
+                    MappingClass::InvocationLevel,
+                    authored
                         .byte_range(span)
                         .filter(|range| !range.is_empty())
                         .or(Some(node.call_site)),
-Some(node.id),
-));
+                    Some(node.id),
+                ));
                 continue;
             }
             registrations.push(Registration {
@@ -1110,16 +1110,16 @@ impl Expander<'_> {
             }
             if let Some(entry) = attribute_call(&trees, index, self.alias, Some(self.facade)) {
                 self.diagnostics.push(ExpandDiagnostic::located(
-NESTED_ATTRIBUTE,
-format!(
+                    NESTED_ATTRIBUTE,
+                    format!(
                         "the expansion contains a `#[{}::{}]` invocation, which the browser expander does not expand",
                         self.alias,
                         entry.name()
                     ),
-MappingClass::InvocationLevel,
-Some(*call_site),
-Some(owner),
-));
+                    MappingClass::InvocationLevel,
+                    Some(*call_site),
+                    Some(owner),
+                ));
             }
             if let TokenTree::Group(group) = &trees[index] {
                 path.push(index);
