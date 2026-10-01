@@ -41,8 +41,10 @@ use std::{collections::BTreeSet, error::Error, fmt};
 use k_rust_kore::kore::ast as kore;
 use k_rust_kore::measure::{self, Algorithm};
 
+mod destination;
 mod evidence;
 
+use destination::Destination;
 pub(crate) use evidence::Instance;
 pub use evidence::{Counterexample, ObligationRefuted};
 use evidence::{Everywhere, OutsideEvidence};
@@ -754,12 +756,6 @@ impl ImplicationVerdict {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Destination<'a> {
-    pattern: &'a Pattern,
-    existentials: &'a BTreeSet<Variable>,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Obligations {
     predicates: Vec<Predicate>,
@@ -1003,9 +999,11 @@ fn establish_disjunction(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> CheckResult<(Established, Pattern)> {
-    let consequents = consequents
+    let destinations = consequents
         .iter()
-        .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))
+        .map(|consequent| {
+            Destination::unsimplified_disjunct(antecedent, consequent, consequent_existentials)
+        })
         .collect::<Vec<_>>();
     let mut antecedent = antecedent.clone();
     if predicates_truth(&antecedent.constraints) == Truth::False
@@ -1030,11 +1028,11 @@ fn establish_disjunction(
         let mut open = None;
         // The antecedent's instances satisfy these facts (I7); every branch is decided on them.
         let knowledge = pattern_knowledge(definition, &antecedent);
-        for (consequent, existentials) in &consequents {
+        for destination in &destinations {
             let (substitution, remainder) = match match_terms_in_definition(
                 MatchMode::Implies,
                 definition,
-                &consequent.term,
+                &destination.pattern().term,
                 &antecedent.term,
             ) {
                 MatchResult::Failed(FailReason::Subsorting(error)) => {
@@ -1050,8 +1048,7 @@ fn establish_disjunction(
             matched = true;
             let obligations = implication_obligation_branches(
                 definition,
-                consequent,
-                existentials,
+                destination,
                 &substitution,
                 remainder,
                 &knowledge,
@@ -1061,7 +1058,7 @@ fn establish_disjunction(
             let obligations = match eliminate_and_quantify_obligation_branches(
                 definition,
                 obligations,
-                existentials,
+                destination.existentials(),
                 &knowledge,
                 options,
                 solver,
@@ -1285,13 +1282,18 @@ fn check_established(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> CheckResult<Checked> {
-    let (consequent, consequent_existentials) =
-        freshen_existentials(antecedent, consequent, consequent_existentials);
-    let consequent = simplify_consequent(definition, antecedent, consequent, options, solver)?;
+    let destination = Destination::prepare(
+        definition,
+        antecedent,
+        consequent,
+        consequent_existentials,
+        options,
+        solver,
+    )??;
     // A free variable of the consequent that is not existential is universal over the whole
     // implication, so an antecedent existential of the same name is a different variable.
     let mut antecedent =
-        rename_existentials_apart(antecedent, antecedent_existentials, &consequent)
+        rename_existentials_apart(antecedent, antecedent_existentials, destination.pattern())
             .unwrap_or_else(|| antecedent.clone());
     #[expect(
         clippy::wildcard_enum_match_arm,
@@ -1300,10 +1302,6 @@ fn check_established(
     let antecedent_variable = match antecedent.term.kind() {
         crate::term::TermKind::Variable(variable) => Some(variable.clone()),
         _ => None,
-    };
-    let destination = Destination {
-        pattern: &consequent,
-        existentials: &consequent_existentials,
     };
     let established = if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
@@ -1318,7 +1316,7 @@ fn check_established(
             match match_terms_in_definition(
                 MatchMode::Implies,
                 definition,
-                &consequent.term,
+                &destination.pattern().term,
                 &antecedent.term,
             ) {
                 MatchResult::Failed(FailReason::Subsorting(error)) => {
@@ -1347,7 +1345,7 @@ fn check_established(
                         break discharge_consequent(
                             definition,
                             &antecedent,
-                            destination,
+                            &destination,
                             substitution,
                             remainder,
                             options,
@@ -1360,7 +1358,7 @@ fn check_established(
                     break discharge_consequent(
                         definition,
                         &antecedent,
-                        destination,
+                        &destination,
                         substitution,
                         Vec::new(),
                         options,
@@ -1561,11 +1559,14 @@ fn grade_outside(
 }
 
 /// Simplify the destination with the definition's equations under the antecedent's constraints
-/// before matching, as Kore's reachability Simplify step does for a claim's right-hand side
-/// (Kore/Reachability/Claim.hs simplify', simplifyRightHandSide: Pattern.makeEvaluate under the
-/// left-hand side's side condition). A top equation result erases its conjunction operand, so
-/// `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A simplification failure keeps the
-/// destination as written; the check then proceeds exactly as before.
+/// before matching ([`Destination::prepare`]). The match compares both sides in the definition's
+/// normal form: a destination term with an unevaluated function application would leave an
+/// obligation the equations could have discharged. The implication asks only about instances of
+/// the antecedent, where its constraints hold, so the equations applied under them hold there and
+/// the simplified destination denotes the same set on those instances. A top equation result
+/// erases its conjunction operand, so `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A
+/// term that already carries the evaluated mark is kept. A simplification failure keeps the
+/// destination as written, which denotes the same set; the check then proceeds on that form.
 ///
 /// Where a simplification inside the check fails, the check falls back to a weaker but sound
 /// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
@@ -1686,7 +1687,7 @@ fn rename_existentials_apart(
 fn discharge_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
-    consequent: Destination<'_>,
+    destination: &Destination,
     substitution: Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     options: SimplificationOptions,
@@ -1699,7 +1700,7 @@ fn discharge_consequent(
         definition,
         substitution,
         remainder,
-        consequent.existentials,
+        destination.existentials(),
     );
     let origin = if remainder.is_empty() {
         Origin::ConsequentCondition
@@ -1708,8 +1709,7 @@ fn discharge_consequent(
     };
     let mut obligations = implication_obligation_branches(
         definition,
-        consequent.pattern,
-        consequent.existentials,
+        destination,
         &substitution,
         remainder,
         &knowledge,
@@ -1726,7 +1726,7 @@ fn discharge_consequent(
     let obligations = match eliminate_and_quantify_obligation_branches(
         definition,
         obligations,
-        consequent.existentials,
+        destination.existentials(),
         &knowledge,
         options,
         solver,
@@ -2069,8 +2069,7 @@ fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bo
 
 fn implication_obligation_branches(
     definition: &BackendDefinition,
-    consequent: &Pattern,
-    existentials: &BTreeSet<Variable>,
+    destination: &Destination,
     substitution: &Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     known: &[Predicate],
@@ -2082,8 +2081,8 @@ fn implication_obligation_branches(
         .map(|remainder| {
             implication_obligations(
                 definition,
-                consequent,
-                existentials,
+                destination.pattern(),
+                destination.existentials(),
                 substitution,
                 remainder,
                 known,
