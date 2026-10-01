@@ -7,13 +7,13 @@ use k_rust::{
 use k_rust::{
     definition::{
         AttributeKey, Attributes, CheckMode, Definition, FlatImport, FlatModule, ProductionItem,
-        ResolvedDefinition, Sentence,
+        Sentence,
     },
     diagnostic::DiagnosticCode,
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::parser::parse_definition,
-    outer::LoadedDefinition,
+    outer::{InputAddressing, LoadedDefinition, LoadedParts},
     provenance::{InputAddress, InputSpace},
 };
 use serde_json::json;
@@ -48,7 +48,7 @@ fn reference_bracket_symbol_fixture_matches_k_parsed_json() {
 
 #[test]
 fn hand_built_definition_conforms_to_the_complete_public_compiler_pipeline() {
-    assert_compiles_on_both_backends(structured_definition(false), |artifacts| {
+    assert_compiles_on_both_backends(hand_built(structured_definition(false)), |artifacts| {
         assert!(artifacts.definition_kore.contains("SortExp"));
         assert_eq!(artifacts.macros_kore, "\n");
     });
@@ -112,14 +112,9 @@ fn unsupported_existential_claim_names_its_structured_input_sentence() {
         vec![InputAddress::new(InputSpace::Structured, "MAIN", index)]
     );
 
-    let resolved = ResolvedDefinition::resolve(loaded.definition()).unwrap();
-    let compile_loaded = LoadedDefinition {
-        files: loaded.files().to_vec(),
-        source_table: loaded.source_table().clone(),
-        definition: loaded.definition().clone(),
-        resolved,
-        diagnostics: loaded.diagnostics().to_vec(),
-    };
+    assert_eq!(loaded.addressing(), InputAddressing::Structured);
+    let compile_loaded = loaded.with_definition(loaded.definition().clone()).unwrap();
+    assert_eq!(compile_loaded.addressing(), InputAddressing::Compile);
     let error = compile_loaded_definition(
         &compile_loaded,
         CompileOptions {
@@ -144,7 +139,10 @@ fn unsupported_existential_claim_names_its_structured_input_sentence() {
 
 #[test]
 fn structured_configuration_compiles_through_the_public_pipeline() {
-    assert_compiles_on_both_backends(structured_definition(true), |artifacts| {
+    // A hand-built configuration is expanded only by a loader route.
+    let loaded = load_structured(structured_definition(true), &LoadOptions::default())
+        .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
+    assert_compiles_on_both_backends(loaded, |artifacts| {
         assert!(
             artifacts.definition_kore.contains("'-LT-'top'-GT-'"),
             "{}",
@@ -187,14 +185,9 @@ fn structured_configuration_without_the_config_variable_subsort_is_rejected() {
     definition.modules[0]
         .local_sentences
         .retain(|sentence| !declares_config_variable(sentence));
-    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
-    let loaded = LoadedDefinition {
-        files: Vec::new(),
-        source_table: Default::default(),
-        definition,
-        resolved,
-        diagnostics: Vec::new(),
-    };
+    // A hand-built configuration is expanded only by a loader route.
+    let loaded = load_structured(definition, &LoadOptions::default())
+        .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
 
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
         let error = compile_loaded_definition(
@@ -438,14 +431,7 @@ fn rearranged_structured_input_is_addressed_in_the_compiled_definition() {
     main.local_sentences.swap(*first, *second);
     let authored = [*first, *second]
         .map(|index| InputAddress::new(InputSpace::Compile, "MAIN", u32::try_from(index).unwrap()));
-    let resolved = ResolvedDefinition::resolve(&rearranged).unwrap();
-    let relinked = LoadedDefinition {
-        files: loaded.files().to_vec(),
-        source_table: loaded.source_table().clone(),
-        definition: rearranged,
-        resolved,
-        diagnostics: loaded.diagnostics().to_vec(),
-    };
+    let relinked = loaded.with_definition(rearranged).unwrap();
     let artifacts = compile_loaded_definition(&relinked, CompileOptions::default())
         .unwrap_or_else(|error| panic!("relinked compilation failed: {error:#?}"));
     for module in &artifacts.execution_definition.modules {
@@ -597,7 +583,7 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
             }],
             attributes: Attributes::default(),
         };
-        assert_compiles_on_both_backends(definition, |artifacts| {
+        assert_compiles_on_both_backends(hand_built(definition), |artifacts| {
             let equations = equation_patterns(&artifacts.definition_kore, name);
             assert_eq!(equations.len(), 1, "{equations:#?}");
             assert!(
@@ -693,30 +679,36 @@ fn a_labelled_token_production_is_not_a_constructor_and_the_definition_loads() {
     // term-algebra element distinct from them: no `constructor` attribute and no no-confusion
     // axiom, whether or not the sort is hooked.
     for hooked in [false, true] {
-        assert_compiles_on_both_backends(labelled_token_definition(hooked), |artifacts| {
-            let declaration = artifacts
-                .definition_kore
-                .lines()
-                .find(|line| line.contains("symbol LblstrLit{}()"))
-                .unwrap_or_else(|| {
-                    panic!("hooked={hooked}: the labelled token symbol is declared")
-                });
-            assert!(declaration.contains("token{}()"), "{declaration}");
-            assert!(!declaration.contains("constructor{}()"), "{declaration}");
-            // No-confusion axioms are the `\not` (distinct heads) and `\implies` (injectivity)
-            // axioms carrying the `constructor` marker.
-            for axiom in artifacts.definition_kore.split("axiom{").skip(1) {
-                let no_confusion = axiom.contains("constructor{}()")
-                    && (axiom.contains("\\not{") || axiom.contains("\\implies{"));
-                assert!(
-                    !(no_confusion && (axiom.contains("LblstrLit") || axiom.contains("LblidLit"))),
-                    "hooked={hooked}: a no-confusion axiom mentions a token symbol: axiom{{{axiom}"
-                );
-            }
-            let parsed = parse_definition(&artifacts.definition_kore).unwrap();
-            k_rust_backend::definition::BackendDefinition::internalize(&parsed, "MAIN")
-                .unwrap_or_else(|error| panic!("hooked={hooked}: backend load failed: {error}"));
-        });
+        assert_compiles_on_both_backends(
+            hand_built(labelled_token_definition(hooked)),
+            |artifacts| {
+                let declaration = artifacts
+                    .definition_kore
+                    .lines()
+                    .find(|line| line.contains("symbol LblstrLit{}()"))
+                    .unwrap_or_else(|| {
+                        panic!("hooked={hooked}: the labelled token symbol is declared")
+                    });
+                assert!(declaration.contains("token{}()"), "{declaration}");
+                assert!(!declaration.contains("constructor{}()"), "{declaration}");
+                // No-confusion axioms are the `\not` (distinct heads) and `\implies` (injectivity)
+                // axioms carrying the `constructor` marker.
+                for axiom in artifacts.definition_kore.split("axiom{").skip(1) {
+                    let no_confusion = axiom.contains("constructor{}()")
+                        && (axiom.contains("\\not{") || axiom.contains("\\implies{"));
+                    assert!(
+                        !(no_confusion
+                            && (axiom.contains("LblstrLit") || axiom.contains("LblidLit"))),
+                        "hooked={hooked}: a no-confusion axiom mentions a token symbol: axiom{{{axiom}"
+                    );
+                }
+                let parsed = parse_definition(&artifacts.definition_kore).unwrap();
+                k_rust_backend::definition::BackendDefinition::internalize(&parsed, "MAIN")
+                    .unwrap_or_else(|error| {
+                        panic!("hooked={hooked}: backend load failed: {error}")
+                    });
+            },
+        );
     }
 }
 
@@ -927,19 +919,21 @@ fn artifact_digest(name: &str, text: &str) -> ArtifactDigest {
     }
 }
 
-fn assert_compiles_on_both_backends(
-    definition: Definition,
-    assert_artifacts: impl Fn(&k_rust::kompile::CompiledKoreArtifacts),
-) {
-    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
-    let loaded = LoadedDefinition {
+/// `definition`, which has no configuration, as a loaded definition with no source files.
+fn hand_built(definition: Definition) -> LoadedDefinition {
+    LoadedDefinition::from_loaded_parts(LoadedParts {
         files: Vec::new(),
         source_table: Default::default(),
         definition,
-        resolved,
         diagnostics: Vec::new(),
-    };
+    })
+    .unwrap_or_else(|error| panic!("the hand-built definition is at the loaded stage: {error}"))
+}
 
+fn assert_compiles_on_both_backends(
+    loaded: LoadedDefinition,
+    assert_artifacts: impl Fn(&k_rust::kompile::CompiledKoreArtifacts),
+) {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
         let artifacts = compile_loaded_definition(
             &loaded,
@@ -1239,14 +1233,7 @@ endmodule
 fn loaded_source(source: &str) -> LoadedDefinition {
     let parsed = k_rust::outer::parse("labelled-bracket.k", source).expect("source parses");
     let definition = k_rust::outer::lower(&parsed, "MAIN").expect("source lowers");
-    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
-    LoadedDefinition {
-        files: Vec::new(),
-        source_table: Default::default(),
-        definition,
-        resolved,
-        diagnostics: Vec::new(),
-    }
+    hand_built(definition)
 }
 
 /// The production shape a structured client sends for a bracket: a label plus `bracket`.

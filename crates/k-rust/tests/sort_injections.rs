@@ -1789,7 +1789,7 @@ fn definition_injection_errors_name_the_generating_pass() {
 // must reject every term whose sort does not fit its position, whatever path produced it.
 mod edited_loaded_rules {
     use k_rust::builtin;
-    use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence};
+    use k_rust::definition::{AttributeKey, Definition, Sentence};
     use k_rust::kast::{Sort, Term};
     use k_rust::kompile::{
         CompilationBackend, CompileError, CompileOptions, compile_loaded_definition,
@@ -1890,13 +1890,8 @@ mod edited_loaded_rules {
     }
 
     fn relinked(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
-        LoadedDefinition {
-            files: base.files().to_vec(),
-            source_table: base.source_table().clone(),
-            resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
-            definition,
-            diagnostics: base.diagnostics().to_vec(),
-        }
+        base.with_definition(definition)
+            .expect("edited definition is at the loaded stage")
     }
 
     /// The edited `increment` rule spliced into the outer-lowered source in place of its bubble.
@@ -2069,7 +2064,7 @@ mod edited_loaded_rules {
 /// typing paths. The cast target is the position the solver sees for its operand.
 mod cast_instances {
     use k_rust::builtin;
-    use k_rust::definition::{AttributeKey, ResolvedDefinition, Sentence};
+    use k_rust::definition::{AttributeKey, Sentence};
     use k_rust::kast::{Sort, Term};
     use k_rust::kompile::{
         CompilationBackend, CompileError, CompileOptions, SentenceTyping, SentenceTypingError,
@@ -2161,13 +2156,9 @@ mod cast_instances {
         };
         **slot = right;
         let edited = sentence.clone();
-        let loaded = LoadedDefinition {
-            files: base.files().to_vec(),
-            source_table: base.source_table().clone(),
-            resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
-            definition,
-            diagnostics: base.diagnostics().to_vec(),
-        };
+        let loaded = base
+            .with_definition(definition)
+            .expect("edited definition is at the loaded stage");
         (loaded, edited)
     }
 

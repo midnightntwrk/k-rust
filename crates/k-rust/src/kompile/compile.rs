@@ -22,6 +22,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
     fmt,
     str::FromStr,
 };
@@ -31,18 +32,17 @@ use k_rust_kore::measure::{self, Counter};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
-        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolvedDefinition,
-        Sentence, StructuralCheckBackend, StructuralCheckOptions,
+        AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
+        StructuralCheckBackend, StructuralCheckOptions,
         checks::{
             check_definition_with_options, check_singleton_overloads,
             reject_label_parameters_in_definition,
         },
-        expand_configurations_with_diagnostics,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
-    outer::LoadedDefinition,
+    outer::{InputAddressing, LoadedDefinition},
     provenance::{
         GeneratingPass, InputAddress, InputSentenceKind, InputSpace, input_sentence_kinds,
         stamp_input_addresses,
@@ -54,7 +54,7 @@ use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
 use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::passes::number_sentence;
 use super::pipeline::{emission_phase, prologue_phase};
-use super::{ModuleToKoreOptions, SortInjectionError, rust_backend_hook_namespaces};
+use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
 
 /// Backend whose KORE input should be generated.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -203,10 +203,6 @@ pub struct EmittedSentenceProvenance {
     /// Generating pass when no input sentence contributed to this identity.
     pub generated_by: Option<GeneratingPass>,
 }
-
-/// The [`CompileError::stage`] of a loaded rule-like sentence whose label carries sort
-/// parameters.
-pub const REJECT_LABEL_PARAMETERS: &str = "reject label parameters";
 
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -731,76 +727,40 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
-    // Every sentence the caller handed over is an input sentence: give each one its address in
-    // `loaded.definition` before any pass moves, merges, or derives from it. Only the structured
-    // addresses of an unchanged `load_structured` result are kept.
-    // The structured addresses are trusted only for an unedited `load_structured` result; a
-    // flagged resolution must at least describe the same modules, each with no more sentences
-    // than the definition (the resolution keeps one of each class of equivalent sentences).
+    // Every constructor of `LoadedDefinition` establishes these facts; compilation is defined
+    // only on values that satisfy them.
     debug_assert!(
-        !loaded.resolved().structured_input
-            || (loaded.resolved().modules().count() == loaded.definition().modules.len()
-                && loaded.definition().modules.iter().all(|module| {
-                    loaded.resolved().module_id(&module.name).is_some_and(|id| {
-                        loaded.resolved().module(id).local_sentences.len()
-                            <= module.local_sentences.len()
-                    })
-                })),
+        loaded.resolved().modules().count() == loaded.definition().modules.len()
+            && loaded.definition().modules.iter().all(|module| {
+                loaded.resolved().module_id(&module.name).is_some_and(|id| {
+                    loaded.resolved().module(id).local_sentences.len()
+                        <= module.local_sentences.len()
+                })
+            }),
         "LoadedDefinition::resolved is not the resolution of LoadedDefinition::definition"
     );
-    // A label parameter can only have been written by the caller; reject it before any pass
-    // generates parameters of its own. One walk over the input terms, too cheap to time.
-    reject_label_parameters_in_definition(loaded.definition()).map_err(|error| {
-        CompileError::from_error(
-            REJECT_LABEL_PARAMETERS,
-            SortInjectionError::sentence_label_parameters(error),
-        )
-    })?;
-    let stamped = || {
+    debug_assert!(
+        reject_label_parameters_in_definition(loaded.definition()).is_ok(),
+        "a LoadedDefinition carries a written label parameter"
+    );
+    // Every sentence the caller handed over is an input sentence: give each one its address in
+    // `loaded.definition()` before any pass moves, merges, or derives from it. Only the
+    // structured addresses of an unedited `load_structured` result are kept.
+    let definition = stage(timings, prologue_phase::STAMP_INPUT_ADDRESSES, || {
         let mut definition = loaded.definition().clone();
         stamp_input_addresses(
             &mut definition,
             InputSpace::Compile,
-            loaded.resolved().structured_input,
+            loaded.addressing() == InputAddressing::Structured,
         );
-        definition
-    };
-    // Loader-produced definitions are already expanded, while structured embedders can construct
-    // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
-    let (definition, configuration_diagnostics, resolved) = if loaded
-        .definition()
-        .modules
-        .iter()
-        .flat_map(|module| module.local_sentences.iter())
-        .any(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
-    {
-        let (definition, configuration_diagnostics) = stage(
-            timings,
-            prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || expand_configurations_with_diagnostics(&stamped()),
-        )?;
-        let resolved = stage(
-            timings,
-            prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
-            || ResolvedDefinition::resolve(&definition),
-        )?;
-        (definition, configuration_diagnostics, resolved)
-    } else {
-        let definition = stage(
-            timings,
-            prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || Ok::<_, ConfigurationError>(stamped()),
-        )?;
-        // The stamped modules differ from the loaded ones only in their carriers; the update
-        // replaces the resolved modules so passes reading sentences through the resolution see
-        // the carriers too.
-        let resolved = stage(
-            timings,
-            prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
-            || loaded.resolved().update(loaded.definition(), &definition),
-        )?;
-        (definition, Vec::new(), resolved)
-    };
+        Ok::<_, Infallible>(definition)
+    })?;
+    // The stamped modules differ from the loaded ones only in their carriers; the update
+    // replaces the resolved modules so passes reading sentences through the resolution see the
+    // carriers too.
+    let resolved = stage(timings, prologue_phase::UPDATE_RESOLUTION, || {
+        loaded.resolved().update(loaded.definition(), &definition)
+    })?;
     let checked =
         options
             .diagnostics
@@ -814,7 +774,6 @@ fn transform_loaded_definition(
                 )
             })?);
     let mut diagnostics = loaded.diagnostics().to_vec();
-    diagnostics.extend(options.diagnostics.apply(configuration_diagnostics));
     diagnostics.extend(checked);
     if diagnostics
         .iter()

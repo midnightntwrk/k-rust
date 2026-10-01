@@ -105,8 +105,8 @@ pub mod emission_phase {
 
 /// Names recorded before the table-driven transformation stages.
 pub mod prologue_phase {
-    pub const EXPAND_STRUCTURED_CONFIGURATIONS: &str = "expand structured configurations";
-    pub const RESOLVE_STRUCTURED_CONFIGURATIONS: &str = "resolve structured configurations";
+    pub const STAMP_INPUT_ADDRESSES: &str = "stamp input addresses";
+    pub const UPDATE_RESOLUTION: &str = "update resolution";
     pub const DEFINITION_CHECKS: &str = "definition checks";
 }
 
@@ -814,16 +814,16 @@ pub fn stage_descriptions() -> Vec<StageDescription> {
 pub fn prologue_descriptions() -> Vec<StageDescription> {
     vec![
         StageDescription {
-            name: prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
+            name: prologue_phase::STAMP_INPUT_ADDRESSES,
             table: "prologue_descriptions",
-            call: "expand_configurations_with_diagnostics",
-            behavior: "generating",
-            generating_passes: vec![GeneratingPass::ConfigurationExpansion.as_str()],
+            call: "stamp_input_addresses",
+            behavior: "metadata-only",
+            generating_passes: Vec::new(),
         },
         StageDescription {
-            name: prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
+            name: prologue_phase::UPDATE_RESOLUTION,
             table: "prologue_descriptions",
-            call: "resolve",
+            call: "update",
             behavior: "validation",
             generating_passes: Vec::new(),
         },

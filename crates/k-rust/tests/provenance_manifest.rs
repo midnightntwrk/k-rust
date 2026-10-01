@@ -187,9 +187,21 @@ fn provenance_manifest_classifies_the_compile_pipeline_and_origin_free_nodes() {
         BTreeMap::from([(checkpoint.0.to_owned(), checkpoint.1.to_owned())])
     );
 
-    let boundary_source = include_str!("../src/kompile/module_to_kore.rs");
     for boundary in &manifest.boundary_generator {
-        assert_eq!(boundary.boundary, "k-to-kore");
+        // The generator is defined in the boundary's source. A load-boundary generator runs
+        // before compilation receives the definition, so the loader must call it.
+        let boundary_source = match boundary.boundary.as_str() {
+            "k-to-kore" => include_str!("../src/kompile/module_to_kore.rs"),
+            "load" => {
+                assert!(
+                    include_str!("../src/outer/loader.rs").contains(&format!("{}(", boundary.call)),
+                    "load-boundary generator {:?} is not called by the loader",
+                    boundary.call
+                );
+                include_str!("../src/definition/configuration.rs")
+            }
+            other => panic!("unknown generator boundary {other:?}"),
+        };
         assert!(!boundary.reason.trim().is_empty());
         let pass = GeneratingPass::from_name(&boundary.generating_pass)
             .expect("boundary generator must name a generating pass");

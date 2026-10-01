@@ -81,13 +81,7 @@ fn fallback(definition: &mut Definition, body: Term) {
 }
 
 fn relink(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
-    LoadedDefinition {
-        files: base.files().to_vec(),
-        source_table: base.source_table().clone(),
-        resolved: ResolvedDefinition::resolve(&definition).unwrap(),
-        definition,
-        diagnostics: base.diagnostics().to_vec(),
-    }
+    base.with_definition(definition).unwrap()
 }
 
 fn subsorts(resolved: &ResolvedDefinition, module: &str) -> k_rust::definition::PartialOrder<Sort> {

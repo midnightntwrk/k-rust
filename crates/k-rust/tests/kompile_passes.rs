@@ -7077,14 +7077,13 @@ fn restored_compile_addresses_are_restamped_for_the_definition_being_compiled() 
     let encoded =
         k_rust::definition::json::to_provenance_string(&definition, loaded.source_table()).unwrap();
     let restored = k_rust::definition::json::from_provenance_str(&encoded).unwrap();
-    let resolved = ResolvedDefinition::resolve(&restored.definition).unwrap();
-    let relinked = k_rust::outer::LoadedDefinition {
+    let relinked = k_rust::outer::LoadedDefinition::from_loaded_parts(k_rust::outer::LoadedParts {
         files: loaded.files().to_vec(),
         source_table: restored.source_table,
         definition: restored.definition,
-        resolved,
         diagnostics: loaded.diagnostics().to_vec(),
-    };
+    })
+    .unwrap();
     let stale = |line| {
         relinked
             .definition()

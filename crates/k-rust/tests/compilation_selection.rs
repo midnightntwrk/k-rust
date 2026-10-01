@@ -488,7 +488,7 @@ fn selected_modules_preserve_serialized_metadata_and_private_imports() {
         endmodule
     "#};
     let options = LoadOptions::default();
-    let mut generic = load_with_options(
+    let generic = load_with_options(
         ResolvedSource::new("selection.k", source),
         "MAIN",
         &mut |_: &str, required: &str| Err(format!("unexpected {required}")),
@@ -496,10 +496,12 @@ fn selected_modules_preserve_serialized_metadata_and_private_imports() {
     )
     .unwrap();
     let (selected, _) = compile(source, Some("MAIN"), &options).unwrap();
-    generic
+    let mut parts = generic.into_parts();
+    parts
         .definition
         .modules
         .retain(|module| module.name != "UNUSED");
+    let generic = LoadedDefinition::from_loaded_parts(parts).unwrap();
     assert_eq!(
         k_rust::definition::json::to_provenance_string_pretty(
             selected.definition(),

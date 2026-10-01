@@ -417,9 +417,7 @@ fn structured_parameters_the_parser_used_to_write_are_rejected() {
 mod native {
     use super::*;
     use k_rust::definition::ResolvedDefinition;
-    use k_rust::kompile::{
-        CompileError, REJECT_LABEL_PARAMETERS, SentenceTypingError, sentence_typing,
-    };
+    use k_rust::kompile::{CompileError, SentenceTypingError, sentence_typing};
 
     fn try_compile(
         loaded: &LoadedDefinition,
@@ -441,19 +439,39 @@ mod native {
         })
     }
 
-    fn assert_rejects_label_parameters(error: &CompileError, label: &str, parameters: &str) {
-        assert_eq!(error.stage, REJECT_LABEL_PARAMETERS, "{error}");
+    /// `error` rejects the written `{parameters}` on `label` in a sentence of `module`.
+    fn assert_rejects_label_parameters(
+        error: &LoadError,
+        module: &str,
+        label: &str,
+        parameters: &str,
+    ) {
+        let LoadError::LabelParameters(SortInjectionError::Sentence {
+            module: rejected_module,
+            error: rejected,
+            ..
+        }) = error
+        else {
+            panic!("{error}")
+        };
+        assert_eq!(rejected_module, module, "{error}");
+        assert_eq!(
+            **rejected,
+            SortInjectionError::LabelParameters {
+                label: label.to_owned(),
+                parameters: vec![Sort::new(parameters)],
+            }
+        );
+        let message = error.to_string();
         assert!(
-            error.message.contains(&format!(
+            message.contains(&format!(
                 "KLabel {label:?} carries the sort parameters {{{parameters}}}"
             )),
-            "{error}"
+            "{message}"
         );
         assert!(
-            error
-                .message
-                .contains("remove them, or use a cast to fix an instance"),
-            "{error}"
+            message.contains("remove them, or use a cast to fix an instance"),
+            "{message}"
         );
     }
 
@@ -548,7 +566,7 @@ mod native {
     /// through a projection (`wrap({X}:>Num)` is `wrap{Num}` of `project:Num`), as in K source. A
     /// parameter occurring in neither an argument nor the result (`size`'s `S`) is universally
     /// quantified in every sentence that uses it. A written parameter is rejected on each entry
-    /// path: a structured load, a hand-built `LoadedDefinition`, and the typing view. The `MInt{8}`
+    /// path: a structured load, a `LoadedDefinition` rebuilt with `with_definition`, and the typing view. The `MInt{8}`
     /// rule needs native Z3 sort inference to parse.
     #[test]
     fn a_written_label_parameter_is_rejected_and_the_solved_instance_is_emitted() {
@@ -577,18 +595,11 @@ mod native {
 
             assert_structured_load_rejects(edited.clone(), backend, "REJECT", name, &[rendered]);
 
-            let hand_built = LoadedDefinition {
-                files: source.files().to_vec(),
-                source_table: source.source_table().clone(),
-                resolved: ResolvedDefinition::resolve(&edited).unwrap(),
-                definition: edited,
-                diagnostics: source.diagnostics().to_vec(),
-            };
-            let error = try_compile(&hand_built, backend).expect_err(rule);
-            assert_rejects_label_parameters(&error, name, rendered);
+            let resolved = ResolvedDefinition::resolve(&edited).unwrap();
+            let error = source.with_definition(edited).expect_err(rule);
+            assert_rejects_label_parameters(&error, "REJECT", name, rendered);
 
-            let error =
-                sentence_typing(hand_built.resolved(), "REJECT", &sentence).expect_err(rule);
+            let error = sentence_typing(&resolved, "REJECT", &sentence).expect_err(rule);
             let SentenceTypingError::Sort {
                 error: SortInjectionError::LabelParameters { label, parameters },
                 ..

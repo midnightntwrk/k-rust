@@ -357,13 +357,7 @@ fn relinked(
         .find(|candidate| candidate.attributes().string(AttributeKey::Label) == Some(label))
         .unwrap();
     *k_rust::definition::sentence_mut(slot) = sentence;
-    LoadedDefinition {
-        files: loaded.files().to_vec(),
-        source_table: loaded.source_table().clone(),
-        resolved: k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap(),
-        definition,
-        diagnostics: loaded.diagnostics().to_vec(),
-    }
+    loaded.with_definition(definition).unwrap()
 }
 
 fn compiled_kore(loaded: &LoadedDefinition) -> Result<String, k_rust::kompile::CompileError> {

@@ -166,8 +166,9 @@ fn source_loaded(backend: CompilationBackend) -> LoadedDefinition {
     .0
 }
 
-fn replacement_loaded(mut loaded: LoadedDefinition, right: Term) -> LoadedDefinition {
-    let module = loaded
+fn replacement_loaded(loaded: LoadedDefinition, right: Term) -> LoadedDefinition {
+    let mut parts = loaded.into_parts();
+    let module = parts
         .definition
         .modules
         .iter_mut()
@@ -188,8 +189,7 @@ fn replacement_loaded(mut loaded: LoadedDefinition, right: Term) -> LoadedDefini
         )),
         right: Box::new(right),
     };
-    loaded.resolved = ResolvedDefinition::resolve(loaded.definition()).unwrap();
-    loaded
+    LoadedDefinition::from_loaded_parts(parts).unwrap()
 }
 
 fn token(text: &str, sort: &str) -> Term {

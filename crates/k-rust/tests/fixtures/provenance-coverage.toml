@@ -9,17 +9,16 @@ source = "definition"
 reason = "Surface-pattern compilation retains the transformed definition before backend-only sort injection, unit removal, and term-construction minimization."
 
 [[pipeline]]
-call = "expand_configurations_with_diagnostics"
+call = "stamp_input_addresses"
 occurrences = 1
-behavior = "generating"
-generating_passes = ["configuration-expansion"]
-reason = "Configuration expansion creates cell syntax, initializers, and helper rules."
+behavior = "metadata-only"
+reason = "Input-address stamping records each sentence's position in the loaded definition on its provenance carrier."
 
 [[pipeline]]
-call = "resolve"
+call = "update"
 occurrences = 1
 behavior = "validation"
-reason = "Resolution builds catalogs without changing the current definition."
+reason = "The resolution update installs the stamped carriers in the catalogs without changing the current definition."
 
 [[pipeline]]
 call = "check_definition_with_options"
@@ -236,3 +235,9 @@ call = "generate_map_ceil_rules"
 generating_pass = "module-to-kore-map-ceil"
 boundary = "k-to-kore"
 reason = "Map-ceil rules are the last generated K sentences and receive receipts immediately before KORE lowering."
+
+[[boundary_generator]]
+call = "expand_configurations_with_diagnostics"
+generating_pass = "configuration-expansion"
+boundary = "load"
+reason = "A loaded definition has its configurations expanded, so configuration expansion creates cell syntax, initializers, and helper rules before compilation receives the definition."

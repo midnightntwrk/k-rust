@@ -341,10 +341,6 @@ pub struct ResolvedDefinition {
     // first visible-sentence selection and shared by the selections of every module.
     sentence_classes: OnceLock<Box<[Box<[u32]>]>>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
-    /// Whether `outer::load_structured` produced this resolution, so the structured input
-    /// addresses its sentences carry name positions of that call's argument. Any other
-    /// resolution, including an update of this one, clears it.
-    pub(crate) structured_input: bool,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -434,7 +430,6 @@ impl ResolvedDefinition {
             visible_sentences,
             sentence_classes: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
-            structured_input: false,
         })
     }
 
@@ -541,7 +536,6 @@ impl ResolvedDefinition {
             visible_sentences,
             sentence_classes: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
-            structured_input: false,
         })
     }
 

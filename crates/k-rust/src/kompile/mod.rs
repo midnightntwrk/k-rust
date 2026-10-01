@@ -21,8 +21,7 @@ mod view;
 
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
-    EmittedSentenceProvenance, REJECT_LABEL_PARAMETERS, compile_loaded_definition,
-    compile_loaded_definition_timed,
+    EmittedSentenceProvenance, compile_loaded_definition, compile_loaded_definition_timed,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{ConfigurationAssembler, ConfigurationError, ProgramGrammar};

@@ -3805,23 +3805,6 @@ symbol = "expand_macros"
 
 [[node]]
 kind = "phase"
-id = "expand structured configurations"
-provenance = "table"
-area = "kompile"
-name = "expand structured configurations"
-table = "prologue_descriptions"
-call = "expand_configurations_with_diagnostics"
-behavior = "generating"
-generating_passes = ["configuration-expansion"]
-sequence = 14
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/pipeline.rs"
-symbol = "expand_configurations_with_diagnostics"
-
-[[node]]
-kind = "phase"
 id = "finalize KItem subsorts"
 provenance = "table"
 area = "kompile"
@@ -7570,22 +7553,6 @@ symbol = "resolve_strict"
 
 [[node]]
 kind = "phase"
-id = "resolve structured configurations"
-provenance = "table"
-area = "kompile"
-name = "resolve structured configurations"
-table = "prologue_descriptions"
-call = "resolve"
-behavior = "validation"
-sequence = 15
-
-[node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/kompile/pipeline.rs"
-symbol = "resolve"
-
-[[node]]
-kind = "phase"
 id = "resolve transformed definition"
 provenance = "table"
 area = "kompile"
@@ -7729,6 +7696,38 @@ sequence = 53
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "EMISSION_PHASES"
+
+[[node]]
+kind = "phase"
+id = "stamp input addresses"
+provenance = "table"
+area = "kompile"
+name = "stamp input addresses"
+table = "prologue_descriptions"
+call = "stamp_input_addresses"
+behavior = "metadata-only"
+sequence = 14
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "stamp_input_addresses"
+
+[[node]]
+kind = "phase"
+id = "update resolution"
+provenance = "table"
+area = "kompile"
+name = "update resolution"
+table = "prologue_descriptions"
+call = "update"
+behavior = "validation"
+sequence = 15
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "update"
 
 [[node]]
 kind = "phase"
@@ -8535,19 +8534,6 @@ order = 35
 
 [[edge]]
 kind = "contains"
-from = "expand structured configurations"
-to = "definition.configuration.expand"
-provenance = "derived"
-
-[[edge]]
-kind = "follows"
-from = "expand structured configurations"
-to = "resolve structured configurations"
-provenance = "table"
-order = 14
-
-[[edge]]
-kind = "contains"
 from = "finalize KItem subsorts"
 to = "kompile.sort_helpers.generate"
 provenance = "derived"
@@ -9261,19 +9247,6 @@ provenance = "table"
 order = 22
 
 [[edge]]
-kind = "contains"
-from = "resolve structured configurations"
-to = "definition.resolve.imports"
-provenance = "derived"
-
-[[edge]]
-kind = "follows"
-from = "resolve structured configurations"
-to = "definition checks"
-provenance = "table"
-order = 15
-
-[[edge]]
 kind = "measured-by"
 from = "rpc.json.encode"
 to = "RpcJsonBytesWritten"
@@ -9303,3 +9276,23 @@ from = "seed sort predicate syntax"
 to = "resolve function configuration"
 provenance = "table"
 order = 20
+
+[[edge]]
+kind = "follows"
+from = "stamp input addresses"
+to = "update resolution"
+provenance = "table"
+order = 14
+
+[[edge]]
+kind = "contains"
+from = "update resolution"
+to = "definition.resolve.imports"
+provenance = "derived"
+
+[[edge]]
+kind = "follows"
+from = "update resolution"
+to = "definition checks"
+provenance = "table"
+order = 15

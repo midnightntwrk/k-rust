@@ -47,9 +47,11 @@
 //! `outer::load_structured` stamps each sentence of its `definition` argument with its
 //! [`InputSpace::Structured`] address before configurations are expanded;
 //! `kompile::compile_loaded_definition` stamps every other sentence of
-//! `LoadedDefinition::definition` with its [`InputSpace::Compile`] address, replacing any
-//! carrier it did not stamp itself. Structured addresses are kept only while the loaded
-//! resolution is the one `load_structured` returned. An address therefore always names, in its
+//! `LoadedDefinition::definition()` with its [`InputSpace::Compile`] address, replacing any
+//! carrier it did not stamp itself. Structured addresses are kept only when
+//! `LoadedDefinition::addressing()` is `InputAddressing::Structured`, that is, for the unedited
+//! result of `load_structured`; a value rebuilt with `LoadedDefinition::from_loaded_parts` or
+//! `with_definition` is addressed in the compile space. An address therefore always names, in its
 //! space, the sentence it was stamped on for this compilation: a carrier restored from
 //! KRUST-PROVENANCE or copied into a rearranged definition is restamped, never trusted.
 //! Passes derive sentences by copying attributes, which copies the carrier; a pass that builds a
@@ -460,7 +462,7 @@ pub enum InputSpace {
     /// The `Definition` argument of `outer::load_structured`, before loading prepends the
     /// implicit modules and expands configurations.
     Structured,
-    /// `LoadedDefinition::definition` as passed to `kompile::compile_loaded_definition`.
+    /// `LoadedDefinition::definition()` as passed to `kompile::compile_loaded_definition`.
     Compile,
 }
 

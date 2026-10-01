@@ -12,8 +12,8 @@ The kind map is keyed by each listed address and records the sentence kind at th
 The relation's addresses come only from the compiler's input-address carrier, not from `source`, `location`, or origin-receipt links.
 
 An `InputAddress` has an `input` space, module name, and module-local sentence index.
-`InputSpace::Compile` addresses index `LoadedDefinition::definition` as passed to compilation; text-loaded definitions use this space.
-`InputSpace::Structured` addresses index the `Definition` passed to `outer::load_structured`, before configuration expansion.
+`InputSpace::Compile` addresses index `LoadedDefinition::definition()` as passed to compilation; text-loaded definitions and values rebuilt with `LoadedDefinition::from_loaded_parts` or `with_definition` use this space (`LoadedDefinition::addressing()` is `InputAddressing::Compile`).
+`InputSpace::Structured` addresses index the `Definition` passed to `outer::load_structured`, before configuration expansion; they are kept for that call's unedited result, whose `addressing()` is `InputAddressing::Structured`.
 The loaded source table preserves the original kinds of structured sentences that loading removes.
 Callers that keep their own source or mutant identifiers should map those identifiers to input addresses and compose that map with `sentence_provenance`.
 

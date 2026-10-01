@@ -191,6 +191,12 @@ pub enum LoadError {
     /// A structured rule-like sentence whose labels carry sort parameters, which are inferred;
     /// the error names the sentence by its module and index in the caller's definition.
     LabelParameters(SortInjectionError),
+    /// A [`Sentence::Configuration`] in parts passed to [`LoadedDefinition::from_loaded_parts`],
+    /// named by its module and index; only a loader route expands configurations.
+    UnexpandedConfiguration {
+        module: String,
+        sentence: usize,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -273,32 +279,168 @@ impl fmt::Display for LoadError {
             Self::ConfigurationExpansion(error) => error.fmt(formatter),
             Self::RuleParsing(error) => error.fmt(formatter),
             Self::LabelParameters(error) => error.fmt(formatter),
+            Self::UnexpandedConfiguration { module, sentence } => write!(
+                formatter,
+                "sentence {sentence} of module {module:?} is an unexpanded configuration; a loaded definition has its configurations expanded, so load a structured definition with load_structured"
+            ),
         }
     }
 }
 
 impl Error for LoadError {}
 
-/// A completely loaded and import-resolved source graph.
+/// A completely loaded and import-resolved source graph, at the stage compilation is defined on.
 ///
-/// Contract: `resolved` is the resolution of `definition`. A caller that edits `definition`
-/// must re-resolve it (`ResolvedDefinition::resolve`, or `update` from the unedited
-/// definition) before compiling. The structured input addresses a [`load_structured`] result
-/// carries are trusted only while `resolved` is the resolution that call returned, that is, for
-/// an unedited result; any re-resolution makes compilation address every sentence by its
-/// position in the definition being compiled.
+/// Every value satisfies, by construction:
+/// - [`resolved()`](Self::resolved) is the resolution of [`definition()`](Self::definition);
+/// - `definition()` has no [`Sentence::Configuration`]: configuration expansion has run;
+/// - no rule-like sentence carries a label with a written sort parameter;
+/// - [`addressing()`](Self::addressing) names the input space of the sentences' input addresses.
+///
+/// The loader routes ([`load`], [`load_structured`] and their variants) and
+/// [`from_loaded_parts`](Self::from_loaded_parts) are the only constructors, so compilation
+/// receives no value that a caller assembled without these facts. A struct literal is rejected:
+///
+/// ```compile_fail,E0451
+/// # use k_rust::{definition::{Definition, ResolvedDefinition}, outer::LoadedDefinition};
+/// # fn build(definition: Definition, resolved: ResolvedDefinition) -> LoadedDefinition {
+/// LoadedDefinition { files: Vec::new(), source_table: Default::default(), definition,
+///     resolved, diagnostics: Vec::new() } // 2984df64
+/// # }
+/// ```
+///
+/// The same parts go through the constructor, which establishes the facts:
+///
+/// ```
+/// # use k_rust::{definition::Definition, outer::{LoadError, LoadedDefinition, LoadedParts}};
+/// # fn build(definition: Definition) -> Result<LoadedDefinition, LoadError> {
+/// LoadedDefinition::from_loaded_parts(LoadedParts { files: Vec::new(),
+///     source_table: Default::default(), definition, diagnostics: Vec::new() })
+/// # }
+/// ```
 #[derive(Clone, Debug)]
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
+    files: Vec<SourceFile>,
+    source_table: SourceTable,
+    definition: Definition,
+    resolved: ResolvedDefinition,
+    /// Load-time warnings retained by the selected diagnostic policy.
+    diagnostics: Vec<Diagnostic>,
+    addressing: InputAddressing,
+}
+
+/// Which input space the input addresses of a [`LoadedDefinition`]'s sentences name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputAddressing {
+    /// Positions in the argument of [`load_structured`]
+    /// ([`InputSpace::Structured`](crate::provenance::InputSpace::Structured)): the value is the
+    /// unedited result of that call.
+    Structured,
+    /// Compilation addresses each sentence by its position in
+    /// [`LoadedDefinition::definition`]
+    /// ([`InputSpace::Compile`](crate::provenance::InputSpace::Compile)).
+    Compile,
+}
+
+/// The parts a [`LoadedDefinition`] is rebuilt from with [`LoadedDefinition::from_loaded_parts`].
+#[derive(Clone, Debug)]
+pub struct LoadedParts {
+    /// Parsed files in dependency-first `requires` order.
     pub files: Vec<SourceFile>,
     pub source_table: SourceTable,
+    /// A definition at the loaded stage: configurations expanded, no written label parameter.
     pub definition: Definition,
-    pub resolved: ResolvedDefinition,
     /// Load-time warnings retained by the selected diagnostic policy.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl LoadedDefinition {
+    /// Rebuild a loaded definition from parts already at the loaded stage: an edit of a loaded
+    /// definition, or one read back from a provenance artifact.
+    ///
+    /// Rejects a [`Sentence::Configuration`] with [`LoadError::UnexpandedConfiguration`]: the
+    /// constructor does not expand, and a structured definition with a configuration goes
+    /// through [`load_structured`], which does. Rejects a label with a written sort parameter
+    /// with [`LoadError::LabelParameters`]. Then resolves the definition. The addressing is
+    /// [`InputAddressing::Compile`]: the parts are not the unedited result of
+    /// [`load_structured`], so compilation addresses each sentence by its position in
+    /// `parts.definition`.
+    ///
+    /// ```
+    /// # use k_rust::{definition::{Definition, FlatModule, Sentence}, kast::{Sort, Term},
+    /// #     outer::{LoadError, LoadedDefinition, LoadedParts}};
+    /// # use std::sync::Arc;
+    /// let configuration = Sentence::Configuration {
+    ///     body: Term::apply("#cells", Vec::new()),
+    ///     ensures: Term::Token { token: "true".into(), sort: Sort::new("Bool") },
+    ///     attributes: Default::default(),
+    /// };
+    /// let module = FlatModule {
+    ///     name: "MAIN".into(),
+    ///     imports: Vec::new(),
+    ///     local_sentences: vec![Arc::new(configuration)],
+    ///     attributes: Default::default(),
+    /// };
+    /// let definition = Definition {
+    ///     main_module: "MAIN".into(),
+    ///     modules: vec![module],
+    ///     attributes: Default::default(),
+    /// };
+    /// let error = LoadedDefinition::from_loaded_parts(LoadedParts {
+    ///     files: Vec::new(),
+    ///     source_table: Default::default(),
+    ///     definition,
+    ///     diagnostics: Vec::new(),
+    /// })
+    /// .unwrap_err();
+    /// assert_eq!(
+    ///     error,
+    ///     LoadError::UnexpandedConfiguration { module: "MAIN".into(), sentence: 0 }
+    /// );
+    /// ```
+    pub fn from_loaded_parts(parts: LoadedParts) -> Result<Self, LoadError> {
+        let LoadedParts {
+            files,
+            source_table,
+            definition,
+            diagnostics,
+        } = parts;
+        reject_unexpanded_configurations(&definition)?;
+        reject_label_parameters(&definition)?;
+        let resolved =
+            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+        Ok(Self {
+            files,
+            source_table,
+            definition,
+            resolved,
+            diagnostics,
+            addressing: InputAddressing::Compile,
+        })
+    }
+
+    /// [`from_loaded_parts`](Self::from_loaded_parts) of `definition` with this value's files,
+    /// source table and diagnostics.
+    pub fn with_definition(&self, definition: Definition) -> Result<Self, LoadError> {
+        Self::from_loaded_parts(LoadedParts {
+            files: self.files.clone(),
+            source_table: self.source_table.clone(),
+            definition,
+            diagnostics: self.diagnostics.clone(),
+        })
+    }
+
+    /// Consume the loaded definition and return the parts it can be rebuilt from.
+    pub fn into_parts(self) -> LoadedParts {
+        LoadedParts {
+            files: self.files,
+            source_table: self.source_table,
+            definition: self.definition,
+            diagnostics: self.diagnostics,
+        }
+    }
+
     /// The parsed files in dependency-first `requires` order.
     pub fn files(&self) -> &[SourceFile] {
         &self.files
@@ -324,6 +466,11 @@ impl LoadedDefinition {
         &self.diagnostics
     }
 
+    /// The input space the sentences' input addresses name.
+    pub fn addressing(&self) -> InputAddressing {
+        self.addressing
+    }
+
     /// Append load-time diagnostics; they do not bear on the definition's stage.
     pub fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
         self.diagnostics.extend(diagnostics)
@@ -333,6 +480,32 @@ impl LoadedDefinition {
     pub fn into_definition(self) -> Definition {
         self.definition
     }
+}
+
+/// Reject the first [`Sentence::Configuration`] of `definition`: a loaded definition has its
+/// configurations expanded into cell syntax and initializer rules.
+fn reject_unexpanded_configurations(definition: &Definition) -> Result<(), LoadError> {
+    for module in &definition.modules {
+        if let Some(sentence) = module
+            .local_sentences
+            .iter()
+            .position(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
+        {
+            return Err(LoadError::UnexpandedConfiguration {
+                module: module.name.clone(),
+                sentence,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Reject the first rule-like sentence of `definition` whose label carries a written sort
+/// parameter: label parameters are inferred, never written.
+fn reject_label_parameters(definition: &Definition) -> Result<(), LoadError> {
+    crate::definition::checks::reject_label_parameters_in_definition(definition).map_err(|error| {
+        LoadError::LabelParameters(SortInjectionError::sentence_label_parameters(error))
+    })
 }
 
 /// Identity of one authored module retained in a prepared definition.
@@ -619,17 +792,17 @@ fn load_impl(
 /// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
 /// already carried) before configurations are expanded, so compilation relates what it emits to
 /// the caller's own sentence positions.
-/// Compilation trusts those addresses only while `resolved` is the one this call returned; a
-/// `LoadedDefinition` whose resolution was rebuilt or updated is addressed in the compile space.
+/// The result's [`addressing()`](LoadedDefinition::addressing) is
+/// [`InputAddressing::Structured`], so compilation keeps those addresses; a value rebuilt from its
+/// parts ([`LoadedDefinition::from_loaded_parts`], [`LoadedDefinition::with_definition`]) is
+/// addressed in the compile space.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
     // Configuration expansion recognizes cell wrappers by name, so a parameter on one would be
     // dropped before compilation's own check: reject on exactly the caller's sentences.
-    crate::definition::checks::reject_label_parameters_in_definition(&definition).map_err(
-        |error| LoadError::LabelParameters(SortInjectionError::sentence_label_parameters(error)),
-    )?;
+    reject_label_parameters(&definition)?;
     stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
     let mut resolver = |_: &str, required: &str| {
@@ -683,7 +856,7 @@ pub fn load_structured(
     )
     .map(|(mut loaded, _)| {
         loaded.source_table.set_input_sentence_kinds(kinds);
-        loaded.resolved.structured_input = true;
+        loaded.addressing = InputAddressing::Structured;
         loaded
     })
 }
@@ -785,6 +958,9 @@ fn finish_load(
     {
         return Err(LoadError::SourceDiagnostics(diagnostics));
     }
+    // Configuration expansion moves configuration content into generated rules; the walk covers
+    // those rules and every authored rule-like sentence, so no route yields a written parameter.
+    reject_label_parameters(&definition)?;
     Ok((
         LoadedDefinition {
             files,
@@ -792,6 +968,7 @@ fn finish_load(
             definition,
             resolved,
             diagnostics,
+            addressing: InputAddressing::Compile,
         },
         syntax_module,
     ))
