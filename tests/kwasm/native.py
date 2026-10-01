@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Surface configuration and expectations for the KWasm qualification corpus."""
+"""Surface configuration and outcome reporting for the KWasm qualification corpus."""
 
 from __future__ import annotations
 
@@ -20,33 +20,16 @@ def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
     return {"PGM": str(case["program"]), "STACK": ".ValStack"}
 
 
-def expectations(case: Mapping[str, Any]) -> list[behavior.Expectation]:
-    """Describe the instruction and value-stack cells after execution."""
+def outcome(case: Mapping[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Add the corpus value or trap report fields."""
 
-    if str(case.get("expected_outcome", "value")) == "trap":
-        return [
-            behavior.Expectation("instrs", text="trap ~> .Instrs"),
-            behavior.Expectation("valstack", text=".ValStack"),
-        ]
-    return [
-        behavior.Expectation("instrs", text=".K"),
-        behavior.Expectation(
-            "valstack",
-            text=f"< {case['expected_type']} > {case['expected_value']} : .ValStack",
-        ),
-    ]
+    record["outcome"] = str(case.get("expected_outcome", "value"))
+    if record["outcome"] == "value":
+        record.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
+    return record
 
 
-def outcome(case: Mapping[str, Any]) -> dict[str, str]:
-    """Return the established passing behavior outcome."""
-
-    result = {"id": str(case["id"]), "outcome": str(case.get("expected_outcome", "value"))}
-    if result["outcome"] == "value":
-        result.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
-    return result
-
-
-SPEC = behavior.Specification(configuration_variables, expectations, outcome)
+SPEC = behavior.Specification(configuration_variables, outcome)
 
 
 def main() -> int:
@@ -58,11 +41,12 @@ def main() -> int:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--outcomes", type=Path)
     arguments = parser.parse_args()
-    cases = load_toml(arguments.corpus).get("behavior")
+    corpus = load_toml(arguments.corpus)
+    cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
         raise GateError("behavior corpus is empty")
     outcomes = behavior.native_corpus(
-        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC,
+        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC, corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)

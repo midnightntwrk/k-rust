@@ -12,7 +12,8 @@ The modules are:
 
 - `support.krs_gate`: compile, definition.load, configure, execute, search,
   kore.read, kore.digest, observe, expect, and prove through the native gate protocol;
-- `support.behavior`: shared native and Java case expectations and outcomes;
+- `support.behavior`: corpus-declared expectations, shared native and Java
+  structural checks, and reported outcomes;
 - `support.process`: subprocess execution with captured output and process-group
   cleanup;
 - `support.parallel`: bounded, order-preserving concurrency for independent

@@ -1,4 +1,16 @@
-"""Shared native and Java case checks through retained gate states."""
+"""Shared native and Java case checks through retained gate states.
+
+A behavior corpus declares its checks as data.
+Top-level `observe` lists the cells every case checks, and `[expect]` gives default expectations.
+A case lists further cells in `observe` and declares its own expectations as `expect.<cell>`.
+A case checks the top-level cells, its own `observe` cells, and its expectation keys, in first-seen order,
+and every checked cell must have a case or default expectation.
+A string expectation is surface text compared structurally;
+`{ size = N }` checks a collection size and `{ head = "text" }` the head of a K sequence.
+Top-level `reason`, when present, is the required stop reason of the single execution leaf.
+Top-level `[report]` maps a checked cell to the field that reports its expected value in the pinned outcome;
+a port's outcome hook may refine that record.
+"""
 
 from __future__ import annotations
 
@@ -22,40 +34,96 @@ class Expectation:
 
 @dataclass(frozen=True)
 class Specification:
-    """Port data needed to configure, check, and report one behavior case."""
+    """Port configuration and optional outcome refinement."""
 
     variables: Callable[[Mapping[str, Any]], dict[str, str]]
-    expectations: Callable[[Mapping[str, Any]], list[Expectation]]
-    outcome: Callable[[Mapping[str, Any]], dict[str, Any]]
-    reason: str | None = None
+    outcome: Callable[[Mapping[str, Any], dict[str, Any]], dict[str, Any]] | None = None
 
 
-def check_case(session: krs_gate.Session, case: Mapping[str, Any], spec: Specification) -> dict[str, Any]:
+def _expectation(case: Mapping[str, Any], cell: str, value: Any) -> Expectation:
+    if isinstance(value, str):
+        return Expectation(cell, text=value)
+    if isinstance(value, Mapping) and len(value) == 1:
+        if "size" in value and type(value["size"]) is int and value["size"] >= 0:
+            return Expectation(cell, size=value["size"])
+        if "head" in value and isinstance(value["head"], str):
+            return Expectation(cell, head=value["head"])
+    raise GateError(f"{case['id']}: malformed expectation for cell {cell}: {value!r}")
+
+
+def expectations(corpus: Mapping[str, Any], case: Mapping[str, Any]) -> list[Expectation]:
+    """Resolve corpus defaults and case declarations in first-seen cell order."""
+
+    declarations = []
+    for source in (corpus, case):
+        values = source.get("expect", {})
+        if not isinstance(values, Mapping):
+            raise GateError(f"{case['id']}: expect must be a table")
+        declarations.append({cell: _expectation(case, cell, value) for cell, value in values.items()})
+    defaults, overrides = declarations
+    cells = []
+    for source in (corpus, case):
+        observed = source.get("observe", [])
+        if not isinstance(observed, list) or any(not isinstance(cell, str) for cell in observed):
+            raise GateError(f"{case['id']}: observe must be a list of cell names")
+        cells.extend(observed)
+    cells.extend(overrides)
+    resolved = []
+    for cell in dict.fromkeys(cells):
+        item = overrides.get(cell, defaults.get(cell))
+        if item is None:
+            raise GateError(f"{case['id']}: missing expectation for cell {cell}")
+        resolved.append(item)
+    return resolved
+
+
+def outcome_record(
+    corpus: Mapping[str, Any], case: Mapping[str, Any], spec: Specification,
+) -> dict[str, Any]:
+    """Report declared expectation values and apply the port's optional hook."""
+
+    report = corpus.get("report", {})
+    if not isinstance(report, Mapping) or any(not isinstance(field, str) for field in report.values()):
+        raise GateError(f"{case['id']}: report must map cells to field names")
+    record = {"id": case["id"]}
+    for item in expectations(corpus, case):
+        if item.cell in report:
+            record[report[item.cell]] = next(value for value in (item.text, item.size, item.head) if value is not None)
+    return record if spec.outcome is None else spec.outcome(case, record)
+
+
+def check_case(
+    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
+) -> dict[str, Any]:
     """Check the retained state and return the port's pinned outcome shape."""
 
-    for item in spec.expectations(case):
+    for item in expectations(corpus, case):
         try:
             session.expect("case", item.cell, text=item.text, size=item.size, head=item.head)
         except GateError as error:
             raise GateError(f"{case['id']}: {error}") from error
-    return spec.outcome(case)
+    return outcome_record(corpus, case, spec)
 
 
-def native_case(session: krs_gate.Session, case: Mapping[str, Any], spec: Specification) -> dict[str, Any]:
+def native_case(
+    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
+) -> dict[str, Any]:
     """Configure, execute, retain, and check one native case."""
 
     pattern = session.configure(spec.variables(case))["pattern"]
     result = session.execute(pattern, keep="case")
-    if spec.reason is not None:
+    reason = corpus.get("reason")
+    if reason is not None:
         leaves = result.get("leaves")
-        if not isinstance(leaves, list) or len(leaves) != 1 or leaves[0].get("reason") != spec.reason:
-            raise GateError(f"{case['id']}: expected execution reason {spec.reason}, got {leaves}")
-    return check_case(session, case, spec)
+        if not isinstance(leaves, list) or len(leaves) != 1 or leaves[0].get("reason") != reason:
+            raise GateError(f"{case['id']}: expected execution reason {reason}, got {leaves}")
+    return check_case(session, case, spec, corpus)
 
 
 def native_corpus(
     gate: Path, definition_ir: Path, module: str,
-    cases: list[Mapping[str, Any]], spec: Specification, *, definition_kore_sha256: str, jobs: int = 1,
+    cases: list[Mapping[str, Any]], spec: Specification, corpus: Mapping[str, Any], *,
+    definition_kore_sha256: str, jobs: int = 1,
 ) -> list[dict[str, Any]]:
     """Run selected native cases with one loaded session per worker."""
 
@@ -65,7 +133,7 @@ def native_corpus(
     def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, dict[str, Any]]]:
         with krs_gate.Session(gate) as session:
             session.load(definition_ir, module, definition_kore_sha256=definition_kore_sha256)
-            return [(index, native_case(session, case, spec)) for index, case in batch]
+            return [(index, native_case(session, case, spec, corpus)) for index, case in batch]
 
     indexed = list(enumerate(cases))
     batches = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
@@ -79,8 +147,9 @@ def native_corpus(
 
 def java_case(
     session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, kore: str,
+    corpus: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Retain Java KORE and run the same expectations and outcome builder."""
 
     session.read(kore, "case")
-    return check_case(session, case, spec)
+    return check_case(session, case, spec, corpus)

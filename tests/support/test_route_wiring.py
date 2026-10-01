@@ -23,10 +23,10 @@ class RouteWiringTests(unittest.TestCase):
             factory = patches.enter_context(mock.patch.object(behavior.krs_gate, "Session"))
             session = factory.return_value.__enter__.return_value
             patches.enter_context(mock.patch.object(
-                behavior, "native_case", side_effect=lambda _, case, __: dict(case),
+                behavior, "native_case", side_effect=lambda _, case, __, ___: dict(case),
             ))
             outcomes = behavior.native_corpus(
-                Path("gate"), Path("definition-ir.json"), "MAIN", cases, mock.Mock(),
+                Path("gate"), Path("definition-ir.json"), "MAIN", cases, mock.Mock(), {"behavior": cases},
                 definition_kore_sha256="digest", jobs=2,
             )
         self.assertEqual(outcomes, cases)
@@ -64,7 +64,7 @@ class RouteWiringTests(unittest.TestCase):
         session.load.assert_called_once_with(
                 Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
             )
-        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
+        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term", {"behavior": [case]})
         self.assertEqual(
             run.call_args.args[0],
             ["krun", "--definition", Path("definition"), "-cPGM=program", "-cSTACK=.ValStack", "--output", "kore"],
@@ -109,7 +109,7 @@ class RouteWiringTests(unittest.TestCase):
                 Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
             )
         session.configure.assert_called_once_with(verifier.native.configuration_variables(case))
-        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term")
+        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term", {"behavior": [case]})
         arguments = run.call_args.args[0]
         self.assertIn("-cPGM=run", arguments)
         self.assertIn("-cPROGRAM=kore-PROGRAM", arguments)

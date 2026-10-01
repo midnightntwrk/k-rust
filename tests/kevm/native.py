@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Surface configuration and expectations for the KEVM qualification corpus."""
+"""Surface configuration and outcome reporting for the KEVM qualification corpus."""
 
 from __future__ import annotations
 
@@ -67,62 +67,7 @@ def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def expected_surface(case: Mapping[str, Any]) -> dict[str, str]:
-    """Return the surface text expected in each observed KEVM cell."""
-
-    operation = case.get("expected_stuck_operation")
-    values = {
-        "k": ".K" if operation is None else f"{operation} ~> .K",
-        "program": str(case["expected_program"]),
-        "stack": str(case["expected_stack"]),
-        "pc": str(case["expected_pc"]),
-        "gas": str(case["expected_gas"]),
-        "output": str(case.get("expected_output", case.get("return_data", 'b""'))),
-        "local_mem": str(case.get("expected_local_mem", case.get("local_mem", 'b""'))),
-        "memory_used": str(case.get("expected_memory_used", case.get("memory_used", "0"))),
-        "status": str(case["expected_status"]),
-    }
-    if case.get("observe_storage", False):
-        values.update({
-            "storage": str(case.get("expected_storage", case.get("storage", ".Map"))),
-            "accessed_storage": str(case.get("expected_accessed_storage", case.get("accessed_storage", ".Map"))),
-            "refund": str(case.get("expected_refund", case.get("refund", "0"))),
-        })
-    if case.get("observe_accounts", False):
-        values["accessed_accounts"] = str(case.get("expected_accessed_accounts", case.get("accessed_accounts", ".Set")))
-    if case.get("observe_logs", False):
-        values["logs"] = str(case.get("expected_logs", case.get("logs", ".List")))
-    if case.get("observe_state_stacks", False):
-        values.update(call_stack=".List", interim_states=".List")
-    return values
-
-
-_OUTCOME_CELLS = {
-    "k": "k", "program": "program", "stack": "wordStack", "pc": "pc", "gas": "gas",
-    "output": "output", "local_mem": "localMem", "memory_used": "memoryUsed",
-    "status": "statusCode", "storage": "storage",
-    "accessed_storage": "accessedStorage", "refund": "refund",
-    "accessed_accounts": "accessedAccounts", "logs": "log",
-    "call_stack": "callStack", "interim_states": "interimStates",
-}
-
-
-def expectations(case: Mapping[str, Any]) -> list[behavior.Expectation]:
-    """Check the computation cell and each corpus-selected content cell."""
-
-    return [
-        behavior.Expectation(_OUTCOME_CELLS[name], text=text)
-        for name, text in expected_surface(case).items()
-    ]
-
-
-def outcome(case: Mapping[str, Any]) -> dict[str, str]:
-    """Report the surface expectation values after every check passes."""
-
-    return {"id": str(case["id"]), **expected_surface(case)}
-
-
-SPEC = behavior.Specification(configuration_variables, expectations, outcome, reason="stuck")
+SPEC = behavior.Specification(configuration_variables)
 
 
 def main() -> int:
@@ -164,6 +109,7 @@ def main() -> int:
         arguments.module,
         cases,
         SPEC,
+        corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
         jobs=arguments.jobs,
     )

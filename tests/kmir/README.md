@@ -4,6 +4,12 @@ Run `python3 tests/kmir/verify.py` from the repository root to check the pinned 
 The gate compiles Definition IR to KORE through the pinned K-Rust frontend, executes the corpus with the K-Rust backend, checks each expected outcome, and checks the native behavior digest against `pins.toml`.
 This route does not require the Java K toolchain.
 
+Each case declares what it observes and expects as data, in the format `tests/support/behavior.py` describes.
+KMIR cases check `locals`, `retVal`, `currentBody`, `stack`, and `k`; the stack defaults to size zero and the computation defaults to `.K`.
+Error cases use a head expectation for `k` and retain `expected_error` for reporting.
+Top-level `[report]` names the outcome field of each reported cell.
+The `native.py` outcome hook normalizes the reported locals and return strings and adds the program and optional error fields.
+
 Run `python3 tests/kmir/verify.py --java-reference` to add the upstream K reference route.
 The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and passes the resulting KORE states to the `kore.read` session operation and checks them with the same structural expectations and outcome builder as the native route.
 Both routes build each outcome from the corpus case once its expectations are met, so the routes agree exactly when every Java state meets the expectations its native peer meets.

@@ -5,7 +5,8 @@ and a pin ledger under `tests/<port>/`. The shared steps are: preflight over
 the external checkout and the corpus, the ordinary Rust checks, repeated
 expansion and emission with their output pins, native k-rust compilation and
 execution, and the kompiled reference definition behind `--java-reference`.
-Each verifier supplies surface configuration, structural state expectations, and report wording.
+Each corpus declares structural state expectations and report fields.
+Each verifier supplies surface configuration, optional outcome refinement, and report wording.
 
 `--artifacts-only` stops after the native definition: it checks every emitted
 artifact against its pin and skips the behavior and proof comparisons, which
@@ -98,7 +99,7 @@ class Port:
 
 @dataclass(frozen=True)
 class Hooks:
-    """The port-specific configuration, expectations, and report wording."""
+    """The port-specific configuration, outcome refinement, and report wording."""
 
     description: str
     label: str
@@ -466,7 +467,7 @@ def java_reference_gate(
                 ],
                 timeout=120,
             ).stdout
-            outcomes.append(behavior_module.java_case(session, case, hooks.spec, result))
+            outcomes.append(behavior_module.java_case(session, case, hooks.spec, result, corpus))
 
     compare_routes(port.label, native_outcomes, outcomes, skipped)
     reference_proof(port, definition, spec, k["kprove"])

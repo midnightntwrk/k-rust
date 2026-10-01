@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Surface configuration and expectations for the KMIR qualification corpus."""
+"""Surface configuration and outcome reporting for the KMIR qualification corpus."""
 
 from __future__ import annotations
 
@@ -43,39 +43,18 @@ def normalize_term(value: str) -> str:
     return re.sub(r"\.\s+", ".", value)
 
 
-def expectations(case: Mapping[str, Any]) -> list[behavior.Expectation]:
-    """Describe the final locals, return, body, stack, and computation cells."""
+def outcome(case: Mapping[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Normalize reported strings and add the program and error fields."""
 
-    expected = [
-        behavior.Expectation("locals", text=str(case["expected_locals"])),
-        behavior.Expectation("retVal", text=str(case["expected_return"])),
-        behavior.Expectation("currentBody", size=int(case["expected_block_count"])),
-        behavior.Expectation("stack", size=int(case.get("expected_stack_depth", 0))),
-    ]
+    for field in ("locals", "return"):
+        record[field] = normalize_term(str(record[field]))
+    record["program"] = normalize_term(str(case["program"]))
     if "expected_error" in case:
-        expected.append(behavior.Expectation("k", head=f"#ProgramError({case['expected_error']})"))
-    else:
-        expected.append(behavior.Expectation("k", text=".K"))
-    return expected
+        record["error"] = normalize_term(str(case["expected_error"]))
+    return record
 
 
-def outcome(case: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the established passing behavior outcome."""
-
-    result: dict[str, Any] = {
-        "id": str(case["id"]),
-        "program": normalize_term(str(case["program"])),
-        "block_count": int(case["expected_block_count"]),
-        "locals": normalize_term(str(case["expected_locals"])),
-        "stack_depth": int(case.get("expected_stack_depth", 0)),
-        "return": normalize_term(str(case["expected_return"])),
-    }
-    if "expected_error" in case:
-        result["error"] = normalize_term(str(case["expected_error"]))
-    return result
-
-
-SPEC = behavior.Specification(configuration_variables, expectations, outcome)
+SPEC = behavior.Specification(configuration_variables, outcome)
 
 
 def main() -> int:
@@ -88,7 +67,8 @@ def main() -> int:
     parser.add_argument("--outcomes", type=Path)
     parser.add_argument("--id", action="append", dest="case_ids")
     arguments = parser.parse_args()
-    cases = load_toml(arguments.corpus).get("behavior")
+    corpus = load_toml(arguments.corpus)
+    cases = corpus.get("behavior")
     if not isinstance(cases, list) or not cases:
         raise GateError("behavior corpus is empty")
     if arguments.case_ids:
@@ -98,7 +78,7 @@ def main() -> int:
         if missing:
             raise GateError(f"unknown behavior case ids: {sorted(missing)}")
     outcomes = behavior.native_corpus(
-        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC,
+        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC, corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)
