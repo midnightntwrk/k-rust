@@ -5,11 +5,8 @@
 //!
 //! 1. The file is lexed once ([`AuthoredFile::lex`]) and parsed from those
 //!    tokens, so every authored span locates exact authored bytes.
-//! 2. A `syn` walk over items, inline `mod` bodies, `impl` and `trait` items,
-//!    statements, expressions, patterns, and types finds the outermost KRS
-//!    invocations, and the token trees of every other macro are scanned for
-//!    KRS function-like invocations, which rustc reaches after that macro
-//!    re-emits its input.
+//! 2. [`surface::invocations`] discovers the KRS invocations in the syntax tree and in other macros' token trees.
+//!    This driver expands the outermost invocations, which rustc reaches after the surrounding macro re-emits its input.
 //! 3. Each invocation receives the input rustc passes: an attribute macro
 //!    gets its attribute's arguments and the authored tokens of the item
 //!    with that one attribute removed, and a function-like macro gets the
@@ -39,11 +36,11 @@
 //! driver reports [`ATTRIBUTE_ORDER`] instead of emulating that order.
 
 use krs_diagnostic::{Code, Diagnostic, Location, ToDiagnostic};
-use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
-use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
+use krs_syntax::surface::{self, Entry, InvocationKind, Scope, TokenCallKind};
+use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::spanned::Spanned;
-use syn::visit::{self, Visit};
-use syn::{Attribute, ImplItem, Item, Macro, Meta, Path, PathSegment, TraitItem};
+use syn::visit::Visit;
+use syn::{Attribute, Macro, Meta, Path};
 
 use crate::browser_env::BrowserEnvironment;
 use crate::sink::{
@@ -265,20 +262,21 @@ pub fn expand_file(request: &FileRequest<'_>) -> Result<FileExpansion, Vec<Expan
             .collect::<Vec<_>>()
     })?;
 
-    let mut discovery = Discovery {
-        alias: request.facade_alias,
-        authored: &authored,
-        root: &tokens,
-        scope: Scope::Module(Vec::new()),
-        found: Vec::new(),
-        diagnostics: Vec::new(),
-    };
-    discovery.visit_file(&file);
-    let Discovery {
-        mut found,
-        mut diagnostics,
-        ..
-    } = discovery;
+    let resolve = surface::AuthoredResolver::new(request.facade_alias);
+    let mut diagnostics = Vec::new();
+    let mut found = surface::invocations(&file, &resolve)
+        .into_iter()
+        .filter(|invocation| invocation.parent.is_none())
+        .filter_map(|invocation| {
+            found_invocation(
+                invocation,
+                request.facade_alias,
+                &authored,
+                &tokens,
+                &mut diagnostics,
+            )
+        })
+        .collect::<Vec<_>>();
     found.sort_by_key(|found| found.replaced.start());
     let found = select(found, request.selection, &mut diagnostics);
 
@@ -411,9 +409,7 @@ fn print(
         authored,
         ByteRange::new(cursor, request.source.len()).expect("remaining source range is ordered"),
     );
-    let facade = quote::ToTokens::to_token_stream(&request.facade_path)
-        .to_string()
-        .replace(' ', "");
+    let facade = path_spelling(&request.facade_path);
     generated.push_generated(&registration_table(
         &facade,
         requests_framework,
@@ -497,15 +493,6 @@ fn unsupported_prefix(source: &str) -> Option<ExpandDiagnostic> {
     ))
 }
 
-/// Where an invocation's output lands.
-#[derive(Clone, Debug)]
-enum Scope {
-    /// Module level, in the inline modules listed (empty: the file's module).
-    Module(Vec<String>),
-    /// Inside an `impl`, `trait`, function body, block, or macro input.
-    Nested,
-}
-
 /// One discovered outermost invocation.
 struct Found {
     entry: Entry,
@@ -516,230 +503,93 @@ struct Found {
     scope: Scope,
 }
 
-struct Discovery<'a> {
-    alias: &'a str,
-    authored: &'a AuthoredFile,
-    root: &'a TokenStream,
-    scope: Scope,
-    found: Vec<Found>,
-    diagnostics: Vec<ExpandDiagnostic>,
-}
-
-impl Discovery<'_> {
-    fn range(&self, span: Span) -> ByteRange {
-        self.authored
+fn found_invocation(
+    invocation: surface::Invocation<'_>,
+    alias: &str,
+    authored: &AuthoredFile,
+    root: &TokenStream,
+    diagnostics: &mut Vec<ExpandDiagnostic>,
+) -> Option<Found> {
+    let range = |span| {
+        authored
             .byte_range(span)
             .expect("discovered nodes come from the authored tokens")
-    }
-
-    /// Records a function-like KRS invocation, or scans another macro's
-    /// tokens for KRS invocations. Returns whether `mac` is a KRS invocation.
-    fn visit_mac(&mut self, mac: &Macro, replaced: Option<ByteRange>) -> bool {
-        let Some(Entry::Function(entry)) = surface::resolve(&mac.path, self.alias) else {
-            self.scan_tokens(&mac.tokens);
-            return false;
-        };
-        let call_site = mac.span();
-        let replaced = replaced.unwrap_or_else(|| self.range(call_site));
-        self.found.push(Found {
-            entry: Entry::Function(entry),
-            call_site,
-            replaced,
-            attributes: TokenStream::new(),
-            input: mac.tokens.clone(),
-            scope: self.scope.clone(),
-        });
-        true
-    }
-
-    /// Finds KRS function-like invocations in the token trees of a macro
-    /// that is not a KRS macro; rustc reaches them when that macro re-emits
-    /// its input.
-    fn scan_tokens(&mut self, tokens: &TokenStream) {
-        let trees = tokens.clone().into_iter().collect::<Vec<_>>();
-        let mut index = 0;
-        while index < trees.len() {
-            if let Some(call) = function_call(&trees, index, self.alias, None) {
-                let call_site = trees[index]
-                    .span()
-                    .join(call.group.span())
-                    .expect("authored tokens share one fallback file");
-                self.found.push(Found {
-                    entry: Entry::Function(call.entry),
-                    call_site,
-                    replaced: self.range(call_site),
-                    attributes: TokenStream::new(),
-                    input: call.group.stream(),
-                    scope: Scope::Nested,
-                });
-                index += call.len;
-                continue;
-            }
-            if let TokenTree::Group(group) = &trees[index] {
-                self.scan_tokens(&group.stream());
-            }
-            index += 1;
+    };
+    let (entry, attributes, input) = match invocation.kind {
+        InvocationKind::Function { entry, tokens, .. } => {
+            (Entry::Function(entry), TokenStream::new(), tokens)
         }
-    }
-
-    /// Records the attribute invocation of an item, impl item, or trait
-    /// item, if any. Returns whether the node is a KRS invocation (or an
-    /// invalid one), in which case its contents are not visited.
-    fn visit_attributes(&mut self, attrs: &[Attribute], node: Span) -> bool {
-        let krs = attrs
-            .iter()
-            .position(|attribute| surface::facade_member(attribute.path(), self.alias).is_some());
-        let Some(krs) = krs else {
-            return false;
-        };
-        let first = attrs
-            .iter()
-            .position(|attribute| !surface::is_inert(attribute.path()))
-            .expect("a facade attribute is not inert");
-        let attribute = &attrs[first];
-        let call_site = attribute.span();
-        let Some(name) = surface::facade_member(attribute.path(), self.alias) else {
-            let name = quote::ToTokens::to_token_stream(attribute.path())
-                .to_string()
-                .replace(' ', "");
-            self.diagnostics.push(ExpandDiagnostic::exact(
-                ATTRIBUTE_ORDER,
-                format!(
-                    "`#[{name}]` precedes a KRS attribute; the KRS attribute must come before every attribute that is not inert"
-                ),
-                self.range(attrs[krs].span()),
-            ));
-            return true;
-        };
-        let Some(Entry::Attribute(entry)) = Entry::from_name(&name) else {
-            self.diagnostics.push(ExpandDiagnostic::exact(
-                NOT_AN_ATTRIBUTE_MACRO,
-                format!("`{}::{name}` is not a KRS attribute macro", self.alias),
-                self.range(attribute.path().span()),
-            ));
-            return true;
-        };
-        let attributes = match &attribute.meta {
-            Meta::Path(_) => TokenStream::new(),
-            Meta::List(list) => list.tokens.clone(),
-            Meta::NameValue(_) => {
-                self.diagnostics.push(ExpandDiagnostic::exact(
-                    ATTRIBUTE_FORM,
-                    "key-value macro attributes are not supported".to_owned(),
-                    self.range(call_site),
+        InvocationKind::Attribute(attribute) => {
+            let attrs = attribute.attributes;
+            let first = &attrs[attribute.first_expandable_index];
+            if attribute.facade_index != attribute.first_expandable_index {
+                let name = path_spelling(first.path());
+                diagnostics.push(ExpandDiagnostic::exact(
+                    ATTRIBUTE_ORDER,
+                    format!(
+                        "`#[{name}]` precedes a KRS attribute; the KRS attribute must come before every attribute that is not inert"
+                    ),
+                    range(attrs[attribute.facade_index].span()),
                 ));
-                return true;
+                return None;
             }
-        };
-        let replaced = self.range(node);
-        let input = slice_trees(self.root, self.authored, &replaced, &self.range(call_site))
+            let Some(Entry::Attribute(entry)) = attribute.entry else {
+                diagnostics.push(ExpandDiagnostic::exact(
+                    NOT_AN_ATTRIBUTE_MACRO,
+                    format!(
+                        "`{alias}::{}` is not a KRS attribute macro",
+                        attribute.member
+                    ),
+                    range(first.path().span()),
+                ));
+                return None;
+            };
+            let attributes = match &first.meta {
+                Meta::Path(_) => TokenStream::new(),
+                Meta::List(list) => list.tokens.clone(),
+                Meta::NameValue(_) => {
+                    diagnostics.push(ExpandDiagnostic::exact(
+                        ATTRIBUTE_FORM,
+                        "key-value macro attributes are not supported".to_owned(),
+                        range(first.span()),
+                    ));
+                    return None;
+                }
+            };
+            let input = slice_trees(
+                root,
+                authored,
+                &range(invocation.replaced),
+                &range(first.span()),
+            )
             .expect("an item consists of authored token trees");
-        self.found.push(Found {
-            entry: Entry::Attribute(entry),
-            call_site,
-            replaced,
-            attributes,
-            input,
-            scope: self.scope.clone(),
-        });
-        true
-    }
-
-    fn nested<F: FnOnce(&mut Self)>(&mut self, visit: F) {
-        let saved = std::mem::replace(&mut self.scope, Scope::Nested);
-        visit(self);
-        self.scope = saved;
-    }
-}
-
-impl<'ast> Visit<'ast> for Discovery<'_> {
-    fn visit_item(&mut self, item: &'ast Item) {
-        if let Item::Macro(node) = item
-            && self.visit_mac(&node.mac, Some(self.range(item.span())))
-        {
-            return;
+            (Entry::Attribute(entry), attributes, input)
         }
-        if item_attributes(item).is_some_and(|attrs| self.visit_attributes(attrs, item.span())) {
-            return;
-        }
-        match item {
-            Item::Mod(module) => {
-                let saved = self.scope.clone();
-                if let Scope::Module(modules) = &mut self.scope {
-                    modules.push(module.ident.to_string());
-                }
-                visit::visit_item_mod(self, module);
-                self.scope = saved;
-            }
-            Item::Macro(_) => {}
-            _ => self.nested(|this| visit::visit_item(this, item)),
-        }
-    }
-
-    fn visit_impl_item(&mut self, item: &'ast ImplItem) {
-        let attrs = match item {
-            ImplItem::Const(item) => &item.attrs,
-            ImplItem::Fn(item) => &item.attrs,
-            ImplItem::Type(item) => &item.attrs,
-            ImplItem::Macro(node) => {
-                if !self.visit_mac(&node.mac, Some(self.range(item.span()))) {
-                    self.visit_attributes(&node.attrs, item.span());
-                }
-                return;
-            }
-            _ => return visit::visit_impl_item(self, item),
-        };
-        if !self.visit_attributes(attrs, item.span()) {
-            self.nested(|this| visit::visit_impl_item(this, item));
-        }
-    }
-
-    fn visit_trait_item(&mut self, item: &'ast TraitItem) {
-        let attrs = match item {
-            TraitItem::Const(item) => &item.attrs,
-            TraitItem::Fn(item) => &item.attrs,
-            TraitItem::Type(item) => &item.attrs,
-            TraitItem::Macro(node) => {
-                if !self.visit_mac(&node.mac, Some(self.range(item.span()))) {
-                    self.visit_attributes(&node.attrs, item.span());
-                }
-                return;
-            }
-            _ => return visit::visit_trait_item(self, item),
-        };
-        if !self.visit_attributes(attrs, item.span()) {
-            self.nested(|this| visit::visit_trait_item(this, item));
-        }
-    }
-
-    fn visit_macro(&mut self, mac: &'ast Macro) {
-        self.visit_mac(mac, None);
-    }
-
-    fn visit_block(&mut self, block: &'ast syn::Block) {
-        self.nested(|this| visit::visit_block(this, block));
-    }
-}
-
-fn item_attributes(item: &Item) -> Option<&[Attribute]> {
-    Some(match item {
-        Item::Const(item) => &item.attrs,
-        Item::Enum(item) => &item.attrs,
-        Item::ExternCrate(item) => &item.attrs,
-        Item::Fn(item) => &item.attrs,
-        Item::ForeignMod(item) => &item.attrs,
-        Item::Impl(item) => &item.attrs,
-        Item::Macro(item) => &item.attrs,
-        Item::Mod(item) => &item.attrs,
-        Item::Static(item) => &item.attrs,
-        Item::Struct(item) => &item.attrs,
-        Item::Trait(item) => &item.attrs,
-        Item::TraitAlias(item) => &item.attrs,
-        Item::Type(item) => &item.attrs,
-        Item::Union(item) => &item.attrs,
-        Item::Use(item) => &item.attrs,
-        _ => return None,
+        InvocationKind::RawAttribute(_) => return None,
+    };
+    Some(Found {
+        entry,
+        call_site: invocation.call_site,
+        replaced: range(invocation.replaced),
+        attributes,
+        input,
+        scope: invocation.scope,
     })
+}
+
+/// Spells ordinary paths through the shared surface representation.
+fn path_spelling(path: &Path) -> String {
+    if path
+        .segments
+        .iter()
+        .all(|segment| segment.arguments.is_empty())
+    {
+        surface::path_text(path)
+    } else {
+        quote::ToTokens::to_token_stream(path)
+            .to_string()
+            .replace(' ', "")
+    }
 }
 
 /// The token trees of `stream` that lie inside `range`, without those inside
@@ -808,108 +658,6 @@ fn select(
             })
         })
         .collect()
-}
-
-/// A function-like facade macro invocation in a token sequence.
-struct FunctionCall {
-    entry: FunctionMacro,
-    /// Number of token trees from the path through the group.
-    len: usize,
-    group: proc_macro2::Group,
-}
-
-fn is_punct(tree: Option<&TokenTree>, ch: char) -> bool {
-    matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == ch)
-}
-
-fn is_joint_colon(tree: Option<&TokenTree>) -> bool {
-    matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == ':' && punct.spacing() == Spacing::Joint)
-}
-
-/// The path starting at `trees[index]` (with an optional leading `::`) and
-/// the number of trees it occupies.
-fn path_at(trees: &[TokenTree], index: usize) -> Option<(Path, usize)> {
-    if index > 0 && is_punct(trees.get(index - 1), ':') {
-        return None;
-    }
-    let mut at = index;
-    let leading = is_joint_colon(trees.get(at)) && is_punct(trees.get(at + 1), ':');
-    if leading {
-        at += 2;
-    }
-    let mut path = Path {
-        leading_colon: leading.then(Default::default),
-        segments: syn::punctuated::Punctuated::new(),
-    };
-    loop {
-        let Some(TokenTree::Ident(ident)) = trees.get(at) else {
-            return None;
-        };
-        path.segments.push(PathSegment::from(ident.clone()));
-        at += 1;
-        if is_joint_colon(trees.get(at)) && is_punct(trees.get(at + 1), ':') {
-            at += 2;
-        } else {
-            return Some((path, at - index));
-        }
-    }
-}
-
-/// The entry point that `path` invokes as `<alias>::<entry>` or, in
-/// generated code, as `<facade>::<entry>`.
-fn resolve(path: &Path, alias: &str, facade: Option<&Path>) -> Option<Entry> {
-    surface::resolve(path, alias)
-        .or_else(|| facade.and_then(|facade| surface::resolve_under(path, facade)))
-}
-
-fn function_call(
-    trees: &[TokenTree],
-    index: usize,
-    alias: &str,
-    facade: Option<&Path>,
-) -> Option<FunctionCall> {
-    let (path, len) = path_at(trees, index)?;
-    let Entry::Function(entry) = resolve(&path, alias, facade)? else {
-        return None;
-    };
-    if !is_punct(trees.get(index + len), '!') {
-        return None;
-    }
-    let Some(TokenTree::Group(group)) = trees.get(index + len + 1) else {
-        return None;
-    };
-    if group.delimiter() == Delimiter::None {
-        return None;
-    }
-    Some(FunctionCall {
-        entry,
-        len: len + 2,
-        group: group.clone(),
-    })
-}
-
-/// The KRS attribute entry named by `#[...]` at `trees[index]`, if any.
-fn attribute_call(
-    trees: &[TokenTree],
-    index: usize,
-    alias: &str,
-    facade: Option<&Path>,
-) -> Option<AttributeMacro> {
-    if !is_punct(trees.get(index), '#') {
-        return None;
-    }
-    let Some(TokenTree::Group(group)) = trees.get(index + 1) else {
-        return None;
-    };
-    if group.delimiter() != Delimiter::Bracket {
-        return None;
-    }
-    let inner = group.stream().into_iter().collect::<Vec<_>>();
-    let (path, _) = path_at(&inner, 0)?;
-    match resolve(&path, alias, facade)? {
-        Entry::Attribute(entry) => Some(entry),
-        Entry::Function(_) => None,
-    }
 }
 
 /// One invocation to expand.
@@ -998,6 +746,29 @@ struct Expander<'a> {
 }
 
 impl Expander<'_> {
+    fn check_nested_attributes(
+        &mut self,
+        calls: &[surface::TokenCall],
+        call_site: ByteRange,
+        id: InvocationId,
+    ) {
+        for token_call in calls {
+            if let Entry::Attribute(entry) = token_call.entry {
+                self.diagnostics.push(ExpandDiagnostic::located(
+                    NESTED_ATTRIBUTE,
+                    format!(
+                        "the expansion contains a `#[{}::{}]` invocation, which the browser expander does not expand",
+                        self.alias,
+                        entry.name()
+                    ),
+                    MappingClass::InvocationLevel,
+                    Some(call_site),
+                    Some(id),
+                ));
+            }
+        }
+    }
+
     /// Expands one invocation and, in turn, the invocations its output
     /// contains; ids are assigned in pre-order.
     fn expand(&mut self, call: Pending) -> Option<Node> {
@@ -1053,11 +824,18 @@ impl Expander<'_> {
             }
         };
 
-        let mut calls = Vec::new();
-        self.rescan(&output, &mut Vec::new(), &mut calls, id, &call_site);
+        let resolve = surface::GeneratedResolver::new(self.alias, self.facade);
+        let calls = surface::token_calls(&output, &resolve);
+        self.check_nested_attributes(&calls, call_site, id);
         let mut nested = Vec::new();
-        for (at, len, entry, group, first) in calls {
-            let span = first
+        for token_call in calls {
+            let (Entry::Function(entry), TokenCallKind::Function(group)) =
+                (token_call.entry, token_call.kind)
+            else {
+                continue;
+            };
+            let span = token_call
+                .span
                 .join(group.span())
                 .filter(|span| self.authored.contains(*span))
                 .unwrap_or(call.call_site);
@@ -1072,7 +850,7 @@ impl Expander<'_> {
                 depth: call.depth + 1,
             });
             if let Some(node) = node {
-                nested.push((at, len, node));
+                nested.push((token_call.at, token_call.len, node));
             }
         }
         // Restore the call site for the parent's remaining work.
@@ -1087,52 +865,12 @@ impl Expander<'_> {
             nested,
         })
     }
-
-    /// Finds the KRS invocations in an expansion's output: function-like
-    /// invocations to expand, and attribute invocations to reject.
-    fn rescan(
-        &mut self,
-        stream: &TokenStream,
-        path: &mut Vec<usize>,
-        calls: &mut Vec<(Vec<usize>, usize, FunctionMacro, proc_macro2::Group, Span)>,
-        owner: InvocationId,
-        call_site: &ByteRange,
-    ) {
-        let trees = stream.clone().into_iter().collect::<Vec<_>>();
-        let mut index = 0;
-        while index < trees.len() {
-            if let Some(call) = function_call(&trees, index, self.alias, Some(self.facade)) {
-                let mut at = path.clone();
-                at.push(index);
-                calls.push((at, call.len, call.entry, call.group, trees[index].span()));
-                index += call.len;
-                continue;
-            }
-            if let Some(entry) = attribute_call(&trees, index, self.alias, Some(self.facade)) {
-                self.diagnostics.push(ExpandDiagnostic::located(
-                    NESTED_ATTRIBUTE,
-                    format!(
-                        "the expansion contains a `#[{}::{}]` invocation, which the browser expander does not expand",
-                        self.alias,
-                        entry.name()
-                    ),
-                    MappingClass::InvocationLevel,
-                    Some(*call_site),
-                    Some(owner),
-                ));
-            }
-            if let TokenTree::Group(group) = &trees[index] {
-                path.push(index);
-                self.rescan(&group.stream(), path, calls, owner, call_site);
-                path.pop();
-            }
-            index += 1;
-        }
-    }
 }
 
 /// Collects `__register_host_descriptor!(factory)` sites as (group depth,
 /// factory, `#[cfg]` attributes, span) and notes `__request_framework_sorts!`.
+/// Macro calls and attributes are recognized by the shared token-tree rules;
+/// these hidden macros are matched by their last path segment because they occur only in generated output.
 fn scan_registrations(
     stream: &TokenStream,
     depth: usize,
@@ -1140,62 +878,45 @@ fn scan_registrations(
     requests_framework: &mut bool,
 ) {
     let trees = stream.clone().into_iter().collect::<Vec<_>>();
-    for (index, tree) in trees.iter().enumerate() {
-        match tree {
-            TokenTree::Ident(ident)
-                if is_punct(trees.get(index + 1), '!')
-                    && matches!(trees.get(index + 2), Some(TokenTree::Group(_))) =>
-            {
-                if ident == "__request_framework_sorts" {
-                    *requests_framework = true;
-                } else if ident == "__register_host_descriptor" {
-                    let Some(TokenTree::Group(group)) = trees.get(index + 2) else {
-                        continue;
-                    };
-                    let factory = group.stream().to_string().replace(' ', "");
-                    let cfg = preceding_cfg(&trees, path_start(&trees, index));
-                    found.push((depth, factory, cfg, ident.span()));
-                }
+    let mut index = 0;
+    while index < trees.len() {
+        if let Some(call) = surface::macro_call(&trees, index) {
+            let name = &call
+                .path
+                .segments
+                .last()
+                .expect("a path has a segment")
+                .ident;
+            if name == "__request_framework_sorts" {
+                *requests_framework = true;
+            } else if name == "__register_host_descriptor" {
+                let factory = call.group.stream().to_string().replace(' ', "");
+                found.push((depth, factory, preceding_cfg(&trees, index), name.span()));
             }
-            TokenTree::Group(group) => {
-                scan_registrations(&group.stream(), depth + 1, found, requests_framework);
-            }
-            _ => {}
+            scan_registrations(&call.group.stream(), depth + 1, found, requests_framework);
+            index += call.len;
+            continue;
         }
-    }
-}
-
-/// The index of the first tree of the path ending at `trees[last]`.
-fn path_start(trees: &[TokenTree], last: usize) -> usize {
-    let mut start = last;
-    while start >= 2 && is_punct(trees.get(start - 1), ':') && is_joint_colon(trees.get(start - 2))
-    {
-        if start >= 3 && matches!(trees.get(start - 3), Some(TokenTree::Ident(_))) {
-            start -= 3;
-        } else {
-            start -= 2;
-            break;
+        if let TokenTree::Group(group) = &trees[index] {
+            scan_registrations(&group.stream(), depth + 1, found, requests_framework);
         }
+        index += 1;
     }
-    start
 }
 
 /// The `#[cfg(...)]` attributes directly before `trees[start]`, in order.
 fn preceding_cfg(trees: &[TokenTree], start: usize) -> Vec<String> {
     let mut cfg = Vec::new();
     let mut at = start;
-    while at >= 2 {
-        let (Some(TokenTree::Punct(pound)), Some(TokenTree::Group(group))) =
-            (trees.get(at - 2), trees.get(at - 1))
-        else {
-            break;
-        };
-        if pound.as_char() != '#' || group.delimiter() != Delimiter::Bracket {
-            break;
-        }
-        if matches!(group.stream().into_iter().next(), Some(TokenTree::Ident(ident)) if ident == "cfg")
+    while let Some(attribute) = at
+        .checked_sub(2)
+        .and_then(|index| surface::attribute_call(trees, index))
+        .filter(|attribute| attribute.len == 2)
+    {
+        let stream = attribute.group.stream();
+        if matches!(stream.clone().into_iter().next(), Some(TokenTree::Ident(ident)) if ident == "cfg")
         {
-            cfg.push(format!("#[{}]", group.stream()));
+            cfg.push(format!("#[{stream}]"));
         }
         at -= 2;
     }
@@ -1236,28 +957,17 @@ pub struct MacroUse {
 pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
     struct Uses(Vec<MacroUse>);
 
-    fn text(path: &Path) -> String {
-        quote::ToTokens::to_token_stream(path)
-            .to_string()
-            .replace(' ', "")
-    }
-
     fn scan(tokens: &TokenStream, uses: &mut Vec<MacroUse>) {
         let trees = tokens.clone().into_iter().collect::<Vec<_>>();
         for index in 0..trees.len() {
-            if let Some((path, len)) = path_at(&trees, index)
-                && is_punct(trees.get(index + len), '!')
-                && matches!(trees.get(index + len + 1), Some(TokenTree::Group(_)))
-            {
+            if let Some(call) = surface::macro_call(&trees, index) {
                 uses.push(MacroUse {
                     kind: MacroUseKind::Bang,
-                    path: text(&path),
+                    path: path_spelling(&call.path),
                 });
             }
-            if is_punct(trees.get(index), '#')
-                && let Some(TokenTree::Group(group)) = trees.get(index + 1)
-                && group.delimiter() == Delimiter::Bracket
-                && let Ok(meta) = syn::parse2::<Meta>(group.stream())
+            if let Some(call) = surface::attribute_call(&trees, index)
+                && let Ok(meta) = syn::parse2::<Meta>(call.group.stream())
             {
                 let attribute = Attribute {
                     pound_token: syn::token::Pound::default(),
@@ -1281,13 +991,13 @@ pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
                 ) {
                     uses.extend(paths.iter().map(|path| MacroUse {
                         kind: MacroUseKind::Derive,
-                        path: text(path),
+                        path: path_spelling(path),
                     }));
                 }
             } else if !surface::is_inert(attribute.path()) {
                 uses.push(MacroUse {
                     kind: MacroUseKind::Attribute,
-                    path: text(attribute.path()),
+                    path: path_spelling(attribute.path()),
                 });
             }
             if let Meta::List(list) = &attribute.meta {
@@ -1304,7 +1014,7 @@ pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
         fn visit_macro(&mut self, mac: &'ast Macro) {
             self.0.push(MacroUse {
                 kind: MacroUseKind::Bang,
-                path: text(&mac.path),
+                path: path_spelling(&mac.path),
             });
             scan(&mac.tokens, &mut self.0);
         }
@@ -1314,4 +1024,81 @@ pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
     let mut uses = Uses(Vec::new());
     uses.visit_file(&file);
     Ok(uses.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MacroUse, MacroUseKind, macro_uses, scan_registrations};
+
+    #[test]
+    fn registrations_keep_preceding_cfg_attributes_and_group_depth() {
+        let tokens: proc_macro2::TokenStream = syn::parse_str(
+            "#[cfg(a)] #[doc = \"x\"] #[cfg(b)] ::k::__register_host_descriptor!(f); \
+             const _: () = { k::__register_host_descriptor!(g) }; \
+             other! { k::__request_framework_sorts!() }",
+        )
+        .unwrap();
+        let mut found = Vec::new();
+        let mut requests_framework = false;
+        scan_registrations(&tokens, 0, &mut found, &mut requests_framework);
+        assert!(requests_framework);
+        assert_eq!(
+            found
+                .into_iter()
+                .map(|(depth, factory, cfg, _)| (depth, factory, cfg))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    0,
+                    "f".to_owned(),
+                    vec!["#[cfg (a)]".to_owned(), "#[cfg (b)]".to_owned()]
+                ),
+                (1, "g".to_owned(), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn macro_uses_finds_outer_and_inner_attributes_in_macro_tokens() {
+        let uses = macro_uses("other! { #[k::sort] #![k::rules] #[doc = \"inert\"] }").unwrap();
+        assert_eq!(
+            uses,
+            [
+                (MacroUseKind::Bang, "other"),
+                (MacroUseKind::Attribute, "k::sort"),
+                (MacroUseKind::Attribute, "k::rules"),
+            ]
+            .map(|(kind, path)| MacroUse {
+                kind,
+                path: path.to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn macro_uses_shares_token_path_rules() {
+        let uses = macro_uses(
+            "outer! { if !(x) match !(x) return !(x) x: k::id!(x) foo::k::id!(x) ::r#k::r#id!(x) }",
+        )
+        .unwrap();
+        assert_eq!(
+            uses,
+            ["outer", "k::id", "foo::k::id", "::r#k::r#id"].map(|path| MacroUse {
+                kind: MacroUseKind::Bang,
+                path: path.to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn macro_uses_preserves_generic_path_spelling() {
+        let uses = macro_uses("#[derive(Some::<u8>)] struct Example;").unwrap();
+        assert_eq!(
+            uses,
+            vec![MacroUse {
+                kind: MacroUseKind::Derive,
+                path: "Some::<u8>".to_owned(),
+            }]
+        );
+    }
 }

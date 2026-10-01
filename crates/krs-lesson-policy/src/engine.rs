@@ -6,7 +6,9 @@
 
 use krs_diagnostic::Code;
 use krs_syntax::SourceRange as ByteRange;
-use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
+use krs_syntax::surface::{
+    self, AttributeMacro, AuthoredResolver, Entry, FunctionMacro, Resolve, is_punct,
+};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use syn::ext::IdentExt;
 use syn::parse::Parser;
@@ -15,7 +17,7 @@ use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{
     Attribute, FnArg, ForeignItem, Ident, ImplItem, Item, ItemEnum, ItemExternCrate, ItemMacro,
-    ItemMod, ItemStruct, ItemUse, Macro, Meta, Path, PathSegment, TraitItem, UseTree, Variant,
+    ItemMod, ItemStruct, ItemUse, Macro, Meta, Path, TraitItem, UseTree, Variant,
 };
 
 use crate::rules::{
@@ -42,10 +44,12 @@ pub(crate) fn check(
         Ok(file) => bom + file.shebang.as_ref().map_or(0, String::len),
         Err(_) => bom + shebang_len(&source[bom..]),
     };
+    let resolve = AuthoredResolver::new(&policy.facade_alias);
     let mut checker = Checker {
         offset,
         file: display_file,
         policy,
+        resolve: &resolve,
         diagnostics: Vec::new(),
         contexts: Vec::new(),
         module_path: Vec::new(),
@@ -158,6 +162,7 @@ struct Checker<'a, 'ast> {
     offset: usize,
     file: &'a str,
     policy: &'a LessonPolicy,
+    resolve: &'a dyn Resolve,
     diagnostics: Vec<PolicyDiagnostic>,
     contexts: Vec<AttributeContext<'ast>>,
     /// Inline modules between the file root and the current node.
@@ -197,13 +202,13 @@ impl<'ast> Checker<'_, 'ast> {
 
     /// `Some(name)` when `path` is exactly `<alias>::<name>`.
     fn facade_member(&self, path: &Path) -> Option<String> {
-        surface::facade_member(path, self.alias())
+        self.resolve.facade_member(path)
     }
 
     /// The KRS attribute entry that `attribute` invokes, when its path is
     /// exactly `<alias>::<entry>` and the entry is not reserved.
     fn krs_attribute(&self, attribute: &Attribute) -> Option<AttributeMacro> {
-        match surface::resolve(attribute.path(), self.alias()) {
+        match self.resolve.resolve(attribute.path()) {
             Some(Entry::Attribute(entry)) if !entry.is_reserved() => Some(entry),
             _ => None,
         }
@@ -436,7 +441,7 @@ impl<'ast> Checker<'_, 'ast> {
         if self.names_reserved_facade_item(&segments) {
             return MacroClass::Reserved;
         }
-        if let Some(Entry::Function(entry)) = surface::resolve(path, self.alias()) {
+        if let Some(Entry::Function(entry)) = self.resolve.resolve(path) {
             return MacroClass::Krs(entry);
         }
         match (leading, segments.as_slice()) {
@@ -711,15 +716,9 @@ impl<'ast> Checker<'_, 'ast> {
 
     /// Recognizes `#[…]` or `#![…]` at `index`.
     fn scan_attribute(&mut self, tokens: &[TokenTree], index: usize) -> Option<usize> {
-        let inner = is_punct(tokens.get(index + 1), '!');
-        let group_index = index + 1 + usize::from(inner);
-        let Some(TokenTree::Group(group)) = tokens.get(group_index) else {
-            return None;
-        };
-        if group.delimiter() != Delimiter::Bracket {
-            return None;
-        }
-        let stream: TokenStream = tokens[index..=group_index].iter().cloned().collect();
+        let call = surface::attribute_call(tokens, index)?;
+        let inner = call.len == 3;
+        let stream: TokenStream = tokens[index..index + call.len].iter().cloned().collect();
         let parser = if inner {
             Attribute::parse_inner
         } else {
@@ -730,51 +729,33 @@ impl<'ast> Checker<'_, 'ast> {
             return None;
         };
         if self.check_attribute(attribute, Position::TokenBody) || scans_arguments(attribute) {
-            self.scan_tokens(&group.stream());
+            self.scan_tokens(&call.group.stream());
         }
-        Some(group_index + 1)
+        Some(index + call.len)
     }
 
     /// Recognizes `[::]a::b…! (…)` at `index`.
     fn scan_macro_path(&mut self, tokens: &[TokenTree], index: usize) -> usize {
-        let mut cursor = index;
-        let leading = is_path_separator(tokens, cursor);
-        if leading {
-            cursor += 2;
+        if let Some(call) = surface::macro_call(tokens, index) {
+            let path_range =
+                self.span_range(tokens[index].span(), tokens[index + call.len - 3].span());
+            self.check_macro(
+                &call.path,
+                path_range,
+                call.group.span_close(),
+                &call.group.stream(),
+            );
+            return index + call.len;
         }
-        let mut segments: Punctuated<PathSegment, syn::Token![::]> = Punctuated::new();
-        let first = cursor;
-        while let Some(TokenTree::Ident(ident)) = tokens.get(cursor) {
-            segments.push(PathSegment::from(ident.clone()));
-            cursor += 1;
-            if is_path_separator(tokens, cursor) {
-                cursor += 2;
-            } else {
-                break;
-            }
-        }
-        if segments.is_empty() {
+        let Some((path, len)) = surface::path_at(tokens, index) else {
             return index + 1;
-        }
-        let single_keyword = !leading
-            && segments.len() == 1
-            && krs_syntax::keyword::is_keyword(&segments[0].ident.unraw().to_string());
-        if single_keyword || !is_punct(tokens.get(cursor), '!') {
-            return cursor.max(index + 1);
-        }
-        let path_start = tokens[if leading { index } else { first }].span();
-        let path_end = tokens[cursor - 1].span();
-        let path_range = self.span_range(path_start, path_end);
-        let path = Path {
-            leading_colon: leading.then(|| syn::Token![::](path_start)),
-            segments,
         };
+        let cursor = index + len;
+        if !is_punct(tokens.get(cursor), '!') {
+            return cursor;
+        }
         match tokens.get(cursor + 1) {
-            Some(TokenTree::Group(group)) => {
-                self.check_macro(&path, path_range, group.span_close(), &group.stream());
-                cursor + 2
-            }
-            Some(TokenTree::Ident(_)) if !leading && path.is_ident("macro_rules") => {
+            Some(TokenTree::Ident(_)) if path.is_ident("macro_rules") => {
                 let end = match tokens.get(cursor + 2) {
                     Some(TokenTree::Group(group)) => (
                         cursor + 2 + usize::from(is_punct(tokens.get(cursor + 3), ';')),
@@ -782,7 +763,7 @@ impl<'ast> Checker<'_, 'ast> {
                     ),
                     _ => (cursor + 1, tokens[cursor + 1].span()),
                 };
-                let range = self.span_range(path_start, end.1);
+                let range = self.span_range(tokens[index].span(), end.1);
                 self.report(
                     MACRO_DEFINITION,
                     "lesson source cannot define macros".to_owned(),
@@ -984,22 +965,8 @@ fn display_path(leading: bool, segments: &[String]) -> String {
     }
 }
 
-fn is_punct(token: Option<&TokenTree>, character: char) -> bool {
-    matches!(token, Some(TokenTree::Punct(punct)) if punct.as_char() == character)
-}
-
 fn is_ident(token: Option<&TokenTree>, name: &str) -> bool {
     matches!(token, Some(TokenTree::Ident(ident)) if ident == name)
-}
-
-fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
-    matches!(
-        (tokens.get(index), tokens.get(index + 1)),
-        (Some(TokenTree::Punct(first)), Some(TokenTree::Punct(second)))
-            if first.as_char() == ':'
-                && first.spacing() == proc_macro2::Spacing::Joint
-                && second.as_char() == ':'
-    )
 }
 
 impl<'ast> Visit<'ast> for Checker<'_, 'ast> {

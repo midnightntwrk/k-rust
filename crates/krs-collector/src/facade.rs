@@ -13,18 +13,18 @@
 //! `extern crate <facade> as <alias>;` add a module-scoped alias
 //! ([`AttributeResolver::scoped`]).
 //!
-//! Resolution is exact and delegated to [`krs_syntax::surface::resolve`].
+//! Resolution and module bindings are delegated to [`krs_syntax::surface::FacadeScope`].
 
 use krs_ir::Position;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
+use krs_syntax::surface::{self, AttributeMacro, Entry, FacadeScope, FunctionMacro, Resolve};
+use syn::Attribute;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
-use syn::{Attribute, UseTree};
 use toml_edit::{Document, Item, TableLike};
 
 use crate::collect::{record_file, record_probe};
@@ -82,16 +82,32 @@ impl FacadeAliases {
         }
         Ok(Self { aliases })
     }
+}
 
-    fn contains(&self, name: &str) -> bool {
-        self.aliases.contains(name)
+/// Resolves the attributes of one module of an authored source file.
+#[derive(Clone, Debug)]
+pub struct AttributeResolver<'a> {
+    facade: FacadeScope,
+    display_file: &'a str,
+}
+
+impl<'a> AttributeResolver<'a> {
+    /// Creates a resolver using the package aliases and a diagnostic display filename.
+    #[must_use]
+    pub fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
+        Self {
+            facade: FacadeScope::new(facade.aliases.clone()),
+            display_file,
+        }
     }
 
-    /// The entry point that authored `path` invokes under any facade alias.
-    fn resolve(&self, path: &syn::Path) -> Option<Entry> {
-        self.aliases
-            .iter()
-            .find_map(|alias| surface::resolve(path, alias))
+    /// The resolver for a file or inline module whose items are `items`.
+    #[must_use]
+    pub fn scoped(&self, items: &[syn::Item]) -> Self {
+        Self {
+            facade: self.facade.scoped(items),
+            display_file: self.display_file,
+        }
     }
 
     /// The replacement spelling for an unresolved entry under each facade
@@ -102,131 +118,19 @@ impl FacadeAliases {
         } else {
             ("#[", "]")
         };
-        if self.aliases.is_empty() {
+        if self.facade.aliases().is_empty() {
             return format!(
                 "no name binds the `krs` facade here; add a dependency on the `krs` package (for example `k = {{ package = \"krs\", ... }}`) and write `{open}k::{entry}{close}`"
             );
         }
         let spellings = self
-            .aliases
+            .facade
+            .aliases()
             .iter()
             .map(|alias| format!("`{open}{alias}::{entry}{close}`"))
             .collect::<Vec<_>>()
             .join(" or ");
         format!("write {spellings} instead")
-    }
-}
-
-/// Resolves the attributes of one module of an authored source file.
-#[derive(Clone, Debug)]
-pub struct AttributeResolver<'a> {
-    facade: FacadeAliases,
-    display_file: &'a str,
-}
-
-impl<'a> AttributeResolver<'a> {
-    /// Creates a resolver using the package aliases and a diagnostic display filename.
-    #[must_use]
-    pub fn new(facade: &FacadeAliases, display_file: &'a str) -> Self {
-        Self {
-            facade: facade.clone(),
-            display_file,
-        }
-    }
-
-    /// The resolver for a module whose items are `items`, nested in the
-    /// module this resolver covers (or the file root).
-    ///
-    /// A `use <facade> as <alias>;` or `extern crate <facade> as <alias>;`
-    /// item adds `<alias>`, and any other item that binds a facade name in
-    /// the type namespace (`use`, `extern crate`, or `mod`) removes it.
-    /// Names are inherited into nested inline modules, where rustc accepts
-    /// them only through an import of the outer binding.
-    #[must_use]
-    pub fn scoped(&self, items: &[syn::Item]) -> Self {
-        let mut added = BTreeSet::new();
-        let mut shadowed = BTreeSet::new();
-        for item in items {
-            match item {
-                syn::Item::Use(item_use) => {
-                    self.use_bindings(&item_use.tree, &mut added, &mut shadowed);
-                }
-                syn::Item::ExternCrate(extern_crate) => {
-                    let binding = extern_crate
-                        .rename
-                        .as_ref()
-                        .map_or(&extern_crate.ident, |(_, rename)| rename)
-                        .unraw()
-                        .to_string();
-                    if self
-                        .facade
-                        .contains(&extern_crate.ident.unraw().to_string())
-                    {
-                        added.insert(binding);
-                    } else {
-                        shadowed.insert(binding);
-                    }
-                }
-                syn::Item::Mod(module) => {
-                    shadowed.insert(module.ident.unraw().to_string());
-                }
-                _ => {}
-            }
-        }
-        let mut facade = self.facade.clone();
-        facade.aliases.retain(|alias| !shadowed.contains(alias));
-        facade.aliases.extend(added);
-        Self {
-            facade,
-            display_file: self.display_file,
-        }
-    }
-
-    /// Records the type-namespace bindings of a top-level `use` tree: a
-    /// rename of a facade name adds its alias, and any other binding shadows
-    /// the name it binds.
-    fn use_bindings(
-        &self,
-        tree: &UseTree,
-        added: &mut BTreeSet<String>,
-        shadowed: &mut BTreeSet<String>,
-    ) {
-        match tree {
-            UseTree::Rename(rename) => {
-                let binding = rename.rename.unraw().to_string();
-                if self.facade.contains(&rename.ident.unraw().to_string()) {
-                    added.insert(binding);
-                } else {
-                    shadowed.insert(binding);
-                }
-            }
-            UseTree::Name(name) => {
-                let binding = name.ident.unraw().to_string();
-                if !self.facade.contains(&binding) {
-                    shadowed.insert(binding);
-                }
-            }
-            UseTree::Group(group) => {
-                for tree in &group.items {
-                    self.use_bindings(tree, added, shadowed);
-                }
-            }
-            UseTree::Path(path) => {
-                // `use super::k;` re-imports an outer binding, which may be a
-                // facade alias; any other path binds a non-facade item.
-                let relative = ["self", "super", "crate"]
-                    .iter()
-                    .any(|keyword| path.ident == keyword);
-                let mut bound = BTreeSet::new();
-                nested_bindings(&path.tree, &mut bound);
-                shadowed.extend(
-                    bound
-                        .into_iter()
-                        .filter(|name| !(relative && self.facade.contains(name))),
-                );
-            }
-            UseTree::Glob(_) => {}
-        }
     }
 
     /// Whether `attribute` invokes the attribute entry point `entry`.
@@ -295,7 +199,7 @@ impl<'a> AttributeResolver<'a> {
                     start.line(),
                     start.scalar_column(),
                     entry,
-                    self.facade.suggest(&entry, false),
+                    self.suggest(&entry, false),
                 ),
             )
             .with_span(attribute.span()));
@@ -304,10 +208,8 @@ impl<'a> AttributeResolver<'a> {
     }
 
     fn resolves_attribute(&self, path: &syn::Path, name: &str) -> bool {
-        self.facade.aliases.iter().any(|alias| {
-            surface::facade_member(path, alias).as_deref() == Some(name)
-                && (self.facade.resolve(path).is_some() || is_helper(name))
-        })
+        self.facade_member(path).as_deref() == Some(name)
+            && (self.resolve(path).is_some() || is_helper(name))
     }
 
     fn check_macro(&self, invocation: &syn::Macro) -> Result<(), CollectionError> {
@@ -337,10 +239,24 @@ impl<'a> AttributeResolver<'a> {
                 start.line(),
                 start.scalar_column(),
                 name,
-                self.facade.suggest(&name, true),
+                self.suggest(&name, true),
             ),
         )
         .with_span(invocation.path.span()))
+    }
+}
+
+impl Resolve for AttributeResolver<'_> {
+    fn facade_member(&self, path: &syn::Path) -> Option<String> {
+        self.facade.facade_member(path)
+    }
+
+    fn resolve(&self, path: &syn::Path) -> Option<Entry> {
+        self.facade.resolve(path)
+    }
+
+    fn scoped(&self, items: &[syn::Item]) -> Box<dyn Resolve> {
+        Box::new(self.facade.scoped(items))
     }
 }
 
@@ -378,26 +294,6 @@ impl<'ast> Visit<'ast> for EntryVisitor<'_, '_> {
             self.error = self.resolver.check_macro(&item.mac).err();
         }
         syn::visit::visit_item_macro(self, item);
-    }
-}
-
-/// Records the names that a `use` subtree below a path prefix binds; none
-/// of them names the facade.
-fn nested_bindings(tree: &UseTree, shadowed: &mut BTreeSet<String>) {
-    match tree {
-        UseTree::Rename(rename) => {
-            shadowed.insert(rename.rename.unraw().to_string());
-        }
-        UseTree::Name(name) if name.ident != "self" => {
-            shadowed.insert(name.ident.unraw().to_string());
-        }
-        UseTree::Name(_) | UseTree::Glob(_) => {}
-        UseTree::Group(group) => {
-            for tree in &group.items {
-                nested_bindings(tree, shadowed);
-            }
-        }
-        UseTree::Path(path) => nested_bindings(&path.tree, shadowed),
     }
 }
 
@@ -739,37 +635,6 @@ mod tests {
                 "[package]\nname = \"root\"\nversion = \"0.1.0\"\n[workspace]\n[dependencies]\nfixture = { path = \"member\" }\n[workspace.dependencies]\nworkspace-krs = { package = \"krs\", version = \"0.1.0\" }\n",
             ),
             "name:workspace_krs",
-        );
-    }
-
-    #[test]
-    fn module_items_rename_and_shadow_the_facade() {
-        let facade = FacadeAliases {
-            aliases: BTreeSet::from(["language_host".to_owned()]),
-        };
-        let root = AttributeResolver::new(&facade, "src/lib.rs");
-        let file: syn::File = syn::parse_quote! {
-            use k::Term;
-            use language_host as k;
-            extern crate language_host as host;
-        };
-        let scoped = root.scoped(&file.items);
-        assert_eq!(
-            scoped.facade.aliases,
-            BTreeSet::from([
-                "host".to_owned(),
-                "k".to_owned(),
-                "language_host".to_owned()
-            ])
-        );
-        let nested: syn::File = syn::parse_quote! {
-            use super::k;
-            use other as host;
-            mod language_host {}
-        };
-        assert_eq!(
-            scoped.scoped(&nested.items).facade.aliases,
-            BTreeSet::from(["k".to_owned()])
         );
     }
 

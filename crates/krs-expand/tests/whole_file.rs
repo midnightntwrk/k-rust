@@ -376,3 +376,12 @@ fn a_file_without_invocations_gets_an_empty_table() {
     );
     assert!(expansion.generated.text.contains("let _ = registrar;"));
 }
+
+#[test]
+fn raw_krs_attribute_arguments_are_not_expanded() {
+    let source = "other! { #[k::sort(k::anonymous!())] trait T {} }
+";
+    let expansion = expand(source).expect("opaque input expands");
+    assert!(expansion.generated.map.invocations.is_empty());
+    assert!(expansion.generated.text.starts_with(source));
+}

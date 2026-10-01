@@ -1,10 +1,8 @@
-//! The catalogue of the KRS macro surface.
+//! The catalogue, resolution, and invocation discovery of the KRS macro surface.
 //!
-//! This module is the one place that names the KRS entry points, the helper
-//! attributes each item kind accepts, and the attributes rustc never
-//! expands, and it owns the one resolver that decides whether a path invokes
-//! a KRS entry point. Expanders, the collector, and the lesson policy must
-//! take these facts from here instead of spelling them again.
+//! This module names the KRS entry points, the helper attributes each item kind accepts, and the attributes rustc never expands.
+//! It owns path resolution and invocation discovery over syntax and token trees.
+//! Expanders, the collector, and the lesson policy must take these facts from here instead of spelling them again.
 //!
 //! Provenance roles are catalogued by [`ProvenanceRole`](crate::ProvenanceRole);
 //! raw identifiers are compared through [`syn::ext::IdentExt::unraw`].
@@ -25,6 +23,19 @@
 
 use syn::Path;
 use syn::ext::IdentExt;
+
+mod discovery;
+mod resolver;
+mod tokens;
+
+pub use discovery::{
+    AttributeInvocation, Invocation, InvocationKind, InvocationNode, Scope, invocations,
+};
+pub use resolver::{AuthoredResolver, FacadeScope, GeneratedResolver, Resolve};
+pub use tokens::{
+    AttributeCall, MacroCall, TokenCall, TokenCallKind, attribute_call, is_joint_colon,
+    is_path_separator, is_punct, macro_call, path_at, token_calls,
+};
 
 pub use crate::path::path_text;
 
