@@ -13,12 +13,13 @@ use crate::parse::{
     unsupported_rule_signature as signature_error,
 };
 use crate::provenance::RuleSide;
-use crate::rule::{RuleCondition, parse_readable_sort, parse_term_sort, take_requires_helper};
+use crate::rule::{RuleCondition, take_requires_helper};
 use crate::term::push_record_field_anchors;
+use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
     StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
-    TermNode, TermSort, TokenRange, parse_cells_expression, parse_cells_pattern,
+    TermNode, TokenRange, parse_cells_expression, parse_cells_pattern,
 };
 
 /// Semantic class of one binding introduced by a configuration-rule subject.

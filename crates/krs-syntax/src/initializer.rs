@@ -17,7 +17,7 @@ use crate::parse::{
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
 };
-use crate::rule::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
     TermExpression, TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,

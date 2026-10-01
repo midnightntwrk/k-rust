@@ -7,7 +7,7 @@ use syn::{
 
 use crate::attribute::is_plain_path;
 use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::rule::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One validated named field of a record constructor.

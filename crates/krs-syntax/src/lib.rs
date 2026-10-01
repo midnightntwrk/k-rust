@@ -22,6 +22,7 @@ mod state_macro;
 mod state_rule;
 pub mod surface;
 mod term;
+mod term_sort;
 pub mod trivia;
 
 pub use attribute::{
@@ -57,8 +58,7 @@ pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_
 pub use range::TokenRange;
 pub use rule::{
     RuleBlock, RuleClause, RuleClauseLayout, RuleCondition, RuleExtra, RuleHeadResult, RuleImport,
-    RuleItem, RuleNarrowing, RuleParameter, RulePattern, TermSort,
-    parse_rule_block_source_with_trivia,
+    RuleItem, RuleNarrowing, RuleParameter, RulePattern, parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{
@@ -77,6 +77,7 @@ pub use term::{
     CellTerm, TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument,
     TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
 };
+pub use term_sort::TermSort;
 pub use trivia::{
     BlockCommentTrivia, DocCommentStyle, LineCommentTrivia, SourceRange, Trivia, TriviaAttachment,
     TriviaKind, TriviaTable, WhitespaceTrivia, lex_gaps,

@@ -12,7 +12,7 @@ use crate::attribute::{ConstructorsAttribute, VariantSyntaxAttribute};
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::rule::{parse_readable_sort, parse_term_sort};
+use crate::term_sort::{parse_readable_sort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One tier in an exhaustive enum-level readable-family precedence chain.
