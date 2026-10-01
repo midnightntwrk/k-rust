@@ -61,6 +61,17 @@ pub enum Severity {
     Warning,
 }
 
+/// Returns a nonempty token span range in the producer's input text.
+/// Empty spans do not establish authored coordinates.
+#[cfg(feature = "proc-macro2")]
+#[must_use]
+pub fn span_byte_range(span: proc_macro2::Span) -> Option<ByteRange> {
+    let range = span.byte_range();
+    ByteRange::new(range.start, range.end)
+        .ok()
+        .filter(|range| !range.is_empty())
+}
+
 /// A diagnostic location retained in the producer's coordinate system.
 #[derive(Clone, Debug)]
 pub enum Location {

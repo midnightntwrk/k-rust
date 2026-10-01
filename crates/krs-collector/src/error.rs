@@ -92,8 +92,10 @@ impl CollectionError {
     }
 
     pub(crate) fn with_span(self, span: proc_macro2::Span) -> Self {
-        let range = span.byte_range();
-        self.with_input_range(ByteRange::new(range.start, range.end).expect("ordered token span"))
+        match krs_diagnostic::span_byte_range(span) {
+            Some(range) => self.with_input_range(range),
+            None => self,
+        }
     }
 
     pub(crate) fn with_provenance(self, provenance: &krs_ir::DescriptorProvenance) -> Self {
@@ -214,6 +216,17 @@ impl ToDiagnostic for CollectionError {
 mod tests {
     use super::*;
     use krs_ir::{PackageId, Sha256Digest};
+
+    #[test]
+    fn call_site_span_does_not_establish_a_location() {
+        let error = CollectionError::new(CollectionErrorKind::SourceSyntax, "syntax")
+            .with_span(proc_macro2::Span::call_site());
+        assert_eq!(error.input_range, None);
+        assert!(matches!(
+            error.to_diagnostic().primary.location,
+            Location::None
+        ));
+    }
 
     #[test]
     #[allow(clippy::too_many_lines)] // Covers every registered collection category.

@@ -1170,10 +1170,7 @@ pub(super) fn source_syntax_at(
     let diagnostic = krs_diagnostic::ToDiagnostic::to_diagnostic(&error);
     let range = match diagnostic.primary.location {
         krs_diagnostic::Location::Range(range) => Some(range),
-        krs_diagnostic::Location::Span(span) => {
-            let range = span.byte_range();
-            krs_ir::ByteRange::new(range.start, range.end).ok()
-        }
+        krs_diagnostic::Location::Span(span) => krs_diagnostic::span_byte_range(span),
         _ => None,
     }
     .and_then(|range| {
@@ -1196,6 +1193,30 @@ mod tests {
 
     use super::*;
     use crate::facade::FacadeAliases;
+
+    #[test]
+    fn call_site_syntax_errors_remain_unlocated_at_every_offset() {
+        for offset in [0, 20] {
+            let error = krs_syntax::SyntaxError::new(
+                krs_syntax::SyntaxErrorKind::InvalidTermType,
+                proc_macro2::Span::call_site(),
+            );
+            let file = krs_ir::SourceFileId::new(
+                krs_ir::PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+                "src/lib.rs",
+                krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+            )
+            .unwrap();
+            let collected = source_syntax_at(error, offset).with_source_file(&file);
+            assert!(collected.source_range().is_none());
+            assert!(matches!(
+                krs_diagnostic::ToDiagnostic::to_diagnostic(&collected)
+                    .primary
+                    .location,
+                krs_diagnostic::Location::None
+            ));
+        }
+    }
 
     #[test]
     fn syntax_locations_use_span_fallback_and_offset_trivia_ranges() {
