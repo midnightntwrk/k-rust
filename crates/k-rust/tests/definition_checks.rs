@@ -312,6 +312,42 @@ fn is_sort_predicate_conflicts_match_kompile() {
     }));
 }
 
+/// A declared `isS` conflicts only with a predicate compilation generates, which it does for the
+/// sorts whose role has a sort predicate. A numeral, a `#` sort and `KList` have no K terms and
+/// no generated predicate, so declaring theirs conflicts with nothing; a defined sort is the
+/// control.
+#[test]
+fn is_sort_predicate_conflicts_only_with_generated_predicates() {
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("K"),
+                i107_syntax_sort("KList"),
+                i107_syntax_sort("8"),
+                i107_syntax_sort("#Foo"),
+                i107_syntax_sort("Foo"),
+                Arc::new(i107_is_sort_predicate("is8", "K")),
+                Arc::new(i107_is_sort_predicate("is#Foo", "K")),
+                Arc::new(i107_is_sort_predicate("isKList", "K")),
+                Arc::new(i107_is_sort_predicate("isFoo", "K")),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let conflicts = i107_is_sort_conflicts(&definition, StructuralCheckOptions::default());
+    assert_eq!(
+        conflicts
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>(),
+        ["Syntax declaration conflicts with automatically generated isFoo predicate."]
+    );
+}
+
 fn i107_is_sort_predicate(name: &str, argument: &str) -> Sentence {
     Sentence::Production {
         label: Some(Label::new(name)),

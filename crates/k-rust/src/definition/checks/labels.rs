@@ -24,10 +24,16 @@ pub(crate) fn internal_labels(
         .collect();
     labels.insert(GeneratedCell::Top.label().to_owned());
     labels.insert(Label::semantic_cast(&Sort::frontend(FrontendSort::Bag)).name);
+    // Compilation declares `isS` and `project:S` only for the sorts whose role has them, so a
+    // term may mention them without a production for exactly those sorts.
     for sort in sorts.all_sorts() {
         labels.insert(Label::semantic_cast(sort).name);
-        labels.insert(Label::projection(sort).name);
-        labels.insert(Label::sort_predicate(sort).name);
+        if sort.role().has_sort_projection() {
+            labels.insert(Label::projection(sort).name);
+        }
+        if sort.role().has_sort_predicate() {
+            labels.insert(Label::sort_predicate(sort).name);
+        }
     }
     for id in productions.ids() {
         let Sentence::Production {

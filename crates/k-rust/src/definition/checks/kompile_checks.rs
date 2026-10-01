@@ -9,7 +9,7 @@ use super::{ProductionItem, Sentence};
 use crate::definition::AttributeKey;
 use crate::definition::{DefinitionViews, ModuleId, ResolvedDefinition};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{Label, Sort, WellKnownModule};
+use crate::kast::{Label, WellKnownModule};
 use crate::names::BuiltinSort;
 
 pub fn check_claims_in_definition(
@@ -121,14 +121,18 @@ pub(super) fn check_is_sort_predicates_with_views(
 ) -> Vec<Diagnostic> {
     let definition = views.definition();
     let checked_modules = parsed_definition_modules(definition, options);
+    // The predicates compilation generates: `isS` for every sort `S` whose role has a sort
+    // predicate. A declared `isS` for any other sort (a numeral, a `#` sort, `KList`) or for a
+    // parametric head (compilation generates `isS` per instance) conflicts with nothing.
     let generated = checked_modules
         .iter()
         .flat_map(|module| {
             views
                 .sort_catalog(*module)
-                .defined_heads()
+                .all_sorts()
                 .iter()
-                .map(|sort| Label::sort_predicate(&Sort::new(sort.as_str())).name)
+                .filter(|sort| sort.role().has_sort_predicate())
+                .map(|sort| Label::sort_predicate(sort).name)
                 .collect::<Vec<_>>()
         })
         .collect::<BTreeSet<_>>();

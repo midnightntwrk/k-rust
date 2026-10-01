@@ -2697,6 +2697,146 @@ fn a_strict_result_sort_without_a_sort_predicate_is_an_invalid_heat_cool_diagnos
     }
 }
 
+/// Compiles `source`, whose main module is `MAIN`, with the prelude for the Rust backend.
+fn compile_main_with_prelude(
+    file: &str,
+    source: &str,
+) -> Result<k_rust::kompile::CompiledKoreArtifacts, k_rust::kompile::CompileError> {
+    let prelude = embedded("prelude.md").unwrap();
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new(file, source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    compile_loaded_definition(&loaded, CompileOptions::default())
+}
+
+/// The compiled definition is the main module's import closure, so a strict production declared
+/// in a syntax module finds `isKResult` when the importing main module declares `KResult`: the
+/// hybrid rules and the sequential context's side condition both mention it, and the compiled
+/// definition declares it.
+#[test]
+fn a_strict_production_in_a_syntax_module_finds_the_result_predicate_of_the_main_closure() {
+    for (file, source) in [
+        (
+            "hybsplit.k",
+            indoc! {r#"
+                module MAIN-SYNTAX
+                  imports BOOL
+                  syntax Val ::= "v"
+                  syntax Exp ::= Val | foo(Exp) [strict, hybrid, symbol(foo)]
+                endmodule
+                module MAIN
+                  imports MAIN-SYNTAX
+                  syntax KResult ::= Val
+                endmodule
+            "#},
+        ),
+        (
+            "seqsplit.k",
+            indoc! {r#"
+                module MAIN-SYNTAX
+                  imports BOOL
+                  syntax Val ::= "v"
+                  syntax Exp ::= Val | foo(Exp, Exp) [seqstrict(c), result(Val), symbol(foo)]
+                endmodule
+                module MAIN
+                  imports MAIN-SYNTAX
+                  syntax KResult ::= Val
+                  context alias [c]: HERE
+                endmodule
+            "#},
+        ),
+    ] {
+        let artifacts = compile_main_with_prelude(file, source)
+            .unwrap_or_else(|error| panic!("{file}: {error}"));
+        assert!(
+            artifacts
+                .definition_kore
+                .contains("symbol LblisKResult{}(SortK{}) : SortBool{}"),
+            "{file}"
+        );
+        // Beyond its declaration and its own axioms, the predicate is used by the generated rules.
+        assert!(
+            artifacts.definition_kore.matches("LblisKResult{}(").count() > 3,
+            "{file}"
+        );
+    }
+}
+
+/// A strict production in a module outside the main module's import closure contributes nothing
+/// to the compiled definition, so its hybrid rules are not checked for `isKResult`.
+#[test]
+fn a_hybrid_production_outside_the_main_closure_is_not_checked_for_its_predicate() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module OTHER
+          imports BOOL
+          syntax Exp ::= "e" | foo(Exp) [strict, hybrid, symbol(foo)]
+        endmodule
+        module MAIN
+          imports BOOL
+        endmodule
+    "#};
+    resolve_strict(&parsed(source)).unwrap();
+}
+
+/// The `NoKTerms` remedy is followable: a definition that declares the predicate of a sort
+/// without K terms itself (`is8`, `is#Foo`) compiles, and the compiled definition declares that
+/// predicate once, the user's own function, which the heat and cool rules use.
+#[test]
+fn declaring_the_predicate_of_a_result_sort_without_k_terms_compiles() {
+    for (file, sort, declaration, symbol) in [
+        (
+            "remedy8.k",
+            "8",
+            "syntax Bool ::= is8(K) [symbol(is8), function]",
+            "Lblis8",
+        ),
+        (
+            "remedyfoo.k",
+            "#Foo",
+            r#"syntax Bool ::= "is#Foo" "(" K ")" [symbol(is#Foo), function]"#,
+            "Lblis'Hash'Foo",
+        ),
+    ] {
+        let source = format!(
+            "module MAIN\n  imports BOOL\n  syntax {sort} ::= \"x\"\n  syntax KResult\n  {declaration}\n  syntax Exp ::= foo(Exp) [strict, result({sort})] | \"e\"\nendmodule\n"
+        );
+        let artifacts = compile_main_with_prelude(file, &source)
+            .unwrap_or_else(|error| panic!("{file}: {error}"));
+        assert_eq!(
+            artifacts
+                .definition_kore
+                .matches(&format!("symbol {symbol}{{}}(SortK{{}}) : SortBool{{}}"))
+                .count(),
+            1,
+            "{file}"
+        );
+        // The heating and the cooling rule each test the strict argument.
+        assert!(
+            artifacts
+                .definition_kore
+                .matches(&format!("{symbol}{{}}("))
+                .count()
+                >= 2,
+            "{file}"
+        );
+    }
+}
+
 #[test]
 fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
     let source = indoc! {r#"

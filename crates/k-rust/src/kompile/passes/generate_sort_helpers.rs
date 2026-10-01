@@ -40,7 +40,7 @@ use crate::{
         Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, ResolvedDefinition,
         Sentence, SortCatalog, extend_with_new_sentences, retain_new_sentences,
     },
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, Term, parser::parse_sort},
     provenance::GeneratingPass,
 };
 
@@ -505,14 +505,18 @@ fn sole_generator(
 /// Why a module has no sort predicate `isS` for a sort that a sentence names.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MissingSortPredicate {
-    /// The module has no sort `S`.
+    /// The module has no sort `S`, and declaring it would give it a sort predicate.
     UnknownSort,
-    /// `S` is a sort of the module whose role has no sort predicate: it has no K terms.
+    /// `S`'s role has no sort predicate: it has no K terms, declared or not.
     NoKTerms,
 }
 
 impl MissingSortPredicate {
     /// What the definition can do about the missing `predicate_label` of `sort`.
+    ///
+    /// Every remedy is one compilation accepts: declaring a sort whose role has a sort predicate
+    /// generates `isS`, and a declared `isS` production of a sort without one conflicts with no
+    /// generated predicate (the definition checks read the same role predicate).
     pub(crate) fn remedy(self, sort: &str, predicate_label: &str) -> String {
         match self {
             Self::UnknownSort => format!(
@@ -533,6 +537,10 @@ impl MissingSortPredicate {
 /// predicate generator declares `isS` for exactly those sorts. Reading the same role predicate as
 /// the generator lets a pass that runs before it, or standalone, decide the same way, so a sentence
 /// mentions `isS` only when compilation declares it.
+///
+/// A caller that generates sentences for the compiled definition passes the main module's
+/// catalogs: the compiled definition is the main module's import closure, so that is where `isS`
+/// has to be declared, wherever in the closure the sentence that asks for it sits.
 pub(crate) fn sort_predicate_in_module(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
@@ -545,14 +553,15 @@ pub(crate) fn sort_predicate_in_module(
     {
         return Ok(());
     }
-    match sorts
-        .all_sorts()
-        .iter()
-        .find(|declared| declared.to_string() == sort)
-    {
-        Some(declared) if declared.role().has_sort_predicate() => Ok(()),
-        Some(_) => Err(MissingSortPredicate::NoKTerms),
-        None => Err(MissingSortPredicate::UnknownSort),
+    // The role reads the head's spelling, so a sort without a predicate is reported as such
+    // whether or not it is declared: declaring it would not give it one.
+    let parsed = parse_sort(sort).unwrap_or_else(|_| Sort::new(sort));
+    if !parsed.role().has_sort_predicate() {
+        Err(MissingSortPredicate::NoKTerms)
+    } else if sorts.all_sorts().contains(&parsed) {
+        Ok(())
+    } else {
+        Err(MissingSortPredicate::UnknownSort)
     }
 }
 

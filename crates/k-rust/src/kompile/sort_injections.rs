@@ -1096,10 +1096,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if argument_sorts.len() != arguments.len()
             && (!allow_trailing_arguments || arguments.len() < argument_sorts.len())
         {
+            // `isS` is a generated sort predicate only for a sort whose role has one.
             if label.name.strip_prefix("is").is_some_and(|sort| {
-                self.sorts
-                    .defined_heads()
-                    .contains(&SortHead::nullary(sort))
+                Sort::new(sort).role().has_sort_predicate()
+                    && self
+                        .sorts
+                        .defined_heads()
+                        .contains(&SortHead::nullary(sort))
             }) {
                 return Err(SortInjectionError::InvalidSortPredicate {
                     label: label.name.clone(),
