@@ -5341,3 +5341,27 @@ fn a_declared_sort_named_like_a_sort_parameter_is_a_rule_sort() {
         "the compiled KORE declares SortSort"
     );
 }
+
+/// A case-1 production whose slot `MInt{W}` has no parse-time width is recognized at the
+/// placeholder `MInt{K}`, which denotes no set of terms whether or not the module declares an
+/// instance of `MInt`. Its unary instances (`Int ::= MInt{K}`, `Bool ::= MInt{K}`) therefore state
+/// no inclusion, and a variable used at `Int` and at `Bool` is a sort error rather than a variable
+/// inferred at the placeholder.
+#[test]
+fn a_placeholder_slot_without_a_declared_instance_states_no_subsort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" | "false"
+          syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax {S, W} S ::= MInt{W}
+          syntax Foo ::= f(Int, Bool) | "g"
+          rule f(X, X) => g
+        endmodule
+    "#};
+    let error =
+        resolve_rule_bubbles(&lowered(source)).expect_err("X is used at two incomparable sorts");
+    let message = error.to_string();
+    assert!(message.contains("incompatible sort bounds"), "{message}");
+    assert!(!message.contains("MInt{K}"), "{message}");
+}

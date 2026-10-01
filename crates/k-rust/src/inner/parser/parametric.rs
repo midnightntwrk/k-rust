@@ -52,6 +52,10 @@ pub(crate) struct ParsingOnlySubsort {
 pub(crate) struct ParametricConcretization<'a> {
     pub(crate) families: Vec<ParametricFamily<'a>>,
     pub(crate) parsing_only_subsorts: Vec<ParsingOnlySubsort>,
+    /// Every parametric head whose placeholder (`placeholder_of`) some instance's substitution
+    /// writes at a result or nonterminal slot: a slot `H{P}` whose parameter `P` has no
+    /// parse-time value becomes `H{K}`, whether or not the definition declares an instance of `H`.
+    pub(crate) placeholder_heads: BTreeSet<SortHead>,
 }
 
 /// Enumerate the concrete parsing productions derived from formal productions.
@@ -84,6 +88,7 @@ pub(crate) fn concretize_parametric_productions<'a>(
         .collect::<Vec<_>>();
 
     let mut families = Vec::new();
+    let mut placeholder_heads = BTreeSet::new();
     for sentence in formal_sources {
         let Sentence::Production {
             label,
@@ -161,6 +166,9 @@ pub(crate) fn concretize_parametric_productions<'a>(
             ]
         };
 
+        for substitution in &substitutions {
+            placeholder_heads.extend(placeholders_written(sort, items, substitution));
+        }
         let instances = substitutions
             .into_iter()
             .map(|substitution| ParametricInstance {
@@ -211,7 +219,28 @@ pub(crate) fn concretize_parametric_productions<'a>(
     ParametricConcretization {
         families,
         parsing_only_subsorts,
+        placeholder_heads,
     }
+}
+
+/// The heads of the formal production's result and nonterminal item sorts that `substitution`
+/// turns into the head's placeholder: the slots an instance recognizes at `H{K}`.
+fn placeholders_written<'s>(
+    sort: &'s Sort,
+    items: &'s [ProductionItem],
+    substitution: &'s BTreeMap<Sort, Sort>,
+) -> impl Iterator<Item = SortHead> + 's {
+    std::iter::once(sort)
+        .chain(items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        }))
+        .filter(|formal| !formal.parameters.is_empty())
+        .filter_map(move |formal| {
+            let head = SortHead::from(formal);
+            let substituted = substitute_sort(formal, substitution);
+            (substituted != *formal && substituted == placeholder_of(&head)).then_some(head)
+        })
 }
 
 impl ParsingOnlySubsort {
@@ -228,9 +257,12 @@ impl ParsingOnlySubsort {
 }
 
 impl Grammar {
-    /// Register the placeholder of every parametric head the plan bridges, as a declared instance
-    /// when the plan's declared instances include its spelling and as scaffolding otherwise.
-    /// Heads that share a name share the placeholder spelling (`placeholder_of`) and so the role.
+    /// Register the placeholder of every head whose placeholder the plan writes into a slot, and
+    /// of every bridged head, as a declared instance when the plan's declared instances include
+    /// its spelling and as scaffolding otherwise. A slot written at `H{K}` is recognized at the
+    /// placeholder whether or not any instance of `H` is declared, so the registration does not
+    /// depend on the bridges. Heads that share a name share the placeholder spelling
+    /// (`placeholder_of`) and so the role.
     pub(super) fn register_placeholders(&mut self, concretization: &ParametricConcretization<'_>) {
         let instances = concretization
             .parsing_only_subsorts
@@ -241,6 +273,7 @@ impl Grammar {
             .parsing_only_subsorts
             .iter()
             .map(|bridge| &bridge.head)
+            .chain(&concretization.placeholder_heads)
             .collect::<BTreeSet<_>>();
         for head in heads {
             let role = if instances.contains(&placeholder_of(head)) {
@@ -623,6 +656,40 @@ mod tests {
                     [super::super::Item::NonTerminal(sort)] if sort == &mint_8
                 )
         }));
+    }
+
+    #[test]
+    fn a_placeholder_written_into_a_slot_is_registered_without_a_declared_instance() {
+        // `syntax {W} Int ::= width(MInt{W})` with no declared instance of `MInt`: case 4 writes
+        // the slot at `MInt{K}`, which the plan bridges from nothing. The slot is still recognized
+        // at the placeholder, so the placeholder is registered as scaffolding.
+        let w = Sort::new("W");
+        let mint_w = Sort::with_parameters("MInt", vec![w.clone()]);
+        let mint_k = Sort::with_parameters("MInt", vec![Sort::new("K")]);
+        let sentences = vec![
+            syntax_sort(Vec::new(), Sort::new("Int")),
+            syntax_sort(vec![w.clone()], mint_w.clone()),
+            production(
+                vec![w],
+                Sort::new("Int"),
+                "width",
+                vec![nonterminal(mint_w)],
+            ),
+        ];
+        let references = sentences.iter().collect::<Vec<_>>();
+        let concretization = concretize_parametric_productions(&references);
+        assert!(concretization.parsing_only_subsorts.is_empty());
+        assert_eq!(
+            concretization.placeholder_heads,
+            BTreeSet::from([SortHead::from(&mint_k)])
+        );
+
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+
+        assert_eq!(
+            grammar.placeholders,
+            BTreeMap::from([(mint_k, Placeholder::Scaffolding)])
+        );
     }
 
     #[test]
