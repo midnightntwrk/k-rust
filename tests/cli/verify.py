@@ -69,7 +69,9 @@ def cli_command(
     output: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     extras = ["--output", str(output)] if output is not None else []
-    arguments = Invocation(binary, manifest, package, definition).argv(command, *extras)
+    arguments = Invocation(binary, manifest, package, definition).argv(
+        command, "--message-format=json", *extras
+    )
     environment = {
         "CARGO_TARGET_DIR": str(target),
         "CARGO_NET_OFFLINE": "true",

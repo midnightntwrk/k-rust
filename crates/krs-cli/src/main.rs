@@ -1,15 +1,17 @@
 //! Cargo-style command-line frontend for the KRS definition compiler.
 
 use krs_cli::{
-    Backend, Command, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector,
-    RegistrationMode, execute_command_measured, valid_identifier_segment,
+    Backend, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector, KrsCfg,
+    MessageFormat, PackageSelector, RegistrationMode, execute_command_reported,
+    valid_identifier_segment,
 };
+use krs_diagnostic::ToDiagnostic;
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
 use lexopt::Arg::{Long, Short, Value};
 use std::ffi::OsString;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "\
@@ -37,6 +39,7 @@ Options:
   --output DIRECTORY         Required for emit-k and build
   --timings FILE             Write krs-timings/1 phase timings as JSON
   --counters FILE            Write krs-counters/1 work counters as JSON
+  --message-format human|json Diagnostic output (default: human)
   --no-reuse                 Run the collector and compiler even on an unchanged input
   --stdin                    Format stdin and write the result to stdout
   --edition YEAR             Rust edition for --stdin (default: 2024)
@@ -59,14 +62,14 @@ fn main() {
         Ok(ParseResult::Run(request, measure)) => {
             let mut measurement =
                 Measurement::new(measure.timings.is_some(), measure.counters.is_some());
-            let result = execute_command_measured(&request, &mut measurement);
+            let (result, sources) = execute_command_reported(&request, &mut measurement);
             let measured = write_measurement(
                 &measure,
                 &measurement,
                 request.command.kind(),
                 result.is_ok(),
             );
-            if !report_outcome(result) || !measured {
+            if !report_outcome(result, request.message_format, &sources) || !measured {
                 std::process::exit(1);
             }
         }
@@ -115,10 +118,19 @@ fn write_measurement(
 }
 
 /// Print a command outcome; false when the command or stdout failed.
-fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>) -> bool {
+fn report_outcome(
+    result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>,
+    format: MessageFormat,
+    sources: &DiagnosticSources,
+) -> bool {
     match result {
         Ok(outcome) => {
-            report_diagnostics(&outcome.warnings().envelopes, &outcome.warnings().unlocated);
+            report_diagnostics(
+                &outcome.warnings().envelopes,
+                &outcome.warnings().unlocated,
+                format,
+                sources,
+            );
             if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
                 eprintln!("krs: could not write stdout: {error}");
                 return false;
@@ -127,7 +139,7 @@ fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>
         }
         Err(error) => {
             if let Some(diagnostics) = error.diagnostics() {
-                report_diagnostics(&diagnostics, error.unlocated_diagnostics());
+                report_diagnostics(&diagnostics, error.unlocated_diagnostics(), format, sources);
             } else {
                 eprintln!("krs: {error}");
             }
@@ -139,8 +151,18 @@ fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>
 fn report_diagnostics(
     envelopes: &[krs_cli::DiagnosticEnvelope],
     unlocated: &[krs_cli::UnlocatedDiagnostic],
+    format: MessageFormat,
+    sources: &DiagnosticSources,
 ) {
-    if let Err(error) = write_diagnostics(&mut io::stderr().lock(), envelopes, unlocated) {
+    let color = io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    if let Err(error) = write_diagnostics(
+        &mut io::stderr().lock(),
+        envelopes,
+        unlocated,
+        format,
+        sources,
+        color,
+    ) {
         eprintln!("krs: could not render diagnostic: {error}");
     }
 }
@@ -149,12 +171,27 @@ fn write_diagnostics(
     writer: &mut impl Write,
     envelopes: &[krs_cli::DiagnosticEnvelope],
     unlocated: &[krs_cli::UnlocatedDiagnostic],
+    format: MessageFormat,
+    sources: &DiagnosticSources,
+    color: bool,
 ) -> io::Result<()> {
     for diagnostic in envelopes {
-        writer.write_all(diagnostic.to_json_line()?.as_bytes())?;
+        match format {
+            MessageFormat::Json => writer.write_all(diagnostic.to_json_line()?.as_bytes())?,
+            MessageFormat::Human => {
+                writeln!(writer, "{}", sources.render_envelope(diagnostic, color))?;
+            }
+        }
     }
     for diagnostic in unlocated {
-        writeln!(writer, "krs: {diagnostic}")?;
+        match format {
+            MessageFormat::Json => writeln!(writer, "krs: {diagnostic}")?,
+            MessageFormat::Human => writeln!(
+                writer,
+                "{}",
+                sources.render_diagnostic(&diagnostic.to_diagnostic(), color)
+            )?,
+        }
     }
     Ok(())
 }
@@ -186,6 +223,7 @@ struct RunOptions {
     output: Option<PathBuf>,
     registration: Option<RegistrationMode>,
     no_reuse: bool,
+    message_format: Option<MessageFormat>,
     measure: MeasureOptions,
 }
 
@@ -252,6 +290,15 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
         match argument {
             Short('h') | Long("help") => return Ok(ParseResult::Help),
             Long("no-reuse") => options.no_reuse = true,
+            Long("message-format") => {
+                let value = option_value(parser, "message format")?;
+                let selected = match value.as_str() {
+                    "human" => MessageFormat::Human,
+                    "json" => MessageFormat::Json,
+                    _ => return Err(usage(format!("unknown message format `{value}`"))),
+                };
+                set_once(&mut options.message_format, selected, "--message-format")?;
+            }
             Long("manifest-path") => set_once(
                 &mut options.manifest_path,
                 PathBuf::from(option_value(parser, "manifest path")?),
@@ -326,6 +373,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         output,
         registration,
         no_reuse,
+        message_format,
         measure,
     } = options;
     if package.is_some() && package_id.is_some() {
@@ -367,6 +415,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
             cfg,
             registration: registration.unwrap_or(RegistrationMode::Inventory),
             no_reuse,
+            message_format: message_format.unwrap_or_default(),
         },
         measure,
     ))
@@ -571,7 +620,15 @@ mod tests {
         warning.severity = krs_cli::DiagnosticSeverity::Warning;
         warning.message = "unused variable".to_owned();
         let mut output = Vec::new();
-        write_diagnostics(&mut output, &[envelope.clone()], &[error, warning]).unwrap();
+        write_diagnostics(
+            &mut output,
+            &[envelope.clone()],
+            &[error, warning],
+            MessageFormat::Json,
+            &DiagnosticSources::default(),
+            false,
+        )
+        .unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
             format!(
@@ -597,6 +654,35 @@ mod tests {
             ParseResult::Run(request, measure) => (request, measure),
             _ => panic!("expected run command"),
         }
+    }
+
+    #[test]
+    fn parses_message_format() {
+        for command in ["check", "expand", "emit-k", "build"] {
+            let mut args = vec![command, "--package", "imp", "--definition", "main"];
+            if matches!(command, "emit-k" | "build") {
+                args.extend(["--output", "out"]);
+            }
+            assert_eq!(run(&args).0.message_format, MessageFormat::Human);
+            for spelling in [
+                vec!["--message-format", "json"],
+                vec!["--message-format=json"],
+                vec!["--message-format=human"],
+            ] {
+                let mut selected = args.clone();
+                selected.extend(&spelling);
+                let expected = if spelling.last() == Some(&"--message-format=human") {
+                    MessageFormat::Human
+                } else {
+                    MessageFormat::Json
+                };
+                assert_eq!(run(&selected).0.message_format, expected);
+            }
+        }
+        assert_eq!(
+            error(&["check", "--message-format=xml"]),
+            "unknown message format `xml`"
+        );
     }
 
     #[test]
@@ -704,6 +790,7 @@ mod tests {
             ("--timings", "timings.json"),
             ("--counters", "counters.json"),
             ("--registration", "inventory"),
+            ("--message-format", "json"),
         ] {
             let mut args = required.to_vec();
             if !args.contains(&option) {

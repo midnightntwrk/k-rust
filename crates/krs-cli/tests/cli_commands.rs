@@ -215,7 +215,7 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     let timings_path = temporary.path().join("timings.json");
     let mut process = krs_command!();
     let output = process
-        .args(["check", "--manifest-path"])
+        .args(["check", "--message-format=json", "--manifest-path"])
         .arg(&manifest)
         .args([
             "--package",
@@ -464,6 +464,7 @@ fn command(
     let mut process = krs_command!();
     process
         .arg(command)
+        .arg("--message-format=json")
         .args(arguments)
         .args(["--manifest-path"])
         .arg(manifest)

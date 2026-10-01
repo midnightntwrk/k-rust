@@ -222,6 +222,7 @@ fn request_key(request: &CommandRequest) -> String {
         cfg,
         registration,
         no_reuse: _,
+        message_format: _,
     } = request;
     let key = CacheRequest {
         command: command.kind().as_str(),

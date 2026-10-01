@@ -11,6 +11,9 @@ Its declarations are rustc-valid Rust; K-specific patterns and logic live in exp
 The `krs` command collects the crate's descriptors, resolves one Semantic IR and one Definition IR, and then either emits inspectable `.k` files or lowers the Definition IR natively through the pinned [`k-rust`](https://github.com/midnightntwrk/k-rust) frontend to KORE.
 `krs expand` projects the readable (layer-1) surface to a deterministic, explicit (layer-2) Rust reference surface, and `krs fmt` is the canonical formatter for both.
 
+`krs check`, `expand`, `emit-k`, and `build` render human-readable diagnostics on stderr by default, with diagnostic codes, notes, and authored source snippets when the source revision matches.
+Pass `--message-format=json` for machine consumption: located diagnostics use schema-1 JSON envelope lines, while unlocated diagnostics and other failures retain prose lines.
+
 ## Current state
 
 - **Complete IMP.** The IMP gate (`tests/imp/`) compiles one complete Rust-authored IMP package through both the emitted-`.k` route and the native `k-rust` route.

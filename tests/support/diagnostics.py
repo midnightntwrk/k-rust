@@ -1,4 +1,7 @@
-"""Extract typed KRS and Cargo diagnostics from mixed JSON line streams."""
+"""Extract typed KRS and Cargo diagnostics from mixed JSON line streams.
+
+KRS invocations whose stderr is parsed here must pass `--message-format=json`.
+"""
 
 from __future__ import annotations
 

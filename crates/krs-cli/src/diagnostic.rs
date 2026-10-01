@@ -54,6 +54,27 @@ pub struct UnlocatedDiagnostic {
     pub notes: Vec<String>,
 }
 
+impl ToDiagnostic for UnlocatedDiagnostic {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let mut diagnostic = Diagnostic::error(
+            krs_diagnostic::Code::foreign(self.code.clone()),
+            self.message.clone(),
+            krs_diagnostic::Location::None,
+        );
+        diagnostic.severity = match self.severity {
+            DiagnosticSeverity::Error => krs_diagnostic::Severity::Error,
+            DiagnosticSeverity::Warning => krs_diagnostic::Severity::Warning,
+        };
+        diagnostic.notes.clone_from(&self.notes);
+        if let Some(range) = &self.generated_range {
+            diagnostic.secondary.push(krs_diagnostic::Label::new(
+                krs_diagnostic::Location::Generated(range.clone()),
+            ));
+        }
+        diagnostic
+    }
+}
+
 impl std::fmt::Display for UnlocatedDiagnostic {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.severity == DiagnosticSeverity::Warning {
@@ -66,7 +87,7 @@ impl std::fmt::Display for UnlocatedDiagnostic {
 /// Independently translated native diagnostics.
 /// Located envelopes must sort by code and authored range and deduplicate by full envelope equality.
 /// Unlocated diagnostics must retain producer order.
-/// The CLI must render them alongside envelopes as `krs: <code>: <message>` lines, with `warning:` for warnings.
+/// JSON presentation must render them alongside envelopes as `krs: <code>: <message>` lines, with `warning:` for warnings.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DiagnosticReports {
     /// Diagnostics with exact authored coordinates.

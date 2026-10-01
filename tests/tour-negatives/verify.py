@@ -56,7 +56,9 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
 
 def check_overlap(binary: Path) -> None:
     result = run_failing(
-        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv("check"),
+        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv(
+            "check", "--message-format=json"
+        ),
     )
     diagnostics = envelopes(result.stderr)
     if len(diagnostics) != 1:
@@ -80,6 +82,18 @@ def check_overlap(binary: Path) -> None:
     if "second_foo" not in diagnostic.message:
         raise GateError("overlap diagnostic does not identify the second stable rule")
 
+    human = run_failing(
+        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv("check"),
+    )
+    if "error[krs::analysis::overlapping-rule-heads]" not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the human error title")
+    source_line = next(
+        line for line in (HERE / "src/lib.rs").read_text(encoding="utf-8").splitlines()
+        if "second_foo:" in line
+    )
+    if source_line.strip() not in human.stderr:
+        raise GateError("default overlap diagnostic lacks the authored Foo snippet line")
+
 
 def main() -> None:
     target = checkout_scratch() / "tour-negatives-root-target"
@@ -87,7 +101,7 @@ def main() -> None:
     binary = build(environment)
     check_packages("tour-negatives", env=environment, target_dir=target)
     check_overlap(binary)
-    print("PASS overlap: structured analysis code and exact second Foo head")
+    print("PASS overlap: structured analysis code, exact second Foo head, and default human snippet")
     cases = (
         (
             "readable_missing_cell",

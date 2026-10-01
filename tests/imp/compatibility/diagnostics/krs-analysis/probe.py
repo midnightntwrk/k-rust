@@ -51,7 +51,7 @@ def main() -> int:
     arguments = parser.parse_args()
     process = run(
         Invocation(arguments.krs, HERE / "Cargo.toml", "krs-imp-diagnostic-analysis", "main").argv(
-            "check", "--backend", "llvm"
+            "check", "--backend", "llvm", "--message-format=json"
         ),
         environment={
             "CARGO_TARGET_DIR": os.fspath(

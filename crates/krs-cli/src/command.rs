@@ -120,6 +120,16 @@ impl Command {
     }
 }
 
+/// Diagnostic presentation selected by the command-line caller.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MessageFormat {
+    /// Render annotated source snippets for people.
+    #[default]
+    Human,
+    /// Preserve schema-1 envelope lines and unlocated prose.
+    Json,
+}
+
 /// Explicit input to one production command execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandRequest {
@@ -140,6 +150,8 @@ pub struct CommandRequest {
     pub registration: RegistrationMode,
     /// Force the full pipeline even when an unchanged result is available.
     pub no_reuse: bool,
+    /// Presentation of diagnostics; execution and artifact caching are independent of it.
+    pub message_format: MessageFormat,
 }
 
 /// Stable command stdout and success diagnostics.
@@ -216,6 +228,28 @@ pub fn execute_command_measured(
     request: &CommandRequest,
     measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
+    execute_command_reported(request, measurement).0
+}
+
+/// Executes a command and retains selected package paths for diagnostic rendering.
+/// Source context remains available on failure and on cache restoration.
+pub fn execute_command_reported(
+    request: &CommandRequest,
+    measurement: &mut Measurement,
+) -> (
+    Result<CommandOutcome, CommandError>,
+    crate::DiagnosticSources,
+) {
+    let mut sources = crate::DiagnosticSources::default();
+    let result = execute_with_sources(request, measurement, &mut sources);
+    (result, sources)
+}
+
+fn execute_with_sources(
+    request: &CommandRequest,
+    measurement: &mut Measurement,
+    sources: &mut crate::DiagnosticSources,
+) -> Result<CommandOutcome, CommandError> {
     measurement.counters.set("result.reused", 0u64);
     validate_request(request)?;
     let timings = &mut measurement.timings;
@@ -241,6 +275,7 @@ pub fn execute_command_measured(
             RegistrationMode::Explicit => plan.with_explicit_registration()?,
         })
     })?;
+    *sources = crate::DiagnosticSources::from_plan(&plan);
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, measurement)?;
     let cache = ResultCache::new(&collector_directory, &executable, request);
@@ -1476,6 +1511,7 @@ mod tests {
             cfg: Vec::new(),
             registration: RegistrationMode::Inventory,
             no_reuse: false,
+            message_format: MessageFormat::Human,
         };
         assert!(validate_request(&base).is_ok());
         let mut invalid = base;
