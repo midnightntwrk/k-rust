@@ -17879,6 +17879,601 @@
       }
     }
   ],
+  "WireClaim": [
+    {
+      "circularity_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "declaration_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "ensures": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "path_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "term_kind": "variable"
+        }
+      },
+      "existentials": [
+        {
+          "declaration_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "name_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "target": {
+              "authored_path": "sample",
+              "slot": 1
+            }
+          }
+        }
+      ],
+      "modality": "all_paths",
+      "modality_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "or_bool_keys": [
+        {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      ],
+      "universals": [
+        {
+          "declaration_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "name_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "sort": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "target": {
+              "authored_path": "sample",
+              "slot": 1
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "WireConfigurationRule": [
+    {
+      "bindings": [
+        {
+          "kind": {
+            "binding_kind": "term",
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
+            }
+          },
+          "name": "sample"
+        }
+      ],
+      "claim": {
+        "circularity_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "declaration_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "ensures": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "term": {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "path_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "term_kind": "variable"
+          }
+        },
+        "existentials": [
+          {
+            "declaration_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "name_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
+            }
+          }
+        ],
+        "modality": "all_paths",
+        "modality_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "or_bool_keys": [
+          {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          }
+        ],
+        "universals": [
+          {
+            "declaration_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "name": "sample",
+            "name_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
+            }
+          }
+        ]
+      },
+      "label": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample"
+      },
+      "pattern_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "priority": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "value": 1
+      },
+      "requires": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "term": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "path_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "term_kind": "variable"
+        }
+      },
+      "result": {
+        "cells": [
+          {
+            "field": {
+              "cell": {
+                "field": 1,
+                "owner": 1
+              },
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "value": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "name": "sample",
+              "path_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "state_term_kind": "term",
+              "term_kind": "variable"
+            },
+            "wrapper": "cell",
+            "wrapper_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ],
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "remainder": {
+          "frame_kind": "exact"
+        }
+      },
+      "result_configuration": {
+        "configuration": {
+          "authored_path": "sample",
+          "slot": 1
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "result_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "sentence_kind": "transition",
+      "subject": {
+        "cells": [
+          {
+            "field": {
+              "cell": {
+                "field": 1,
+                "owner": 1
+              },
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "value": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "name": "sample",
+              "path_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "state_term_kind": "term",
+              "term_kind": "variable"
+            },
+            "wrapper": "cell",
+            "wrapper_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ],
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "remainder": {
+          "frame_kind": "exact"
+        }
+      },
+      "subject_configuration": {
+        "configuration": {
+          "authored_path": "sample",
+          "slot": 1
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      }
+    }
+  ],
+  "WireContextAlias": [
+    {
+      "bindings": [
+        {
+          "kind": {
+            "binding_kind": "here"
+          },
+          "name": "sample"
+        }
+      ],
+      "configuration": {
+        "configuration": {
+          "authored_path": "sample",
+          "slot": 1
+        },
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "declaration_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "here": "sample",
+      "here_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "name": "sample",
+      "name_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "pattern": {
+        "cells": [
+          {
+            "field": {
+              "cell": {
+                "field": 1,
+                "owner": 1
+              },
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "value": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "name": "sample",
+              "path_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "state_term_kind": "term",
+              "term_kind": "variable"
+            },
+            "wrapper": "cell",
+            "wrapper_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ],
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "remainder": {
+          "frame_kind": "exact"
+        }
+      },
+      "pattern_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      }
+    }
+  ],
+  "WireFixedConfiguration": [
+    {
+      "declaration": {
+        "fields": [
+          {
+            "cell_type": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value": "sample"
+            },
+            "color": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value": "sample"
+            },
+            "content": {
+              "arguments": [
+                {
+                  "key": {
+                    "ordinal": 0,
+                    "role": "sort_declaration"
+                  },
+                  "target": {
+                    "authored_path": "sample",
+                    "slot": 1
+                  }
+                }
+              ],
+              "content_kind": "leaf",
+              "sort": {
+                "key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                },
+                "target": {
+                  "authored_path": "sample",
+                  "slot": 1
+                }
+              },
+              "wrapper": "cell",
+              "wrapper_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "emitted_name": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value": "sample"
+            },
+            "multiplicity": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value": "sample"
+            },
+            "reference": {
+              "cell": {
+                "field": 1,
+                "owner": 1
+              },
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "rust_field": "sample"
+          }
+        ],
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
+      "initializer": {
+        "body_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "cells": [
+          {
+            "content": {
+              "constructor_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "content_kind": "leaf",
+              "value": {
+                "key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                },
+                "state_term_kind": "term",
+                "term": {
+                  "key": {
+                    "ordinal": 0,
+                    "role": "sort_declaration"
+                  },
+                  "name": "sample",
+                  "path_key": {
+                    "ordinal": 0,
+                    "role": "sort_declaration"
+                  },
+                  "term_kind": "variable"
+                }
+              },
+              "wrapper": "cell"
+            },
+            "field": {
+              "cell": {
+                "field": 1,
+                "owner": 1
+              },
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
+            },
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            }
+          }
+        ],
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "owner": {
+          "authored_path": "sample",
+          "slot": 1
+        },
+        "owner_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "variables": [
+          {
+            "binding": "sample",
+            "binding_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "external_name": "sample",
+            "external_name_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "main_key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
+            }
+          }
+        ]
+      },
+      "root": {
+        "root_kind": "generated_top"
+      }
+    }
+  ],
   "WireGrammarDescriptor": [
     {
       "grammar": {

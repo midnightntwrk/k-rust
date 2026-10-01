@@ -20,95 +20,29 @@ fn __krs_initializer_variable_cb598e6e02c06422_1() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 pub(crate) fn __krs_initializer_payload() -> (
-    ::k::HostConfigurationInitializer,
+    &'static str,
+    ::k::__KrsSlots<'static>,
     ::k::HostProvenance,
 ) {
     let _krs_path_check = || {};
     fn __krs_type_key<T: ?Sized + 'static>() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<T>()
     }
-    let initializer = ::k::HostConfigurationInitializer {
-        key: ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerDeclaration, 0),
-        owner_key: ::k::ProvenanceKey::new(
-            ::k::ProvenanceRole::InitializerResultType,
-            0,
-        ),
-        owner: ::k::HostTypeKey(__krs_type_key::<Self>),
-        variables: ::std::vec![
-            ::k::HostConfigurationVariable { binding_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariable, 0u32),
-            binding : "pgm".to_owned(), external_name_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariableName,
-            0u32,), external_name : "PGM".to_owned(), sort : ::k::HostSortReference { key
-            : ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariableType,
-            0u32,), target : ::k::HostTypeReference { key :
-            ::k::HostTypeKey(Self::__krs_initializer_variable_cb598e6e02c06422_0),
-            authored_path : "ReadableStmt".to_owned(), }, }, main_key :
-            ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariableMain,
-            0u32)), }, ::k::HostConfigurationVariable { binding_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariable, 1u32),
-            binding : "env".to_owned(), external_name_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariableName,
-            1u32,), external_name : "ENV".to_owned(), sort : ::k::HostSortReference { key
-            : ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationVariableType,
-            1u32,), target : ::k::HostTypeReference { key :
-            ::k::HostTypeKey(Self::__krs_initializer_variable_cb598e6e02c06422_1),
-            authored_path : "k :: builtin :: Map".to_owned(), }, }, main_key :
-            ::core::option::Option::None, }
-        ],
-        body_key: ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerBody, 0),
-        cells: ::std::vec![
-            ::k::HostInitializerCell { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCell, 0u32), field :
-            ::k::HostCellReference { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerField, 0u32), cell :
-            ::k::HostCellIdentity { owner : ::k::HostTypeKey(__krs_type_key:: < Self >),
-            field : ::k::HostTypeKey(Self::__krs_cell_field_type_id_k), }, }, content :
-            ::k::ProtocolInitializerCellContent::Leaf { constructor_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCellConstructor,
-            0u32,), wrapper : ::k::CellWrapper::KCell, value :
-            ::k::ProtocolInitializerStateTerm::KSequence(::k::ProtocolKSequence {
-            payload_key :
-            ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::KSequencePayload,
-            0u32)), dot_k_key : ::core::option::Option::None, notation :
-            ::k::DescriptorKSequenceNotation::Comma, items :
-            ::std::vec![::k::ProtocolKSequenceItem { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::KSequenceItem, 0u32), value :
-            ::k::ProtocolInitializerTerm { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTerm, 0u32), term :
-            ::k::HostTerm::Variable { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath, 0u32),
-            path_key : ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath,
-            0u32), name : "pgm".to_owned(), } } }], }), }, }, ::k::HostInitializerCell {
-            key : ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCell, 1u32),
-            field : ::k::HostCellReference { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerField, 1u32), cell :
-            ::k::HostCellIdentity { owner : ::k::HostTypeKey(__krs_type_key:: < Self >),
-            field : ::k::HostTypeKey(Self::__krs_cell_field_type_id_store), }, }, content
-            : ::k::ProtocolInitializerCellContent::Nested { declaration :
-            ::k::HostCellDeclarationReference { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerNestedConstructor,
-            1u32,), declaration : ::k::HostTypeReference { key :
-            ::k::HostTypeKey(__krs_type_key:: < Store >), authored_path : "Store"
-            .to_owned(), }, }, children : ::std::vec![::k::HostInitializerCell { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCell, 2u32), field :
-            ::k::HostCellReference { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerField, 2u32), cell :
-            ::k::HostCellIdentity { owner : ::k::HostTypeKey(__krs_type_key:: < Store >),
-            field : ::k::HostTypeKey(Store::__krs_cell_field_type_id_env), }, }, content
-            : ::k::ProtocolInitializerCellContent::Leaf { constructor_key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerCellConstructor,
-            2u32,), wrapper : ::k::CellWrapper::Cell, value :
-            ::k::ProtocolInitializerStateTerm::Term(::k::ProtocolInitializerTerm { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTerm, 1u32), term :
-            ::k::HostTerm::Variable { key :
-            ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath, 1u32),
-            path_key : ::k::ProvenanceKey::new(::k::ProvenanceRole::InitializerTermPath,
-            1u32), name : "env".to_owned(), } }), }, }], }, }
-        ],
-    };
     (
-        initializer,
+        "{\"key\":{\"role\":\"initializer_declaration\",\"ordinal\":0},\"owner_key\":{\"role\":\"initializer_result_type\",\"ordinal\":0},\"owner\":{\"slot\":2,\"authored_path\":\"Self\"},\"variables\":[{\"binding_key\":{\"role\":\"configuration_variable\",\"ordinal\":0},\"binding\":\"pgm\",\"external_name_key\":{\"role\":\"configuration_variable_name\",\"ordinal\":0},\"external_name\":\"PGM\",\"sort\":{\"key\":{\"role\":\"configuration_variable_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableStmt\"}},\"main_key\":{\"role\":\"configuration_variable_main\",\"ordinal\":0}},{\"binding_key\":{\"role\":\"configuration_variable\",\"ordinal\":1},\"binding\":\"env\",\"external_name_key\":{\"role\":\"configuration_variable_name\",\"ordinal\":1},\"external_name\":\"ENV\",\"sort\":{\"key\":{\"role\":\"configuration_variable_type\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Map\"}},\"main_key\":null}],\"body_key\":{\"role\":\"initializer_body\",\"ordinal\":0},\"cells\":[{\"key\":{\"role\":\"initializer_cell\",\"ordinal\":0},\"field\":{\"key\":{\"role\":\"initializer_field\",\"ordinal\":0},\"cell\":{\"owner\":2,\"field\":3}},\"content\":{\"content_kind\":\"leaf\",\"constructor_key\":{\"role\":\"initializer_cell_constructor\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"value\":{\"state_term_kind\":\"k_sequence\",\"payload_key\":{\"role\":\"k_sequence_payload\",\"ordinal\":0},\"dot_k_key\":null,\"notation\":\"comma\",\"items\":[{\"key\":{\"role\":\"k_sequence_item\",\"ordinal\":0},\"value\":{\"key\":{\"role\":\"initializer_term\",\"ordinal\":0},\"term\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"initializer_term_path\",\"ordinal\":0},\"path_key\":{\"role\":\"initializer_term_path\",\"ordinal\":0},\"name\":\"pgm\"}}}]}}},{\"key\":{\"role\":\"initializer_cell\",\"ordinal\":1},\"field\":{\"key\":{\"role\":\"initializer_field\",\"ordinal\":1},\"cell\":{\"owner\":2,\"field\":4}},\"content\":{\"content_kind\":\"nested\",\"declaration\":{\"key\":{\"role\":\"initializer_nested_constructor\",\"ordinal\":1},\"declaration\":{\"slot\":5,\"authored_path\":\"Store\"}},\"children\":[{\"key\":{\"role\":\"initializer_cell\",\"ordinal\":2},\"field\":{\"key\":{\"role\":\"initializer_field\",\"ordinal\":2},\"cell\":{\"owner\":5,\"field\":6}},\"content\":{\"content_kind\":\"leaf\",\"constructor_key\":{\"role\":\"initializer_cell_constructor\",\"ordinal\":2},\"wrapper\":\"cell\",\"value\":{\"state_term_kind\":\"term\",\"key\":{\"role\":\"initializer_term\",\"ordinal\":1},\"term\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"initializer_term_path\",\"ordinal\":1},\"path_key\":{\"role\":\"initializer_term_path\",\"ordinal\":1},\"name\":\"env\"}}}}]}}]}",
+        ::k::__KrsSlots {
+            types: &[
+                ::k::HostTypeKey(Self::__krs_initializer_variable_cb598e6e02c06422_0),
+                ::k::HostTypeKey(Self::__krs_initializer_variable_cb598e6e02c06422_1),
+                ::k::HostTypeKey(__krs_type_key::<Self>),
+                ::k::HostTypeKey(Self::__krs_cell_field_type_id_k),
+                ::k::HostTypeKey(Self::__krs_cell_field_type_id_store),
+                ::k::HostTypeKey(__krs_type_key::<Store>),
+                ::k::HostTypeKey(Store::__krs_cell_field_type_id_env),
+            ],
+            items: &[],
+            targets: &[],
+        },
         ::k::__krs_host_provenance(
             "",
             &["src/lib.rs"],

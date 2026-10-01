@@ -16,9 +16,9 @@ use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::nonce::expansion_nonce;
-use super::productions::strictness_tokens;
+use super::productions::strictness_key_function;
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
@@ -356,7 +356,7 @@ fn constructor_like(
                 ),
             )
         },
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),
@@ -596,6 +596,11 @@ pub(crate) fn token(
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
+    let sort_wire = serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
+        parents: Vec::new(),
+    }))
+    .expect("KRS wire values serialize");
+
     let sort_factory_tokens = DescriptorFactory {
         facade: &facade,
         factory: &sort_factory,
@@ -610,11 +615,7 @@ pub(crate) fn token(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#key_fn)),
             )
         },
-        payload: quote! {
-            #facade::HostDescriptorPayload::Sort(
-                #facade::HostSortDescriptor { parents: ::std::vec![] },
-            )
-        },
+        payload: FactoryPayload::wire(sort_wire, quote!(#facade::__KrsSlots::default())),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#sort_provenance),
@@ -631,7 +632,7 @@ pub(crate) fn token(
             "Cargo and Rust macro context form a valid token-grammar identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#grammar_provenance),
@@ -699,8 +700,7 @@ fn constructor_grammar(
         nonce,
         &mut slots,
     )?;
-    let (strict_key_function, _) = strictness_tokens(
-        facade,
+    let strict_key_function = strictness_key_function(
         strictness,
         declaration
             .fields()
@@ -791,7 +791,7 @@ fn constructor_grammar(
             "Cargo and Rust macro context form a valid grammar identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),

@@ -154,6 +154,28 @@
       }
     }
   },
+  "ClaimBinder": {
+    "STRUCT": [
+      {
+        "declaration_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "sort": {
+          "TYPENAME": "WireSortReference"
+        }
+      }
+    ]
+  },
   "ClaimModality": {
     "ENUM": {
       "0": {
@@ -1110,6 +1132,44 @@
       }
     ]
   },
+  "WireCellDeclarationReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "declaration": {
+          "TYPENAME": "WireTypeReference"
+        }
+      }
+    ]
+  },
+  "WireCellIdentity": {
+    "STRUCT": [
+      {
+        "owner": "U64"
+      },
+      {
+        "field": "U64"
+      }
+    ]
+  },
+  "WireCellReference": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "cell": {
+          "TYPENAME": "WireCellIdentity"
+        }
+      }
+    ]
+  },
   "WireConfigurationReference": {
     "STRUCT": [
       {
@@ -1173,6 +1233,17 @@
       },
       {
         "name": "STR"
+      }
+    ]
+  },
+  "WireSortDescriptor": {
+    "STRUCT": [
+      {
+        "parents": {
+          "SEQ": {
+            "TYPENAME": "WireTypeReference"
+          }
+        }
       }
     ]
   },

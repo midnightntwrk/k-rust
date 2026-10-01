@@ -3,11 +3,20 @@
 use serde::{Deserialize, Serialize};
 
 use crate::stage::{WireStage, stage_shape};
+use crate::transport::configuration::{
+    FixedConfiguration, ProtocolCellContent, ProtocolCellField, ProtocolConfigurationVariable,
+    ProtocolInitializerCell, ProtocolInitializerStateTerm, StageCellDeclaration,
+    StageConfigurationInitializer,
+};
 use crate::transport::grammar::{
     CellTermField, Production, ProductionAttribute, ProductionItem, ProductionOwner, RuleCondition,
     StageGrammarDescriptor, StructuredRule, Term, TermArgument,
 };
 use crate::transport::head_rule::HeadRule;
+use crate::transport::rule::{
+    Claim, ClaimBinder, ConfigurationRule, ContextAlias, ProtocolRuleCells, ProtocolRuleKSequence,
+    ProtocolRuleMap, ProtocolRuleStateTerm,
+};
 use crate::{
     ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey,
 };
@@ -47,6 +56,87 @@ pub struct WireConfigurationReference {
     pub key: ProvenanceKey,
     pub configuration: WireTypeReference,
 }
+
+/// Indexed Rust owner and generated field-marker identities.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCellIdentity {
+    pub owner: TypeSlot,
+    pub field: TypeSlot,
+}
+
+/// Static selected-cell occurrence with provenance.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCellReference {
+    pub key: ProvenanceKey,
+    pub cell: WireCellIdentity,
+}
+
+/// Static nominal nested-cell occurrence with provenance.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireCellDeclarationReference {
+    pub key: ProvenanceKey,
+    pub declaration: WireTypeReference,
+}
+
+stage_shape! {
+    /// Static indexed open-sort declaration.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "WireSortDescriptor",
+        deny_unknown_fields,
+        bound(serialize = "S::Parents: Serialize", deserialize = "S::Parents: Deserialize<'de>")
+    )]
+    pub struct StaticSort<S: Stage> {
+        /// Direct super-sort references in authored order.
+        pub parents: S::Parents => [parents],
+    }
+    host_shape: crate::HostSortDescriptor;
+}
+
+/// Static wire-stage sort declaration.
+pub type WireSortDescriptor = StaticSort<WireStage>;
+/// Static wire-stage cell declaration content.
+pub type WireCellContent = ProtocolCellContent<WireSortReference, WireCellDeclarationReference>;
+/// Static wire-stage fixed-cell field.
+pub type WireCellField =
+    ProtocolCellField<WireCellReference, WireSortReference, WireCellDeclarationReference>;
+/// Static wire-stage fixed-cell declaration.
+pub type WireCellDeclaration = StageCellDeclaration<WireStage>;
+/// Static wire-stage configuration declaration.
+pub type WireConfigurationDeclaration = StageCellDeclaration<WireStage>;
+/// Static wire-stage configuration variable.
+pub type WireConfigurationVariable = ProtocolConfigurationVariable<WireSortReference>;
+/// Static wire-stage initializer state.
+pub type WireInitializerStateTerm = ProtocolInitializerStateTerm<WireTerm>;
+/// Static wire-stage initializer cell.
+pub type WireInitializerCell = ProtocolInitializerCell<
+    WireCellReference,
+    WireCellDeclarationReference,
+    WireInitializerStateTerm,
+>;
+/// Static wire-stage complete paired initializer.
+pub type WireConfigurationInitializer = StageConfigurationInitializer<WireStage>;
+/// Static wire-stage complete fixed configuration.
+pub type WireFixedConfiguration = FixedConfiguration<WireStage>;
+/// Static wire-stage configuration-rule cells.
+pub type WireRuleCells = ProtocolRuleCells<WireCellReference, WireTerm>;
+/// Static wire-stage configuration-rule state.
+pub type WireRuleStateTerm = ProtocolRuleStateTerm<WireTerm>;
+/// Static wire-stage configuration-rule K sequence.
+pub type WireRuleKSequence = ProtocolRuleKSequence<WireTerm>;
+/// Static wire-stage configuration-rule map.
+pub type WireRuleMap = ProtocolRuleMap<WireTerm>;
+/// Static wire-stage configuration rule or claim.
+pub type WireConfigurationRule = ConfigurationRule<WireStage>;
+/// Static wire-stage claim metadata.
+pub type WireClaim = Claim<WireStage>;
+/// Static wire-stage claim binder.
+pub type WireClaimBinder = ClaimBinder<WireStage>;
+/// Static wire-stage context alias.
+pub type WireContextAlias = ContextAlias<WireStage>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -156,24 +246,29 @@ pub struct WireHeadRuleCellReference {
 /// Static wire-stage form of [`HeadRule`].
 pub type WireHeadRule = HeadRule<WireStage>;
 
-stage_shape! {
-    /// The payload kinds supported by static indexed macro data.
-    #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename = "WirePayload", rename_all = "snake_case", deny_unknown_fields, bound(serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize, S::ContextAlias: Serialize, S::Configuration: Serialize, S::HeadRuleCell: Serialize", deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>, S::ContextAlias: Deserialize<'de>, S::Configuration: Deserialize<'de>, S::HeadRuleCell: Deserialize<'de>"))]
-    pub enum StaticPayload<S: Stage> {
-        /// Constructor declaration.
-        Constructor(value: StaticConstructor<S> => [nested]),
-        /// Object-grammar sentence.
-        Grammar(value: Box<StageGrammarDescriptor<S>> => [box nested]),
-        /// Structured relational sentence.
-        StructuredRule(value: Box<StructuredRule<S>> => [box nested]),
-        /// Authored computation-head rule.
-        HeadRule(value: Box<HeadRule<S>> => [box nested]),
-    }
+/// Static indexed payload with an external wire envelope.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum WirePayload {
+    /// Open-sort declaration.
+    Sort(WireSortDescriptor),
+    /// Constructor declaration.
+    Constructor(WireConstructorDescriptor),
+    /// Typed object-grammar sentence.
+    Grammar(Box<WireGrammarDescriptor>),
+    /// Fully structured relational sentence.
+    StructuredRule(Box<WireStructuredRule>),
+    /// Complete fixed configuration and initializer.
+    FixedConfiguration(Box<WireFixedConfiguration>),
+    /// Nominal nested fixed-cell declaration.
+    Cell(Box<WireCellDeclaration>),
+    /// Whole-configuration rule or claim.
+    ConfigurationRule(Box<WireConfigurationRule>),
+    /// Computation-head rule.
+    HeadRule(Box<WireHeadRule>),
+    /// Reusable fixed-configuration context template.
+    ContextAlias(Box<WireContextAlias>),
 }
-
-/// Static wire-stage payload.
-pub type WirePayload = StaticPayload<WireStage>;
 
 #[cfg(test)]
 mod tests {
@@ -262,39 +357,72 @@ mod tests {
         }
     }
 
+    fn assert_traversal<T: Clone + std::fmt::Debug + serde::Serialize>(
+        value: T,
+        reference: &'static str,
+        count: usize,
+        mut traverse: impl FnMut(T, &mut crate::stage::tests::CountingMap) -> Result<T, &'static str>,
+    ) {
+        let expected = serde_json::to_vec(&value).unwrap();
+        let mut map = crate::stage::tests::CountingMap::default();
+        let mapped = traverse(value.clone(), &mut map).unwrap();
+        assert_eq!(serde_json::to_vec(&mapped).unwrap(), expected);
+        assert_eq!(map.calls, vec![reference; count]);
+        let mut map = crate::stage::tests::CountingMap {
+            fail: Some(reference),
+            ..Default::default()
+        };
+        assert_eq!(traverse(value, &mut map).unwrap_err(), reference);
+        assert_eq!(map.calls, [reference]);
+    }
+
     #[test]
-    fn static_payload_traversal_covers_every_supported_kind() {
-        let key = key();
-        let payloads = [
-            super::WirePayload::Constructor(super::WireConstructorDescriptor {
+    fn rule_and_constructor_traversals_preserve_data_and_propagate_errors() {
+        assert_traversal(
+            super::WireConstructorDescriptor {
                 sort: sort(),
                 fields: vec![],
-            }),
-            super::WirePayload::Grammar(Box::new(super::WireGrammarDescriptor::Subsort {
-                key: key.clone(),
+            },
+            "sort",
+            1,
+            super::WireConstructorDescriptor::try_map_refs,
+        );
+        assert_traversal(
+            super::WireGrammarDescriptor::Subsort {
+                key: key(),
                 subsort: sort(),
                 supersort: sort(),
-            })),
-            super::WirePayload::StructuredRule(Box::new(super::WireStructuredRule {
+            },
+            "sort",
+            2,
+            super::WireGrammarDescriptor::try_map_refs,
+        );
+        assert_traversal(
+            super::WireStructuredRule {
                 sentence_kind: crate::SentenceKind::Transition,
                 label: None,
                 requires: None,
                 priority: None,
                 simplification: None,
-                pattern_key: key.clone(),
-                result_key: key.clone(),
+                pattern_key: key(),
+                result_key: key(),
                 subject_sort: sort(),
                 result_sort: sort(),
                 bindings: vec![],
                 subject: term(),
                 result: term(),
-            })),
-            super::WirePayload::HeadRule(Box::new(super::WireHeadRule {
+            },
+            "sort",
+            4,
+            super::WireStructuredRule::try_map_refs,
+        );
+        assert_traversal(
+            super::WireHeadRule {
                 sentence_kind: crate::SentenceKind::Transition,
                 label: None,
                 priority: None,
-                pattern_key: key.clone(),
-                result_key: key,
+                pattern_key: key(),
+                result_key: key(),
                 head_sort: Some(sort()),
                 configuration: None,
                 computation_cell_name: None,
@@ -303,20 +431,108 @@ mod tests {
                 result: super::WireHeadRuleResult::Replace(term()),
                 requires: None,
                 extras: vec![],
-            })),
-        ];
-        for (payload, count) in payloads.into_iter().zip([1, 2, 4, 3]) {
-            let expected = serde_json::to_vec(&payload).unwrap();
-            let mut map = crate::stage::tests::CountingMap::default();
-            let mapped = payload.clone().try_map_refs(&mut map).unwrap();
-            assert_eq!(serde_json::to_vec(&mapped).unwrap(), expected);
-            assert_eq!(map.calls, vec!["sort"; count]);
-            let mut map = crate::stage::tests::CountingMap {
-                fail: Some("sort"),
-                ..Default::default()
-            };
-            assert_eq!(payload.try_map_refs(&mut map).unwrap_err(), "sort");
-            assert_eq!(map.calls, ["sort"]);
+            },
+            "sort",
+            3,
+            super::WireHeadRule::try_map_refs,
+        );
+    }
+    fn configuration() -> super::WireConfigurationReference {
+        super::WireConfigurationReference {
+            key: key(),
+            configuration: nominal(),
         }
+    }
+
+    fn nominal() -> super::WireTypeReference {
+        super::WireTypeReference {
+            slot: super::TypeSlot(0),
+            authored_path: "Value".to_owned(),
+        }
+    }
+
+    fn cells() -> super::WireRuleCells {
+        crate::ProtocolRuleCells {
+            key: key(),
+            cells: vec![],
+            remainder: crate::ProtocolRuleFrame::Exact,
+        }
+    }
+
+    #[test]
+    fn declaration_traversals_preserve_data_and_propagate_errors() {
+        let declaration = super::WireCellDeclaration {
+            key: key(),
+            fields: vec![],
+        };
+        assert_traversal(
+            super::WireSortDescriptor {
+                parents: vec![nominal()],
+            },
+            "parent",
+            1,
+            super::WireSortDescriptor::try_map_refs,
+        );
+        assert_traversal(
+            super::WireFixedConfiguration {
+                root: crate::DescriptorConfigurationRoot::GeneratedTop,
+                declaration: declaration.clone(),
+                initializer: super::WireConfigurationInitializer {
+                    key: key(),
+                    owner_key: key(),
+                    owner: nominal(),
+                    body_key: key(),
+                    variables: vec![],
+                    cells: vec![],
+                },
+            },
+            "initializer_owner",
+            1,
+            super::WireFixedConfiguration::try_map_refs,
+        );
+        assert_traversal(
+            super::WireConfigurationRule {
+                sentence_kind: crate::SentenceKind::Transition,
+                label: None,
+                priority: None,
+                requires: None,
+                claim: None,
+                pattern_key: key(),
+                result_key: key(),
+                subject_configuration: configuration(),
+                result_configuration: configuration(),
+                bindings: vec![],
+                subject: cells(),
+                result: cells(),
+            },
+            "configuration",
+            2,
+            super::WireConfigurationRule::try_map_refs,
+        );
+        assert_traversal(
+            super::WireContextAlias {
+                declaration_key: key(),
+                name_key: key(),
+                name: "context".to_owned(),
+                here_key: key(),
+                here: "here".to_owned(),
+                pattern_key: key(),
+                configuration: configuration(),
+                bindings: vec![],
+                pattern: cells(),
+            },
+            "configuration",
+            1,
+            super::WireContextAlias::try_map_refs,
+        );
+        let expected = serde_json::to_vec(&declaration).unwrap();
+        let mut map = crate::stage::tests::CountingMap::default();
+        let mapped = crate::transport::configuration::map_declaration::<crate::WireStage, _, _>(
+            declaration,
+            &mut map,
+        )
+        .unwrap();
+        assert_eq!(serde_json::to_vec(&mapped).unwrap(), expected);
+        assert!(map.calls.is_empty());
     }
 }

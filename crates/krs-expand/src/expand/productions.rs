@@ -2,29 +2,23 @@
 
 use krs_syntax::{
     ProvenanceRole, StrictnessAttribute, StrictnessKind as SyntaxStrictnessKind,
-    StructuredFormatFragment, role_tokens,
+    StructuredFormatFragment,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
-use super::tokens::{call_site_path, host_sort_reference, spelling};
+use super::tokens::{call_site_path, spelling};
 
-pub(super) fn strictness_tokens<'a>(
-    facade: &Path,
+pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,
     fields: impl IntoIterator<Item = &'a Ident>,
     nonce: u64,
     cfg: &[Attribute],
-) -> syn::Result<(TokenStream, Option<TokenStream>)> {
-    let strictness_context_alias_reference_role =
-        role_tokens(ProvenanceRole::StrictnessContextAliasReference, facade);
-    let strictness_field_reference_role =
-        role_tokens(ProvenanceRole::StrictnessFieldReference, facade);
-    let strictness_declaration_role = role_tokens(ProvenanceRole::StrictnessDeclaration, facade);
+) -> syn::Result<TokenStream> {
     let Some(strictness) = strictness else {
-        return Ok((TokenStream::new(), None));
+        return Ok(TokenStream::new());
     };
     let available = fields
         .into_iter()
@@ -32,50 +26,23 @@ pub(super) fn strictness_tokens<'a>(
         .collect::<Vec<_>>();
     let key_fn = format_ident!("__krs_strictness_result_{nonce:016x}");
     let path = call_site_path(strictness.result_sort())?;
-    let spelling = spelling(strictness.result_sort());
-    let result_sort = host_sort_reference(
-        facade,
-        ProvenanceRole::StrictnessResultSort,
-        0,
-        &key_fn,
-        &spelling,
-    );
     let result_type = if strictness.has_readable_result() {
         quote!(#path)
     } else {
         quote!(dyn #path)
     };
-    let key_function = quote! {
-        #(#cfg)*
-        #[doc(hidden)]
-        fn #key_fn() -> ::core::any::TypeId {
-            ::core::any::TypeId::of::<#result_type>()
-        }
-    };
-    let kind = match strictness.kind() {
-        SyntaxStrictnessKind::Strict => quote!(#facade::StrictnessKind::Strict),
-        SyntaxStrictnessKind::SeqStrict => quote!(#facade::StrictnessKind::SeqStrict),
-    };
-    let using = strictness.using().map_or_else(
-        || Ok(quote!(::core::option::Option::None)),
-        |alias| -> syn::Result<TokenStream> {
-            if strictness.result_sort().segments.last().is_none_or(|segment| segment.ident != "KResult") {
-                return Err(syn::Error::new(
-                    strictness.result_sort().span(),
-                    "a named context alias currently requires the unambiguous `KResult` result sort",
-                ));
-            }
-            let name = alias.to_string();
-            Ok(quote!(::core::option::Option::Some(#facade::HostContextAliasReference {
-                key: #facade::ProvenanceKey::new(#strictness_context_alias_reference_role, 0),
-                alias: #facade::HostItemId::from_macro_context(
-                    env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
-                    module_path!(), #name, #facade::ItemKind::ContextAlias, "",
-                ).expect("a strictness context alias forms a valid host identity"),
-            })))
-        },
-    )?;
-    let mut selected = Vec::new();
+    if strictness.using().is_some()
+        && strictness
+            .result_sort()
+            .segments
+            .last()
+            .is_none_or(|segment| segment.ident != "KResult")
+    {
+        return Err(syn::Error::new(
+            strictness.result_sort().span(),
+            "a named context alias currently requires the unambiguous `KResult` result sort",
+        ));
+    }
     for (index, field) in strictness.fields().iter().enumerate() {
         let name = field.to_string();
         if !available.iter().any(|available| available == &name) {
@@ -84,26 +51,16 @@ pub(super) fn strictness_tokens<'a>(
                 "strictness field is not declared",
             ));
         }
-        let ordinal = u32::try_from(index)
+        u32::try_from(index)
             .map_err(|_| syn::Error::new(field.span(), "too many strictness fields"))?;
-        selected.push(quote! {
-            #facade::DescriptorFieldReference {
-                key: #facade::ProvenanceKey::new(#strictness_field_reference_role, #ordinal),
-                field: #facade::ProductionFieldId::new(#name)
-                    .expect("Rust field identifiers are valid production fields"),
-            }
-        });
     }
-    let attribute = quote! {
-        #facade::HostProductionAttribute::Strictness {
-            key: #facade::ProvenanceKey::new(#strictness_declaration_role, 0),
-            kind: #kind,
-            using: #using,
-            fields: ::std::vec![#(#selected),*],
-            result_sort: ::std::boxed::Box::new(#result_sort),
+    Ok(quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        fn #key_fn() -> ::core::any::TypeId {
+            ::core::any::TypeId::of::<#result_type>()
         }
-    };
-    Ok((key_function, Some(attribute)))
+    })
 }
 
 pub(super) fn constructor_metadata_wire(

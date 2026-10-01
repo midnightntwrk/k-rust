@@ -26,9 +26,14 @@ fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_01e0b0fa3b2b0c81),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -88,13 +93,14 @@ fn __krs_sort_descriptor_0e2453058f695f49() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_0e2453058f695f49),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_0e2453058f695f49_0), authored_path :
-                "KItem".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"KItem\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_0e2453058f695f49_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",

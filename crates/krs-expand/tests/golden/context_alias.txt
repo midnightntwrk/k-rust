@@ -26,82 +26,17 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid context alias identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::ContextAlias(
-            ::std::boxed::Box::new(::k::HostContextAlias {
-                declaration_key: ::k::ProvenanceKey::new(
-                    ::k::ProvenanceRole::ContextAliasDeclaration,
-                    0,
-                ),
-                name_key: ::k::ProvenanceKey::new(
-                    ::k::ProvenanceRole::ContextAliasName,
-                    0,
-                ),
-                name: "operand_eval".to_owned(),
-                here_key: ::k::ProvenanceKey::new(
-                    ::k::ProvenanceRole::ContextAliasHere,
-                    0,
-                ),
-                here: "site".to_owned(),
-                pattern_key: ::k::ProvenanceKey::new(
-                    ::k::ProvenanceRole::RulePattern,
-                    0,
-                ),
-                configuration: ::k::HostConfigurationReference {
-                    key: ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleType, 0),
-                    configuration: ::k::HostTypeReference {
-                        key: ::k::HostTypeKey(
-                            __krs_context_alias_configuration_2fc29f1120842568,
-                        ),
-                        authored_path: "Machine".to_owned(),
-                    },
-                },
-                bindings: ::std::vec![
-                    ::k::ProtocolContextAliasBinding { name : "site".to_owned(), kind :
-                    ::k::ProtocolContextAliasBindingKind::Here },
-                    ::k::ProtocolContextAliasBinding { name : "tail".to_owned(), kind :
-                    ::k::ProtocolContextAliasBindingKind::KSequenceFrame },
-                    ::k::ProtocolContextAliasBinding { name : "state".to_owned(), kind :
-                    ::k::ProtocolContextAliasBindingKind::ConfigurationFrame }
+        payload: ::k::__krs_host_payload(
+            "{\"context_alias\":{\"declaration_key\":{\"role\":\"context_alias_declaration\",\"ordinal\":0},\"name_key\":{\"role\":\"context_alias_name\",\"ordinal\":0},\"name\":\"operand_eval\",\"here_key\":{\"role\":\"context_alias_here\",\"ordinal\":0},\"here\":\"site\",\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"configuration\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"configuration\":{\"slot\":2,\"authored_path\":\"Machine\"}},\"bindings\":[{\"name\":\"site\",\"kind\":{\"binding_kind\":\"here\"}},{\"name\":\"tail\",\"kind\":{\"binding_kind\":\"k_sequence_frame\"}},{\"name\":\"state\",\"kind\":{\"binding_kind\":\"configuration_frame\"}}],\"pattern\":{\"key\":{\"role\":\"rule_left_cells_payload\",\"ordinal\":0},\"cells\":[{\"field\":{\"key\":{\"role\":\"rule_left_cells_field\",\"ordinal\":0},\"cell\":{\"owner\":0,\"field\":1}},\"wrapper_key\":{\"role\":\"rule_left_cells_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"value\":{\"state_term_kind\":\"k_sequence\",\"payload_key\":{\"role\":\"rule_left_k_sequence_payload\",\"ordinal\":0},\"dot_k_key\":null,\"notation\":\"comma\",\"items\":[{\"key\":{\"role\":\"rule_left_k_sequence_item\",\"ordinal\":0},\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"name\":\"site\"}}],\"tail\":{\"frame_kind\":\"bind\",\"key\":{\"role\":\"rule_left_k_sequence_tail\",\"ordinal\":0},\"binding\":\"tail\"}}}],\"remainder\":{\"frame_kind\":\"bind\",\"key\":{\"role\":\"rule_left_cells_remainder\",\"ordinal\":0},\"binding\":\"state\"}}}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(Machine::__krs_configuration_type_key),
+                    ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+                    ::k::HostTypeKey(__krs_context_alias_configuration_2fc29f1120842568),
                 ],
-                pattern: ::k::HostRuleCells {
-                    key: ::k::ProvenanceKey::new(
-                        ::k::ProvenanceRole::RuleLeftCellsPayload,
-                        0u32,
-                    ),
-                    cells: ::std::vec![
-                        ::k::ProtocolRuleCell { field : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsField,
-                        0u32), cell : ::k::HostCellIdentity { owner :
-                        ::k::HostTypeKey(Machine::__krs_configuration_type_key), field :
-                        ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k), }, },
-                        wrapper_key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftCellsWrapper,
-                        0u32), wrapper : ::k::CellWrapper::KCell, value :
-                        ::k::ProtocolRuleStateTerm::KSequence(::k::ProtocolRuleKSequence
-                        { payload_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequencePayload,
-                        0u32)), dot_k_key : ::core::option::Option::None, notation :
-                        ::k::DescriptorKSequenceNotation::Comma, items :
-                        ::std::vec![::k::ProtocolRuleKSequenceItem { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceItem,
-                        0u32), value : ::k::HostTerm::Variable { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftReference,
-                        0u32), path_key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftReference,
-                        0u32), name : "site".to_owned(), } }], tail :
-                        ::k::ProtocolRuleFrame::Bind { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::RuleLeftKSequenceTail,
-                        0u32), binding : "tail".to_owned() }, }), }
-                    ],
-                    remainder: ::k::ProtocolRuleFrame::Bind {
-                        key: ::k::ProvenanceKey::new(
-                            ::k::ProvenanceRole::RuleLeftCellsRemainder,
-                            0u32,
-                        ),
-                        binding: "state".to_owned(),
-                    },
-                },
-            }),
+                items: &[],
+                targets: &[],
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

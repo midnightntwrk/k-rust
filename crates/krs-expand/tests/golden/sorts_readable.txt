@@ -26,9 +26,14 @@ fn __krs_sort_descriptor_565187d54f4138cb() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_565187d54f4138cb),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -288,15 +293,17 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_055e4df68589a682),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_0), authored_path :
-                "ReadableExpr".to_owned(), }, ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_1), authored_path :
-                "k :: KResult".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"ReadableExpr\"},{\"slot\":1,\"authored_path\":\"k :: KResult\"}]}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_0),
+                    ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_1),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -554,9 +561,14 @@ fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_a39f6dc1d44893ad),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots {
+                types: &[],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -616,13 +628,14 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_3d2b6e3da09d4920),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_3d2b6e3da09d4920_0), authored_path :
-                "DiamondTop".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_3d2b6e3da09d4920_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -693,13 +706,14 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_6a7ca0e7c3857a9a),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_6a7ca0e7c3857a9a_0), authored_path :
-                "DiamondTop".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            ::k::__KrsSlots {
+                types: &[::k::HostTypeKey(__krs_sort_parent_6a7ca0e7c3857a9a_0)],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -774,15 +788,17 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_736b00612848daf9),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_0), authored_path :
-                "DiamondLeft".to_owned(), }, ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_1), authored_path :
-                "DiamondRight".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondLeft\"},{\"slot\":1,\"authored_path\":\"DiamondRight\"}]}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_0),
+                    ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_1),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",

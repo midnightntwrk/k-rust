@@ -22,7 +22,7 @@ fn __krs_configuration_type_820e5d57a698d25c() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_configuration_descriptor_820e5d57a698d25c() -> ::k::HostDescriptor {
-    let (initializer, initializer_provenance) = Machine::__krs_initializer_payload();
+    let (initializer, initializer_slots, initializer_provenance) = Machine::__krs_initializer_payload();
     ::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
@@ -40,39 +40,22 @@ fn __krs_configuration_descriptor_820e5d57a698d25c() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_configuration_type_820e5d57a698d25c),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::FixedConfiguration(
-            ::std::boxed::Box::new(::k::HostFixedConfiguration {
-                root: ::k::DescriptorConfigurationRoot::GeneratedTop,
-                declaration: ::k::HostConfigurationDeclaration {
-                    key: ::k::ProvenanceKey::new(
-                        ::k::ProvenanceRole::ConfigurationDeclaration,
-                        0,
-                    ),
-                    fields: ::std::vec![
-                        ::k::HostCellField { reference : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
-                        0u32), cell : ::k::HostCellIdentity { owner :
-                        ::k::HostTypeKey(__krs_configuration_type_820e5d57a698d25c),
-                        field : ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k), },
-                        }, rust_field : "k".to_owned(), emitted_name :
-                        ::core::option::Option::None, color :
-                        ::core::option::Option::None, multiplicity :
-                        ::core::option::Option::None, cell_type :
-                        ::core::option::Option::None, content :
-                        ::k::ProtocolCellContent::Leaf { wrapper_key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellWrapper,
-                        0u32,), wrapper : ::k::CellWrapper::KCell, sort :
-                        ::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
-                        0u32,), target : ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(Machine::__krs_configuration_sort___krs_configuration_type_820e5d57a698d25c_0),
-                        authored_path : "KSequence".to_owned(), }, }, arguments :
-                        ::std::vec![], }, }
-                    ],
-                },
+        payload: (::k::__KrsSlots {
+            types: &[
+                ::k::HostTypeKey(
+                    Machine::__krs_configuration_sort___krs_configuration_type_820e5d57a698d25c_0,
+                ),
+                ::k::HostTypeKey(__krs_configuration_type_820e5d57a698d25c),
+                ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
+            ],
+            items: &[],
+            targets: &[],
+        })
+            .__krs_fixed_configuration(
+                "[{\"root_kind\":\"generated_top\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"KSequence\"}}}}]}]",
                 initializer,
-            }),
-        ),
+                initializer_slots,
+            ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
                 "",

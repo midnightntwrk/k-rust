@@ -9,53 +9,19 @@ use krs_ir::{
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
-use krs_syntax::{ProvenanceAnchor, ProvenanceRole, TokenRange, role_tokens};
+use krs_syntax::{ProvenanceAnchor, ProvenanceRole, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance_static;
-
-pub(super) fn rule_label_tokens(
-    facade: &Path,
-    attribute: &krs_syntax::RuleAttribute,
-) -> TokenStream {
-    let rule_label_role = role_tokens(ProvenanceRole::RuleLabel, facade);
-    attribute.label().map_or_else(
-        || quote!(::core::option::Option::None),
-        |label| {
-            let name = label.value();
-            quote! {
-                ::core::option::Option::Some(#facade::DescriptorRuleLabel {
-                    key: #facade::ProvenanceKey::new(#rule_label_role, 0),
-                    name: #name.to_owned(),
-                })
-            }
-        },
-    )
-}
-
-pub(super) fn rule_owise_tokens(
-    facade: &Path,
-    attribute: &krs_syntax::RuleAttribute,
-) -> TokenStream {
-    let rule_owise_role = role_tokens(ProvenanceRole::RuleOwise, facade);
-    if attribute.is_owise() {
-        quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-            key: #facade::ProvenanceKey::new(#rule_owise_role, 0),
-            value: 200,
-        }))
-    } else {
-        quote!(::core::option::Option::None)
-    }
-}
 
 pub(crate) fn rule(
     env: &dyn MacroEnvironment,
@@ -380,7 +346,7 @@ fn expand_ordinary_rule(
             "Cargo and Rust macro context form a valid host identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),

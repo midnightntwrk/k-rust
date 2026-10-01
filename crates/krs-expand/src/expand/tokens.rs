@@ -1,18 +1,11 @@
 //! Token helpers shared by every entry point.
 
-use krs_syntax::{
-    KSequence, KSequenceNotation, MapExpression, ProvenanceRole, TermLiteral, role_tokens,
-};
+use krs_syntax::{KSequence, MapExpression, ProvenanceRole, TermLiteral};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Meta, Path};
-
-pub(super) fn option_key(facade: &Path, role: ProvenanceRole, ordinal: u32) -> TokenStream {
-    let key = provenance_key(facade, role, ordinal);
-    quote!(::core::option::Option::Some(#key))
-}
 
 pub(super) fn sequence_has_role(sequence: &KSequence, role: ProvenanceRole) -> syn::Result<bool> {
     sequence
@@ -27,24 +20,12 @@ pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> syn::Re
         .map_err(syn::Error::from)
 }
 
-pub(super) fn k_notation(facade: &Path, notation: KSequenceNotation) -> TokenStream {
-    match notation {
-        KSequenceNotation::Comma => quote!(#facade::DescriptorKSequenceNotation::Comma),
-        KSequenceNotation::Operator => quote!(#facade::DescriptorKSequenceNotation::Operator),
-        KSequenceNotation::DotK => quote!(#facade::DescriptorKSequenceNotation::DotK),
-    }
-}
-
-pub(super) fn literal_tokens(facade: &Path, literal: &TermLiteral) -> TokenStream {
+pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
     match literal {
         TermLiteral::Integer(value) => {
-            let value = value.base10_digits().replace('_', "");
-            quote!(#facade::DescriptorLiteral::Int(#value.to_owned()))
+            krs_ir::DescriptorLiteral::Int(value.base10_digits().replace('_', ""))
         }
-        TermLiteral::Boolean(value) => {
-            let value = value.value;
-            quote!(#facade::DescriptorLiteral::Bool(#value))
-        }
+        TermLiteral::Boolean(value) => krs_ir::DescriptorLiteral::Bool(value.value),
     }
 }
 
@@ -54,32 +35,6 @@ pub(super) fn take_counter(counter: &mut u32) -> syn::Result<u32> {
         .checked_add(1)
         .ok_or_else(|| syn::Error::new(Span::call_site(), "too many term nodes"))?;
     Ok(value)
-}
-
-pub(super) fn provenance_key(facade: &Path, role: ProvenanceRole, ordinal: u32) -> TokenStream {
-    let role = role_tokens(role, facade);
-    quote! {
-        #facade::ProvenanceKey::new(#role, #ordinal)
-    }
-}
-
-pub(super) fn host_sort_reference(
-    facade: &Path,
-    role: ProvenanceRole,
-    ordinal: u32,
-    key_function: &Ident,
-    authored_path: &str,
-) -> TokenStream {
-    let key = provenance_key(facade, role, ordinal);
-    quote! {
-        #facade::HostSortReference {
-            key: #key,
-            target: #facade::HostTypeReference {
-                key: #facade::HostTypeKey(#key_function),
-                authored_path: #authored_path.to_owned(),
-            },
-        }
-    }
 }
 
 pub(super) fn sort_type_tokens(path: &Path, dynamic: bool) -> TokenStream {
@@ -135,19 +90,6 @@ pub(super) fn helper_tokens(attribute: &Attribute, name: &str) -> syn::Result<To
         ));
     };
     Ok(list.tokens.clone())
-}
-
-pub(super) fn type_reference(
-    facade: &Path,
-    key_function: &Ident,
-    authored_path: &str,
-) -> TokenStream {
-    quote! {
-        #facade::HostTypeReference {
-            key: #facade::HostTypeKey(#key_function),
-            authored_path: #authored_path.to_owned(),
-        }
-    }
 }
 
 pub(super) fn spelling(tokens: &impl ToTokens) -> String {

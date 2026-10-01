@@ -415,6 +415,37 @@ impl Sample for WireApplicationReference {
         }]
     }
 }
+impl Sample for WireCellIdentity {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            owner: TypeSlot(sample::<usize>()),
+            field: TypeSlot(sample::<usize>()),
+        }]
+    }
+}
+impl Sample for WireCellReference {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            cell: sample::<WireCellIdentity>(),
+        }]
+    }
+}
+impl Sample for WireCellDeclarationReference {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            declaration: sample::<WireTypeReference>(),
+        }]
+    }
+}
+impl Sample for WireSortDescriptor {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            parents: sample::<Vec<WireTypeReference>>(),
+        }]
+    }
+}
 impl Sample for WireConfigurationReference {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -2590,16 +2621,92 @@ impl Sample for WirePayload {
                 Self::Grammar(sample::<Box<WireGrammarDescriptor>>()),
                 Self::StructuredRule(sample::<Box<WireStructuredRule>>()),
                 Self::HeadRule(sample::<Box<WireHeadRule>>()),
+                Self::Sort(sample::<WireSortDescriptor>()),
+                Self::FixedConfiguration(sample::<Box<WireFixedConfiguration>>()),
+                Self::Cell(sample::<Box<WireCellDeclaration>>()),
+                Self::ConfigurationRule(sample::<Box<WireConfigurationRule>>()),
+                Self::ContextAlias(sample::<Box<WireContextAlias>>()),
             ],
-            4,
+            9,
             "WirePayload",
             |value| match value {
                 Self::Constructor(..) => 0,
                 Self::Grammar(..) => 1,
                 Self::StructuredRule(..) => 2,
                 Self::HeadRule(..) => 3,
+                Self::Sort(..) => 4,
+                Self::FixedConfiguration(..) => 5,
+                Self::Cell(..) => 6,
+                Self::ConfigurationRule(..) => 7,
+                Self::ContextAlias(..) => 8,
             },
         )
+    }
+}
+impl Sample for WireFixedConfiguration {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            root: sample::<DescriptorConfigurationRoot>(),
+            declaration: sample::<WireConfigurationDeclaration>(),
+            initializer: sample::<WireConfigurationInitializer>(),
+        }]
+    }
+}
+impl Sample for WireClaim {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            declaration_key: sample::<ProvenanceKey>(),
+            modality_key: sample::<ProvenanceKey>(),
+            modality: sample::<ClaimModality>(),
+            circularity_key: sample::<Option<ProvenanceKey>>(),
+            universals: sample::<Vec<WireClaimBinder>>(),
+            existentials: sample::<Vec<WireClaimBinder>>(),
+            ensures: sample::<Option<WireRuleCondition>>(),
+            or_bool_keys: sample::<Vec<ProvenanceKey>>(),
+        }]
+    }
+}
+impl Sample for WireClaimBinder {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            declaration_key: sample::<ProvenanceKey>(),
+            name_key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            sort: sample::<WireSortReference>(),
+        }]
+    }
+}
+impl Sample for WireConfigurationRule {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sentence_kind: sample::<SentenceKind>(),
+            label: sample::<Option<DescriptorRuleLabel>>(),
+            priority: sample::<Option<DescriptorRulePriority>>(),
+            requires: sample::<Option<WireRuleCondition>>(),
+            claim: sample::<Option<WireClaim>>(),
+            pattern_key: sample::<ProvenanceKey>(),
+            subject_configuration: sample::<WireConfigurationReference>(),
+            result_key: sample::<ProvenanceKey>(),
+            result_configuration: sample::<WireConfigurationReference>(),
+            bindings: sample::<Vec<ProtocolRuleBinding<WireSortReference>>>(),
+            subject: sample::<WireRuleCells>(),
+            result: sample::<WireRuleCells>(),
+        }]
+    }
+}
+impl Sample for WireContextAlias {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            declaration_key: sample::<ProvenanceKey>(),
+            name_key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            here_key: sample::<ProvenanceKey>(),
+            here: sample::<String>(),
+            pattern_key: sample::<ProvenanceKey>(),
+            configuration: sample::<WireConfigurationReference>(),
+            bindings: sample::<Vec<ProtocolContextAliasBinding<WireSortReference>>>(),
+            pattern: sample::<WireRuleCells>(),
+        }]
     }
 }
 impl Sample for WireProduction {
@@ -2841,8 +2948,15 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<SubsortSentence>(corpus, "SubsortSentence");
     insert::<SyntaxSortSentence>(corpus, "SyntaxSortSentence");
     insert::<WireCellTermField>(corpus, "WireCellTermField");
+    insert::<WireFixedConfiguration>(corpus, "WireFixedConfiguration");
+    insert::<WireClaim>(corpus, "WireClaim");
+    insert::<WireConfigurationRule>(corpus, "WireConfigurationRule");
+    insert::<WireContextAlias>(corpus, "WireContextAlias");
     insert::<WireHeadRule>(corpus, "WireHeadRule");
     insert::<WirePayload>(corpus, "WirePayload");
+    // The original payload samples must remain byte-identical; new kinds are pinned through their wire aliases.
+    // All payload samples above still undergo variant-coverage and round-trip checks.
+    corpus.get_mut("WirePayload").unwrap().truncate(4);
     insert::<WireProduction>(corpus, "WireProduction");
     insert::<WireRuleCondition>(corpus, "WireRuleCondition");
     insert::<WireStructuredRule>(corpus, "WireStructuredRule");

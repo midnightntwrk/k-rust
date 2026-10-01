@@ -1,9 +1,20 @@
 //! Configuration initializers: `#[k::init]`.
 
+use krs_ir::wire::{
+    WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
+    WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
+    WireSortReference, WireTerm, WireTermArgument, WireTypeReference,
+};
+use krs_ir::{
+    CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
+    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
+    ProvenanceKey,
+};
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree, role_tokens,
+    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -13,11 +24,10 @@ use syn::{Attribute, FnArg, Ident, Path, parse_quote};
 use super::configuration::cell_marker_function;
 use super::island_checks::initializer_state_island_import_checks;
 use super::nonce::expansion_nonce;
-use super::terms::TermBuilder;
+use super::terms::{TermBuilder, WireSlots, wire_key};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_path, is_bound_ident_path, k_notation, literal_tokens,
-    map_has_role, option_key, provenance_key, sequence_has_role, sort_type_tokens, spelling,
-    take_counter,
+    call_site_cfg_attributes, call_site_path, is_bound_ident_path, map_has_role, sequence_has_role,
+    sort_type_tokens, spelling, take_counter, wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -38,13 +48,6 @@ pub(crate) fn init(
     krs_syntax::InitAttribute::parse_tokens(attributes)?;
     let initializer = krs_syntax::InitializerFunction::parse_tokens(item)?;
     let facade = env.facade_path()?;
-    let configuration_variable_main_role = role_tokens(configuration_variable_main_role, &facade);
-    let configuration_variable_role = role_tokens(configuration_variable_role, &facade);
-    let configuration_variable_name_role = role_tokens(configuration_variable_name_role, &facade);
-    let configuration_variable_type_role = role_tokens(configuration_variable_type_role, &facade);
-    let initializer_declaration_role = role_tokens(initializer_declaration_role, &facade);
-    let initializer_result_type_role = role_tokens(initializer_result_type_role, &facade);
-    let initializer_body_role = role_tokens(initializer_body_role, &facade);
     let anchors = initializer.provenance()?;
     let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
@@ -76,33 +79,26 @@ pub(crate) fn init(
         });
         let binding = variable.binding().to_string();
         let external_name = variable.attribute().name().value();
-        let main_key = if variable.attribute().is_main() {
-            quote!(::core::option::Option::Some(
-                #facade::ProvenanceKey::new(#configuration_variable_main_role, #ordinal)
-            ))
-        } else {
-            quote!(::core::option::Option::None)
-        };
+        let main_key = variable
+            .attribute()
+            .is_main()
+            .then_some(wire_key(configuration_variable_main_role, ordinal));
         let authored = spelling(variable.sort());
-        variables.push(quote! {
-            #facade::HostConfigurationVariable {
-                binding_key: #facade::ProvenanceKey::new(#configuration_variable_role, #ordinal),
-                binding: #binding.to_owned(),
-                external_name_key: #facade::ProvenanceKey::new(
-                    #configuration_variable_name_role, #ordinal,
-                ),
-                external_name: #external_name.to_owned(),
-                sort: #facade::HostSortReference {
-                    key: #facade::ProvenanceKey::new(
-                        #configuration_variable_type_role, #ordinal,
-                    ),
-                    target: #facade::HostTypeReference {
-                        key: #facade::HostTypeKey(Self::#sort_key),
-                        authored_path: #authored.to_owned(),
-                    },
+        variables.push(WireConfigurationVariable {
+            binding_key: wire_key(configuration_variable_role, ordinal),
+            binding,
+            external_name_key: wire_key(configuration_variable_name_role, ordinal),
+            external_name,
+            sort: WireSortReference {
+                key: wire_key(configuration_variable_type_role, ordinal),
+                target: WireTypeReference {
+                    slot: builder
+                        .slots
+                        .type_slot(quote!(#facade::HostTypeKey(Self::#sort_key))),
+                    authored_path: authored,
                 },
-                main_key: #main_key,
-            }
+            },
+            main_key,
         });
     }
     let cells = builder.expand_cells(initializer.cells(), &quote!(Self))?;
@@ -110,11 +106,25 @@ pub(crate) fn init(
     builder
         .key_functions
         .append(&mut builder.terms.key_functions);
+    let wire = WireConfigurationInitializer {
+        key: wire_key(initializer_declaration_role, 0),
+        owner_key: wire_key(initializer_result_type_role, 0),
+        owner: WireTypeReference {
+            slot: builder
+                .slots
+                .type_slot(quote!(#facade::HostTypeKey(__krs_type_key::<Self>))),
+            authored_path: "Self".to_owned(),
+        },
+        variables,
+        body_key: wire_key(initializer_body_role, 0),
+        cells,
+    };
+    let wire = serde_json::to_string(&wire).expect("initializer wire is serializable");
+    let slots = builder.slots.tokens();
     let key_functions = builder.key_functions;
 
-    // The shared parser has validated every parameter attribute as the sole
-    // `config_var` helper. The outer proc macro consumes it so stable rustc
-    // sees an ordinary associated method signature.
+    // The shared parser has validated every parameter attribute as the sole `config_var` helper.
+    // The outer proc macro consumes it so stable rustc sees an ordinary associated method signature.
     let mut method = initializer.item().clone();
     for input in &mut method.sig.inputs {
         if let FnArg::Typed(parameter) = input {
@@ -133,7 +143,8 @@ pub(crate) fn init(
 
         #[doc(hidden)]
         pub(crate) fn __krs_initializer_payload() -> (
-            #facade::HostConfigurationInitializer,
+            &'static str,
+            #facade::__KrsSlots<'static>,
             #facade::HostProvenance,
         ) {
             let _krs_path_check = || {
@@ -142,15 +153,7 @@ pub(crate) fn init(
             fn __krs_type_key<T: ?Sized + 'static>() -> ::core::any::TypeId {
                 ::core::any::TypeId::of::<T>()
             }
-            let initializer = #facade::HostConfigurationInitializer {
-                key: #facade::ProvenanceKey::new(#initializer_declaration_role, 0),
-                owner_key: #facade::ProvenanceKey::new(#initializer_result_type_role, 0),
-                owner: #facade::HostTypeKey(__krs_type_key::<Self>),
-                variables: ::std::vec![#(#variables),*],
-                body_key: #facade::ProvenanceKey::new(#initializer_body_role, 0),
-                cells: ::std::vec![#(#cells),*],
-            };
-            (initializer, #provenance)
+            (#wire, #slots, #provenance)
         }
     })
 }
@@ -262,6 +265,7 @@ struct InitializerBuilder<'a> {
     counters: InitializerCounters,
     terms: TermBuilder<'a>,
     key_functions: Vec<TokenStream>,
+    slots: WireSlots,
 }
 
 impl<'a> InitializerBuilder<'a> {
@@ -272,6 +276,7 @@ impl<'a> InitializerBuilder<'a> {
             counters: InitializerCounters::default(),
             terms: TermBuilder::new(facade, nonce, cfg, bindings).with_associated_keys(),
             key_functions: Vec::new(),
+            slots: WireSlots::new(facade),
         }
     }
 
@@ -279,31 +284,27 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         cells: &[FixedCellInitializer],
         owner: &TokenStream,
-    ) -> syn::Result<Vec<TokenStream>> {
+    ) -> syn::Result<Vec<WireInitializerCell>> {
         let initializer_field_role = ProvenanceRole::InitializerField;
         let initializer_cell_constructor_role = ProvenanceRole::InitializerCellConstructor;
         let initializer_nested_constructor_role = ProvenanceRole::InitializerNestedConstructor;
         let initializer_cell_role = ProvenanceRole::InitializerCell;
         let facade = self.facade;
-        let initializer_field_role = role_tokens(initializer_field_role, facade);
-        let initializer_cell_constructor_role =
-            role_tokens(initializer_cell_constructor_role, facade);
-        let initializer_nested_constructor_role =
-            role_tokens(initializer_nested_constructor_role, facade);
-        let initializer_cell_role = role_tokens(initializer_cell_role, facade);
         let mut output = Vec::new();
         for cell in cells {
             let cell_ordinal = take_counter(&mut self.counters.cell)?;
             let constructor_ordinal = take_counter(&mut self.counters.constructor)?;
             let marker = cell_marker_function(cell.name());
-            let field = quote! {
-                #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new(#initializer_field_role, #cell_ordinal),
-                    cell: #facade::HostCellIdentity {
-                        owner: #facade::HostTypeKey(__krs_type_key::<#owner>),
-                        field: #facade::HostTypeKey(#owner::#marker),
-                    },
-                }
+            let field = WireCellReference {
+                key: wire_key(initializer_field_role, cell_ordinal),
+                cell: WireCellIdentity {
+                    owner: self
+                        .slots
+                        .type_slot(quote!(#facade::HostTypeKey(__krs_type_key::<#owner>))),
+                    field: self
+                        .slots
+                        .type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
+                },
             };
             let content = match cell.content() {
                 InitializerCellContent::Leaf {
@@ -319,19 +320,18 @@ impl<'a> InitializerBuilder<'a> {
                         ));
                     }
                     let wrapper = if *computation {
-                        quote!(#facade::CellWrapper::KCell)
+                        CellWrapper::KCell
                     } else {
-                        quote!(#facade::CellWrapper::Cell)
+                        CellWrapper::Cell
                     };
                     let value = self.expand_state(value)?;
-                    quote! {
-                        #facade::ProtocolInitializerCellContent::Leaf {
-                            constructor_key: #facade::ProvenanceKey::new(
-                                #initializer_cell_constructor_role, #constructor_ordinal,
-                            ),
-                            wrapper: #wrapper,
-                            value: #value,
-                        }
+                    ProtocolInitializerCellContent::Leaf {
+                        constructor_key: wire_key(
+                            initializer_cell_constructor_role,
+                            constructor_ordinal,
+                        ),
+                        wrapper,
+                        value,
                     }
                 }
                 InitializerCellContent::Nested {
@@ -340,166 +340,164 @@ impl<'a> InitializerBuilder<'a> {
                 } => {
                     let path = call_site_path(constructor)?;
                     let authored = spelling(constructor);
-                    let declaration = quote! {
-                        #facade::HostCellDeclarationReference {
-                            key: #facade::ProvenanceKey::new(
-                                #initializer_nested_constructor_role, #constructor_ordinal,
-                            ),
-                            declaration: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(__krs_type_key::<#path>),
-                                authored_path: #authored.to_owned(),
-                            },
-                        }
+                    let declaration = WireCellDeclarationReference {
+                        key: wire_key(initializer_nested_constructor_role, constructor_ordinal),
+                        declaration: WireTypeReference {
+                            slot: self
+                                .slots
+                                .type_slot(quote!(#facade::HostTypeKey(__krs_type_key::<#path>))),
+                            authored_path: authored,
+                        },
                     };
                     let children = self.expand_cells(children, &quote!(#path))?;
-                    quote! {
-                        #facade::ProtocolInitializerCellContent::Nested {
-                            declaration: #declaration,
-                            children: ::std::vec![#(#children),*],
-                        }
+                    ProtocolInitializerCellContent::Nested {
+                        declaration,
+                        children,
                     }
                 }
             };
-            let facade = self.facade;
-            output.push(quote! {
-                #facade::HostInitializerCell {
-                    key: #facade::ProvenanceKey::new(#initializer_cell_role, #cell_ordinal),
-                    field: #field,
-                    content: #content,
-                }
+            output.push(WireInitializerCell {
+                key: wire_key(initializer_cell_role, cell_ordinal),
+                field,
+                content,
             });
         }
         Ok(output)
     }
 
-    fn expand_state(&mut self, state: &StateTerm) -> syn::Result<TokenStream> {
-        let facade = self.facade;
+    fn expand_state(
+        &mut self,
+        state: &StateTerm,
+    ) -> syn::Result<ProtocolInitializerStateTerm<WireTerm>> {
         match state {
             StateTerm::Term(term) => {
                 let term = self.expand_term(term, None)?;
-                Ok(quote!(#facade::ProtocolInitializerStateTerm::Term(#term)))
+                Ok(ProtocolInitializerStateTerm::Term(term))
             }
             StateTerm::KSequence(sequence) => {
                 let sequence = self.expand_k(sequence)?;
-                Ok(quote!(#facade::ProtocolInitializerStateTerm::KSequence(#sequence)))
+                Ok(ProtocolInitializerStateTerm::KSequence(sequence))
             }
             StateTerm::Map(map) => {
                 let map = self.expand_map(map)?;
-                Ok(quote!(#facade::ProtocolInitializerStateTerm::Map(#map)))
+                Ok(ProtocolInitializerStateTerm::Map(map))
             }
         }
     }
 
-    fn expand_k(&mut self, sequence: &KSequence) -> syn::Result<TokenStream> {
-        let facade = self.facade;
+    fn expand_k(&mut self, sequence: &KSequence) -> syn::Result<ProtocolKSequence<WireTerm>> {
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
-            option_key(facade, ProvenanceRole::KSequencePayload, ordinal)
+            Some(wire_key(ProvenanceRole::KSequencePayload, ordinal))
         } else {
-            quote!(::core::option::Option::None)
+            None
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             let ordinal = take_counter(&mut self.counters.k_tail)?;
-            option_key(facade, ProvenanceRole::KSequenceTail, ordinal)
+            Some(wire_key(ProvenanceRole::KSequenceTail, ordinal))
         } else {
-            quote!(::core::option::Option::None)
+            None
         };
-        let notation = k_notation(facade, sequence.notation());
+        let notation = match sequence.notation() {
+            KSequenceNotation::Comma => DescriptorKSequenceNotation::Comma,
+            KSequenceNotation::Operator => DescriptorKSequenceNotation::Operator,
+            KSequenceNotation::DotK => DescriptorKSequenceNotation::DotK,
+        };
         let mut items = Vec::new();
         for item in sequence.items() {
             let ordinal = take_counter(&mut self.counters.k_item)?;
-            let structural = provenance_key(facade, ProvenanceRole::KSequenceItem, ordinal);
+            let structural = wire_key(ProvenanceRole::KSequenceItem, ordinal);
             let value = self.expand_term(item, Some(structural.clone()))?;
-            items.push(quote! {
-                #facade::ProtocolKSequenceItem { key: #structural, value: #value }
+            items.push(ProtocolKSequenceItem {
+                key: structural,
+                value,
             });
         }
-        Ok(quote! {
-            #facade::ProtocolKSequence {
-                payload_key: #payload_key,
-                dot_k_key: #dot_k_key,
-                notation: #notation,
-                items: ::std::vec![#(#items),*],
-            }
+        Ok(ProtocolKSequence {
+            payload_key,
+            dot_k_key,
+            notation,
+            items,
         })
     }
 
-    fn expand_map(&mut self, map: &MapExpression) -> syn::Result<TokenStream> {
-        let facade = self.facade;
+    fn expand_map(&mut self, map: &MapExpression) -> syn::Result<ProtocolMap<WireTerm>> {
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
-            option_key(facade, ProvenanceRole::MapPayload, ordinal)
+            Some(wire_key(ProvenanceRole::MapPayload, ordinal))
         } else {
-            quote!(::core::option::Option::None)
+            None
         };
         let body = match map.body() {
-            MapBody::Empty { explicit_dot } => quote! {
-                #facade::ProtocolMapBody::Empty { explicit_dot: #explicit_dot }
+            MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
+                explicit_dot: *explicit_dot,
             },
             MapBody::Items { items, .. } => {
                 let mut output = Vec::new();
                 for item in items {
                     let key_ordinal = take_counter(&mut self.counters.map_key)?;
                     let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                    let key_key = provenance_key(facade, ProvenanceRole::MapKey, key_ordinal);
-                    let value_key = provenance_key(facade, ProvenanceRole::MapValue, value_ordinal);
+                    let key_key = wire_key(ProvenanceRole::MapKey, key_ordinal);
+                    let value_key = wire_key(ProvenanceRole::MapValue, value_ordinal);
                     let key = self.expand_term(item.key(), Some(key_key.clone()))?;
                     let value = self.expand_term(item.value(), Some(value_key.clone()))?;
-                    output.push(quote! {
-                        #facade::ProtocolMapItem {
-                            key_key: #key_key, key: #key,
-                            value_key: #value_key, value: #value,
-                        }
+                    output.push(ProtocolMapItem {
+                        key_key,
+                        key,
+                        value_key,
+                        value,
                     });
                 }
-                quote!(#facade::ProtocolMapBody::Items { items: ::std::vec![#(#output),*] })
+                ProtocolMapBody::Items { items: output }
             }
             MapBody::Update { base, key, value } => {
                 let base_ordinal = take_counter(&mut self.counters.map_update_base)?;
                 let key_ordinal = take_counter(&mut self.counters.map_key)?;
                 let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                let base_key = provenance_key(facade, ProvenanceRole::MapUpdateBase, base_ordinal);
-                let key_key = provenance_key(facade, ProvenanceRole::MapKey, key_ordinal);
-                let value_key = provenance_key(facade, ProvenanceRole::MapValue, value_ordinal);
+                let base_key = wire_key(ProvenanceRole::MapUpdateBase, base_ordinal);
+                let key_key = wire_key(ProvenanceRole::MapKey, key_ordinal);
+                let value_key = wire_key(ProvenanceRole::MapValue, value_ordinal);
                 let base = self.expand_term(base, Some(base_key.clone()))?;
                 let key = self.expand_term(key, Some(key_key.clone()))?;
                 let value = self.expand_term(value, Some(value_key.clone()))?;
-                quote! {
-                    #facade::ProtocolMapBody::Update {
-                        base_key: #base_key, base: #base,
-                        key_key: #key_key, key: #key,
-                        value_key: #value_key, value: #value,
-                    }
+                ProtocolMapBody::Update {
+                    base_key,
+                    base,
+                    key_key,
+                    key,
+                    value_key,
+                    value,
                 }
             }
         };
-        Ok(quote!(#facade::ProtocolMap { payload_key: #payload_key, body: #body }))
+        Ok(ProtocolMap { payload_key, body })
     }
 
     fn expand_term(
         &mut self,
         term: &TermExpression,
-        structural_key: Option<TokenStream>,
-    ) -> syn::Result<TokenStream> {
+        structural_key: Option<ProvenanceKey>,
+    ) -> syn::Result<ProtocolInitializerTerm<WireTerm>> {
         let ordinal = take_counter(&mut self.counters.term)?;
-        let key = provenance_key(self.facade, ProvenanceRole::InitializerTerm, ordinal);
+        let key = wire_key(ProvenanceRole::InitializerTerm, ordinal);
         let structural = structural_key.unwrap_or_else(|| key.clone());
-        let term = self.expand_term_tree(term.tree(), &structural)?;
-        let facade = self.facade;
-        Ok(quote!(#facade::ProtocolInitializerTerm { key: #key, term: #term }))
+        let term = self.expand_term_tree(term.tree(), structural)?;
+        Ok(ProtocolInitializerTerm { key, term })
     }
 
     fn expand_term_tree(
         &mut self,
         tree: &TermTree,
-        structural_key: &TokenStream,
-    ) -> syn::Result<TokenStream> {
-        let facade = self.facade;
+        structural_key: ProvenanceKey,
+    ) -> syn::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
-                let key = provenance_key(facade, ProvenanceRole::InitializerTermPath, ordinal);
-                let target = self.terms.application_target(application.head())?;
+                let key = wire_key(ProvenanceRole::InitializerTermPath, ordinal);
+                let target = self
+                    .terms
+                    .application_wire_slot(application.head(), &mut self.slots)?;
+                let authored_path = self.terms.application_authored_path(application.head());
                 let TermArguments::Positional(values) = application.arguments() else {
                     return Err(syn::Error::new(
                         application.head().span(),
@@ -509,45 +507,54 @@ impl<'a> InitializerBuilder<'a> {
                 let arguments = values
                     .iter()
                     .map(|value| {
-                        self.expand_term_tree(value, structural_key).map(|value| {
-                            quote! {
-                                #facade::HostTermArgument::Positional {
-                                    value: ::std::boxed::Box::new(#value),
-                                }
-                            }
-                        })
+                        self.expand_term_tree(value, structural_key.clone())
+                            .map(|value| WireTermArgument::Positional {
+                                value: Box::new(value),
+                            })
                     })
                     .collect::<syn::Result<Vec<_>>>()?;
-                Ok(quote! {
-                    #facade::HostTerm::Application {
-                        head_class: #facade::DescriptorApplicationHeadClass::Applied,
-                        reference: #facade::HostApplicationReference { key: #key, target: #target },
-                        path_key: #key,
-                        arguments: ::std::vec![#(#arguments),*],
-                    }
+                Ok(WireTerm::Application {
+                    head_class: DescriptorApplicationHeadClass::Applied,
+                    reference: WireApplicationReference {
+                        key: key.clone(),
+                        target,
+                        authored_path,
+                    },
+                    path_key: key,
+                    arguments,
                 })
             }
             TermTree::Reference(path) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
-                let key = provenance_key(facade, ProvenanceRole::InitializerTermPath, ordinal);
+                let key = wire_key(ProvenanceRole::InitializerTermPath, ordinal);
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
-                    Ok(quote!(#facade::HostTerm::Variable {
-                        key: #key, path_key: #key, name: #name.to_owned(),
-                    }))
+                    Ok(WireTerm::Variable {
+                        key: key.clone(),
+                        path_key: key,
+                        name,
+                    })
                 } else {
-                    let target = self.terms.application_target(path)?;
-                    Ok(quote!(#facade::HostTerm::Application {
-                        head_class: #facade::DescriptorApplicationHeadClass::BareReference,
-                        reference: #facade::HostApplicationReference { key: #key, target: #target },
-                        path_key: #key,
-                        arguments: ::std::vec![],
-                    }))
+                    let target = self.terms.application_wire_slot(path, &mut self.slots)?;
+                    let authored_path = self.terms.application_authored_path(path);
+                    Ok(WireTerm::Application {
+                        head_class: DescriptorApplicationHeadClass::BareReference,
+                        reference: WireApplicationReference {
+                            key: key.clone(),
+                            target,
+                            authored_path,
+                        },
+                        path_key: key,
+                        arguments: vec![],
+                    })
                 }
             }
             TermTree::Literal(literal) => {
-                let literal = literal_tokens(facade, literal);
-                Ok(quote!(#facade::HostTerm::Literal { key: #structural_key, literal: #literal }))
+                let literal = wire_literal(literal);
+                Ok(WireTerm::Literal {
+                    key: structural_key,
+                    literal,
+                })
             }
             TermTree::Wildcard(_) => Err(syn::Error::new(
                 Span::call_site(),

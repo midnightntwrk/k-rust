@@ -30,15 +30,17 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_sort_type_b0e7cc828be62a92),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_0), authored_path :
-                "Expr".to_owned(), }, ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_1), authored_path :
-                "KResult".to_owned(), }
-            ],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"Expr\"},{\"slot\":1,\"authored_path\":\"KResult\"}]}}",
+            ::k::__KrsSlots {
+                types: &[
+                    ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_0),
+                    ::k::HostTypeKey(__krs_sort_parent_b0e7cc828be62a92_1),
+                ],
+                items: &[],
+                targets: &[],
+            },
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",

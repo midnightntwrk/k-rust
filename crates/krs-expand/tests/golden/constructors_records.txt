@@ -110,9 +110,10 @@ fn __krs_enum_sort_descriptor_01bc3d1b6dad6040() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_enum_type_01bc3d1b6dad6040),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots::default(),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",

@@ -219,6 +219,10 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "SubsortSentence",
     "SyntaxSortSentence",
     "WireCellTermField",
+    "WireClaim",
+    "WireConfigurationRule",
+    "WireContextAlias",
+    "WireFixedConfiguration",
     "WireHeadRule",
     "WirePayload",
     "WireProduction",
@@ -675,6 +679,10 @@ fn registry() -> Registry {
     trace!(TargetSlot: TargetSlot);
     trace!(WireApplicationReference: WireApplicationReference);
     trace!(WireConfigurationReference: WireConfigurationReference);
+    trace!(WireCellIdentity: WireCellIdentity);
+    trace!(WireCellReference: WireCellReference);
+    trace!(WireCellDeclarationReference: WireCellDeclarationReference);
+    trace!(WireSortDescriptor: WireSortDescriptor);
     trace!(WireConstructorDescriptor: WireConstructorDescriptor);
     trace!(WireConstructorFieldDescriptor: WireConstructorFieldDescriptor);
     trace!(WireContextAliasReference: WireContextAliasReference);
@@ -798,6 +806,11 @@ fn registry() -> Registry {
     unsupported!(SyntaxSortSentence: SyntaxSortSentence);
     unsupported!(WireCellTermField: WireCellTermField);
     unsupported!(WireGrammarDescriptor: WireGrammarDescriptor);
+    unsupported!(WireClaim: WireClaim);
+    trace!(WireClaimBinder: WireClaimBinder);
+    unsupported!(WireConfigurationRule: WireConfigurationRule);
+    unsupported!(WireContextAlias: WireContextAlias);
+    unsupported!(WireFixedConfiguration: WireFixedConfiguration);
     unsupported!(WireHeadRule: WireHeadRule);
     unsupported!(WirePayload: WirePayload);
     unsupported!(WireProduction: WireProduction);

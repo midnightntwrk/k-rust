@@ -19,10 +19,10 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Ident, ItemEnum, Path};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::grammar::grammar_macro_descriptor;
 use super::nonce::{expansion_nonce, rule_application_selector};
-use super::productions::strictness_tokens;
+use super::productions::strictness_key_function;
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
@@ -171,6 +171,11 @@ pub(crate) fn constructors(
         let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
         let membership_anchors = declaration.membership_provenance()?;
         let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors);
+        let sort_wire =
+            serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
+                parents: Vec::new(),
+            }))
+            .expect("KRS wire values serialize");
         let sort_factory_tokens = DescriptorFactory {
             facade: &facade,
             factory: &sort_factory,
@@ -185,11 +190,7 @@ pub(crate) fn constructors(
                     #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#enum_key)),
                 )
             },
-            payload: quote! {
-                #facade::HostDescriptorPayload::Sort(
-                    #facade::HostSortDescriptor { parents: ::std::vec![] },
-                )
-            },
+            payload: FactoryPayload::wire(sort_wire, quote!(#facade::__KrsSlots::default())),
             cfg: quote!(::core::default::Default::default()),
             attributes: quote!(#(#cfg)*),
             provenance: quote!(#sort_provenance),
@@ -206,7 +207,7 @@ pub(crate) fn constructors(
                 "Cargo and Rust macro context form a valid enum-membership identity",
             ),
             declared_type: quote!(::core::option::Option::None),
-            payload: quote!(#facade::__krs_host_payload(#membership_wire, #membership_slot_tokens)),
+            payload: FactoryPayload::wire(membership_wire, membership_slot_tokens),
             cfg: quote!(::core::default::Default::default()),
             attributes: quote!(#(#cfg)*),
             provenance: quote!(#membership_provenance),
@@ -450,8 +451,7 @@ fn expand_enum_variant(
     }
 
     let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
-    let (strictness_key, _) = strictness_tokens(
-        facade,
+    let strictness_key = strictness_key_function(
         variant.strictness(),
         variant
             .fields()
@@ -563,7 +563,7 @@ fn expand_enum_variant(
                 ),
             )
         },
-        payload: quote!(#facade::__krs_host_payload(#constructor_wire, #slot_tokens)),
+        payload: FactoryPayload::wire(constructor_wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),
@@ -580,7 +580,7 @@ fn expand_enum_variant(
             "Cargo and Rust macro context form a valid variant-grammar identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#grammar_wire, #grammar_slot_tokens)),
+        payload: FactoryPayload::wire(grammar_wire, grammar_slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#grammar_provenance),

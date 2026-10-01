@@ -3,10 +3,10 @@
 use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use krs_ir::lower_hex;
-use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
+use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange};
 use proc_macro2::{Span, TokenStream, TokenTree};
@@ -18,7 +18,6 @@ use super::constructors::{reject_unexpanded_symbol, take_explicit_symbol_helper}
 use super::nonce::expansion_nonce;
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, spelling,
-    type_reference,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -89,6 +88,7 @@ pub(crate) fn sort(
 
     let mut key_functions = Vec::new();
     let mut parents = Vec::new();
+    let mut slots = WireSlots::new(&facade);
     let semantic_parents = if attribute.is_reference() {
         attribute.parents()
     } else {
@@ -113,7 +113,10 @@ pub(crate) fn sort(
                 ::core::any::TypeId::of::<#parent_type>()
             }
         });
-        parents.push(type_reference(&facade, &key, &spelling));
+        parents.push(WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+            authored_path: spelling,
+        });
     }
 
     let mut grammar = Vec::new();
@@ -133,6 +136,10 @@ pub(crate) fn sort(
         && semantic_parents.iter().any(is_framework_sort_path))
     .then(|| quote!(#facade::__request_framework_sorts!();));
 
+    let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
+        .expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
+
     let factory_tokens = DescriptorFactory {
         facade: &facade,
         factory: &factory,
@@ -149,11 +156,7 @@ pub(crate) fn sort(
                 ),
             )
         },
-        payload: quote! {
-            #facade::HostDescriptorPayload::Sort(#facade::HostSortDescriptor {
-                parents: ::std::vec![#(#parents),*],
-            })
-        },
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),
@@ -377,6 +380,7 @@ fn expand_readable_sort(
 
     let mut parent_functions = Vec::new();
     let mut parents = Vec::new();
+    let mut slots = WireSlots::new(facade);
     for (index, parent) in declaration.parents().iter().enumerate() {
         let key = format_ident!("__krs_sort_parent_{nonce:016x}_{index}");
         // This hidden reference gives language tooling a real use of the
@@ -389,7 +393,10 @@ fn expand_readable_sort(
                 ::core::any::TypeId::of::<#path>()
             }
         });
-        parents.push(type_reference(facade, &key, &authored));
+        parents.push(WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+            authored_path: authored,
+        });
     }
 
     let mut brackets = Vec::new();
@@ -408,6 +415,10 @@ fn expand_readable_sort(
         )?);
     }
 
+    let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
+        .expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
+
     let factory_tokens = DescriptorFactory {
         facade,
         factory: &factory,
@@ -422,11 +433,7 @@ fn expand_readable_sort(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
             )
         },
-        payload: quote! {
-            #facade::HostDescriptorPayload::Sort(#facade::HostSortDescriptor {
-                parents: ::std::vec![#(#parents),*],
-            })
-        },
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: TokenStream::new(),
         provenance: quote!(#provenance),
@@ -514,7 +521,7 @@ fn expand_readable_membership(
             "Cargo and Rust macro context form a valid subsort identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: TokenStream::new(),
         provenance: quote!(#provenance),
@@ -725,7 +732,7 @@ pub(crate) fn subsort(
             "Cargo and Rust macro context form a valid subsort identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),
@@ -877,7 +884,7 @@ fn expand_bracket_grammar_parts(
             "Cargo and Rust macro context form a valid bracket identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),

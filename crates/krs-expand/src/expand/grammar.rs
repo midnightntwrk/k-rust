@@ -13,7 +13,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Ident, Path};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::terms::wire_key;
 use crate::environment::MacroEnvironment;
@@ -187,7 +187,7 @@ pub(super) fn grammar_macro_descriptor(
             "Cargo and Rust macro context form a valid grammar identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #facade::__KrsSlots::default())),
+        payload: FactoryPayload::wire(wire, quote!(#facade::__KrsSlots::default())),
         cfg: quote!(::core::default::Default::default()),
         attributes: TokenStream::new(),
         provenance: quote!(#provenance),

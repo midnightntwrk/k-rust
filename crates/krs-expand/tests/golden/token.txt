@@ -22,9 +22,10 @@ fn __krs_token_sort_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_token_type_71a45e755f9d1649),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
-            parents: ::std::vec![],
-        }),
+        payload: ::k::__krs_host_payload(
+            "{\"sort\":{\"parents\":[]}}",
+            ::k::__KrsSlots::default(),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",

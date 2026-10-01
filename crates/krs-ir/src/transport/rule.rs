@@ -37,7 +37,7 @@ stage_shape! {
     #[derive(Clone, Debug, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     #[serde(
-        rename = "DescriptorClaimBinder",
+        rename = "ClaimBinder",
         bound(
             serialize = "S::Sort: Serialize",
             deserialize = "S::Sort: Deserialize<'de>"

@@ -1981,7 +1981,11 @@ pub type StageConfigurationInitializer<S> = ProtocolConfigurationInitializer<
     >,
 >;
 
-pub(crate) fn map_declaration<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
+/// Maps every reference in a cell declaration through the generated protocol traversals.
+/// # Errors
+/// Returns the first reference-resolution error.
+#[doc(hidden)]
+pub fn map_declaration<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
     value: StageCellDeclaration<S>,
     map: &mut M,
 ) -> Result<StageCellDeclaration<To>, M::Error> {
@@ -1995,7 +1999,11 @@ pub(crate) fn map_declaration<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
     })
 }
 
-fn map_initializer<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
+/// Maps every reference in a paired initializer through the generated protocol traversals.
+/// # Errors
+/// Returns the first reference-resolution error.
+#[doc(hidden)]
+pub fn map_initializer<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
     value: StageConfigurationInitializer<S>,
     map: &mut M,
 ) -> Result<StageConfigurationInitializer<To>, M::Error> {

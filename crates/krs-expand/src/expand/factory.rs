@@ -17,7 +17,7 @@ pub(super) struct DescriptorFactory<'a> {
     pub disambiguator: TokenStream,
     pub identity_check: IdentityCheck,
     pub declared_type: TokenStream,
-    pub payload: TokenStream,
+    pub payload: FactoryPayload,
     pub cfg: TokenStream,
     pub attributes: TokenStream,
     pub provenance: TokenStream,
@@ -40,6 +40,7 @@ impl DescriptorFactory<'_> {
             provenance,
             prelude,
         } = self;
+        let payload = payload.render(facade);
         let (last_argument, check) = match identity_check {
             IdentityCheck::Expect(label) => (quote!(#disambiguator,), quote!(.expect(#label))),
             // The claim factory omits the trailing argument comma.
@@ -66,6 +67,31 @@ impl DescriptorFactory<'_> {
 
             #attributes
             #facade::__register_host_descriptor!(#factory);
+        }
+    }
+}
+
+/// A factory emits static wire data with Rust-resolved references.
+pub(super) enum FactoryPayload {
+    Wire { json: String, slots: TokenStream },
+    FixedConfiguration { json: String, slots: TokenStream },
+}
+
+impl FactoryPayload {
+    pub(super) fn wire(json: String, slots: TokenStream) -> Self {
+        Self::Wire { json, slots }
+    }
+
+    pub(super) fn fixed_configuration(json: String, slots: TokenStream) -> Self {
+        Self::FixedConfiguration { json, slots }
+    }
+
+    fn render(&self, facade: &Path) -> TokenStream {
+        match self {
+            Self::Wire { json, slots } => quote!(#facade::__krs_host_payload(#json, #slots)),
+            Self::FixedConfiguration { json, slots } => quote! {
+                (#slots).__krs_fixed_configuration(#json, initializer, initializer_slots)
+            },
         }
     }
 }

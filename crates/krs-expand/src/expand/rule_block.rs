@@ -7,7 +7,7 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Ident, Path};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermSide, WireSlots};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
@@ -322,7 +322,7 @@ fn expand_head_rule(
             "Cargo and Rust macro context form a valid host identity",
         ),
         declared_type: quote!(::core::option::Option::None),
-        payload: quote!(#facade::__krs_host_payload(#wire, #slot_tokens)),
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),

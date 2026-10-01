@@ -32,7 +32,7 @@ fn __krs_configuration_type_1f42c47f927d9bc1() -> ::core::any::TypeId {
 }
 #[doc(hidden)]
 fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
-    let (initializer, initializer_provenance) = NestedMachine::__krs_initializer_payload();
+    let (initializer, initializer_slots, initializer_provenance) = NestedMachine::__krs_initializer_payload();
     ::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
@@ -50,57 +50,26 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::FixedConfiguration(
-            ::std::boxed::Box::new(::k::HostFixedConfiguration {
-                root: ::k::DescriptorConfigurationRoot::GeneratedTop,
-                declaration: ::k::HostConfigurationDeclaration {
-                    key: ::k::ProvenanceKey::new(
-                        ::k::ProvenanceRole::ConfigurationDeclaration,
-                        0,
-                    ),
-                    fields: ::std::vec![
-                        ::k::HostCellField { reference : ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
-                        0u32), cell : ::k::HostCellIdentity { owner :
-                        ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
-                        field :
-                        ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_k), },
-                        }, rust_field : "k".to_owned(), emitted_name :
-                        ::core::option::Option::None, color :
-                        ::core::option::Option::None, multiplicity :
-                        ::core::option::Option::None, cell_type :
-                        ::core::option::Option::None, content :
-                        ::k::ProtocolCellContent::Leaf { wrapper_key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellWrapper,
-                        0u32,), wrapper : ::k::CellWrapper::KCell, sort :
-                        ::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
-                        0u32,), target : ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(NestedMachine::__krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0),
-                        authored_path : "k :: builtin :: KSequence".to_owned(), }, },
-                        arguments : ::std::vec![], }, }, ::k::HostCellField { reference :
-                        ::k::HostCellReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationField,
-                        1u32), cell : ::k::HostCellIdentity { owner :
-                        ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
-                        field :
-                        ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_store),
-                        }, }, rust_field : "store".to_owned(), emitted_name :
-                        ::core::option::Option::None, color :
-                        ::core::option::Option::None, multiplicity :
-                        ::core::option::Option::None, cell_type :
-                        ::core::option::Option::None, content :
-                        ::k::ProtocolCellContent::Nested { declaration :
-                        ::k::HostCellDeclarationReference { key :
-                        ::k::ProvenanceKey::new(::k::ProvenanceRole::ConfigurationCellContent,
-                        1u32,), declaration : ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(NestedMachine::__krs_configuration_nested___krs_configuration_type_1f42c47f927d9bc1_1),
-                        authored_path : "Store".to_owned(), }, }, }, }
-                    ],
-                },
+        payload: (::k::__KrsSlots {
+            types: &[
+                ::k::HostTypeKey(
+                    NestedMachine::__krs_configuration_sort___krs_configuration_type_1f42c47f927d9bc1_0,
+                ),
+                ::k::HostTypeKey(__krs_configuration_type_1f42c47f927d9bc1),
+                ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_k),
+                ::k::HostTypeKey(
+                    NestedMachine::__krs_configuration_nested___krs_configuration_type_1f42c47f927d9bc1_1,
+                ),
+                ::k::HostTypeKey(NestedMachine::__krs_cell_field_type_id_store),
+            ],
+            items: &[],
+            targets: &[],
+        })
+            .__krs_fixed_configuration(
+                "[{\"root_kind\":\"generated_top\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: KSequence\"}}}},{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":1},\"cell\":{\"owner\":1,\"field\":4}},\"rust_field\":\"store\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"nested\",\"declaration\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":1},\"declaration\":{\"slot\":3,\"authored_path\":\"Store\"}}}}]}]",
                 initializer,
-            }),
-        ),
+                initializer_slots,
+            ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
                 "",

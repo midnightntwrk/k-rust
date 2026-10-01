@@ -57,10 +57,10 @@ impl Stage for WireStage {
     type Nominal = crate::wire::WireTypeReference;
     type ContextAlias = crate::wire::WireContextAliasReference;
     type Configuration = crate::wire::WireConfigurationReference;
-    type Cell = std::convert::Infallible;
+    type Cell = crate::wire::WireCellReference;
     type HeadRuleCell = crate::wire::WireHeadRuleCellReference;
     type Item = crate::wire::ItemSlot;
-    type CellDeclaration = std::convert::Infallible;
+    type CellDeclaration = crate::wire::WireCellDeclarationReference;
     type InitializerOwner = crate::wire::WireTypeReference;
     type Parent = crate::wire::WireTypeReference;
     type Parents = Vec<Self::Parent>;

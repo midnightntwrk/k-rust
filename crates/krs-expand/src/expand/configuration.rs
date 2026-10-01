@@ -1,14 +1,23 @@
 //! Configuration declarations: `#[k::configuration]` and `#[k::cell]`.
 
+use krs_ir::wire::{
+    WireCellDeclaration, WireCellDeclarationReference, WireCellField, WireCellIdentity,
+    WireCellReference, WirePayload, WireSortReference, WireTypeReference,
+};
+use krs_ir::{
+    CellWrapper, DescriptorCellColor, DescriptorCellMultiplicity, DescriptorCellName,
+    DescriptorCellType, DescriptorConfigurationRoot, ProtocolCellContent,
+};
 use krs_syntax::KrsSyntax;
-use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange, role_tokens};
+use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
-use super::factory::{DescriptorFactory, IdentityCheck};
+use super::factory::{DescriptorFactory, FactoryPayload, IdentityCheck};
 use super::nonce::expansion_nonce;
+use super::terms::{WireSlots, wire_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -22,7 +31,6 @@ pub(crate) fn configuration(
     let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
-    let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let mut anchors = declaration.provenance()?;
     anchors.extend(attribute.provenance()?);
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
@@ -42,9 +50,20 @@ pub(crate) fn configuration(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
-    let root = configuration_root(&facade, &attribute);
+    let root = configuration_root(&attribute);
+    let mut slots = WireSlots::new(&facade);
     let (field_helpers, fields) =
-        configuration_fields(&facade, &declaration, &declared, &declared_key)?;
+        configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
+
+    let wire = serde_json::to_string(&(
+        root,
+        WireCellDeclaration {
+            key: wire_key(configuration_declaration_role, 0),
+            fields,
+        },
+    ))
+    .expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
@@ -62,18 +81,7 @@ pub(crate) fn configuration(
                 ),
             )
         },
-        payload: quote! {
-            #facade::HostDescriptorPayload::FixedConfiguration(
-                ::std::boxed::Box::new(#facade::HostFixedConfiguration {
-                    root: #root,
-                    declaration: #facade::HostConfigurationDeclaration {
-                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
-                        fields: ::std::vec![#(#fields),*],
-                    },
-                    initializer,
-                }),
-            )
-        },
+        payload: FactoryPayload::fixed_configuration(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote! {
@@ -81,7 +89,7 @@ pub(crate) fn configuration(
             .merge(initializer_provenance)
             .expect("configuration and initializer provenance keys are disjoint")
         },
-        prelude: quote!(let (initializer, initializer_provenance) = #declared::__krs_initializer_payload();),
+        prelude: quote!(let (initializer, initializer_slots, initializer_provenance) = #declared::__krs_initializer_payload();),
     }
     .render();
 
@@ -116,7 +124,6 @@ pub(crate) fn cell(
     krs_syntax::CellAttributePayload::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
-    let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let anchors = declaration.provenance()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
@@ -129,8 +136,16 @@ pub(crate) fn cell(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let declared = call_site_ident(declaration.name())?;
     let name = declaration.name().to_string();
+    let mut slots = WireSlots::new(&facade);
     let (field_helpers, fields) =
-        configuration_fields(&facade, &declaration, &declared, &declared_key)?;
+        configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
+
+    let wire = serde_json::to_string(&WirePayload::Cell(Box::new(WireCellDeclaration {
+        key: wire_key(configuration_declaration_role, 0),
+        fields,
+    })))
+    .expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
@@ -146,14 +161,7 @@ pub(crate) fn cell(
                 #facade::HostDeclarationIdentity::Nominal(#facade::HostTypeKey(#declared_key)),
             )
         },
-        payload: quote! {
-            #facade::HostDescriptorPayload::Cell(::std::boxed::Box::new(
-                #facade::HostCellDeclaration {
-                    key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0),
-                    fields: ::std::vec![#(#fields),*],
-                }
-            ))
-        },
+        payload: FactoryPayload::wire(wire, slot_tokens),
         cfg: quote!(::core::default::Default::default()),
         attributes: quote!(#(#cfg)*),
         provenance: quote!(#provenance),
@@ -236,42 +244,25 @@ pub(super) fn cell_marker_function(field: &Ident) -> Ident {
 }
 
 fn configuration_root(
-    facade: &Path,
     attribute: &krs_syntax::ConfigurationAttribute,
-) -> TokenStream {
-    let configuration_root_role = role_tokens(ProvenanceRole::ConfigurationRoot, facade);
-    if let Some(root) = attribute.optional_root() {
-        let value = root.value();
-        quote! {
-            #facade::DescriptorConfigurationRoot::Named {
-                key: #facade::ProvenanceKey::new(#configuration_root_role, 0),
-                name: #value.to_owned(),
+) -> DescriptorConfigurationRoot {
+    attribute
+        .optional_root()
+        .map_or(DescriptorConfigurationRoot::GeneratedTop, |root| {
+            DescriptorConfigurationRoot::Named {
+                key: wire_key(ProvenanceRole::ConfigurationRoot, 0),
+                name: root.value(),
             }
-        }
-    } else {
-        quote!(#facade::DescriptorConfigurationRoot::GeneratedTop)
-    }
+        })
 }
 
-#[allow(clippy::too_many_lines)]
 fn configuration_fields(
     facade: &Path,
     declaration: &krs_syntax::ConfigurationDeclaration,
     owner: &Ident,
     owner_key: &Ident,
-) -> syn::Result<(Vec<TokenStream>, Vec<TokenStream>)> {
-    let configuration_cell_name_role = role_tokens(ProvenanceRole::ConfigurationCellName, facade);
-    let configuration_cell_color_role = role_tokens(ProvenanceRole::ConfigurationCellColor, facade);
-    let configuration_cell_multiplicity_role =
-        role_tokens(ProvenanceRole::ConfigurationCellMultiplicity, facade);
-    let configuration_cell_type_role = role_tokens(ProvenanceRole::ConfigurationCellType, facade);
-    let configuration_cell_content_argument_role =
-        role_tokens(ProvenanceRole::ConfigurationCellContentArgument, facade);
-    let configuration_cell_wrapper_role =
-        role_tokens(ProvenanceRole::ConfigurationCellWrapper, facade);
-    let configuration_cell_content_role =
-        role_tokens(ProvenanceRole::ConfigurationCellContent, facade);
-    let configuration_field_role = role_tokens(ProvenanceRole::ConfigurationField, facade);
+    slots: &mut WireSlots,
+) -> syn::Result<(Vec<TokenStream>, Vec<WireCellField>)> {
     let mut helpers = Vec::new();
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
@@ -286,173 +277,163 @@ fn configuration_fields(
                 ::core::any::TypeId::of::<__KrsCellFieldMarker>()
             }
         });
-        let rust_field = field.name().to_string();
-        let emitted_name = field.attribute().name().map_or_else(
-            || quote!(::core::option::Option::None),
-            |name| {
-                let value = name.value();
-                quote! {
-                    ::core::option::Option::Some(#facade::DescriptorCellName {
-                        key: #facade::ProvenanceKey::new(#configuration_cell_name_role, #ordinal),
-                        value: #value.to_owned(),
-                    })
-                }
-            },
-        );
-        let color = field.attribute().color().map_or_else(
-            || quote!(::core::option::Option::None),
-            |color| {
-                let value = color.value();
-                quote! {
-                    ::core::option::Option::Some(#facade::DescriptorCellColor {
-                        key: #facade::ProvenanceKey::new(#configuration_cell_color_role, #ordinal),
-                        value: #value.to_owned(),
-                    })
-                }
-            },
-        );
-        let multiplicity = field.attribute().multiplicity().map_or_else(
-            || quote!(::core::option::Option::None),
-            |multiplicity| {
-                let value = multiplicity.value();
-                quote! {
-                    ::core::option::Option::Some(#facade::DescriptorCellMultiplicity {
-                        key: #facade::ProvenanceKey::new(
-                            #configuration_cell_multiplicity_role, #ordinal,
-                        ),
-                        value: #value.to_owned(),
-                    })
-                }
-            },
-        );
-        let cell_type = field.attribute().cell_type().map_or_else(
-            || quote!(::core::option::Option::None),
-            |cell_type| {
-                let value = cell_type.value();
-                quote! {
-                    ::core::option::Option::Some(#facade::DescriptorCellType {
-                        key: #facade::ProvenanceKey::new(
-                            #configuration_cell_type_role, #ordinal,
-                        ),
-                        value: #value.to_owned(),
-                    })
-                }
-            },
-        );
-        let content = match field.cell_content() {
-            ConfigurationCellContent::Leaf {
-                sort,
-                arguments,
-                computation,
-                ..
-            } => {
-                let sort = call_site_path(sort)?;
-                let authored = spelling(&sort);
-                let sort_key = format_ident!("__krs_configuration_sort_{}_{}", owner_key, index);
-                helpers.push(quote! {
-                    #[doc(hidden)]
-                    pub fn #sort_key() -> ::core::any::TypeId {
-                        ::core::any::TypeId::of::<#sort>()
-                    }
+        let emitted_name = field.attribute().name().map(|name| DescriptorCellName {
+            key: wire_key(ProvenanceRole::ConfigurationCellName, ordinal),
+            value: name.value(),
+        });
+        let color = field.attribute().color().map(|color| DescriptorCellColor {
+            key: wire_key(ProvenanceRole::ConfigurationCellColor, ordinal),
+            value: color.value(),
+        });
+        let multiplicity =
+            field
+                .attribute()
+                .multiplicity()
+                .map(|value| DescriptorCellMultiplicity {
+                    key: wire_key(ProvenanceRole::ConfigurationCellMultiplicity, ordinal),
+                    value: value.value(),
                 });
-                let wrapper = if *computation {
-                    quote!(#facade::CellWrapper::KCell)
-                } else {
-                    quote!(#facade::CellWrapper::Cell)
-                };
-                let mut argument_references = Vec::new();
-                for argument in arguments {
-                    let generated = call_site_path(argument)?;
-                    let authored = spelling(argument);
-                    let key = format_ident!(
-                        "__krs_configuration_sort_argument_{}_{}",
-                        owner_key,
-                        argument_ordinal
-                    );
-                    helpers.push(quote! {
-                        #[doc(hidden)]
-                        pub fn #key() -> ::core::any::TypeId {
-                            ::core::any::TypeId::of::<#generated>()
-                        }
-                    });
-                    let ordinal = argument_ordinal;
-                    argument_ordinal = argument_ordinal.checked_add(1).ok_or_else(|| {
-                        syn::Error::new(argument.span(), "too many configuration sort arguments")
-                    })?;
-                    argument_references.push(quote! {
-                        #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new(
-                                #configuration_cell_content_argument_role, #ordinal,
-                            ),
-                            target: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#owner::#key),
-                                authored_path: #authored.to_owned(),
-                            },
-                        }
-                    });
-                }
-                quote! {
-                    #facade::ProtocolCellContent::Leaf {
-                        wrapper_key: #facade::ProvenanceKey::new(
-                            #configuration_cell_wrapper_role, #ordinal,
-                        ),
-                        wrapper: #wrapper,
-                        sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new(
-                                #configuration_cell_content_role, #ordinal,
-                            ),
-                            target: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#owner::#sort_key),
-                                authored_path: #authored.to_owned(),
-                            },
-                        },
-                        arguments: ::std::vec![#(#argument_references),*],
-                    }
-                }
-            }
-            ConfigurationCellContent::Nested { declaration } => {
-                let generated = call_site_path(declaration)?;
-                let authored = spelling(declaration);
-                let nested_key =
-                    format_ident!("__krs_configuration_nested_{}_{}", owner_key, index);
-                helpers.push(quote! {
-                    #[doc(hidden)]
-                    pub fn #nested_key() -> ::core::any::TypeId {
-                        ::core::any::TypeId::of::<#generated>()
-                    }
-                });
-                quote! {
-                    #facade::ProtocolCellContent::Nested {
-                        declaration: #facade::HostCellDeclarationReference {
-                            key: #facade::ProvenanceKey::new(
-                                #configuration_cell_content_role, #ordinal,
-                            ),
-                            declaration: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#owner::#nested_key),
-                                authored_path: #authored.to_owned(),
-                            },
-                        },
-                    }
-                }
-            }
-        };
-        fields.push(quote! {
-            #facade::HostCellField {
-                reference: #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new(#configuration_field_role, #ordinal),
-                    cell: #facade::HostCellIdentity {
-                        owner: #facade::HostTypeKey(#owner_key),
-                        field: #facade::HostTypeKey(#owner::#marker),
-                    },
+        let cell_type = field
+            .attribute()
+            .cell_type()
+            .map(|value| DescriptorCellType {
+                key: wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
+                value: value.value(),
+            });
+        let content = configuration_content(
+            field.cell_content(),
+            index,
+            ordinal,
+            &mut argument_ordinal,
+            &mut ConfigurationFieldContext {
+                facade,
+                owner,
+                owner_key,
+                helpers: &mut helpers,
+                slots,
+            },
+        )?;
+        fields.push(WireCellField {
+            reference: WireCellReference {
+                key: wire_key(ProvenanceRole::ConfigurationField, ordinal),
+                cell: WireCellIdentity {
+                    owner: slots.type_slot(quote!(#facade::HostTypeKey(#owner_key))),
+                    field: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
                 },
-                rust_field: #rust_field.to_owned(),
-                emitted_name: #emitted_name,
-                color: #color,
-                multiplicity: #multiplicity,
-                cell_type: #cell_type,
-                content: #content,
-            }
+            },
+            rust_field: field.name().to_string(),
+            emitted_name,
+            color,
+            multiplicity,
+            cell_type,
+            content,
         });
     }
     Ok((helpers, fields))
+}
+
+struct ConfigurationFieldContext<'a> {
+    facade: &'a Path,
+    owner: &'a Ident,
+    owner_key: &'a Ident,
+    helpers: &'a mut Vec<TokenStream>,
+    slots: &'a mut WireSlots,
+}
+
+fn configuration_content(
+    content: &ConfigurationCellContent,
+    index: usize,
+    ordinal: u32,
+    argument_ordinal: &mut u32,
+    assembly: &mut ConfigurationFieldContext<'_>,
+) -> syn::Result<krs_ir::wire::WireCellContent> {
+    let ConfigurationFieldContext {
+        facade,
+        owner,
+        owner_key,
+        helpers,
+        slots,
+    } = assembly;
+    let content = match content {
+        ConfigurationCellContent::Leaf {
+            sort,
+            arguments,
+            computation,
+            ..
+        } => {
+            let sort = call_site_path(sort)?;
+            let authored_path = spelling(&sort);
+            let sort_key = format_ident!("__krs_configuration_sort_{}_{}", owner_key, index);
+            helpers.push(quote! {
+                #[doc(hidden)]
+                pub fn #sort_key() -> ::core::any::TypeId {
+                    ::core::any::TypeId::of::<#sort>()
+                }
+            });
+            let mut argument_references = Vec::new();
+            for argument in arguments {
+                let generated = call_site_path(argument)?;
+                let authored_path = spelling(argument);
+                let key = format_ident!(
+                    "__krs_configuration_sort_argument_{}_{}",
+                    owner_key,
+                    argument_ordinal
+                );
+                helpers.push(quote! {
+                    #[doc(hidden)]
+                    pub fn #key() -> ::core::any::TypeId {
+                        ::core::any::TypeId::of::<#generated>()
+                    }
+                });
+                let ordinal = *argument_ordinal;
+                *argument_ordinal = argument_ordinal.checked_add(1).ok_or_else(|| {
+                    syn::Error::new(argument.span(), "too many configuration sort arguments")
+                })?;
+                argument_references.push(WireSortReference {
+                    key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),
+                    target: WireTypeReference {
+                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#key))),
+                        authored_path,
+                    },
+                });
+            }
+            ProtocolCellContent::Leaf {
+                wrapper_key: wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
+                wrapper: if *computation {
+                    CellWrapper::KCell
+                } else {
+                    CellWrapper::Cell
+                },
+                sort: WireSortReference {
+                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    target: WireTypeReference {
+                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#sort_key))),
+                        authored_path,
+                    },
+                },
+                arguments: argument_references,
+            }
+        }
+        ConfigurationCellContent::Nested { declaration } => {
+            let generated = call_site_path(declaration)?;
+            let authored_path = spelling(declaration);
+            let nested_key = format_ident!("__krs_configuration_nested_{}_{}", owner_key, index);
+            helpers.push(quote! {
+                #[doc(hidden)]
+                pub fn #nested_key() -> ::core::any::TypeId {
+                    ::core::any::TypeId::of::<#generated>()
+                }
+            });
+            ProtocolCellContent::Nested {
+                declaration: WireCellDeclarationReference {
+                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    declaration: WireTypeReference {
+                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#nested_key))),
+                        authored_path,
+                    },
+                },
+            }
+        }
+    };
+    Ok(content)
 }
