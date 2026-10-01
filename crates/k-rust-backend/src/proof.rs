@@ -1863,10 +1863,6 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
 /// is dropped rather than reported as a vacuous path; a set not shown empty (satisfiable or
 /// undecided) is kept. A stop of the emptiness query is returned: keeping the set would report
 /// an undefined step from a missing answer.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Predicate is syntax; only the listed variants are special here"
-)]
 fn undefined_step_state(
     definition: &BackendDefinition,
     state: &ProofState,
@@ -1874,17 +1870,9 @@ fn undefined_step_state(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Option<ProofState>> {
-    let mut pattern = trivial.before;
-    match trivial.undefined {
-        crate::rule::Predicate::And(conjuncts) => {
-            extend_unique(&mut pattern.constraints, conjuncts)
-        }
-        crate::rule::Predicate::True => {}
-        predicate => extend_unique(&mut pattern.constraints, vec![predicate]),
-    }
-    if predicates_truth(&pattern.constraints) == Truth::False {
+    let Some(mut pattern) = trivial.undefined_instances() else {
         return Ok(None);
-    }
+    };
     match simplify_predicates_with_solver(
         definition,
         &pattern.constraints,

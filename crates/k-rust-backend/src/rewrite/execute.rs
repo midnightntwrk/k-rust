@@ -69,9 +69,8 @@ use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
     IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
     TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
-    extend_unique, normalize_pattern_substitution, predicates_truth,
-    retain_substitution_predicates, rewrite_step_with_optional_execution, trivial_halt,
-    vacuous_halt,
+    normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
+    rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -1073,19 +1072,7 @@ impl<'a> Execution<'a> {
         state: &ExecutionState,
         entry: &TrivialApplication,
     ) -> Option<ExecutionLeaf> {
-        let mut pattern = entry.before.clone();
-        match &entry.undefined {
-            Predicate::And(conjuncts) => {
-                extend_unique(&mut pattern.constraints, conjuncts.iter().cloned());
-            }
-            Predicate::True => {}
-            predicate => {
-                extend_unique(&mut pattern.constraints, std::iter::once(predicate.clone()))
-            }
-        }
-        if predicates_truth(&pattern.constraints) == Truth::False {
-            return None;
-        }
+        let pattern = entry.undefined_instances()?;
         let mut leaf = state.clone();
         leaf.diagnostics.extend(&entry.diagnostics);
         for simplification in &entry.remainder_simplifications {

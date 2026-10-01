@@ -463,7 +463,9 @@ impl DefinedEquation {
 /// (I4): the definedness of a term an equation binds or of an argument of an evaluated hooked
 /// application, or a refutation.
 ///
-/// It is produced only by [`ResultConditions::obligations`], which leaves out the assumptions.
+/// It is produced by [`ResultConditions::obligations`], which leaves out the assumptions, by
+/// `RhsDefinedness`, from an instantiated right-hand side, and for a rewrite rule's own open
+/// `ensures` by `Obligation::of_rule_ensures`.
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Obligation(Predicate);
@@ -475,6 +477,48 @@ impl Obligation {
 
     pub fn into_predicate(self) -> Predicate {
         self.0
+    }
+
+    /// A rewrite rule's own `ensures`, instantiated, simplified and left undecided by the
+    /// rewrite step: the rule's result exists only where it holds, so the result carries it.
+    pub(crate) fn of_rule_ensures(predicate: Predicate) -> Self {
+        Self(predicate)
+    }
+}
+
+/// The definedness of an instantiated rewrite right-hand side: `\ceil` of every partial
+/// subterm (`definedness::ceil_term`), which the rule's result needs in order to exist.
+///
+/// It is built only from the term, so no other predicate takes this role; in particular a
+/// conjunct of the right-hand side's own simplification result (`ResultConditions`), which may
+/// be an assumption, cannot be passed off as the right-hand side's definedness.
+#[must_use]
+pub(crate) struct RhsDefinedness(Vec<Predicate>);
+
+impl RhsDefinedness {
+    /// `ceil_term(definition, rhs)`.
+    pub(crate) fn of(definition: &BackendDefinition, rhs: &Term) -> Self {
+        Self(ceil_term(definition, rhs))
+    }
+
+    /// The obligations, as stated or as simplified, for their decision and for the report of a
+    /// refuted one.
+    pub(crate) fn as_slice(&self) -> &[Predicate] {
+        &self.0
+    }
+
+    /// The obligations replaced by their simplification under the condition knowledge, an
+    /// equivalent condition on the instances that knowledge describes.
+    pub(crate) fn simplify(
+        self,
+        simplify: impl FnOnce(&[Predicate]) -> Stoppable<Result<Vec<Predicate>, SimplificationError>>,
+    ) -> Stoppable<Result<Self, SimplificationError>> {
+        Ok(simplify(&self.0)?.map(Self))
+    }
+
+    /// The obligations an undecided definedness leaves for the result to carry.
+    pub(crate) fn into_obligations(self) -> impl Iterator<Item = Obligation> {
+        self.0.into_iter().map(Obligation)
     }
 }
 

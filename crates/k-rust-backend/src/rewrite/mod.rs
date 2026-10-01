@@ -14,6 +14,7 @@ mod apply;
 mod execute;
 mod predicates;
 mod recover;
+mod roles;
 mod step;
 
 use apply::{
@@ -35,6 +36,7 @@ use recover::{
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{collection_unification_definedness, recover_indeterminate_match};
+use roles::{Applicability, Remainder};
 #[cfg(test)]
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
@@ -276,10 +278,10 @@ pub struct TrivialApplication {
     /// is `A /\ not D`, where `D` is the existential closure, over those variables and the
     /// rule's freshened existentials (`?X`), of the match conditions, undecided `requires` and
     /// carried result condition: `D` is the sub-case with a defined result of this application.
-    pub(in crate::rewrite) applicability: Predicate,
+    pub(in crate::rewrite) applicability: Applicability,
     /// The complementary sub-case retained in the priority-group remainder: `not A` in either
     /// case, so an entry left by a carried result condition does not change the group remainder.
-    pub(in crate::rewrite) remainder: Predicate,
+    pub(in crate::rewrite) remainder: Remainder,
     /// The instances of `before` whose step is undefined because of this entry: `applicability`
     /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so
     /// that an instance another rule (or another right-hand-side alternative) takes to a defined
@@ -305,6 +307,30 @@ pub struct TrivialApplication {
     pub contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
+impl TrivialApplication {
+    /// The instances whose step is undefined because of this entry: the pattern the rule was
+    /// applied to (`before`), its constraints conjoined with the conjuncts of `undefined`.
+    /// `None` when the result is syntactically `\bottom`; no solver is asked, so the pattern may
+    /// have no instance.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Predicate is syntax; only the listed variants are special here"
+    )]
+    pub fn undefined_instances(&self) -> Option<Pattern> {
+        let mut pattern = self.before.clone();
+        match &self.undefined {
+            Predicate::And(conjuncts) => {
+                extend_unique(&mut pattern.constraints, conjuncts.iter().cloned());
+            }
+            Predicate::True => {}
+            predicate => {
+                extend_unique(&mut pattern.constraints, std::iter::once(predicate.clone()))
+            }
+        }
+        (predicates_truth(&pattern.constraints) != Truth::False).then_some(pattern)
+    }
+}
+
 /// Alpha equality of trivial entries for the cascade differential tests. It compares and
 /// renames every field, including the rewrite-internal `applicability` and `remainder`, so it
 /// lives where those fields are visible.
@@ -317,8 +343,9 @@ impl crate::tests::alpha::AlphaComparable for TrivialApplication {
     ) -> Result<(), String> {
         use crate::tests::alpha::collect_predicate;
         collect_predicate(&self.obligation, &other.obligation, context)?;
-        collect_predicate(&self.applicability, &other.applicability, context)?;
-        collect_predicate(&self.remainder, &other.remainder, context)?;
+        self.applicability
+            .collect_alpha(&other.applicability, context)?;
+        self.remainder.collect_alpha(&other.remainder, context)?;
         collect_predicate(&self.undefined, &other.undefined, context)?;
         self.before.collect_alpha(&other.before, context)?;
         self.remainder_simplifications
@@ -342,8 +369,8 @@ impl crate::tests::alpha::AlphaComparable for TrivialApplication {
             label: self.label.clone(),
             kind: self.kind,
             obligation: rename_predicate(&self.obligation, context),
-            applicability: rename_predicate(&self.applicability, context),
-            remainder: rename_predicate(&self.remainder, context),
+            applicability: self.applicability.rename_alpha(context)?,
+            remainder: self.remainder.rename_alpha(context)?,
             undefined: rename_predicate(&self.undefined, context),
             before: self.before.rename_alpha(context)?,
             effects: self.effects.clone(),

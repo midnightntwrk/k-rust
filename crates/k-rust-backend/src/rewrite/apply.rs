@@ -38,7 +38,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    condition::{Condition, InstantiatedCondition, ResultConditions},
+    condition::{Condition, InstantiatedCondition, Obligation, ResultConditions, RhsDefinedness},
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
@@ -63,12 +63,12 @@ use super::{
     AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, TrivialApplication,
     Truth, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
     extend_unique, freshen_unbound_rule_variables, pattern_variable_names, predicates_truth,
-    quantify_introduced_variables, recover_boolean_matches, recover_equality_matches,
-    recover_function_equality_match, recover_functional_symbolic_match,
-    recover_general_unification, recover_indeterminate_match, recover_ite_matches,
-    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
-    recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
-    substitute_predicates,
+    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
+    recover_functional_symbolic_match, recover_general_unification, recover_indeterminate_match,
+    recover_ite_matches, recover_map_not_in_keys_matches, recover_overload_symbolic_match,
+    recover_symbolic_map_key_matches,
+    roles::{Applicability, CarriedCondition, DefinedSubcase, Remainder},
+    solve_collection_remainders_with_narrowing, substitute_predicates,
 };
 
 /// The outcome of one rule attempt. A stop is not an outcome: an attempt that stopped has none,
@@ -102,48 +102,20 @@ pub(super) struct RuleApplicationGroup {
 
 pub(super) struct RuleApplication {
     pub(super) applied: AppliedRule,
-    pub(super) remainder: Predicate,
+    /// The complement of the applicability: the instances of the subject the rule does not
+    /// apply to.
+    pub(super) remainder: Remainder,
     /// The sub-case of the subject where this application has a defined result: the existential
     /// closure, over the variables the pattern does not have (those the match introduced and
     /// the freshened existentials), of the applicability and the carried result condition.
     /// Equal to the applicability when nothing was carried.
-    pub(super) defined: Predicate,
+    pub(super) defined: DefinedSubcase,
     /// The carried result condition, when the application's sub-case has instances outside
-    /// `defined`: the obligation its `Carried` trivial entry reports.
-    pub(super) carried: Option<Predicate>,
+    /// `defined`: its conjunction is the obligation its `Carried` trivial entry reports.
+    pub(super) carried: Option<CarriedCondition>,
     /// The diagnostics of this right-hand-side alternative's own construction; its group's
     /// `common` work is not in it.
     pub(super) diagnostics: Vec<Sequenced>,
-}
-
-impl RuleApplication {
-    /// The sub-case of the subject this application covers, the complement of `remainder`
-    /// (the inverse of `remainder_of`).
-    pub(super) fn applicability(&self) -> Predicate {
-        match &self.remainder {
-            Predicate::False => Predicate::True,
-            Predicate::Not(applicability) => (**applicability).clone(),
-            remainder => Predicate::Not(Box::new(remainder.clone())),
-        }
-    }
-
-    /// The instances of the subject this application does not take to a defined result, the
-    /// complement of `defined`: `remainder` when nothing was carried.
-    pub(super) fn outside_defined(&self) -> Predicate {
-        if self.defined == self.applicability() {
-            self.remainder.clone()
-        } else {
-            negation(&self.defined)
-        }
-    }
-}
-
-fn remainder_of(applicability: &Predicate) -> Predicate {
-    if *applicability == Predicate::True {
-        Predicate::False
-    } else {
-        Predicate::Not(Box::new(applicability.clone()))
-    }
 }
 
 /// The `Refuted` entry of an application whose result is bottom on its whole sub-case
@@ -151,7 +123,7 @@ fn remainder_of(applicability: &Predicate) -> Predicate {
 fn trivial_application(
     rule: &RewriteRule,
     pattern: &Pattern,
-    applicability: &Predicate,
+    applicability: &Applicability,
     obligation: Predicate,
     effects: Vec<BuiltinEffect>,
     contradicted_total: Option<Box<ContradictedTotal>>,
@@ -163,8 +135,8 @@ fn trivial_application(
         kind: super::TrivialKind::Refuted,
         obligation,
         applicability: applicability.clone(),
-        remainder: remainder_of(applicability),
-        undefined: applicability.clone(),
+        remainder: applicability.remainder(),
+        undefined: applicability.as_predicate().clone(),
         before: pattern.clone(),
         effects,
         diagnostics: Vec::new(),
@@ -178,20 +150,20 @@ fn trivial_application(
 fn carried_trivial_application(
     rule: &RewriteRule,
     pattern: &Pattern,
-    applicability: &Predicate,
+    applicability: &Applicability,
     application: &RuleApplication,
     obligation: Predicate,
 ) -> TrivialApplication {
-    let undefined = conjoin_flat([applicability.clone(), negation(&application.defined)]);
+    let undefined = applicability.outside(&application.defined);
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
         #[cfg(test)]
         kind: super::TrivialKind::Carried,
         obligation,
-        applicability: undefined.clone(),
-        remainder: remainder_of(applicability),
-        undefined,
+        undefined: undefined.as_predicate().clone(),
+        applicability: undefined,
+        remainder: applicability.remainder(),
         before: pattern.clone(),
         effects: application.applied.effects.clone(),
         diagnostics: Vec::new(),
@@ -209,8 +181,8 @@ pub(super) fn restrict_to_undefined(
 ) {
     for entry in trivial {
         entry.undefined = conjoin_flat(
-            std::iter::once(entry.applicability.clone())
-                .chain(applied.iter().map(|sibling| negation(&sibling.defined))),
+            std::iter::once(entry.applicability.as_predicate().clone())
+                .chain(applied.iter().map(|sibling| sibling.defined.negation())),
         );
     }
 }
@@ -224,13 +196,13 @@ pub(super) fn exclude_defined(trivial: &mut [TrivialApplication], applied: &[Rul
     for entry in trivial {
         entry.undefined = conjoin_flat(
             std::iter::once(entry.undefined.clone())
-                .chain(applied.iter().map(|sibling| negation(&sibling.defined))),
+                .chain(applied.iter().map(|sibling| sibling.defined.negation())),
         );
     }
 }
 
 /// `not predicate`, with the double negation and the constants folded.
-fn negation(predicate: &Predicate) -> Predicate {
+pub(super) fn negation(predicate: &Predicate) -> Predicate {
     match predicate {
         Predicate::True => Predicate::False,
         Predicate::False => Predicate::True,
@@ -242,7 +214,7 @@ fn negation(predicate: &Predicate) -> Predicate {
 /// The conjunction of `predicates` with nested conjunctions flattened, `True` and repeated
 /// conjuncts dropped, and `False` absorbing, as does a negated conjunction beside all of its
 /// conjuncts (up to alpha-equivalence).
-fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> Predicate {
+pub(super) fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> Predicate {
     fn flatten(predicate: Predicate, conjuncts: &mut Vec<Predicate>) {
         match predicate {
             Predicate::And(inner) => {
@@ -1022,8 +994,7 @@ fn definedness(
         }
     };
     if predicates_truth(&definedness_conditions) == Truth::False {
-        let applicability =
-            quantify_introduced_variables(context.pattern, std::mem::take(match_conditions));
+        let applicability = Applicability::close(context.pattern, std::mem::take(match_conditions));
         return Err(PhaseExit::Attempt(RuleAttempt::Unified {
             groups: vec![RuleApplicationGroup {
                 applied: Vec::new(),
@@ -1175,7 +1146,7 @@ fn validity_and_applicability(
     requires: Vec<Predicate>,
     match_knowledge: &[Predicate],
     match_conditions: &[Predicate],
-) -> Phase<(Vec<Predicate>, Predicate)> {
+) -> Phase<(Vec<Predicate>, Applicability)> {
     let rule = context.rule;
     let pattern = context.pattern;
     let mut unclear_requires = requires
@@ -1240,11 +1211,11 @@ fn validity_and_applicability(
 
     let mut applicability = match_conditions.to_vec();
     applicability.extend(unclear_requires.iter().cloned());
-    let applicability = quantify_introduced_variables(pattern, applicability);
-    if applicability != Predicate::True
+    let applicability = Applicability::close(pattern, applicability);
+    if *applicability.as_predicate() != Predicate::True
         && conjunctively_contains_alpha_equivalent(
             &pattern.constraints,
-            &Predicate::Not(Box::new(applicability.clone())),
+            &Predicate::Not(Box::new(applicability.as_predicate().clone())),
         )
     {
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
@@ -1263,7 +1234,7 @@ fn instantiate(
     match_conditions: Vec<Predicate>,
     match_knowledge: Vec<Predicate>,
     unclear_requires: Vec<Predicate>,
-    applicability: Predicate,
+    applicability: Applicability,
 ) -> Phase<RuleAttempt> {
     let rule = context.rule;
     let pattern = context.pattern;
@@ -1342,13 +1313,13 @@ fn instantiate(
         });
         match attempt? {
             RhsAlternativeAttempt::Applied(mut application) => {
-                if let Some(obligation) = application.carried.take() {
+                if let Some(carried) = application.carried.take() {
                     trivial.push(carried_trivial_application(
                         rule,
                         pattern,
                         &applicability,
                         &application,
-                        obligation,
+                        carried.conjunction(),
                     ));
                 }
                 application.diagnostics = own_diagnostics;
@@ -1461,7 +1432,7 @@ fn apply_rhs_alternative(
     condition_knowledge: &[Predicate],
     match_conditions: &[Predicate],
     unclear_requires: &[Predicate],
-    applicability: &Predicate,
+    applicability: &Applicability,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
@@ -1534,26 +1505,28 @@ fn apply_rhs_alternative(
     // The definedness of the instantiated right-hand side that the condition knowledge leaves
     // open: obligations the result carries after the right-hand side's own conditions (those it
     // repeats are not restated).
-    let mut rhs_definedness = Vec::new();
+    let mut rhs_definedness = None;
     if !rule.computed_attributes.undefined_symbols.is_empty() {
-        let obligations = ceil_term(definition, &rhs);
+        let obligations = RhsDefinedness::of(definition, &rhs);
         let reported_obligation = undefined_term
             .map(Predicate::Ceil)
-            .unwrap_or_else(|| conjunction(&obligations));
-        let obligations = match simplify_predicates_with_solver(
-            definition,
-            &obligations,
-            &condition_knowledge,
-            simplification_options,
-            solver,
-        )? {
+            .unwrap_or_else(|| conjunction(obligations.as_slice()));
+        let obligations = match obligations.simplify(|obligations| {
+            simplify_predicates_with_solver(
+                definition,
+                obligations,
+                &condition_knowledge,
+                simplification_options,
+                solver,
+            )
+        })? {
             Ok(obligations) => obligations,
             Err(error) => {
                 return Ok(RhsAlternativeAttempt::Simplification(error));
             }
         };
         match rhs_obligation_verdict(decide_condition(
-            &obligations,
+            obligations.as_slice(),
             &condition_knowledge,
             solver,
         )?) {
@@ -1565,7 +1538,7 @@ fn apply_rhs_alternative(
                     contradicted_total: None,
                 });
             }
-            ObligationVerdict::Carried => rhs_definedness = obligations,
+            ObligationVerdict::Carried => rhs_definedness = Some(obligations),
         }
     }
     let ensures = ensures
@@ -1617,32 +1590,39 @@ fn apply_rhs_alternative(
     let applicability_conditions = rule_predicates.len();
     extend_unique(
         &mut rule_predicates,
+        rhs_conditions.as_slice().iter().cloned().chain(
+            rhs_definedness
+                .iter()
+                .flat_map(|definedness| definedness.as_slice())
+                .cloned(),
+        ),
+    );
+    // What the result adds to the applicability: the right-hand side's obligations, its carried
+    // definedness obligations and the carried `ensures`. The instances of the applicability
+    // where it fails have no result from this alternative. An assumption of the right-hand
+    // side's simplification (an applied equation's open `ensures`) is not among them: it is what
+    // the definition asserts of that equation's result wherever the equation applies, a trusted
+    // axiom rather than a condition for the result to exist. The successor keeps it.
+    let carried = CarriedCondition::collect(
         rhs_conditions
-            .as_slice()
-            .iter()
-            .cloned()
-            .chain(rhs_definedness),
+            .obligations()
+            .chain(
+                rhs_definedness
+                    .into_iter()
+                    .flat_map(RhsDefinedness::into_obligations),
+            )
+            .chain(ensures.iter().cloned().map(Obligation::of_rule_ensures)),
+        &rule_predicates[..applicability_conditions],
+        &rhs_conditions,
     );
     extend_unique(&mut rule_predicates, ensures);
-    // What the result adds to the applicability: the right-hand side's simplification
-    // conditions, its carried definedness obligations and the carried `ensures`. The instances
-    // of the applicability where it fails have no result from this alternative. A predicate an
-    // assumption of the right-hand side's simplification asserts (an applied equation's open
-    // `ensures`, `ResultConditions::asserts`) is not among them: it is what the definition asserts
-    // of that equation's result wherever the equation applies, a trusted axiom rather than a
-    // condition for the result to exist. The successor keeps it.
-    let added = rule_predicates[applicability_conditions..]
-        .iter()
-        .filter(|predicate| **predicate != Predicate::True && !rhs_conditions.asserts(predicate))
-        .cloned()
-        .collect::<Vec<_>>();
-    let carried = (!added.is_empty()).then(|| conjunction(&added));
-    let defined = if carried.is_some() {
-        let mut defining = rule_predicates[..applicability_conditions].to_vec();
-        defining.extend(added.iter().cloned());
-        quantify_introduced_variables(pattern, defining)
-    } else {
-        applicability.clone()
+    let defined = match &carried {
+        Some(carried) => DefinedSubcase::restricted(
+            pattern,
+            &rule_predicates[..applicability_conditions],
+            carried,
+        ),
+        None => DefinedSubcase::whole(applicability),
     };
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
@@ -1664,7 +1644,7 @@ fn apply_rhs_alternative(
             diagnostics: Vec::new(),
             observations: Vec::new(),
         },
-        remainder: remainder_of(applicability),
+        remainder: applicability.remainder(),
         defined,
         carried,
         diagnostics: Vec::new(),
@@ -1850,8 +1830,8 @@ mod tests {
         assert_eq!(entry.rule_id, "trivial");
         assert_eq!(entry.before, initial);
         assert_eq!(entry.kind, TrivialKind::Refuted);
-        assert_eq!(entry.applicability, Predicate::True);
-        assert_eq!(entry.remainder, Predicate::False);
+        assert_eq!(*entry.applicability.as_predicate(), Predicate::True);
+        assert_eq!(*entry.remainder.as_predicate(), Predicate::False);
         assert_eq!(entry.undefined, Predicate::False);
     }
 }
