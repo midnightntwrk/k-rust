@@ -189,7 +189,8 @@ impl Diagnostic {
 
 /// Converts a user-facing error to the shared diagnostic model.
 ///
-/// Every user-facing error type must implement this trait so that its code and location are properties of the type, rather than choices made by its caller.
+/// Compiler errors exposed through the shared diagnostic pipeline must implement this trait so that their codes and locations are properties of the type, rather than choices made by its caller.
+/// Formatting failures (`krs_fmt::FormatError`) remain outside this pipeline.
 pub trait ToDiagnostic {
     /// Returns the error's code, severity, message, and locations.
     fn to_diagnostic(&self) -> Diagnostic;

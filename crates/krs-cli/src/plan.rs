@@ -1,5 +1,6 @@
 use crate::metadata::{CargoMetadata, MetadataNode, MetadataPackage, MetadataTarget};
 use krs_collector::PackageContext;
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_syntax::keyword;
 use serde::Serialize;
 use serde_json::Value;
@@ -1222,6 +1223,36 @@ impl PlanningError {
     #[must_use]
     pub const fn kind(&self) -> PlanningErrorKind {
         self.kind
+    }
+}
+
+impl ToDiagnostic for PlanningError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self.kind {
+            PlanningErrorKind::InvalidMetadata => codes::plan::INVALID_METADATA,
+            PlanningErrorKind::MissingResolveGraph => codes::plan::MISSING_RESOLVE_GRAPH,
+            PlanningErrorKind::MissingPackage => codes::plan::MISSING_PACKAGE,
+            PlanningErrorKind::AmbiguousPackage => codes::plan::AMBIGUOUS_PACKAGE,
+            PlanningErrorKind::MissingKrsMetadata => codes::plan::MISSING_KRS_METADATA,
+            PlanningErrorKind::MissingNamespace => codes::plan::MISSING_NAMESPACE,
+            PlanningErrorKind::MissingDefinition => codes::plan::MISSING_DEFINITION,
+            PlanningErrorKind::InvalidDefinition => codes::plan::INVALID_DEFINITION,
+            PlanningErrorKind::MissingLibraryTarget => codes::plan::MISSING_LIBRARY_TARGET,
+            PlanningErrorKind::AmbiguousLibraryTarget => codes::plan::AMBIGUOUS_LIBRARY_TARGET,
+            PlanningErrorKind::InvalidPackageContext => codes::plan::INVALID_PACKAGE_CONTEXT,
+            PlanningErrorKind::DuplicateNamespace => codes::plan::DUPLICATE_NAMESPACE,
+            PlanningErrorKind::UnreachableSelection => codes::plan::UNREACHABLE_SELECTION,
+            PlanningErrorKind::UnreachableEntrypoint => codes::plan::UNREACHABLE_ENTRYPOINT,
+            PlanningErrorKind::DependencyCycle => codes::plan::DEPENDENCY_CYCLE,
+            PlanningErrorKind::InvalidHostTarget => codes::plan::INVALID_HOST_TARGET,
+            PlanningErrorKind::InvalidCfg => codes::plan::INVALID_CFG,
+            PlanningErrorKind::InvalidEntrypoint => codes::plan::INVALID_ENTRYPOINT,
+            PlanningErrorKind::InvalidCollectorRuntime => codes::plan::INVALID_COLLECTOR_RUNTIME,
+            PlanningErrorKind::InvalidRegistrationMode => codes::plan::INVALID_REGISTRATION_MODE,
+            PlanningErrorKind::InventoryFeatureActive => codes::plan::INVENTORY_FEATURE_ACTIVE,
+            PlanningErrorKind::UnregisteredKrsDependent => codes::plan::UNREGISTERED_KRS_DEPENDENT,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
     }
 }
 

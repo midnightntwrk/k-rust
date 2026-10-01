@@ -139,7 +139,12 @@ fn report_outcome(
         }
         Err(error) => {
             if let Some(diagnostics) = error.diagnostics() {
-                report_diagnostics(&diagnostics, error.unlocated_diagnostics(), format, sources);
+                report_diagnostics(
+                    &diagnostics,
+                    &error.unlocated_diagnostics(),
+                    format,
+                    sources,
+                );
             } else {
                 eprintln!("krs: {error}");
             }

@@ -26,7 +26,7 @@ use k_rust::{
     outer::{LoadOptions as NativeLoadOptions, load_structured},
 };
 use krs_diagnostic::envelope::DiagnosticGeneratedRange;
-use krs_diagnostic::{Code, Diagnostic, Label, Location, Severity, ToDiagnostic};
+use krs_diagnostic::{Code, Diagnostic, Label, Location, Severity, ToDiagnostic, codes};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
     ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
@@ -284,6 +284,16 @@ pub enum AdapterError {
         /// Stable target identity.
         target: String,
     },
+}
+
+impl ToDiagnostic for AdapterError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let (code, key) = match self {
+            Self::MissingSymbol { key, .. } => (codes::native::ADAPTER_MISSING_SYMBOL, key),
+            Self::MissingReference { key, .. } => (codes::native::ADAPTER_MISSING_REFERENCE, key),
+        };
+        Diagnostic::error(code, self.to_string(), Location::Definition(key.clone()))
+    }
 }
 
 impl fmt::Display for AdapterError {
@@ -659,6 +669,21 @@ pub enum ProvenanceError {
     InvalidIdentity(String),
 }
 
+impl ToDiagnostic for ProvenanceError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::DuplicateSentenceMapping { .. } => codes::native::DUPLICATE_SENTENCE_MAPPING,
+            Self::MissingSentenceMapping(_) => codes::native::MISSING_SENTENCE_MAPPING,
+            Self::LossyCompileAddress(_) => codes::native::LOSSY_COMPILE_ADDRESS,
+            Self::IndexOutOfRange(_) => codes::native::INDEX_OUT_OF_RANGE,
+            Self::KindMismatch { .. } => codes::native::KIND_MISMATCH,
+            Self::MissingKind(_) => codes::native::MISSING_KIND,
+            Self::InvalidIdentity(_) => codes::native::INVALID_IDENTITY,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
+    }
+}
+
 impl fmt::Display for ProvenanceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -820,6 +845,20 @@ impl DefinitionCompileError {
             Self::Compile(error) => error.diagnostics(),
             Self::Adapter(_) | Self::Provenance(_) | Self::KoreReparse { .. } => &[],
         }
+    }
+}
+
+impl ToDiagnostic for DefinitionCompileError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::Adapter(error) => return error.to_diagnostic(),
+            Self::Provenance(error) => return error.to_diagnostic(),
+            Self::Preparation(PreparationError::MissingPrelude) => codes::native::MISSING_PRELUDE,
+            Self::Preparation(PreparationError::Loader { .. }) => codes::native::PREPARATION,
+            Self::Compile(_) => codes::native::COMPILE,
+            Self::KoreReparse { .. } => codes::native::KORE_REPARSE,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
     }
 }
 

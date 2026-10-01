@@ -1,5 +1,6 @@
 //! Deterministic readable-to-reference Rust projection.
 
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -1501,6 +1502,20 @@ pub enum ReferenceSourceError {
     },
 }
 
+impl ToDiagnostic for ReferenceSourceError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::Selection(_) => codes::reference::SOURCE_SELECTION,
+            Self::Modules { .. } => codes::reference::SOURCE_MODULES,
+            Self::ManifestDirectory(_) => codes::reference::SOURCE_MANIFEST_DIRECTORY,
+            Self::Read { .. } => codes::reference::SOURCE_READ,
+            Self::Changed(_) => codes::reference::SOURCE_CHANGED,
+            Self::Encoding { .. } => codes::reference::SOURCE_ENCODING,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
+    }
+}
+
 impl fmt::Display for ReferenceSourceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1673,6 +1688,48 @@ pub enum ReferenceExpansionError {
     InvalidLiteral(String),
     /// No reference-surface spelling exists for this builtin token sort.
     UnsupportedBuiltinToken(BuiltinSort),
+}
+
+impl ToDiagnostic for ReferenceExpansionError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::Source(error) => return error.to_diagnostic(),
+            Self::RustSyntax(_) => codes::reference::RUST_SYNTAX,
+            Self::Facade(error) => {
+                let mut diagnostic = error.to_diagnostic();
+                diagnostic.message = self.to_string();
+                return diagnostic;
+            }
+            Self::KrsSyntax(error) => {
+                let mut diagnostic = error.to_diagnostic();
+                diagnostic.message = self.to_string();
+                return diagnostic;
+            }
+            Self::GeneratedRust(_) => codes::reference::GENERATED_RUST,
+            Self::DuplicateRule(_) => codes::reference::DUPLICATE_RULE,
+            Self::RuleCoverage { .. } => codes::reference::RULE_COVERAGE,
+            Self::ConstructorCoverage { .. } => codes::reference::CONSTRUCTOR_COVERAGE,
+            Self::ConstructorFieldCoverage { .. } => codes::reference::CONSTRUCTOR_FIELD_COVERAGE,
+            Self::MissingConstructorField { .. } => codes::reference::MISSING_CONSTRUCTOR_FIELD,
+            Self::MissingConstructorFieldSort { .. } => {
+                codes::reference::MISSING_CONSTRUCTOR_FIELD_SORT
+            }
+            Self::MissingSemanticRule(_) => codes::reference::MISSING_SEMANTIC_RULE,
+            Self::MissingBindingSort { .. } => codes::reference::MISSING_BINDING_SORT,
+            Self::ExternalDeclaration(_) => codes::reference::EXTERNAL_DECLARATION,
+            Self::ExternalReferenceSort(_) => codes::reference::EXTERNAL_REFERENCE_SORT,
+            Self::MixedApplicationArguments => codes::reference::MIXED_APPLICATION_ARGUMENTS,
+            Self::NamedBuiltinApplication => codes::reference::NAMED_BUILTIN_APPLICATION,
+            Self::MissingDeclaration(_) => codes::reference::MISSING_DECLARATION,
+            Self::NamedNonConstructor(_) => codes::reference::NAMED_NON_CONSTRUCTOR,
+            Self::DuplicateApplicationField { .. } => codes::reference::DUPLICATE_APPLICATION_FIELD,
+            Self::MissingApplicationField { .. } => codes::reference::MISSING_APPLICATION_FIELD,
+            Self::UnknownApplicationField { .. } => codes::reference::UNKNOWN_APPLICATION_FIELD,
+            Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
+            Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
+    }
 }
 
 impl fmt::Display for ReferenceExpansionError {

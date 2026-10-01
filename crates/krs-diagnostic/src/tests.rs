@@ -25,6 +25,11 @@ fn registered_spellings_are_well_formed_and_unique() {
         assert!(!info.summary.contains(['\n', '\r']));
     }
     let stages = [
+        codes::plan::CODES,
+        codes::emit::CODES,
+        codes::generate::CODES,
+        codes::reference::CODES,
+        codes::native::CODES,
         codes::collect::CODES,
         codes::analysis::CODES,
         codes::rust_expansion::CODES,

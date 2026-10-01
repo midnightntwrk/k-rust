@@ -34,6 +34,91 @@ macro_rules! register_codes {
 }
 
 register_codes! {
+    /// Diagnostics from collector planning.
+    plan {
+        INVALID_METADATA: "krs::plan::invalid-metadata" => "Metadata has inconsistent package or resolve records.",
+        MISSING_RESOLVE_GRAPH: "krs::plan::missing-resolve-graph" => "Full dependency metadata was not supplied.",
+        MISSING_PACKAGE: "krs::plan::missing-package" => "A package selector matched nothing.",
+        AMBIGUOUS_PACKAGE: "krs::plan::ambiguous-package" => "A name selector matched multiple package IDs.",
+        MISSING_KRS_METADATA: "krs::plan::missing-krs-metadata" => "A selected package has no KRS metadata table.",
+        MISSING_NAMESPACE: "krs::plan::missing-namespace" => "A selected package has no immutable semantic namespace.",
+        MISSING_DEFINITION: "krs::plan::missing-definition" => "A selected facet does not exist.",
+        INVALID_DEFINITION: "krs::plan::invalid-definition" => "A selected facet has an invalid metadata shape.",
+        MISSING_LIBRARY_TARGET: "krs::plan::missing-library-target" => "A selected semantics package has no linkable Rust library target.",
+        AMBIGUOUS_LIBRARY_TARGET: "krs::plan::ambiguous-library-target" => "A selected semantics package has multiple linkable Rust library targets.",
+        INVALID_PACKAGE_CONTEXT: "krs::plan::invalid-package-context" => "Selected package identity, target, or manifest data is invalid.",
+        DUPLICATE_NAMESPACE: "krs::plan::duplicate-namespace" => "Two selected packages declare the same semantic namespace.",
+        UNREACHABLE_SELECTION: "krs::plan::unreachable-selection" => "A dependency facet is not in the root Cargo package closure.",
+        UNREACHABLE_ENTRYPOINT: "krs::plan::unreachable-entrypoint" => "The collector package is not in the root Cargo package closure.",
+        DEPENDENCY_CYCLE: "krs::plan::dependency-cycle" => "Cargo metadata contains a dependency cycle.",
+        INVALID_HOST_TARGET: "krs::plan::invalid-host-target" => "The requested host target is malformed.",
+        INVALID_CFG: "krs::plan::invalid-cfg" => "A KRS cfg input is not safe Rust cfg syntax.",
+        INVALID_ENTRYPOINT: "krs::plan::invalid-entrypoint" => "The collector function path is invalid.",
+        INVALID_COLLECTOR_RUNTIME: "krs::plan::invalid-collector-runtime" => "A collector runtime manifest path is malformed.",
+        INVALID_REGISTRATION_MODE: "krs::plan::invalid-registration-mode" => "The registration mode does not apply to this plan.",
+        INVENTORY_FEATURE_ACTIVE: "krs::plan::inventory-feature-active" => "Explicit registration conflicts with the inventory feature.",
+        UNREGISTERED_KRS_DEPENDENT: "krs::plan::unregistered-krs-dependent" => "Explicit registration would omit a KRS dependent.",
+    }
+    /// Diagnostics from canonical K emission.
+    emit {
+        UNSUPPORTED_SHAPE: "krs::emit::unsupported-shape" => "Canonical-source emission does not support a Definition IR shape.",
+        INVALID_REFERENCE: "krs::emit::invalid-reference" => "A Definition symbol reference was absent or had the wrong role.",
+        DUPLICATE_GENERATED_RANGE: "krs::emit::duplicate-generated-range" => "Rendered nodes attempted to own the same generated source range.",
+        INVALID_SIDECAR: "krs::emit::invalid-sidecar" => "An emitted sidecar invariant failed.",
+    }
+    /// Diagnostics from collector package generation.
+    generate {
+        INVALID_PLAN: "krs::generate::invalid-plan" => "The collector plan contains an unusable Cargo manifest path.",
+        SERIALIZATION: "krs::generate::serialization" => "Canonical selection serialization failed.",
+        UNSAFE_OUTPUT: "krs::generate::unsafe-output" => "The output directory does not belong to KRS.",
+        IO: "krs::generate::io" => "A generated collector filesystem operation failed.",
+    }
+    /// Diagnostics from reference Rust projection.
+    reference {
+        SOURCE_SELECTION: "krs::reference::source-selection" => "The package descriptors do not select exactly one source file.",
+        SOURCE_MODULES: "krs::reference::source-modules" => "The selected source contains descriptors from multiple Rust modules.",
+        SOURCE_MANIFEST_DIRECTORY: "krs::reference::source-manifest-directory" => "The package manifest has no parent directory.",
+        SOURCE_READ: "krs::reference::source-read" => "The selected source file could not be read.",
+        SOURCE_CHANGED: "krs::reference::source-changed" => "The selected source changed after collection.",
+        SOURCE_ENCODING: "krs::reference::source-encoding" => "The selected source file is not UTF-8.",
+        RUST_SYNTAX: "krs::reference::rust-syntax" => "The selected source is not valid Rust.",
+        GENERATED_RUST: "krs::reference::generated-rust" => "The generated reference Rust failed to parse.",
+        DUPLICATE_RULE: "krs::reference::duplicate-rule" => "A rule name occurs in multiple readable tables.",
+        RULE_COVERAGE: "krs::reference::rule-coverage" => "A readable rule does not map to exactly one collected head rule.",
+        CONSTRUCTOR_COVERAGE: "krs::reference::constructor-coverage" => "An enum variant does not map to exactly one constructor.",
+        CONSTRUCTOR_FIELD_COVERAGE: "krs::reference::constructor-field-coverage" => "Projected fields do not cover the collected constructor.",
+        MISSING_CONSTRUCTOR_FIELD: "krs::reference::missing-constructor-field" => "A projected field is absent from the collected constructor.",
+        MISSING_CONSTRUCTOR_FIELD_SORT: "krs::reference::missing-constructor-field-sort" => "A collected constructor field has no resolved sort.",
+        MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" => "Semantic lowering omitted a collected rule.",
+        MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" => "Inference produced no sort for a readable binder.",
+        EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "A dependency alias cannot be reconstructed.",
+        EXTERNAL_REFERENCE_SORT: "krs::reference::external-reference-sort" => "A constructor field marker path is external.",
+        MIXED_APPLICATION_ARGUMENTS: "krs::reference::mixed-application-arguments" => "An application mixes positional and named arguments.",
+        NAMED_BUILTIN_APPLICATION: "krs::reference::named-builtin-application" => "A builtin operation uses named arguments.",
+        MISSING_DECLARATION: "krs::reference::missing-declaration" => "A referenced declaration is absent from the collected bundle.",
+        NAMED_NON_CONSTRUCTOR: "krs::reference::named-non-constructor" => "A named application does not reference a constructor.",
+        DUPLICATE_APPLICATION_FIELD: "krs::reference::duplicate-application-field" => "A named constructor field occurs more than once.",
+        MISSING_APPLICATION_FIELD: "krs::reference::missing-application-field" => "A constructor result omits a required named field.",
+        UNKNOWN_APPLICATION_FIELD: "krs::reference::unknown-application-field" => "A named argument does not belong to its constructor.",
+        INVALID_LITERAL: "krs::reference::invalid-literal" => "A canonical integer payload is not valid Rust tokens.",
+        UNSUPPORTED_BUILTIN_TOKEN: "krs::reference::unsupported-builtin-token" => "A builtin token sort has no reference spelling.",
+    }
+    /// Diagnostics from native Definition compilation.
+    native {
+        ADAPTER_MISSING_SYMBOL: "krs::native::adapter-missing-symbol" => "A symbol is absent from the native adapter index.",
+        ADAPTER_MISSING_REFERENCE: "krs::native::adapter-missing-reference" => "A nominal reference is absent from the native adapter index.",
+        DUPLICATE_SENTENCE_MAPPING: "krs::native::duplicate-sentence-mapping" => "Native provenance maps a sentence more than once.",
+        MISSING_SENTENCE_MAPPING: "krs::native::missing-sentence-mapping" => "Native provenance has no mapping for an input address.",
+        LOSSY_COMPILE_ADDRESS: "krs::native::lossy-compile-address" => "A compile address cannot map to a KRS sentence.",
+        INDEX_OUT_OF_RANGE: "krs::native::index-out-of-range" => "A native input address is outside its module.",
+        KIND_MISMATCH: "krs::native::kind-mismatch" => "The native source kind differs from the IR sentence.",
+        MISSING_KIND: "krs::native::missing-kind" => "Native provenance lacks a kind for an input address.",
+        INVALID_IDENTITY: "krs::native::invalid-identity" => "A native identity has an invalid author relation.",
+        MISSING_PRELUDE: "krs::native::missing-prelude" => "The pinned structured-loader prelude is unavailable.",
+        PREPARATION: "krs::native::preparation" => "The native loader rejected the definition.",
+        COMPILE: "krs::native::compile" => "A native frontend stage rejected the definition.",
+        KORE_REPARSE: "krs::native::kore-reparse" => "A produced KORE artifact failed to reparse under the pin.",
+    }
     /// Diagnostics from host descriptor collection.
     collect {
         INVALID_PACKAGE_CONTEXT: "krs::collect::invalid-package-context" => "Caller-supplied package metadata was invalid.",

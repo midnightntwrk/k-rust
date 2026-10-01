@@ -766,7 +766,21 @@ fn native_command_error(
 ) -> CommandError {
     let diagnostics = error.diagnostics();
     if diagnostics.is_empty() {
-        return CommandError::Native(error);
+        let envelope = diagnostic_envelope(
+            error.to_diagnostic(),
+            DiagnosticStage::Native,
+            Some(source_map),
+        );
+        return match envelope {
+            Some(envelope) => CommandError::NativeDiagnostics {
+                reports: crate::DiagnosticReports {
+                    envelopes: vec![envelope],
+                    unlocated: Vec::new(),
+                },
+                source: error,
+            },
+            None => CommandError::Native(error),
+        };
     }
     CommandError::NativeDiagnostics {
         reports: crate::DiagnosticReports::native(source_map, diagnostics),
@@ -1250,29 +1264,59 @@ impl Error for CommandError {
 }
 
 impl CommandError {
-    /// Returns native diagnostics that have no exact authored range.
-    #[must_use]
-    pub fn unlocated_diagnostics(&self) -> &[crate::UnlocatedDiagnostic] {
-        match self {
-            Self::NativeDiagnostics { reports, .. } => &reports.unlocated,
-            _ => &[],
-        }
+    fn diagnostic_model(&self) -> Option<(Diagnostic, DiagnosticStage)> {
+        let (mut diagnostic, stage) = match self {
+            Self::Planning(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::Generation(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::DescriptorLowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::Lowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::Emission(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::ReferenceExpansion(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::Native(error) => (error.to_diagnostic(), DiagnosticStage::Native),
+            _ => return None,
+        };
+        diagnostic.message = self.to_string();
+        Some((diagnostic, stage))
     }
 
-    /// Returns envelopes when the producing diagnostic has an exact authored range.
+    /// Returns diagnostics that have no exact authored range.
+    #[must_use]
+    pub fn unlocated_diagnostics(&self) -> Cow<'_, [crate::UnlocatedDiagnostic]> {
+        if let Self::NativeDiagnostics { reports, .. } = self {
+            return Cow::Borrowed(&reports.unlocated);
+        }
+        let Some((diagnostic, stage)) = self.diagnostic_model() else {
+            return Cow::Borrowed(&[]);
+        };
+        if diagnostic_envelope(diagnostic.clone(), stage, None).is_some() {
+            return Cow::Borrowed(&[]);
+        }
+        Cow::Owned(vec![crate::UnlocatedDiagnostic {
+            code: diagnostic.code.to_string(),
+            severity: diagnostic.severity.into(),
+            message: diagnostic.message,
+            source: None,
+            generated_range: None,
+            notes: diagnostic.notes,
+        }])
+    }
+
+    /// Returns envelopes and exposes unlocated producer diagnostics through [`Self::unlocated_diagnostics`].
     #[must_use]
     pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
-        let diagnostic = match self {
+        match self {
             Self::Diagnostics(diagnostics) => return Some(Cow::Borrowed(diagnostics)),
             Self::NativeDiagnostics { reports, .. } => {
                 return Some(Cow::Borrowed(&reports.envelopes));
             }
-            Self::DescriptorLowering(error) => error.to_diagnostic(),
-            Self::Lowering(error) => error.to_diagnostic(),
-            _ => return None,
-        };
-        diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
-            .map(|envelope| Cow::Owned(vec![envelope]))
+            _ => {}
+        }
+        let (diagnostic, stage) = self.diagnostic_model()?;
+        Some(Cow::Owned(
+            diagnostic_envelope(diagnostic, stage, None)
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 
@@ -1375,7 +1419,10 @@ mod tests {
         assert_eq!(envelopes[0].message, message);
         assert_eq!(envelopes[0].authored_range, range);
         let unlocated = CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
-        assert!(unlocated.diagnostics().is_none());
+        assert!(unlocated.diagnostics().unwrap().is_empty());
+        let reports = unlocated.unlocated_diagnostics();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].message, "invalid lowered sidecar: detail");
         assert_eq!(unlocated.to_string(), "invalid lowered sidecar: detail");
     }
 
@@ -1494,6 +1541,87 @@ mod tests {
                 Err(CommandError::DiagnosticProtocol(_))
             ));
         }
+    }
+
+    #[test]
+    fn compiler_fallbacks_render_with_codes_and_preserve_messages() {
+        let planning = crate::plan::manifest_directory(Path::new("/")).unwrap_err();
+        let cases = [
+            (
+                CommandError::Planning(planning),
+                codes::plan::INVALID_METADATA,
+            ),
+            (
+                CommandError::Generation(GenerationError::UnsafeOutput(PathBuf::from("output"))),
+                codes::generate::UNSAFE_OUTPUT,
+            ),
+            (
+                CommandError::Emission(EmitError::InvalidReference("missing symbol".to_owned())),
+                codes::emit::INVALID_REFERENCE,
+            ),
+            (
+                CommandError::ReferenceExpansion(ReferenceExpansionError::DuplicateRule(
+                    "step".to_owned(),
+                )),
+                codes::reference::DUPLICATE_RULE,
+            ),
+            (
+                CommandError::Native(DefinitionCompileError::Provenance(
+                    krs_k_rust::ProvenanceError::InvalidIdentity("identity".to_owned()),
+                )),
+                codes::native::INVALID_IDENTITY,
+            ),
+        ];
+        for (error, code) in cases {
+            assert!(error.diagnostics().unwrap().is_empty());
+            let diagnostics = error.unlocated_diagnostics();
+            assert_eq!(diagnostics.len(), 1);
+            let diagnostic = diagnostics[0].to_diagnostic();
+            assert_eq!(diagnostic.code, code);
+            assert_eq!(diagnostic.message, error.to_string());
+            assert!(matches!(diagnostic.primary.location, Location::None));
+            let rendered =
+                crate::DiagnosticSources::default().render_diagnostic(&diagnostic, false);
+            assert_eq!(rendered, format!("error[{code}]: {error}"));
+        }
+    }
+
+    #[test]
+    fn adapter_fallback_resolves_its_definition_key_through_the_source_map() {
+        let package = PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap();
+        let file = SourceFileId::new(
+            package,
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let range = SourceRange::new(file, 7, 16).unwrap();
+        let key = krs_ir::SourceMapKey::new("definition.item").unwrap();
+        let source_map = serde_json::from_value(serde_json::json!({
+            "schema_version": 2,
+            "entries": [{
+                "key": key.as_str(),
+                "node_kind": "module",
+                "origin": krs_ir::OriginStack::authored(range.clone()),
+            }],
+        }))
+        .unwrap();
+        let error = DefinitionCompileError::Adapter(krs_k_rust::AdapterError::MissingReference {
+            key,
+            kind: "sort",
+            target: "Missing".to_owned(),
+        });
+        let message = error.to_string();
+        let routed = native_command_error(&source_map, error);
+        let diagnostics = routed.diagnostics().unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].code,
+            codes::native::ADAPTER_MISSING_REFERENCE.as_str()
+        );
+        assert_eq!(diagnostics[0].message, message);
+        assert_eq!(diagnostics[0].authored_range, range);
+        assert!(routed.unlocated_diagnostics().is_empty());
     }
 
     #[test]

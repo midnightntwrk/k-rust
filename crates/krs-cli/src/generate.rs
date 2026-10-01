@@ -1,4 +1,5 @@
 use crate::plan::{CollectorKind, CollectorPlan, KrsCfg, RegistrationMode, manifest_directory};
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fmt;
@@ -368,6 +369,18 @@ impl GenerationError {
             path: path.to_path_buf(),
             source,
         }
+    }
+}
+
+impl ToDiagnostic for GenerationError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::InvalidPlan(_) => codes::generate::INVALID_PLAN,
+            Self::Serialization(_) => codes::generate::SERIALIZATION,
+            Self::UnsafeOutput(_) => codes::generate::UNSAFE_OUTPUT,
+            Self::Io { .. } => codes::generate::IO,
+        };
+        Diagnostic::error(code, self.to_string(), Location::None)
     }
 }
 

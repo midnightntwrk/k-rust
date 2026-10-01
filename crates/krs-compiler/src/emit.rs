@@ -1,3 +1,4 @@
+use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -99,6 +100,25 @@ pub enum EmitError {
     DuplicateGeneratedRange(SourceMapKey),
     /// A shared sidecar invariant failed.
     InvalidSidecar(String),
+}
+
+impl ToDiagnostic for EmitError {
+    fn to_diagnostic(&self) -> Diagnostic {
+        let code = match self {
+            Self::UnsupportedShape { .. } => codes::emit::UNSUPPORTED_SHAPE,
+            Self::InvalidReference(_) => codes::emit::INVALID_REFERENCE,
+            Self::DuplicateGeneratedRange(_) => codes::emit::DUPLICATE_GENERATED_RANGE,
+            Self::InvalidSidecar(_) => codes::emit::INVALID_SIDECAR,
+        };
+        Diagnostic::error(
+            code,
+            self.to_string(),
+            match self {
+                Self::DuplicateGeneratedRange(key) => Location::Definition(key.clone()),
+                _ => Location::None,
+            },
+        )
+    }
 }
 
 impl fmt::Display for EmitError {
