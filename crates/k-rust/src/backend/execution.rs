@@ -1015,9 +1015,9 @@ fn load_backend_pattern(
 ) -> Result<Pattern, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
-    definition.verify_standalone_pattern(&syntax)?;
     definition
-        .internalize_pattern(&syntax, &[])
+        .verify_standalone_pattern(&syntax, &[])?
+        .internalize_pattern()
         .map_err(Into::into)
 }
 
@@ -1028,11 +1028,9 @@ fn load_backend_patterns(
 ) -> Result<Vec<Pattern>, Box<dyn Error>> {
     let input = fs::read(path)?;
     let syntax = decode_kore_syntax(path, purpose, &input)?;
-    definition.verify_standalone_pattern(&syntax)?;
+    let admitted = definition.verify_standalone_pattern(&syntax, &[])?;
     definition.validate_executable_pattern(&syntax)?;
-    definition
-        .internalize_disjunction(&syntax, &[])
-        .map_err(Into::into)
+    admitted.internalize_disjunction().map_err(Into::into)
 }
 
 fn decode_kore_syntax(

@@ -144,7 +144,8 @@ pub fn ground_overload_definition() -> BackendDefinition {
 pub fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
     let syntax = parse_pattern(source).expect("term should parse");
     definition
-        .internalize_term(&syntax, &[])
+        .admit_unverified(&syntax, &[])
+        .internalize_term()
         .expect("term should internalize")
 }
 

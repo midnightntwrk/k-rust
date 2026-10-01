@@ -46,7 +46,8 @@ fn definition(axioms: &str) -> BackendDefinition {
 fn term(definition: &BackendDefinition, source: &str) -> Term {
     let syntax = parse_pattern(source).expect("term should parse");
     definition
-        .internalize_term(&syntax, &[])
+        .admit_unverified(&syntax, &[])
+        .internalize_term()
         .expect("term should internalize")
 }
 
@@ -934,7 +935,8 @@ fn evaluates_overload_axioms_before_the_overloaded_function() {
     let frontend_term = |source: &str| {
         let syntax = parse_pattern(source).expect("term should parse");
         definition
-            .internalize_frontend_term(&syntax, &[])
+            .admit_unverified(&syntax, &[])
+            .internalize_frontend_term()
             .expect("frontend term should internalize")
     };
     let input = frontend_term(
@@ -2709,8 +2711,11 @@ fn externalized_injection_equalities_verify_after_sort_narrowing() {
             assert_eq!(lhs.sort(), rhs.sort());
             let external =
                 k_rust_backend::externalize::predicate_pattern(&result, &Sort::simple("SortKItem"));
-            definition.verify_standalone_pattern(&external).unwrap();
-            let (roundtrip, _) = definition.internalize_predicate(&external, &[]).unwrap();
+            let (roundtrip, _) = definition
+                .verify_standalone_pattern(&external, &[])
+                .unwrap()
+                .internalize_predicate()
+                .unwrap();
             assert_eq!(roundtrip, result);
         }
     }
@@ -2723,7 +2728,11 @@ fn externalized_injection_equalities_verify_after_sort_narrowing() {
     );
     let external =
         k_rust_backend::externalize::predicate_pattern(&malformed, &Sort::simple("SortKItem"));
-    assert!(definition.verify_standalone_pattern(&external).is_err());
+    assert!(
+        definition
+            .verify_standalone_pattern(&external, &[])
+            .is_err()
+    );
 }
 
 #[test]
@@ -2799,7 +2808,8 @@ fn preserves_a_symbolic_equality_between_singleton_k_sequences() {
     )
     .expect("predicate should parse");
     let (predicate, _) = definition
-        .internalize_predicate(&syntax, &[])
+        .admit_unverified(&syntax, &[])
+        .internalize_predicate()
         .expect("predicate should internalize");
 
     let result = simplify_predicate_with_solver(

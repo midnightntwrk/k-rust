@@ -1191,10 +1191,11 @@ fn labelled_bracket_stays_out_of_the_backend_constructor_domain() {
     let color = BackendTerm::variable(Variable::new("X", BackendSort::simple("SortColor")));
     let excluded = |name: &str| {
         let constructor = definition
-            .internalize_term(
+            .admit_unverified(
                 &k_rust::kore::parser::parse_pattern(&format!("Lbl{name}{{}}()")).unwrap(),
                 &[],
             )
+            .internalize_term()
             .unwrap();
         Predicate::Not(Box::new(Predicate::Equals(color.clone(), constructor)))
     };

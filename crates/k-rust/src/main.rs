@@ -2462,7 +2462,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     )?;
     let function_symbols = backend.function_symbol_names();
     backend.validate_executable_pattern(&initial)?;
-    let initial = backend.internalize_frontend_term(&initial, &[])?;
+    let initial = backend
+        .admit_unverified(&initial, &[])
+        .internalize_frontend_term()?;
     let match_target = match match_target_source {
         Some(MatchTargetSource::Surface(compiled)) => {
             Some(prepare_backend_match_target(&backend, compiled)?)
@@ -2869,8 +2871,8 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
     })?;
     let target = backend.with_solver(None, |definition, _| {
         definition
-            .verify_standalone_pattern(&target)
-            .and_then(|()| definition.internalize_pattern(&target, &[]))
+            .verify_standalone_pattern(&target, &[])
+            .and_then(|admitted| admitted.internalize_pattern())
             .map_err(|error| BackendError(error.to_string()))
     })?;
 
@@ -2886,7 +2888,8 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
     })?;
     let alternatives = backend.with_solver(None, |definition, _| {
         definition
-            .internalize_disjunction(&disjunction, &[])
+            .admit_unverified(&disjunction, &[])
+            .internalize_disjunction()
             .map_err(|error| BackendError(error.to_string()))
     })?;
     let matches = backend.match_patterns(None, &target, &alternatives)?;
@@ -3654,7 +3657,10 @@ mod tests {
     ) -> Result<KorePattern, Box<dyn Error>> {
         let solver = Z3Solver::with_options(definition, options)
             .map_err(|error| io::Error::other(format!("could not initialize Z3: {error:?}")))?;
-        match definition.internalize_pattern_or_predicate(syntax, &[])? {
+        match definition
+            .admit_unverified(syntax, &[])
+            .internalize_pattern_or_predicate()?
+        {
             PatternOrPredicate::Term(pattern) => {
                 let simplified = simplify_pattern_with_solver(
                     definition,
@@ -3720,9 +3726,9 @@ mod tests {
     ) -> Result<Pattern, Box<dyn Error>> {
         let syntax = kore_codec::decode_bytes(input)
             .map_err(|error| invalid_kore_pattern(path, purpose, error.encoding, error.cause))?;
-        definition.verify_standalone_pattern(&syntax)?;
         definition
-            .internalize_pattern(&syntax, &[])
+            .verify_standalone_pattern(&syntax, &[])?
+            .internalize_pattern()
             .map_err(Into::into)
     }
 
@@ -3949,7 +3955,10 @@ mod tests {
         .unwrap();
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let syntax = parse_kore_pattern("state{}(value{}())").unwrap();
-        let expected = definition.internalize_pattern(&syntax, &[]).unwrap();
+        let expected = definition
+            .admit_unverified(&syntax, &[])
+            .internalize_pattern()
+            .unwrap();
         let path = Path::new("state.kore");
 
         let text =

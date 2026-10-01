@@ -1669,7 +1669,7 @@ mod tests {
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1")
         ));
-        definition.verify_standalone_pattern(&renamed).unwrap();
+        let _admitted = definition.verify_standalone_pattern(&renamed, &[]).unwrap();
 
         let lookalike_truth = Term::domain_value(Sort::simple("SortBool"), "true");
         let lookalike_condition = definition
@@ -1691,7 +1691,9 @@ mod tests {
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "opaqueEqLookalike")
         ));
-        definition.verify_standalone_pattern(&lookalike).unwrap();
+        let _admitted = definition
+            .verify_standalone_pattern(&lookalike, &[])
+            .unwrap();
     }
 
     #[test]
@@ -1730,8 +1732,8 @@ mod tests {
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "floatEq")
         ));
-        definition
-            .verify_standalone_pattern(&rule_predicate)
+        let _admitted = definition
+            .verify_standalone_pattern(&rule_predicate, &[])
             .unwrap();
 
         let matching_equality =
@@ -1743,8 +1745,8 @@ mod tests {
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
         ));
-        definition
-            .verify_standalone_pattern(&matching_equality)
+        let _admitted = definition
+            .verify_standalone_pattern(&matching_equality, &[])
             .unwrap();
     }
 

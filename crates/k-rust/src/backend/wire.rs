@@ -2125,13 +2125,14 @@ mod tests {
         let definition =
             k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let initial = definition
-            .internalize_pattern(
+            .admit_unverified(
                 &k_rust_kore::kore::parser::parse_pattern(
                     r#"pair{}(add{}(checked{}(X:SortInt{}), \dv{SortInt{}}("1")), \dv{SortInt{}}("0"))"#,
                 )
                 .unwrap(),
                 &[],
             )
+            .internalize_pattern()
             .unwrap();
         let token = k_rust_backend::cancellation::CancellationToken::new();
         let solver = CancellingSolver(token.clone());
@@ -2205,10 +2206,11 @@ mod tests {
         let definition =
             k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let initial = definition
-            .internalize_pattern(
+            .admit_unverified(
                 &k_rust_kore::kore::parser::parse_pattern("wrap{}(Y:SortS{})").unwrap(),
                 &[],
             )
+            .internalize_pattern()
             .unwrap();
         let token = k_rust_backend::cancellation::CancellationToken::new();
         let solver = CancelledSolver(token.clone());

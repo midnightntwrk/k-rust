@@ -629,7 +629,8 @@ impl RpcService {
                     .validate_executable_pattern(&syntax)
                     .map_err(|error| pattern_fault(error, &syntax))?;
                 let initial = definition
-                    .internalize_pattern(&syntax, &[])
+                    .admit_unverified(&syntax, &[])
+                    .internalize_pattern()
                     .map_err(|error| pattern_fault(error, &syntax))?;
                 let configuration_variables = pattern_variables(&initial);
                 // RPC deliberately has no execution IO state. Console hooks stay unsupported until a
@@ -773,7 +774,8 @@ impl RpcService {
         self.backend.with_solver(
             params.module.as_deref(),
             |definition, solver| match definition
-                .internalize_pattern_or_predicate(&syntax, &[])
+                .admit_unverified(&syntax, &[])
+                .internalize_pattern_or_predicate()
                 .map_err(|error| pattern_fault(error, &syntax))?
             {
                 PatternOrPredicate::Term(pattern) => {
@@ -856,7 +858,8 @@ impl RpcService {
         self.backend
             .with_solver(params.module.as_deref(), |definition, solver| {
                 let Some((predicate, result_sort)) = definition
-                    .internalize_model_predicate(&syntax, &[])
+                    .admit_unverified(&syntax, &[])
+                    .internalize_model_predicate()
                     .map_err(|error| pattern_fault(error, &syntax))?
                 else {
                     return Ok(json!({ "satisfiable": "Unknown" }));
@@ -947,7 +950,8 @@ impl RpcService {
             .collect::<Vec<_>>();
         if let Some(verdict) = bottom_antecedent(&antecedent) {
             let (_, result_sort) = definition
-                .internalize_predicate(&antecedent, &sort_variables)
+                .admit_unverified(&antecedent, &sort_variables)
+                .internalize_predicate()
                 .map_err(|error| pattern_fault(error, &antecedent))?;
             let consequent = if matches!(
                 consequent.strip_exists(),
@@ -956,7 +960,8 @@ impl RpcService {
                 consequent
             } else {
                 let (consequent_pattern, _) = definition
-                    .internalize_implication_pattern(&consequent, &sort_variables)
+                    .admit_unverified(&consequent, &sort_variables)
+                    .internalize_implication_pattern()
                     .map_err(|error| pattern_fault(error, &consequent))?;
                 simplified_implication_response_syntax(
                     definition,
@@ -968,7 +973,8 @@ impl RpcService {
             return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
-            .internalize_implication_pattern(&antecedent, &sort_variables)
+            .admit_unverified(&antecedent, &sort_variables)
+            .internalize_implication_pattern()
             .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
         let special = match special_consequent(&consequent) {
@@ -977,8 +983,7 @@ impl RpcService {
                     definition,
                     &antecedent_pattern,
                     &antecedent_existentials,
-                    &consequent,
-                    &sort_variables,
+                    definition.admit_unverified(&consequent, &sort_variables),
                     solver,
                 )
                 .map_err(stopped_request)?
@@ -1014,7 +1019,8 @@ impl RpcService {
             return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (consequent_pattern, consequent_existentials) = definition
-            .internalize_implication_pattern(&consequent, &sort_variables)
+            .admit_unverified(&consequent, &sort_variables)
+            .internalize_implication_pattern()
             .map_err(|error| pattern_fault(error, &consequent))?;
         if result_sort != consequent_pattern.term.sort() {
             return Err(RpcFault::verify(vec![ErrorDetail::message(
@@ -1422,7 +1428,8 @@ fn simplified_not_consequent_response_syntax(
         },
         KorePattern::Not { sort, argument } => {
             let (pattern, _) = definition
-                .internalize_implication_pattern(argument, sort_variables)
+                .admit_unverified(argument, sort_variables)
+                .internalize_implication_pattern()
                 .map_err(|error| pattern_fault(error, argument))?;
             KorePattern::Not {
                 sort: sort.clone(),
@@ -3819,7 +3826,8 @@ endmodule
         let definition = BackendDefinition::internalize(&syntax, "TEST").unwrap();
         let original = parse_pattern("loop{}(state{}())").unwrap();
         let (pattern, _) = definition
-            .internalize_implication_pattern(&original, &[])
+            .admit_unverified(&original, &[])
+            .internalize_implication_pattern()
             .unwrap();
 
         let fault = simplified_implication_response_syntax(

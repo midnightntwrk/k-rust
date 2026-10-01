@@ -260,10 +260,8 @@ fn search_pattern_compilation_preserves_root_sorted_ml_connectives() {
     assert_eq!(rust, reference);
 
     let definition = parse_definition(&context().definition_kore).unwrap();
-    BackendDefinition::internalize(&definition, "MAIN")
-        .unwrap()
-        .verify_standalone_pattern(&rust)
-        .unwrap();
+    let backend = BackendDefinition::internalize(&definition, "MAIN").unwrap();
+    let _admitted = backend.verify_standalone_pattern(&rust, &[]).unwrap();
 }
 
 #[test]
@@ -416,13 +414,14 @@ fn search_pattern_compilation_reuses_transformed_context() {
     for contents in [GROUND, MACRO_ROOTS, MACRO_ROOTS_COLLISION_FREE] {
         let compiled = compile(contents).unwrap();
         backend
-            .verify_standalone_pattern(&compiled.pattern)
+            .verify_standalone_pattern(&compiled.pattern, &[])
+            .unwrap()
+            .internalize_pattern()
             .unwrap();
-        backend.internalize_pattern(&compiled.pattern, &[]).unwrap();
     }
     let explicit_binder = compile(EXPLICIT_GEN_BINDER).unwrap();
-    backend
-        .verify_standalone_pattern(&explicit_binder.pattern)
+    let _admitted = backend
+        .verify_standalone_pattern(&explicit_binder.pattern, &[])
         .unwrap();
 }
 

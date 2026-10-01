@@ -116,7 +116,8 @@ fn definition_in(source: &str, module: &str) -> BackendDefinition {
 
 fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
     definition
-        .internalize_pattern(&parse_pattern(source).expect("pattern should parse"), &[])
+        .admit_unverified(&parse_pattern(source).expect("pattern should parse"), &[])
+        .internalize_pattern()
         .expect("pattern should internalize")
 }
 

@@ -96,7 +96,8 @@ impl Backend {
     ) -> Result<KorePattern, BackendError> {
         self.with_solver(module, |definition, solver| {
             match definition
-                .internalize_pattern_or_predicate(syntax, &[])
+                .admit_unverified(syntax, &[])
+                .internalize_pattern_or_predicate()
                 .map_err(error("could not internalize KORE pattern"))?
             {
                 PatternOrPredicate::Term(pattern) => {
@@ -134,7 +135,8 @@ impl Backend {
     ) -> Result<(ModelResult, Option<Sort>), BackendError> {
         self.with_solver(module, |definition, solver| {
             let Some((predicate, result_sort)) = definition
-                .internalize_model_predicate(syntax, &[])
+                .admit_unverified(syntax, &[])
+                .internalize_model_predicate()
                 .map_err(error("could not internalize model predicate"))?
             else {
                 return Ok((ModelResult::Unknown("no predicate".into()), None));

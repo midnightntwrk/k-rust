@@ -678,7 +678,8 @@ impl Backend {
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
             let initial = definition
-                .internalize_pattern(&syntax, &[])
+                .admit_unverified(&syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize execution state"))?;
             let options = ExecutionOptions {
                 max_depth: request.max_depth.unwrap_or(u64::MAX),
@@ -737,7 +738,8 @@ impl Backend {
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
             let initial = definition
-                .internalize_pattern(&syntax, &[])
+                .admit_unverified(&syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize search state"))?;
             let result = match observation_rules {
                 Some(rules) => {
@@ -784,7 +786,8 @@ impl Backend {
                 .validate_executable_pattern(&syntax)
                 .map_err(error("invalid executable state"))?;
             let initial = definition
-                .internalize_pattern(&syntax, &[])
+                .admit_unverified(&syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize path-search state"))?;
             let result = match observation_rules {
                 Some(rules) => {
@@ -832,10 +835,12 @@ impl Backend {
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(error("invalid executable state"))?;
             let initial = definition
-                .internalize_pattern(&initial_syntax, &[])
+                .admit_unverified(&initial_syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize pattern-search state"))?;
             let target = definition
-                .internalize_pattern(&target_syntax, &[])
+                .admit_unverified(&target_syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let result = match observation_rules {
                 Some(rules) => {
@@ -884,10 +889,12 @@ impl Backend {
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(error("invalid executable state"))?;
             let initial = definition
-                .internalize_pattern(&initial_syntax, &[])
+                .admit_unverified(&initial_syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize path-pattern-search state"))?;
             let target = definition
-                .internalize_pattern(&target_syntax, &[])
+                .admit_unverified(&target_syntax, &[])
+                .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let result = match observation_rules {
                 Some(rules) => {
@@ -2353,13 +2360,15 @@ mod tests {
             substitution: Substitution::from([(
                 Variable::new("X", sort.clone()),
                 definition
-                    .internalize_term(&parse_pattern("a{}()").unwrap(), &[])
+                    .admit_unverified(&parse_pattern("a{}()").unwrap(), &[])
+                    .internalize_term()
                     .unwrap(),
             )]),
             witnesses: Substitution::from([(
                 Variable::new("Y", sort.clone()),
                 definition
-                    .internalize_term(&parse_pattern("b{}()").unwrap(), &[])
+                    .admit_unverified(&parse_pattern("b{}()").unwrap(), &[])
+                    .internalize_term()
                     .unwrap(),
             )]),
         };

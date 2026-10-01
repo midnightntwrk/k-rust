@@ -23,7 +23,8 @@ fn nil_cons_definition() -> BackendDefinition {
 fn term(definition: &BackendDefinition, source: &str) -> Term {
     let syntax = parse_pattern(source).expect("term should parse");
     definition
-        .internalize_term(&syntax, &[])
+        .admit_unverified(&syntax, &[])
+        .internalize_term()
         .expect("term should internalize")
 }
 

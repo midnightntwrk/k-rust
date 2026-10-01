@@ -186,7 +186,7 @@ pub fn prepare_backend_match_target(
     backend: &BackendDefinition,
     compiled: CompiledSearchPattern,
 ) -> Result<BackendMatchTarget, Box<dyn Error>> {
-    backend.verify_standalone_pattern(&compiled.pattern)?;
+    let admitted = backend.verify_standalone_pattern(&compiled.pattern, &[])?;
     let occurring = compiled
         .pattern
         .variables()
@@ -204,7 +204,7 @@ pub fn prepare_backend_match_target(
         ))
         .into());
     }
-    let pattern = backend.internalize_pattern(&compiled.pattern, &[])?;
+    let pattern = admitted.internalize_pattern()?;
     let generated_anonymous_variables =
         map_generated_anonymous_variables(&pattern, &compiled.generated_anonymous_variables)?;
     Ok(BackendMatchTarget {

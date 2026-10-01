@@ -183,7 +183,8 @@ fn console_io_definition(axioms: &str) -> BackendDefinition {
 
 fn console_pattern(definition: &BackendDefinition, pattern: &str) -> Pattern {
     definition
-        .internalize_pattern(&parse_pattern(pattern).expect("pattern should parse"), &[])
+        .admit_unverified(&parse_pattern(pattern).expect("pattern should parse"), &[])
+        .internalize_pattern()
         .expect("pattern should internalize")
 }
 
@@ -1063,7 +1064,8 @@ fn subject(definition: &BackendDefinition, value: &str) -> Pattern {
         .expect("subject should parse");
     Pattern {
         term: definition
-            .internalize_term(&syntax, &[])
+            .admit_unverified(&syntax, &[])
+            .internalize_term()
             .expect("subject should internalize"),
         constraints: Vec::new(),
     }
@@ -1591,7 +1593,10 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
                 )"#
         ))
         .unwrap();
-        definition.internalize_pattern(&syntax, &[]).unwrap()
+        definition
+            .admit_unverified(&syntax, &[])
+            .internalize_pattern()
+            .unwrap()
     };
 
     let rewritten = execute(&definition, pattern("b"), ExecutionOptions::default());
@@ -1657,7 +1662,8 @@ fn symbolic_remainder_definition(rules: &str) -> BackendDefinition {
 fn symbolic_subject(definition: &BackendDefinition) -> Pattern {
     Pattern {
         term: definition
-            .internalize_term(&parse_pattern("wrap{}(X:SortInt{})").unwrap(), &[])
+            .admit_unverified(&parse_pattern("wrap{}(X:SortInt{})").unwrap(), &[])
+            .internalize_term()
             .unwrap(),
         constraints: Vec::new(),
     }
@@ -1784,7 +1790,8 @@ fn be08_portable_definition(rules: &str) -> BackendDefinition {
 
 fn be08_portable_subject(definition: &BackendDefinition) -> Pattern {
     definition
-        .internalize_pattern(&parse_pattern("state{}(X:SortInt{})").unwrap(), &[])
+        .admit_unverified(&parse_pattern("state{}(X:SortInt{})").unwrap(), &[])
+        .internalize_pattern()
         .unwrap()
 }
 
@@ -2059,10 +2066,11 @@ fn retains_conditions_from_configuration_function_simplification() {
 fn unresolved_function_equality_requires_an_smt_solver() {
     let definition = unresolved_function_rewrite_definition();
     let term = definition
-        .internalize_term(
+        .admit_unverified(
             &parse_pattern(r#"wrap{}(\dv{SortBool{}}("true"))"#).unwrap(),
             &[],
         )
+        .internalize_term()
         .unwrap();
     let mut fresh = 0;
 
@@ -2298,7 +2306,10 @@ fn aborts_before_lower_priorities_when_requires_are_unknown() {
     );
     let syntax = parse_pattern("wrap{}(Y:SortS{})").unwrap();
     let pattern = Pattern {
-        term: definition.internalize_term(&syntax, &[]).unwrap(),
+        term: definition
+            .admit_unverified(&syntax, &[])
+            .internalize_term()
+            .unwrap(),
         constraints: Vec::new(),
     };
     let mut fresh = 0;
@@ -2659,7 +2670,8 @@ fn z3_proves_or_refutes_symbolic_requires_before_priority_fallback() {
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     let variable = Variable::new("Y", Sort::simple("SortInt"));
     let subject = definition
-        .internalize_term(&parse_pattern("wrap{}(Y:SortInt{})").unwrap(), &[])
+        .admit_unverified(&parse_pattern("wrap{}(Y:SortInt{})").unwrap(), &[])
+        .internalize_term()
         .unwrap();
     let integer = |value: &str| Term::domain_value(Sort::simple("SortInt"), value);
     let run = |value: &str| {
@@ -5213,10 +5225,11 @@ fn a_cancelled_expansion_keeps_the_diagnostics_of_the_work_done_before_it() {
         "#,
     );
     let subject = definition
-        .internalize_pattern(
+        .admit_unverified(
             &parse_pattern(r#"hold{}(expand{}(dotk{}()), X:SortInt{})"#).unwrap(),
             &[],
         )
+        .internalize_pattern()
         .unwrap();
     let token = CancellationToken::new();
     let solver = ScriptedSolver::new(
@@ -5477,13 +5490,14 @@ fn a_match_splits_groups_carry_only_their_own_condition_work() {
         "#,
     );
     let subject = definition
-        .internalize_pattern(
+        .admit_unverified(
             &parse_pattern(
                 r#"hold{}(ite{}(B:SortBool{}, tag{}(\dv{SortInt{}}("1")), tag{}(\dv{SortInt{}}("2"))), X:SortInt{})"#,
             )
             .unwrap(),
             &[],
         )
+        .internalize_pattern()
         .unwrap();
 
     let term = |source: &str| internal_term(&definition, source);
@@ -6490,10 +6504,11 @@ fn execution_preserves_user_log_effects() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_term(
+        .admit_unverified(
             &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
             &[],
         )
+        .internalize_term()
         .unwrap();
 
     let result = execute(
@@ -6529,10 +6544,11 @@ fn builtin_effect_observer_is_observational() {
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = Pattern {
         term: definition
-            .internalize_term(
+            .admit_unverified(
                 &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
                 &[],
             )
+            .internalize_term()
             .unwrap(),
         constraints: Vec::new(),
     };
@@ -6565,10 +6581,11 @@ fn execution_interrupts_native_hooks_at_the_step_deadline() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(
+        .admit_unverified(
             &parse_pattern(r#"state{}(pow{}(\dv{SortInt{}}("2"), \dv{SortInt{}}("10")))"#).unwrap(),
             &[],
         )
+        .internalize_pattern()
         .unwrap();
 
     let result = execute(
@@ -8365,7 +8382,8 @@ fn rewrite_rule_applies_to_a_subject_that_mentions_its_variable_names() {
         let syntax = parse_pattern(source).expect("term should parse");
         k_rust_backend::substitution::substitute(
             &definition
-                .internalize_term(&syntax, &[])
+                .admit_unverified(&syntax, &[])
+                .internalize_term()
                 .expect("term should internalize"),
             &shared,
         )
@@ -8409,10 +8427,11 @@ fn identical_executions_rename_a_clashing_rule_variable_identically() {
     let subject = Pattern {
         term: k_rust_backend::substitution::substitute(
             &definition
-                .internalize_term(
+                .admit_unverified(
                     &parse_pattern("wrap{}(wrap{}(Y:SortS{}))").expect("term should parse"),
                     &[],
                 )
+                .internalize_term()
                 .expect("term should internalize"),
             &Substitution::from([(
                 Variable::new("Y", Sort::simple("SortS")),
@@ -8965,7 +8984,8 @@ fn terminal_result_resimplification_does_not_duplicate_an_effect() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .admit_unverified(&parse_pattern("initial{}()").unwrap(), &[])
+        .internalize_pattern()
         .unwrap();
     let mut observed = Vec::new();
 
@@ -9006,10 +9026,11 @@ fn builtin_observation_owns_its_user_log_effect() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(
+        .admit_unverified(
             &parse_pattern(r#"log{}(\dv{SortString{}}("one line"))"#).unwrap(),
             &[],
         )
+        .internalize_pattern()
         .unwrap();
     let result = execute_observed(
         &definition,
@@ -9155,7 +9176,8 @@ fn stopped_branch_keeps_candidate_effects_out_of_the_committed_stream() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .admit_unverified(&parse_pattern("initial{}()").unwrap(), &[])
+        .internalize_pattern()
         .unwrap();
 
     let mut observed = Vec::new();
@@ -9214,7 +9236,8 @@ fn effectful_branch_definition() -> (BackendDefinition, Pattern) {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .admit_unverified(&parse_pattern("initial{}()").unwrap(), &[])
+        .internalize_pattern()
         .unwrap();
     (definition, initial)
 }
@@ -9400,7 +9423,8 @@ fn rolled_back_branch_effects_are_classified_without_committing() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .admit_unverified(&parse_pattern("initial{}()").unwrap(), &[])
+        .internalize_pattern()
         .unwrap();
 
     let result = execute_observed(
@@ -9473,7 +9497,8 @@ fn failed_higher_priority_candidate_effects_are_only_uncommitted_diagnostics() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let initial = definition
-        .internalize_pattern(&parse_pattern("initial{}()").unwrap(), &[])
+        .admit_unverified(&parse_pattern("initial{}()").unwrap(), &[])
+        .internalize_pattern()
         .unwrap();
 
     let result = execute_observed(
@@ -9873,13 +9898,14 @@ fn hook_observed_cancellation_definition() -> BackendDefinition {
 fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
     let definition = hook_observed_cancellation_definition();
     let initial = definition
-        .internalize_pattern(
+        .admit_unverified(
             &parse_pattern(
                 r#"pair{}(add{}(checked{}(X:SortInt{}), \dv{SortInt{}}("1")), \dv{SortInt{}}("0"))"#,
             )
             .unwrap(),
             &[],
         )
+        .internalize_pattern()
         .unwrap();
     let token = CancellationToken::new();
     let solver = ScriptedSolver::new(

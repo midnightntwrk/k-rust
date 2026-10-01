@@ -250,7 +250,8 @@ fn indexes_domain_values_without_losing_bytes() {
     )
     .expect("byte-preserving subject should parse");
     let term = definition
-        .internalize_frontend_term(&syntax, &[])
+        .admit_unverified(&syntax, &[])
+        .internalize_frontend_term()
         .expect("frontend-validated injection should internalize");
     assert_eq!(
         rule_index(&definition, &term).cells(),

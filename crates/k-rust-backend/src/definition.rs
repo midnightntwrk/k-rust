@@ -114,6 +114,161 @@ pub enum PatternOrPredicate {
     Predicate(crate::rule::Predicate, Sort),
 }
 
+/// How a KORE pattern from outside the definition was admitted to internalization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Admission {
+    /// Every check of the standalone verifier passed under the witness's sort variables.
+    Verified,
+    /// No standalone verification. Internalization still rejects undeclared heads and sorts,
+    /// arity and sort mismatches, and domain values at sorts without domain values.
+    Unverified,
+}
+
+/// A KORE pattern admitted to internalization against one definition, with the sort variables
+/// it is read under.
+///
+/// A pattern from outside the definition denotes something only once it is checked against the
+/// definition's signature, and how far it was checked is a decision of the boundary that read it.
+/// [`BackendDefinition::verify_standalone_pattern`] and [`BackendDefinition::admit_unverified`]
+/// make that decision explicit and are the only constructors. Internalization is a method of the
+/// witness, so the definition that admitted a pattern is the one that internalizes it, and the
+/// sort-variable context the verifier checked is the one the internalizer uses.
+///
+/// Outside this crate a definition does not internalize a bare pattern:
+///
+/// ```compile_fail,E0624
+/// # use k_rust_backend::definition::BackendDefinition;
+/// # fn f(definition: &BackendDefinition, pattern: &k_rust_kore::kore::ast::Pattern) {
+/// let _ = definition.internalize_pattern(pattern, &[]);
+/// # }
+/// ```
+///
+/// It internalizes an admitted one:
+///
+/// ```
+/// # use k_rust_backend::definition::BackendDefinition;
+/// # fn f(definition: &BackendDefinition, pattern: &k_rust_kore::kore::ast::Pattern) {
+/// let _ = definition.admit_unverified(pattern, &[]).internalize_pattern();
+/// # }
+/// ```
+///
+/// A verification whose witness is dropped is rejected, since its result decides nothing:
+///
+/// ```compile_fail
+/// # #![deny(unused_must_use)]
+/// # use k_rust_backend::definition::{BackendDefinition, DefinitionError};
+/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(), DefinitionError> {
+/// d.verify_standalone_pattern(p, &[])?;
+/// # Ok(()) }
+/// ```
+///
+/// ```
+/// # #![deny(unused_must_use)]
+/// # use k_rust_backend::definition::{BackendDefinition, DefinitionError};
+/// # fn f(d: &BackendDefinition, p: &k_rust_kore::kore::ast::Pattern) -> Result<(), DefinitionError> {
+/// let _admitted = d.verify_standalone_pattern(p, &[])?;
+/// # Ok(()) }
+/// ```
+///
+/// Binary KORE is decoded to syntax by `k_rust_kore` and admitted like text; this crate has no
+/// decoder that internalizes on its own:
+///
+/// ```compile_fail
+/// use k_rust_backend::binary;
+/// # fn main() { let _ = binary::decode_term; }
+/// ```
+///
+/// ```
+/// use k_rust_kore::kore::binary;
+/// # fn main() { let _ = binary::decode_term; }
+/// ```
+#[derive(Clone, Copy)]
+#[must_use = "internalize an admitted pattern through its methods"]
+pub struct Admitted<'a> {
+    definition: &'a BackendDefinition,
+    pattern: &'a kore::Pattern,
+    sort_variables: &'a [Name],
+    admission: Admission,
+}
+
+impl<'a> Admitted<'a> {
+    /// The admission decision this witness records.
+    pub fn admission(self) -> Admission {
+        self.admission
+    }
+
+    /// The admitted pattern.
+    pub fn pattern(self) -> &'a kore::Pattern {
+        self.pattern
+    }
+
+    /// The sort variables the pattern is read under.
+    pub fn sort_variables(self) -> &'a [Name] {
+        self.sort_variables
+    }
+
+    /// The definition that admitted the pattern.
+    pub(crate) fn definition(self) -> &'a BackendDefinition {
+        self.definition
+    }
+
+    /// Internalize the pattern as a term, checking its sort injections.
+    pub fn internalize_term(self) -> Result<Term, DefinitionError> {
+        self.definition
+            .internalize_term(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize KORE emitted by the paired frontend without rechecking sort injections.
+    ///
+    /// The frontend can use trusted injection bridges, such as embedding a parsed `SortK` program
+    /// in the initializer's `SortKItem` map. Other KORE inputs should use
+    /// [`Self::internalize_term`] so malformed injections are rejected at the boundary.
+    pub fn internalize_frontend_term(self) -> Result<Term, DefinitionError> {
+        self.definition
+            .internalize_frontend_term(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize a constrained KORE pattern into its term and predicate components.
+    pub fn internalize_pattern(self) -> Result<Pattern, DefinitionError> {
+        self.definition
+            .internalize_pattern(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize KORE as a constrained term, or as a predicate when it has no term leaf.
+    pub fn internalize_pattern_or_predicate(self) -> Result<PatternOrPredicate, DefinitionError> {
+        self.definition
+            .internalize_pattern_or_predicate(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize the pattern as an ML predicate and retain its result sort.
+    pub fn internalize_predicate(self) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
+        self.definition
+            .internalize_predicate(self.pattern, self.sort_variables)
+    }
+
+    /// Extract the predicate portion used by the backend get-model operation.
+    pub fn internalize_model_predicate(
+        self,
+    ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
+        self.definition
+            .internalize_model_predicate(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize one side of an implication, peeling its leading existential binders.
+    pub fn internalize_implication_pattern(
+        self,
+    ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
+        self.definition
+            .internalize_implication_pattern(self.pattern, self.sort_variables)
+    }
+
+    /// Internalize the alternatives of a top-level KORE disjunction.
+    pub fn internalize_disjunction(self) -> Result<Vec<Pattern>, DefinitionError> {
+        self.definition
+            .internalize_disjunction(self.pattern, self.sort_variables)
+    }
+}
+
 /// Transitive strict ordering between overloaded KORE symbols.
 ///
 /// A relation `(greater, lesser)` records that `greater` overloads `lesser`. Symbols which share
@@ -924,7 +1079,7 @@ impl BackendDefinition {
         self.finite_sort_constructors.get(sort)
     }
 
-    pub fn internalize_term(
+    pub(crate) fn internalize_term(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -938,7 +1093,7 @@ impl BackendDefinition {
     /// The frontend can use trusted injection bridges, such as embedding a parsed `SortK` program
     /// in the initializer's `SortKItem` map. Untrusted KORE and RPC inputs should use
     /// [`Self::internalize_term`] so malformed injections are rejected at the boundary.
-    pub fn internalize_frontend_term(
+    pub(crate) fn internalize_frontend_term(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -980,7 +1135,7 @@ impl BackendDefinition {
     }
 
     /// Internalize a constrained KORE pattern into its term and predicate components.
-    pub fn internalize_pattern(
+    pub(crate) fn internalize_pattern(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -993,7 +1148,7 @@ impl BackendDefinition {
     }
 
     /// Internalize KORE as a constrained term, or as a predicate when it has no term leaf.
-    pub fn internalize_pattern_or_predicate(
+    pub(crate) fn internalize_pattern_or_predicate(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -1008,23 +1163,55 @@ impl BackendDefinition {
         }
     }
 
-    /// Verify a standalone KORE pattern before internalizing a file boundary.
-    pub fn verify_standalone_pattern(
-        &self,
-        pattern: &kore::Pattern,
-    ) -> Result<(), DefinitionError> {
+    /// Verify a standalone KORE pattern under `sort_variables` and admit it to internalization.
+    ///
+    /// Well-formedness is relative to the declared sort variables: the pattern's sort variables
+    /// are parameters of the query, and one outside `sort_variables` is an error. The witness
+    /// carries the same `sort_variables`, so the pattern is internalized under the context it was
+    /// verified under.
+    pub fn verify_standalone_pattern<'a>(
+        &'a self,
+        pattern: &'a kore::Pattern,
+        sort_variables: &'a [Name],
+    ) -> Result<Admitted<'a>, DefinitionError> {
         crate::verify::verify_standalone(
             &self.main_module,
             pattern,
             &self.sorts,
             &self.symbols,
             &self.aliases,
+            sort_variables,
         )
-        .map_err(DefinitionError::Verification)
+        .map_err(DefinitionError::Verification)?;
+        Ok(Admitted {
+            definition: self,
+            pattern,
+            sort_variables,
+            admission: Admission::Verified,
+        })
+    }
+
+    /// Admit a KORE pattern to internalization under `sort_variables` without standalone
+    /// verification.
+    ///
+    /// Internalization still rejects undeclared heads and sorts, arity and sort mismatches, and
+    /// domain values at sorts without domain values; the standalone verifier's further checks,
+    /// such as one sort per variable name, are not made.
+    pub fn admit_unverified<'a>(
+        &'a self,
+        pattern: &'a kore::Pattern,
+        sort_variables: &'a [Name],
+    ) -> Admitted<'a> {
+        Admitted {
+            definition: self,
+            pattern,
+            sort_variables,
+            admission: Admission::Unverified,
+        }
     }
 
     /// Internalize an arbitrary KORE pattern as an ML predicate and retain its result sort.
-    pub fn internalize_predicate(
+    pub(crate) fn internalize_predicate(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -1039,7 +1226,7 @@ impl BackendDefinition {
     }
 
     /// Extract the predicate portion used by the backend get-model operation.
-    pub fn internalize_model_predicate(
+    pub(crate) fn internalize_model_predicate(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -1058,7 +1245,7 @@ impl BackendDefinition {
     }
 
     /// Internalize one side of an implication, peeling its leading existential binders.
-    pub fn internalize_implication_pattern(
+    pub(crate) fn internalize_implication_pattern(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -1158,7 +1345,7 @@ impl BackendDefinition {
     }
 
     /// Internalize the alternatives of a top-level KORE disjunction.
-    pub fn internalize_disjunction(
+    pub(crate) fn internalize_disjunction(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
@@ -2781,6 +2968,35 @@ mod tests {
         definition
             .internalize_pattern(&reference_pattern_fixture("var"), &[])
             .expect("Kore permits free variables in standalone patterns");
+    }
+
+    /// A schematic pattern's sort variables are parameters of the query: the standalone verifier
+    /// accepts one the witness declares and rejects an undeclared one, and the witness
+    /// internalizes under the context it was verified under.
+    #[test]
+    fn standalone_verification_reads_the_witness_sort_variables() {
+        let definition = BackendDefinition::internalize(&reference_definition_fixture("ok"), "M")
+            .expect("control definition should internalize");
+        let pattern = parse_pattern(r"\top{S}()").expect("pattern should parse");
+
+        let Err(error) = definition.verify_standalone_pattern(&pattern, &[]) else {
+            panic!("an undeclared sort variable must be rejected");
+        };
+        assert!(
+            format!("{error}").contains("Sort variable S not declared."),
+            "{error}"
+        );
+
+        let sort_variables = [Name::from("S")];
+        let admitted = definition
+            .verify_standalone_pattern(&pattern, &sort_variables)
+            .expect("a declared sort variable verifies");
+        assert_eq!(admitted.admission(), Admission::Verified);
+        assert_eq!(admitted.sort_variables(), &sort_variables);
+        let (_, sort) = admitted
+            .internalize_predicate()
+            .expect("the verified context internalizes");
+        assert_eq!(sort, Sort::Variable(Name::from("S")));
     }
 
     fn predicate_floating_definition() -> BackendDefinition {

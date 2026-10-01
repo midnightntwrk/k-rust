@@ -599,6 +599,7 @@ pub(crate) fn verify_standalone(
     sorts: &BTreeMap<Name, SortInfo>,
     symbols: &BTreeMap<Name, Arc<Symbol>>,
     aliases: &BTreeMap<String, AliasDefinition>,
+    sort_variables: &[Name],
 ) -> Result<(), VerificationError> {
     let mut ctx = VerifyContext::new(
         module,
@@ -606,7 +607,7 @@ pub(crate) fn verify_standalone(
         sorts,
         symbols,
         aliases,
-        Vec::new(),
+        sort_variables.iter().cloned(),
     );
     ctx.pattern(pattern)?;
     Ok(())

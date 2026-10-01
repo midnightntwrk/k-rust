@@ -6,7 +6,6 @@ mod instance_normal;
 mod ite;
 mod verify;
 
-pub mod binary;
 pub mod builtin;
 pub mod cancellation;
 pub mod claim;

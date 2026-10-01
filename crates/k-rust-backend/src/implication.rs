@@ -49,7 +49,7 @@ use evidence::{Everywhere, OutsideEvidence};
 
 use crate::{
     definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
-    definition::BackendDefinition,
+    definition::{Admitted, BackendDefinition},
     fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
     matching::{
@@ -253,24 +253,33 @@ pub fn grade_bottom_consequent(
 ///   `\exists E. \not C` (which asks for `C` to fail for some `E` rather than for all), is
 ///   `Indeterminate` with no report.
 ///
+/// The consequent arrives admitted by the caller ([`Admitted`]): the argument of its `\not` is
+/// internalized by the definition that admitted it, under the sort variables it was admitted
+/// under, which must be `definition`.
+///
 /// `Ok(Err)` reports a consequent that does not internalize; `Err` is a stop of a solver query,
 /// for which there is no verdict.
 pub fn check_negated_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     antecedent_existentials: &BTreeSet<Variable>,
-    consequent: &kore::Pattern,
-    sort_variables: &[crate::term::Name],
+    consequent: Admitted<'_>,
     solver: &dyn SmtSolver,
 ) -> Stoppable<Result<ImplicationVerdict, crate::definition::DefinitionError>> {
-    let kore::Pattern::Not { argument, .. } = consequent else {
+    debug_assert!(
+        std::ptr::eq(consequent.definition(), definition),
+        "the consequent is admitted against the definition that checks the implication"
+    );
+    let kore::Pattern::Not { argument, .. } = consequent.pattern() else {
         return Ok(Ok(ImplicationVerdict::Indeterminate { outside: None }));
     };
-    let (negated, negated_existentials) =
-        match definition.internalize_implication_pattern(argument, sort_variables) {
-            Ok(internalized) => internalized,
-            Err(error) => return Ok(Err(error)),
-        };
+    let (negated, negated_existentials) = match consequent
+        .definition()
+        .internalize_implication_pattern(argument, consequent.sort_variables())
+    {
+        Ok(internalized) => internalized,
+        Err(error) => return Ok(Err(error)),
+    };
     let renamed = rename_existentials_apart(antecedent, antecedent_existentials, &negated);
     let antecedent = renamed.as_ref().unwrap_or(antecedent);
     let renamed = rename_existentials_apart(&negated, &negated_existentials, antecedent);
@@ -4006,12 +4015,12 @@ mod tests {
         consequent: &str,
     ) -> ImplicationStatus {
         let solver = Z3Solver::new(definition).expect("Z3 should initialize");
+        let consequent = parse_pattern(consequent).expect("consequent should parse");
         check_negated_consequent(
             definition,
             &antecedent,
             &BTreeSet::new(),
-            &parse_pattern(consequent).expect("consequent should parse"),
-            &[],
+            definition.admit_unverified(&consequent, &[]),
             &solver,
         )
         .expect("the check does not stop")

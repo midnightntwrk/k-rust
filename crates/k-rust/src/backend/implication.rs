@@ -89,12 +89,14 @@ impl Backend {
                 .collect::<Vec<_>>();
             if let Some(verdict) = bottom_antecedent(antecedent) {
                 let (_, result_sort) = definition
-                    .internalize_predicate(antecedent, &sort_variables)
+                    .admit_unverified(antecedent, &sort_variables)
+                    .internalize_predicate()
                     .map_err(error("could not internalize implication antecedent"))?;
                 return Ok((verdict, result_sort));
             }
             let (antecedent_pattern, antecedent_existentials) = definition
-                .internalize_implication_pattern(antecedent, &sort_variables)
+                .admit_unverified(antecedent, &sort_variables)
+                .internalize_implication_pattern()
                 .map_err(error("could not internalize implication antecedent"))?;
             let result_sort = antecedent_pattern.term.sort();
             let verdict = match special_consequent(consequent) {
@@ -107,15 +109,15 @@ impl Backend {
                     definition,
                     &antecedent_pattern,
                     &antecedent_existentials,
-                    consequent,
-                    &sort_variables,
+                    definition.admit_unverified(consequent, &sort_variables),
                     solver,
                 )
                 .map_err(stopped_operation)?
                 .map_err(error("could not internalize implication consequent"))?,
                 None => {
                     let (consequent_pattern, consequent_existentials) = definition
-                        .internalize_implication_pattern(consequent, &sort_variables)
+                        .admit_unverified(consequent, &sort_variables)
+                        .internalize_implication_pattern()
                         .map_err(error("could not internalize implication consequent"))?;
                     if antecedent_pattern.term.sort() != consequent_pattern.term.sort() {
                         return Err(BackendError(format!(
