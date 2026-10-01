@@ -3,6 +3,7 @@ use super::{
     write_output_if_different,
 };
 use crate::{Backend, FacetSelector, KrsCfg, RegistrationMode};
+use krs_compiler::ARTIFACT_MARKER_FILE;
 use krs_ir::measure::CollectorReadSet;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -270,5 +271,5 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 fn valid_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != ".krs-artifacts"
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && name != ARTIFACT_MARKER_FILE
 }

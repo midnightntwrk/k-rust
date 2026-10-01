@@ -34,7 +34,7 @@ use result_cache::ResultCache;
 
 use krs_compiler::{
     ARTIFACT_MARKER, ARTIFACT_MARKER_FILE, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT,
-    SEMANTIC_ARTIFACT, SOURCES_ARTIFACT, SYMBOLS_ARTIFACT, emitted_artifact_names,
+    SEMANTIC_ARTIFACT, SOURCES_ARTIFACT, SYMBOLS_ARTIFACT,
 };
 
 /// Category of a production KRS command.
@@ -633,27 +633,25 @@ fn emit(
                 sources,
             ))
         })?;
-    let artifacts = emitted_artifact_names(emitted.spec().is_some())
+    let mut artifacts = vec![
+        (DESCRIPTOR_ARTIFACT, descriptor_bundle.as_bytes()),
+        (SEMANTIC_ARTIFACT, semantic_ir.as_bytes()),
+        (DEFINITION_IR_ARTIFACT, definition_ir.as_bytes()),
+        (DEFINITION_ARTIFACT, emitted.source().as_bytes()),
+    ];
+    if let Some(spec) = emitted.spec() {
+        artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes()));
+    }
+    artifacts.extend([
+        (SYMBOLS_ARTIFACT, symbols.as_bytes()),
+        (SOURCES_ARTIFACT, sources.as_bytes()),
+    ]);
+    let stdout = emission_stdout(&artifacts);
+    let mut artifacts = artifacts
         .into_iter()
-        .filter(|name| *name != ARTIFACT_MARKER_FILE)
-        .map(|name| {
-            let bytes = match name {
-                DESCRIPTOR_ARTIFACT => descriptor_bundle.as_bytes(),
-                SEMANTIC_ARTIFACT => semantic_ir.as_bytes(),
-                DEFINITION_IR_ARTIFACT => definition_ir.as_bytes(),
-                DEFINITION_ARTIFACT => emitted.source().as_bytes(),
-                SPEC_ARTIFACT => emitted
-                    .spec()
-                    .expect("claims artifact requires claims")
-                    .source()
-                    .as_bytes(),
-                SYMBOLS_ARTIFACT => symbols.as_bytes(),
-                SOURCES_ARTIFACT => sources.as_bytes(),
-                _ => unreachable!("known emitted artifact"),
-            };
-            (name.to_owned(), bytes.to_vec())
-        })
+        .map(|(name, bytes)| (name.to_owned(), bytes.to_vec()))
         .collect::<Vec<_>>();
+    artifacts.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
     measurement.timings.try_span("emit_k.write", |_| {
         prepare_output(output)?;
         for (name, bytes) in &artifacts {
@@ -666,21 +664,15 @@ fn emit(
             .counters
             .set(format!("emit_k.bytes.{name}"), bytes.len());
     }
-    let spec = if emitted.spec().is_some() {
-        format!(" {SPEC_ARTIFACT},")
-    } else {
-        String::new()
-    };
     Ok(CommandExecution {
-        outcome: CommandOutcome {
-            stdout: format!(
-                "emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, \
-                 {DEFINITION_ARTIFACT},{spec} symbols.json, sources.json\n"
-            )
-            .into_bytes(),
-        },
+        outcome: CommandOutcome { stdout },
         artifacts,
     })
+}
+
+fn emission_stdout(artifacts: &[(&str, &[u8])]) -> Vec<u8> {
+    let names = artifacts.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    format!("emitted {}\n", names.join(", ")).into_bytes()
 }
 
 fn build(
@@ -1279,6 +1271,27 @@ impl From<serde_json::Error> for CommandError {
 mod tests {
     use super::*;
     use crate::PackageSelector;
+
+    #[test]
+    fn emission_stdout_preserves_artifact_names_and_claims_spelling() {
+        let mut artifacts: Vec<(&str, &[u8])> = vec![
+            (DESCRIPTOR_ARTIFACT, b""),
+            (SEMANTIC_ARTIFACT, b""),
+            (DEFINITION_IR_ARTIFACT, b""),
+            (DEFINITION_ARTIFACT, b""),
+            (SYMBOLS_ARTIFACT, b""),
+            (SOURCES_ARTIFACT, b""),
+        ];
+        assert_eq!(
+            emission_stdout(&artifacts),
+            b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n"
+        );
+        artifacts.insert(4, (SPEC_ARTIFACT, b""));
+        assert_eq!(
+            emission_stdout(&artifacts),
+            b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, spec.k, symbols.json, sources.json\n"
+        );
+    }
 
     #[test]
     fn manifest_path_must_name_cargo_toml() {
