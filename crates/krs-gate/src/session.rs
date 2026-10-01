@@ -7,7 +7,7 @@ use crate::{
     pattern::{self, PatternContext},
 };
 use k_rust::{
-    backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest},
+    backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest, SearchRequest},
     kore::{
         ast::Pattern,
         json as kore_json,
@@ -113,6 +113,43 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
     Ok(serde_json::to_value(result)?)
 }
 
+fn search(
+    backend: &mut Backend,
+    request: &Value,
+) -> Result<(Value, Option<Pattern>), Box<dyn Error>> {
+    let limit = |key: &str| -> Result<Option<u64>, Box<dyn Error>> {
+        match request.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(value) => Ok(Some(value.as_u64().ok_or_else(|| {
+                format!("request field `{key}` must be an unsigned integer or null")
+            })?)),
+        }
+    };
+    let result = backend.search(SearchRequest {
+        state: pattern_json(required_string(request, "pattern")?)?,
+        max_depth: limit("max_depth")?,
+        max_results: limit("max_results")?.map(usize::try_from).transpose()?,
+        ..SearchRequest::default()
+    })?;
+    if request.get("keep").is_some() {
+        if result.states.len() != 1 {
+            return Err(format!(
+                "search with `keep` requires exactly one result state, got {}",
+                result.states.len()
+            )
+            .into());
+        }
+        let source = serde_json::to_string(&result.states[0].state)?;
+        let retained = kore_json::from_str(&source)?;
+        Ok((
+            json!({"modality": result.modality, "states": result.states.len()}),
+            Some(retained),
+        ))
+    } else {
+        Ok((serde_json::to_value(result)?, None))
+    }
+}
+
 /// A session with at most one loaded definition.
 #[derive(Default)]
 pub struct Session {
@@ -145,6 +182,7 @@ impl Session {
             "definition.load"
                 | "configure"
                 | "execute"
+                | "search"
                 | "prove"
                 | "kore.read"
                 | "kore.digest"
@@ -166,6 +204,7 @@ impl Session {
             "definition.load" => self.load(request),
             "configure" => self.configure(request),
             "execute" => self.execute(request),
+            "search" => self.search(request),
             "prove" => prove(self.backend.as_mut().ok_or("backend not loaded")?, request),
             "kore.read" => self.read(request),
             "kore.digest" => Self::digest(request),
@@ -239,6 +278,18 @@ impl Session {
         let state = parse_pattern(required_string(request, "text")?)?;
         self.states.insert(name.to_owned(), state);
         Ok(json!({"state": name}))
+    }
+
+    fn search(&mut self, request: &Value) -> Result<Value, Box<dyn Error>> {
+        let keep = request
+            .get("keep")
+            .map(|_| required_string(request, "keep"))
+            .transpose()?;
+        let (result, state) = search(self.backend.as_mut().ok_or("backend not loaded")?, request)?;
+        if let (Some(name), Some(state)) = (keep, state) {
+            self.states.insert(name.to_owned(), state);
+        }
+        Ok(result)
     }
 
     fn digest(request: &Value) -> Result<Value, Box<dyn Error>> {
@@ -386,7 +437,94 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::Session;
+    use k_rust::{
+        backend::{Backend, BackendOptions},
+        kore::parser::parse_pattern,
+    };
     use serde_json::json;
+
+    fn search_session() -> Session {
+        let definition = r#"[]
+            module MAIN
+                sort SortState{} []
+                symbol initial{}() : SortState{} [constructor{}()]
+                symbol left{}() : SortState{} [constructor{}()]
+                symbol right{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()), left{}()
+                ) [label{}("left")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(initial{}(), \top{SortState{}}()), right{}()
+                ) [label{}("right")]
+            endmodule []"#;
+        Session {
+            backend: Some(Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()),
+            ..Session::new()
+        }
+    }
+
+    #[test]
+    fn search_returns_final_states_and_retains_a_single_result() {
+        let mut session = search_session();
+        let response = session
+            .dispatch(&json!({
+                "id": "raw", "operation": "search", "pattern": "initial{}()",
+                "max_depth": null, "max_results": null
+            }))
+            .unwrap();
+        assert_eq!(response["result"]["states"].as_array().unwrap().len(), 2);
+        assert!(session.states.is_empty());
+
+        for (pattern, expected) in [("left{}()", "left{}()"), ("right{}()", "right{}()")] {
+            let response = session
+                .dispatch(&json!({
+                    "id": "retained", "operation": "search", "pattern": pattern,
+                    "max_depth": 1, "max_results": 1, "keep": "final"
+                }))
+                .unwrap();
+            assert_eq!(response["result"]["states"], 1);
+            assert!(response["result"]["modality"].is_string());
+            assert_eq!(response["result"].as_object().unwrap().len(), 2);
+            assert_eq!(session.states["final"], parse_pattern(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn failed_search_preserves_retained_states_and_the_session() {
+        let mut session = search_session();
+        let original = parse_pattern("left{}()").unwrap();
+        session.states.insert("final".into(), original.clone());
+        for (max_results, count) in [(json!(null), 2), (json!(0), 0)] {
+            let response = session
+                .dispatch(&json!({
+                    "id": "multiple", "operation": "search", "pattern": "initial{}()",
+                    "max_results": max_results, "keep": "final"
+                }))
+                .unwrap();
+            assert_eq!(
+                response["error"]["message"],
+                format!("search with `keep` requires exactly one result state, got {count}")
+            );
+            assert_eq!(session.states["final"], original);
+        }
+        for (field, value) in [
+            ("max_depth", json!(-1)),
+            ("max_results", json!("1")),
+            ("keep", json!(null)),
+        ] {
+            let mut request = json!({
+                "id": "invalid", "operation": "search", "pattern": "left{}()"
+            });
+            request[field] = value;
+            let response = session.dispatch(&request).unwrap();
+            assert!(response["error"]["message"].is_string());
+            assert_eq!(session.states["final"], original);
+        }
+        let response = session
+            .dispatch(&json!({"id": "valid", "operation": "search", "pattern": "left{}()"}))
+            .unwrap();
+        assert_eq!(response["result"]["states"].as_array().unwrap().len(), 1);
+    }
 
     #[test]
     fn rejects_protocol_violations_before_loading() {
@@ -416,7 +554,7 @@ mod tests {
                 .dispatch(&json!({"id": "1", "operation": "configure"}))
                 .is_err()
         );
-        for operation in ["kore.read", "observe", "expect"] {
+        for operation in ["search", "kore.read", "observe", "expect"] {
             assert!(
                 session
                     .dispatch(&json!({"id": "1", "operation": operation}))

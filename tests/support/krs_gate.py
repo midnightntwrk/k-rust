@@ -236,6 +236,11 @@ class Session:
 
         return self.request("execute", pattern=pattern, **options)
 
+    def search(self, pattern: str, **options: Any) -> dict[str, Any]:
+        """Search final states from an opaque KORE pattern and return the result."""
+
+        return self.request("search", pattern=pattern, **options)
+
     def read(self, text: str, keep: str) -> dict[str, Any]:
         """Retain a Java KORE result under a session state name."""
 

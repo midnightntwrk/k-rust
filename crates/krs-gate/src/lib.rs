@@ -35,6 +35,10 @@
 //! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::execute`].
 //! Without `keep`, its result is the backend's serialized `ExecuteResult`; leaf traces are empty unless `trace` is true.
 //! With `keep`, execution must have exactly one leaf, its final state replaces any previously retained state of that name, and the result contains only the modality and the leaf's reason, depth, optional detail, and trace.
+//! `search` requires a KORE text `pattern` and accepts optional `max_depth` and `max_results` (unsigned integers or null) and `keep` (a state name).
+//! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::search`] with [`k_rust::backend::SearchRequest`] selecting final states.
+//! Without `keep`, its result is the backend's serialized [`k_rust::backend::SearchResponse`].
+//! With `keep`, search must return exactly one state, that state replaces any previously retained state of that name, and the result contains `modality` and `states` (the result state count).
 //! `kore.read` requires KORE pattern `text` and a `keep` name; it parses and retains the pattern, replacing a previous state of that name.
 //! It wraps [`k_rust::kore::parser::parse_pattern`]; its result contains the retained `state` name.
 //! `kore.digest` is available before `definition.load` and requires `kore` (a kompiled definition.kore path) and `semantics` (the absolute source path passed to kompile).

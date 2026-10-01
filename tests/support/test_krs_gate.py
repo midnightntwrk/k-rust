@@ -121,6 +121,22 @@ class ClientTests(unittest.TestCase):
             with self.assertRaisesRegex(GateError, "expected=wanted, actual=found"):
                 session.expect("state", "k", text="wanted")
 
+    def test_search_forwards_optional_limits_and_retained_state(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            searched = session.search("opaque pattern", max_depth=3, max_results=1, keep="final")
+            observed = session.observe("final", ["k"])
+            unbounded = session.search("opaque pattern")
+        self.assertEqual(searched["operation"], "search")
+        self.assertEqual(searched["fields"], {
+            "pattern": "opaque pattern", "max_depth": 3, "max_results": 1, "keep": "final",
+        })
+        self.assertEqual(observed["fields"], {"state": "final", "cells": ["k"]})
+        self.assertEqual(unbounded["fields"], {"pattern": "opaque pattern"})
+        self.assertEqual(
+            [searched["request_id"], observed["request_id"], unbounded["request_id"]],
+            ["1", "2", "3"],
+        )
+
     def test_early_exit_reports_stderr(self) -> None:
         with krs_gate.Session(self.binary, environment={"KRS_TEST_GATE_MODE": "exit"}) as session:
             with self.assertRaisesRegex(GateError, "request 1: deliberate failure"):
