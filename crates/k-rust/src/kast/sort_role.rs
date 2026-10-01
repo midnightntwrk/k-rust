@@ -144,6 +144,56 @@ impl SortRole {
         }
     }
 
+    /// Compilation declares the sort predicate `isS(K)` for the sort, and a rule may mention it.
+    ///
+    /// `isS(T)` holds when the K term `T` is a term of `S`, so it exists exactly for the sorts
+    /// whose terms are K terms of the compiled definition: `K`, `KItem`, `Bool`, a defined sort,
+    /// and `KConfigVar`, whose tokens (`$PGM`) are K items (`KItem ::= KConfigVar`) that key the
+    /// initial configuration. `KLabel`, `KList` and `KString` are sorts of the term syntax itself
+    /// (a label, an argument sequence, the spelling inside `#token`), not sorts of K terms.
+    /// `KBott` is the parse-time bottom of the K sorts, whose terms are variables and `#token`
+    /// spellings that compilation gives the sort of their position. `Bag` and `Cell` are the
+    /// sorts of the configuration's cell structure, which compilation replaces by one generated
+    /// sort per cell, so no compiled term has them. A numeral is a sort argument (the width of
+    /// `MInt{8}`), a scaffolding sort is parser structure and a rigid variable stands for every
+    /// sort at once: none of them is a set of K terms to test membership in.
+    ///
+    /// The rule grammar offers `isS(_)`, and compilation generates it, from this one predicate.
+    pub(crate) const fn has_sort_predicate(self) -> bool {
+        use KernelSort as S;
+        match self {
+            Self::Kernel(S::K | S::KItem | S::KConfigVar | S::Bool) | Self::Defined => true,
+            Self::Kernel(S::KBott | S::KLabel | S::KList | S::KString | S::Bag | S::Cell)
+            | Self::RigidVariable
+            | Self::Scaffolding
+            | Self::Nat => false,
+        }
+    }
+
+    /// Compilation declares the sort projection `project:S(K)` for the sort, and a rule may
+    /// mention it.
+    ///
+    /// `project:S(T)` is `T` as a term of sort `S`, so it exists for the sorts of K terms that a
+    /// computed term may have to be coerced to: `K`, `KItem`, `Bool` and a defined sort. The
+    /// sorts without a predicate ([`SortRole::has_sort_predicate`]) have no K terms to coerce
+    /// to. A `KConfigVar` token is only ever written as a literal (`$PGM`) and never computed, so
+    /// no rule coerces a computed term to it: it has a predicate and no projection.
+    ///
+    /// The rule grammar offers `project:S(_)`, and compilation generates it, from this one
+    /// predicate.
+    pub(crate) const fn has_sort_projection(self) -> bool {
+        use KernelSort as S;
+        match self {
+            Self::Kernel(S::K | S::KItem | S::Bool) | Self::Defined => true,
+            Self::Kernel(
+                S::KConfigVar | S::KBott | S::KLabel | S::KList | S::KString | S::Bag | S::Cell,
+            )
+            | Self::RigidVariable
+            | Self::Scaffolding
+            | Self::Nat => false,
+        }
+    }
+
     /// A value an inference unknown can take: a K term sort, `KLabel` (the sort of label
     /// variables), or a numeral (the width parameters of sorts such as `MInt{N}`).
     ///
@@ -417,6 +467,50 @@ mod tests {
                 sort.is_rigid_variable(),
                 *role == SortRole::RigidVariable,
                 "rigid variable {sort}"
+            );
+        }
+    }
+
+    /// The sort helpers of every role: `[has_sort_predicate, has_sort_projection]`. The kernel
+    /// rows are the kernel helpers that compiled definitions declared before both the rule
+    /// grammar and compilation read these predicates (`isK`, `isKItem`, `isKConfigVar`, `isBool`,
+    /// `project:K`, `project:KItem`, `project:Bool`), and a projection always has a predicate.
+    #[test]
+    fn sort_helper_rows_are_pinned() {
+        use KernelSort as S;
+        let rows = [
+            (SortRole::Kernel(S::K), [true, true]),
+            (SortRole::Kernel(S::KItem), [true, true]),
+            (SortRole::Kernel(S::KConfigVar), [true, false]),
+            (SortRole::Kernel(S::KBott), [false, false]),
+            (SortRole::Kernel(S::KLabel), [false, false]),
+            (SortRole::Kernel(S::KList), [false, false]),
+            (SortRole::Kernel(S::KString), [false, false]),
+            (SortRole::Kernel(S::Bag), [false, false]),
+            (SortRole::Kernel(S::Cell), [false, false]),
+            (SortRole::Kernel(S::Bool), [true, true]),
+            (SortRole::RigidVariable, [false, false]),
+            (SortRole::Scaffolding, [false, false]),
+            (SortRole::Nat, [false, false]),
+            (SortRole::Defined, [true, true]),
+        ];
+        for kernel in KernelSort::ALL {
+            assert!(
+                rows.iter()
+                    .any(|(role, _)| *role == SortRole::Kernel(kernel)),
+                "{} has a row",
+                kernel.name()
+            );
+        }
+        for (role, expected) in rows {
+            assert_eq!(
+                [role.has_sort_predicate(), role.has_sort_projection()],
+                expected,
+                "{role:?}"
+            );
+            assert!(
+                !role.has_sort_projection() || role.has_sort_predicate(),
+                "{role:?} has a projection without a predicate"
             );
         }
     }

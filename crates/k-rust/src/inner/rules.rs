@@ -1391,7 +1391,9 @@ mod tests {
     use super::*;
     use crate::definition::SortCatalog;
 
-    fn load_with_prelude(source: &str) -> crate::outer::LoadedDefinition {
+    fn try_load_with_prelude(
+        source: &str,
+    ) -> Result<crate::outer::LoadedDefinition, crate::outer::LoadError> {
         let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
         let mut resolver = |_: &str, required: &str| {
             crate::builtin::embedded(required)
@@ -1406,7 +1408,10 @@ mod tests {
                 ..crate::outer::LoadOptions::default()
             },
         )
-        .unwrap_or_else(|error| panic!("MAIN loads: {error}"))
+    }
+
+    fn load_with_prelude(source: &str) -> crate::outer::LoadedDefinition {
+        try_load_with_prelude(source).unwrap_or_else(|error| panic!("MAIN loads: {error}"))
     }
 
     /// The universe of the rule grammar of `module`, with the declared sorts of the same view.
@@ -1552,5 +1557,127 @@ endmodule
         );
         assert!(universe.member(&list).is_some());
         assert!(universe.member(&Sort::new("Array")).is_some());
+    }
+
+    /// The rule grammar of `module`, as a rule of that module is parsed with it.
+    fn module_rule_grammar_of(resolved: &ResolvedDefinition, module: &str) -> Grammar {
+        let module = resolved.module_id(module).expect("the module is resolved");
+        rule_grammar(
+            resolved,
+            module,
+            RuleGrammarScope::Module { scanner_seed: None },
+        )
+        .expect("the rule grammar builds")
+    }
+
+    /// Whether `grammar` has the sort helper production `result ::= label "(" K ")"`.
+    fn has_sort_helper(grammar: &Grammar, label: &str, result: &str) -> bool {
+        grammar.has_equivalent_production(
+            &Sort::new(result),
+            &[
+                ProductionItem::Terminal(label.into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("K"),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            false,
+        )
+    }
+
+    /// A module that sees the kernel syntax of KSEQ, whose sorts include `KItem`, `KConfigVar`,
+    /// `KLabel`, `KList` and `KString`.
+    const KSEQ_IMPORTING_MAIN: &str = "module MAIN\n  imports KSEQ\n  imports BOOL\nendmodule\n";
+
+    /// F3: compilation declares `project:KItem` and `project:K`, and the predicates of `K`,
+    /// `KItem` and `KConfigVar`, so the rule grammar offers them.
+    #[test]
+    fn the_rule_grammar_offers_the_kernel_helpers_compilation_declares() {
+        let loaded = load_with_prelude(KSEQ_IMPORTING_MAIN);
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+
+        for (label, result) in [
+            ("project:KItem", "KItem"),
+            ("project:K", "K"),
+            ("project:Bool", "Bool"),
+            ("isKItem", "Bool"),
+            ("isK", "Bool"),
+            ("isKConfigVar", "Bool"),
+            ("isBool", "Bool"),
+        ] {
+            assert!(has_sort_helper(&grammar, label, result), "{label}");
+        }
+    }
+
+    /// F3: compilation declares no projection or predicate of `KList`, `KLabel` or `KString`,
+    /// which are sorts of the term syntax rather than of K terms, and no projection of
+    /// `KConfigVar`, so the rule grammar offers none, although the three are sorts of the module.
+    #[test]
+    fn the_rule_grammar_offers_no_klist_helper() {
+        let loaded = load_with_prelude(KSEQ_IMPORTING_MAIN);
+        let (universe, _) = rule_grammar_universe(loaded.resolved(), "MAIN");
+        for sort in ["KList", "KLabel", "KString", "KConfigVar"] {
+            assert!(
+                universe.member(&Sort::new(sort)).is_some(),
+                "{sort} is a sort of MAIN's rule grammar"
+            );
+        }
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+
+        for (label, result) in [
+            ("project:KList", "KList"),
+            ("project:KLabel", "KLabel"),
+            ("project:KString", "KString"),
+            ("project:KConfigVar", "KConfigVar"),
+            ("isKList", "Bool"),
+            ("isKLabel", "Bool"),
+            ("isKString", "Bool"),
+        ] {
+            assert!(!has_sort_helper(&grammar, label, result), "{label}");
+        }
+    }
+
+    /// F3 through the loader: a rule mentioning `project:KItem(_)` parses, and one mentioning
+    /// `project:KList(_)` is rejected while parsing, where it could not be compiled.
+    #[test]
+    fn a_rule_parses_project_kitem_and_rejects_project_klist() {
+        let loaded = load_with_prelude(
+            r#"
+module MAIN
+  imports KSEQ
+  syntax KItem ::= h(K) [function]
+  rule h(X) => project:KItem(X)
+endmodule
+"#,
+        );
+        let main = loaded
+            .definition()
+            .modules
+            .iter()
+            .find(|module| module.name == "MAIN")
+            .expect("MAIN is a module");
+        assert!(
+            main.local_sentences
+                .iter()
+                .any(|sentence| matches!(&**sentence,
+                Sentence::Rule { body, .. } if body.to_string().contains("`project:KItem`"))),
+            "the rule mentions project:KItem"
+        );
+
+        let error = match try_load_with_prelude(
+            r#"
+module MAIN
+  imports KSEQ
+  syntax Foo ::= h(KList) [function] | g(K) [function]
+  rule g(X) => h(project:KList(X))
+endmodule
+"#,
+        ) {
+            Ok(_) => panic!("a rule mentioning project:KList loads"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("could not parse rule"), "{error}");
     }
 }

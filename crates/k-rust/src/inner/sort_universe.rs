@@ -281,22 +281,27 @@ pub(in crate::inner) struct RuleMemberProductions {
 
 /// The rule grammar's per-member table.
 ///
-/// A defined sort receives every production. A numeral member is a sort that a sentence declares
-/// or gives a production a position of ([`SortUniverse`]), so it receives what a defined sort
-/// receives. `Bool` is a sort of `K` terms, but its `KItem` subsort, its variable subsorts and its
-/// casts belong to the fixed kernel syntax both grammars share, so the member loop adds only its
-/// predicate, projection, scaffolding and bracket. `KLabel`, `KList` and `KString` receive every
-/// production when the module declares them (their predicate and projection are revisited by
-/// CBC-05-T10). `K`, `KItem`, `Bag`, `Cell`, `KBott` and `KConfigVar` receive their productions
-/// from the kernel syntax and the kernel seeds, not from the member loop. A rigid variable and a
-/// scaffolding sort denote no set of terms a rule could mention, so they receive nothing.
+/// The sort predicate and the sort projection of every row are [`SortRole::has_sort_predicate`]
+/// and [`SortRole::has_sort_projection`], the predicates compilation generates the same helpers
+/// from (`kompile::passes::generate_sort_helpers`): a rule can mention `isS(_)` or
+/// `project:S(_)` exactly when the compiled definition declares it.
+///
+/// For the other columns: a defined sort receives every production. A numeral member is a sort
+/// that a sentence declares or gives a production a position of ([`SortUniverse`]), so it
+/// receives what a defined sort receives. `Bool` is a sort of `K` terms, but its `KItem` subsort,
+/// its variable subsorts and its casts belong to the fixed kernel syntax both grammars share, so
+/// the member loop adds only its scaffolding and bracket. `KLabel`, `KList` and `KString` receive
+/// every production when the module declares them. `K`, `KItem`, `Bag`, `Cell`, `KBott` and
+/// `KConfigVar` receive their other productions from the kernel syntax and the kernel seeds, not
+/// from the member loop. A rigid variable and a scaffolding sort denote no set of terms a rule
+/// could mention, so they receive nothing.
 pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMemberProductions {
     use KernelSort as S;
     match role {
         SortRole::Defined | SortRole::Nat | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
             RuleMemberProductions {
-                predicate: true,
-                projection: true,
+                predicate: role.has_sort_predicate(),
+                projection: role.has_sort_projection(),
                 #[cfg(not(feature = "z3-inference"))]
                 rule_scaffold: true,
                 kitem_subsort: true,
@@ -306,8 +311,8 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
             }
         }
         SortRole::Kernel(S::Bool) => RuleMemberProductions {
-            predicate: true,
-            projection: true,
+            predicate: role.has_sort_predicate(),
+            projection: role.has_sort_projection(),
             #[cfg(not(feature = "z3-inference"))]
             rule_scaffold: true,
             kitem_subsort: false,
@@ -318,8 +323,8 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
         SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell)
         | SortRole::RigidVariable
         | SortRole::Scaffolding => RuleMemberProductions {
-            predicate: false,
-            projection: false,
+            predicate: role.has_sort_predicate(),
+            projection: role.has_sort_projection(),
             #[cfg(not(feature = "z3-inference"))]
             rule_scaffold: false,
             kitem_subsort: false,
@@ -613,8 +618,9 @@ mod tests {
 
     /// A numeral that a sentence declares (`syntax 16`) or gives a production a position of
     /// (`syntax 8 ::= "eight"`, the operand of `bar(8)`) is a sort of terms, and receives what a
-    /// defined sort receives in both grammars; a numeral that only instantiates a parametric sort
-    /// is not a member.
+    /// defined sort receives in both grammars except the sort predicate and projection, which
+    /// compilation declares for no numeral; a numeral that only instantiates a parametric sort is
+    /// not a member.
     #[test]
     fn a_numeral_declared_or_positioned_by_a_sentence_is_a_member_with_the_rows_of_a_defined_sort()
     {
@@ -654,8 +660,12 @@ mod tests {
                 .unwrap_or_else(|| panic!("{numeral} is a member"));
             assert_eq!(member.role(), SortRole::Nat, "{numeral}");
             assert_eq!(
+                RuleMemberProductions {
+                    predicate: false,
+                    projection: false,
+                    ..rule_member_productions(SortRole::Defined)
+                },
                 rule_member_productions(member.role()),
-                rule_member_productions(SortRole::Defined),
                 "{numeral}"
             );
             assert_eq!(
@@ -755,17 +765,16 @@ mod tests {
             .collect()
     }
 
-    /// The tables of CBC-05 section 2.3, except the `Nat` rows, which equal the `Defined` rows: a
-    /// numeral member is a sort a sentence declares or positions. The columns are those of the
-    /// struct, in field order.
+    /// The tables of CBC-05 section 2.3, except the `Nat` rows, which equal the `Defined` rows (a
+    /// numeral member is a sort a sentence declares or positions), and the rule grammar's sort
+    /// predicate and projection columns, which are the role predicates compilation generates the
+    /// same helpers from. The other columns are those of the struct, in field order.
     #[test]
     fn plan_tables_are_pinned() {
         use KernelSort as S;
         let rule_member = |role: SortRole| {
             let row = rule_member_productions(role);
             [
-                row.predicate,
-                row.projection,
                 #[cfg(not(feature = "z3-inference"))]
                 row.rule_scaffold,
                 row.kitem_subsort,
@@ -784,6 +793,27 @@ mod tests {
             ]
         };
         for role in every_role() {
+            let row = rule_member_productions(role);
+            assert_eq!(
+                [row.predicate, row.projection],
+                [role.has_sort_predicate(), role.has_sort_projection()],
+                "{role:?}"
+            );
+            let expected_helpers = match role {
+                SortRole::Defined | SortRole::Kernel(S::K | S::KItem | S::Bool) => [true, true],
+                SortRole::Kernel(S::KConfigVar) => [true, false],
+                SortRole::Nat
+                | SortRole::Kernel(
+                    S::KLabel | S::KList | S::KString | S::KBott | S::Bag | S::Cell,
+                )
+                | SortRole::RigidVariable
+                | SortRole::Scaffolding => [false, false],
+            };
+            assert_eq!(
+                [row.predicate, row.projection],
+                expected_helpers,
+                "{role:?}"
+            );
             let every_rule_production = match role {
                 SortRole::Defined
                 | SortRole::Nat
@@ -796,8 +826,6 @@ mod tests {
             };
             let expected_rule = if role == SortRole::Kernel(S::Bool) {
                 vec![
-                    true,
-                    true,
                     #[cfg(not(feature = "z3-inference"))]
                     true,
                     false,

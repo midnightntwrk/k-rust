@@ -6476,8 +6476,11 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
     assert_has_generated_by(&definition, GeneratingPass::GenerateSortPredicateRules);
 }
 
+/// `#Layout` is parser scaffolding, not a set of K terms, so compilation declares no sort
+/// predicate for it even when the main module declares it, and nothing injects it into `K`; the
+/// defined sort next to it keeps its predicate.
 #[test]
-fn unplaceable_layout_sort_has_only_a_false_predicate_rule() {
+fn a_scaffolding_sort_declared_in_the_main_module_has_no_sort_predicate() {
     let source = indoc! {r#"
         module MAIN
           imports INT-SYNTAX
@@ -6519,22 +6522,14 @@ fn unplaceable_layout_sort_has_only_a_false_predicate_rule() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        rules,
-        [(
-            "`is#Layout`(K)=>#token(\"false\",\"Bool\")".to_owned(),
-            true
-        )]
-    );
+    assert!(rules.is_empty(), "{rules:?}");
+    assert!(!compiled.definition_kore.contains("Lblis'Hash'Layout"));
+    assert!(!compiled.definition_kore.contains("inj{Sort'Hash'Layout"));
     assert!(
         compiled
             .definition_kore
-            .contains("symbol Lblis'Hash'Layout{}(SortK{})")
+            .contains("symbol LblisFoo{}(SortK{}) : SortBool{}")
     );
-    assert!(compiled.definition_kore.contains(
-        "Lblis'Hash'Layout{}(X0:SortK{}),\n        \\and{SortBool{}}(\\dv{SortBool{}}(\"false\")"
-    ));
-    assert!(!compiled.definition_kore.contains("inj{Sort'Hash'Layout"));
 }
 
 #[test]

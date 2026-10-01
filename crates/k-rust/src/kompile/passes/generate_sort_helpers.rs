@@ -93,8 +93,14 @@ fn generate_sort_predicate_syntax_from_resolved(
                 attributes,
             });
         }
-        // Invariant: `generated` holds the optional `Bool` token sort and the sort predicate production of every sort of `sorts.local_sorts()` before `sort`; each iteration consumes one sort.
-        for sort in sorts.local_sorts() {
+        // A sort has a predicate exactly when its role says so; the rule grammar offers `isS(_)`
+        // from the same predicate, so a rule can mention exactly the predicates declared here.
+        // Invariant: `generated` holds the optional `Bool` token sort and the sort predicate production of every sort of `sorts.local_sorts()` before `sort` whose role has a sort predicate; each iteration consumes one sort.
+        for sort in sorts
+            .local_sorts()
+            .iter()
+            .filter(|sort| sort.role().has_sort_predicate())
+        {
             let label = Label::sort_predicate(sort);
             let production = Sentence::Production {
                 label: Some(label.clone()),
@@ -233,9 +239,11 @@ pub(crate) fn generate_sort_projections_pass(
             .map(|(id, production)| (productions.identity(id), production.clone()))
             .collect::<Vec<_>>();
         let mut generated = Vec::new();
-        // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` that is not a parser sort (`K` and `KItem` excepted) and whose projection label is not in `defined_labels`; each iteration consumes one sort.
+        // A sort has a projection exactly when its role says so; the rule grammar offers
+        // `project:S(_)` from the same predicate.
+        // Invariant: `generated` holds the projection production and rule of every sort of `sorts.all_sorts()` before `sort` whose role has a sort projection and whose projection label is not in `defined_labels`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
-            if !sort.role().is_k_term_sort() {
+            if !sort.role().has_sort_projection() {
                 continue;
             }
             let label = Label::projection(sort);
@@ -601,6 +609,108 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// A one-module definition of `sentences`.
+    fn one_module(sentences: Vec<Sentence>) -> Definition {
+        Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: sentences.into_iter().map(Arc::new).collect(),
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        }
+    }
+
+    /// The labels of the productions of `definition`'s module that carry `key`.
+    fn labels_with(definition: &Definition, key: AttributeKey) -> Vec<String> {
+        definition.modules[0]
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label),
+                    attributes,
+                    ..
+                } if attributes.has(key) => Some(label.name.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// F13: a numeral (the width argument of `MInt{8}`) and a `#`-prefixed parser sort are no
+    /// sets of K terms, so no sort predicate is built for them, while a defined sort, a declared
+    /// instance and the kernel sorts of K terms get one.
+    #[test]
+    fn no_sort_predicate_is_built_for_a_numeral_or_a_scaffolding_sort() {
+        let definition = one_module(vec![
+            sort_declaration("8", &[]),
+            sort_declaration("#RuleBody", &[]),
+            sort_declaration("#Layout", &[]),
+            sort_declaration("Exp", &[]),
+            sort_declaration("KItem", &[]),
+            sort_declaration("KConfigVar", &[]),
+            Sentence::SyntaxSort {
+                parameters: Vec::new(),
+                sort: Sort::with_parameters("MInt", vec![Sort::new("8")]),
+                attributes: Attributes::default(),
+            },
+        ]);
+
+        let predicates = labels_with(
+            &generate_sort_predicate_syntax(&definition).unwrap(),
+            AttributeKey::Predicate,
+        );
+
+        for absent in ["is8", "is#RuleBody", "is#Layout"] {
+            assert!(
+                !predicates.iter().any(|label| label == absent),
+                "{absent} in {predicates:?}"
+            );
+        }
+        for present in ["isExp", "isKItem", "isKConfigVar", "isMInt{8}"] {
+            assert!(
+                predicates.iter().any(|label| label == present),
+                "{present} not in {predicates:?}"
+            );
+        }
+    }
+
+    /// The projection generator reads the same role predicate as the rule grammar: `K`, `KItem`
+    /// and a defined sort get `project:S`; `KConfigVar`, `KList`, the cell structure sorts `Bag`
+    /// and `Cell`, a numeral and a parser sort do not.
+    #[test]
+    fn sort_projections_are_built_for_the_sorts_whose_role_has_one() {
+        let definition = one_module(
+            [
+                "K",
+                "KItem",
+                "KConfigVar",
+                "KList",
+                "Bag",
+                "Cell",
+                "8",
+                "#RuleBody",
+                "Exp",
+            ]
+            .into_iter()
+            .map(|sort| sort_declaration(sort, &[]))
+            .collect(),
+        );
+        let definition = generate_sort_predicate_syntax(&definition).unwrap();
+
+        let projections = labels_with(
+            &generate_sort_projections(&definition).unwrap(),
+            AttributeKey::Projection,
+        );
+
+        assert_eq!(
+            projections,
+            ["project:Bool", "project:Exp", "project:K", "project:KItem"]
+        );
     }
 
     /// The source is the sort's only production, but the sort's `token` attribute adds `\top`
