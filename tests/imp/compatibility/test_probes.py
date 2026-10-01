@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 HERE = Path(__file__).resolve().parent
@@ -19,42 +19,18 @@ def load(path: Path, name: str):
 
 
 class DiagnosticProbeTests(unittest.TestCase):
-    def test_k_frontend_mapping_requires_exact_content_identity(self) -> None:
+    def test_k_frontend_mapping_delegates_exact_content_selection(self) -> None:
         module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_probe")
-        authored = b"before ExactToken after\n"
-        spec = b"module M-SPEC\n  claim exact\nendmodule\n"
-        source_start = authored.index(b"ExactToken")
-        generated_start = spec.index(b"exact")
-        entry = {
-            "origin": [{
-                "frame_type": "ranged",
-                "kind": "authored",
-                "range": {
-                    "file": {
-                        "package_relative_path": "src/lib.rs",
-                        "content_sha256": hashlib.sha256(authored).hexdigest(),
-                    },
-                    "start_byte": source_start,
-                    "end_byte": source_start + len(b"ExactToken"),
-                },
-            }],
-            "generated": {
-                "artifact": "spec.k",
-                "start_byte": generated_start,
-                "end_byte": generated_start + len(b"exact"),
-            },
-        }
-        origin, generated = module.exact_mapping(
-            spec, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
-        )
-        self.assertEqual(origin["start_byte"], source_start)
-        self.assertEqual(generated["start_byte"], generated_start)
-
-        entry["origin"][0]["range"]["file"]["content_sha256"] = "0" * 64
-        with self.assertRaisesRegex(module.GateError, "expected one exact sidecar mapping"):
-            module.exact_mapping(
-                spec, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
-            )
+        result = {"authored_range": {"start_byte": 7}, "generated": {"start_byte": 6}}
+        with mock.patch.object(module.krs_gate, "ir_query", return_value=result) as query, mock.patch.object(module, "z3_environment", return_value={}):
+            self.assertEqual(module.exact_mapping(Path("gate"), Path("emitted"), Path("authored.rs"), "src/lib.rs", "ExactToken"), (result["authored_range"], result["generated"]))
+            query.assert_called_once_with(Path("gate"), Path("emitted"), {
+                "kind": "source_token", "artifact": "spec.k", "authored": "authored.rs",
+                "package_relative_path": "src/lib.rs", "token": "ExactToken",
+            }, environment={})
+        with mock.patch.object(module.krs_gate, "ir_query", side_effect=module.GateError("expected one exact sidecar mapping")):
+            with self.assertRaisesRegex(module.GateError, "expected one exact sidecar mapping"):
+                module.exact_mapping(Path("gate"), Path("emitted"), Path("authored.rs"), "src/lib.rs", "ExactToken")
 
 
 if __name__ == "__main__":

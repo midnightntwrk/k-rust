@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import os
 from pathlib import Path
@@ -12,7 +11,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from support import GateError  # noqa: E402
+from support import GateError, krs_gate  # noqa: E402
 from support.krs import Invocation  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
@@ -45,190 +44,63 @@ FIXTURE_PACKAGES = {
 }
 
 
-def normalized_descriptor(descriptor: dict[str, object]) -> dict[str, object]:
-    value = copy.deepcopy(descriptor)
-
-    def visit(node: object) -> object:
-        if isinstance(node, list):
-            return [visit(child) for child in node]
-        if not isinstance(node, dict):
-            return node
-        result = {}
-        for key, child in node.items():
-            if key == "provenance":
-                continue
-            if key == "package" and isinstance(child, dict):
-                result[key] = {"k_namespace": child.get("k_namespace")}
-            else:
-                result[key] = visit(child)
-        return result
-
-    normalized = visit(value)
-    assert isinstance(normalized, dict)
-    return normalized
-
-
-def descriptor_bundle_fixture(krs: Path, name: str) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix=f"krs-imp-stable-{name}-") as temporary:
-        output = Path(temporary) / "emit"
-        process = run(
-            Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
-                "emit-k", "--backend", "llvm", "--output", output
-            ),
-            environment=PROBE_TARGET,
-            timeout=180,
-            check=False,
-        )
-        if process.returncode != 0:
-            raise GateError(f"{name} descriptor emission failed: {process.stderr[:1200]}")
-        try:
-            value = json.loads(
-                (output / "descriptor-bundle.json").read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError) as error:
-            raise GateError(f"{name} descriptor bundle is invalid: {error}") from error
-    if set(value) != {"protocol_version", "descriptors", "declarations"}:
-        raise GateError(f"{name} descriptor bundle has an unknown envelope")
-    if not isinstance(value["descriptors"], list) or not isinstance(value["declarations"], list):
-        raise GateError(f"{name} descriptor bundle has non-list descriptor data")
-    if len(value["descriptors"]) != len(value["declarations"]):
-        raise GateError(f"{name} declaration metadata does not cover every descriptor")
-    return value
-
-
-def emit_fixture(krs: Path, name: str, backend: str, output: Path) -> dict[str, object]:
-    process = run(
-        Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
-            "emit-k", "--backend", backend, "--output", output
-        ),
-        environment=PROBE_TARGET,
-        timeout=180,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise GateError(f"{name}/{backend} emission failed: {process.stderr[:1200]}")
-    try:
-        value = json.loads((output / "symbols.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise GateError(f"{name}/{backend} symbols sidecar is invalid: {error}") from error
-    if set(value) != {"schema_version", "entries"} or not isinstance(value["entries"], list):
-        raise GateError(f"{name}/{backend} symbols sidecar has an unknown envelope")
-    return value
-
-
 def move_evidence(krs: Path) -> dict[str, object]:
-    bundles = {name: descriptor_bundle_fixture(krs, name) for name in FIXTURE_PACKAGES}
-
-    def stable_key(descriptor: dict[str, object]) -> tuple[tuple[str, ...], str, str]:
-        identity = descriptor["id"]
-        return (tuple(identity["module_path"]), identity["item_name"], identity["item_kind"])
-
-    def declarations(name: str) -> dict[tuple[tuple[str, ...], str, str], dict[str, object]]:
-        return {stable_key(value): value for value in bundles[name]["declarations"]}
-
-    def public_projection(name: str) -> list[dict[str, object]]:
-        public = {
-            stable_key(declaration)
-            for declaration in bundles[name]["declarations"]
-            if declaration.get("visibility") == {"visibility": "public"}
-        }
-        return sorted(
-            (
-                normalized_descriptor(descriptor)
-                for descriptor in bundles[name]["descriptors"]
-                if stable_key(descriptor) in public
-            ),
-            key=lambda descriptor: json.dumps(descriptor, sort_keys=True),
-        )
-
-    def stable_symbol_projection(sidecar: dict[str, object]) -> list[dict[str, object]]:
-        selected = [
-            {
-                "identity": entry["identity"],
-                "emitted_name": entry["emitted_name"],
-                "symbol_kind": entry.get("symbol_kind"),
-            }
-            for entry in sidecar["entries"]
-            if entry.get("emitted_name") in {"Expr", "publicValue"}
-        ]
-        if len(selected) != 2:
-            raise GateError("stable-name sidecar must expose exactly Expr and publicValue")
-        return sorted(selected, key=lambda entry: json.dumps(entry, sort_keys=True))
-
-    def stable_symbol_source_keys(sidecar: dict[str, object]) -> list[str]:
-        keys = [
-            entry["source_map_key"] for entry in sidecar["entries"]
-            if entry.get("emitted_name") in {"Expr", "publicValue"}
-        ]
-        if len(keys) != 2 or not all(isinstance(key, str) for key in keys):
-            raise GateError("stable-name sidecar lacks exact public source-map keys")
-        return sorted(keys)
-
-    baseline_keys = {stable_key(value) for value in bundles["baseline"]["descriptors"]}
-    private_keys = {stable_key(value) for value in bundles["private-move"]["descriptors"]}
-    public_keys = {stable_key(value) for value in bundles["public-move"]["descriptors"]}
-    baseline_private = {key for key in baseline_keys if key[0] == ("internal_old",)}
-    moved_private = {key for key in private_keys if key[0] == ("internal_new",)}
-    baseline_public = {key for key in baseline_keys if key[0] == ("api",)}
-    moved_public = {key for key in public_keys if key[0] == ("moved_api",)}
-    pinned_keys = {stable_key(value) for value in bundles["public-move-pinned"]["descriptors"]}
-    pinned_public = {key for key in pinned_keys if key[0] == ("moved_api",)}
-    pinned_declarations = declarations("public-move-pinned")
-    pinned_symbols = {
-        key: declaration.get("explicit_symbol")
-        for key, declaration in pinned_declarations.items()
-        if key[0] == ("moved_api",) and declaration.get("explicit_symbol") is not None
-    }
-
+    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
     with tempfile.TemporaryDirectory(prefix="krs-imp-stable-") as temporary:
         temporary = Path(temporary)
-        sidecars = {
-            name: emit_fixture(krs, name, "llvm", temporary / f"{name}-llvm")
-            for name in FIXTURE_PACKAGES
-        }
-        baseline_haskell = emit_fixture(
-            krs, "baseline", "haskell", temporary / "baseline-haskell"
-        )
-        projections = {
-            name: stable_symbol_projection(sidecar) for name, sidecar in sidecars.items()
-        }
-        source_keys = {
-            name: stable_symbol_source_keys(sidecar) for name, sidecar in sidecars.items()
-        }
+        details = {}
+        public = {}
+        projections = {}
+        source_keys = {}
+        sidecars = {}
+        for name in FIXTURE_PACKAGES:
+            output = temporary / f"{name}-llvm"
+            run(Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
+                "emit-k", "--backend", "llvm", "--output", output,
+            ), environment=PROBE_TARGET, timeout=180)
+            rows, public_rows, symbols, sidecar = krs_gate.ir_queries(gate, output, [
+                {"kind": "descriptor_details"},
+                {"kind": "descriptor_details", "public_only": True},
+                {"kind": "symbol_projection", "emitted_names": ["Expr", "publicValue"]},
+                {"kind": "symbols"},
+            ])
+            details[name] = rows["rows"]
+            public[name] = sorted((r["normalized"] for r in public_rows["rows"]), key=lambda r: json.dumps(r, sort_keys=True))
+            projections[name] = symbols["rows"]
+            source_keys[name] = symbols["source_keys"]
+            sidecars[name] = sidecar
+            if len(projections[name]) != 2 or len(source_keys[name]) != 2:
+                raise GateError("stable-name projection needs exactly two public symbols and source keys")
+        output = temporary / "baseline-haskell"
+        run(Invocation(krs, HERE / "baseline/Cargo.toml", FIXTURE_PACKAGES["baseline"], "main").argv(
+            "emit-k", "--backend", "haskell", "--output", output,
+        ), environment=PROBE_TARGET, timeout=180)
+        baseline_haskell = krs_gate.ir_query(gate, output, {"kind": "symbols"})
 
-    return {
-        "baseline_descriptors": len(bundles["baseline"]["descriptors"]),
-        "exact_public_visibility_recovered": len([
-            declaration for declaration in bundles["baseline"]["declarations"]
-            if declaration.get("visibility") == {"visibility": "public"}
-        ]) == 3,
-        "private_move_public_projection_equal": (
-            public_projection("baseline") == public_projection("private-move")
-        ),
-        "private_internal_identity_changed": bool(baseline_private and moved_private)
-            and baseline_private != moved_private,
-        "public_identity_change_detected": bool(baseline_public and moved_public)
-            and baseline_public != moved_public,
-        "pinned_descriptor_provenance_moved": bool(baseline_public and pinned_public)
-            and baseline_public != pinned_public,
-        "pinned_exact_symbols_recovered": set(pinned_symbols.values())
-            == {"api::Expr", "api::PublicValue"},
-        "package_version_and_fixture_path_do_not_change_public_symbol": (
-            projections["baseline"] == projections["private-move"]
-        ),
-        "unpinned_public_move_changes_symbol_identity": (
-            projections["baseline"] != projections["public-move"]
-        ),
-        "pinned_reordered_public_move_preserves_symbol_identity": (
-            projections["baseline"] == projections["public-move-pinned"]
-        ),
-        "pinned_move_preserves_distinct_provenance": (
-            source_keys["baseline"] != source_keys["public-move-pinned"]
-        ),
-        "backend_selection_does_not_change_symbols": (
-            sidecars["baseline"] == baseline_haskell
-        ),
+    def keys(name: str, path: str) -> set[tuple[tuple[str, ...], str, str]]:
+        return {(tuple(r["module_path"]), r["item_name"], r["item_kind"]) for r in details[name] if r["module_path"] == [path]}
+
+    baseline_private = keys("baseline", "internal_old")
+    moved_private = keys("private-move", "internal_new")
+    baseline_public = keys("baseline", "api")
+    moved_public = keys("public-move", "moved_api")
+    pinned_public = keys("public-move-pinned", "moved_api")
+    # Paths are part of descriptor identity even when item names stay the same.
+    report = {
+        "baseline_descriptors": len(details["baseline"]),
+        "exact_public_visibility_recovered": len(public["baseline"]) == 3,
+        "private_move_public_projection_equal": public["baseline"] == public["private-move"],
+        "private_internal_identity_changed": bool(baseline_private and moved_private) and baseline_private != moved_private,
+        "public_identity_change_detected": bool(baseline_public and moved_public) and baseline_public != moved_public,
+        "pinned_descriptor_provenance_moved": bool(baseline_public and pinned_public) and baseline_public != pinned_public,
+        "pinned_exact_symbols_recovered": {r["explicit_symbol"] for r in details["public-move-pinned"] if r["module_path"] == ["moved_api"] and r["explicit_symbol"] is not None} == {"api::Expr", "api::PublicValue"},
+        "package_version_and_fixture_path_do_not_change_public_symbol": projections["baseline"] == projections["private-move"],
+        "unpinned_public_move_changes_symbol_identity": projections["baseline"] != projections["public-move"],
+        "pinned_reordered_public_move_preserves_symbol_identity": projections["baseline"] == projections["public-move-pinned"],
+        "pinned_move_preserves_distinct_provenance": source_keys["baseline"] != source_keys["public-move-pinned"],
+        "backend_selection_does_not_change_symbols": sidecars["baseline"] == baseline_haskell,
     }
+    return report
 
 
 def verify(report: dict[str, object]) -> None:

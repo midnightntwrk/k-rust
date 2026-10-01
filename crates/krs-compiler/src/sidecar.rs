@@ -326,6 +326,30 @@ impl GeneratedRange {
         self.start_byte
     }
 
+    /// Returns the one-based start line coordinate.
+    #[must_use]
+    pub const fn start_line(&self) -> u32 {
+        self.start_line
+    }
+
+    /// Returns the one-based start column coordinate.
+    #[must_use]
+    pub const fn start_column(&self) -> u32 {
+        self.start_column
+    }
+
+    /// Returns the one-based end line coordinate.
+    #[must_use]
+    pub const fn end_line(&self) -> u32 {
+        self.end_line
+    }
+
+    /// Returns the one-based end column coordinate.
+    #[must_use]
+    pub const fn end_column(&self) -> u32 {
+        self.end_column
+    }
+
     /// Returns the exclusive generated UTF-8 byte offset.
     #[must_use]
     pub const fn end_byte(&self) -> u64 {
@@ -380,6 +404,20 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    /// Returns a typed selection preserving schema, entry order, and multiplicity.
+    #[must_use]
+    pub fn filtered(&self, select: impl Fn(&SourceMapEntry) -> bool) -> Self {
+        Self {
+            schema_version: self.schema_version,
+            entries: self
+                .entries
+                .iter()
+                .filter(|entry| select(entry))
+                .cloned()
+                .collect(),
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     pub(crate) fn from_definition(definition: &DefinitionIr) -> Result<Self, SidecarError> {
         let mut entries = BTreeMap::new();

@@ -56,7 +56,7 @@
 //! `kind: "modules"` returns `{main_module,rows}`; each row contains `name` and the exact authored and compiler-inferred emitted `imports`.
 //! `kind: "semantic_modules"` reads only Semantic IR and returns `{rows}` with `name`, `production_count`, `rule_count`, and `has_configuration`.
 //! `kind: "sentences"` accepts `module`, `sentence_kind`, and `label` filters and returns `{rows}` in generated artifact and byte order.
-//! Sentence rows contain `module`, `kind`, optional `label` and `rule_kind`, `source_map_key`, optional `generated`, `body`, and `initializers`.
+//! Sentence rows contain `module`, `kind`, optional `label` and `rule_kind`, `source_map_key`, optional `generated`, `body`, `initializers`, and optional `associativity`.
 //! The sentence kinds are `syntax_sort`, `subsort`, `production`, `precedence`, `associativity`, `configuration`, `context_alias`, `rule`, and `claim`.
 //! Generated ranges contain `artifact`, inclusive `start_byte`, exclusive `end_byte`, and scalar line and column coordinates; clients may slice the artifact's UTF-8 bytes at these ranges.
 //! Ordinary rule bodies are provenance-free typed term facts; simultaneous bodies contain `kind: "configuration_rewrite"` and ordered `clauses` with `cell`, `from`, `to`, and `frame`.
@@ -74,9 +74,31 @@
 //! Every supplied field must match; omitted fields are wildcards, and supplied argument arrays must match exact arity and order.
 //! `kind: "descriptors"` accepts `descriptor_kind` and `item_kind` filters and returns `{counts,rows}`.
 //! Counts map the selected descriptor and item kinds to their multiplicities; rows contain typed `id`, `descriptor_kind`, `item_kind`, and `cargo_name`.
+//! `kind: "descriptor_details"` accepts exact `module_path` and `item_name` filters and `public_only` (default false).
+//! It returns `{rows}` with `module_path`, `item_name`, `item_kind`, exact `visibility`, optional `explicit_symbol`, and opaque `normalized` descriptors.
+//! Normalized descriptors remove provenance recursively and reduce every package to its `k_namespace`; all other descriptor fields remain exact.
+//! `kind: "head_rule_walkthrough"` requires `item_name` and selects exactly one head rule with a declared named-argument subject and builtin positional-variable replacement.
+//! It returns `{id,kind,sentence_kind,label,configuration,cell,bindings,subject,result}`.
+//! `subject` and `result` each contain `application` and ordered `arguments`; builtin application names carry the `builtin:` prefix.
+//! Unsupported walkthrough shapes and ambiguous identities are errors.
+//! `kind: "symbol_projection"` requires `emitted_names` and returns `{rows,source_keys}`.
+//! Rows retain exactly `identity`, `emitted_name`, and optional `symbol_kind`, sorted by canonical JSON; source-map keys are sorted independently with multiplicity retained.
+//! `kind: "source_token"` requires an `authored` source path, `package_relative_path`, `token`, and `artifact` (`definition.k` or `spec.k`).
+//! It returns exactly one `{authored_range,generated}` whose authored file digest, relative path, and nonempty UTF-8 token match and whose generated interval is nonempty and in bounds.
+//! Exact authored content selects a typed source-map view before generated-to-authored lookup uses [`krs_cli::translate_k_frontend_diagnostic`].
+//! A surrounding condition may share the generated interval but cannot match the narrower authored token; multiple exact-token matches are errors.
+//! `kind: "replacement_parity"` requires `reference` (an artifact directory), emitted `module`, and descriptor `module_path`.
+//! The queried directory is the configuration-rule replacement and the reference directory is the head-rule authority.
+//! Non-rule descriptors and declarations must agree after removing descriptor provenance, normalizing the selected namespace's Cargo identity, and naming subsorts by sorted typed relations.
+//! It normalizes only replaced `k` cell K-tail bindings and preserved `env` cell Map-remainder bindings to unbound frames; the rebuilt Definition IR must validate.
+//! All other rules, terms, attributes, and grammar remain exact through the canonical compiler printer.
+//! Every replacement import and non-claim sentence must occur in the reference multiset with at least the same multiplicity.
+//! It returns `{non_rule_counts,non_rule_count,subsort_count,reference_rules,replacement_rules,sentence_count}`; rule maps retain exact Rust-item-to-K-label transport for transitions.
+//! Counts and transport expectations remain caller-owned data.
 //! `kind: "symbols"` accepts `emitted_name`, `identity_kind`, and `symbol_kind` filters and returns `{rows}` of typed symbol sidecar entries in their stored order.
 //! `kind: "sources"` accepts `key`, `node_kind`, and generated `artifact` filters and returns `{rows}` of typed source sidecar entries in their stored order.
 //! Source rows add `authored`, a flat array of `{k_namespace,cargo_name,package_relative_path,content_sha256}` for authored provenance frames.
+//! `ranged` projects every ranged provenance frame with the same file fields and its `frame_kind`, retaining stored frame order and multiplicity.
 //! `kind: "definition_shape"` returns the typed Definition IR serialization with provenance omitted and each rule reduced to its kind and label identity.
 //! It preserves module, import, grammar, configuration, initializer, context-alias, sentence-kind, and label structure for readable-versus-expanded parity comparisons.
 //! Rule variables, bodies, conditions, and metadata do not participate because independently compiled expansion may introduce explicit tail bindings.

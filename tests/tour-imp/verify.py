@@ -12,7 +12,7 @@ import tempfile
 import sync
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, entry  # noqa: E402
+from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -48,56 +48,32 @@ def artifact_bytes(directory: Path) -> dict[str, bytes]:
     }
 
 
-def walkthrough_artifacts(expansion: str, emitted: dict[str, bytes]) -> dict[Path, str]:
+def walkthrough_artifacts(expansion: str, artifacts: Path, gate: Path, environment: dict[str, str]) -> dict[Path, str]:
     source = SOURCE.read_text(encoding="utf-8")
-    readable_line = next(
-        line for line in source.splitlines() if "eval_add" in line
-    )
+    readable_line = next(line for line in source.splitlines() if "eval_add" in line)
     readable = f"k::rules! {{\n    in Machine.k;\n\n{readable_line}\n}}\n"
-
     expansion_start = expansion.index('#[k::rule(label = "eval-add")]')
     expansion_end = expansion.index("\n#[k::rule", expansion_start + 1)
     expanded = expansion[expansion_start:expansion_end].rstrip() + "\n"
-
-    definition = emitted["definition.k"].decode("utf-8")
-    k_start = definition.index("  rule [eval-add]:")
-    k_end = definition.index("\n  rule [", k_start + 1)
-    emitted_rule = definition[k_start:k_end].strip() + "\n"
-
-    bundle = json.loads(emitted["descriptor-bundle.json"])
-    descriptor = next(
-        item
-        for item in bundle["descriptors"]
-        if item.get("id", {}).get("item_name") == "eval_add"
-        and item.get("id", {}).get("item_kind") == "rule"
-    )
-    rule = descriptor["descriptor"]
-    subject = rule["subject"]
-    result = rule["result"]["head_result"]
-    projection = {
-        "id": descriptor["id"]["item_name"],
-        "kind": descriptor["descriptor_kind"],
-        "sentence_kind": rule["sentence_kind"],
-        "label": rule["label"]["name"],
-        "configuration": rule["configuration"]["item_name"],
-        "cell": rule["computation_cell"]["cell"]["field"],
-        "bindings": [binding["name"] for binding in rule["bindings"]],
-        "subject": {
-            "application": subject["reference"]["application"]["application"]["item_name"],
-            "arguments": [argument["field"] for argument in subject["arguments"]],
-        },
-        "result": {
-            "application": f'builtin:{result["reference"]["application"]["application"]}',
-            "arguments": [
-                argument["value"]["name"] for argument in result["arguments"]
-            ],
-        },
-    }
-    descriptor_json = json.dumps(projection, ensure_ascii=False, indent=2) + "\n"
+    descriptor, sentences = krs_gate.ir_queries(gate, artifacts, [
+        {"kind": "head_rule_walkthrough", "item_name": "eval_add"},
+        {"kind": "sentences", "label": "eval-add", "sentence_kind": "rule"},
+    ], environment=environment)
+    rows = sentences["rows"]
+    if len(rows) != 1 or rows[0]["generated"]["artifact"] != "definition.k":
+        raise GateError("walkthrough needs one generated eval-add rule")
+    generated = rows[0]["generated"]
+    emitted_rule = (artifacts / "definition.k").read_bytes()[generated["start_byte"]:generated["end_byte"]].decode().strip() + "\n"
+    # The walkthrough's presentation order is a checked documentation contract.
+    projection = {key: descriptor[key] for key in (
+        "id", "kind", "sentence_kind", "label", "configuration", "cell", "bindings",
+    )}
+    for key in ("subject", "result"):
+        projection[key] = {field: descriptor[key][field] for field in ("application", "arguments")}
     return {
         GENERATED / "eval-add-readable.txt": readable,
         GENERATED / "eval-add-expanded.txt": expanded,
-        GENERATED / "eval-add-descriptor.json": descriptor_json,
+        GENERATED / "eval-add-descriptor.json": json.dumps(projection, ensure_ascii=False, indent=2) + "\n",
         GENERATED / "eval-add.k": emitted_rule,
     }
 
@@ -130,6 +106,7 @@ def main() -> None:
     target = checkout_scratch() / "tour-imp-root-target"
     env = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
+    gate = krs_gate.build(target, environment=env)
     check_packages("tour-imp", env=env, target_dir=target)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.
@@ -149,23 +126,17 @@ def main() -> None:
         first_artifacts = artifact_bytes(first)
         if first_artifacts != artifact_bytes(second):
             raise GateError("emitted IMP artifacts are nondeterministic")
-        bundle = json.loads(first_artifacts["descriptor-bundle.json"])
-        descriptors = bundle.get("descriptors", [])
-        if len(descriptors) != 83:
-            raise GateError(f"complete operational IMP must collect 83 descriptors, got {len(descriptors)}")
-        sources = json.loads(first_artifacts["sources.json"])
         digest = sha256_file(SOURCE)
-        authored_frames = [
-            frame["range"]["file"]
-            for entry in sources.get("entries", [])
-            for frame in entry.get("origin", [])
-            if frame.get("range", {}).get("file", {}).get("package", {}).get("cargo_name") == PACKAGE
-        ]
-        if not authored_frames:
-            raise GateError("emitted source map has no tour-imp attribution")
-        if any(frame.get("package_relative_path") != "src/lib.rs" or frame.get("content_sha256") != digest for frame in authored_frames):
-            raise GateError("emitted source map does not identify the exact capstone bytes")
-        verify_walkthrough(walkthrough_artifacts(first_expansion, first_artifacts))
+        details, attribution = krs_gate.ir_queries(gate, first, [
+            {"kind": "descriptors"}, {"kind": "sources"},
+        ], environment=env)
+        if len(details["rows"]) != 83:
+            raise GateError("complete operational IMP must collect 83 descriptors")
+        frames = [frame for row in attribution["rows"] for frame in row["ranged"] if frame["cargo_name"] == PACKAGE]
+        if not frames or any(frame["package_relative_path"] != "src/lib.rs" or frame["content_sha256"] != digest for frame in frames):
+            raise GateError("source map must identify the exact capstone bytes")
+        expected = walkthrough_artifacts(first_expansion, first, gate, env)
+        verify_walkthrough(expected)
     print("PASS emission: deterministic complete IMP artifacts and authored source maps")
     print("PASS walkthrough: readable, explicit, descriptor, and K views are current")
 

@@ -16,7 +16,9 @@ mod sidecar;
 pub mod testing;
 
 pub use artifacts::*;
-pub use emit::{EmitError, EmittedK, EmittedSpec, definition_module_imports, emit_k};
+pub use emit::{
+    EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source, emit_k,
+};
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use reference::{

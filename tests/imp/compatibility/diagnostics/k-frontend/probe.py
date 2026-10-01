@@ -12,7 +12,6 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError, krs_gate  # noqa: E402
-from support.hashing import sha256_bytes  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 from support.process import run  # noqa: E402
@@ -22,46 +21,14 @@ LOCATION = re.compile(r"Location\((\d+),(\d+),(\d+),(\d+)\)")
 EMITTED_CLAIMS = 20
 
 
-def ranged_origins(entry: dict[str, object]) -> list[dict[str, object]]:
-    result = []
-    for frame in entry.get("origin", []):
-        if isinstance(frame, dict) and frame.get("frame_type") == "ranged" and frame.get("kind") == "authored":
-            value = frame.get("range")
-            if isinstance(value, dict):
-                result.append(value)
-    return result
-
-
 def exact_mapping(
-    spec: bytes, sidecar: dict[str, object], source: bytes, source_relative_path: str, token: str
+    gate: Path, artifacts: Path, authored: Path, source_relative_path: str, token: str,
 ) -> tuple[dict[str, object], dict[str, object]]:
-    matches = []
-    for entry in sidecar.get("entries", []):
-        if not isinstance(entry, dict) or not isinstance(entry.get("generated"), dict):
-            continue
-        generated = entry["generated"]
-        origins = ranged_origins(entry)
-        if len(origins) != 1:
-            continue
-        origin = origins[0]
-        file = origin.get("file", {})
-        if not isinstance(file, dict) or file.get("package_relative_path") != source_relative_path:
-            continue
-        if file.get("content_sha256") != sha256_bytes(source):
-            continue
-        start, end = int(origin["start_byte"]), int(origin["end_byte"])
-        generated_start, generated_end = int(generated["start_byte"]), int(generated["end_byte"])
-        if (
-            0 <= start < end <= len(source)
-            and 0 <= generated_start < generated_end <= len(spec)
-            and generated.get("artifact") == "spec.k"
-            and source[start:end].decode() == token
-            and spec[generated_start:generated_end]
-        ):
-            matches.append((origin, generated))
-    if len(matches) != 1:
-        raise GateError(f"expected one exact sidecar mapping for {token!r}, got {len(matches)}")
-    return matches[0]
+    mapping = krs_gate.ir_query(gate, artifacts, {
+        "kind": "source_token", "artifact": "spec.k", "authored": str(authored),
+        "package_relative_path": source_relative_path, "token": token,
+    }, environment=z3_environment())
+    return mapping["authored_range"], mapping["generated"]
 
 
 def main() -> int:
@@ -76,14 +43,15 @@ def main() -> int:
     parser.add_argument("--verification-definition", type=Path)
     arguments = parser.parse_args()
     spec = arguments.spec.read_bytes()
-    source = arguments.authored.read_bytes()
-    sidecar = json.loads(arguments.sources.read_text(encoding="utf-8"))
+    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
+    if arguments.sources.resolve() != arguments.spec.with_name("sources.json").resolve():
+        raise GateError("--sources must name the emitted spec's sources.json")
     origin, generated = exact_mapping(
-        spec, sidecar, source, arguments.source_relative_path, arguments.token
+        gate, arguments.spec.parent, arguments.authored, arguments.source_relative_path, arguments.token,
     )
     start, end = int(generated["start_byte"]), int(generated["end_byte"])
-    artifact_line = spec[:start].count(b"\n") + 1
-    artifact_column = start - spec.rfind(b"\n", 0, start)
+    artifact_line = generated["start_line"]
+    artifact_column = generated["start_column"]
     if not arguments.kompile:
         print(json.dumps({
             "artifact_generated_location": [artifact_line, artifact_column],
@@ -98,14 +66,19 @@ def main() -> int:
     if not verification_definition.joinpath("imp-verification.k").is_file():
         raise GateError("verification definition lacks imp-verification.k")
 
-    gate = krs_gate.configured_or_build(checkout_scratch() / "imp-gate-root-target")
     _, claims_text = emitted_claims(arguments.spec.parent, arguments.module, EMITTED_CLAIMS, gate=gate, environment=z3_environment())
     execution = arguments.spec.with_name("definition.k").read_bytes()
     claims = claims_text.encode("utf-8")
     mapped = spec[start:end]
-    if not mapped or claims.count(mapped) != 1:
-        raise GateError("mapped generated range is not unique in emitted claims")
-    claim_start = claims.index(mapped)
+    claim_rows = krs_gate.ir_query(gate, arguments.spec.parent, {
+        "kind": "sentences", "sentence_kind": "claim",
+    }, environment=z3_environment())["rows"]
+    block_start = claim_rows[0]["generated"]["start_byte"]
+    claim_start = start - block_start
+    if not 0 <= claim_start < claim_start + end - start <= len(claims):
+        raise GateError("mapped byte range is outside the emitted claims block")
+    if claims[claim_start:claim_start + len(mapped)] != mapped:
+        raise GateError("mapped bytes differ from the generated claims slice")
     broken_claims = claims[:claim_start] + b"+" + claims[claim_start + len(mapped):]
     spec_module = f"{arguments.module}-DIAGNOSTIC-SPEC"
     spec_header = (

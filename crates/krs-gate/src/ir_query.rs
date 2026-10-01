@@ -17,11 +17,38 @@ use std::{
     path::Path,
 };
 
+mod projections;
+
 type QueryResult = Result<Value, Box<dyn Error>>;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Query {
+    DescriptorDetails {
+        #[serde(default)]
+        module_path: Option<Vec<String>>,
+        #[serde(default)]
+        item_name: Option<String>,
+        #[serde(default)]
+        public_only: bool,
+    },
+    HeadRuleWalkthrough {
+        item_name: String,
+    },
+    SymbolProjection {
+        emitted_names: Vec<String>,
+    },
+    SourceToken {
+        authored: String,
+        package_relative_path: String,
+        token: String,
+        artifact: String,
+    },
+    ReplacementParity {
+        reference: String,
+        module: String,
+        module_path: Vec<String>,
+    },
     Files {},
     Modules {},
     SemanticModules {},
@@ -576,6 +603,41 @@ pub fn dispatch(request: &Value) -> QueryResult {
 pub fn query(directory: &Path, request: &Value) -> QueryResult {
     let query: Query = serde_json::from_value(request.clone())?;
     match query {
+        Query::DescriptorDetails {
+            module_path,
+            item_name,
+            public_only,
+        } => projections::descriptor_details(
+            directory,
+            module_path.as_deref(),
+            item_name.as_deref(),
+            public_only,
+        ),
+        Query::HeadRuleWalkthrough { item_name } => {
+            projections::head_rule_walkthrough(directory, &item_name)
+        }
+        Query::SymbolProjection { emitted_names } => {
+            projections::symbol_projection(directory, &emitted_names)
+        }
+        Query::SourceToken {
+            authored,
+            package_relative_path,
+            token,
+            artifact,
+        } => projections::source_token(
+            directory,
+            Path::new(&authored),
+            &package_relative_path,
+            &token,
+            &artifact,
+        ),
+        Query::ReplacementParity {
+            reference,
+            module,
+            module_path,
+        } => {
+            projections::replacement_parity(Path::new(&reference), directory, &module, &module_path)
+        }
         Query::Descriptors {
             descriptor_kind,
             item_kind,
@@ -628,7 +690,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             artifact,
         } => {
             let map: SourceMap = read(directory, krs_compiler::SOURCES_ARTIFACT)?;
-            let rows=map.entries().iter().filter(|r|accepts(key.as_deref(),r.key().as_str())&&accepts(node_kind.as_deref(),&enum_name(&r.node_kind()))&&artifact.as_ref().is_none_or(|a|r.generated().is_some_and(|g|g.artifact()==a))).map(|row|{let mut fact=encoded(row);fact["authored"]=json!(row.origin().frames().iter().filter_map(|f|match f{OriginFrame::Ranged{kind:RangedOriginKind::Authored,range,..}=>Some(json!({"k_namespace":range.file.package().k_namespace(),"cargo_name":range.file.package().cargo_name(),"package_relative_path":range.file.package_relative_path(),"content_sha256":range.file.content_sha256()})),_=>None}).collect::<Vec<_>>());fact}).collect::<Vec<_>>();
+            let rows=map.entries().iter().filter(|r|accepts(key.as_deref(),r.key().as_str())&&accepts(node_kind.as_deref(),&enum_name(&r.node_kind()))&&artifact.as_ref().is_none_or(|a|r.generated().is_some_and(|g|g.artifact()==a))).map(|row|{let mut fact=encoded(row);fact["authored"]=json!(row.origin().frames().iter().filter_map(|f|match f{OriginFrame::Ranged{kind:RangedOriginKind::Authored,range,..}=>Some(json!({"k_namespace":range.file.package().k_namespace(),"cargo_name":range.file.package().cargo_name(),"package_relative_path":range.file.package_relative_path(),"content_sha256":range.file.content_sha256()})),_=>None}).collect::<Vec<_>>());fact["ranged"]=json!(row.origin().frames().iter().filter_map(|f|match f{OriginFrame::Ranged{kind,range,..}=>Some(json!({"frame_kind":kind,"k_namespace":range.file.package().k_namespace(),"cargo_name":range.file.package().cargo_name(),"package_relative_path":range.file.package_relative_path(),"content_sha256":range.file.content_sha256()})),OriginFrame::Transformation{..}=>None}).collect::<Vec<_>>());fact}).collect::<Vec<_>>();
             Ok(json!({"rows":rows}))
         }
         query => {
@@ -691,7 +753,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                             if let DefinitionSentence::Configuration(c) = s {
                                 initializer_rows(&context, c.initializer(), &mut initializers);
                             }
-                            rows.push(json!({"module":m.id(),"kind":sentence_kind(s),"label":name,"rule_kind":rule_kind,"source_map_key":s.origin().key(),"generated":range,"body":body,"initializers":initializers}));
+                            rows.push(json!({"module":m.id(),"kind":sentence_kind(s),"label":name,"rule_kind":rule_kind,"source_map_key":s.origin().key(),"generated":range,"body":body,"initializers":initializers,"associativity":match s{DefinitionSentence::Associativity(a)=>Some(a.associativity()),_=>None}}));
                         }
                     }
                     rows.sort_by(|a, b| {
@@ -1125,6 +1187,7 @@ mod tests {
             sources["rows"][0]["authored"][0]["cargo_name"],
             "foo-bar-semantics"
         );
+        assert_eq!(sources["rows"][0]["ranged"][0]["frame_kind"], "authored");
         let shape = read(json!({"kind":"definition_shape"}));
         assert_eq!(shape["main_module"], "KRS-FOO-BAR");
         assert!(
@@ -1133,6 +1196,472 @@ mod tests {
                 .contains("start_byte")
         );
     }
+    #[test]
+    fn descriptor_and_symbol_projections_are_closed_and_filtered() {
+        let dir = artifacts();
+        let details = query(
+            dir.path(),
+            &json!({"kind":"descriptor_details","module_path":["syntax"],"item_name":"Obj"}),
+        )
+        .unwrap();
+        assert_eq!(details["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            details["rows"][0]["visibility"],
+            json!({"visibility":"inherited"})
+        );
+        assert_eq!(
+            details["rows"][0]["normalized"]["id"]["package"],
+            json!({"k_namespace":"KRS-FOO-BAR"})
+        );
+        assert!(details["rows"][0]["normalized"].get("provenance").is_none());
+        assert_eq!(
+            query(
+                dir.path(),
+                &json!({"kind":"descriptor_details","public_only":true})
+            )
+            .unwrap()["rows"],
+            json!([])
+        );
+        let bundle: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
+        let mut descriptor = bundle.descriptors[0].clone();
+        let mut origins = descriptor.provenance.origins().to_vec();
+        origins.push(krs_ir::DescriptorNodeOrigin::new(
+            krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::StableSymbol, 0),
+            testing::authored_in(package(), "src/lib.rs", testing::digest(), 0, 3),
+        ));
+        descriptor.provenance =
+            krs_ir::DescriptorProvenance::new(descriptor.provenance.primary_key().clone(), origins)
+                .unwrap();
+        let declaration = krs_ir::DescriptorDeclaration::new(
+            descriptor.id.clone(),
+            krs_ir::RustVisibility::Public,
+            Some(krs_ir::ExplicitSymbol::new("api::Obj").unwrap()),
+        );
+        let bundle =
+            DescriptorBundle::with_declarations(vec![descriptor], vec![declaration]).unwrap();
+        fs::write(
+            dir.path().join("descriptor-bundle.json"),
+            bundle.to_canonical_json().unwrap(),
+        )
+        .unwrap();
+        let public = query(
+            dir.path(),
+            &json!({"kind":"descriptor_details","public_only":true}),
+        )
+        .unwrap();
+        assert_eq!(public["rows"][0]["explicit_symbol"], "api::Obj");
+        assert_eq!(
+            public["rows"][0]["visibility"],
+            json!({"visibility":"public"})
+        );
+        let symbols = query(
+            dir.path(),
+            &json!({"kind":"symbol_projection","emitted_names":["foo"]}),
+        )
+        .unwrap();
+        assert_eq!(symbols["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(symbols["source_keys"].as_array().unwrap().len(), 1);
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"descriptor_details","unknown":true})
+            )
+            .is_err()
+        );
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"symbol_projection","emitted_names":[],"unknown":true})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn exact_source_token_uses_unique_diagnostic_translation() {
+        use sha2::{Digest, Sha256};
+        let dir = krs_test_support::temp_dir();
+        let authored = dir.path().join("authored.rs");
+        fs::write(&authored, "before Exact after").unwrap();
+        fs::write(dir.path().join("spec.k"), "claim exact\n").unwrap();
+        let digest =
+            krs_ir::Sha256Digest::new(krs_ir::lower_hex(&Sha256::digest(b"before Exact after")))
+                .unwrap();
+        let origin = testing::authored_in(package(), "src/lib.rs", digest, 7, 12);
+        let entry = json!({"key":"exact.token","node_kind":"term","origin":origin,"generated":{
+            "artifact":"spec.k","start_byte":6,"end_byte":11,"start_line":1,"start_column":7,"end_line":1,"end_column":12,
+        }});
+        let write = |entries: Vec<Value>| {
+            fs::write(
+                dir.path().join("sources.json"),
+                json!({"schema_version":2,"entries":entries}).to_string(),
+            )
+            .unwrap();
+        };
+        write(vec![entry.clone()]);
+        let request = json!({"kind":"source_token","authored":authored,"package_relative_path":"src/lib.rs","token":"Exact","artifact":"spec.k"});
+        let result = query(dir.path(), &request).unwrap();
+        assert_eq!(result["authored_range"]["start_byte"], 7);
+        assert_eq!(result["generated"]["start_byte"], 6);
+        let mut surrounding = entry.clone();
+        surrounding["key"] = json!("surrounding.condition");
+        surrounding["origin"][0]["range"]["end_byte"] = json!(18);
+        write(vec![entry.clone(), surrounding]);
+        assert_eq!(query(dir.path(), &request).unwrap(), result);
+        fs::write(&authored, "before Wrong after").unwrap();
+        assert!(query(dir.path(), &request).is_err());
+        fs::write(&authored, "before Exact after").unwrap();
+        let mut duplicate = entry.clone();
+        duplicate["key"] = json!("duplicate.token");
+        write(vec![entry.clone(), duplicate]);
+        assert!(query(dir.path(), &request).is_err());
+        let mut ambiguous = entry;
+        ambiguous["origin"]
+            .as_array_mut()
+            .unwrap()
+            .push(encoded(origin.frames().first().unwrap()));
+        write(vec![ambiguous]);
+        assert!(query(dir.path(), &request).is_err());
+    }
+
+    #[test]
+    fn replacement_projection_preserves_sentence_multiplicity_and_changes() {
+        let left = artifacts();
+        let right = artifacts();
+        let request = json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]});
+        let facts = query(right.path(), &request).unwrap();
+        assert_eq!(facts["non_rule_counts"], json!({"sort":1}));
+        assert_eq!(facts["non_rule_count"], 1);
+        assert_eq!(facts["reference_rules"], json!({}));
+        assert!(facts["sentence_count"].as_u64().unwrap() > 1);
+        let path = right.path().join("definition-ir.json");
+        let mut definition =
+            encoded(&read::<DefinitionIr>(right.path(), "definition-ir.json").unwrap());
+        let rule = definition["modules"][0]["sentences"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|s| s["sentence_kind"] == "rule")
+            .unwrap();
+        rule["sentence"]["label"]["emitted_name"] = json!("changed-label");
+        fs::write(path, definition.to_string()).unwrap();
+        assert!(
+            query(right.path(), &request)
+                .unwrap_err()
+                .to_string()
+                .contains("sentence multiset")
+        );
+    }
+
+    #[test]
+    fn replacement_subsort_names_follow_distinct_typed_relations() {
+        use krs_ir::{
+            DescriptorSortRef, DescriptorSortReference, GrammarDescriptor, ProvenanceKey,
+            ProvenanceRole,
+        };
+        let left = artifacts();
+        let right = artifacts();
+        let key = |role| ProvenanceKey::new(role, 0);
+        let descriptors = |prefix: &str| {
+            ["Obj", "KResult"]
+                .iter()
+                .enumerate()
+                .map(|(i, sort)| {
+                    let roles = [
+                        ProvenanceRole::SubsortDeclaration,
+                        ProvenanceRole::SubsortSubSort,
+                        ProvenanceRole::SubsortSuperSort,
+                    ];
+                    krs_ir::Descriptor {
+                        id: item("syntax", &format!("{prefix}_{i}"), ItemKind::Grammar),
+                        cfg: BTreeMap::new(),
+                        provenance: krs_ir::DescriptorProvenance::new(
+                            key(roles[0]),
+                            roles
+                                .iter()
+                                .map(|role| {
+                                    krs_ir::DescriptorNodeOrigin::new(
+                                        key(*role),
+                                        testing::authored_in(
+                                            package(),
+                                            "src/lib.rs",
+                                            testing::digest(),
+                                            0,
+                                            3,
+                                        ),
+                                    )
+                                })
+                                .collect(),
+                        )
+                        .unwrap(),
+                        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+                            key: key(roles[0]),
+                            subsort: DescriptorSortReference {
+                                key: key(roles[1]),
+                                sort: DescriptorSortRef::Declared(item(
+                                    "syntax",
+                                    sort,
+                                    ItemKind::Sort,
+                                )),
+                            },
+                            supersort: DescriptorSortReference {
+                                key: key(roles[2]),
+                                sort: DescriptorSortRef::Declared(item(
+                                    "syntax",
+                                    "KItem",
+                                    ItemKind::Sort,
+                                )),
+                            },
+                        })),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        for (dir, prefix) in [(&left, "generated_span"), (&right, "readable")] {
+            fs::write(
+                dir.path().join("descriptor-bundle.json"),
+                DescriptorBundle::new(descriptors(prefix))
+                    .to_canonical_json()
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+        let request = json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]});
+        let result = query(right.path(), &request).unwrap();
+        assert_eq!(result["subsort_count"], 2);
+        assert_eq!(result["non_rule_counts"], json!({"grammar":2}));
+        let mut changed = descriptors("readable");
+        let DescriptorPayload::Grammar(grammar) = &mut changed[0].payload else {
+            unreachable!()
+        };
+        let GrammarDescriptor::Subsort { supersort, .. } = &mut **grammar else {
+            unreachable!()
+        };
+        supersort.sort = DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Int);
+        fs::write(
+            right.path().join("descriptor-bundle.json"),
+            DescriptorBundle::new(changed).to_canonical_json().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            query(right.path(), &request)
+                .unwrap_err()
+                .to_string()
+                .contains("non-rule descriptors")
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn replacement_frame_normalization_is_limited_to_the_old_transport_shapes() {
+        let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
+        let definition = lowered.definition();
+        let mut context = Context::new(definition);
+        let cell = *context
+            .cells
+            .iter()
+            .find(|(_, name)| **name == "k")
+            .unwrap()
+            .0;
+        let ordinary = definition.modules()[0]
+            .sentences()
+            .iter()
+            .find_map(|s| match s {
+                DefinitionSentence::Rule(r) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        let DefinitionRuleBody::Term(rewrite) = ordinary.relational_body() else {
+            unreachable!()
+        };
+        let DefinitionTermKind::Rewrite { from, to } = rewrite.kind() else {
+            unreachable!()
+        };
+        let make = |frame: krs_ir::CellContentFrame, after: CellPost<DefinitionTerm>| {
+            DefinitionSentence::Rule(krs_ir::RuleSentence::new_configuration(
+                ordinary.origin().clone(),
+                ordinary.label().clone(),
+                ordinary.kind(),
+                vec![krs_ir::DefinitionVariable::new(
+                    SemanticId::new("tail").unwrap(),
+                    DefinitionSortRef::k_sequence(),
+                )],
+                krs_ir::FixedConfigurationRewrite::new(
+                    origin("test.rewrite"),
+                    SemanticId::new("machine").unwrap(),
+                    vec![krs_ir::FixedCellClause::new(
+                        origin("test.clause"),
+                        (*cell).clone(),
+                        DefinitionTerm::k_sequence(
+                            origin("test.before"),
+                            from.sort().clone(),
+                            vec![(**from).clone()],
+                        ),
+                        after,
+                        frame,
+                    )],
+                    vec![],
+                )
+                .unwrap(),
+            ))
+        };
+        let tail = || krs_ir::CellContentFrame::KSequenceTail {
+            origin: origin("test.frame"),
+            binding: Some(SemanticId::new("tail").unwrap()),
+        };
+        let replace = || CellPost::Replace {
+            term: DefinitionTerm::k_sequence(
+                origin("test.after"),
+                to.sort().clone(),
+                vec![(**to).clone()],
+            ),
+        };
+        let input = make(tail(), replace());
+        let normalized = encoded(&projections::frame_normalized(&input, &context).unwrap());
+        assert!(
+            normalized["sentence"]["body"]["clauses"][0]["frame"]
+                .get("binding")
+                .is_none()
+        );
+        assert_eq!(normalized["sentence"]["variables"], json!([]));
+        let left = artifacts();
+        let right = artifacts();
+        for (dir, sentence) in [(&left, normalized.clone()), (&right, encoded(&input))] {
+            let mut value = encoded(definition);
+            let rule = value["modules"][0]["sentences"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|s| s["sentence_kind"] == "rule")
+                .unwrap();
+            *rule = sentence;
+            fs::write(dir.path().join("definition-ir.json"), value.to_string()).unwrap();
+        }
+        assert!(query(right.path(), &json!({"kind":"replacement_parity","reference":left.path(),"module":"KRS-FOO-BAR","module_path":["syntax"]})).is_ok());
+        let preserved = make(tail(), CellPost::Preserve);
+        assert_eq!(
+            projections::frame_normalized(&preserved, &context).unwrap(),
+            preserved
+        );
+        context.cells.insert(cell, "env");
+        let map = || krs_ir::CellContentFrame::MapRemainder {
+            origin: origin("test.frame"),
+            binding: Some(SemanticId::new("tail").unwrap()),
+        };
+        let preserved = make(map(), CellPost::Preserve);
+        assert!(encoded(&projections::frame_normalized(&preserved,&context).unwrap())["sentence"]["body"]["clauses"][0]["frame"].get("binding").is_none());
+        let replaced = make(map(), replace());
+        assert_eq!(
+            projections::frame_normalized(&replaced, &context).unwrap(),
+            replaced
+        );
+        context.cells.insert(cell, "other");
+        assert_eq!(
+            projections::frame_normalized(&input, &context).unwrap(),
+            input
+        );
+    }
+
+    #[test]
+    fn head_rule_walkthrough_projects_typed_named_and_positional_arguments() {
+        use krs_ir::{
+            DescriptorApplicationRef, DescriptorApplicationReference, DescriptorHeadRule,
+            DescriptorHeadRuleBinding, DescriptorHeadRuleResult, DescriptorTerm,
+            DescriptorTermArgument, ProvenanceKey, ProvenanceRole,
+        };
+        let dir = artifacts();
+        let original: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
+        let mut descriptor = original.descriptors[0].clone();
+        let key = |role| ProvenanceKey::new(role, 0);
+        let var = |name: &str| DescriptorTerm::Variable {
+            key: key(ProvenanceRole::RuleLeftReference),
+            path_key: key(ProvenanceRole::RuleLeftReference),
+            name: name.into(),
+        };
+        let application = |head, args| DescriptorTerm::Application {
+            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+            reference: DescriptorApplicationReference {
+                key: key(ProvenanceRole::RuleLeftReference),
+                application: head,
+            },
+            path_key: key(ProvenanceRole::RuleLeftReference),
+            arguments: args,
+        };
+        let config = item("machine", "Machine", ItemKind::Configuration);
+        descriptor.id = item("rules", "eval_add", ItemKind::Rule);
+        descriptor.payload = DescriptorPayload::HeadRule(Box::new(DescriptorHeadRule {
+            sentence_kind: SentenceKind::Transition,
+            label: Some(krs_ir::DescriptorRuleLabel {
+                key: key(ProvenanceRole::RuleLabel),
+                name: "eval-add".into(),
+            }),
+            priority: None,
+            pattern_key: key(ProvenanceRole::RulePattern),
+            result_key: key(ProvenanceRole::RuleResult),
+            head_sort: None,
+            configuration: config.clone(),
+            computation_cell: krs_ir::DescriptorCellReference {
+                key: key(ProvenanceRole::RuleLeftCellsField),
+                cell: krs_ir::DescriptorCellIdentity {
+                    owner: config,
+                    field: "k".into(),
+                },
+            },
+            bindings: vec![
+                DescriptorHeadRuleBinding {
+                    name: "lhs".into(),
+                    refinement: None,
+                },
+                DescriptorHeadRuleBinding {
+                    name: "rhs".into(),
+                    refinement: None,
+                },
+            ],
+            subject: application(
+                DescriptorApplicationRef::Declared(item("syntax", "Add", ItemKind::Constructor)),
+                ["lhs", "rhs"]
+                    .iter()
+                    .map(|name| DescriptorTermArgument::Named {
+                        key: key(ProvenanceRole::RuleLeftReference),
+                        field: krs_ir::ProductionFieldId::new(*name).unwrap(),
+                        value: Box::new(var(name)),
+                    })
+                    .collect(),
+            ),
+            result: DescriptorHeadRuleResult::Replace(application(
+                DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+                ["lhs", "rhs"]
+                    .iter()
+                    .map(|name| DescriptorTermArgument::Positional {
+                        value: Box::new(var(name)),
+                    })
+                    .collect(),
+            )),
+            requires: None,
+            extras: vec![],
+        }));
+        fs::write(
+            dir.path().join("descriptor-bundle.json"),
+            DescriptorBundle::new(vec![descriptor])
+                .to_canonical_json()
+                .unwrap(),
+        )
+        .unwrap();
+        let request = json!({"kind":"head_rule_walkthrough","item_name":"eval_add"});
+        let value = query(dir.path(), &request).unwrap();
+        assert_eq!(
+            value,
+            json!({"id":"eval_add","kind":"head_rule","sentence_kind":"transition","label":"eval-add","configuration":"Machine","cell":"k","bindings":["lhs","rhs"],"subject":{"application":"Add","arguments":["lhs","rhs"]},"result":{"application":"builtin:int_add","arguments":["lhs","rhs"]}})
+        );
+        assert!(
+            query(
+                dir.path(),
+                &json!({"kind":"head_rule_walkthrough","item_name":"absent"})
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn definition_shape_ignores_explicit_rule_tail_bindings() {
         let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();

@@ -627,6 +627,7 @@ name = "krs-gate"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "krs-cli",
  "krs-compiler",
  "krs-ir",
  "krs-k-rust",

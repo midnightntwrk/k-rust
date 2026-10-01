@@ -604,6 +604,22 @@ fn builtin_import(
     }
 }
 
+/// Renders one typed sentence with the definition's canonical emission context.
+///
+/// This uses the same printer as [`emit_k`] and performs no normalization.
+///
+/// # Errors
+///
+/// Returns an emission error for unsupported structure or invalid references.
+pub fn definition_sentence_source(
+    definition: &DefinitionIr,
+    sentence: &DefinitionSentence,
+) -> Result<String, EmitError> {
+    let mut writer = Writer::default();
+    emit_sentence(sentence, &EmitContext::new(definition), &mut writer)?;
+    Ok(writer.source)
+}
+
 fn emit_sentence(
     sentence: &DefinitionSentence,
     context: &EmitContext<'_>,

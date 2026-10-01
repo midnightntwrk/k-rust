@@ -9,7 +9,6 @@ it never turns missing evidence into a skip or a pass.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 from dataclasses import dataclass, field, replace
 import os
 from pathlib import Path
@@ -55,35 +54,6 @@ REFERENCE_MODULE = "KRS-IMP-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
-IMP_RULE_LABELS = {
-    "and_false": "and-false",
-    "and_true": "and-true",
-    "assign": "assign",
-    "block": "block",
-    "done": "done",
-    "eval_add": "eval-add",
-    "eval_bool_eq": "eval-bool-eq",
-    "eval_bool_ne": "eval-bool-ne",
-    "eval_div": "eval-div",
-    "eval_ge": "eval-ge",
-    "eval_gt": "eval-gt",
-    "eval_int_eq": "eval-int-eq",
-    "eval_int_ne": "eval-int-ne",
-    "eval_le": "eval-le",
-    "eval_lt": "eval-lt",
-    "eval_mul": "eval-mul",
-    "eval_neg": "eval-neg",
-    "eval_not": "eval-not",
-    "eval_sub": "eval-sub",
-    "if_else": "if-else",
-    "if_false": "if-false",
-    "if_true": "if-true",
-    "or_false": "or-false",
-    "or_true": "or-true",
-    "step": "step",
-    "var": "var",
-    "while": "while",
-}
 
 
 def require_exact_summary(
@@ -95,244 +65,14 @@ def require_exact_summary(
         raise GateError(f"{phase} did not report its exact PASS summary: {compact(process)}")
 
 
-def _normalize_imp_identity(value: Any, alpha_names: Mapping[str, str]) -> Any:
-    """Normalize only package and span-derived identity differences."""
-
-    if isinstance(value, str):
-        return alpha_names.get(value, value)
-    if isinstance(value, list):
-        return [_normalize_imp_identity(child, alpha_names) for child in value]
-    if not isinstance(value, dict):
-        return value
-    if value.get("k_namespace") == MODULE and {
-        "cargo_name", "cargo_version", "cargo_source"
-    } <= set(value):
-        return {
-            "k_namespace": MODULE,
-            "cargo_name": "normalized-imp-package",
-            "cargo_version": "0.0.0",
-            "cargo_source": "workspace",
-        }
-    return {
-        key: _normalize_imp_identity(child, alpha_names)
-        for key, child in value.items()
-    }
-
-
-def _subsort_alpha_names(bundle: Mapping[str, Any]) -> dict[str, str]:
-    """Name generated and stable readable subsorts by semantic relation."""
-
-    descriptors = bundle.get("descriptors")
-    if not isinstance(descriptors, list):
-        raise GateError("replacement parity descriptor bundle lacks a descriptor array")
-    relations: list[tuple[str, str]] = []
-    for descriptor in descriptors:
-        if not isinstance(descriptor, dict):
-            raise GateError("replacement parity descriptor entry is not an object")
-        identity = descriptor.get("id", {})
-        payload = descriptor.get("descriptor", {})
-        if not isinstance(identity, dict) or not isinstance(payload, dict):
-            raise GateError("replacement parity descriptor identity or payload is malformed")
-        name = identity.get("item_name")
-        if (
-            identity.get("module_path") == ["imp"]
-            and descriptor.get("descriptor_kind") == "grammar"
-            and payload.get("grammar_kind") == "subsort"
-            and isinstance(name, str)
-        ):
-            grammar = _normalize_imp_identity(payload.get("grammar"), {})
-            relations.append((canonical_json(grammar), name))
-    if len(relations) != 3 or len({relation for relation, _ in relations}) != 3:
-        raise GateError(
-            "replacement parity requires exactly three distinct IMP subsorts"
-        )
-    return {
-        name: f"__krs_grammar_subsort_alpha_{ordinal}"
-        for ordinal, (_, name) in enumerate(sorted(relations))
-    }
-
-
-def _normalized_imp_non_rules(
-    bundle: Mapping[str, Any], rule_kind: str
-) -> tuple[list[Any], list[Any]]:
-    """Project the 54 IMP declarations unaffected by rule transport."""
-
-    descriptors = bundle.get("descriptors")
-    declarations = bundle.get("declarations")
-    if not isinstance(descriptors, list) or not isinstance(declarations, list):
-        raise GateError("replacement parity bundle arrays are malformed")
-    alpha_names = _subsort_alpha_names(bundle)
-    selected = [
-        descriptor
-        for descriptor in descriptors
-        if isinstance(descriptor, dict)
-        and descriptor.get("id", {}).get("module_path") == ["imp"]
-        and descriptor.get("descriptor_kind") != rule_kind
-    ]
-    expected_kinds = {
-        "constructor": 21,
-        "fixed_configuration": 1,
-        "grammar": 29,
-        "sort": 3,
-    }
-    observed_kinds = Counter(
-        descriptor.get("descriptor_kind") for descriptor in selected
-    )
-    if observed_kinds != expected_kinds:
-        raise GateError(
-            f"replacement parity non-rule descriptor kinds differ: {observed_kinds}"
-        )
-
-    normalized_descriptors = []
-    normalized_ids = set()
-    for descriptor in selected:
-        normalized = _normalize_imp_identity(descriptor, alpha_names)
-        normalized.pop("provenance", None)
-        normalized_descriptors.append(normalized)
-        normalized_ids.add(canonical_json(normalized.get("id")))
-    if len(normalized_ids) != 54:
-        raise GateError("replacement parity non-rule identities are not 54 unique items")
-
-    normalized_declarations = []
-    for declaration in declarations:
-        if not isinstance(declaration, dict):
-            raise GateError("replacement parity declaration entry is not an object")
-        normalized = _normalize_imp_identity(declaration, alpha_names)
-        if canonical_json(normalized.get("id")) in normalized_ids:
-            normalized_declarations.append(normalized)
-    if len(normalized_declarations) != 54:
-        raise GateError(
-            "replacement parity does not contain exactly 54 non-rule declaration records"
-        )
-    return (
-        sorted(normalized_descriptors, key=canonical_json),
-        sorted(normalized_declarations, key=canonical_json),
-    )
-
-
-def _imp_rule_transport(bundle: Mapping[str, Any], rule_kind: str) -> dict[str, str]:
-    """Return the exact Rust-item to K-label mapping for one rule surface."""
-
-    descriptors = bundle.get("descriptors")
-    if not isinstance(descriptors, list):
-        raise GateError("replacement rule transport lacks a descriptor array")
-    transport: dict[str, str] = {}
-    for descriptor in descriptors:
-        if not isinstance(descriptor, dict):
-            raise GateError("replacement rule transport descriptor is malformed")
-        identity = descriptor.get("id", {})
-        payload = descriptor.get("descriptor", {})
-        if (
-            identity.get("module_path") != ["imp"]
-            or descriptor.get("descriptor_kind") != rule_kind
-        ):
-            continue
-        if payload.get("sentence_kind") != "transition":
-            raise GateError("replacement IMP rule transport is not a transition")
-        name = identity.get("item_name")
-        label = payload.get("label", {}).get("name")
-        if not isinstance(name, str) or not isinstance(label, str):
-            raise GateError("replacement IMP rule name or label is malformed")
-        name = name.removeprefix("r#")
-        if name in transport:
-            raise GateError(f"replacement IMP rule identity is duplicated: {name}")
-        transport[name] = label
-    return transport
-
-
-def _module_sentences(source: str, module: str) -> list[str]:
-    """Split one emitted K module into source-level sentence blocks."""
-
-    lines = source.splitlines()
-    starts = [index for index, line in enumerate(lines) if line == f"module {module}"]
-    if len(starts) != 1:
-        raise GateError(f"emitted K must contain exactly one `{module}` module")
-    start = starts[0] + 1
-    try:
-        end = lines.index("endmodule", start)
-    except ValueError as error:
-        raise GateError(f"emitted K module `{module}` lacks `endmodule`") from error
-    starter = re.compile(
-        r"^  (?:imports\b|syntax\b|configuration\b|context alias\b|rule\b|claim\b)"
-    )
-    sentences: list[str] = []
-    current: list[str] = []
-    for line in lines[start:end]:
-        if starter.match(line):
-            if current:
-                sentences.append("\n".join(current).rstrip())
-            current = [line]
-        elif current:
-            current.append(line)
-        elif line.strip():
-            raise GateError(f"unclassified emitted K module content: {line!r}")
-    if current:
-        sentences.append("\n".join(current).rstrip())
-    return sentences
-
-
-def _normalize_head_rule_sentence(sentence: str) -> str:
-    """Normalize explicit frame transport to the readable head-rule spelling."""
-
-    if not sentence.startswith("  rule ["):
-        return sentence
-    sentence = re.sub(
-        r"^    <k> (.*) ~> (V[0-9A-F]+:K) => (.*) ~> \2 </k>$",
-        r"    <k> \1 => \3 ... </k>",
-        sentence,
-        flags=re.MULTILINE,
-    )
-    return re.sub(
-        r"^(    <env> .*) V[0-9A-F]+:Map </env>$",
-        r"\1 ... </env>",
-        sentence,
-        flags=re.MULTILINE,
-    )
-
-
-def _verify_replacement_parity(authored: Path, replacement: Path) -> None:
-    """Require declaration, rule-transport, and emitted-K replacement parity."""
-
-    authored_bundle = load_json(authored / "descriptor-bundle.json")
-    replacement_bundle = load_json(replacement / "descriptor-bundle.json")
-    authored_non_rules = _normalized_imp_non_rules(authored_bundle, "head_rule")
-    replacement_non_rules = _normalized_imp_non_rules(
-        replacement_bundle, "configuration_rule"
-    )
-    if authored_non_rules != replacement_non_rules:
-        raise GateError(
-            "expanded replacement differs across normalized non-rule descriptors or metadata"
-        )
-
-    authored_rules = _imp_rule_transport(authored_bundle, "head_rule")
-    replacement_rules = _imp_rule_transport(replacement_bundle, "configuration_rule")
-    if authored_rules != IMP_RULE_LABELS or replacement_rules != IMP_RULE_LABELS:
-        raise GateError(
-            "expanded replacement does not preserve the exact 27-rule name/label transport"
-        )
-
-    authored_sentences = Counter(
-        _normalize_head_rule_sentence(sentence)
-        for sentence in _module_sentences(
-            (authored / "definition.k").read_text(encoding="utf-8"), MODULE
-        )
-    )
-    replacement_sentence_list = [
-        _normalize_head_rule_sentence(sentence)
-        for sentence in _module_sentences(
-            (replacement / "definition.k").read_text(encoding="utf-8"), MODULE
-        )
-    ]
-    if len(replacement_sentence_list) != 77:
-        raise GateError(
-            "expanded replacement must emit exactly 77 IMP imports and sentences"
-        )
-    replacement_sentences = Counter(replacement_sentence_list)
-    missing = replacement_sentences - authored_sentences
-    if missing:
-        raise GateError(
-            f"expanded replacement emitted K sentence multiset differs: {missing}"
-        )
+def _verify_replacement_parity(authored: Path, replacement: Path, gate: Path, environment: Mapping[str, str]) -> None:
+    facts = krs_gate.ir_query(gate, replacement, {
+        "kind": "replacement_parity", "reference": os.fspath(authored),
+        "module": MODULE, "module_path": ["imp"],
+    }, environment=environment)
+    expected = load_json(HERE / "replacement-parity.json")
+    if facts != expected:
+        raise GateError(f"typed replacement parity differs: {facts!r}")
 
 
 @dataclass
@@ -626,7 +366,7 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
         "emit-k", "--backend", "haskell", "--output", replacement,
         timeout=300, environment=env,
     )
-    _verify_replacement_parity(emit_a, replacement)
+    _verify_replacement_parity(emit_a, replacement, context.target / "release/krs-gate", env)
     emitted_names = emitted_files(emit_a, context.target / "release/krs-gate", environment=env)
     for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
         # The ownership marker is the same file `krs build` writes natively.
@@ -906,6 +646,7 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
     env = {
         **context.environment,
         "CARGO_TARGET_DIR": os.fspath(context.target),
+        "KRS_GATE_BIN": os.fspath(context.target / "release/krs-gate"),
         "KRS_IMP_PROBE_TARGET_ROOT": os.fspath(context.target / "probes"),
     }
     commands = [

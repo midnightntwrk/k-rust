@@ -9,6 +9,7 @@ description = "Native KRS gate protocol and compiler"
 
 [dependencies]
 k-rust = { version = "=0.4.0", path = "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust", default-features = false, features = ["z3-inference"] }
+krs-cli = { path = "../krs-cli" }
 krs-compiler = { path = "../krs-compiler" }
 krs-ir = { path = "../krs-ir" }
 krs-k-rust = { path = "../krs-k-rust" }

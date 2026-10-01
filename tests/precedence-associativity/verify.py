@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import GateError, entry  # noqa: E402
+from support import GateError, entry, krs_gate  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
@@ -39,8 +39,9 @@ def main() -> int:
         invocation.run("check", environment=environment)
         invocation.run("emit-k", "--output", emitted, environment=environment)
 
-        source = (emitted / "definition.k").read_text(encoding="utf-8")
-        if source.count("syntax non-assoc") != 1:
+        gate = krs_gate.build(target, environment=environment)
+        rows = krs_gate.ir_query(gate, emitted, {"kind": "sentences", "sentence_kind": "associativity"}, environment=environment)["rows"]
+        if sum(row["associativity"] == "non_associative" for row in rows) != 1:
             raise GateError("emitted definition must contain one explicit non-assoc sentence")
 
         compiled = workspace / "compiled"
