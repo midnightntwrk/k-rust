@@ -5,6 +5,8 @@
 //! descriptor's provenance table. Rust references remain build-local in the
 //! host forms and become declared-or-builtin identities before serialization.
 
+mod term_validation;
+
 use std::any::TypeId;
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -1451,7 +1453,7 @@ impl DescriptorApplicationRef {
 }
 
 impl DescriptorLiteral {
-    fn validate(&self) -> Result<(), GrammarTransportError> {
+    pub(super) fn validate(&self) -> Result<(), GrammarTransportError> {
         match self {
             Self::Int(value)
                 if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) =>
@@ -1581,99 +1583,15 @@ impl DescriptorTerm {
         seen_variables: &mut BTreeSet<String>,
         allow_wildcards: bool,
     ) -> Result<(), GrammarTransportError> {
-        match self {
-            Self::Variable {
-                key,
-                path_key,
-                name,
-            } => {
-                require_key(key, provenance)?;
-                require_key(path_key, provenance)?;
-                if name.trim().is_empty() || !bindings.contains(name) {
-                    return Err(GrammarTransportError::InvalidBinding(name.clone()));
-                }
-                seen_variables.insert(name.clone());
-            }
-            Self::Application {
-                head_class,
-                reference,
-                path_key,
-                arguments,
-            } => {
-                require_key(&reference.key, provenance)?;
-                require_key(path_key, provenance)?;
-                reference.application.validate()?;
-                if *head_class == DescriptorApplicationHeadClass::BareReference
-                    && !arguments.is_empty()
-                {
-                    return Err(GrammarTransportError::InvalidApplication(
-                        "a bare-reference constructor must have no arguments",
-                    ));
-                }
-                validate_map_application_shape(*head_class, &reference.application, arguments)?;
-                validate_list_application_shape(*head_class, &reference.application, arguments)?;
-                validate_set_application_shape(*head_class, &reference.application, arguments)?;
-                let named = arguments.first().is_some_and(|argument| {
-                    matches!(argument, DescriptorTermArgument::Named { .. })
-                });
-                let mut fields = BTreeSet::new();
-                for argument in arguments {
-                    match argument {
-                        DescriptorTermArgument::Positional { value } if !named => {
-                            value.validate(
-                                provenance,
-                                bindings,
-                                seen_variables,
-                                allow_wildcards,
-                            )?;
-                        }
-                        DescriptorTermArgument::Named { key, field, value } if named => {
-                            require_key(key, provenance)?;
-                            if !fields.insert(field.clone()) {
-                                return Err(GrammarTransportError::InvalidApplication(
-                                    "named field occurs more than once",
-                                ));
-                            }
-                            value.validate(
-                                provenance,
-                                bindings,
-                                seen_variables,
-                                allow_wildcards,
-                            )?;
-                        }
-                        DescriptorTermArgument::Positional { .. }
-                        | DescriptorTermArgument::Named { .. } => {
-                            return Err(GrammarTransportError::InvalidApplication(
-                                "positional and named arguments are mixed",
-                            ));
-                        }
-                    }
-                }
-            }
-            Self::Literal { key, literal } => {
-                require_key(key, provenance)?;
-                literal.validate()?;
-            }
-            Self::Wildcard { key } => {
-                require_key(key, provenance)?;
-                if !allow_wildcards {
-                    return Err(GrammarTransportError::InvalidTerm(
-                        "wildcards are allowed only in rule subjects",
-                    ));
-                }
-            }
-            Self::BuiltinToken { .. } | Self::Anonymous { .. } | Self::OrBool { .. } => {
-                return Err(GrammarTransportError::InvalidTerm(
-                    "claim-only term used outside a whole-configuration claim",
-                ));
-            }
-            Self::Cell { .. } => {
-                return Err(GrammarTransportError::InvalidTerm(
-                    "complete cell terms require configuration rules",
-                ));
-            }
-        }
-        Ok(())
+        super::validation::validate_term(
+            self,
+            &mut term_validation::GrammarTermValidation {
+                provenance,
+                bindings,
+                seen_variables,
+                allow_wildcards,
+            },
+        )
     }
 }
 
@@ -2688,84 +2606,14 @@ impl DescriptorTerm {
         side: TermSide,
         counters: &mut TermKeyCounters,
     ) -> Result<(), GrammarTransportError> {
-        match self {
-            Self::Variable { key, path_key, .. } => {
-                insert_exact(keys, path_key, side.path_role(), counters.path)?;
-                counters.path = increment(counters.path)?;
-                insert_exact(keys, key, side.reference_role(), counters.reference)?;
-                counters.reference = increment(counters.reference)?;
-            }
-            Self::Application {
-                head_class,
-                reference,
-                path_key,
-                arguments,
-            } => {
-                insert_exact(keys, path_key, side.path_role(), counters.path)?;
-                counters.path = increment(counters.path)?;
-                match head_class {
-                    DescriptorApplicationHeadClass::Applied => {
-                        insert_exact(
-                            keys,
-                            &reference.key,
-                            side.application_role(),
-                            counters.application,
-                        )?;
-                        counters.application = increment(counters.application)?;
-                    }
-                    DescriptorApplicationHeadClass::BareReference => {
-                        insert_exact(
-                            keys,
-                            &reference.key,
-                            side.reference_role(),
-                            counters.reference,
-                        )?;
-                        counters.reference = increment(counters.reference)?;
-                    }
-                }
-                for argument in arguments {
-                    match argument {
-                        DescriptorTermArgument::Positional { value } => {
-                            value.collect_expected_term_keys(keys, side, counters)?;
-                        }
-                        DescriptorTermArgument::Named { key, value, .. } => {
-                            insert_exact(
-                                keys,
-                                key,
-                                side.record_field_role(),
-                                counters.record_field,
-                            )?;
-                            counters.record_field = increment(counters.record_field)?;
-                            value.collect_expected_term_keys(keys, side, counters)?;
-                        }
-                    }
-                }
-            }
-            Self::Literal { key, .. } => {
-                insert_exact(keys, key, side.literal_role(), counters.literal)?;
-                counters.literal = increment(counters.literal)?;
-            }
-            Self::Wildcard { key } => {
-                let Some(role) = side.wildcard_role() else {
-                    return Err(GrammarTransportError::InvalidTerm(
-                        "wildcards are allowed only in rule subjects",
-                    ));
-                };
-                insert_exact(keys, key, role, counters.wildcard)?;
-                counters.wildcard = increment(counters.wildcard)?;
-            }
-            Self::BuiltinToken { .. } | Self::Anonymous { .. } | Self::OrBool { .. } => {
-                return Err(GrammarTransportError::InvalidTerm(
-                    "claim-only term used outside a whole-configuration claim",
-                ));
-            }
-            Self::Cell { .. } => {
-                return Err(GrammarTransportError::InvalidTerm(
-                    "complete cell terms require configuration rules",
-                ));
-            }
-        }
-        Ok(())
+        super::validation::validate_term(
+            self,
+            &mut term_validation::TermProvenanceValidation {
+                keys,
+                side,
+                counters,
+            },
+        )
     }
 }
 

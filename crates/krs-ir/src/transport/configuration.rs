@@ -15,10 +15,15 @@ use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shap
 
 use crate::host::{HostTypeKey, HostTypeReference};
 use crate::transport::grammar::{
-    DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
-    DescriptorTermArgument, HostSortReference, HostTerm, HostTermArgument,
+    CellTermField, DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference,
+    DescriptorTerm, HostSortReference, HostTerm, Term, TermArgument,
 };
-use crate::{BuiltinSort, ItemKind, ProvenanceKey, ProvenanceRole, StableItemId};
+use crate::{
+    BuiltinSort, DescriptorLiteral, ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole,
+    StableItemId,
+};
+
+use super::validation::{TermValidation, ValidationStage, validate_term};
 
 /// Stable owner-qualified identity of one fixed cell field.
 ///
@@ -672,7 +677,7 @@ impl ProtocolCellDeclaration<DescriptorCellField> {
     /// typed references, metadata, or parser roles/ordinals.
     pub fn validate(&self, owner: &StableItemId) -> Result<(), StateTransportError> {
         let mut ignored = BTreeSet::new();
-        validate_descriptor_declaration(self, owner, &mut ignored)
+        validate_declaration::<DescriptorStage>(self, owner, &mut ignored)
     }
 
     /// Returns the complete exact provenance set for this declaration.
@@ -685,7 +690,7 @@ impl ProtocolCellDeclaration<DescriptorCellField> {
         owner: &StableItemId,
     ) -> Result<BTreeSet<ProvenanceKey>, StateTransportError> {
         let mut keys = BTreeSet::new();
-        validate_descriptor_declaration(self, owner, &mut keys)?;
+        validate_declaration::<DescriptorStage>(self, owner, &mut keys)?;
         Ok(keys)
     }
 
@@ -715,7 +720,7 @@ impl ProtocolCellDeclaration<HostCellField> {
     /// fields/names, malformed metadata, or wrong parser roles/ordinals.
     pub fn validate_host(&self, owner: HostTypeKey) -> Result<(), StateTransportError> {
         let mut keys = BTreeSet::new();
-        validate_host_declaration(self, owner, &mut keys)
+        validate_declaration::<HostStage>(self, &owner, &mut keys)
     }
 }
 
@@ -766,22 +771,12 @@ impl DescriptorFixedConfiguration {
         owner: &StableItemId,
         keys: &mut BTreeSet<ProvenanceKey>,
     ) -> Result<(), StateTransportError> {
-        if owner.item_kind() != ItemKind::Configuration {
-            return Err(StateTransportError::ItemKind {
-                field: "configuration descriptor",
-                expected: "Configuration",
-                actual: owner.item_kind(),
-            });
-        }
-        validate_root(&self.root, keys)?;
-        validate_descriptor_declaration(&self.declaration, owner, keys)?;
-        validate_descriptor_initializer(&self.initializer, owner, &self.declaration, keys)
+        validate_configuration::<DescriptorStage>(self, owner, keys)
     }
 }
 
 impl HostFixedConfiguration {
-    /// Validates a complete host declaration/initializer pairing without
-    /// consulting path spelling.
+    /// Validates a complete host declaration/initializer pairing.
     ///
     /// # Errors
     ///
@@ -790,18 +785,316 @@ impl HostFixedConfiguration {
     /// parser roles/ordinals.
     pub fn validate(&self, owner: HostTypeKey) -> Result<(), StateTransportError> {
         let mut keys = BTreeSet::new();
-        validate_root(&self.root, &mut keys)?;
-        validate_host_declaration(&self.declaration, owner, &mut keys)?;
-        validate_host_initializer(&self.initializer, owner, &self.declaration, &mut keys)
+        validate_configuration::<HostStage>(self, &owner, &mut keys)
     }
 }
 
-fn validate_descriptor_declaration(
-    declaration: &DescriptorConfigurationDeclaration,
-    owner: &StableItemId,
+type StageCellField<S> =
+    ProtocolCellField<<S as Stage>::Cell, <S as Stage>::Sort, <S as Stage>::CellDeclaration>;
+type StageInitializerCell<S> = ProtocolInitializerCell<
+    <S as Stage>::Cell,
+    <S as Stage>::CellDeclaration,
+    ProtocolInitializerStateTerm<Term<S>>,
+>;
+
+trait ConfigurationValidationStage: ValidationStage {
+    type CellIdentity: Ord;
+    type FieldIdentity: Ord;
+
+    /// Descriptor configurations require the configuration kind; host owners have no stable kind.
+    fn validate_configuration_owner(
+        owner: &Self::InitializerOwner,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor owners must name configurations or cells; host owners have no stable kind.
+    fn validate_declaration_owner(
+        owner: &Self::InitializerOwner,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor owners compare stable identities; host owners compare resolved Rust types.
+    fn owners_match(left: &Self::InitializerOwner, right: &Self::InitializerOwner) -> bool;
+    /// Both stages retain the occurrence key on their different cell reference representations.
+    fn cell_key(reference: &Self::Cell) -> &ProvenanceKey;
+    /// Descriptor cell identities validate owner kinds and field text; host identities need no text validation.
+    fn validate_cell(reference: &Self::Cell) -> Result<(), StateTransportError>;
+    /// Descriptor cell owners compare stable identities; host cell owners compare resolved Rust types.
+    fn cell_owned_by(reference: &Self::Cell, owner: &Self::InitializerOwner) -> bool;
+    /// Descriptor cell identities use owner and field text; host identities use owner and marker types.
+    fn cell_identity(reference: &Self::Cell) -> Self::CellIdentity;
+    /// Descriptor sibling fields compare text; host sibling fields compare resolved marker types.
+    fn field_identity(reference: &Self::Cell) -> Self::FieldIdentity;
+    /// Descriptor field text must agree with the Rust spelling; host marker identities do not encode spelling.
+    fn validate_field_spelling(
+        reference: &Self::Cell,
+        spelling: &str,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor initializer joins also check field spelling; host joins compare owner and marker types.
+    fn initializer_field_matches(
+        reference: &Self::Cell,
+        declaration: &StageCellField<Self>,
+        owner: &Self::InitializerOwner,
+    ) -> bool;
+    /// Descriptor leaf sorts validate their kinds and `KCell` content; host leaf sorts defer these checks.
+    fn validate_leaf_sort(
+        wrapper: CellWrapper,
+        sort: &Self::Sort,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor arguments validate sort kinds; host arguments require a nonblank diagnostic path.
+    fn validate_sort_argument(sort: &Self::Sort) -> Result<(), StateTransportError>;
+    /// Both stages retain the occurrence key on their different nested declaration representations.
+    fn declaration_key(declaration: &Self::CellDeclaration) -> &ProvenanceKey;
+    /// Descriptor nested declarations validate cell kinds; host declarations require a nonblank diagnostic path.
+    fn validate_nested_declaration(
+        declaration: &Self::CellDeclaration,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor nested initializers validate cell kinds; host initializers defer validation of the target.
+    fn validate_nested_initializer(
+        declaration: &Self::CellDeclaration,
+    ) -> Result<(), StateTransportError>;
+    /// Descriptor nested targets compare stable identities; host nested targets compare resolved Rust types.
+    fn nested_declarations_match(
+        left: &Self::CellDeclaration,
+        right: &Self::CellDeclaration,
+    ) -> bool;
+    /// Descriptor nested owners are stable identities; host nested owners are Rust type keys.
+    fn nested_owner(declaration: &Self::CellDeclaration) -> Self::InitializerOwner;
+}
+
+impl ConfigurationValidationStage for DescriptorStage {
+    type CellIdentity = DescriptorCellIdentity;
+    type FieldIdentity = String;
+
+    fn validate_configuration_owner(owner: &StableItemId) -> Result<(), StateTransportError> {
+        if owner.item_kind() != ItemKind::Configuration {
+            return Err(StateTransportError::ItemKind {
+                field: "configuration descriptor",
+                expected: "Configuration",
+                actual: owner.item_kind(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_declaration_owner(owner: &StableItemId) -> Result<(), StateTransportError> {
+        require_cell_owner_kind(owner, "cell declaration")
+    }
+
+    fn owners_match(left: &StableItemId, right: &StableItemId) -> bool {
+        left == right
+    }
+
+    fn cell_key(reference: &DescriptorCellReference) -> &ProvenanceKey {
+        &reference.key
+    }
+
+    fn validate_cell(reference: &DescriptorCellReference) -> Result<(), StateTransportError> {
+        reference.cell.validate()
+    }
+
+    fn cell_owned_by(reference: &DescriptorCellReference, owner: &StableItemId) -> bool {
+        &reference.cell.owner == owner
+    }
+
+    fn cell_identity(reference: &DescriptorCellReference) -> DescriptorCellIdentity {
+        reference.cell.clone()
+    }
+
+    fn field_identity(reference: &DescriptorCellReference) -> String {
+        reference.cell.field.clone()
+    }
+
+    fn validate_field_spelling(
+        reference: &DescriptorCellReference,
+        spelling: &str,
+    ) -> Result<(), StateTransportError> {
+        if reference.cell.field == spelling {
+            Ok(())
+        } else {
+            Err(StateTransportError::CellFieldMismatch)
+        }
+    }
+
+    fn initializer_field_matches(
+        reference: &DescriptorCellReference,
+        declaration: &DescriptorCellField,
+        owner: &StableItemId,
+    ) -> bool {
+        reference.cell.owner == *owner
+            && reference.cell == declaration.reference.cell
+            && reference.cell.field == declaration.rust_field
+    }
+
+    fn validate_leaf_sort(
+        wrapper: CellWrapper,
+        sort: &DescriptorSortReference,
+    ) -> Result<(), StateTransportError> {
+        sort.sort
+            .validate()
+            .map_err(|_| StateTransportError::ItemKind {
+                field: "cell content sort",
+                expected: "Sort or builtin",
+                actual: match &sort.sort {
+                    DescriptorSortRef::Declared(id) => id.item_kind(),
+                    DescriptorSortRef::Builtin(_) => ItemKind::Sort,
+                },
+            })?;
+        validate_k_cell_sort(wrapper, &sort.sort)
+    }
+
+    fn validate_sort_argument(sort: &DescriptorSortReference) -> Result<(), StateTransportError> {
+        sort.sort
+            .validate()
+            .map_err(|_| StateTransportError::InvalidTerm("invalid cell sort argument"))
+    }
+
+    fn declaration_key(declaration: &DescriptorCellDeclarationReference) -> &ProvenanceKey {
+        &declaration.key
+    }
+
+    fn validate_nested_declaration(
+        declaration: &DescriptorCellDeclarationReference,
+    ) -> Result<(), StateTransportError> {
+        declaration.validate()
+    }
+
+    fn validate_nested_initializer(
+        declaration: &DescriptorCellDeclarationReference,
+    ) -> Result<(), StateTransportError> {
+        declaration.validate()
+    }
+
+    fn nested_declarations_match(
+        left: &DescriptorCellDeclarationReference,
+        right: &DescriptorCellDeclarationReference,
+    ) -> bool {
+        left.declaration == right.declaration
+    }
+
+    fn nested_owner(declaration: &DescriptorCellDeclarationReference) -> StableItemId {
+        declaration.declaration.clone()
+    }
+}
+
+impl ConfigurationValidationStage for HostStage {
+    type CellIdentity = (TypeId, TypeId);
+    type FieldIdentity = TypeId;
+
+    fn validate_configuration_owner(_: &HostTypeKey) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn validate_declaration_owner(_: &HostTypeKey) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn owners_match(left: &HostTypeKey, right: &HostTypeKey) -> bool {
+        left.resolve() == right.resolve()
+    }
+
+    fn cell_key(reference: &HostCellReference) -> &ProvenanceKey {
+        &reference.key
+    }
+
+    fn validate_cell(_: &HostCellReference) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn cell_owned_by(reference: &HostCellReference, owner: &HostTypeKey) -> bool {
+        reference.cell.owner.resolve() == owner.resolve()
+    }
+
+    fn cell_identity(reference: &HostCellReference) -> (TypeId, TypeId) {
+        reference.cell.resolve()
+    }
+
+    fn field_identity(reference: &HostCellReference) -> TypeId {
+        reference.cell.field.resolve()
+    }
+
+    fn validate_field_spelling(_: &HostCellReference, _: &str) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn initializer_field_matches(
+        reference: &HostCellReference,
+        declaration: &HostCellField,
+        owner: &HostTypeKey,
+    ) -> bool {
+        reference.cell.resolve() == declaration.reference.cell.resolve()
+            && reference.cell.owner.resolve() == owner.resolve()
+    }
+
+    fn validate_leaf_sort(
+        _: CellWrapper,
+        _: &HostSortReference,
+    ) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn validate_sort_argument(sort: &HostSortReference) -> Result<(), StateTransportError> {
+        if sort.target.authored_path.trim().is_empty() {
+            Err(StateTransportError::InvalidText(
+                "cell sort argument diagnostic path",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn declaration_key(declaration: &HostCellDeclarationReference) -> &ProvenanceKey {
+        &declaration.key
+    }
+
+    fn validate_nested_declaration(
+        declaration: &HostCellDeclarationReference,
+    ) -> Result<(), StateTransportError> {
+        if declaration.declaration.authored_path.trim().is_empty() {
+            Err(StateTransportError::InvalidText(
+                "nested cell diagnostic path",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_nested_initializer(
+        _: &HostCellDeclarationReference,
+    ) -> Result<(), StateTransportError> {
+        Ok(())
+    }
+
+    fn nested_declarations_match(
+        left: &HostCellDeclarationReference,
+        right: &HostCellDeclarationReference,
+    ) -> bool {
+        left.declaration.key.resolve() == right.declaration.key.resolve()
+    }
+
+    fn nested_owner(declaration: &HostCellDeclarationReference) -> HostTypeKey {
+        declaration.declaration.key
+    }
+}
+
+fn validate_configuration<S: ConfigurationValidationStage>(
+    configuration: &FixedConfiguration<S>,
+    owner: &S::InitializerOwner,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    require_cell_owner_kind(owner, "cell declaration")?;
+    S::validate_configuration_owner(owner)?;
+    validate_root(&configuration.root, keys)?;
+    validate_declaration::<S>(&configuration.declaration, owner, keys)?;
+    validate_initializer::<S>(
+        &configuration.initializer,
+        owner,
+        &configuration.declaration,
+        keys,
+    )
+}
+
+fn validate_declaration<S: ConfigurationValidationStage>(
+    declaration: &StageCellDeclaration<S>,
+    owner: &S::InitializerOwner,
+    keys: &mut BTreeSet<ProvenanceKey>,
+) -> Result<(), StateTransportError> {
+    S::validate_declaration_owner(owner)?;
     insert_exact(
         keys,
         &declaration.key,
@@ -817,22 +1110,20 @@ fn validate_descriptor_declaration(
     let mut argument_ordinal = 0_u32;
     for (index, field) in declaration.fields.iter().enumerate() {
         let ordinal = checked_index(index)?;
-        field.reference.cell.validate()?;
-        if &field.reference.cell.owner != owner {
+        S::validate_cell(&field.reference)?;
+        if !S::cell_owned_by(&field.reference, owner) {
             return Err(StateTransportError::CellOwnerMismatch);
         }
         validate_rust_field(&field.rust_field)?;
-        if field.reference.cell.field != field.rust_field {
-            return Err(StateTransportError::CellFieldMismatch);
-        }
+        S::validate_field_spelling(&field.reference, &field.rust_field)?;
         if !rust_fields.insert(field.rust_field.clone())
-            || !identities.insert(field.reference.cell.clone())
+            || !identities.insert(S::cell_identity(&field.reference))
         {
             return Err(StateTransportError::DuplicateValue("fixed cell fields"));
         }
         insert_exact(
             keys,
-            &field.reference.key,
+            S::cell_key(&field.reference),
             ProvenanceRole::ConfigurationField,
             ordinal,
         )?;
@@ -857,135 +1148,30 @@ fn validate_descriptor_declaration(
                 )?;
                 insert_exact(
                     keys,
-                    &sort.key,
+                    S::sort_key(sort),
                     ProvenanceRole::ConfigurationCellContent,
                     ordinal,
                 )?;
-                sort.sort
-                    .validate()
-                    .map_err(|_| StateTransportError::ItemKind {
-                        field: "cell content sort",
-                        expected: "Sort or builtin",
-                        actual: match &sort.sort {
-                            DescriptorSortRef::Declared(id) => id.item_kind(),
-                            DescriptorSortRef::Builtin(_) => ItemKind::Sort,
-                        },
-                    })?;
-                validate_k_cell_sort(*wrapper, &sort.sort)?;
+                S::validate_leaf_sort(*wrapper, sort)?;
                 for argument in arguments {
                     insert_exact(
                         keys,
-                        &argument.key,
+                        S::sort_key(argument),
                         ProvenanceRole::ConfigurationCellContentArgument,
                         argument_ordinal,
                     )?;
-                    argument.sort.validate().map_err(|_| {
-                        StateTransportError::InvalidTerm("invalid cell sort argument")
-                    })?;
+                    S::validate_sort_argument(argument)?;
                     argument_ordinal = increment(argument_ordinal)?;
                 }
             }
             ProtocolCellContent::Nested { declaration } => {
                 insert_exact(
                     keys,
-                    &declaration.key,
+                    S::declaration_key(declaration),
                     ProvenanceRole::ConfigurationCellContent,
                     ordinal,
                 )?;
-                declaration.validate()?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_host_declaration(
-    declaration: &HostConfigurationDeclaration,
-    owner: HostTypeKey,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    insert_exact(
-        keys,
-        &declaration.key,
-        ProvenanceRole::ConfigurationDeclaration,
-        0,
-    )?;
-    if declaration.fields.is_empty() {
-        return Err(StateTransportError::EmptyCollection("fixed cell fields"));
-    }
-    let mut rust_fields = BTreeSet::new();
-    let mut emitted_names = BTreeSet::new();
-    let mut identities = BTreeSet::new();
-    let mut argument_ordinal = 0_u32;
-    for (index, field) in declaration.fields.iter().enumerate() {
-        let ordinal = checked_index(index)?;
-        if field.reference.cell.owner.resolve() != owner.resolve() {
-            return Err(StateTransportError::CellOwnerMismatch);
-        }
-        validate_rust_field(&field.rust_field)?;
-        if !rust_fields.insert(field.rust_field.clone())
-            || !identities.insert(field.reference.cell.resolve())
-        {
-            return Err(StateTransportError::DuplicateValue("fixed cell fields"));
-        }
-        insert_exact(
-            keys,
-            &field.reference.key,
-            ProvenanceRole::ConfigurationField,
-            ordinal,
-        )?;
-        let emitted = validate_cell_metadata(field, ordinal, keys)?;
-        if !emitted_names.insert(emitted) {
-            return Err(StateTransportError::DuplicateValue(
-                "emitted sibling cell names",
-            ));
-        }
-        match &field.content {
-            ProtocolCellContent::Leaf {
-                wrapper_key,
-                sort,
-                arguments,
-                ..
-            } => {
-                insert_exact(
-                    keys,
-                    wrapper_key,
-                    ProvenanceRole::ConfigurationCellWrapper,
-                    ordinal,
-                )?;
-                insert_exact(
-                    keys,
-                    &sort.key,
-                    ProvenanceRole::ConfigurationCellContent,
-                    ordinal,
-                )?;
-                for argument in arguments {
-                    insert_exact(
-                        keys,
-                        &argument.key,
-                        ProvenanceRole::ConfigurationCellContentArgument,
-                        argument_ordinal,
-                    )?;
-                    if argument.target.authored_path.trim().is_empty() {
-                        return Err(StateTransportError::InvalidText(
-                            "cell sort argument diagnostic path",
-                        ));
-                    }
-                    argument_ordinal = increment(argument_ordinal)?;
-                }
-            }
-            ProtocolCellContent::Nested { declaration } => {
-                insert_exact(
-                    keys,
-                    &declaration.key,
-                    ProvenanceRole::ConfigurationCellContent,
-                    ordinal,
-                )?;
-                if declaration.declaration.authored_path.trim().is_empty() {
-                    return Err(StateTransportError::InvalidText(
-                        "nested cell diagnostic path",
-                    ));
-                }
+                S::validate_nested_declaration(declaration)?;
             }
         }
     }
@@ -1063,13 +1249,13 @@ fn validate_root(
     Ok(())
 }
 
-fn validate_descriptor_initializer(
-    initializer: &DescriptorConfigurationInitializer,
-    owner: &StableItemId,
-    declaration: &DescriptorConfigurationDeclaration,
+fn validate_initializer<S: ConfigurationValidationStage>(
+    initializer: &StageConfigurationInitializer<S>,
+    owner: &S::InitializerOwner,
+    declaration: &StageCellDeclaration<S>,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    if &initializer.owner != owner {
+    if !S::owners_match(&initializer.owner, owner) {
         return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     insert_exact(
@@ -1090,9 +1276,9 @@ fn validate_descriptor_initializer(
         ProvenanceRole::InitializerBody,
         0,
     )?;
-    let bindings = validate_descriptor_variables(&initializer.variables, keys)?;
+    let bindings = validate_variables::<S>(&initializer.variables, keys)?;
     let mut counters = InitializerCounters::default();
-    validate_descriptor_initializer_cells(
+    validate_initializer_cells::<S>(
         &initializer.cells,
         &declaration.fields,
         owner,
@@ -1102,47 +1288,8 @@ fn validate_descriptor_initializer(
     )
 }
 
-fn validate_host_initializer(
-    initializer: &HostConfigurationInitializer,
-    owner: HostTypeKey,
-    declaration: &HostConfigurationDeclaration,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    if initializer.owner.resolve() != owner.resolve() {
-        return Err(StateTransportError::InitializerDeclarationMismatch);
-    }
-    insert_exact(
-        keys,
-        &initializer.key,
-        ProvenanceRole::InitializerDeclaration,
-        0,
-    )?;
-    insert_exact(
-        keys,
-        &initializer.owner_key,
-        ProvenanceRole::InitializerResultType,
-        0,
-    )?;
-    insert_exact(
-        keys,
-        &initializer.body_key,
-        ProvenanceRole::InitializerBody,
-        0,
-    )?;
-    let bindings = validate_host_variables(&initializer.variables, keys)?;
-    let mut counters = InitializerCounters::default();
-    validate_host_initializer_cells(
-        &initializer.cells,
-        &declaration.fields,
-        owner,
-        &bindings,
-        &mut counters,
-        keys,
-    )
-}
-
-fn validate_descriptor_variables(
-    variables: &[DescriptorConfigurationVariable],
+fn validate_variables<S: ConfigurationValidationStage>(
+    variables: &[ProtocolConfigurationVariable<S::Sort>],
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<BTreeSet<String>, StateTransportError> {
     let mut bindings = BTreeSet::new();
@@ -1179,73 +1326,12 @@ fn validate_descriptor_variables(
         )?;
         insert_exact(
             keys,
-            &variable.sort.key,
+            S::sort_key(&variable.sort),
             ProvenanceRole::ConfigurationVariableType,
             ordinal,
         )?;
-        variable
-            .sort
-            .sort
-            .validate()
+        S::validate_sort(&variable.sort)
             .map_err(|_| StateTransportError::InvalidCellContent("invalid variable sort"))?;
-        if let Some(main_key) = &variable.main_key {
-            main_count += 1;
-            insert_exact(
-                keys,
-                main_key,
-                ProvenanceRole::ConfigurationVariableMain,
-                ordinal,
-            )?;
-        }
-    }
-    if main_count > 1 {
-        return Err(StateTransportError::MultipleMainVariables);
-    }
-    Ok(bindings)
-}
-
-fn validate_host_variables(
-    variables: &[HostConfigurationVariable],
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<BTreeSet<String>, StateTransportError> {
-    let mut bindings = BTreeSet::new();
-    let mut external_names = BTreeSet::new();
-    let mut main_count = 0;
-    for (index, variable) in variables.iter().enumerate() {
-        let ordinal = checked_index(index)?;
-        validate_rust_field(&variable.binding)?;
-        validate_nonblank(
-            "external configuration variable name",
-            &variable.external_name,
-        )?;
-        if !bindings.insert(variable.binding.clone()) {
-            return Err(StateTransportError::DuplicateValue(
-                "configuration variable bindings",
-            ));
-        }
-        if !external_names.insert(variable.external_name.clone()) {
-            return Err(StateTransportError::DuplicateValue(
-                "external configuration variable names",
-            ));
-        }
-        insert_exact(
-            keys,
-            &variable.binding_key,
-            ProvenanceRole::ConfigurationVariable,
-            ordinal,
-        )?;
-        insert_exact(
-            keys,
-            &variable.external_name_key,
-            ProvenanceRole::ConfigurationVariableName,
-            ordinal,
-        )?;
-        insert_exact(
-            keys,
-            &variable.sort.key,
-            ProvenanceRole::ConfigurationVariableType,
-            ordinal,
-        )?;
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
             insert_exact(
@@ -1277,10 +1363,10 @@ struct InitializerCounters {
     map_update_base: u32,
 }
 
-fn validate_descriptor_initializer_cells(
-    cells: &[DescriptorInitializerCell],
-    declarations: &[DescriptorCellField],
-    owner: &StableItemId,
+fn validate_initializer_cells<S: ConfigurationValidationStage>(
+    cells: &[StageInitializerCell<S>],
+    declarations: &[StageCellField<S>],
+    owner: &S::InitializerOwner,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
@@ -1294,35 +1380,24 @@ fn validate_descriptor_initializer_cells(
         return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     for (cell, declaration) in cells.iter().zip(declarations) {
-        if cell.field.cell.owner != *owner
-            || cell.field.cell != declaration.reference.cell
-            || cell.field.cell.field != declaration.rust_field
-        {
+        if !S::initializer_field_matches(&cell.field, declaration, owner) {
             return Err(StateTransportError::InitializerDeclarationMismatch);
         }
-        validate_descriptor_initializer_cell(
-            cell,
-            Some(declaration),
-            owner,
-            bindings,
-            counters,
-            keys,
-        )?;
+        validate_initializer_cell::<S>(cell, Some(declaration), owner, bindings, counters, keys)?;
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)] // Stable and host validation stay visibly isomorphic.
-fn validate_descriptor_initializer_cell(
-    cell: &DescriptorInitializerCell,
-    declaration: Option<&DescriptorCellField>,
-    owner: &StableItemId,
+fn validate_initializer_cell<S: ConfigurationValidationStage>(
+    cell: &StageInitializerCell<S>,
+    declaration: Option<&StageCellField<S>>,
+    owner: &S::InitializerOwner,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    cell.field.cell.validate()?;
-    if &cell.field.cell.owner != owner {
+    S::validate_cell(&cell.field)?;
+    if !S::cell_owned_by(&cell.field, owner) {
         return Err(StateTransportError::CellOwnerMismatch);
     }
     insert_exact(
@@ -1333,7 +1408,7 @@ fn validate_descriptor_initializer_cell(
     )?;
     insert_exact(
         keys,
-        &cell.field.key,
+        S::cell_key(&cell.field),
         ProvenanceRole::InitializerField,
         counters.cell,
     )?;
@@ -1345,11 +1420,10 @@ fn validate_descriptor_initializer_cell(
                 wrapper,
                 value,
             },
-            Some(ProtocolCellContent::Leaf {
-                wrapper: declared_wrapper,
-                ..
-            }),
-        ) if wrapper == declared_wrapper => {
+            declared,
+        ) if declared.is_none()
+            || matches!(declared, Some(ProtocolCellContent::Leaf { wrapper: declared_wrapper, .. }) if wrapper == declared_wrapper) =>
+        {
             insert_exact(
                 keys,
                 constructor_key,
@@ -1358,79 +1432,33 @@ fn validate_descriptor_initializer_cell(
             )?;
             counters.constructor = increment(counters.constructor)?;
             validate_wrapper_state(*wrapper, value)?;
-            validate_descriptor_state_term(value, bindings, counters, keys)
+            validate_state_term::<S>(value, bindings, counters, keys)
         }
         (
             ProtocolInitializerCellContent::Nested {
                 declaration: nested,
                 children,
             },
-            Some(ProtocolCellContent::Nested {
-                declaration: declared,
-            }),
-        ) if nested.declaration == declared.declaration => {
+            declared,
+        ) if declared.is_none()
+            || matches!(declared, Some(ProtocolCellContent::Nested { declaration }) if S::nested_declarations_match(nested, declaration)) =>
+        {
             if children.is_empty() {
                 return Err(StateTransportError::EmptyCollection(
                     "nested initializer children",
                 ));
             }
-            nested.validate()?;
+            S::validate_nested_initializer(nested)?;
             insert_exact(
                 keys,
-                &nested.key,
+                S::declaration_key(nested),
                 ProvenanceRole::InitializerNestedConstructor,
                 counters.constructor,
             )?;
             counters.constructor = increment(counters.constructor)?;
-            validate_descriptor_nested_children(
+            validate_nested_children::<S>(
                 children,
-                &nested.declaration,
-                bindings,
-                counters,
-                keys,
-            )
-        }
-        (
-            ProtocolInitializerCellContent::Leaf {
-                constructor_key,
-                wrapper,
-                value,
-            },
-            None,
-        ) => {
-            insert_exact(
-                keys,
-                constructor_key,
-                ProvenanceRole::InitializerCellConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_wrapper_state(*wrapper, value)?;
-            validate_descriptor_state_term(value, bindings, counters, keys)
-        }
-        (
-            ProtocolInitializerCellContent::Nested {
-                declaration: nested,
-                children,
-            },
-            None,
-        ) => {
-            if children.is_empty() {
-                return Err(StateTransportError::EmptyCollection(
-                    "nested initializer children",
-                ));
-            }
-            nested.validate()?;
-            insert_exact(
-                keys,
-                &nested.key,
-                ProvenanceRole::InitializerNestedConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_descriptor_nested_children(
-                children,
-                &nested.declaration,
+                &S::nested_owner(nested),
                 bindings,
                 counters,
                 keys,
@@ -1440,190 +1468,20 @@ fn validate_descriptor_initializer_cell(
     }
 }
 
-fn validate_descriptor_nested_children(
-    children: &[DescriptorInitializerCell],
-    owner: &StableItemId,
+fn validate_nested_children<S: ConfigurationValidationStage>(
+    children: &[StageInitializerCell<S>],
+    owner: &S::InitializerOwner,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     let mut fields = BTreeSet::new();
     for child in children {
-        if child.field.cell.owner != *owner || !fields.insert(child.field.cell.field.clone()) {
-            return Err(StateTransportError::InitializerDeclarationMismatch);
-        }
-        validate_descriptor_initializer_cell(child, None, owner, bindings, counters, keys)?;
-    }
-    Ok(())
-}
-
-fn validate_host_initializer_cells(
-    cells: &[HostInitializerCell],
-    declarations: &[HostCellField],
-    owner: HostTypeKey,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    if cells.is_empty() {
-        return Err(StateTransportError::EmptyCollection(
-            "initializer cell fields",
-        ));
-    }
-    if cells.len() != declarations.len() {
-        return Err(StateTransportError::InitializerDeclarationMismatch);
-    }
-    for (cell, declaration) in cells.iter().zip(declarations) {
-        if cell.field.cell.resolve() != declaration.reference.cell.resolve()
-            || cell.field.cell.owner.resolve() != owner.resolve()
+        if !S::cell_owned_by(&child.field, owner) || !fields.insert(S::field_identity(&child.field))
         {
             return Err(StateTransportError::InitializerDeclarationMismatch);
         }
-        validate_host_initializer_cell(cell, Some(declaration), owner, bindings, counters, keys)?;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_lines)] // Stable and host validation stay visibly isomorphic.
-fn validate_host_initializer_cell(
-    cell: &HostInitializerCell,
-    declaration: Option<&HostCellField>,
-    owner: HostTypeKey,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    if cell.field.cell.owner.resolve() != owner.resolve() {
-        return Err(StateTransportError::CellOwnerMismatch);
-    }
-    insert_exact(
-        keys,
-        &cell.key,
-        ProvenanceRole::InitializerCell,
-        counters.cell,
-    )?;
-    insert_exact(
-        keys,
-        &cell.field.key,
-        ProvenanceRole::InitializerField,
-        counters.cell,
-    )?;
-    counters.cell = increment(counters.cell)?;
-    match (&cell.content, declaration.map(|field| &field.content)) {
-        (
-            ProtocolInitializerCellContent::Leaf {
-                constructor_key,
-                wrapper,
-                value,
-            },
-            Some(ProtocolCellContent::Leaf {
-                wrapper: declared_wrapper,
-                ..
-            }),
-        ) if wrapper == declared_wrapper => {
-            insert_exact(
-                keys,
-                constructor_key,
-                ProvenanceRole::InitializerCellConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_wrapper_state(*wrapper, value)?;
-            validate_host_state_term(value, bindings, counters, keys)
-        }
-        (
-            ProtocolInitializerCellContent::Nested {
-                declaration: nested,
-                children,
-            },
-            Some(ProtocolCellContent::Nested {
-                declaration: declared,
-            }),
-        ) if nested.declaration.key.resolve() == declared.declaration.key.resolve() => {
-            if children.is_empty() {
-                return Err(StateTransportError::EmptyCollection(
-                    "nested initializer children",
-                ));
-            }
-            insert_exact(
-                keys,
-                &nested.key,
-                ProvenanceRole::InitializerNestedConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_host_nested_children(
-                children,
-                nested.declaration.key,
-                bindings,
-                counters,
-                keys,
-            )
-        }
-        (
-            ProtocolInitializerCellContent::Leaf {
-                constructor_key,
-                wrapper,
-                value,
-            },
-            None,
-        ) => {
-            insert_exact(
-                keys,
-                constructor_key,
-                ProvenanceRole::InitializerCellConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_wrapper_state(*wrapper, value)?;
-            validate_host_state_term(value, bindings, counters, keys)
-        }
-        (
-            ProtocolInitializerCellContent::Nested {
-                declaration: nested,
-                children,
-            },
-            None,
-        ) => {
-            if children.is_empty() {
-                return Err(StateTransportError::EmptyCollection(
-                    "nested initializer children",
-                ));
-            }
-            insert_exact(
-                keys,
-                &nested.key,
-                ProvenanceRole::InitializerNestedConstructor,
-                counters.constructor,
-            )?;
-            counters.constructor = increment(counters.constructor)?;
-            validate_host_nested_children(
-                children,
-                nested.declaration.key,
-                bindings,
-                counters,
-                keys,
-            )
-        }
-        _ => Err(StateTransportError::InitializerDeclarationMismatch),
-    }
-}
-
-fn validate_host_nested_children(
-    children: &[HostInitializerCell],
-    owner: HostTypeKey,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    let mut fields = BTreeSet::new();
-    for child in children {
-        if child.field.cell.owner.resolve() != owner.resolve()
-            || !fields.insert(child.field.cell.field.resolve())
-        {
-            return Err(StateTransportError::InitializerDeclarationMismatch);
-        }
-        validate_host_initializer_cell(child, None, owner, bindings, counters, keys)?;
+        validate_initializer_cell::<S>(child, None, owner, bindings, counters, keys)?;
     }
     Ok(())
 }
@@ -1644,16 +1502,15 @@ fn validate_wrapper_state<T>(
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn validate_descriptor_state_term(
-    value: &DescriptorInitializerStateTerm,
+fn validate_state_term<S: ConfigurationValidationStage>(
+    value: &ProtocolInitializerStateTerm<Term<S>>,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     match value {
         ProtocolInitializerStateTerm::Term(term) => {
-            validate_descriptor_initializer_term(term, bindings, counters, keys, None)
+            validate_initializer_term::<S>(term, bindings, counters, keys, None)
         }
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             validate_k_sequence_shell(sequence, counters, keys)?;
@@ -1665,7 +1522,7 @@ fn validate_descriptor_state_term(
                     counters.k_item,
                 )?;
                 counters.k_item = increment(counters.k_item)?;
-                validate_descriptor_initializer_term(
+                validate_initializer_term::<S>(
                     &item.value,
                     bindings,
                     counters,
@@ -1676,189 +1533,80 @@ fn validate_descriptor_state_term(
             Ok(())
         }
         ProtocolInitializerStateTerm::Map(map) => {
-            validate_map_shell(map, counters, keys)?;
-            match &map.body {
-                ProtocolMapBody::Empty { .. } => Ok(()),
-                ProtocolMapBody::Items { items } => {
-                    for item in items {
-                        insert_exact(
-                            keys,
-                            &item.key_key,
-                            ProvenanceRole::MapKey,
-                            counters.map_key,
-                        )?;
-                        counters.map_key = increment(counters.map_key)?;
-                        insert_exact(
-                            keys,
-                            &item.value_key,
-                            ProvenanceRole::MapValue,
-                            counters.map_value,
-                        )?;
-                        counters.map_value = increment(counters.map_value)?;
-                        validate_descriptor_initializer_term(
-                            &item.key,
-                            bindings,
-                            counters,
-                            keys,
-                            Some(&item.key_key),
-                        )?;
-                        validate_descriptor_initializer_term(
-                            &item.value,
-                            bindings,
-                            counters,
-                            keys,
-                            Some(&item.value_key),
-                        )?;
-                    }
-                    Ok(())
-                }
-                ProtocolMapBody::Update {
-                    base_key,
-                    base,
-                    key_key,
-                    key,
-                    value_key,
-                    value,
-                } => {
-                    insert_exact(
-                        keys,
-                        base_key,
-                        ProvenanceRole::MapUpdateBase,
-                        counters.map_update_base,
-                    )?;
-                    counters.map_update_base = increment(counters.map_update_base)?;
-                    insert_exact(keys, key_key, ProvenanceRole::MapKey, counters.map_key)?;
-                    counters.map_key = increment(counters.map_key)?;
-                    insert_exact(
-                        keys,
-                        value_key,
-                        ProvenanceRole::MapValue,
-                        counters.map_value,
-                    )?;
-                    counters.map_value = increment(counters.map_value)?;
-                    validate_descriptor_initializer_term(
-                        base,
-                        bindings,
-                        counters,
-                        keys,
-                        Some(base_key),
-                    )?;
-                    validate_descriptor_initializer_term(
-                        key,
-                        bindings,
-                        counters,
-                        keys,
-                        Some(key_key),
-                    )?;
-                    validate_descriptor_initializer_term(
-                        value,
-                        bindings,
-                        counters,
-                        keys,
-                        Some(value_key),
-                    )
-                }
-            }
+            validate_initializer_map::<S>(map, bindings, counters, keys)
         }
     }
 }
 
-fn validate_host_state_term(
-    value: &HostInitializerStateTerm,
+fn validate_initializer_map<S: ConfigurationValidationStage>(
+    map: &ProtocolMap<Term<S>>,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
-    match value {
-        ProtocolInitializerStateTerm::Term(term) => {
-            validate_host_initializer_term(term, bindings, counters, keys, None)
-        }
-        ProtocolInitializerStateTerm::KSequence(sequence) => {
-            validate_k_sequence_shell(sequence, counters, keys)?;
-            for item in &sequence.items {
+    validate_map_shell(map, counters, keys)?;
+    match &map.body {
+        ProtocolMapBody::Empty { .. } => Ok(()),
+        ProtocolMapBody::Items { items } => {
+            for item in items {
                 insert_exact(
                     keys,
-                    &item.key,
-                    ProvenanceRole::KSequenceItem,
-                    counters.k_item,
+                    &item.key_key,
+                    ProvenanceRole::MapKey,
+                    counters.map_key,
                 )?;
-                counters.k_item = increment(counters.k_item)?;
-                validate_host_initializer_term(
+                counters.map_key = increment(counters.map_key)?;
+                insert_exact(
+                    keys,
+                    &item.value_key,
+                    ProvenanceRole::MapValue,
+                    counters.map_value,
+                )?;
+                counters.map_value = increment(counters.map_value)?;
+                validate_initializer_term::<S>(
+                    &item.key,
+                    bindings,
+                    counters,
+                    keys,
+                    Some(&item.key_key),
+                )?;
+                validate_initializer_term::<S>(
                     &item.value,
                     bindings,
                     counters,
                     keys,
-                    Some(&item.key),
+                    Some(&item.value_key),
                 )?;
             }
             Ok(())
         }
-        ProtocolInitializerStateTerm::Map(map) => {
-            validate_map_shell(map, counters, keys)?;
-            match &map.body {
-                ProtocolMapBody::Empty { .. } => Ok(()),
-                ProtocolMapBody::Items { items } => {
-                    for item in items {
-                        insert_exact(
-                            keys,
-                            &item.key_key,
-                            ProvenanceRole::MapKey,
-                            counters.map_key,
-                        )?;
-                        counters.map_key = increment(counters.map_key)?;
-                        insert_exact(
-                            keys,
-                            &item.value_key,
-                            ProvenanceRole::MapValue,
-                            counters.map_value,
-                        )?;
-                        counters.map_value = increment(counters.map_value)?;
-                        validate_host_initializer_term(
-                            &item.key,
-                            bindings,
-                            counters,
-                            keys,
-                            Some(&item.key_key),
-                        )?;
-                        validate_host_initializer_term(
-                            &item.value,
-                            bindings,
-                            counters,
-                            keys,
-                            Some(&item.value_key),
-                        )?;
-                    }
-                    Ok(())
-                }
-                ProtocolMapBody::Update {
-                    base_key,
-                    base,
-                    key_key,
-                    key,
-                    value_key,
-                    value,
-                } => {
-                    insert_exact(
-                        keys,
-                        base_key,
-                        ProvenanceRole::MapUpdateBase,
-                        counters.map_update_base,
-                    )?;
-                    counters.map_update_base = increment(counters.map_update_base)?;
-                    insert_exact(keys, key_key, ProvenanceRole::MapKey, counters.map_key)?;
-                    counters.map_key = increment(counters.map_key)?;
-                    insert_exact(
-                        keys,
-                        value_key,
-                        ProvenanceRole::MapValue,
-                        counters.map_value,
-                    )?;
-                    counters.map_value = increment(counters.map_value)?;
-                    validate_host_initializer_term(base, bindings, counters, keys, Some(base_key))?;
-                    validate_host_initializer_term(key, bindings, counters, keys, Some(key_key))?;
-                    validate_host_initializer_term(value, bindings, counters, keys, Some(value_key))
-                }
-            }
+        ProtocolMapBody::Update {
+            base_key,
+            base,
+            key_key,
+            key,
+            value_key,
+            value,
+        } => {
+            insert_exact(
+                keys,
+                base_key,
+                ProvenanceRole::MapUpdateBase,
+                counters.map_update_base,
+            )?;
+            counters.map_update_base = increment(counters.map_update_base)?;
+            insert_exact(keys, key_key, ProvenanceRole::MapKey, counters.map_key)?;
+            counters.map_key = increment(counters.map_key)?;
+            insert_exact(
+                keys,
+                value_key,
+                ProvenanceRole::MapValue,
+                counters.map_value,
+            )?;
+            counters.map_value = increment(counters.map_value)?;
+            validate_initializer_term::<S>(base, bindings, counters, keys, Some(base_key))?;
+            validate_initializer_term::<S>(key, bindings, counters, keys, Some(key_key))?;
+            validate_initializer_term::<S>(value, bindings, counters, keys, Some(value_key))
         }
     }
 }
@@ -1953,8 +1701,8 @@ fn validate_map_shell<T>(
     Ok(())
 }
 
-fn validate_descriptor_initializer_term(
-    term: &ProtocolInitializerTerm<DescriptorTerm>,
+fn validate_initializer_term<S: ConfigurationValidationStage>(
+    term: &ProtocolInitializerTerm<Term<S>>,
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
@@ -1967,227 +1715,155 @@ fn validate_descriptor_initializer_term(
         counters.term,
     )?;
     counters.term = increment(counters.term)?;
-    validate_descriptor_term_node(
+    validate_term(
         &term.term,
-        bindings,
-        counters,
-        keys,
-        structural_key.unwrap_or(&term.key),
+        &mut InitializerTermValidation {
+            bindings,
+            counters,
+            keys,
+            structural_key: structural_key.unwrap_or(&term.key),
+        },
     )
 }
 
-fn validate_descriptor_term_node(
-    term: &DescriptorTerm,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-    structural_key: &ProvenanceKey,
-) -> Result<(), StateTransportError> {
-    match term {
-        DescriptorTerm::Variable {
+struct InitializerTermValidation<'a> {
+    bindings: &'a BTreeSet<String>,
+    counters: &'a mut InitializerCounters,
+    keys: &'a mut BTreeSet<ProvenanceKey>,
+    structural_key: &'a ProvenanceKey,
+}
+
+impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
+    type Error = StateTransportError;
+
+    fn variable(
+        &mut self,
+        key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
+        name: &str,
+    ) -> Result<(), Self::Error> {
+        if key != path_key || !self.bindings.contains(name) {
+            return Err(StateTransportError::InvalidTerm(
+                "variable keys disagree or the binding is undeclared",
+            ));
+        }
+        insert_exact(
+            self.keys,
             key,
-            path_key,
-            name,
-        } => {
-            if key != path_key || !bindings.contains(name) {
-                return Err(StateTransportError::InvalidTerm(
-                    "variable keys disagree or the binding is undeclared",
-                ));
-            }
-            insert_exact(
-                keys,
-                key,
-                ProvenanceRole::InitializerTermPath,
-                counters.term_path,
-            )?;
-            counters.term_path = increment(counters.term_path)?;
-            Ok(())
-        }
-        DescriptorTerm::Application {
-            head_class,
-            reference,
-            path_key,
-            arguments,
-        } => {
-            if &reference.key != path_key
-                || (*head_class == DescriptorApplicationHeadClass::BareReference
-                    && !arguments.is_empty())
-            {
-                return Err(StateTransportError::InvalidTerm(
-                    "application path keys or head class are invalid",
-                ));
-            }
-            reference
-                .application
-                .validate()
-                .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
-            insert_exact(
-                keys,
-                &reference.key,
-                ProvenanceRole::InitializerTermPath,
-                counters.term_path,
-            )?;
-            counters.term_path = increment(counters.term_path)?;
-            for argument in arguments {
-                match argument {
-                    DescriptorTermArgument::Positional { value } => validate_descriptor_term_node(
-                        value,
-                        bindings,
-                        counters,
-                        keys,
-                        structural_key,
-                    )?,
-                    DescriptorTermArgument::Named { .. } => {
-                        return Err(StateTransportError::InvalidTerm(
-                            "initializer syntax has no exact record-field provenance",
-                        ));
-                    }
-                }
-            }
-            Ok(())
-        }
-        DescriptorTerm::Literal { key, literal } => {
-            if key != structural_key {
-                return Err(StateTransportError::UnexpectedProvenance {
-                    expected: structural_key.clone(),
-                    actual: key.clone(),
-                });
-            }
-            if matches!(literal, crate::DescriptorLiteral::Int(value) if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()))
-            {
-                return Err(StateTransportError::InvalidTerm(
-                    "integer literal is not canonical unsigned decimal",
-                ));
-            }
-            keys.insert(key.clone());
-            Ok(())
-        }
-        DescriptorTerm::Wildcard { .. } => Err(StateTransportError::InvalidTerm(
-            "wildcards are not allowed in initializers",
-        )),
-        DescriptorTerm::BuiltinToken { .. }
-        | DescriptorTerm::Anonymous { .. }
-        | DescriptorTerm::OrBool { .. } => Err(StateTransportError::InvalidTerm(
-            "claim-only terms are not allowed in initializers",
-        )),
-        DescriptorTerm::Cell { .. } => Err(StateTransportError::InvalidTerm(
-            "fragment! terms are not allowed in initializers",
-        )),
+            ProvenanceRole::InitializerTermPath,
+            self.counters.term_path,
+        )?;
+        self.counters.term_path = increment(self.counters.term_path)?;
+        Ok(())
     }
-}
 
-fn validate_host_initializer_term(
-    term: &ProtocolInitializerTerm<HostTerm>,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-    structural_key: Option<&ProvenanceKey>,
-) -> Result<(), StateTransportError> {
-    insert_exact(
-        keys,
-        &term.key,
-        ProvenanceRole::InitializerTerm,
-        counters.term,
-    )?;
-    counters.term = increment(counters.term)?;
-    validate_host_term_node(
-        &term.term,
-        bindings,
-        counters,
-        keys,
-        structural_key.unwrap_or(&term.key),
-    )
-}
+    fn application(
+        &mut self,
+        head_class: DescriptorApplicationHeadClass,
+        reference: &S::Application,
+        path_key: &ProvenanceKey,
+        arguments: &[TermArgument<S>],
+    ) -> Result<(), Self::Error> {
+        if S::application_key(reference) != path_key
+            || (head_class == DescriptorApplicationHeadClass::BareReference
+                && !arguments.is_empty())
+        {
+            return Err(StateTransportError::InvalidTerm(
+                "application path keys or head class are invalid",
+            ));
+        }
+        S::validate_application(reference)
+            .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
+        insert_exact(
+            self.keys,
+            S::application_key(reference),
+            ProvenanceRole::InitializerTermPath,
+            self.counters.term_path,
+        )?;
+        self.counters.term_path = increment(self.counters.term_path)?;
+        Ok(())
+    }
 
-fn validate_host_term_node(
-    term: &HostTerm,
-    bindings: &BTreeSet<String>,
-    counters: &mut InitializerCounters,
-    keys: &mut BTreeSet<ProvenanceKey>,
-    structural_key: &ProvenanceKey,
-) -> Result<(), StateTransportError> {
-    match term {
-        HostTerm::Variable {
-            key,
-            path_key,
-            name,
-        } => {
-            if key != path_key || !bindings.contains(name) {
-                return Err(StateTransportError::InvalidTerm(
-                    "variable keys disagree or the binding is undeclared",
-                ));
-            }
-            insert_exact(
-                keys,
-                key,
-                ProvenanceRole::InitializerTermPath,
-                counters.term_path,
-            )?;
-            counters.term_path = increment(counters.term_path)?;
-            Ok(())
+    fn literal(
+        &mut self,
+        key: &ProvenanceKey,
+        literal: &DescriptorLiteral,
+    ) -> Result<(), Self::Error> {
+        if key != self.structural_key {
+            return Err(StateTransportError::UnexpectedProvenance {
+                expected: self.structural_key.clone(),
+                actual: key.clone(),
+            });
         }
-        HostTerm::Application {
-            head_class,
-            reference,
-            path_key,
-            arguments,
-        } => {
-            if &reference.key != path_key
-                || (*head_class == DescriptorApplicationHeadClass::BareReference
-                    && !arguments.is_empty())
-            {
-                return Err(StateTransportError::InvalidTerm(
-                    "application path keys or head class are invalid",
-                ));
-            }
-            insert_exact(
-                keys,
-                &reference.key,
-                ProvenanceRole::InitializerTermPath,
-                counters.term_path,
-            )?;
-            counters.term_path = increment(counters.term_path)?;
-            for argument in arguments {
-                match argument {
-                    HostTermArgument::Positional { value } => {
-                        validate_host_term_node(value, bindings, counters, keys, structural_key)?;
-                    }
-                    HostTermArgument::Named { .. } => {
-                        return Err(StateTransportError::InvalidTerm(
-                            "initializer syntax has no exact record-field provenance",
-                        ));
-                    }
-                }
-            }
-            Ok(())
-        }
-        HostTerm::Literal { key, literal } => {
-            if key != structural_key {
-                return Err(StateTransportError::UnexpectedProvenance {
-                    expected: structural_key.clone(),
-                    actual: key.clone(),
-                });
-            }
-            if matches!(literal, crate::DescriptorLiteral::Int(value) if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()))
-            {
-                return Err(StateTransportError::InvalidTerm(
-                    "integer literal is not canonical unsigned decimal",
-                ));
-            }
-            keys.insert(key.clone());
-            Ok(())
-        }
-        HostTerm::Wildcard { .. } => Err(StateTransportError::InvalidTerm(
+        literal.validate().map_err(|_| {
+            StateTransportError::InvalidTerm("integer literal is not canonical unsigned decimal")
+        })?;
+        self.keys.insert(key.clone());
+        Ok(())
+    }
+
+    fn wildcard(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
             "wildcards are not allowed in initializers",
-        )),
-        HostTerm::BuiltinToken { .. } | HostTerm::Anonymous { .. } | HostTerm::OrBool { .. } => {
-            Err(StateTransportError::InvalidTerm(
-                "claim-only terms are not allowed in initializers",
-            ))
-        }
-        HostTerm::Cell { .. } => Err(StateTransportError::InvalidTerm(
+        ))
+    }
+
+    fn builtin_token(
+        &mut self,
+        _: &ProvenanceKey,
+        _: BuiltinSort,
+        _: &str,
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            "claim-only terms are not allowed in initializers",
+        ))
+    }
+
+    fn anonymous(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            "claim-only terms are not allowed in initializers",
+        ))
+    }
+
+    fn or_bool(&mut self, _: &ProvenanceKey, _: &[Term<S>]) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            "claim-only terms are not allowed in initializers",
+        ))
+    }
+
+    fn cell(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &S::Nominal,
+        _: &[CellTermField<S>],
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
             "fragment! terms are not allowed in initializers",
-        )),
+        ))
+    }
+
+    fn argument(
+        &mut self,
+        argument: &TermArgument<S>,
+        _: bool,
+        _: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), Self::Error> {
+        match argument {
+            TermArgument::Positional { .. } => Ok(()),
+            TermArgument::Named { .. } => Err(StateTransportError::InvalidTerm(
+                "initializer syntax has no exact record-field provenance",
+            )),
+        }
+    }
+
+    fn cell_field(
+        &mut self,
+        _: &CellTermField<S>,
+        _: &mut BTreeSet<ProductionFieldId>,
+    ) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            "fragment! terms are not allowed in initializers",
+        ))
     }
 }
 
@@ -2337,3 +2013,7 @@ fn map_initializer<S: Stage, To: Stage, M: crate::RefMap<S, To>>(
         },
     )
 }
+
+#[cfg(test)]
+#[path = "configuration_validation_tests.rs"]
+mod validation_tests;

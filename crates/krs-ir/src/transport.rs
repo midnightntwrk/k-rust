@@ -11,3 +11,4 @@ pub mod configuration;
 pub mod grammar;
 pub mod head_rule;
 pub mod rule;
+mod validation;
