@@ -20,7 +20,7 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{simplification_stop, simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
 pub use predicates::substitute_predicates;
 pub(crate) use predicates::{
     check_concreteness, conjunctively_contains_alpha_equivalent, predicates_truth,
@@ -53,7 +53,7 @@ use crate::{
         SimplificationOptions,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
-    stop::StopCause,
+    stop::{StopCause, Stoppable},
     substitution::{Substitution, extract_substitution, substitute, substitution_binding},
     term::{Term, Variable},
     transition::{
@@ -800,7 +800,7 @@ pub fn rewrite_step(
     definition: &BackendDefinition,
     pattern: &Pattern,
     fresh_counter: &mut u64,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_solver(definition, pattern, fresh_counter, &NoSolver)
 }
 
@@ -809,7 +809,7 @@ pub fn rewrite_step_with_solver(
     pattern: &Pattern,
     fresh_counter: &mut u64,
     solver: &dyn SmtSolver,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_options(
         definition,
         pattern,
@@ -827,7 +827,7 @@ pub fn rewrite_step_sequential_with_solver(
     pattern: &Pattern,
     fresh_counter: &mut u64,
     solver: &dyn SmtSolver,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_mode(
         definition,
         pattern,
@@ -845,7 +845,7 @@ pub(crate) fn rewrite_step_with_options(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_mode(
         definition,
         pattern,
@@ -863,7 +863,7 @@ pub(crate) fn rewrite_step_sequential_with_options(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_mode(
         definition,
         pattern,
@@ -885,16 +885,16 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> (RewriteResult, bool) {
+) -> Stoppable<(RewriteResult, bool)> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
         let result = RewriteResult::Indeterminate {
             pattern: pattern.clone(),
             reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
         };
-        return (result, true);
+        return Ok((result, true));
     }
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return (RewriteResult::Vacuous(pattern.clone()), true);
+        return Ok((RewriteResult::Vacuous(pattern.clone()), true));
     }
     let mut determinism = step::SequentialDeterminism::default();
     let result = rewrite_step_any(
@@ -905,8 +905,8 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         solver,
         None,
         Some(&mut determinism),
-    );
-    (result, determinism.dropped)
+    )?;
+    Ok((result, determinism.dropped))
 }
 
 pub(crate) fn rewrite_step_with_mode(
@@ -917,7 +917,7 @@ pub(crate) fn rewrite_step_with_mode(
     solver: &dyn SmtSolver,
     mode: ExecutionMode,
     assume_initial_defined: bool,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     rewrite_step_with_optional_execution(
         definition,
         pattern,
@@ -940,15 +940,15 @@ fn rewrite_step_with_optional_execution(
     mode: ExecutionMode,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     if let Some(symbol) = pattern.macro_or_alias_symbol() {
-        return RewriteResult::Indeterminate {
+        return Ok(RewriteResult::Indeterminate {
             pattern: pattern.clone(),
             reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
-        };
+        });
     }
     if predicates_truth(&pattern.constraints) == Truth::False {
-        return RewriteResult::Vacuous(pattern.clone());
+        return Ok(RewriteResult::Vacuous(pattern.clone()));
     }
     match mode {
         ExecutionMode::All => rewrite_step_all(

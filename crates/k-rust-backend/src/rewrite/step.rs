@@ -87,7 +87,7 @@ fn apply_priority_group(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> PriorityGroupOutcome {
+) -> Stoppable<PriorityGroupOutcome> {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
     // The work every application of the group (candidate or refuted) depends on: the remainder
@@ -109,7 +109,7 @@ fn apply_priority_group(
             solver,
             assume_initial_defined,
             io,
-        ) {
+        )? {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
@@ -128,15 +128,19 @@ fn apply_priority_group(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
-                return PriorityGroupOutcome::Undecided(UndecidedStep::Indeterminate(reason));
+                return Ok(PriorityGroupOutcome::Undecided(
+                    UndecidedStep::Indeterminate(reason),
+                ));
             }
             RuleAttempt::Simplification(error) => {
-                return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(error));
+                return Ok(PriorityGroupOutcome::Undecided(
+                    UndecidedStep::Simplification(error),
+                ));
             }
         }
     }
     if applied.is_empty() && trivial.is_empty() {
-        return PriorityGroupOutcome::NotProductive;
+        return Ok(PriorityGroupOutcome::NotProductive);
     }
     restrict_to_undefined(&mut trivial, &applied);
     let undefined_diagnostics = in_emission_order([undefined_work.as_slice()]);
@@ -162,18 +166,20 @@ fn apply_priority_group(
         )
         .collect::<Vec<_>>();
     let (remainder, remainder_diagnostics) = diagnostic::collect(|| {
-        SimplificationError::bridge(simplify_predicates_with_solver(
+        simplify_predicates_with_solver(
             definition,
             &raw_remainder,
             &pattern.constraints,
             simplification_options,
             solver,
-        ))
+        )
     });
-    let remainder = match remainder {
+    let remainder = match remainder? {
         Ok(remainder) => remainder,
         Err(error) => {
-            return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(error));
+            return Ok(PriorityGroupOutcome::Undecided(
+                UndecidedStep::Simplification(error),
+            ));
         }
     };
     let remainder_result = if predicates_truth(&remainder) == Truth::False {
@@ -184,27 +190,20 @@ fn apply_priority_group(
         if violates_finite_constructor_domain(definition, &predicates) {
             Ok(Satisfiability::Unsat)
         } else {
-            match solver.is_sat(&predicates, &Substitution::new()) {
-                Ok(satisfiability) => satisfiability,
-                // No answer exists for the remainder, so no successor set of the group does.
-                Err(stop) => {
-                    return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(
-                        SimplificationError::from_stop(stop),
-                    ));
-                }
-            }
+            // A stop leaves the remainder, and so the group's successor set, without an answer.
+            solver.is_sat(&predicates, &Substitution::new())?
         }
     };
     if !matches!(
         remainder_result,
         Ok(Satisfiability::Unsat | Satisfiability::Sat)
     ) {
-        return PriorityGroupOutcome::Undecided(UndecidedStep::Indeterminate(
-            IndeterminateReason::Remainder {
+        return Ok(PriorityGroupOutcome::Undecided(
+            UndecidedStep::Indeterminate(IndeterminateReason::Remainder {
                 rule_ids,
                 predicates: remainder,
                 satisfiability: remainder_result,
-            },
+            }),
         ));
     }
     let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
@@ -236,11 +235,11 @@ fn apply_priority_group(
         .into_iter()
         .map(|application| application.applied)
         .collect::<Vec<_>>();
-    PriorityGroupOutcome::Productive {
+    Ok(PriorityGroupOutcome::Productive {
         branches,
         trivial,
         remainder,
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -253,7 +252,7 @@ fn first_productive_group(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> PriorityGroupOutcome {
+) -> Stoppable<PriorityGroupOutcome> {
     // An unproductive group's attempts did not apply: no successor depends on their work.
     for rules in groups.by_ref() {
         match apply_priority_group(
@@ -265,13 +264,13 @@ fn first_productive_group(
             solver,
             assume_initial_defined,
             io,
-        ) {
+        )? {
             PriorityGroupOutcome::NotProductive => {}
-            outcome @ PriorityGroupOutcome::Undecided(_) => return outcome,
-            outcome @ PriorityGroupOutcome::Productive { .. } => return outcome,
+            outcome @ PriorityGroupOutcome::Undecided(_) => return Ok(outcome),
+            outcome @ PriorityGroupOutcome::Productive { .. } => return Ok(outcome),
         }
     }
-    PriorityGroupOutcome::NotProductive
+    Ok(PriorityGroupOutcome::NotProductive)
 }
 
 /// Put `earlier`, the diagnostics of work every candidate was derived through and which all
@@ -325,13 +324,13 @@ pub(super) fn rewrite_step_all(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return RewriteResult::Stuck(pattern.clone());
+        return Ok(RewriteResult::Stuck(pattern.clone()));
     }
     let mut groups = priority_groups.into_iter();
     let mut visited = 0;
@@ -347,8 +346,8 @@ pub(super) fn rewrite_step_all(
         solver,
         assume_initial_defined,
         io,
-    );
-    match outcome {
+    )?;
+    Ok(match outcome {
         PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
         PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
         PriorityGroupOutcome::Productive {
@@ -370,10 +369,10 @@ pub(super) fn rewrite_step_all(
                 simplification_options,
                 solver,
                 assume_initial_defined,
-            );
+            )?;
             classify_first_group(pattern, branches, trivial, remainder)
         }
-    }
+    })
 }
 
 /// The former lazy All-mode step, retained only as an independent differential-test oracle.
@@ -386,31 +385,33 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return RewriteResult::Stuck(pattern.clone());
+        return Ok(RewriteResult::Stuck(pattern.clone()));
     }
-    match first_productive_group(
-        definition,
-        pattern,
-        &mut priority_groups.into_values(),
-        fresh_counter,
-        simplification_options,
-        solver,
-        assume_initial_defined,
-        None,
-    ) {
-        PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
-        PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
-        PriorityGroupOutcome::Productive {
-            branches,
-            trivial,
-            remainder,
-        } => classify_first_group(pattern, branches, trivial, remainder),
-    }
+    Ok(
+        match first_productive_group(
+            definition,
+            pattern,
+            &mut priority_groups.into_values(),
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            None,
+        )? {
+            PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
+            PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
+            PriorityGroupOutcome::Productive {
+                branches,
+                trivial,
+                remainder,
+            } => classify_first_group(pattern, branches, trivial, remainder),
+        },
+    )
 }
 
 /// The priority groups below the first productive one, with the rule-selection keys of the term
@@ -443,6 +444,10 @@ struct LowerGroups {
 /// Invariant: `remainder` is the part of the parent pattern that no visited group covers, and
 /// `lower.groups` holds, for every priority above `lower.visited`, the candidates selected for
 /// keys `lower.selected_for`, which are the current remainder term's once it is simplified.
+///
+/// A failure leaves the remainder undecided (`RemainderBranch::indeterminate`) beside the
+/// decided candidates. A stop is returned instead: the remainder's successors, and so the step's
+/// successor set, have no answer.
 #[allow(clippy::too_many_arguments)]
 fn fold_lower_priority_groups(
     definition: &BackendDefinition,
@@ -454,7 +459,7 @@ fn fold_lower_priority_groups(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
-) {
+) -> Stoppable<()> {
     let mut needs_simplification = true;
     // Invariant: each pass either applies and removes one group of `lower.groups` or, at most
     // once per simplification, replaces the groups with a selection above the same `visited`,
@@ -465,24 +470,24 @@ fn fold_lower_priority_groups(
         // empty selection means the term index has no priority above `visited`, whatever the
         // cell keys of a simplified remainder would be.
         if lower.groups.is_empty() {
-            return;
+            return Ok(());
         }
         let Some(current) = remainder.as_mut() else {
-            return;
+            return Ok(());
         };
         if needs_simplification {
             let before = current.pattern.clone();
             let (simplified, diagnostics) = diagnostic::collect(|| {
-                SimplificationError::bridge(simplify_with_solver(
+                simplify_with_solver(
                     definition,
                     &before.term,
                     &before.constraints,
                     simplification_options,
                     solver,
-                ))
+                )
             });
             extend_distinct(&mut current.diagnostics, &diagnostics);
-            match simplified {
+            match simplified? {
                 Ok(simplified) => {
                     current.pattern.term = simplified.term;
                     extend_unique(&mut current.pattern.constraints, simplified.constraints);
@@ -500,12 +505,12 @@ fn fold_lower_priority_groups(
                     }
                     if predicates_truth(&current.pattern.constraints) == Truth::False {
                         *remainder = None;
-                        return;
+                        return Ok(());
                     }
                 }
                 Err(error) => {
                     current.indeterminate = Some(UndecidedStep::Simplification(error));
-                    return;
+                    return Ok(());
                 }
             }
             needs_simplification = false;
@@ -539,7 +544,7 @@ fn fold_lower_priority_groups(
                 None,
             )
         });
-        match outcome {
+        match outcome? {
             // The lower group did not apply to the remainder, which goes on unchanged.
             PriorityGroupOutcome::NotProductive => {}
             PriorityGroupOutcome::Undecided(undecided) => {
@@ -548,7 +553,7 @@ fn fold_lower_priority_groups(
                     .expect("the current remainder is present");
                 extend_distinct(&mut current.diagnostics, &diagnostics);
                 current.indeterminate = Some(undecided);
-                return;
+                return Ok(());
             }
             PriorityGroupOutcome::Productive {
                 branches: mut lower,
@@ -647,9 +652,8 @@ impl SequentialDeterminism {
     /// Record the attempt of `rule` (priority `priority`) on `remaining`, the subject minus the
     /// sub-cases covered earlier in the step. `pattern` is the whole subject.
     ///
-    /// `Err` is a stop observed while deciding whether a successor was dropped, spelled as the
-    /// step's simplification failure: the tracker's answer would rest on a missing one, so the
-    /// step ends with the stop instead.
+    /// `Err` is a stop observed while deciding whether a successor was dropped: the tracker's
+    /// answer would rest on a missing one, so the step ends with the stop instead.
     #[allow(clippy::too_many_arguments)]
     fn record(
         &mut self,
@@ -662,7 +666,7 @@ impl SequentialDeterminism {
         fresh_counter: u64,
         simplification_options: SimplificationOptions,
         solver: &dyn SmtSolver,
-    ) -> Result<(), SimplificationError> {
+    ) -> Stoppable<()> {
         if self.dropped {
             return Ok(());
         }
@@ -680,11 +684,8 @@ impl SequentialDeterminism {
                 solver,
                 false,
                 None,
-            ) {
+            )? {
                 RuleAttempt::NotApplicable => {}
-                RuleAttempt::Simplification(error @ SimplificationError::Stopped(_)) => {
-                    return Err(error);
-                }
                 RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_) => {
                     self.dropped = true;
                     return Ok(());
@@ -694,8 +695,7 @@ impl SequentialDeterminism {
                         for case in Self::sub_cases(pattern, group) {
                             for (earlier, covered) in &self.covered {
                                 if *earlier == priority
-                                    && Self::may_overlap(covered, &case, solver)
-                                        .map_err(SimplificationError::from_stop)?
+                                    && Self::may_overlap(covered, &case, solver)?
                                 {
                                     self.dropped = true;
                                     return Ok(());
@@ -720,9 +720,7 @@ impl SequentialDeterminism {
         let cases = Self::sub_cases(remaining, group);
         for (position, case) in cases.iter().enumerate() {
             for earlier in &cases[..position] {
-                if Self::may_overlap(earlier, case, solver)
-                    .map_err(SimplificationError::from_stop)?
-                {
+                if Self::may_overlap(earlier, case, solver)? {
                     self.dropped = true;
                     return Ok(());
                 }
@@ -760,21 +758,24 @@ fn simplify_remaining(
     remaining_diagnostics: &mut Vec<BackendDiagnostic>,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<(), SimplificationError> {
+) -> Stoppable<Result<(), SimplificationError>> {
     let (constraints, diagnostics) = diagnostic::collect(|| {
-        SimplificationError::bridge(simplify_predicates_with_solver(
+        simplify_predicates_with_solver(
             definition,
             &remaining.constraints,
             &pattern.constraints,
             simplification_options,
             solver,
-        ))
+        )
     });
     extend_distinct(remaining_diagnostics, &diagnostics);
-    let constraints = constraints?;
+    let constraints = match constraints? {
+        Ok(constraints) => constraints,
+        Err(error) => return Ok(Err(error)),
+    };
     remaining.constraints = pattern.constraints.clone();
     extend_unique(&mut remaining.constraints, constraints);
-    Ok(())
+    Ok(Ok(()))
 }
 
 /// End a priority of the sequential step: `remaining` also excludes every instance a rule of
@@ -789,7 +790,7 @@ fn close_priority(
     remaining_diagnostics: &mut Vec<BackendDiagnostic>,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<(), SimplificationError> {
+) -> Stoppable<Result<(), SimplificationError>> {
     let before = remaining.constraints.len();
     extend_unique(&mut remaining.constraints, blocked.drain(..));
     extend_distinct(remaining_diagnostics, blocked_diagnostics);
@@ -797,7 +798,7 @@ fn close_priority(
     if remaining.constraints.len() == before
         || predicates_truth(&remaining.constraints) == Truth::False
     {
-        return Ok(());
+        return Ok(Ok(()));
     }
     simplify_remaining(
         definition,
@@ -818,13 +819,13 @@ pub(super) fn rewrite_step_any(
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
     mut determinism: Option<&mut SequentialDeterminism>,
-) -> RewriteResult {
+) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
     let priority_groups = applicable_rewrite_groups(definition, &subject);
     if priority_groups.is_empty() {
-        return RewriteResult::Stuck(pattern.clone());
+        return Ok(RewriteResult::Stuck(pattern.clone()));
     }
 
     // Invariant: `remaining` narrows only the constraints of `pattern`, never its term, so the
@@ -865,11 +866,11 @@ pub(super) fn rewrite_step_any(
                 &mut remaining_diagnostics,
                 simplification_options,
                 solver,
-            ) {
-                return RewriteResult::Simplification {
+            )? {
+                return Ok(RewriteResult::Simplification {
                     pattern: remaining,
                     error,
-                };
+                });
             }
             current_priority = Some(priority);
             priority_trivial = trivial.len();
@@ -878,7 +879,7 @@ pub(super) fn rewrite_step_any(
             // Nothing is left to feed the later rules; the tracker still asks whether they
             // cover a configuration an earlier rule took.
             if let Some(determinism) = determinism.as_deref_mut() {
-                if let Err(error) = determinism.record(
+                determinism.record(
                     definition,
                     rule,
                     priority,
@@ -888,12 +889,7 @@ pub(super) fn rewrite_step_any(
                     *fresh_counter,
                     simplification_options,
                     solver,
-                ) {
-                    return RewriteResult::Simplification {
-                        pattern: pattern.clone(),
-                        error,
-                    };
-                }
+                )?;
                 continue;
             }
             break;
@@ -907,9 +903,9 @@ pub(super) fn rewrite_step_any(
             solver,
             false,
             io,
-        );
-        if let Some(determinism) = determinism.as_deref_mut()
-            && let Err(error) = determinism.record(
+        )?;
+        if let Some(determinism) = determinism.as_deref_mut() {
+            determinism.record(
                 definition,
                 rule,
                 priority,
@@ -919,12 +915,7 @@ pub(super) fn rewrite_step_any(
                 *fresh_counter,
                 simplification_options,
                 solver,
-            )
-        {
-            return RewriteResult::Simplification {
-                pattern: pattern.clone(),
-                error,
-            };
+            )?;
         }
         match attempt {
             RuleAttempt::NotApplicable => {}
@@ -1023,25 +1014,25 @@ pub(super) fn rewrite_step_any(
                         &mut remaining_diagnostics,
                         simplification_options,
                         solver,
-                    )
+                    )?
                 {
-                    return RewriteResult::Simplification {
+                    return Ok(RewriteResult::Simplification {
                         pattern: remaining,
                         error,
-                    };
+                    });
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
-                return RewriteResult::Indeterminate {
+                return Ok(RewriteResult::Indeterminate {
                     pattern: remaining,
                     reason,
-                };
+                });
             }
             RuleAttempt::Simplification(error) => {
-                return RewriteResult::Simplification {
+                return Ok(RewriteResult::Simplification {
                     pattern: remaining,
                     error,
-                };
+                });
             }
         }
     }
@@ -1054,15 +1045,15 @@ pub(super) fn rewrite_step_any(
         &mut remaining_diagnostics,
         simplification_options,
         solver,
-    ) {
-        return RewriteResult::Simplification {
+    )? {
+        return Ok(RewriteResult::Simplification {
             pattern: remaining,
             error,
-        };
+        });
     }
 
     if applied.is_empty() && trivial.is_empty() {
-        return RewriteResult::Stuck(pattern.clone());
+        return Ok(RewriteResult::Stuck(pattern.clone()));
     }
 
     let remainder_result = if predicates_truth(&remaining.constraints) == Truth::False
@@ -1070,22 +1061,14 @@ pub(super) fn rewrite_step_any(
     {
         Ok(Satisfiability::Unsat)
     } else {
-        match solver.is_sat(&remaining.constraints, &Substitution::new()) {
-            Ok(satisfiability) => satisfiability,
-            // No answer exists for the remainder, so the step decided no successor set.
-            Err(stop) => {
-                return RewriteResult::Simplification {
-                    pattern: pattern.clone(),
-                    error: SimplificationError::from_stop(stop),
-                };
-            }
-        }
+        // A stop leaves the remainder, and so the step's successor set, without an answer.
+        solver.is_sat(&remaining.constraints, &Substitution::new())?
     };
     if !matches!(
         remainder_result,
         Ok(Satisfiability::Unsat | Satisfiability::Sat)
     ) {
-        return RewriteResult::Indeterminate {
+        return Ok(RewriteResult::Indeterminate {
             pattern: pattern.clone(),
             reason: IndeterminateReason::Remainder {
                 rule_ids: applied
@@ -1100,7 +1083,7 @@ pub(super) fn rewrite_step_any(
                 predicates: remainder_conditions,
                 satisfiability: remainder_result,
             },
-        };
+        });
     }
     let remainder = matches!(remainder_result, Ok(Satisfiability::Sat)).then(|| RemainderBranch {
         pattern: remaining,
@@ -1119,7 +1102,7 @@ pub(super) fn rewrite_step_any(
         diagnostics: remaining_diagnostics,
         observations: Vec::new(),
     });
-    match (applied.len(), trivial.is_empty(), remainder) {
+    Ok(match (applied.len(), trivial.is_empty(), remainder) {
         (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
         (1, true, None) => RewriteResult::Finished(applied.pop().unwrap()),
         (_, _, remainder) => RewriteResult::Branch {
@@ -1128,5 +1111,5 @@ pub(super) fn rewrite_step_any(
             remainder,
             trivial,
         },
-    }
+    })
 }

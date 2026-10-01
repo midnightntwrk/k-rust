@@ -3627,7 +3627,7 @@ mod tests {
         rule::Predicate,
         search::PatternMatch,
         simplify::{
-            SimplificationError, SimplificationOptions, simplify_and_decide_predicate_with_solver,
+            SimplificationOptions, simplify_and_decide_predicate_with_solver,
             simplify_pattern_with_solver,
         },
         smt::Z3Solver,
@@ -3662,7 +3662,12 @@ mod tests {
                     SimplificationOptions::unbounded(),
                     &solver,
                 )
-                .unwrap_or_else(|stop| Err(SimplificationError::Stopped(stop.into_cause())))
+                .map_err(|stop| {
+                    io::Error::other(format!(
+                        "could not simplify KORE pattern: {:?}",
+                        stop.into_cause()
+                    ))
+                })?
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
@@ -3676,7 +3681,12 @@ mod tests {
                     SimplificationOptions::unbounded(),
                     &solver,
                 )
-                .unwrap_or_else(|stop| Err(SimplificationError::Stopped(stop.into_cause())))
+                .map_err(|stop| {
+                    io::Error::other(format!(
+                        "could not simplify KORE pattern: {:?}",
+                        stop.into_cause()
+                    ))
+                })?
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;

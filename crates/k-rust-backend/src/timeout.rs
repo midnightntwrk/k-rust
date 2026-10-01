@@ -90,7 +90,6 @@ impl StepTimeoutController {
             StepTimer {
                 controller: self,
                 started,
-                mode,
                 _deadline: deadline,
                 record_elapsed: true,
             }
@@ -133,27 +132,15 @@ pub(crate) struct StepTimer<'a> {
     controller: &'a StepTimeoutController,
     #[cfg(not(target_arch = "wasm32"))]
     started: Instant,
-    #[cfg(not(target_arch = "wasm32"))]
-    mode: Option<StepTimeoutMode>,
-    /// Restores the enclosing step's deadline when the timer is dropped.
+    /// The step's deadline, armed in the `stop` registry: a poll after it passed returns
+    /// `StopCause::Deadline` with its mode. Restores the enclosing step's deadline when the
+    /// timer is dropped.
     #[cfg(not(target_arch = "wasm32"))]
     _deadline: Option<DeadlineGuard>,
     record_elapsed: bool,
 }
 
 impl StepTimer<'_> {
-    pub(crate) fn timed_out(&self) -> Option<StepTimeoutMode> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.mode
-                .filter(|mode| self.started.elapsed() >= mode.timeout())
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            None
-        }
-    }
-
     pub(crate) fn discard_measurement(&mut self) {
         self.record_elapsed = false;
     }
@@ -211,7 +198,12 @@ mod tests {
             moving_average: false,
         });
         let mut timer = controller.begin_step();
-        assert!(timer.timed_out().is_some());
+        assert_eq!(
+            crate::stop::check().map_err(crate::stop::Stop::into_cause),
+            Err(crate::stop::StopCause::Deadline(StepTimeoutMode::Manual(
+                Duration::ZERO
+            )))
+        );
         timer.discard_measurement();
         drop(timer);
         assert_eq!(controller.moving_average_micros.get(), None);

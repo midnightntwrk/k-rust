@@ -45,6 +45,7 @@ use crate::{
     rule::{Predicate, RewriteRule},
     simplify::{SimplificationError, SimplificationOptions, simplify_with_solver},
     smt::SmtSolver,
+    stop::{Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute},
     term::{
         HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
@@ -70,16 +71,38 @@ pub(crate) struct RecoveredMatch {
 /// result-sorted variable, the concrete subject is also tried as a witness; the match is accepted
 /// only when evaluating that witness reproduces the subject exactly. A failed witness remains
 /// indeterminate because it does not prove that no other witness exists.
+///
+/// A failed simplification of a pair is the recovery's failure; a stop leaves the match without
+/// an answer and is returned on the outer layer.
 pub(crate) fn recover_indeterminate_match(
+    definition: &BackendDefinition,
+    substitution: Substitution,
+    remainder: Vec<(Term, Term)>,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Result<RecoveredMatch, SimplificationError>> {
+    let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
+    measure::bump(Counter::RewriteIndeterminateRecoveries);
+    recover_by_simplifying_pairs(
+        definition,
+        substitution,
+        remainder,
+        known_predicates,
+        options,
+        solver,
+    )
+    .layered()
+}
+
+fn recover_by_simplifying_pairs(
     definition: &BackendDefinition,
     mut substitution: Substitution,
     remainder: Vec<(Term, Term)>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<RecoveredMatch, SimplificationError> {
-    let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
-    measure::bump(Counter::RewriteIndeterminateRecoveries);
+) -> Result<RecoveredMatch, Unwind<SimplificationError>> {
     let mut unresolved = Vec::new();
     let mut conditions = Vec::new();
     for (pattern, subject) in remainder {
@@ -87,16 +110,14 @@ pub(crate) fn recover_indeterminate_match(
         let subject = substitute(&subject, &substitution);
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
-        let simplified_pattern = SimplificationError::bridge(simplify_with_solver(
-            definition, &pattern, &knowledge, options, solver,
-        ))?;
+        let simplified_pattern =
+            simplify_with_solver(definition, &pattern, &knowledge, options, solver)??;
         extend_unique(&mut conditions, simplified_pattern.constraints);
         let simplified_pattern = simplified_pattern.term;
         let mut knowledge = known_predicates.to_vec();
         extend_unique(&mut knowledge, conditions.iter().cloned());
-        let simplified_subject = SimplificationError::bridge(simplify_with_solver(
-            definition, &subject, &knowledge, options, solver,
-        ))?;
+        let simplified_subject =
+            simplify_with_solver(definition, &subject, &knowledge, options, solver)??;
         extend_unique(&mut conditions, simplified_subject.constraints);
         let simplified_subject = simplified_subject.term;
 
@@ -195,13 +216,13 @@ pub(crate) fn recover_indeterminate_match(
         let candidate_pattern = substitute(&pattern, &candidate_substitution);
         let mut witness_knowledge = known_predicates.to_vec();
         extend_unique(&mut witness_knowledge, conditions.iter().cloned());
-        let candidate_pattern = SimplificationError::bridge(simplify_with_solver(
+        let candidate_pattern = simplify_with_solver(
             definition,
             &candidate_pattern,
             &witness_knowledge,
             options,
             solver,
-        ))?;
+        )??;
         extend_unique(&mut conditions, candidate_pattern.constraints);
         match match_terms_in_definition(
             MatchMode::Rewrite,

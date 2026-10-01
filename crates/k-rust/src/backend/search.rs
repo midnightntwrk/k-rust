@@ -100,9 +100,11 @@ impl Backend {
         alternatives: &[Pattern],
     ) -> Result<Vec<PatternMatch>, BackendError> {
         self.with_solver(module, |definition, _| {
-            match_disjunction(definition, target, alternatives).map_err(|error| {
-                BackendError(format!("KORE pattern match was indeterminate: {error:?}"))
-            })
+            match_disjunction(definition, target, alternatives)
+                .map_err(super::simplification::stopped_operation)?
+                .map_err(|error| {
+                    BackendError(format!("KORE pattern match was indeterminate: {error:?}"))
+                })
         })
     }
 }

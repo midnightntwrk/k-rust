@@ -134,6 +134,8 @@ On wasm32 the engine's call-stack limit is invisible to the module, so the guard
 Ground function recursion reaches about 26,000 levels on a 64 MiB release thread (about 2.5 KiB per level in release builds and 16 KiB in debug builds).
 Exhaustion is reported, never decided: an equation condition, definedness obligation, `ensures`, implication obligation, or claim remainder whose simplification is cancelled, interrupted by the step deadline, or runs out of stack propagates that stop instead of being decided unsimplified, and `KeepPartial` budgets do not absorb it.
 Execution ends the state with `Stopped(StackExhausted)`, a proof records a `Stopped(StackExhausted)` leaf and goes on with its other states, a search records a `Stopped` entry with that cause, KORE RPC `execute`, `simplify` and `implies` answer with a runtime error while the connection keeps serving, and the CLI prints the error and exits nonzero.
+A rewrite step that runs out of stack has no successor set, so its state is the stopped one, whichever candidate or remainder the step was working on.
+The exception is the output normalisation of an execution or proof leaf whose outcome is already decided (`Stuck`, `DepthBound`, `BreadthBound`, `Indeterminate`): it only refines that outcome, so a stop there keeps the decided outcome with the unsimplified pattern.
 
 ## Final search depth cuts
 

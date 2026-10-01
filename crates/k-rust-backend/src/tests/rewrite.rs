@@ -296,7 +296,8 @@ fn rhs_disjunction_branches_in_all_and_any_modes() {
             &NoSolver,
             mode,
             false,
-        );
+        )
+        .expect("no stop is armed");
         let RewriteResult::Branch { branches, .. } = result else {
             panic!("RHS disjunction should branch in {mode:?}: {result:?}");
         };
@@ -338,6 +339,7 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         remainder: Some(remainder),
         ..
     } = rewrite_step_with_solver(&definition, &subject, &mut fresh, &solver)
+        .expect("no stop is armed")
     else {
         panic!("partial-function binding should retain applied and undefined branches");
     };
@@ -370,7 +372,8 @@ fn requires_definedness_unless_the_configuration_is_assumed_defined() {
         &solver,
         ExecutionMode::All,
         true,
-    ) else {
+    )
+    .expect("no stop is armed") else {
         panic!("the defined configuration should rewrite without a side branch");
     };
     assert_eq!(

@@ -70,6 +70,8 @@ use super::{
     substitute_predicates,
 };
 
+/// The outcome of one rule attempt. A stop is not an outcome: an attempt that stopped has none,
+/// and [`apply_rule`] returns the stop on the outer layer instead.
 pub(super) enum RuleAttempt {
     NotApplicable,
     /// The rule unified in at least one sub-case, including results that simplify to bottom.
@@ -325,7 +327,7 @@ pub(super) fn apply_rule(
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
-) -> RuleAttempt {
+) -> Stoppable<RuleAttempt> {
     apply_rule_with_match(
         definition,
         rule,
@@ -366,17 +368,24 @@ impl RuleContext<'_> {
     }
 }
 
-/// A phase either hands its result to the next phase or ends the attempt with the
-/// `RuleAttempt` the caller reports. The exit is the attempt itself and not a boxed one: the
-/// `NotApplicable` exit is the hottest path of the step (`Counter::RewriteMatchFailures`), and
-/// an allocation per failed attempt would be a cost no phase needs.
-type Phase<T> = Result<T, RuleAttempt>;
+/// A phase either hands its result to the next phase or ends the attempt early (`PhaseExit`).
+type Phase<T> = Result<T, PhaseExit>;
 
-/// The attempt a solver's stop ends: no condition of the rule was decided, so the stop unwinds
-/// through the attempt's simplification-failure payload to the step that publishes it, never
-/// as an undecided or refuted condition.
-fn stopped_attempt(stop: Stop) -> RuleAttempt {
-    RuleAttempt::Simplification(SimplificationError::from_stop(stop))
+/// How a phase ends a rule attempt early: with the `RuleAttempt` the caller reports, or with a
+/// stop, which leaves the attempt without an outcome, so that no condition of the rule is decided
+/// (applicable, refuted or undecided) from a missing answer; the stop unwinds to the step. The
+/// exit is the attempt itself and not a boxed one: the `NotApplicable` exit is the hottest path
+/// of the step (`Counter::RewriteMatchFailures`), and an allocation per failed attempt would be a
+/// cost no phase needs.
+enum PhaseExit {
+    Attempt(RuleAttempt),
+    Stop(Stop),
+}
+
+impl From<Stop> for PhaseExit {
+    fn from(stop: Stop) -> Self {
+        Self::Stop(stop)
+    }
 }
 
 /// Invariant: every re-entry (the six recovery splits, the unification solutions, and the
@@ -397,7 +406,7 @@ pub(super) fn apply_rule_with_match(
     assume_initial_defined: bool,
     matched: Option<PartialRuleMatch>,
     io: Option<&ExecutionIoState>,
-) -> RuleAttempt {
+) -> Stoppable<RuleAttempt> {
     // A partial match was computed against the rule this attempt already applies, which is
     // renamed apart from the subject when it had to be.
     if matched.is_none()
@@ -432,12 +441,14 @@ pub(super) fn apply_rule_with_match(
         io,
         nested_units: &nested_units,
     };
-    let (mut attempt, level) =
+    let (attempt, level) =
         diagnostic::collect_unit(
             || match apply_rule_phases(context, fresh_counter, matched) {
-                Ok(attempt) | Err(attempt) => attempt,
+                Ok(attempt) | Err(PhaseExit::Attempt(attempt)) => Ok(attempt),
+                Err(PhaseExit::Stop(stop)) => Err(stop),
             },
         );
+    let mut attempt = attempt?;
     // This level's own work (matching, recovery, conditions) is every emission outside its
     // nested units. Every group of the attempt, built here or by a sub-attempt re-entered from
     // here, depends on it. An attempt that produced no group attributes it to no candidate.
@@ -458,7 +469,7 @@ pub(super) fn apply_rule_with_match(
             });
         }
     }
-    attempt
+    Ok(attempt)
 }
 
 /// The thirteen phases P1 to P13 in order; each phase's postcondition is what the next may
@@ -478,11 +489,13 @@ fn apply_rule_phases(
         &mut inherited_knowledge,
     )?;
     if binds_element_variable_to_set_pattern(&substitution) {
-        return Err(RuleAttempt::Indeterminate(IndeterminateReason::Match {
-            rule_id: context.rule.attributes.unique_id.clone(),
-            substitution,
-            remainder: Vec::new(),
-        }));
+        return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+            IndeterminateReason::Match {
+                rule_id: context.rule.attributes.unique_id.clone(),
+                substitution,
+                remainder: Vec::new(),
+            },
+        )));
     }
     configuration_bindings(context, &mut substitution, &mut match_conditions);
     let mut match_conditions = simplify_conditions(
@@ -522,7 +535,7 @@ fn reenter(
     context: RuleContext<'_>,
     fresh_counter: &mut u64,
     matched: PartialRuleMatch,
-) -> RuleAttempt {
+) -> Stoppable<RuleAttempt> {
     context.nested(|| {
         apply_rule_with_match(
             context.definition,
@@ -606,7 +619,7 @@ fn dispatch_match(
     match matching {
         MatchResult::Failed(_) => {
             measure::bump(Counter::RewriteMatchFailures);
-            Err(RuleAttempt::NotApplicable)
+            Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
         }
         MatchResult::Indeterminate {
             substitution,
@@ -622,7 +635,7 @@ fn dispatch_match(
             match recovered {
                 MatchResult::Failed(_) => {
                     measure::bump(Counter::RewriteMatchFailures);
-                    Err(RuleAttempt::NotApplicable)
+                    Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
                 }
                 MatchResult::Success(substitution) => Ok((substitution, Vec::new())),
                 MatchResult::Indeterminate {
@@ -636,7 +649,7 @@ fn dispatch_match(
                         &remainder,
                         inherited_conditions,
                     ) {
-                        return Err(attempt);
+                        return Err(PhaseExit::Attempt(attempt?));
                     }
                     recover_by_unification(
                         context,
@@ -670,10 +683,10 @@ fn recover_by_simplification(
         inherited_knowledge,
         context.simplification_options,
         context.solver,
-    ) {
+    )? {
         Ok(recovered) => recovered,
         Err(error) => {
-            return Err(RuleAttempt::Simplification(error));
+            return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     extend_unique(inherited_conditions, recovered.conditions.iter().cloned());
@@ -684,7 +697,7 @@ fn recover_by_simplification(
 /// P5: the six splitting strategies (boolean, symbolic map key, map-not-in-keys, equality,
 /// ite, collection narrowing), each either producing partial matches that re-enter with an
 /// empty or strictly shorter remainder (combined by `combine_rule_attempts`) or declining.
-/// `None` means every strategy declined.
+/// `None` means every strategy declined; a stop of a re-entered attempt is the split's result.
 /// ```toml algorithm-site
 /// id = "backend.rewrite.recover"
 /// role = "part"
@@ -696,7 +709,7 @@ fn recover_by_split(
     substitution: &Substitution,
     remainder: &[(Term, Term)],
     inherited_conditions: &[Predicate],
-) -> Option<RuleAttempt> {
+) -> Option<Stoppable<RuleAttempt>> {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteRecover);
     let definition = context.definition;
     let rule = context.rule;
@@ -766,7 +779,7 @@ fn recover_by_split(
         fresh_counter,
     ) {
         if matches.is_empty() {
-            return Some(RuleAttempt::NotApplicable);
+            return Some(Ok(RuleAttempt::NotApplicable));
         }
         return Some(combine_rule_attempts(matches.into_iter().map(|solution| {
             let (substitution, _) =
@@ -832,24 +845,26 @@ fn recover_by_unification(
             if solutions.len() == 1 {
                 Ok(solutions.pop().expect("one unification solution"))
             } else {
-                Err(combine_rule_attempts(solutions.into_iter().map(
-                    |(substitution, mut constraints)| {
-                        let mut conditions = inherited_conditions.to_vec();
-                        conditions.append(&mut constraints);
-                        reenter(
-                            context,
-                            fresh_counter,
-                            PartialRuleMatch {
-                                substitution,
-                                conditions,
-                                remainder: Vec::new(),
-                            },
-                        )
-                    },
-                )))
+                Err(PhaseExit::Attempt(combine_rule_attempts(
+                    solutions
+                        .into_iter()
+                        .map(|(substitution, mut constraints)| {
+                            let mut conditions = inherited_conditions.to_vec();
+                            conditions.append(&mut constraints);
+                            reenter(
+                                context,
+                                fresh_counter,
+                                PartialRuleMatch {
+                                    substitution,
+                                    conditions,
+                                    remainder: Vec::new(),
+                                },
+                            )
+                        }),
+                )?))
             }
         }
-        GeneralUnificationRecovery::Bottom => Err(RuleAttempt::NotApplicable),
+        GeneralUnificationRecovery::Bottom => Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         GeneralUnificationRecovery::Unsupported => {
             if let Some(recovered) = recover_functional_symbolic_match(
                 definition,
@@ -876,16 +891,14 @@ fn recover_by_unification(
                 inherited_knowledge,
                 context.simplification_options,
                 context.solver,
-            )
-            .map_err(stopped_attempt)?
-            {
+            )? {
                 Ok(requires) => requires,
                 Err(error) => {
-                    return Err(RuleAttempt::Simplification(error));
+                    return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
                 }
             };
             if predicates_truth(&requires) == Truth::False {
-                return Err(RuleAttempt::NotApplicable);
+                return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
             }
             let unclear = requires
                 .into_iter()
@@ -896,20 +909,23 @@ fn recover_by_unification(
                 .collect::<Vec<_>>();
             if !unclear.is_empty()
                 && matches!(
-                    context
-                        .solver
-                        .check_predicates(inherited_knowledge, &Substitution::new(), &unclear)
-                        .map_err(stopped_attempt)?,
+                    context.solver.check_predicates(
+                        inherited_knowledge,
+                        &Substitution::new(),
+                        &unclear
+                    )?,
                     Ok(Validity::Refuted)
                 )
             {
-                return Err(RuleAttempt::NotApplicable);
+                return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
             }
-            Err(RuleAttempt::Indeterminate(IndeterminateReason::Match {
-                rule_id: rule.attributes.unique_id.clone(),
-                substitution,
-                remainder,
-            }))
+            Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                IndeterminateReason::Match {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    substitution,
+                    remainder,
+                },
+            )))
         }
     }
 }
@@ -956,16 +972,14 @@ fn simplify_conditions(
         path_knowledge,
         context.simplification_options,
         context.solver,
-    )
-    .map_err(stopped_attempt)?
-    {
+    )? {
         Ok(conditions) => conditions,
         Err(error) => {
-            return Err(RuleAttempt::Simplification(error));
+            return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     if predicates_truth(&inherited_conditions) == Truth::False {
-        return Err(RuleAttempt::NotApplicable);
+        return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
     Ok(inherited_conditions
         .into_iter()
@@ -1000,18 +1014,16 @@ fn definedness(
         &definedness_knowledge,
         context.simplification_options,
         context.solver,
-    )
-    .map_err(stopped_attempt)?
-    {
+    )? {
         Ok(conditions) => conditions,
         Err(error) => {
-            return Err(RuleAttempt::Simplification(error));
+            return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     if predicates_truth(&definedness_conditions) == Truth::False {
         let applicability =
             quantify_introduced_variables(context.pattern, std::mem::take(match_conditions));
-        return Err(RuleAttempt::Unified {
+        return Err(PhaseExit::Attempt(RuleAttempt::Unified {
             groups: vec![RuleApplicationGroup {
                 applied: Vec::new(),
                 trivial: vec![trivial_application(
@@ -1025,7 +1037,7 @@ fn definedness(
                 common: None,
                 trivial_work: Vec::new(),
             }],
-        });
+        }));
     }
     extend_unique(
         match_conditions,
@@ -1046,23 +1058,21 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
     }
     let mut narrowed = context.pattern.constraints.clone();
     extend_unique(&mut narrowed, match_conditions.iter().cloned());
-    match context
-        .solver
-        .is_sat(&narrowed, &Substitution::new())
-        .map_err(stopped_attempt)?
-    {
+    match context.solver.is_sat(&narrowed, &Substitution::new())? {
         Ok(Satisfiability::Sat) => Ok(()),
-        Ok(Satisfiability::Unsat) => Err(RuleAttempt::NotApplicable),
-        Ok(Satisfiability::Unknown(reason)) => {
-            Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
+        Ok(Satisfiability::Unsat) => Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
+        Ok(Satisfiability::Unknown(reason)) => Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+            IndeterminateReason::Smt {
                 rule_id: context.rule.attributes.unique_id.clone(),
                 error: SmtError::Unknown(reason),
-            }))
-        }
-        Err(error) => Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-            rule_id: context.rule.attributes.unique_id.clone(),
-            error,
-        })),
+            },
+        ))),
+        Err(error) => Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+            IndeterminateReason::Smt {
+                rule_id: context.rule.attributes.unique_id.clone(),
+                error,
+            },
+        ))),
     }
 }
 
@@ -1088,16 +1098,14 @@ fn requires(
         &match_knowledge,
         context.simplification_options,
         context.solver,
-    )
-    .map_err(stopped_attempt)?
-    {
+    )? {
         Ok(requires) => requires,
         Err(error) => {
-            return Err(RuleAttempt::Simplification(error));
+            return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     if predicates_truth(&requires) == Truth::False {
-        return Err(RuleAttempt::NotApplicable);
+        return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
     if context.pattern.term.concrete_after_normalization() {
         // Conditions can finish an otherwise incomplete match (for example, requires E = value).
@@ -1114,7 +1122,7 @@ fn requires(
             })
             .collect::<Substitution>();
         if !bindings.is_empty() {
-            return Err(reenter(
+            return Err(PhaseExit::Attempt(reenter(
                 context,
                 fresh_counter,
                 PartialRuleMatch {
@@ -1122,7 +1130,7 @@ fn requires(
                     conditions: substitute_predicates(&conditions, &bindings),
                     remainder: Vec::new(),
                 },
-            ));
+            )?));
         }
     }
     Ok((requires, match_knowledge))
@@ -1178,44 +1186,54 @@ fn validity_and_applicability(
         })
         .collect::<Vec<_>>();
     if !unclear_requires.is_empty() {
-        match decide_condition(&unclear_requires, match_knowledge, context.solver)
-            .map_err(stopped_attempt)?
-        {
+        match decide_condition(&unclear_requires, match_knowledge, context.solver)? {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
-            Ok(RuleCondition::Refuted) => return Err(RuleAttempt::NotApplicable),
+            Ok(RuleCondition::Refuted) => {
+                return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
+            }
             Ok(RuleCondition::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate
                 | ConditionIndeterminacy::NonFunctionalBinding,
             )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
-                return Err(RuleAttempt::Indeterminate(IndeterminateReason::Requires {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    predicates: unclear_requires,
-                }));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                    IndeterminateReason::Requires {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        predicates: unclear_requires,
+                    },
+                )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)) => {
-                return Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    error: SmtError::InconsistentGroundTruth,
-                }));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                    IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error: SmtError::InconsistentGroundTruth,
+                    },
+                )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
-                return Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    error: SmtError::Unknown(reason),
-                }));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                    IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error: SmtError::Unknown(reason),
+                    },
+                )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
-                return Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    error: SmtError::Translation(error),
-                }));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                    IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error: SmtError::Translation(error),
+                    },
+                )));
             }
             Err(error) => {
-                return Err(RuleAttempt::Indeterminate(IndeterminateReason::Smt {
-                    rule_id: rule.attributes.unique_id.clone(),
-                    error,
-                }));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+                    IndeterminateReason::Smt {
+                        rule_id: rule.attributes.unique_id.clone(),
+                        error,
+                    },
+                )));
             }
         }
     }
@@ -1229,7 +1247,7 @@ fn validity_and_applicability(
             &Predicate::Not(Box::new(applicability.clone())),
         )
     {
-        return Err(RuleAttempt::NotApplicable);
+        return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
     Ok((unclear_requires, applicability))
 }
@@ -1259,12 +1277,12 @@ fn instantiate(
             .cloned()
             .collect::<BTreeSet<_>>();
         if !missing_variables.is_empty() {
-            return Err(RuleAttempt::Indeterminate(
+            return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                 IndeterminateReason::Instantiation {
                     rule_id: rule.attributes.unique_id.clone(),
                     missing_variables,
                 },
-            ));
+            )));
         }
     }
 
@@ -1277,9 +1295,9 @@ fn instantiate(
             .iter()
             .map(|alternative| (&alternative.term, alternative.ensures.as_slice()))
             .collect(),
-        RuleRhs::Top => return Err(RuleAttempt::NotApplicable),
+        RuleRhs::Top => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         RuleRhs::Bottom => {
-            return Err(RuleAttempt::Unified {
+            return Err(PhaseExit::Attempt(RuleAttempt::Unified {
                 groups: vec![RuleApplicationGroup {
                     applied: Vec::new(),
                     trivial: vec![trivial_application(
@@ -1293,9 +1311,9 @@ fn instantiate(
                     common: None,
                     trivial_work: Vec::new(),
                 }],
-            });
+            }));
         }
-        RuleRhs::Predicates(_) => return Err(RuleAttempt::NotApplicable),
+        RuleRhs::Predicates(_) => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
     };
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
@@ -1323,7 +1341,7 @@ fn instantiate(
                 )
             })
         });
-        match attempt {
+        match attempt? {
             RhsAlternativeAttempt::Applied(mut application) => {
                 if let Some(obligation) = application.carried.take() {
                     trivial.push(carried_trivial_application(
@@ -1353,10 +1371,10 @@ fn instantiate(
                 trivial_work.extend(own_diagnostics);
             }
             RhsAlternativeAttempt::Indeterminate(reason) => {
-                return Err(RuleAttempt::Indeterminate(reason));
+                return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(reason)));
             }
             RhsAlternativeAttempt::Simplification(error) => {
-                return Err(RuleAttempt::Simplification(error));
+                return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
             }
         }
     }
@@ -1448,7 +1466,7 @@ fn apply_rhs_alternative(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
-) -> RhsAlternativeAttempt {
+) -> Stoppable<RhsAlternativeAttempt> {
     let rhs = substitute(&substitute(rhs, substitution), existential_substitution);
     let io = io.filter(|_| {
         pattern.constraints.is_empty()
@@ -1463,7 +1481,7 @@ fn apply_rhs_alternative(
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
             (rhs, Vec::new(), Vec::new(), None, Vec::new(), None)
         } else {
-            let simplified = SimplificationError::bridge(match io_evaluation.as_mut() {
+            let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
                     definition,
                     &rhs,
@@ -1479,7 +1497,7 @@ fn apply_rhs_alternative(
                     simplification_options,
                     solver,
                 ),
-            });
+            }?;
             match simplified {
                 Ok(simplified) => (
                     simplified.term,
@@ -1490,23 +1508,23 @@ fn apply_rhs_alternative(
                     simplified.contradicted_total,
                 ),
                 Err(error) => {
-                    return RhsAlternativeAttempt::Simplification(error);
+                    return Ok(RhsAlternativeAttempt::Simplification(error));
                 }
             }
         };
     if let Some(term) = undefined_term.clone() {
-        return RhsAlternativeAttempt::Trivial {
+        return Ok(RhsAlternativeAttempt::Trivial {
             obligation: Predicate::Ceil(term),
             effects,
             contradicted_total,
-        };
+        });
     }
     if predicates_truth(&rhs_constraints) == Truth::False {
-        return RhsAlternativeAttempt::Trivial {
+        return Ok(RhsAlternativeAttempt::Trivial {
             obligation: conjunction(&rhs_constraints),
             effects,
             contradicted_total: None,
-        };
+        });
     }
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
     if !rule.computed_attributes.undefined_symbols.is_empty() {
@@ -1514,32 +1532,30 @@ fn apply_rhs_alternative(
         let reported_obligation = undefined_term
             .map(Predicate::Ceil)
             .unwrap_or_else(|| conjunction(&obligations));
-        let obligations = match SimplificationError::bridge(simplify_predicates_with_solver(
+        let obligations = match simplify_predicates_with_solver(
             definition,
             &obligations,
             &condition_knowledge,
             simplification_options,
             solver,
-        )) {
+        )? {
             Ok(obligations) => obligations,
             Err(error) => {
-                return RhsAlternativeAttempt::Simplification(error);
+                return Ok(RhsAlternativeAttempt::Simplification(error));
             }
         };
-        let condition = match decide_condition(&obligations, &condition_knowledge, solver) {
-            Ok(condition) => condition,
-            Err(stop) => {
-                return RhsAlternativeAttempt::Simplification(SimplificationError::from_stop(stop));
-            }
-        };
-        match rhs_obligation_verdict(condition) {
+        match rhs_obligation_verdict(decide_condition(
+            &obligations,
+            &condition_knowledge,
+            solver,
+        )?) {
             ObligationVerdict::Discharged => {}
             ObligationVerdict::Trivial => {
-                return RhsAlternativeAttempt::Trivial {
+                return Ok(RhsAlternativeAttempt::Trivial {
                     obligation: reported_obligation,
                     effects,
                     contradicted_total: None,
-                };
+                });
             }
             ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
         }
@@ -1551,39 +1567,35 @@ fn apply_rhs_alternative(
     let reported_ensures = conjunction(&ensures);
     // An `ensures` constrains the successor only where its terms are defined, as a `requires`
     // constrains the instance.
-    let mut ensures = match SimplificationError::bridge(simplify_rule_condition(
+    let mut ensures = match simplify_rule_condition(
         definition,
         ensures,
         &condition_knowledge,
         simplification_options,
         solver,
-    )) {
+    )? {
         Ok(ensures) => ensures,
         Err(error) => {
-            return RhsAlternativeAttempt::Simplification(error);
+            return Ok(RhsAlternativeAttempt::Simplification(error));
         }
     };
-    let condition = match decide_condition(&ensures, &condition_knowledge, solver) {
-        Ok(condition) => condition,
-        Err(stop) => {
-            return RhsAlternativeAttempt::Simplification(SimplificationError::from_stop(stop));
-        }
-    };
-    match rhs_ensures_verdict(condition) {
+    match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)?) {
         EnsuresStepVerdict::Cleared => ensures.clear(),
         EnsuresStepVerdict::Trivial => {
-            return RhsAlternativeAttempt::Trivial {
+            return Ok(RhsAlternativeAttempt::Trivial {
                 obligation: reported_ensures,
                 effects,
                 contradicted_total: None,
-            };
+            });
         }
         EnsuresStepVerdict::Carried => {}
         EnsuresStepVerdict::Indeterminate(error) => {
-            return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::Smt {
-                rule_id: rule.attributes.unique_id.clone(),
-                error,
-            });
+            return Ok(RhsAlternativeAttempt::Indeterminate(
+                IndeterminateReason::Smt {
+                    rule_id: rule.attributes.unique_id.clone(),
+                    error,
+                },
+            ));
         }
     }
     let alias_variables = term_alias_variables(&rule.lhs);
@@ -1619,7 +1631,7 @@ fn apply_rhs_alternative(
     };
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
-    RhsAlternativeAttempt::Applied(RuleApplication {
+    Ok(RhsAlternativeAttempt::Applied(RuleApplication {
         applied: AppliedRule {
             before: pattern.clone(),
             pattern: Pattern {
@@ -1641,7 +1653,7 @@ fn apply_rhs_alternative(
         defined,
         carried,
         diagnostics: Vec::new(),
-    })
+    }))
 }
 
 fn term_alias_variables(term: &Term) -> BTreeSet<Variable> {
@@ -1700,23 +1712,27 @@ fn term_alias_variables(term: &Term) -> BTreeSet<Variable> {
     variables
 }
 
+/// Combine the attempts of a split's sub-cases, evaluated in order: the first undecided
+/// sub-case, or the first stop, ends the combination before the later sub-cases are attempted.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> RuleAttempt {
+fn combine_rule_attempts(
+    attempts: impl IntoIterator<Item = Stoppable<RuleAttempt>>,
+) -> Stoppable<RuleAttempt> {
     let mut groups = Vec::new();
     for attempt in attempts {
-        match attempt {
+        match attempt? {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups: found } => groups.extend(found),
             attempt @ (RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_)) => {
-                return attempt;
+                return Ok(attempt);
             }
         }
     }
-    if groups.is_empty() {
+    Ok(if groups.is_empty() {
         RuleAttempt::NotApplicable
     } else {
         RuleAttempt::Unified { groups }
-    }
+    })
 }
 
 /// The rule's existentials renamed apart from every variable of `pattern`, each through
@@ -1808,7 +1824,7 @@ mod tests {
             remainder: None,
             trivial,
             ..
-        } = rewrite_step(&definition, &initial, &mut fresh)
+        } = rewrite_step(&definition, &initial, &mut fresh).expect("no stop is armed")
         else {
             panic!("a mixed group must retain its bottom sub-case");
         };

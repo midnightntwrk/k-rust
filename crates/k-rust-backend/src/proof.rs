@@ -44,7 +44,6 @@ use k_rust_kore::{
 };
 
 use crate::{
-    cancellation::cancellation_requested,
     claim::{ReachabilityClaim, ReachabilityMode},
     definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
@@ -61,15 +60,15 @@ use crate::{
         TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
         conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
         recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
-        rewrite_step_sequential_with_options, rewrite_step_with_options, simplification_stop,
-        simplify_leaf_pattern, substitute_predicates,
+        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
+        substitute_predicates,
     },
     simplify::{
         ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
         SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
-    stop::{StopCause, Stoppable},
+    stop::{self, StopCause, Stoppable},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::names::FreshMarker,
     term::{HeadRole, Term, TermKind},
@@ -167,7 +166,9 @@ pub enum ProofLeafOutcome {
     /// proof then ends) or the thread's stack ran out (the proof goes on with the other states).
     /// A cancelled request or a failed solver prelude is never a leaf: it ends the proof without
     /// a leaf for the state being explored, and a leaf whose outcome was already decided when it
-    /// arrived keeps that outcome; [`ProofResult::stopped`] is the one place it is named.
+    /// arrived during its normalisation keeps that outcome; [`ProofResult::stopped`] is the one
+    /// place it is named. A stop during a leaf's normalisation keeps the decided outcome whatever
+    /// its cause; a stop during a `Stuck` leaf's certification is its state's step's stop.
     Stopped(StopCause),
     Indeterminate(ProofIndeterminateReason),
 }
@@ -216,13 +217,13 @@ pub struct ProofResult {
     pub unexplored_states: u64,
     /// Set when the exploration ended early because it stopped: a cancelled request, a failed
     /// solver prelude, or a passed step deadline (whose state is also a `Stopped` leaf). Also set
-    /// to `Cancelled` when the request was cancelled while a leaf whose outcome was already
-    /// decided (`Stuck`, `DepthBound`, `BreadthBound`, `Indeterminate`) was being normalised or
-    /// certified, even if no state remains: that leaf keeps its outcome, but its pattern may be
-    /// left unsimplified and a `Stuck` leaf uncertified. The status is still the one the leaves
-    /// found establish, so a `Disproved` or `Failed` verdict reached before the stop stands;
-    /// `Proven` is not reachable, since states remain unexplored or a leaf that is not proven
-    /// was being refined.
+    /// when the request was cancelled or the solver's prelude failed while a leaf whose outcome
+    /// was already decided (`Stuck`, `DepthBound`, `BreadthBound`, `Indeterminate`) was being
+    /// normalised, even if no state remains: that leaf keeps its outcome with its pattern left
+    /// unsimplified, and the poll after the refinement names the stop. The status is still the
+    /// one the leaves found establish, so a `Disproved` or `Failed` verdict reached before the
+    /// stop stands; `Proven` is not reachable, since states remain unexplored or a leaf that is
+    /// not proven was being refined.
     pub stopped: Option<StopCause>,
 }
 
@@ -317,29 +318,23 @@ pub fn prove_claim(
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
         ProofSearchOrder::DepthFirst => pending.pop_back(),
     } {
-        if cancellation_requested() {
+        // No step has begun: whatever stopped, the state stays unexplored and the proof ends.
+        if let Err(stop) = stop::check() {
             return Ok(finish_stopped(
                 leaves,
                 explored_states,
                 pending.len() as u64 + 1,
-                StopCause::Cancelled,
+                stop.into_cause(),
             ));
         }
         explored_states += 1;
         measure::bump(Counter::ProofStatesExplored);
         let mut step_timer = timeout_controller.begin_step();
-        // Publish a stop as `proof_stop` decides; never falls through. A stop of this state's
-        // step, or (`carried`) one its parent's step observed on this remainder.
+        // Publish a stop of this state's step as `proof_stop` decides; never falls through.
         macro_rules! publish_stop {
-            ($cause:expr) => {
-                publish_stop!(@origin $cause, StopOrigin::ThisStep)
-            };
-            (carried $cause:expr) => {
-                publish_stop!(@origin $cause, StopOrigin::ParentStep)
-            };
-            (@origin $cause:expr, $origin:expr) => {{
+            ($cause:expr) => {{
                 let cause: StopCause = $cause;
-                match proof_stop(&cause, $origin, &mut step_timer) {
+                match proof_stop(&cause, &mut step_timer) {
                     ProofStop::Leaf => {
                         record_leaf!(state.leaf(ProofLeafOutcome::Stopped(cause)));
                         continue 'states;
@@ -364,78 +359,94 @@ pub fn prove_claim(
                 }
             }};
         }
+        // Poll for a stop between two phases of the state's step and publish it; no stop is
+        // alive at a poll, since every phase's own stop is published before it.
         macro_rules! finish_if_interrupted {
             () => {
-                if cancellation_requested() {
-                    publish_stop!(StopCause::Cancelled);
-                }
-                if let Some(mode) = step_timer.timed_out() {
-                    publish_stop!(StopCause::Deadline(mode));
+                if let Err(stop) = stop::check() {
+                    publish_stop!(stop.into_cause());
                 }
             };
         }
         // Record a leaf built by `externalise_leaf` or `stuck_leaf`, which refine an outcome that
         // is already decided, then poll for the stop that refinement may have forgone. A leaf the
-        // refinement proved (an empty state under `allow_vacuous`) rests on no missing answer. A
-        // leaf the refinement made `Stopped` (an exhausted stack) is the step's published answer,
-        // so the step's measurement is discarded as for any stop of the step (`proof_stop`).
+        // refinement proved (an empty state under `allow_vacuous`) rests on no missing answer.
         macro_rules! record_refined_leaf {
             ($leaf:expr) => {{
                 let leaf: ProofLeaf = $leaf;
-                if matches!(leaf.outcome, ProofLeafOutcome::Stopped(_)) {
-                    step_timer.discard_measurement();
-                }
                 if !is_proven(&leaf) {
                     forgone_stop = forgone_stop.or_else(forgone_refinement_stop);
                 }
                 record_leaf!(leaf);
             }};
         }
+        // The leaf of `stuck_leaf` for `$stuck`, recorded; a stop of its certification ends this
+        // state's step, and `$stuck` is the state it publishes.
+        macro_rules! record_stuck_leaf {
+            ($stuck:expr, $evidence:expr) => {{
+                let stuck: ProofState = $stuck;
+                match stuck_leaf(
+                    definition,
+                    stuck.clone(),
+                    $evidence,
+                    claim.mode,
+                    fresh_counter,
+                    options,
+                    solver,
+                ) {
+                    Ok(leaf) => record_refined_leaf!(leaf),
+                    Err(stop) => {
+                        state = stuck;
+                        publish_stop!(stop.into_cause());
+                    }
+                }
+            }};
+        }
         finish_if_interrupted!();
-        let simplified_constraints = SimplificationError::bridge(simplify_predicates_with_solver(
+        let simplified_constraints = match simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
             &[],
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
-        ));
+        ) {
+            Ok(simplified_constraints) => simplified_constraints,
+            Err(stop) => publish_stop!(stop.into_cause()),
+        };
         finish_if_interrupted!();
         state.pattern.constraints = match simplified_constraints {
             Ok(constraints) => constraints,
-            Err(error) => match simplification_stop(error) {
-                Ok(cause) => publish_stop!(cause),
-                Err(error) => {
-                    record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                        ProofIndeterminateReason::Simplification(error),
-                    )));
-                    continue;
-                }
-            },
+            Err(error) => {
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
+                    ProofIndeterminateReason::Simplification(error),
+                )));
+                continue;
+            }
         };
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
             record_leaf!(state.leaf(outcome));
             continue;
         }
-        let simplified = SimplificationError::bridge(simplify_with_solver(
+        let simplified = match simplify_with_solver(
             definition,
             &state.pattern.term,
             &state.pattern.constraints,
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
-        ));
+        ) {
+            Ok(simplified) => simplified,
+            Err(stop) => publish_stop!(stop.into_cause()),
+        };
         finish_if_interrupted!();
         let simplified = match simplified {
             Ok(simplified) => simplified,
-            Err(error) => match simplification_stop(error) {
-                Ok(cause) => publish_stop!(cause),
-                Err(error) => {
-                    record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
-                        ProofIndeterminateReason::Simplification(error),
-                    )));
-                    continue;
-                }
-            },
+            Err(error) => {
+                record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
+                    ProofIndeterminateReason::Simplification(error),
+                )));
+                continue;
+            }
         };
         let contradicted_total = simplified.contradicted_total;
         state.pattern.term = simplified.term;
@@ -470,32 +481,24 @@ pub fn prove_claim(
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
             measure::bump(Counter::ProofImplicationChecks);
-            let implication =
-                ImplicationError::bridge(check_disjunctive_implication_with_existentials(
-                    definition,
-                    &state.pattern,
-                    &claim.rhs,
-                    &claim.existentials,
-                    SimplificationOptions {
-                        max_iterations: options.max_simplification_iterations,
-                        ..SimplificationOptions::default()
-                    },
-                    solver,
-                ));
-            finish_if_interrupted!();
-            let implication = match implication {
+            let implication = match check_disjunctive_implication_with_existentials(
+                definition,
+                &state.pattern,
+                &claim.rhs,
+                &claim.existentials,
+                SimplificationOptions {
+                    max_iterations: options.max_simplification_iterations,
+                    ..SimplificationOptions::default()
+                },
+                solver,
+            ) {
+                Ok(implication) => implication,
                 // The check stopped (it ran out of this thread's stack, say): the state cannot be
                 // decided here, and `proof_stop` decides whether the rest of the proof can be.
-                Err(ImplicationError::Simplification(error)) => match simplification_stop(error) {
-                    Ok(cause) => publish_stop!(cause),
-                    Err(error) => {
-                        return Err(ProofError::Implication(ImplicationError::Simplification(
-                            error,
-                        )));
-                    }
-                },
-                implication => implication.map_err(ProofError::Implication)?,
+                Err(stop) => publish_stop!(stop.into_cause()),
             };
+            finish_if_interrupted!();
+            let implication = implication.map_err(ProofError::Implication)?;
             match implication {
                 Coverage::Covered(bindings) => {
                     record_leaf!(state.leaf(ProofLeafOutcome::Proven(bindings.into())));
@@ -519,15 +522,7 @@ pub fn prove_claim(
                     // The uncovered part's destination obligation is refuted, so the stuck
                     // check stops it.
                     if options.stuck_check {
-                        record_refined_leaf!(stuck_leaf(
-                            definition,
-                            state.remaining(remainder),
-                            StuckEvidence::StepNotRun,
-                            claim.mode,
-                            fresh_counter,
-                            options,
-                            solver,
-                        ));
+                        record_stuck_leaf!(state.remaining(remainder), StuckEvidence::StepNotRun);
                         continue;
                     }
                     implication_remainder = Some(remainder);
@@ -544,15 +539,7 @@ pub fn prove_claim(
                     ));
                 }
                 Coverage::ConditionRefuted { .. } if options.stuck_check => {
-                    record_refined_leaf!(stuck_leaf(
-                        definition,
-                        state,
-                        StuckEvidence::StepNotRun,
-                        claim.mode,
-                        fresh_counter,
-                        options,
-                        solver,
-                    ));
+                    record_stuck_leaf!(state, StuckEvidence::StepNotRun);
                     continue;
                 }
                 Coverage::ConditionRefuted { .. } | Coverage::TermMismatch => {}
@@ -577,25 +564,14 @@ pub fn prove_claim(
                 Some(UndecidedStep::Indeterminate(reason)) => {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason))
                 }
-                Some(UndecidedStep::Simplification(error)) => match simplification_stop(error) {
-                    Ok(cause) => publish_stop!(carried cause),
-                    Err(error) => ProofLeafOutcome::Indeterminate(
-                        ProofIndeterminateReason::Simplification(error),
-                    ),
-                },
+                Some(UndecidedStep::Simplification(error)) => {
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(error))
+                }
                 None if implication_indeterminate => {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
                 }
                 None => {
-                    record_refined_leaf!(stuck_leaf(
-                        definition,
-                        state,
-                        StuckEvidence::StepNotRun,
-                        claim.mode,
-                        fresh_counter,
-                        options,
-                        solver,
-                    ));
+                    record_stuck_leaf!(state, StuckEvidence::StepNotRun);
                     continue;
                 }
             };
@@ -625,14 +601,17 @@ pub fn prove_claim(
                 {
                     continue;
                 }
-                let transition = apply_claim(
+                let transition = match apply_claim(
                     definition,
                     candidate,
                     &state.pattern,
                     options,
                     solver,
                     &mut fresh_counter,
-                );
+                ) {
+                    Ok(transition) => transition,
+                    Err(stop) => publish_stop!(stop.into_cause()),
+                };
                 finish_if_interrupted!();
                 match transition {
                     ClaimApplication::NotApplicable => {}
@@ -708,19 +687,19 @@ pub fn prove_claim(
 
         let simplification =
             SimplificationOptions::keep_partial(options.max_simplification_iterations);
-        let (rewritten, dropped) = match claim.mode {
+        let stepped = match claim.mode {
             // Once the trace may have dropped a successor, no later step can make it certifiable
             // again, so the step no longer asks.
-            ReachabilityMode::OnePath if state.alternative_discarded => (
+            ReachabilityMode::OnePath if state.alternative_discarded => {
                 rewrite_step_sequential_with_options(
                     definition,
                     &state.pattern,
                     &mut fresh_counter,
                     simplification,
                     solver,
-                ),
-                true,
-            ),
+                )
+                .map(|rewritten| (rewritten, true))
+            }
             ReachabilityMode::OnePath => rewrite_step_sequential_tracking_dropped(
                 definition,
                 &state.pattern,
@@ -728,16 +707,18 @@ pub fn prove_claim(
                 simplification,
                 solver,
             ),
-            ReachabilityMode::AllPath => (
-                rewrite_step_with_options(
-                    definition,
-                    &state.pattern,
-                    &mut fresh_counter,
-                    simplification,
-                    solver,
-                ),
-                false,
-            ),
+            ReachabilityMode::AllPath => rewrite_step_with_options(
+                definition,
+                &state.pattern,
+                &mut fresh_counter,
+                simplification,
+                solver,
+            )
+            .map(|rewritten| (rewritten, false)),
+        };
+        let (rewritten, dropped) = match stepped {
+            Ok(stepped) => stepped,
+            Err(stop) => publish_stop!(stop.into_cause()),
         };
         finish_if_interrupted!();
         if dropped
@@ -822,15 +803,7 @@ pub fn prove_claim(
                 } else if let Some(reason) = claim_indeterminate {
                     ProofLeafOutcome::Indeterminate(reason)
                 } else {
-                    record_refined_leaf!(stuck_leaf(
-                        definition,
-                        state,
-                        StuckEvidence::StepStuck,
-                        claim.mode,
-                        fresh_counter,
-                        options,
-                        solver,
-                    ));
+                    record_stuck_leaf!(state, StuckEvidence::StepStuck);
                     continue;
                 };
                 record_refined_leaf!(externalise_leaf(
@@ -868,20 +841,17 @@ pub fn prove_claim(
                     solver,
                 ));
             }
-            RewriteResult::Simplification { error, .. } => match simplification_stop(error) {
-                Ok(cause) => publish_stop!(cause),
-                Err(error) => {
-                    record_refined_leaf!(externalise_leaf(
-                        definition,
-                        state,
-                        ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
-                            error
-                        )),
-                        options,
-                        solver,
-                    ));
-                }
-            },
+            RewriteResult::Simplification { error, .. } => {
+                record_refined_leaf!(externalise_leaf(
+                    definition,
+                    state,
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
+                        error
+                    )),
+                    options,
+                    solver,
+                ));
+            }
         }
     }
 
@@ -931,8 +901,8 @@ fn finish_at_breadth_limit(
 /// proven, trusted, trivial, vacuous, or stopped leaf is reported as it stands. A constraint
 /// set that simplifies to `\bottom` is an empty state and takes the outcome the loop head gives
 /// one. When the simplification fails, an `Indeterminate` leaf keeps its pattern and reason;
-/// any other leaf reports the failure as a failed loop-head simplification does. A stop is
-/// handled by [`refinement_stopped`].
+/// any other leaf reports the failure as a failed loop-head simplification does. A stop keeps
+/// the decided outcome with the unsimplified pattern.
 fn externalise_leaf(
     definition: &BackendDefinition,
     mut state: ProofState,
@@ -964,42 +934,30 @@ fn externalise_leaf(
         state.depth,
         &mut state.trace,
     ) {
-        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+        Ok(Ok(simplified)) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             state.pattern = simplified.pattern;
             let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
             state.leaf(outcome)
         }
-        Ok(simplified) => {
+        Ok(Ok(simplified)) => {
             state.pattern = simplified.pattern;
             state.leaf(outcome)
         }
-        Err(error) => state.leaf(match simplification_stop(error) {
-            Ok(cause) => refinement_stopped(cause, outcome),
-            Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => outcome,
-            Err(error) => {
-                ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(error))
-            }
-        }),
-    }
-}
-
-/// The outcome of a leaf whose normalisation ([`externalise_leaf`]) stopped with `cause`.
-///
-/// The outcome was decided before the normalisation, which can only refine it (to `Vacuous`,
-/// say), so it stays sound with the unsimplified pattern. A step deadline belongs to the step,
-/// which is over. A cancelled request or a failed solver prelude keeps its signal raised, so it
-/// is not lost: the proof polls it after the refinement (`forgone_refinement_stop`) and names it
-/// in [`ProofResult::stopped`], never as a leaf. An exhausted stack raises no signal a later poll
-/// could observe, so the leaf is where it is published, unless the outcome is `Indeterminate`,
-/// which already says the state was not decided.
-#[deny(clippy::wildcard_enum_match_arm)]
-fn refinement_stopped(cause: StopCause, outcome: ProofLeafOutcome) -> ProofLeafOutcome {
-    match cause {
-        StopCause::Cancelled | StopCause::SolverPrelude(_) | StopCause::Deadline(_) => outcome,
-        StopCause::StackExhausted if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => {
-            outcome
+        Ok(Err(_)) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => state.leaf(outcome),
+        Ok(Err(error)) => state.leaf(ProofLeafOutcome::Indeterminate(
+            ProofIndeterminateReason::Simplification(error),
+        )),
+        Err(stop) => {
+            // Kept outcome: the decided one, with the unsimplified pattern, which denotes the
+            // same configurations; the normalisation only refines the outcome (into `Vacuous`,
+            // or `Proven` under `allow_vacuous`). A stop of the request or of the solver's
+            // prelude stays raised: the proof polls it after the refinement
+            // (`forgone_refinement_stop`) to name it in `ProofResult::stopped`, and a `Stuck`
+            // leaf's certification observes it again at its first solver query. A passed step
+            // deadline or an exhausted stack ends this state's step, whose outcome is decided.
+            stop.forgo_refinement();
+            state.leaf(outcome)
         }
-        StopCause::StackExhausted => ProofLeafOutcome::Stopped(cause),
     }
 }
 
@@ -1044,6 +1002,9 @@ enum StuckEvidence {
 ///   have reached the destination there.
 ///
 /// Every other `Stuck` leaf reports `ProofStatus::Failed`.
+///
+/// A stop of the certification is returned: a certification decided from a missing answer
+/// could certify a refutation that does not hold, so the state's step ends with the stop.
 fn stuck_leaf(
     definition: &BackendDefinition,
     state: ProofState,
@@ -1052,20 +1013,22 @@ fn stuck_leaf(
     fresh_counter: u64,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> ProofLeaf {
+) -> Stoppable<ProofLeaf> {
     let path_certifiable = state.path_certifiable();
     let mut leaf = externalise_leaf(definition, state, ProofLeafOutcome::Stuck, options, solver);
-    let refutes = |instance: &Pattern, evidence: StuckEvidence| {
-        leaf_is_nonempty(definition, instance, solver)
+    let refutes = |instance: &Pattern, evidence: StuckEvidence| -> Stoppable<bool> {
+        Ok(leaf_is_nonempty(definition, instance, solver)?
             && (evidence == StuckEvidence::StepStuck
-                || has_no_successor(definition, instance, mode, fresh_counter, options, solver))
+                || has_no_successor(definition, instance, mode, fresh_counter, options, solver)?))
     };
     leaf.certified = leaf.outcome == ProofLeafOutcome::Stuck
         && path_certifiable
-        && (refutes(&leaf.pattern, evidence)
-            || empty_computation_instance(definition, &leaf.pattern)
-                .is_some_and(|instance| refutes(&instance, StuckEvidence::StepNotRun)));
-    leaf
+        && (refutes(&leaf.pattern, evidence)?
+            || match empty_computation_instance(definition, &leaf.pattern) {
+                Some(instance) => refutes(&instance, StuckEvidence::StepNotRun)?,
+                None => false,
+            });
+    Ok(leaf)
 }
 
 /// The instance of `pattern` that binds every variable of sort `K` to the empty computation
@@ -1114,12 +1077,12 @@ fn empty_computation_instance(
     })
 }
 
-/// Condition (d) of [`stuck_leaf`].
+/// Condition (d) of [`stuck_leaf`]; a stop of the solver's query is returned.
 fn leaf_is_nonempty(
     definition: &BackendDefinition,
     pattern: &Pattern,
     solver: &dyn SmtSolver,
-) -> bool {
+) -> Stoppable<bool> {
     // An unevaluated function application, an equation-head application that its equations may
     // still rewrite, or a macro or alias application may denote a value that the destination
     // match would have accepted, so the leaf's configurations are known only for a term built
@@ -1128,22 +1091,12 @@ fn leaf_is_nonempty(
     pattern.term.visit_symbols(&mut |symbol| {
         constructors_only &= symbol.attributes.head_role() == HeadRole::FreeConstructor;
     });
-    constructors_only
-        && match Instance::shown(definition, pattern, &[], solver) {
-            Ok(instance) => instance.is_some(),
-            // Certification only refines the leaf's decided `Stuck` outcome into a refutation,
-            // and an uncertified `Stuck` leaf is sound. A stop of a request or a solver prelude
-            // stays raised, and the proof polls for it after the refinement
-            // (`forgone_refinement_stop`); a step deadline belongs to the step, which is over.
-            Err(stop) => {
-                stop.forgo_refinement();
-                false
-            }
-        }
+    Ok(constructors_only && Instance::shown(definition, pattern, &[], solver)?.is_some())
 }
 
 /// Condition (a) of [`stuck_leaf`] for a state the search stopped without rewriting it. The
-/// step runs on a copy of the fresh-name counter: its successors, if any, are discarded.
+/// step runs on a copy of the fresh-name counter: its successors, if any, are discarded. A stop
+/// of the step is returned.
 fn has_no_successor(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1151,7 +1104,7 @@ fn has_no_successor(
     mut fresh_counter: u64,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> bool {
+) -> Stoppable<bool> {
     let simplification = SimplificationOptions::keep_partial(options.max_simplification_iterations);
     let rewritten = match mode {
         ReachabilityMode::OnePath => rewrite_step_sequential_with_options(
@@ -1168,8 +1121,8 @@ fn has_no_successor(
             simplification,
             solver,
         ),
-    };
-    matches!(rewritten, RewriteResult::Stuck(_))
+    }?;
+    Ok(matches!(rewritten, RewriteResult::Stuck(_)))
 }
 
 fn counterexample_limit_reached(leaves: &[ProofLeaf], options: ProofOptions) -> bool {
@@ -1310,7 +1263,7 @@ fn apply_claim(
     options: ProofOptions,
     solver: &dyn SmtSolver,
     fresh_counter: &mut u64,
-) -> ClaimApplication {
+) -> Stoppable<ClaimApplication> {
     let claim = freshen_claim(claim, subject, fresh_counter);
     let claim_variables = variables_of_claim(&claim);
     let matched = match_terms_in_definition(
@@ -1321,7 +1274,7 @@ fn apply_claim(
     );
     let (substitution, match_conditions) = match matched {
         MatchResult::Success(substitution) => (substitution, Vec::new()),
-        MatchResult::Failed(_) => return ClaimApplication::NotApplicable,
+        MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -1336,17 +1289,17 @@ fn apply_claim(
                     ..SimplificationOptions::default()
                 },
                 solver,
-            ) {
+            )? {
                 Ok(recovered) => recovered,
                 Err(error) => {
-                    return ClaimApplication::Indeterminate(
+                    return Ok(ClaimApplication::Indeterminate(
                         ClaimIndeterminateReason::Simplification(error),
-                    );
+                    ));
                 }
             };
             match recovered.result {
                 MatchResult::Success(substitution) => (substitution, recovered.conditions),
-                MatchResult::Failed(_) => return ClaimApplication::NotApplicable,
+                MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
                 MatchResult::Indeterminate {
                     substitution,
                     remainder,
@@ -1360,7 +1313,7 @@ fn apply_claim(
                             extend_unique(&mut conditions, unified.constraints);
                             (unified.substitution, conditions)
                         }
-                        UnificationResult::Bottom(_) => return ClaimApplication::NotApplicable,
+                        UnificationResult::Bottom(_) => return Ok(ClaimApplication::NotApplicable),
                         UnificationResult::Unsupported {
                             substitution,
                             constraints,
@@ -1377,7 +1330,7 @@ fn apply_claim(
                                 None,
                             );
                             match solutions.as_deref() {
-                                Some([]) => return ClaimApplication::NotApplicable,
+                                Some([]) => return Ok(ClaimApplication::NotApplicable),
                                 Some([solution]) => {
                                     let mut conditions = recovered.conditions;
                                     extend_unique(&mut conditions, constraints);
@@ -1393,12 +1346,12 @@ fn apply_claim(
                                     (solution.substitution.clone(), conditions)
                                 }
                                 _ => {
-                                    return ClaimApplication::Indeterminate(
+                                    return Ok(ClaimApplication::Indeterminate(
                                         ClaimIndeterminateReason::Match {
                                             substitution,
                                             remainder,
                                         },
-                                    );
+                                    ));
                                 }
                             }
                         }
@@ -1417,22 +1370,22 @@ fn apply_claim(
     // the definedness of its term (I7): the claim's condition is stated and decided under these
     // facts, so a `⌈t⌉` the subject already implies is neither restated nor left open.
     let subject_knowledge = pattern_knowledge(definition, subject);
-    let mut match_conditions = match SimplificationError::bridge(simplify_predicates_with_solver(
+    let mut match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
         &subject_knowledge,
         simplification,
         solver,
-    )) {
+    )? {
         Ok(conditions) => conditions,
         Err(error) => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
-                error,
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(error),
             ));
         }
     };
     if predicates_truth(&match_conditions) == Truth::False {
-        return ClaimApplication::NotApplicable;
+        return Ok(ClaimApplication::NotApplicable);
     }
 
     // The instantiated `requires` is `⊥` wherever one of its atoms is over an undefined term, so
@@ -1445,22 +1398,22 @@ fn apply_claim(
         substitute_predicates(&claim.lhs.constraints, &substitution),
         &match_knowledge,
     );
-    let requires = match SimplificationError::bridge(simplify_predicates_with_solver(
+    let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
         &match_knowledge,
         simplification,
         solver,
-    )) {
+    )? {
         Ok(requires) => requires,
         Err(error) => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
-                error,
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(error),
             ));
         }
     };
     if predicates_truth(&requires) == Truth::False {
-        return ClaimApplication::NotApplicable;
+        return Ok(ClaimApplication::NotApplicable);
     }
 
     let unbound = claim_variables
@@ -1473,42 +1426,42 @@ fn apply_claim(
     // value's definedness stays among the conditions the claim applies under (I2).
     match_conditions =
         eliminate_bindings(definition, &match_conditions, &defined, &subject_knowledge);
-    match_conditions = match SimplificationError::bridge(simplify_predicates_with_solver(
+    match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
         &subject_knowledge,
         simplification,
         solver,
-    )) {
+    )? {
         Ok(conditions) => conditions,
         Err(error) => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
-                error,
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(error),
             ));
         }
     };
     if predicates_truth(&match_conditions) == Truth::False {
-        return ClaimApplication::NotApplicable;
+        return Ok(ClaimApplication::NotApplicable);
     }
     let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
     let requires = eliminate_bindings(definition, &requires, &defined, &match_knowledge);
-    let requires = match SimplificationError::bridge(simplify_predicates_with_solver(
+    let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
         &match_knowledge,
         simplification,
         solver,
-    )) {
+    )? {
         Ok(requires) => requires,
         Err(error) => {
-            return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Simplification(
-                error,
+            return Ok(ClaimApplication::Indeterminate(
+                ClaimIndeterminateReason::Simplification(error),
             ));
         }
     };
     if predicates_truth(&requires) == Truth::False {
-        return ClaimApplication::NotApplicable;
+        return Ok(ClaimApplication::NotApplicable);
     }
 
     // Conditions the path already satisfies do not narrow it. Every other match or requires
@@ -1521,38 +1474,28 @@ fn apply_claim(
             && !subject_knowledge.contains(condition)
     });
     if !conditions.is_empty() {
-        let validity =
-            match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions) {
-                Ok(validity) => validity,
-                // No answer exists, so the claim's coverage is not decided; the stop reaches the
-                // proof through the application's simplification-failure payload.
-                Err(stop) => {
-                    return ClaimApplication::Indeterminate(
-                        ClaimIndeterminateReason::Simplification(SimplificationError::from_stop(
-                            stop,
-                        )),
-                    );
-                }
-            };
-        match validity {
+        // A stop leaves the claim's coverage without an answer, so the application has none.
+        match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions)? {
             Ok(validity) => match validity {
                 Validity::Valid => conditions.clear(),
                 Validity::Refuted | Validity::InconsistentGroundTruth => {
-                    return ClaimApplication::NotApplicable;
+                    return Ok(ClaimApplication::NotApplicable);
                 }
                 // The claim covers the part where its conditions hold; the complement below is
                 // the remainder. The split is sound for any answer.
                 Validity::Contingent => {}
                 Validity::Unknown(reason) => {
-                    return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
-                        SmtError::Unknown(reason),
+                    return Ok(ClaimApplication::Indeterminate(
+                        ClaimIndeterminateReason::Smt(SmtError::Unknown(reason)),
                     ));
                 }
             },
             // Without a solver the conditions stay undecided and the same split applies.
             Err(SmtError::Unavailable) => {}
             Err(error) => {
-                return ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(error));
+                return Ok(ClaimApplication::Indeterminate(
+                    ClaimIndeterminateReason::Smt(error),
+                ));
             }
         }
     }
@@ -1565,7 +1508,7 @@ fn apply_claim(
             crate::simplify::normalize_predicate(crate::rule::Predicate::Not(Box::new(condition)));
         if conjunctively_contains_alpha_equivalent(&subject.constraints, &negated) {
             // This subject is the remainder of an earlier application of the same claim.
-            return ClaimApplication::NotApplicable;
+            return Ok(ClaimApplication::NotApplicable);
         }
         Some(negated)
     };
@@ -1574,21 +1517,14 @@ fn apply_claim(
     // bottom successor is left for the vacuity check to reject.
     let complement = match complement {
         Some(negated) => {
-            match remainder_is_unsatisfiable(
+            let unsatisfiable = remainder_is_unsatisfiable(
                 definition,
                 &subject_knowledge,
                 &negated,
                 simplification,
                 solver,
-            ) {
-                Ok(true) => None,
-                Ok(false) => Some(negated),
-                Err(error) => {
-                    return ClaimApplication::Indeterminate(
-                        ClaimIndeterminateReason::Simplification(error),
-                    );
-                }
-            }
+            )?;
+            (!unsatisfiable).then_some(negated)
         }
         None => None,
     };
@@ -1611,7 +1547,7 @@ fn apply_claim(
             observations: Vec::new(),
         }
     });
-    ClaimApplication::Applied {
+    Ok(ClaimApplication::Applied {
         patterns: claim
             .rhs
             .iter()
@@ -1632,7 +1568,7 @@ fn apply_claim(
             })
             .collect(),
         remainder,
-    }
+    })
 }
 
 /// The remainder of a claim application is the subject under the negated, quantified match
@@ -1647,18 +1583,16 @@ fn remainder_is_unsatisfiable(
     negated: &crate::rule::Predicate,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<bool, SimplificationError> {
-    // The stop is bridged and returned before the fallback sees the result, which it matches on
-    // the failure layer only.
+) -> Stoppable<bool> {
+    // The stop is returned before the fallback sees the result, which it matches on the
+    // failure layer only.
     let simplified = match simplify_predicates_with_solver(
         definition,
         std::slice::from_ref(negated),
         subject_knowledge,
         options,
         solver,
-    )
-    .map_err(SimplificationError::from_stop)?
-    {
+    )? {
         Ok(simplified) => simplified,
         Err(_) => return Ok(false),
     };
@@ -1668,9 +1602,7 @@ fn remainder_is_unsatisfiable(
     let mut constraints = subject_knowledge.to_vec();
     extend_unique(&mut constraints, simplified);
     Ok(matches!(
-        solver
-            .is_sat(&constraints, &Substitution::new())
-            .map_err(SimplificationError::from_stop)?,
+        solver.is_sat(&constraints, &Substitution::new())?,
         Ok(Satisfiability::Unsat)
     ))
 }
@@ -1870,13 +1802,22 @@ fn finish_explored(
 }
 
 /// Poll, after a decided leaf was refined (normalised by [`externalise_leaf`], certified by
-/// [`stuck_leaf`]), for a stop that refinement may have forgone. The refinement keeps the leaf's
-/// outcome when the request is cancelled (or the solver prelude fails, which raises the same
-/// signal), including when a solver query it made returned that stop. The signal stays raised,
-/// so this poll observes it; a cancellation arriving after the refinement is also observed,
-/// which only names a stop the result may not depend on.
+/// [`stuck_leaf`]), for a stop that refinement may have forgone. The normalisation keeps the
+/// leaf's outcome when it stops. A cancelled request or a failed solver prelude keeps its signal
+/// raised, so this poll mints its stop again, and the proof names it in [`ProofResult::stopped`]
+/// at whichever exit comes next; a stop arriving after the refinement is also observed, which
+/// only names a stop the result may not depend on. A passed step deadline ends only the step of
+/// the state just recorded, whose outcome is decided, so it is dismissed.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn forgone_refinement_stop() -> Option<StopCause> {
-    cancellation_requested().then_some(StopCause::Cancelled)
+    let stop = stop::check().err()?;
+    match stop.cause() {
+        StopCause::Cancelled | StopCause::SolverPrelude(_) => Some(stop.into_cause()),
+        StopCause::Deadline(_) | StopCause::StackExhausted => {
+            stop.forgo_refinement();
+            None
+        }
+    }
 }
 
 /// What the proof does with a state whose step stopped.
@@ -1890,30 +1831,14 @@ enum ProofStop {
     Finish,
 }
 
-/// Which step observed a stop the proof publishes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StopOrigin {
-    /// The step of the state being explored, which therefore produced no answer.
-    ThisStep,
-    /// The step of the state's parent, which left this state as a remainder carrying the stop
-    /// (`UndecidedStep::Simplification`). That step's duration was recorded when it ended, and
-    /// this state's step did its own work before it classified the remainder.
-    ParentStep,
-}
-
-/// Publish a stop. A stop of the state's own step means the step produced no answer, so its
-/// duration measures no step and is not recorded; a stop carried from the parent's step leaves
-/// the current step's measurement alone, since this step ran to its end. A passed step deadline
-/// ends the proof after recording the state, whose step ran out of its time; an exhausted stack
-/// stops the state being stepped only, and the rest of the proof can still be decided; a
-/// cancelled request or a failed solver prelude ends every remaining state, so the proof ends
-/// with the state unexplored.
+/// Publish a stop of the state's step. The step produced no answer, so its duration measures no
+/// step and is not recorded. A passed step deadline ends the proof after recording the state,
+/// whose step ran out of its time; an exhausted stack stops the state being stepped only, and the
+/// rest of the proof can still be decided; a cancelled request or a failed solver prelude ends
+/// every remaining state, so the proof ends with the state unexplored.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn proof_stop(cause: &StopCause, origin: StopOrigin, step_timer: &mut StepTimer<'_>) -> ProofStop {
-    match origin {
-        StopOrigin::ThisStep => step_timer.discard_measurement(),
-        StopOrigin::ParentStep => {}
-    }
+fn proof_stop(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> ProofStop {
+    step_timer.discard_measurement();
     match cause {
         StopCause::Deadline(_) => ProofStop::LeafAndFinish,
         StopCause::StackExhausted => ProofStop::Leaf,
@@ -1962,15 +1887,22 @@ fn undefined_step_state(
     if predicates_truth(&pattern.constraints) == Truth::False {
         return Ok(None);
     }
-    // A failed simplification only loses precision: the unsimplified constraints are kept.
-    if let Ok(constraints) = SimplificationError::bridge(simplify_predicates_with_solver(
+    match simplify_predicates_with_solver(
         definition,
         &pattern.constraints,
         &[],
         SimplificationOptions::keep_partial(options.max_simplification_iterations),
         solver,
-    )) {
-        pattern.constraints = constraints;
+    ) {
+        Ok(Ok(constraints)) => pattern.constraints = constraints,
+        // A failed simplification only loses precision: the unsimplified constraints are kept.
+        Ok(Err(_failure)) => {}
+        Err(stop) => {
+            // Kept outcome: the unsimplified constraints, which are the same condition; the
+            // simplification only refines them. `state_is_bottom`, which decides below, takes a
+            // stop of its own solver query, and the loop polls after this state is built.
+            stop.forgo_refinement();
+        }
     }
     let mut undefined = state.clone();
     undefined.pattern = pattern;
@@ -2306,7 +2238,8 @@ mod tests {
             ProofOptions::default(),
             &solver,
             &mut fresh,
-        );
+        )
+        .expect("no stop is armed");
         let ClaimApplication::Applied {
             patterns,
             remainder,
@@ -2359,7 +2292,8 @@ mod tests {
             ProofOptions::default(),
             &solver,
             &mut fresh,
-        );
+        )
+        .expect("no stop is armed");
         let ClaimApplication::Applied {
             patterns,
             remainder,
@@ -2940,6 +2874,7 @@ mod tests {
             &NoSolver,
             &mut fresh,
         )
+        .expect("no stop is armed")
         else {
             panic!("the defining requires equality should instantiate the claim");
         };
@@ -2986,6 +2921,7 @@ mod tests {
                 solver,
                 &mut fresh,
             )
+            .expect("no stop is armed")
             else {
                 panic!("an undecidable requires should split the covered sub-case");
             };
@@ -3023,7 +2959,7 @@ mod tests {
                 ProofOptions::default(),
                 &solver,
                 &mut fresh,
-            ),
+            ).expect("no stop is armed"),
             ClaimApplication::Indeterminate(ClaimIndeterminateReason::Smt(
                 SmtError::Unknown(reason)
             )) if reason == "timeout"
@@ -3735,7 +3671,8 @@ mod tests {
             },
             &NoSolver,
             &mut fresh,
-        );
+        )
+        .expect("no stop is armed");
 
         assert!(matches!(
             result,
@@ -4957,15 +4894,155 @@ mod tests {
             x,
         )));
         let options = SimplificationOptions::default();
-        let check = || remainder_is_unsatisfiable(&definition, &[], &negated, options, &NoSolver);
+        let check = || {
+            remainder_is_unsatisfiable(&definition, &[], &negated, options, &NoSolver)
+                .map_err(crate::stop::Stop::into_cause)
+        };
 
         assert_eq!(check(), Ok(false));
         let token = crate::cancellation::CancellationToken::new();
         token.cancel();
-        assert_eq!(
-            token.scope(check),
-            Err(SimplificationError::Stopped(StopCause::Cancelled))
+        assert_eq!(token.scope(check), Err(StopCause::Cancelled));
+    }
+
+    /// `state(X)` with two rules of one priority: `positive` rewrites it to `done` where
+    /// `X >Int 0`, and `undefined` rewrites it to `\bottom`. The step is a `Branch` with `done` as
+    /// its successor and one trivial entry, whose instances `not (X >Int 0)` have an undefined
+    /// step; `undefined_step_state` asks the solver whether that set is empty.
+    fn undefined_step_definition() -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        state{}(X:SortInt{}),
+                        \equals{SortBool{}, SortState{}}(
+                            gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    done{}()
+                ) [label{}("positive")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(state{}(X:SortInt{}), \top{SortState{}}()),
+                    \bottom{SortState{}}()
+                ) [label{}("undefined")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(\top{SortState{}}(), state{}(X:SortInt{})),
+                    weakAlwaysFinally{SortState{}}(
+                        \and{SortState{}}(done{}(), \top{SortState{}}())
+                    )
+                ) [label{}("undefined-step")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// Answers every query as satisfiable or contingent, except its first satisfiability query
+    /// about a predicate that mentions `gtInt`, which stops: with `request`, it cancels that
+    /// token, the request's, and polls for a stop, as a solver polls before each attempt;
+    /// without, it returns a stop of its own that no later poll observes. Counts those queries.
+    struct StopsAtBottomCheck {
+        request: Option<crate::cancellation::CancellationToken>,
+        stops: bool,
+        bottom_checks: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SmtSolver for StopsAtBottomCheck {
+        fn is_sat(
+            &self,
+            predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            if format!("{predicates:?}").contains("gtInt")
+                && self
+                    .bottom_checks
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    == 0
+                && self.stops
+            {
+                match &self.request {
+                    Some(request) => request.cancel(),
+                    None => {
+                        let own = crate::cancellation::CancellationToken::new();
+                        own.cancel();
+                        own.scope(crate::stop::check)?;
+                    }
+                }
+            }
+            crate::stop::check()?;
+            Ok(Ok(Satisfiability::Sat))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            crate::stop::check()?;
+            Ok(Ok(Validity::Contingent))
+        }
+    }
+
+    /// A stop of `undefined_step_state`'s bottom check (the site that read a cancelled query as
+    /// "not bottom") leaves no `Trivial` leaf. The loop no longer re-reads the request's flag
+    /// after the phase, so the check itself returns the stop: whether the request's token was
+    /// cancelled before the check answered, or the check's query stopped for a cause no later
+    /// poll observes.
+    #[test]
+    fn a_stop_before_the_undefined_step_bottom_check_leaves_no_trivial_leaf() {
+        let definition = undefined_step_definition();
+        let claim = claim_with_label(&definition, "undefined-step");
+        let solver = |request, stops| StopsAtBottomCheck {
+            request,
+            stops,
+            bottom_checks: std::sync::atomic::AtomicUsize::new(0),
+        };
+
+        // Control: the undefined instances are not shown empty, so they are a `Trivial` leaf;
+        // their bottom check is the proof's only satisfiability query about `gtInt`.
+        let unstopped = solver(None, false);
+        let control = prove_claim(&definition, claim, ProofOptions::default(), &unstopped).unwrap();
+        assert_eq!(control.stopped, None, "{control:#?}");
+        assert!(
+            control
+                .leaves
+                .iter()
+                .any(|leaf| leaf.outcome == ProofLeafOutcome::Trivial),
+            "{control:#?}"
         );
+        assert_eq!(
+            unstopped
+                .bottom_checks
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        for request in [Some(crate::cancellation::CancellationToken::new()), None] {
+            let token = request.clone().unwrap_or_default();
+            let stopping = solver(request, true);
+            let result = token
+                .scope(|| prove_claim(&definition, claim, ProofOptions::default(), &stopping))
+                .unwrap();
+            assert_eq!(result.stopped, Some(StopCause::Cancelled), "{result:#?}");
+            assert!(
+                !result
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.outcome == ProofLeafOutcome::Trivial),
+                "{result:#?}"
+            );
+            assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        }
     }
 
     /// Cancels the request at a query that mentions `gtInt` and polls for a stop before answering,

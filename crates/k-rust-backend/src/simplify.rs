@@ -69,7 +69,7 @@ use crate::{
         applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
-    stop::{self, Layered, Stop, StopCause, Stoppable, Unwind},
+    stop::{self, Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
     transition::ExecutionEvaluationContext,
@@ -81,7 +81,7 @@ use crate::{
 /// builtin, or a function equation on a symbolic redex or with residual constraints. A function
 /// equation applied to a variable-free redex with a determined result is the definition's own
 /// computation and is not counted; its divergence ends through cancellation, the step deadline,
-/// or the stack guard, each reported as `SimplificationError::Stopped`.
+/// or the stack guard, each returned as a stop on the outer layer of the simplifier's result.
 pub const DEFAULT_MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -228,20 +228,29 @@ pub(crate) struct PatternSimplification {
     pub effects: Vec<BuiltinEffect>,
 }
 
+/// Why a simplification could not produce its answer, a fact about the term or predicates asked
+/// about under the definition and the backend's capabilities.
+///
+/// A stop (a cancelled request, a passed step deadline, a failed solver prelude, an exhausted
+/// native stack) is not a failure of the simplification: it is returned on the outer layer of
+/// every entry point's result (design CBC-04), and this type has no variant that can spell one,
+/// so a caller's fallback on a failure cannot turn a missing answer into a decision:
+///
+/// ```compile_fail,E0599
+/// use k_rust_backend::{simplify::SimplificationError, stop::StopCause};
+///
+/// let _ = SimplificationError::Stopped(StopCause::Cancelled);
+/// ```
+///
+/// A failure is a value of the failure layer:
+///
+/// ```
+/// use k_rust_backend::simplify::SimplificationError;
+///
+/// let _ = SimplificationError::TopEquationOutsideConjunction { rule_id: "rule".into() };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
-    /// The simplification stopped before producing its answer (design CBC-04): the request was
-    /// cancelled, the active step deadline passed, the solver's prelude failed, or the native
-    /// stack of the current thread came within its red zone (simplification recursion is bounded
-    /// by the host thread's stack, not by a depth count, and running out of it is reported
-    /// instead of overflowing, which would abort the process). The cause belongs to the owner of
-    /// the exhausted resource, so no site inside the simplifier or its callers may substitute a
-    /// value for the missing answer; the stop only unwinds to the step or operation that
-    /// publishes it. The simplifier itself returns its stops on the outer layer of its layered
-    /// result and never builds this variant; it is the spelling of a stop that a caller without
-    /// a stop layer of its own bridges (`SimplificationError::bridge`). Transitional: deleted
-    /// with the bridges by CBC-04-T7.
-    Stopped(StopCause),
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -284,28 +293,8 @@ impl fmt::Display for SimplificationError {
                 formatter,
                 "unsupported hook '{hook}' on constructor-like arguments: {reason}"
             ),
-            Self::Stopped(cause) => cause.fmt(formatter),
             _ => write!(formatter, "{self:?}"),
         }
-    }
-}
-
-impl SimplificationError {
-    /// The transitional spelling of a stop that a caller without a stop layer of its own
-    /// received from the solver or the simplifier: the cause is kept, and the stop unwinds as
-    /// `Stopped` to the step or operation that publishes it (removed with the variant by
-    /// CBC-04-T7).
-    pub(crate) fn from_stop(stop: Stop) -> Self {
-        Self::Stopped(stop.into_cause())
-    }
-
-    /// A layered simplifier result on the single layer of a caller that has no stop layer of its
-    /// own yet: the stop becomes `Stopped` with its cause ([`Self::from_stop`]), and the answer
-    /// and the failures pass unchanged. A caller bridges at the call, so no `Stop` outlives it,
-    /// and the loop that owns the step recovers the cause from `Stopped` and publishes it
-    /// (removed with the variant by CBC-04-T7).
-    pub(crate) fn bridge<T>(result: Stoppable<Result<T, Self>>) -> Result<T, Self> {
-        result.unwrap_or_else(|stop| Err(Self::from_stop(stop)))
     }
 }
 
@@ -317,10 +306,10 @@ type SimplifyResult<T> = Result<T, Unwind<SimplificationError>>;
 /// Simplify `term` without a solver.
 ///
 /// Like every entry point of the simplifier, the result has two layers: the outer `Err` is a
-/// [`Stop`] (the request was cancelled, the step deadline passed, the solver's prelude failed,
-/// or the thread's stack ran low), for which no answer exists; the inner `Result` is the
-/// simplification or its failure. A fallback on a failure is written against the inner layer,
-/// after `?` (see [`simplify_predicates_with_solver`]).
+/// [`Stop`](crate::stop::Stop) (the request was cancelled, the step deadline passed, the
+/// solver's prelude failed, or the thread's stack ran low), for which no answer exists; the
+/// inner `Result` is the simplification or its failure. A fallback on a failure is written
+/// against the inner layer, after `?` (see [`simplify_predicates_with_solver`]).
 pub fn simplify(
     definition: &BackendDefinition,
     term: &Term,
@@ -589,12 +578,12 @@ fn predicate_refutes_term(predicate: &Predicate, term: &Term) -> bool {
 
 /// Simplify a conjunction of predicates under `known_predicates`.
 ///
-/// The result has two layers: the outer `Err` is a [`Stop`], for which no simplified form
-/// exists; the inner `Result` is the simplified conjunction or the simplification's failure. The
-/// unsimplified predicates are the same condition, so a caller may keep them on a failure, but
-/// not on a stop: a stop says nothing about the predicates, and the owner of the exhausted
-/// resource publishes it. The single-layer fallback, which kept the predicates on a stop, no
-/// longer compiles:
+/// The result has two layers: the outer `Err` is a [`Stop`](crate::stop::Stop), for which no
+/// simplified form exists; the inner `Result` is the simplified conjunction or the
+/// simplification's failure. The unsimplified predicates are the same condition, so a caller
+/// may keep them on a failure, but not on a stop: a stop says nothing about the predicates, and
+/// the owner of the exhausted resource publishes it. The single-layer fallback, which kept the
+/// predicates on a stop, no longer compiles:
 ///
 /// ```compile_fail,E0308
 /// use k_rust_backend::{
@@ -3963,7 +3952,10 @@ mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::*;
-    use crate::term::{CollectionSymbols, ListDefinition, MapDefinition};
+    use crate::{
+        stop::{Stop, StopCause},
+        term::{CollectionSymbols, ListDefinition, MapDefinition},
+    };
 
     /// The inner layer of an entry point's result, for the tests that arm no stop: a stop is a
     /// test failure, reported with its cause.

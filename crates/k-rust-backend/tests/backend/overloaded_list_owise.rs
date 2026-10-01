@@ -3,13 +3,13 @@
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::{FailReason, MatchMode, MatchResult, match_terms_in_definition},
-    rewrite::{Pattern, RewriteResult, rewrite_step},
+    rewrite::{Pattern, RewriteResult},
     simplify::SimplificationOptions,
     term::Term,
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::unstopped::simplify;
+use crate::support::unstopped::{rewrite_step, simplify};
 
 /// FUN's `Bottoms < Vals < Exps` list family with the frontend's symbol attributes, the two
 /// total matching functions with `owise` equations, and the two case-selection rules.
@@ -317,6 +317,6 @@ fn blocked_total_function_does_not_narrow_a_ground_configuration_with_z3() {
     let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
     assert_one_failed_successor(
         &definition,
-        k_rust_backend::rewrite::rewrite_step_with_solver(&definition, &subject, &mut 0, &solver),
+        crate::support::unstopped::rewrite_step_with_solver(&definition, &subject, &mut 0, &solver),
     );
 }

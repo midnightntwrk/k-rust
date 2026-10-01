@@ -13,8 +13,7 @@ use k_rust_backend::{
         check_implication_with_existentials_complete, check_negated_consequent,
         grade_bottom_consequent, special_consequent, validate_request,
     },
-    simplify::SimplificationError,
-    stop::Stop,
+    stop::Stoppable,
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind},
 };
@@ -23,7 +22,7 @@ use k_rust_kore::kore::{
     json as kore_json,
 };
 
-use super::{Backend, BackendError, error};
+use super::{Backend, BackendError, error, simplification::stopped_operation};
 
 pub fn check(
     definition: &k_rust_backend::definition::BackendDefinition,
@@ -32,7 +31,7 @@ pub fn check(
     consequent: &k_rust_backend::rewrite::Pattern,
     consequent_existentials: &BTreeSet<k_rust_backend::term::Variable>,
     solver: &dyn k_rust_backend::smt::SmtSolver,
-) -> Result<ImplicationVerdict, k_rust_backend::implication::ImplicationError> {
+) -> Stoppable<Result<ImplicationVerdict, ImplicationError>> {
     check_implication_with_existentials_complete(
         definition,
         antecedent,
@@ -41,7 +40,6 @@ pub fn check(
         consequent_existentials,
         solver,
     )
-    .unwrap_or_else(|stop| Err(stopped_check(stop)))
 }
 
 impl Backend {
@@ -103,8 +101,7 @@ impl Backend {
                 Some(SpecialConsequent::Top) => ImplicationVerdict::Valid(Bindings::default()),
                 Some(SpecialConsequent::Bottom) => {
                     grade_bottom_consequent(definition, &antecedent_pattern, solver)
-                        .map_err(stopped_check)
-                        .map_err(error("could not check implication"))?
+                        .map_err(stopped_operation)?
                 }
                 Some(SpecialConsequent::Not) => check_negated_consequent(
                     definition,
@@ -114,8 +111,7 @@ impl Backend {
                     &sort_variables,
                     solver,
                 )
-                .map_err(stopped_check)
-                .map_err(error("could not check implication"))?
+                .map_err(stopped_operation)?
                 .map_err(error("could not internalize implication consequent"))?,
                 None => {
                     let (consequent_pattern, consequent_existentials) = definition
@@ -136,20 +132,13 @@ impl Backend {
                         &consequent_existentials,
                         solver,
                     )
-                    .unwrap_or_else(|stop| Err(stopped_check(stop)))
+                    .map_err(stopped_operation)?
                     .map_err(error("could not check implication"))?
                 }
             };
             Ok((verdict, result_sort))
         })
     }
-}
-
-/// A stop of a check, spelled as a stop inside a failure of the check, so that every check
-/// reports a stop with one text and the RPC surface maps it with the other stops (until
-/// CBC-04-T9 types it).
-fn stopped_check(stop: Stop) -> ImplicationError {
-    ImplicationError::Simplification(SimplificationError::Stopped(stop.into_cause()))
 }
 
 /// Render the CLI implication contract while the surface retains only file and stdout handling.

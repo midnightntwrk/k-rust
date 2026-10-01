@@ -40,6 +40,7 @@ use sha2::{Digest, Sha256};
 use crate::support::{
     ScriptedQuery, ScriptedSolver, ground_cell_set_definition, ground_overload_definition,
     internal_term,
+    unstopped::{rewrite_step, rewrite_step_sequential_with_solver, rewrite_step_with_solver},
 };
 
 fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
@@ -10133,6 +10134,89 @@ fn path_search_does_not_publish_a_final_witness_whose_externalisation_observed_a
         panic!("expected cancellation, found {:#?}", result.incomplete);
     };
     assert_eq!(state.depth, 0);
+}
+
+/// Search publishes a result only from a simplification that returned its answer, and publishes
+/// one whose answers all arrived before a cancellation (30ab51f9 and the `step_observed` /
+/// `Ok(_) if cancelled` flag reads it no longer needs): the stop reaches search on the outer layer
+/// of the result's simplification, and nothing reads the request's flag after it returned.
+#[test]
+fn search_publishes_a_final_state_exactly_when_its_externalisation_answered() {
+    let definition = contradictory_final_state_definition();
+    let answering = || {
+        ScriptedSolver::new(
+            std::iter::repeat_n(Ok(Satisfiability::Sat), 16),
+            std::iter::repeat_n(Ok(Validity::Contingent), 16),
+        )
+    };
+    let search_with = |search_type, solver: &ScriptedSolver, token: &CancellationToken| {
+        token.scope(|| {
+            k_rust_backend::search::search_graph_with_solver(
+                &definition,
+                contradictory_final_state(&definition),
+                k_rust_backend::search::SearchOptions {
+                    search_type,
+                    ..k_rust_backend::search::SearchOptions::default()
+                },
+                solver,
+            )
+        })
+    };
+    let search = |solver: &ScriptedSolver, token: &CancellationToken| {
+        search_with(k_rust_backend::search::SearchType::Final, solver, token)
+    };
+
+    // Control: the state's loop-head simplification and its (stuck) step ask the solver nothing,
+    // since a one-step search, which does not externalise the state, asks nothing. So every
+    // query of the final search is posed by the final state's result simplification, after its
+    // step returned. A solver that refutes nothing leaves the final state, and the search is
+    // complete.
+    let unexternalised = answering();
+    let _ = search_with(
+        k_rust_backend::search::SearchType::One,
+        &unexternalised,
+        &CancellationToken::new(),
+    );
+    assert!(unexternalised.transcript.borrow().is_empty());
+    let control_solver = answering();
+    let control = search(&control_solver, &CancellationToken::new());
+    let queries = control_solver.transcript.borrow().len();
+    assert!(queries > 0, "the externalisation asks the solver");
+    assert_eq!(control.states.len(), 1, "{control:#?}");
+    assert!(control.is_complete(), "{control:#?}");
+
+    // A cancellation raised by the solver during the last pending state's result
+    // simplification is observed by that query, which answers with the stop: the constraints
+    // were not decided, so no state is published, and the search ends with the stop.
+    let token = CancellationToken::new();
+    let solver = answering().cancelling_at(0, token.clone()).polling();
+    let stopped = search(&solver, &token);
+    assert!(stopped.states.is_empty(), "{stopped:#?}");
+    let [
+        k_rust_backend::search::IncompleteSearch::Stopped {
+            state,
+            cause: StopCause::Cancelled,
+        },
+    ] = stopped.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", stopped.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+    assert_eq!(
+        stopped.end,
+        k_rust_backend::search::SearchEnd::Stopped(StopCause::Cancelled)
+    );
+
+    // A cancellation raised after the step returned and after the last answer of the result's
+    // simplification: every answer the state rests on arrived, so it is published, and the
+    // search is complete although the request is now cancelled.
+    let token = CancellationToken::new();
+    let solver = answering().cancelling_at(queries - 1, token.clone());
+    let published = search(&solver, &token);
+    assert!(token.is_cancelled());
+    assert_eq!(solver.transcript.borrow().len(), queries);
+    assert_eq!(published.states, control.states, "{published:#?}");
+    assert!(published.is_complete(), "{published:#?}");
 }
 
 #[test]

@@ -156,13 +156,59 @@ pub fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
 pub mod unstopped {
     use k_rust_backend::{
         definition::BackendDefinition,
-        rewrite::Pattern,
+        rewrite::{self, Pattern, RewriteResult},
         rule::Predicate,
         simplify::{self, Simplification, SimplificationError, SimplificationOptions},
         smt::SmtSolver,
         stop::Stoppable,
         term::Term,
     };
+
+    /// A rewrite step's result where no stop is armed: a stop panics with its cause.
+    fn unstopped_step(result: Stoppable<RewriteResult>) -> RewriteResult {
+        result.unwrap_or_else(|stop| {
+            panic!(
+                "the rewrite step stopped although no stop was armed: {}",
+                stop.into_cause()
+            )
+        })
+    }
+
+    pub fn rewrite_step(
+        definition: &BackendDefinition,
+        pattern: &Pattern,
+        fresh_counter: &mut u64,
+    ) -> RewriteResult {
+        unstopped_step(rewrite::rewrite_step(definition, pattern, fresh_counter))
+    }
+
+    pub fn rewrite_step_with_solver(
+        definition: &BackendDefinition,
+        pattern: &Pattern,
+        fresh_counter: &mut u64,
+        solver: &dyn SmtSolver,
+    ) -> RewriteResult {
+        unstopped_step(rewrite::rewrite_step_with_solver(
+            definition,
+            pattern,
+            fresh_counter,
+            solver,
+        ))
+    }
+
+    pub fn rewrite_step_sequential_with_solver(
+        definition: &BackendDefinition,
+        pattern: &Pattern,
+        fresh_counter: &mut u64,
+        solver: &dyn SmtSolver,
+    ) -> RewriteResult {
+        unstopped_step(rewrite::rewrite_step_sequential_with_solver(
+            definition,
+            pattern,
+            fresh_counter,
+            solver,
+        ))
+    }
 
     fn unstopped<T>(
         result: Stoppable<Result<T, SimplificationError>>,

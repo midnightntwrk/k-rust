@@ -80,7 +80,6 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    cancellation::cancellation_requested,
     definedness::{condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
@@ -96,7 +95,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
-    stop::{StopCause, Stoppable},
+    stop::{self, Stop, StopCause, Stoppable},
     substitution::{Substitution, compose, substitute},
     transition::{ObservationEvent, ObservationHead, ObservationLog, ObservationOptions},
 };
@@ -182,6 +181,57 @@ pub struct SearchState {
 ///
 /// Every entry concerns the states it lists; why the whole search stopped is the result's
 /// [`SearchEnd`].
+///
+/// A stop of a state's simplification is not one of its failures: it arrives on the outer layer
+/// of the simplifier's result, so recording it as the state's failure does not compile:
+///
+/// ```compile_fail,E0308
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::Predicate,
+///     search::{IncompleteSearch, SearchState},
+///     simplify::{SimplificationOptions, simplify_predicates_with_solver},
+///     smt::NoSolver,
+/// };
+///
+/// fn constraints(
+///     definition: &BackendDefinition,
+///     state: SearchState,
+/// ) -> Result<Vec<Predicate>, IncompleteSearch> {
+///     let options = SimplificationOptions::default();
+///     let predicates = state.pattern.constraints.clone();
+///     Ok(match simplify_predicates_with_solver(definition, &predicates, &[], options, &NoSolver) {
+///         Ok(Ok(constraints)) => constraints,
+///         Ok(Err(error)) => return Err(IncompleteSearch::Simplification { state, error }),
+///         Err(error) => return Err(IncompleteSearch::Simplification { state, error }),
+///     })
+/// }
+/// ```
+///
+/// It is the state's `Stopped` entry, with its cause:
+///
+/// ```
+/// use k_rust_backend::{
+///     definition::BackendDefinition,
+///     rule::Predicate,
+///     search::{IncompleteSearch, SearchState},
+///     simplify::{SimplificationOptions, simplify_predicates_with_solver},
+///     smt::NoSolver,
+/// };
+///
+/// fn constraints(
+///     definition: &BackendDefinition,
+///     state: SearchState,
+/// ) -> Result<Vec<Predicate>, IncompleteSearch> {
+///     let options = SimplificationOptions::default();
+///     let predicates = state.pattern.constraints.clone();
+///     Ok(match simplify_predicates_with_solver(definition, &predicates, &[], options, &NoSolver) {
+///         Ok(Ok(constraints)) => constraints,
+///         Ok(Err(error)) => return Err(IncompleteSearch::Simplification { state, error }),
+///         Err(stop) => return Err(IncompleteSearch::Stopped { state, cause: stop.into_cause() }),
+///     })
+/// }
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IncompleteSearch {
     DepthBound(SearchState),
@@ -190,12 +240,14 @@ pub enum IncompleteSearch {
         state: SearchState,
         reason: IndeterminateReason,
     },
-    /// The state's exploration stopped before it produced its answer. A cancelled request (or a
-    /// failed solver prelude) ends the search: observed before a state's step, it lists that
-    /// state here and ends with [`SearchEnd::Stopped`]; observed after a state's step, it lists
-    /// that state here, and the search ends with [`SearchEnd::Stopped`] at the next state or,
-    /// when no state remains, with [`SearchEnd::Exhausted`]. An exhausted stack ends this state
-    /// only.
+    /// The state's exploration stopped before it produced its answer. A cancelled request or a
+    /// failed solver prelude ends the search: the state whose exploration observed it is listed
+    /// here, and the search ends with [`SearchEnd::Stopped`]. When a target-pattern match
+    /// observed it, the matched state is listed here and the search ends at the next state's
+    /// poll with [`SearchEnd::Stopped`] or, when no state remains, with
+    /// [`SearchEnd::Exhausted`]. An exhausted stack (or a step deadline a caller armed around the
+    /// search) ends this state only. A result whose exploration returned before the stop is
+    /// published: no answer in it is missing.
     Stopped {
         state: SearchState,
         cause: StopCause,
@@ -437,11 +489,14 @@ impl PatternPathSearchResult {
 }
 
 /// Match a constrained pattern against each alternative in a disjunction.
+///
+/// The result has two layers: the outer `Err` is a [`Stop`], for which no match was decided; the
+/// inner result is the matches, or why one of them could not be decided.
 pub fn match_disjunction(
     definition: &BackendDefinition,
     target: &Pattern,
     subjects: &[Pattern],
-) -> Result<Vec<PatternMatch>, PatternMatchError> {
+) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
     match_disjunction_using(
         definition,
         target,
@@ -452,14 +507,15 @@ pub fn match_disjunction(
     )
 }
 
-/// Match a constrained pattern against each alternative using the supplied SMT solver.
+/// Match a constrained pattern against each alternative using the supplied SMT solver, with the
+/// two layers of [`match_disjunction`].
 pub fn match_disjunction_with_solver(
     definition: &BackendDefinition,
     target: &Pattern,
     subjects: &[Pattern],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Vec<PatternMatch>, PatternMatchError> {
+) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
     match_disjunction_using(definition, target, subjects, options, solver, false)
 }
 
@@ -470,12 +526,12 @@ fn match_disjunction_using(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     retain_unknown: bool,
-) -> Result<Vec<PatternMatch>, PatternMatchError> {
+) -> Stoppable<Result<Vec<PatternMatch>, PatternMatchError>> {
     let _span = measure::algorithm_span(Algorithm::BackendSearchPatterns);
     let output_variables = pattern_variables(target);
     let mut matches = Vec::new();
     for subject in subjects {
-        let Some(found) = match_pattern_with_variables(
+        let found = match match_pattern_with_variables(
             definition,
             target,
             subject,
@@ -483,15 +539,18 @@ fn match_disjunction_using(
             options,
             solver,
             retain_unknown,
-        )?
-        else {
+        )? {
+            Ok(found) => found,
+            Err(error) => return Ok(Err(error)),
+        };
+        let Some(found) = found else {
             continue;
         };
         if !matches.contains(&found) {
             matches.push(found);
         }
     }
-    Ok(matches)
+    Ok(Ok(matches))
 }
 
 pub fn search_graph(
@@ -627,10 +686,10 @@ fn search_graph_collecting(
             kind: QueuedStateKind::Rewritable,
         };
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
-            incomplete.push(rewrite_incomplete(
-                work.materialize(&observation_log),
-                IndeterminateReason::SurvivingMacroOrAlias { symbol },
-            ));
+            incomplete.push(IncompleteSearch::Indeterminate {
+                state: work.materialize(&observation_log),
+                reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            });
         } else {
             pending.push_back(work);
         }
@@ -668,12 +727,23 @@ fn search_graph_collecting(
             Ok(work) => work,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
-        if cancellation_requested() {
-            incomplete.push(IncompleteSearch::Stopped {
-                state: work.materialize(&observation_log),
-                cause: StopCause::Cancelled,
-            });
-            break SearchEnd::Stopped(StopCause::Cancelled);
+        // Publish a stop of the state's exploration as its `Stopped` entry; the search ends when
+        // the stop ends every remaining state ([`stop_ends_search`]). Never falls through.
+        macro_rules! publish_stop {
+            ($state:expr, $stop:expr) => {{
+                let cause = Stop::into_cause($stop);
+                incomplete.push(IncompleteSearch::Stopped {
+                    state: $state,
+                    cause: cause.clone(),
+                });
+                if stop_ends_search(&cause) {
+                    break SearchEnd::Stopped(cause);
+                }
+                continue;
+            }};
+        }
+        if let Err(stop) = stop::check() {
+            publish_stop!(work.materialize(&observation_log), stop);
         }
         let SearchWorkState {
             mut state,
@@ -683,52 +753,61 @@ fn search_graph_collecting(
         } = work;
         let is_rewritable = matches!(kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
-            incomplete.push(rewrite_incomplete(
-                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
-                IndeterminateReason::SurvivingMacroOrAlias { symbol },
-            ));
+            incomplete.push(IncompleteSearch::Indeterminate {
+                state: materialize_search_state(
+                    state,
+                    observation_head,
+                    &diagnostics,
+                    &observation_log,
+                ),
+                reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            });
             continue;
         }
         // The state's own constraint and term simplification is on its path: every result,
         // incomplete entry and successor derived from this state carries it.
         let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            SimplificationError::bridge(simplify_predicates_with_solver(
+            simplify_predicates_with_solver(
                 definition,
                 &state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            ))
+            )
         });
         diagnostics.extend(&emitted);
         match simplified_constraints {
-            Ok(constraints) => state.pattern.constraints = constraints,
-            Err(error) => {
-                incomplete.push(simplification_incomplete(
-                    materialize_search_state(
+            Ok(Ok(constraints)) => state.pattern.constraints = constraints,
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: materialize_search_state(
                         state,
                         observation_head,
                         &diagnostics,
                         &observation_log,
                     ),
                     error,
-                ));
+                });
                 continue;
             }
+            Err(stop) => publish_stop!(
+                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                stop
+            ),
         }
         let pattern_before_simplification = state.pattern.clone();
         let (simplified_term, emitted) = diagnostic::collect(|| {
-            SimplificationError::bridge(simplify_with_solver(
+            simplify_with_solver(
                 definition,
                 &state.pattern.term,
                 &state.pattern.constraints,
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            ))
+            )
         });
         diagnostics.extend(&emitted);
         match simplified_term {
-            Ok(simplified) => {
+            Ok(Ok(simplified)) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
                 observation_head = observation_log.append_simplification(
@@ -759,18 +838,22 @@ fn search_graph_collecting(
                             }),
                     );
             }
-            Err(error) => {
-                incomplete.push(simplification_incomplete(
-                    materialize_search_state(
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: materialize_search_state(
                         state,
                         observation_head,
                         &diagnostics,
                         &observation_log,
                     ),
                     error,
-                ));
+                });
                 continue;
             }
+            Err(stop) => publish_stop!(
+                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                stop
+            ),
         }
 
         // Kore's Simplify primitive turns a false-constrained configuration into a Bottom node,
@@ -788,7 +871,7 @@ fn search_graph_collecting(
         let is_result = selects_reachable_state(options.search_type, state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
         let retention = if is_result {
-            externalise_result(
+            match externalise_result(
                 definition,
                 state.clone(),
                 observation_head,
@@ -800,16 +883,18 @@ fn search_graph_collecting(
                 &mut incomplete,
                 &mut observation_log,
                 observation,
-            )
-            .map(|result| {
-                retain_state_result(
+            ) {
+                Ok(Some(result)) => retain_state_result(
                     &mut states,
                     result,
                     options.max_results,
                     &mut pattern_bound_reached,
-                )
-            })
-            .unwrap_or(StateRetention::Continue)
+                ),
+                Ok(None) => StateRetention::Continue,
+                Err(cause) if stop_ends_search(&cause) => break SearchEnd::Stopped(cause),
+                // The state's result is not known, but its successors can still be explored.
+                Err(_) => StateRetention::Continue,
+            }
         } else {
             StateRetention::Continue
         };
@@ -863,20 +948,22 @@ fn search_graph_collecting(
             options,
             solver,
         );
-        // See `step_observed_cancellation`.
-        if step_observed_cancellation() {
-            diagnostics.extend(&step_diagnostics);
-            incomplete.push(IncompleteSearch::Stopped {
-                state: materialize_search_state(
-                    state,
-                    observation_head,
-                    &diagnostics,
-                    &observation_log,
-                ),
-                cause: StopCause::Cancelled,
-            });
-            continue;
-        }
+        // A stopped step has no successor set: the state's entry carries the step's work.
+        let rewrite = match rewrite {
+            Ok(rewrite) => rewrite,
+            Err(stop) => {
+                diagnostics.extend(&step_diagnostics);
+                publish_stop!(
+                    materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log
+                    ),
+                    stop
+                );
+            }
+        };
         if halts(&rewrite) {
             diagnostics.extend(&step_diagnostics);
         }
@@ -886,7 +973,7 @@ fn search_graph_collecting(
                     continue;
                 }
                 state.pattern = pattern;
-                let retention = externalise_result(
+                let retention = match externalise_result(
                     definition,
                     state,
                     observation_head,
@@ -898,16 +985,17 @@ fn search_graph_collecting(
                     &mut incomplete,
                     &mut observation_log,
                     observation,
-                )
-                .map(|result| {
-                    retain_state_result(
+                ) {
+                    Ok(Some(result)) => retain_state_result(
                         &mut states,
                         result,
                         options.max_results,
                         &mut pattern_bound_reached,
-                    )
-                })
-                .unwrap_or(StateRetention::Continue);
+                    ),
+                    Ok(None) => StateRetention::Continue,
+                    Err(cause) if stop_ends_search(&cause) => break SearchEnd::Stopped(cause),
+                    Err(_) => StateRetention::Continue,
+                };
                 // A stuck state has no successor: only the frontier can remain.
                 match retention {
                     StateRetention::ResultBound => {
@@ -925,27 +1013,27 @@ fn search_graph_collecting(
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
-                incomplete.push(rewrite_incomplete(
-                    materialize_search_state(
+                incomplete.push(IncompleteSearch::Indeterminate {
+                    state: materialize_search_state(
                         state,
                         observation_head,
                         &diagnostics,
                         &observation_log,
                     ),
                     reason,
-                ));
+                });
             }
             RewriteResult::Simplification { pattern, error } => {
                 state.pattern = pattern;
-                incomplete.push(simplification_incomplete(
-                    materialize_search_state(
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: materialize_search_state(
                         state,
                         observation_head,
                         &diagnostics,
                         &observation_log,
                     ),
                     error,
-                ));
+                });
             }
             RewriteResult::Finished(applied) => {
                 record_applied_effects(&mut effects, &applied, &mut observe);
@@ -1064,7 +1152,7 @@ fn materialize_search_state(
 /// One rewrite step of a work state, with the diagnostics it emitted: a `Finished` or `Branch`
 /// step has already attributed them to its candidates (`AppliedRule::diagnostics`,
 /// `RemainderBranch::diagnostics`), so the collection is for a step that ends the state's
-/// exploration ([`halts`]) or is cut off by a cancellation, whose entry carries the whole step.
+/// exploration ([`halts`]) or that stopped, whose entry carries the whole step.
 fn step_search_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1072,7 +1160,7 @@ fn step_search_state(
     fresh_counter: &mut u64,
     options: SearchOptions,
     solver: &dyn SmtSolver,
-) -> (RewriteResult, Vec<BackendDiagnostic>) {
+) -> (Stoppable<RewriteResult>, Vec<BackendDiagnostic>) {
     diagnostic::collect(|| match kind {
         QueuedStateKind::Rewritable => rewrite_step_with_options(
             definition,
@@ -1081,8 +1169,8 @@ fn step_search_state(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         ),
-        QueuedStateKind::Remaining(None) => RewriteResult::Stuck(pattern.clone()),
-        QueuedStateKind::Remaining(Some(undecided)) => undecided.into_result(pattern.clone()),
+        QueuedStateKind::Remaining(None) => Ok(RewriteResult::Stuck(pattern.clone())),
+        QueuedStateKind::Remaining(Some(undecided)) => Ok(undecided.into_result(pattern.clone())),
     })
 }
 
@@ -1099,16 +1187,14 @@ const fn halts(rewrite: &RewriteResult) -> bool {
 /// (`rewrite::simplify_leaf_pattern`), materializing its observations.
 ///
 /// The work state that continues the search keeps its loop-head constraints as path knowledge;
-/// only the reported copy is simplified. `None` is a result whose constraints simplify to
+/// only the reported copy is simplified. `Ok(None)` is a result whose constraints simplify to
 /// `\bottom`: an empty state is no result, as it is none at the loop head. A failed
 /// simplification reports the unsimplified state in `incomplete` instead of a result.
 ///
-/// A simplification that returns while the request is cancelled is not a result either. The
-/// simplifier keeps a constraint whose validity the solver leaves unknown, and once the request
-/// is cancelled every solver query answers unknown, so a constraint that refutes the state may
-/// have been kept only because of the cancellation. Publishing that copy would report a state
-/// that is not known to be reachable as part of a complete answer; the state's exploration is
-/// reported as cancelled instead.
+/// A result is published only from a simplification that returned its answer. A stopped one
+/// (a constraint that refutes the state may not have been decided) reports the state's
+/// `Stopped` entry in `incomplete` instead, and `Err` returns its cause, so that the loop ends
+/// when the stop ends the search ([`stop_ends_search`]).
 ///
 /// The externalisation's diagnostics are on the reported entry only (the result, or the
 /// incomplete entry that replaces it), not on `diagnostics`' path, which the work state that
@@ -1126,7 +1212,7 @@ fn externalise_result(
     incomplete: &mut Vec<IncompleteSearch>,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
-) -> Option<SearchState> {
+) -> Result<Option<SearchState>, StopCause> {
     let (simplified, emitted) = diagnostic::collect(|| {
         simplify_result_pattern(
             definition,
@@ -1142,34 +1228,34 @@ fn externalise_result(
     });
     diagnostics.extend(&emitted);
     match simplified {
-        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+        Ok(Ok(simplified)) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             record_effects(effects, simplified.effects, observe);
-            None
+            Ok(None)
         }
-        Ok(simplified) if cancellation_requested() => {
-            record_effects(effects, simplified.effects, observe);
-            incomplete.push(IncompleteSearch::Stopped {
-                state: materialize_search_state(state, observation, &diagnostics, observation_log),
-                cause: StopCause::Cancelled,
-            });
-            None
-        }
-        Ok(simplified) => {
+        Ok(Ok(simplified)) => {
             record_effects(effects, simplified.effects, observe);
             state.pattern = simplified.pattern;
-            Some(materialize_search_state(
+            Ok(Some(materialize_search_state(
                 state,
                 observation,
                 &diagnostics,
                 observation_log,
-            ))
+            )))
         }
-        Err(error) => {
-            incomplete.push(simplification_incomplete(
-                materialize_search_state(state, observation, &diagnostics, observation_log),
+        Ok(Err(error)) => {
+            incomplete.push(IncompleteSearch::Simplification {
+                state: materialize_search_state(state, observation, &diagnostics, observation_log),
                 error,
-            ));
-            None
+            });
+            Ok(None)
+        }
+        Err(stop) => {
+            let cause = stop.into_cause();
+            incomplete.push(IncompleteSearch::Stopped {
+                state: materialize_search_state(state, observation, &diagnostics, observation_log),
+                cause: cause.clone(),
+            });
+            Err(cause)
         }
     }
 }
@@ -1323,10 +1409,10 @@ fn search_paths_collecting(
     // `pending` holds the initial path unless its state has a surviving macro or alias symbol,
     // in which case `incomplete` reports it.
     if let Some(symbol) = initial.state.pattern.macro_or_alias_symbol() {
-        incomplete.push(rewrite_incomplete(
-            initial.materialize_state(&observation_log),
-            IndeterminateReason::SurvivingMacroOrAlias { symbol },
-        ));
+        incomplete.push(IncompleteSearch::Indeterminate {
+            state: initial.materialize_state(&observation_log),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        });
     } else {
         pending.push_back(initial);
     }
@@ -1361,56 +1447,68 @@ fn search_paths_collecting(
             Ok(path) => path,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
-        if cancellation_requested() {
-            incomplete.push(IncompleteSearch::Stopped {
-                state: path.materialize_state(&observation_log),
-                cause: StopCause::Cancelled,
-            });
-            break SearchEnd::Stopped(StopCause::Cancelled);
+        // Publish a stop of the path's exploration as its `Stopped` entry; the search ends when
+        // the stop ends every remaining path ([`stop_ends_search`]). Never falls through.
+        macro_rules! publish_stop {
+            ($stop:expr) => {{
+                let cause = Stop::into_cause($stop);
+                incomplete.push(IncompleteSearch::Stopped {
+                    state: path.materialize_state(&observation_log),
+                    cause: cause.clone(),
+                });
+                if stop_ends_search(&cause) {
+                    break SearchEnd::Stopped(cause);
+                }
+                continue;
+            }};
+        }
+        if let Err(stop) = stop::check() {
+            publish_stop!(stop);
         }
         let is_rewritable = matches!(path.kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
-            incomplete.push(rewrite_incomplete(
-                path.materialize_state(&observation_log),
-                IndeterminateReason::SurvivingMacroOrAlias { symbol },
-            ));
+            incomplete.push(IncompleteSearch::Indeterminate {
+                state: path.materialize_state(&observation_log),
+                reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+            });
             continue;
         }
         // The path's own simplification of this state is on the path: every witness, incomplete
         // entry and extension derived from it carries it.
         let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            SimplificationError::bridge(simplify_predicates_with_solver(
+            simplify_predicates_with_solver(
                 definition,
                 &path.state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            ))
+            )
         });
         path.diagnostics.extend(&emitted);
         match simplified_constraints {
-            Ok(constraints) => path.state.pattern.constraints = constraints,
-            Err(error) => {
-                incomplete.push(simplification_incomplete(
-                    path.materialize_state(&observation_log),
+            Ok(Ok(constraints)) => path.state.pattern.constraints = constraints,
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: path.materialize_state(&observation_log),
                     error,
-                ));
+                });
                 continue;
             }
+            Err(stop) => publish_stop!(stop),
         }
         let pattern_before_simplification = path.state.pattern.clone();
         let (simplified_term, emitted) = diagnostic::collect(|| {
-            SimplificationError::bridge(simplify_with_solver(
+            simplify_with_solver(
                 definition,
                 &path.state.pattern.term,
                 &path.state.pattern.constraints,
                 SimplificationOptions::keep_partial(options.max_simplification_iterations),
                 solver,
-            ))
+            )
         });
         path.diagnostics.extend(&emitted);
         match simplified_term {
-            Ok(simplified) => {
+            Ok(Ok(simplified)) => {
                 path.state.pattern.term = simplified.term;
                 path.state
                     .pattern
@@ -1440,13 +1538,14 @@ fn search_paths_collecting(
                             }),
                     );
             }
-            Err(error) => {
-                incomplete.push(simplification_incomplete(
-                    path.materialize_state(&observation_log),
+            Ok(Err(error)) => {
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: path.materialize_state(&observation_log),
                     error,
-                ));
+                });
                 continue;
             }
+            Err(stop) => publish_stop!(stop),
         }
 
         if predicates_truth(&path.state.pattern.constraints) == Truth::False {
@@ -1482,6 +1581,11 @@ fn search_paths_collecting(
             Some(WitnessRetention::Further(further)) => {
                 break SearchEnd::ResultBound(Truncation::FurtherResult(further));
             }
+            Some(WitnessRetention::Stopped(cause)) if stop_ends_search(&cause) => {
+                break SearchEnd::Stopped(cause);
+            }
+            // The path's witness is not known, but its extensions can still be explored.
+            Some(WitnessRetention::Stopped(_)) => {}
             // The unexplored work after the collector's bound may hold no further result; see
             // `Truncation`.
             Some(WitnessRetention::PatternBound) => {
@@ -1525,15 +1629,14 @@ fn search_paths_collecting(
             options,
             solver,
         );
-        // See `step_observed_cancellation`.
-        if step_observed_cancellation() {
-            path.diagnostics.extend(&step_diagnostics);
-            incomplete.push(IncompleteSearch::Stopped {
-                state: path.materialize_state(&observation_log),
-                cause: StopCause::Cancelled,
-            });
-            continue;
-        }
+        // A stopped step has no successor set: the path's entry carries the step's work.
+        let rewrite = match rewrite {
+            Ok(rewrite) => rewrite,
+            Err(stop) => {
+                path.diagnostics.extend(&step_diagnostics);
+                publish_stop!(stop);
+            }
+        };
         if halts(&rewrite) {
             path.diagnostics.extend(&step_diagnostics);
         }
@@ -1558,6 +1661,10 @@ fn search_paths_collecting(
                     Some(WitnessRetention::Further(further)) => {
                         break SearchEnd::ResultBound(Truncation::FurtherResult(further));
                     }
+                    Some(WitnessRetention::Stopped(cause)) if stop_ends_search(&cause) => {
+                        break SearchEnd::Stopped(cause);
+                    }
+                    Some(WitnessRetention::Stopped(_)) => {}
                     // A stuck state has no successor: only the frontier can remain.
                     Some(WitnessRetention::PatternBound) => match remaining(&pending, || false) {
                         Remaining::Unexplored(unexplored) => {
@@ -1571,17 +1678,17 @@ fn search_paths_collecting(
             RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_) => {}
             RewriteResult::Indeterminate { pattern, reason } => {
                 path.state.pattern = pattern;
-                incomplete.push(rewrite_incomplete(
-                    path.materialize_state(&observation_log),
+                incomplete.push(IncompleteSearch::Indeterminate {
+                    state: path.materialize_state(&observation_log),
                     reason,
-                ));
+                });
             }
             RewriteResult::Simplification { pattern, error } => {
                 path.state.pattern = pattern;
-                incomplete.push(simplification_incomplete(
-                    path.materialize_state(&observation_log),
+                incomplete.push(IncompleteSearch::Simplification {
+                    state: path.materialize_state(&observation_log),
                     error,
-                ));
+                });
             }
             RewriteResult::Finished(applied) => {
                 effects.extend(
@@ -1842,13 +1949,21 @@ fn search_pattern_using(
             solver,
         );
         let found = match found {
-            Ok(Some(found)) => found,
-            Ok(None) => return false,
-            Err(error) => {
+            Ok(Ok(Some(found))) => found,
+            Ok(Ok(None)) => return false,
+            Ok(Err(error)) => {
                 match_incomplete.push(pattern_match_incomplete(
                     undecided_match_state(state.clone(), &diagnostics),
                     error,
                 ));
+                return false;
+            }
+            // The next state's poll ends the search when the stop ends every remaining state.
+            Err(stop) => {
+                match_incomplete.push(IncompleteSearch::Stopped {
+                    state: undecided_match_state(state.clone(), &diagnostics),
+                    cause: stop.into_cause(),
+                });
                 return false;
             }
         };
@@ -1976,13 +2091,24 @@ fn search_pattern_paths_using(
             solver,
         );
         let found = match found {
-            Ok(Some(found)) => found,
-            Ok(None) => return false,
-            Err(error) => {
+            Ok(Ok(Some(found))) => found,
+            Ok(Ok(None)) => return false,
+            Ok(Err(error)) => {
                 match_incomplete.push(pattern_match_incomplete(
                     undecided_match_state(witness_search_state(witness.clone()), &diagnostics),
                     error,
                 ));
+                return false;
+            }
+            // The next path's poll ends the search when the stop ends every remaining path.
+            Err(stop) => {
+                match_incomplete.push(IncompleteSearch::Stopped {
+                    state: undecided_match_state(
+                        witness_search_state(witness.clone()),
+                        &diagnostics,
+                    ),
+                    cause: stop.into_cause(),
+                });
                 return false;
             }
         };
@@ -2024,7 +2150,7 @@ fn match_search_result(
     options: SearchOptions,
     solver: &dyn SmtSolver,
 ) -> (
-    Result<Option<PatternMatch>, PatternMatchError>,
+    Stoppable<Result<Option<PatternMatch>, PatternMatchError>>,
     Vec<BackendDiagnostic>,
 ) {
     let (found, emitted) = diagnostic::collect(|| {
@@ -2062,80 +2188,15 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
     }
 }
 
-/// Whether the request was cancelled by the time a state's rewrite step returned.
-///
-/// A step whose solver queries answered unknown because of the cancellation may have kept an
-/// equation's or rule's outcome undecided without recording an incomplete entry (the simplifier
-/// keeps an undecided constraint and an undecided equation leaves its subject unevaluated), so
-/// neither its successors nor a `Stuck` verdict can be trusted as complete. Search arms no step
-/// deadline, so the cancellation is its only interruption source, and the state's exploration
-/// is reported as cancelled.
-fn step_observed_cancellation() -> bool {
-    cancellation_requested()
-}
-
-/// Classify a simplification failure that ends the exploration of `state`.
-///
-/// Until the simplifier returns its stops apart from its failures (CBC-04-T7), a stop reaches
-/// search inside the failure as `Stopped(cause)`, with the cause its poll observed
-/// ([`stopped_incomplete`]), a stop observed by a native hook included. Any other failure
-/// recorded once the request is cancelled reports the cancellation too (see
-/// [`rewrite_incomplete`]).
-///
-/// The match names every variant, so a new spelling of a stop cannot fall into the failure arm
-/// unnoticed.
+/// Whether a stop published as a state's `Stopped` entry ends the search. A cancelled request or
+/// a failed solver prelude leaves no answer for any remaining state, so the search ends; a passed
+/// step deadline (only a caller that arms one around the search can raise it) or an exhausted
+/// stack ends the exploration of the state it stopped only.
 #[deny(clippy::wildcard_enum_match_arm)]
-fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
-    match error {
-        SimplificationError::Stopped(cause) => stopped_incomplete(state, cause),
-        error @ (SimplificationError::Builtin(_)
-        | SimplificationError::DisjunctiveResult { .. }
-        | SimplificationError::TopEquationOutsideConjunction { .. }
-        | SimplificationError::Smt { .. }
-        | SimplificationError::SmtPredicate { .. }
-        | SimplificationError::IterationLimit { .. }
-        | SimplificationError::PredicateIterationLimit { .. }
-        | SimplificationError::InvalidBuiltinResultSymbol { .. }
-        | SimplificationError::UnsupportedHook { .. }) => {
-            recorded_unless_cancelled(state, |state| IncompleteSearch::Simplification {
-                state,
-                error,
-            })
-        }
-    }
-}
-
-/// The entry of a state whose simplification stopped with `cause`. A cause of `Request` or
-/// `Solver` scope (a cancelled request, a failed solver prelude) is published as observed. A
-/// cause of `Step` scope (an exhausted stack; a passed deadline, which only a caller that armed
-/// one around the search can raise) stops this state only, unless the request is cancelled by
-/// the time it is recorded: the cancellation then ends every remaining state, this one included,
-/// and is the stop of wider scope (see [`rewrite_incomplete`]).
-#[deny(clippy::wildcard_enum_match_arm)]
-fn stopped_incomplete(state: SearchState, cause: StopCause) -> IncompleteSearch {
+fn stop_ends_search(cause: &StopCause) -> bool {
     match cause {
-        cause @ (StopCause::Cancelled | StopCause::SolverPrelude(_)) => {
-            IncompleteSearch::Stopped { state, cause }
-        }
-        cause @ (StopCause::Deadline(_) | StopCause::StackExhausted) => {
-            recorded_unless_cancelled(state, |state| IncompleteSearch::Stopped { state, cause })
-        }
-    }
-}
-
-/// `entry` of `state`, unless the request is cancelled: an entry recorded once the request is
-/// cancelled reports the cancellation (see [`rewrite_incomplete`]).
-fn recorded_unless_cancelled(
-    state: SearchState,
-    entry: impl FnOnce(SearchState) -> IncompleteSearch,
-) -> IncompleteSearch {
-    if cancellation_requested() {
-        IncompleteSearch::Stopped {
-            state,
-            cause: StopCause::Cancelled,
-        }
-    } else {
-        entry(state)
+        StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
+        StopCause::Deadline(_) | StopCause::StackExhausted => false,
     }
 }
 
@@ -2148,33 +2209,13 @@ fn merge_pattern_incomplete(
     traversal
 }
 
-/// Classify a rewrite step that ends the exploration of `state` without a successor.
-///
-/// Once the request is cancelled, every solver query answers unknown, so a condition,
-/// narrowing or remainder check posed after the cancellation ends as an SMT or remainder
-/// indeterminacy that the cancellation caused rather than the configuration. The state's
-/// exploration ended because the request was cancelled, and search has no other interruption
-/// source (it arms no step deadline), so any entry recorded while the cancellation is set is
-/// reported as stopped by the cancellation.
-fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
-    recorded_unless_cancelled(state, |state| IncompleteSearch::Indeterminate {
-        state,
-        reason,
-    })
-}
-
-/// Classify a target-pattern check that could not decide whether `state` matches.
-///
-/// As in [`rewrite_incomplete`], a solver query posed after the request is cancelled answers
-/// unknown because of the cancellation, so an undecided check recorded while the cancellation is
-/// set reports the cancellation.
+/// The entry of a target-pattern check that could not decide whether `state` matches.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn pattern_match_incomplete(state: SearchState, error: PatternMatchError) -> IncompleteSearch {
     match error {
-        PatternMatchError::Simplification(error) => simplification_incomplete(state, error),
-        _ if cancellation_requested() => IncompleteSearch::Stopped {
-            state,
-            cause: StopCause::Cancelled,
-        },
+        PatternMatchError::Simplification(error) => {
+            IncompleteSearch::Simplification { state, error }
+        }
         PatternMatchError::Indeterminate {
             substitution,
             remainder,
@@ -2211,7 +2252,7 @@ fn match_pattern_with_variables(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
     retain_unknown: bool,
-) -> Result<Option<PatternMatch>, PatternMatchError> {
+) -> Stoppable<Result<Option<PatternMatch>, PatternMatchError>> {
     let substitution = match match_terms_in_definition(
         MatchMode::Implies,
         definition,
@@ -2219,15 +2260,15 @@ fn match_pattern_with_variables(
         &subject.term,
     ) {
         MatchResult::Success(substitution) => substitution,
-        MatchResult::Failed(_) => return Ok(None),
+        MatchResult::Failed(_) => return Ok(Ok(None)),
         MatchResult::Indeterminate {
             substitution,
             remainder,
         } => {
-            return Err(PatternMatchError::Indeterminate {
+            return Ok(Err(PatternMatchError::Indeterminate {
                 substitution,
                 remainder,
-            });
+            }));
         }
     };
 
@@ -2256,37 +2297,30 @@ fn match_pattern_with_variables(
         facts,
         output_variables,
     );
-    let constraints = SimplificationError::bridge(simplify_predicates_with_solver(
-        definition,
-        &constraints,
-        &facts,
-        options,
-        solver,
-    ))
-    .map_err(PatternMatchError::Simplification)?;
+    let constraints =
+        match simplify_predicates_with_solver(definition, &constraints, &facts, options, solver)? {
+            Ok(constraints) => constraints,
+            Err(error) => return Ok(Err(PatternMatchError::Simplification(error))),
+        };
     match predicates_truth(&constraints) {
-        Truth::False => return Ok(None),
+        Truth::False => return Ok(Ok(None)),
         Truth::True => {}
         Truth::Unknown if retain_unknown => {}
-        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution)
-            // No answer exists, so the match is not decided; the stop reaches the search through
-            // the match's simplification-failure payload.
-            .map_err(|stop| {
-                PatternMatchError::Simplification(SimplificationError::from_stop(stop))
-            })? {
-            Ok(Satisfiability::Unsat) => return Ok(None),
+        // A stop leaves the match without an answer; it is returned, never read as a match.
+        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution)? {
+            Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
             Ok(Satisfiability::Sat) => {}
             Ok(Satisfiability::Unknown(reason)) => {
-                return Err(PatternMatchError::Smt(SmtError::Unknown(reason)));
+                return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
             }
-            Err(error) => return Err(PatternMatchError::Smt(error)),
+            Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
         },
     }
 
-    Ok(Some(PatternMatch {
+    Ok(Ok(Some(PatternMatch {
         substitution,
         constraints,
-    }))
+    })))
 }
 
 /// Whether `facts ∧ constraints` is satisfiable together with `substitution`.
@@ -2476,16 +2510,25 @@ fn state_may_expand(
         // Continuing would have reported a depth bound; the frontier is not exhausted.
         return true;
     }
-    !matches!(
-        rewrite_step_with_options(
-            definition,
-            &state.pattern,
-            fresh_counter,
-            simplification_options(options),
-            solver,
+    match rewrite_step_with_options(
+        definition,
+        &state.pattern,
+        fresh_counter,
+        simplification_options(options),
+        solver,
+    ) {
+        Ok(rewritten) => !matches!(
+            rewritten,
+            RewriteResult::Stuck(_) | RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_)
         ),
-        RewriteResult::Stuck(_) | RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_)
-    )
+        Err(stop) => {
+            // Kept outcome: the state may expand, so the search ends at its result bound with
+            // work left (`SearchEnd::ResultBound`). That holds whatever the step would have
+            // found; the step's answer could only refine it into `Exhausted`.
+            stop.forgo_refinement();
+            true
+        }
+    }
 }
 
 fn record_effects(
@@ -2991,98 +3034,26 @@ mod tests {
     }
 
     #[test]
-    fn every_stop_is_published_with_its_cause() {
-        let definition = definition();
-        let state = SearchState {
-            pattern: initial(&definition),
-            depth: 0,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-            diagnostics: Vec::new(),
-        };
-
+    fn a_stop_ends_the_search_exactly_when_it_ends_every_remaining_state() {
         let deadline = StopCause::Deadline(crate::timeout::StepTimeoutMode::Manual(
             std::time::Duration::from_millis(1),
         ));
         let prelude = StopCause::SolverPrelude(crate::stop::PreludeFailure::Inconsistent);
-        for (error, cause) in [
-            (
-                SimplificationError::Stopped(StopCause::Cancelled),
-                StopCause::Cancelled,
-            ),
-            (SimplificationError::Stopped(deadline.clone()), deadline),
-            (SimplificationError::Stopped(prelude.clone()), prelude),
-            (
-                SimplificationError::Stopped(StopCause::StackExhausted),
-                StopCause::StackExhausted,
-            ),
+        for (cause, ends) in [
+            (StopCause::Cancelled, true),
+            (prelude, true),
+            (deadline, false),
+            (StopCause::StackExhausted, false),
         ] {
-            assert_eq!(
-                simplification_incomplete(state.clone(), error.clone()),
-                IncompleteSearch::Stopped {
-                    state: state.clone(),
-                    cause,
-                },
-                "{error:?}"
-            );
+            assert_eq!(stop_ends_search(&cause), ends, "{cause:?}");
         }
     }
 
+    /// An undecided match is reported with its own reason, whatever the request's token says: a
+    /// stop reaches the search on the outer layer of a result, so no entry is reinterpreted as
+    /// stopped because the request is cancelled when it is recorded.
     #[test]
-    fn a_stack_exhaustion_stops_one_state_and_a_failure_stays_a_failure() {
-        let definition = definition();
-        let state = SearchState {
-            pattern: initial(&definition),
-            depth: 0,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-            diagnostics: Vec::new(),
-        };
-        let failure = SimplificationError::Builtin(BuiltinError::WrongArity {
-            hook: "INT.add".into(),
-            expected: 2,
-            actual: 1,
-        });
-
-        assert_eq!(
-            simplification_incomplete(
-                state.clone(),
-                SimplificationError::Stopped(StopCause::StackExhausted),
-            ),
-            IncompleteSearch::Stopped {
-                state: state.clone(),
-                cause: StopCause::StackExhausted,
-            }
-        );
-        assert_eq!(
-            simplification_incomplete(state.clone(), failure.clone()),
-            IncompleteSearch::Simplification {
-                state: state.clone(),
-                error: failure,
-            }
-        );
-        // Recorded once the request is cancelled, the stack exhaustion reports the cancellation,
-        // the stop of wider scope.
-        let token = crate::cancellation::CancellationToken::new();
-        token.cancel();
-        token.scope(|| {
-            assert_eq!(
-                simplification_incomplete(
-                    state.clone(),
-                    SimplificationError::Stopped(StopCause::StackExhausted),
-                ),
-                IncompleteSearch::Stopped {
-                    state: state.clone(),
-                    cause: StopCause::Cancelled,
-                }
-            );
-        });
-    }
-
-    #[test]
-    fn every_entry_recorded_after_cancellation_is_classified_as_cancellation() {
+    fn an_entry_keeps_its_reason_under_a_cancelled_request() {
         let definition = definition();
         let state = SearchState {
             pattern: initial(&definition),
@@ -3093,65 +3064,43 @@ mod tests {
             diagnostics: Vec::new(),
         };
         let unknown = || SmtError::Unknown("timeout".into());
-        let smt = || IndeterminateReason::Smt {
-            rule_id: "rule".into(),
-            error: unknown(),
-        };
-        let remainder = || IndeterminateReason::Remainder {
-            rule_ids: vec!["rule".into()],
-            predicates: Vec::new(),
-            satisfiability: Ok(Satisfiability::Unknown("timeout".into())),
-        };
-        let pattern_smt = || PatternMatchError::Smt(unknown());
-        let pattern_match = || PatternMatchError::Indeterminate {
-            substitution: Substitution::new(),
-            remainder: Vec::new(),
-        };
-
-        // Without a cancellation the reasons are reported as they are.
-        assert!(matches!(
-            rewrite_incomplete(state.clone(), smt()),
-            IncompleteSearch::Indeterminate { .. }
-        ));
-        assert!(matches!(
-            pattern_match_incomplete(state.clone(), pattern_smt()),
-            IncompleteSearch::Smt { .. }
-        ));
-
+        let failure = SimplificationError::Builtin(BuiltinError::WrongArity {
+            hook: "INT.add".into(),
+            expected: 2,
+            actual: 1,
+        });
         let token = crate::cancellation::CancellationToken::new();
         token.cancel();
         token.scope(|| {
-            for reason in [smt(), remainder()] {
-                assert_eq!(
-                    rewrite_incomplete(state.clone(), reason.clone()),
-                    IncompleteSearch::Stopped {
-                        state: state.clone(),
-                        cause: StopCause::Cancelled,
-                    },
-                    "{reason:?}"
-                );
-            }
-            for error in [pattern_smt(), pattern_match()] {
-                assert_eq!(
-                    pattern_match_incomplete(state.clone(), error.clone()),
-                    IncompleteSearch::Stopped {
-                        state: state.clone(),
-                        cause: StopCause::Cancelled,
-                    },
-                    "{error:?}"
-                );
-            }
             assert_eq!(
-                simplification_incomplete(
+                pattern_match_incomplete(state.clone(), PatternMatchError::Smt(unknown())),
+                IncompleteSearch::Smt {
+                    state: state.clone(),
+                    error: unknown(),
+                }
+            );
+            assert_eq!(
+                pattern_match_incomplete(
                     state.clone(),
-                    SimplificationError::SmtPredicate {
-                        predicate: Box::new(Predicate::True),
-                        error: unknown(),
+                    PatternMatchError::Indeterminate {
+                        substitution: Substitution::new(),
+                        remainder: Vec::new(),
                     },
                 ),
-                IncompleteSearch::Stopped {
+                IncompleteSearch::Match {
                     state: state.clone(),
-                    cause: StopCause::Cancelled,
+                    substitution: Substitution::new(),
+                    remainder: Vec::new(),
+                }
+            );
+            assert_eq!(
+                pattern_match_incomplete(
+                    state.clone(),
+                    PatternMatchError::Simplification(failure.clone()),
+                ),
+                IncompleteSearch::Simplification {
+                    state: state.clone(),
+                    error: failure,
                 }
             );
         });
@@ -4859,7 +4808,9 @@ mod tests {
             pattern(&definition, "final2{}()"),
         ];
 
-        let matches = match_disjunction(&definition, &target, &subjects).unwrap();
+        let matches = match_disjunction(&definition, &target, &subjects)
+            .expect("no stop is armed")
+            .unwrap();
 
         assert_eq!(matches.len(), 2);
         assert_eq!(
@@ -4887,11 +4838,14 @@ mod tests {
 
         assert!(
             match_disjunction(&definition, &target, &absent)
+                .expect("no stop is armed")
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(
-            match_disjunction(&definition, &target, &present).unwrap(),
+            match_disjunction(&definition, &target, &present)
+                .expect("no stop is armed")
+                .unwrap(),
             vec![PatternMatch {
                 substitution: Substitution::new(),
                 constraints: Vec::new(),
@@ -4912,7 +4866,9 @@ mod tests {
             constraints: vec![unresolved.clone()],
         };
 
-        let matches = match_disjunction(&definition, &initial(&definition), &[subject]).unwrap();
+        let matches = match_disjunction(&definition, &initial(&definition), &[subject])
+            .expect("no stop is armed")
+            .unwrap();
 
         assert_eq!(
             matches,
@@ -5150,6 +5106,7 @@ mod tests {
             SimplificationOptions::default(),
             &solver,
         )
+        .expect("no stop is armed")
         .expect("the match should be decided");
 
         assert!(matches.is_empty(), "{matches:#?}");
@@ -5180,6 +5137,7 @@ mod tests {
             SimplificationOptions::default(),
             &solver,
         )
+        .expect("no stop is armed")
         .expect("the match should be decided");
 
         let [found] = matches.as_slice() else {
@@ -5230,6 +5188,7 @@ mod tests {
             SimplificationOptions::default(),
             &solver,
         )
+        .expect("no stop is armed")
         .expect("the match should be decided");
 
         let [found] = matches.as_slice() else {
@@ -5314,10 +5273,12 @@ mod tests {
             SimplificationOptions::default(),
             &NoSolver,
         )
+        .expect("no stop is armed")
         .expect("the match should be decided without a solver");
         assert_unsaturated_partial_subject_matches(&definition, &decided);
 
         let retained = match_disjunction(&definition, &target, &[subject])
+            .expect("no stop is armed")
             .expect("the match should be computed");
         assert_unsaturated_partial_subject_matches(&definition, &retained);
     }
@@ -5336,6 +5297,7 @@ mod tests {
             SimplificationOptions::default(),
             &solver,
         )
+        .expect("no stop is armed")
         .expect("the match should be decided");
         assert_unsaturated_partial_subject_matches(&definition, &matches);
     }
@@ -5385,8 +5347,9 @@ mod tests {
                 &[subject],
                 SimplificationOptions::default(),
                 solver,
-            ),
-            None => match_disjunction(definition, &target, &[subject]),
+            )
+            .expect("no stop is armed"),
+            None => match_disjunction(definition, &target, &[subject]).expect("no stop is armed"),
         }
         .expect("the match should be computed");
         assert!(matches.is_empty(), "{matches:#?}");

@@ -11,7 +11,7 @@ use k_rust_backend::{
         simplify_pattern_with_solver,
     },
     smt::SmtSolver,
-    stop::Stoppable,
+    stop::{Stop, Stoppable},
     substitution::Substitution,
     term::Sort,
 };
@@ -20,40 +20,33 @@ use k_rust_kore::kore::ast::Pattern as KorePattern;
 
 use super::{Backend, BackendError, error};
 
-/// A layered simplifier result on the single layer the surfaces still consume: the stop becomes
-/// `SimplificationError::Stopped` with its cause, which every surface maps with the simplifier's
-/// other stops, and the answer and the failures pass unchanged (removed with the variant by
-/// CBC-04-T7, when the surfaces take the stop on its own layer).
-pub(crate) fn bridge_stop<T>(
-    result: Stoppable<Result<T, SimplificationError>>,
-) -> Result<T, SimplificationError> {
-    result.unwrap_or_else(|stop| Err(SimplificationError::Stopped(stop.into_cause())))
+/// The error of an operation whose work stopped, with the stop's cause's text: the text the
+/// operation boundary reports a stop with (`Backend::run_with_solver`), so an operation reports
+/// a stop the same way wherever it was observed.
+pub(crate) fn stopped_operation(stop: Stop) -> BackendError {
+    BackendError(stop.into_cause().to_string())
 }
 
+/// Simplify `pattern`. As the simplifier's, the result has two layers: the outer `Err` is a
+/// [`Stop`], for which no simplified form exists; the inner result is the simplified pattern or
+/// the simplification's failure.
 pub fn simplify_pattern(
     definition: &BackendDefinition,
     pattern: &Pattern,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Pattern, SimplificationError> {
-    bridge_stop(simplify_pattern_with_solver(
-        definition, pattern, options, solver,
-    ))
+) -> Stoppable<Result<Pattern, SimplificationError>> {
+    simplify_pattern_with_solver(definition, pattern, options, solver)
 }
 
+/// Simplify and decide `predicate`, with the two layers of [`simplify_pattern`].
 pub fn simplify_predicate(
     definition: &BackendDefinition,
     predicate: &Predicate,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> Result<Predicate, SimplificationError> {
-    bridge_stop(simplify_and_decide_predicate_with_solver(
-        definition,
-        predicate,
-        &[],
-        options,
-        solver,
-    ))
+) -> Stoppable<Result<Predicate, SimplificationError>> {
+    simplify_and_decide_predicate_with_solver(definition, predicate, &[], options, solver)
 }
 
 /// Externalize model bindings in the natural variable order shared by CLI and RPC surfaces.
@@ -75,22 +68,22 @@ pub fn model_predicate_with_solver(
     predicate: &Predicate,
     solver: &dyn SmtSolver,
 ) -> Result<ModelResult, BackendError> {
-    let simplified = bridge_stop(simplify_and_decide_predicate_with_solver(
+    let simplified = simplify_and_decide_predicate_with_solver(
         definition,
         predicate,
         &[],
         SimplificationOptions::unbounded(),
         solver,
-    ))
+    )
+    .map_err(stopped_operation)?
     .map_err(error("could not simplify model predicate"))?;
     match simplified {
         Predicate::False => Ok(ModelResult::Unsat),
         Predicate::True => Ok(ModelResult::Sat(Substitution::new())),
-        // A stopped query has no model; the stop is reported by its cause's text, as the
-        // operation boundary reports it (`Backend::run_with_solver`).
+        // A stopped query has no model.
         residual => solver
             .get_model(&[residual], &Substitution::new())
-            .map_err(|stop| BackendError(stop.into_cause().to_string()))?
+            .map_err(stopped_operation)?
             .map_err(error("could not obtain model")),
     }
 }
@@ -107,23 +100,25 @@ impl Backend {
                 .map_err(error("could not internalize KORE pattern"))?
             {
                 PatternOrPredicate::Term(pattern) => {
-                    let simplified = bridge_stop(simplify_pattern_with_solver(
+                    let simplified = simplify_pattern_with_solver(
                         definition,
                         &pattern,
                         SimplificationOptions::unbounded(),
                         solver,
-                    ))
+                    )
+                    .map_err(stopped_operation)?
                     .map_err(error("could not simplify KORE pattern"))?;
                     Ok(externalize::constrained_pattern(&simplified))
                 }
                 PatternOrPredicate::Predicate(predicate, result_sort) => {
-                    let simplified = bridge_stop(simplify_and_decide_predicate_with_solver(
+                    let simplified = simplify_and_decide_predicate_with_solver(
                         definition,
                         &predicate,
                         &[],
                         SimplificationOptions::unbounded(),
                         solver,
-                    ))
+                    )
+                    .map_err(stopped_operation)?
                     .map_err(error("could not simplify KORE predicate"))?;
                     Ok(externalize::ml_pattern(&simplified, &result_sort))
                 }

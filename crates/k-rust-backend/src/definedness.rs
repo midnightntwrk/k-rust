@@ -861,6 +861,7 @@ mod tests {
             },
             &mut fresh,
         )
+        .expect("no stop is armed")
         else {
             panic!("the symbolic definedness branch should be retained");
         };
@@ -910,7 +911,8 @@ mod tests {
                 constraints: Vec::new(),
             },
             &mut fresh,
-        ) else {
+        )
+        .expect("no stop is armed") else {
             panic!("evaluated RHS should be defined");
         };
         assert_eq!(

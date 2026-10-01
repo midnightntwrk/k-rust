@@ -1039,10 +1039,6 @@ mod tests {
             "simplification exhausted the native stack of the current thread"
         );
         assert_eq!(
-            SimplificationError::Stopped(StopCause::StackExhausted).to_string(),
-            StopCause::StackExhausted.to_string()
-        );
-        assert_eq!(
             PreludeFailure::Inconsistent.to_string(),
             "InconsistentPrelude"
         );

@@ -22,6 +22,7 @@ use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     smt::SmtSolver,
+    stop::StopCause,
     transition::{ObservationLog, ObservationOptions},
 };
 
@@ -171,13 +172,16 @@ pub(super) fn retain_state_result(
 
 /// How retaining a path witness bears on the search's bounds.
 #[must_use]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum WitnessRetention {
     Continue,
     /// A witness arrived with `max_results` witnesses already retained and was discarded.
     Further(FurtherResult),
     /// The caller's collector reached its own bound on this witness.
     PatternBound,
+    /// The witness's externalisation stopped with this cause, published as the path's `Stopped`
+    /// entry; no witness was retained.
+    Stopped(StopCause),
 }
 
 /// ```toml algorithm-site
@@ -189,7 +193,8 @@ pub(super) enum WitnessRetention {
 /// Retain one externalized path witness and classify any result bound reached there.
 ///
 /// The witness is externalised in the simplifier's normal form (`externalise_result`); an
-/// empty witness is not retained and a failed simplification is reported as incomplete.
+/// empty witness is not retained, a failed simplification is reported as incomplete, and a
+/// stopped one is reported as the path's `Stopped` entry.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn retain_witness(
     definition: &BackendDefinition,
@@ -209,7 +214,7 @@ pub(super) fn retain_witness(
     {
         return WitnessRetention::Further(FurtherResult(()));
     }
-    if let Some(state) = externalise_result(
+    let externalised = match externalise_result(
         definition,
         path.state.clone(),
         path.observation,
@@ -222,6 +227,10 @@ pub(super) fn retain_witness(
         observation_log,
         observation_options,
     ) {
+        Ok(externalised) => externalised,
+        Err(cause) => return WitnessRetention::Stopped(cause),
+    };
+    if let Some(state) = externalised {
         let witness = PathWitness {
             id: path.id.clone(),
             pattern: state.pattern,

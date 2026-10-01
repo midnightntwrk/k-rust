@@ -835,18 +835,6 @@ impl fmt::Display for ImplicationError {
 
 impl Error for ImplicationError {}
 
-impl ImplicationError {
-    /// A layered check result on the single layer of a caller that has no stop layer of its own
-    /// yet: the stop becomes `Simplification(Stopped(cause))`, and the verdict and the failures
-    /// pass unchanged. A caller bridges at the call, so no `Stop` outlives it, and the loop that
-    /// owns the step recovers the cause and publishes it (removed with
-    /// `SimplificationError::Stopped` by CBC-04-T7).
-    pub(crate) fn bridge<T>(result: Stoppable<Result<T, Self>>) -> Result<T, Self> {
-        result
-            .unwrap_or_else(|stop| Err(Self::Simplification(SimplificationError::from_stop(stop))))
-    }
-}
-
 /// The result of a check inside this module: `?` propagates a stop and a failure alike. Every
 /// entry point returns it layered ([`Layered::layered`]): the stop outside, the failure inside.
 type CheckResult<T> = Result<T, Unwind<ImplicationError>>;

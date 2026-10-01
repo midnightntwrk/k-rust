@@ -49,7 +49,6 @@ use k_rust::kore::{
 };
 use k_rust::names::WellKnownSymbol;
 use k_rust_backend::{
-    cancellation::cancellation_requested,
     definition::{BackendDefinition, DefinitionError, PatternOrPredicate},
     externalize,
     implication::{
@@ -66,7 +65,7 @@ use k_rust_backend::{
     session::SessionError,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
-    stop::StopCause,
+    stop::{self, Stop, StopCause, Stoppable},
     substitution::{Substitution, extract_substitution, substitute},
     term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
@@ -426,19 +425,6 @@ impl RpcFault {
         }
     }
 
-    fn is_prelude_failure(&self) -> bool {
-        self.code == -32002
-            && self
-                .data
-                .as_ref()
-                .and_then(|data| data.get("error"))
-                .and_then(Value::as_str)
-                .is_some_and(|error| {
-                    error == "could not initialize Z3: InconsistentPrelude"
-                        || error.starts_with("could not initialize Z3: UnknownPrelude(")
-                })
-    }
-
     fn implication(error: impl Into<String>, context: Vec<String>) -> Self {
         let detail = ErrorDetail {
             error: error.into(),
@@ -586,8 +572,10 @@ impl RpcService {
     }
 
     fn dispatch(&mut self, method: &str, params: Value) -> Result<RpcValue, RpcFault> {
-        if cancellation_requested() {
-            return Err(RpcFault::cancelled());
+        // A request stopped before it starts does not run. Once it runs, each method reports a
+        // stop of its work as the stop's own fault, never by reinterpreting its result.
+        if let Err(stop) = stop::check() {
+            return Err(stop_fault(&stop.into_cause()));
         }
         let requested_logs = params
             .get("haskell-logging")
@@ -610,19 +598,10 @@ impl RpcService {
                 data: Some(Value::String(method.into())),
             }),
         };
-        if cancellation_requested()
-            && !result
-                .as_ref()
-                .err()
-                .is_some_and(RpcFault::is_prelude_failure)
-        {
-            Err(RpcFault::cancelled())
-        } else {
-            result.map(|mut result| {
-                attach_legacy_log_entries(method, &requested_logs, &mut result);
-                result
-            })
-        }
+        result.map(|mut result| {
+            attach_legacy_log_entries(method, &requested_logs, &mut result);
+            result
+        })
     }
 
     fn execute(&mut self, params: ExecuteParams) -> Result<RpcValue, RpcFault> {
@@ -804,6 +783,7 @@ impl RpcService {
                         SimplificationOptions::unbounded(),
                         solver,
                     )
+                    .map_err(stopped_request)?
                     .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
                     Ok(RpcValue::object([(
                         "state",
@@ -817,6 +797,7 @@ impl RpcService {
                         SimplificationOptions::unbounded(),
                         solver,
                     )
+                    .map_err(stopped_request)?
                     .map_err(|error| simplify_fault(error, &result_sort))?;
                     Ok(RpcValue::object([(
                         "state",
@@ -1000,7 +981,7 @@ impl RpcService {
                     &sort_variables,
                     solver,
                 )
-                .map_err(|stop| stop_fault(&stop.into_cause()))?
+                .map_err(stopped_request)?
                 .map_err(|error| pattern_fault(error, &consequent))?;
                 let antecedent = simplified_implication_response_syntax(
                     definition,
@@ -1019,7 +1000,7 @@ impl RpcService {
             Some(SpecialConsequent::Top) => Some(ImplicationVerdict::Valid(Bindings::default())),
             Some(SpecialConsequent::Bottom) => Some(
                 grade_bottom_consequent(definition, &antecedent_pattern, solver)
-                    .map_err(|stop| stop_fault(&stop.into_cause()))?,
+                    .map_err(stopped_request)?,
             ),
             None => None,
         };
@@ -1040,15 +1021,14 @@ impl RpcService {
                 "antecedent and consequent sorts differ",
             )]));
         }
-        let verdict = backend_implication::check(
+        let verdict = implication_check_result(backend_implication::check(
             definition,
             &antecedent_pattern,
             &antecedent_existentials,
             &consequent_pattern,
             &consequent_existentials,
             solver,
-        )
-        .map_err(implication_backend_fault)?;
+        ))?;
         let vacuous_antecedent = matches!(verdict, ImplicationVerdict::VacuouslyValid);
         let (antecedent, consequent) = if vacuous_antecedent {
             (antecedent, consequent)
@@ -1092,6 +1072,11 @@ fn execute_stop_reason(cause: &StopCause) -> Result<&'static str, RpcFault> {
     }
 }
 
+/// The fault of a request whose work stopped before producing its answer ([`stop_fault`]).
+fn stopped_request(stop: Stop) -> RpcFault {
+    stop_fault(&stop.into_cause())
+}
+
 /// The fault of a request whose work stopped before producing its answer: a cancelled request,
 /// the stack exhaustion fault, and the runtime error of a failed solver prelude. A step deadline
 /// is armed only by `execute`'s and proofs' steps, which publish it in-band, so reaching a fault
@@ -1111,9 +1096,6 @@ fn stop_fault(cause: &StopCause) -> RpcFault {
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
     if let SimplificationError::UnsupportedHook { term, .. } = &error {
         return RpcFault::runtime(error.to_string(), Some(term));
-    }
-    if let SimplificationError::Stopped(cause) = &error {
-        return stop_fault(cause);
     }
     let SimplificationError::SmtPredicate { predicate, error } = error else {
         return RpcFault::aborted(error.to_string());
@@ -1389,6 +1371,7 @@ fn simplified_implication_response_syntax(
         SimplificationOptions::default(),
         solver,
     )
+    .map_err(stopped_request)?
     .map_err(|error| simplify_fault(error, &unsimplified.term.sort()))?;
     if unsimplified.term == simplified.term {
         return Ok(normalized_implication_syntax(original, &simplified));
@@ -1452,12 +1435,19 @@ fn simplified_not_consequent_response_syntax(
     })
 }
 
-/// The fault of an implication check that returned `error`. A stop is not a failure of the check:
-/// the request's work stopped, so it is the request's fault ([`stop_fault`]).
+/// The verdict of an implication check, or its fault. A stop is not a failure of the check: the
+/// request's work stopped, so it is the request's fault ([`stop_fault`]); only a failure of the
+/// check itself is an implication-check error ([`implication_backend_fault`]).
+fn implication_check_result(
+    checked: Stoppable<Result<ImplicationVerdict, ImplicationError>>,
+) -> Result<ImplicationVerdict, RpcFault> {
+    checked
+        .map_err(stopped_request)?
+        .map_err(implication_backend_fault)
+}
+
+/// The fault of an implication check that failed.
 fn implication_backend_fault(error: ImplicationError) -> RpcFault {
-    if let ImplicationError::Simplification(SimplificationError::Stopped(cause)) = &error {
-        return stop_fault(cause);
-    }
     RpcFault::backend_error(
         BackendErrorKind::ImplicationCheckError,
         serde_json::to_value(ErrorDetail::message(format!(
@@ -2587,16 +2577,21 @@ mod tests {
         }
     }
 
-    /// A stop inside `implies` is the request's fault, with the fault every method gives that
-    /// cause; only a failure of the check itself is an implication-check error.
+    /// A stop inside `implies` reaches it on the outer layer of the check's result and is the
+    /// request's fault, with the fault every method gives that cause (`stop_fault`); only a
+    /// failure of the check itself is an implication-check error.
     #[test]
     fn a_stopped_implication_check_is_the_requests_fault() {
-        let stopped = |cause| {
-            implication_backend_fault(ImplicationError::Simplification(
-                SimplificationError::Stopped(cause),
-            ))
-        };
-        let fault = stopped(StopCause::StackExhausted);
+        let token = k_rust_backend::stop::CancellationToken::new();
+        token.cancel();
+        let cancelled: Stoppable<Result<ImplicationVerdict, ImplicationError>> =
+            token.scope(|| stop::check().map(|()| Ok(ImplicationVerdict::VacuouslyValid)));
+        let fault = implication_check_result(cancelled).expect_err("a stop is a fault");
+        assert_eq!(
+            (fault.code, fault.message.as_str()),
+            (-32000, "Request cancelled")
+        );
+        let fault = stop_fault(&StopCause::StackExhausted);
         assert_eq!(
             (fault.code, fault.message.as_str()),
             (-32002, "Runtime error")
@@ -2605,18 +2600,14 @@ mod tests {
             fault.data.unwrap()["error"],
             StopCause::StackExhausted.to_string()
         );
-        let fault = stopped(StopCause::Cancelled);
-        assert_eq!(
-            (fault.code, fault.message.as_str()),
-            (-32000, "Request cancelled")
-        );
 
-        let fault = implication_backend_fault(ImplicationError::Simplification(
+        let fault = implication_check_result(Ok(Err(ImplicationError::Simplification(
             SimplificationError::DisjunctiveResult {
                 rule_id: "r".into(),
                 alternatives: 2,
             },
-        ));
+        ))))
+        .expect_err("a failure is a fault");
         assert_eq!(
             (fault.code, fault.message.as_str()),
             (

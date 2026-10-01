@@ -185,7 +185,9 @@ fn replay_oracle(
             simplification_options,
             solver,
             assume_initial_defined,
-        ) {
+        )
+        .expect("no stop is armed")
+        {
             RewriteResult::Finished(applied) => branches.insert(0, applied),
             RewriteResult::Branch {
                 branches: mut lower_branches,
@@ -226,7 +228,8 @@ fn compare_with_solvers(
         cascade_solver,
         ExecutionMode::All,
         false,
-    );
+    )
+    .expect("no stop is armed");
     let (cascade_branches, cascade_remainder) = step_parts(&cascade_step);
     let cascade_error = Ok::<(), SimplificationError>(());
     let oracle_step = rewrite_step_all_first_group_for_tests(
@@ -236,7 +239,8 @@ fn compare_with_solvers(
         options,
         oracle_solver,
         false,
-    );
+    )
+    .expect("no stop is armed");
     let (mut oracle_branches, mut oracle_remainder) = step_parts(&oracle_step);
     let oracle_error = replay_oracle(
         definition,
@@ -591,7 +595,8 @@ fn d3_bounded_search_finds_no_semantically_empty_reapplication() {
             &solver,
             ExecutionMode::All,
             false,
-        );
+        )
+        .expect("no stop is armed");
         let (first_branches, remainder) = step_parts(&first);
         let [first_application] = first_branches.as_slice() else {
             panic!(
@@ -628,7 +633,8 @@ fn d3_bounded_search_finds_no_semantically_empty_reapplication() {
             &solver,
             ExecutionMode::All,
             false,
-        );
+        )
+        .expect("no stop is armed");
         assert!(
             !reached_instantiate(&second),
             "{}: D3 witness: the deleted replay reached instantiate in its first re-attempt\nsecond result: {second:#?}\ntranscript: {:#?}",
@@ -963,7 +969,8 @@ fn replay_oracle_smoke_uses_one_global_alpha_gate() {
         &cascade_solver,
         ExecutionMode::All,
         false,
-    );
+    )
+    .expect("no stop is armed");
     let (branches, remainder) = step_parts(&cascade);
     let error = Ok::<(), SimplificationError>(());
     let initial = rewrite_step_all_first_group_for_tests(
@@ -973,7 +980,8 @@ fn replay_oracle_smoke_uses_one_global_alpha_gate() {
         options,
         &oracle_solver,
         false,
-    );
+    )
+    .expect("no stop is armed");
     let (mut replayed, mut replay_remainder) = step_parts(&initial);
     let replay_error = replay_oracle(
         &definition,

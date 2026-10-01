@@ -874,6 +874,7 @@ fn run_backend_with_solver(
             },
             solver,
         )
+        .map_err(|stop| io::Error::other(stop.into_cause().to_string()))?
         .map_err(pattern_match_error)?;
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(pattern_matches_output(
@@ -945,7 +946,7 @@ fn exit_code_of(
     let mut results = BTreeSet::new();
     // Invariant: results contains the distinct satisfiable exit values of leaves already visited.
     for leaf in finals {
-        let simplified = super::simplification::bridge_stop(simplify_pattern_with_solver(
+        let simplified = simplify_pattern_with_solver(
             backend,
             &Pattern {
                 term: Term::application(
@@ -960,7 +961,9 @@ fn exit_code_of(
                 ..SimplificationOptions::default()
             },
             solver,
-        ))
+        )
+        .map_err(|stop| stop.into_cause().to_string())
+        .and_then(|simplified| simplified.map_err(|error| error.to_string()))
         .map_err(|error| {
             io::Error::other(format!(
                 "could not evaluate getExitCode on a final configuration: {error}"

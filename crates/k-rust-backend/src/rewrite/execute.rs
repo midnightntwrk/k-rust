@@ -47,7 +47,6 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    cancellation::cancellation_requested,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     rule::Predicate,
@@ -58,7 +57,7 @@ use crate::{
         simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::SmtSolver,
-    stop::StopCause,
+    stop::{self, Stop, StopCause, Stoppable},
     timeout::{StepTimeoutController, StepTimeoutOptions, StepTimer},
     transition::{
         EffectJournal, ExecutionIoState, ObservationHead, ObservationLog, ObservationOptions,
@@ -244,9 +243,15 @@ impl<'a> Execution<'a> {
     ///
     /// Work no reported successor is derived from is on no path: a rule attempt that does not
     /// apply, an alternative refuted to bottom, a group the sequential step does not follow. A
-    /// leaf cut off by a cancellation or timeout after the step carries all the work of the step
-    /// and of its candidates done before it. Every collection forwards to any collector the
-    /// caller holds around the execution, which therefore sees every diagnostic.
+    /// leaf cut off by a stop during or after the step carries all the work of the step and of
+    /// its candidates done before it. Every collection forwards to any collector the caller
+    /// holds around the execution, which therefore sees every diagnostic.
+    ///
+    /// Stops. Every phase of a state's expansion polls for a stop (`stop::check`) or receives
+    /// one from the simplifier, the step or the solver on the outer layer of their results; the
+    /// state then becomes a `Stopped` leaf, and [`stop_ends_execution`] decides whether the
+    /// remaining states are explored. The next state's first poll observes a stop of the request
+    /// or of the solver's prelude that a refinement dismissed (`externalise_leaf`).
     fn run(&mut self, timeout_controller: &StepTimeoutController) {
         // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a
         // state's children are expanded before its siblings (depth-first). Each push either
@@ -256,7 +261,7 @@ impl<'a> Execution<'a> {
         while let Some(state) = self.pending.pop_front() {
             measure::bump(Counter::RewriteSteps);
             let mut step_timer = timeout_controller.begin_step();
-            match self.expand(state, &mut step_timer) {
+            match self.expand(state) {
                 Ok(successors) => {
                     enqueue_execution_states(&mut self.pending, successors);
                     if let Expansion::BreadthBound = self.breadth_checked() {
@@ -274,40 +279,44 @@ impl<'a> Execution<'a> {
                     }
                 }
             }
-            if cancellation_requested() {
-                break;
-            }
         }
     }
 
-    /// The per-state pipeline E2 to E7; the interruption checks sit where the loop body had
-    /// them (before constraint simplification, after it, after term simplification, after the
-    /// rewrite step, and inside E6 and E7). Returns the successors `run` enqueues.
+    /// The per-state pipeline E2 to E7; the polls for a stop sit between its phases (before
+    /// constraint simplification, after it, after term simplification, after the rewrite step,
+    /// and inside E6 and E7), and a phase whose result is a stop ends the state at once. Returns
+    /// the successors `run` enqueues.
     #[deny(clippy::wildcard_enum_match_arm)]
-    fn expand(
-        &mut self,
-        state: ExecutionState,
-        step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Vec<ExecutionState>> {
-        let state = self.check_interrupted(state, step_timer)?;
+    fn expand(&mut self, state: ExecutionState) -> Phase<Vec<ExecutionState>> {
+        let state = self.check_interrupted(state)?;
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             return Err(state.leaf(
                 HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias { symbol }),
                 &self.observation_log,
             ));
         }
-        let (state, deferred_initial_vacuity) = self.normalise_constraints(state, step_timer)?;
-        let state = self.simplify_term(state, step_timer, deferred_initial_vacuity.is_some())?;
+        let (state, deferred_initial_vacuity) = self.normalise_constraints(state)?;
+        let state = self.simplify_term(state, deferred_initial_vacuity.is_some())?;
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
         let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
             ExecutionStateKind::Rewritable => self.step(&state),
-            ExecutionStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
+            ExecutionStateKind::Remaining(None) => Ok(RewriteResult::Stuck(state.pattern.clone())),
             ExecutionStateKind::Remaining(Some(undecided)) => {
-                undecided.clone().into_result(state.pattern.clone())
+                Ok(undecided.clone().into_result(state.pattern.clone()))
             }
         });
-        let mut state = match self.check_interrupted(state, step_timer) {
+        // A stopped step has no successor set: the state is the leaf, with the step's work.
+        let rewritten = match rewritten {
+            Ok(rewritten) => rewritten,
+            Err(stop) => {
+                return Err(interrupted_with(
+                    self.stopped_leaf(state, stop),
+                    &[&step_diagnostics],
+                ));
+            }
+        };
+        let mut state = match self.check_interrupted(state) {
             Ok(state) => state,
             Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
         };
@@ -321,8 +330,7 @@ impl<'a> Execution<'a> {
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
             RewriteResult::Finished(applied) => {
-                let (expanded, diagnostics) =
-                    diagnostic::collect(|| self.finished(state, applied, step_timer));
+                let (expanded, diagnostics) = diagnostic::collect(|| self.finished(state, applied));
                 expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
             }
             RewriteResult::Branch {
@@ -332,33 +340,31 @@ impl<'a> Execution<'a> {
                 trivial,
             } => {
                 let (expanded, diagnostics) = diagnostic::collect(|| {
-                    self.branch(state, original, branches, remainder, trivial, step_timer)
+                    self.branch(state, original, branches, remainder, trivial)
                 });
                 expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
             }
         }
     }
 
-    /// A cancellation or a step timeout turns the state into a `Stopped` leaf; `run` discards
-    /// the step's duration measurement ([`stop_ends_execution`]).
-    fn check_interrupted(
-        &mut self,
-        state: ExecutionState,
-        step_timer: &mut StepTimer<'_>,
-    ) -> Phase<ExecutionState> {
-        if cancellation_requested() {
-            return Err(state.leaf(
-                HaltReason::Stopped(StopCause::Cancelled),
-                &self.observation_log,
-            ));
+    /// Poll for a stop between two phases of the state's expansion: a cancelled request, a
+    /// failed solver prelude, or the step's passed deadline turns the state into a `Stopped`
+    /// leaf ([`Self::stopped_leaf`]).
+    fn check_interrupted(&self, state: ExecutionState) -> Phase<ExecutionState> {
+        match stop::check() {
+            Ok(()) => Ok(state),
+            Err(stop) => Err(self.stopped_leaf(state, stop)),
         }
-        if let Some(mode) = step_timer.timed_out() {
-            return Err(state.leaf(
-                HaltReason::Stopped(StopCause::Deadline(mode)),
-                &self.observation_log,
-            ));
-        }
-        Ok(state)
+    }
+
+    /// The leaf of a state whose expansion stopped: the state as it stood when the stop was
+    /// observed, publishing the stop's cause; `run` discards the step's duration measurement
+    /// ([`stop_ends_execution`]).
+    fn stopped_leaf(&self, state: ExecutionState, stop: Stop) -> ExecutionLeaf {
+        state.leaf(
+            HaltReason::Stopped(stop.into_cause()),
+            &self.observation_log,
+        )
     }
 
     /// E2: the substitution is normalised, the constraints simplified with `keep_partial`, and
@@ -368,23 +374,26 @@ impl<'a> Execution<'a> {
     fn normalise_constraints(
         &mut self,
         mut state: ExecutionState,
-        step_timer: &mut StepTimer<'_>,
     ) -> Phase<(ExecutionState, Option<Pattern>)> {
         let retained_substitution =
             normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
         let pattern_before_constraint_simplification = state.pattern.clone();
         let mut deferred_initial_vacuity = None;
         let (simplified_constraints, diagnostics) = diagnostic::collect(|| {
-            SimplificationError::bridge(simplify_predicates_with_solver(
+            simplify_predicates_with_solver(
                 self.definition,
                 &state.pattern.constraints,
                 &[],
                 SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
                 self.solver,
-            ))
+            )
         });
         state.diagnostics.extend(&diagnostics);
-        let mut state = self.check_interrupted(state, step_timer)?;
+        let simplified_constraints = match simplified_constraints {
+            Ok(simplified_constraints) => simplified_constraints,
+            Err(stop) => return Err(self.stopped_leaf(state, stop)),
+        };
+        let mut state = self.check_interrupted(state)?;
         match simplified_constraints {
             Ok(mut constraints) => {
                 retain_substitution_predicates(
@@ -396,7 +405,7 @@ impl<'a> Execution<'a> {
                 normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
             }
             Err(error) => {
-                return Err(state.leaf(simplification_halt(error), &self.observation_log));
+                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False {
@@ -442,33 +451,34 @@ impl<'a> Execution<'a> {
     fn simplify_term(
         &mut self,
         mut state: ExecutionState,
-        step_timer: &mut StepTimer<'_>,
         vacuity_deferred: bool,
     ) -> Phase<ExecutionState> {
         let pattern_before_term_simplification = state.pattern.clone();
         state.io_enabled &= pattern_supports_execution_io(&state.pattern);
         let mut io_evaluation = state.io_enabled.then(|| state.io.begin_evaluation());
-        let (simplified, diagnostics) = diagnostic::collect(|| {
-            SimplificationError::bridge(match io_evaluation.as_mut() {
-                Some(execution) => simplify_in_execution_with_solver(
-                    self.definition,
-                    &state.pattern.term,
-                    &state.pattern.constraints,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                    execution,
-                ),
-                None => simplify_with_solver(
-                    self.definition,
-                    &state.pattern.term,
-                    &state.pattern.constraints,
-                    SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-                    self.solver,
-                ),
-            })
+        let (simplified, diagnostics) = diagnostic::collect(|| match io_evaluation.as_mut() {
+            Some(execution) => simplify_in_execution_with_solver(
+                self.definition,
+                &state.pattern.term,
+                &state.pattern.constraints,
+                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                self.solver,
+                execution,
+            ),
+            None => simplify_with_solver(
+                self.definition,
+                &state.pattern.term,
+                &state.pattern.constraints,
+                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                self.solver,
+            ),
         });
         state.diagnostics.extend(&diagnostics);
-        let mut state = self.check_interrupted(state, step_timer)?;
+        let simplified = match simplified {
+            Ok(simplified) => simplified,
+            Err(stop) => return Err(self.stopped_leaf(state, stop)),
+        };
+        let mut state = self.check_interrupted(state)?;
         let (undefined_term, contradicted_total) = match simplified {
             Ok(simplified) => {
                 let undefined_term = simplified.undefined_term.clone();
@@ -502,7 +512,7 @@ impl<'a> Execution<'a> {
                 (undefined_term, contradicted_total)
             }
             Err(error) => {
-                return Err(state.leaf(simplification_halt(error), &self.observation_log));
+                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
             }
         };
         if state.is_initial_input {
@@ -556,7 +566,7 @@ impl<'a> Execution<'a> {
     }
 
     /// E4: one priority-grouped rewrite step (backend.rewrite.step) under the option's mode.
-    fn step(&mut self, state: &ExecutionState) -> RewriteResult {
+    fn step(&mut self, state: &ExecutionState) -> Stoppable<RewriteResult> {
         rewrite_step_with_optional_execution(
             self.definition,
             &state.pattern,
@@ -612,9 +622,11 @@ impl<'a> Execution<'a> {
                 let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
-            RewriteResult::Simplification { pattern, error } => {
-                state.leaf_with_pattern(pattern, simplification_halt(error), &self.observation_log)
-            }
+            RewriteResult::Simplification { pattern, error } => state.leaf_with_pattern(
+                pattern,
+                HaltReason::Simplification(error),
+                &self.observation_log,
+            ),
             RewriteResult::Indeterminate { pattern, reason } => externalise_leaf(
                 self.definition,
                 state,
@@ -638,7 +650,6 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
-        step_timer: &mut StepTimer<'_>,
     ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
@@ -673,24 +684,26 @@ impl<'a> Execution<'a> {
             });
             extend_distinct(&mut applied.diagnostics, &diagnostics);
             applied.pattern = match simplified {
-                Ok(simplified) => {
+                Ok(Ok(simplified)) => {
                     state.effects.commit(simplified.effects);
                     simplified.pattern
                 }
-                Err(error) => {
-                    let mut state = self.check_interrupted(state, step_timer)?;
+                Ok(Err(error)) => {
+                    let mut state = self.check_interrupted(state)?;
                     // The leaf reports the successor's pattern, so the successor's diagnostics
                     // and observations.
                     state.diagnostics.extend(&applied.diagnostics);
                     state.observation = candidate_observation;
                     return Err(state.leaf_with_pattern(
                         applied.pattern,
-                        simplification_halt(error),
+                        HaltReason::Simplification(error),
                         &self.observation_log,
                     ));
                 }
+                // The proposed successor is not normalised: the state is the leaf.
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
             };
-            let mut state = self.check_interrupted(state, step_timer)?;
+            let mut state = self.check_interrupted(state)?;
             if predicates_truth(&applied.pattern.constraints) == Truth::False {
                 state.diagnostics.extend(&applied.diagnostics);
                 state.observation = candidate_observation;
@@ -727,16 +740,17 @@ impl<'a> Execution<'a> {
             });
             next.diagnostics.extend(&diagnostics);
             next.pattern = match simplified {
-                Ok(simplified) => {
+                Ok(Ok(simplified)) => {
                     next.effects.commit(simplified.effects);
                     simplified.pattern
                 }
-                Err(error) => {
-                    let next = self.check_interrupted(next, step_timer)?;
-                    return Err(next.leaf(simplification_halt(error), &self.observation_log));
+                Ok(Err(error)) => {
+                    let next = self.check_interrupted(next)?;
+                    return Err(next.leaf(HaltReason::Simplification(error), &self.observation_log));
                 }
+                Err(stop) => return Err(self.stopped_leaf(next, stop)),
             };
-            let next = self.check_interrupted(next, step_timer)?;
+            let next = self.check_interrupted(next)?;
             let trivial = predicates_truth(&next.pattern.constraints) == Truth::False;
             let halt_reason = if trivial {
                 trivial_halt(next.depth, &next.pattern)
@@ -782,7 +796,6 @@ impl<'a> Execution<'a> {
         branches: Vec<AppliedRule>,
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
-        step_timer: &mut StepTimer<'_>,
     ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
         // The instances the step leaves without a defined successor are no candidate's and not
@@ -800,7 +813,7 @@ impl<'a> Execution<'a> {
             // included. Its successor is normalised by its own expansion, where a `\bottom`
             // constraint makes it `Vacuous` (or `Trivial`) rather than leaving this state stuck.
             let applied = branches.into_iter().next().expect("one branch remains");
-            return self.finished(state, applied, step_timer);
+            return self.finished(state, applied);
         }
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             // The branch leaf is the parent state: its diagnostics are the parent path's and its
@@ -820,18 +833,19 @@ impl<'a> Execution<'a> {
             });
             state.diagnostics.extend(&diagnostics);
             let original = match simplified_original {
-                Ok(simplified) => {
+                Ok(Ok(simplified)) => {
                     state.effects.commit(simplified.effects);
                     simplified.pattern
                 }
-                Err(error) => {
-                    let state = self.check_interrupted(state, step_timer)?;
+                Ok(Err(error)) => {
+                    let state = self.check_interrupted(state)?;
                     return Err(state.leaf_with_pattern(
                         original,
-                        simplification_halt(error),
+                        HaltReason::Simplification(error),
                         &self.observation_log,
                     ));
                 }
+                Err(stop) => return Err(self.stopped_leaf(state, stop)),
             };
             if predicates_truth(&original.constraints) == Truth::False {
                 let halt_reason = trivial_halt(state.depth, &original);
@@ -868,7 +882,7 @@ impl<'a> Execution<'a> {
                 });
                 extend_distinct(&mut applied.diagnostics, &diagnostics);
                 match simplified {
-                    Ok(simplified) => {
+                    Ok(Ok(simplified)) => {
                         let discarded_id = self
                             .observation
                             .filter(|options| {
@@ -892,20 +906,22 @@ impl<'a> Execution<'a> {
                             });
                         }
                     }
-                    Err(error) => {
+                    Ok(Err(error)) => {
                         // The failure is reported on the parent's leaf, with the diagnostics of
                         // the work on the candidate that failed.
                         state.diagnostics.extend(&applied.diagnostics);
                         failed_branch = Some(error);
                         break;
                     }
+                    // A candidate is not normalised: the state is the leaf.
+                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
                 }
             }
             if let Some(error) = failed_branch {
-                let state = self.check_interrupted(state, step_timer)?;
+                let state = self.check_interrupted(state)?;
                 return Err(state.leaf_with_pattern(
                     original,
-                    simplification_halt(error),
+                    HaltReason::Simplification(error),
                     &self.observation_log,
                 ));
             }
@@ -936,25 +952,27 @@ impl<'a> Execution<'a> {
                 remainder_observation_head = observation;
                 extend_distinct(&mut candidate.diagnostics, &diagnostics);
                 candidate.pattern = match simplified {
-                    Ok(simplified) => {
+                    Ok(Ok(simplified)) => {
                         candidate.effects.extend(simplified.effects);
                         simplified.pattern
                     }
-                    Err(error) => {
+                    Ok(Err(error)) => {
                         state.diagnostics.extend(&candidate.diagnostics);
-                        let state = self.check_interrupted(state, step_timer)?;
+                        let state = self.check_interrupted(state)?;
                         return Err(state.leaf_with_pattern(
                             original,
-                            simplification_halt(error),
+                            HaltReason::Simplification(error),
                             &self.observation_log,
                         ));
                     }
+                    // The remainder is not normalised: the state is the leaf.
+                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
                 };
                 if predicates_truth(&candidate.pattern.constraints) == Truth::False {
                     remainder = None;
                 }
             }
-            let state = self.check_interrupted(state, step_timer)?;
+            let state = self.check_interrupted(state)?;
             match (branches.len(), remainder.is_some()) {
                 (0, false) => {
                     return Err(state.leaf_with_pattern(
@@ -1146,14 +1164,12 @@ impl<'a> Execution<'a> {
     }
 }
 
-/// A leaf that a cancellation or timeout cut off after the step: it carries the work its state's
-/// expansion did before the interruption (`lists`, in emission order), which was on that path
-/// although the candidates it was building are not reported. Any other leaf is returned as is,
-/// its diagnostics already attributed.
+/// A leaf that a stop cut off during or after the step: it is the state as it stood, and it
+/// carries the work its state's expansion did before the stop (`lists`, in emission order),
+/// which was on that path although the candidates it was building are not reported. Any other
+/// leaf is returned as is, its diagnostics already attributed.
 fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> ExecutionLeaf {
-    if let HaltReason::Stopped(cause) = &leaf.halt_reason
-        && stop_cuts_off_the_step(cause)
-    {
+    if let HaltReason::Stopped(_) = &leaf.halt_reason {
         for diagnostics in lists {
             extend_distinct(&mut leaf.diagnostics, diagnostics);
         }
@@ -1171,50 +1187,6 @@ fn stop_ends_execution(cause: &StopCause, step_timer: &mut StepTimer<'_>) -> boo
     match cause {
         StopCause::Cancelled | StopCause::SolverPrelude(_) => true,
         StopCause::Deadline(_) | StopCause::StackExhausted => false,
-    }
-}
-
-/// Whether a `Stopped` leaf was cut off between the phases of its state's expansion, so that it
-/// is the state as it stood and carries the work already done ([`interrupted_with`]). The
-/// request's cancellation, a failed solver prelude and the step deadline are observed by the
-/// polls between phases. An exhausted stack ends the simplification it happened in, and the leaf
-/// reports that simplification's subject with its diagnostics, as a failed simplification does.
-#[deny(clippy::wildcard_enum_match_arm)]
-fn stop_cuts_off_the_step(cause: &StopCause) -> bool {
-    match cause {
-        StopCause::Cancelled | StopCause::Deadline(_) | StopCause::SolverPrelude(_) => true,
-        StopCause::StackExhausted => false,
-    }
-}
-
-/// The leaf reason of a simplification that ended a state: `Stopped` when the error spells a
-/// stop, the failure otherwise.
-fn simplification_halt(error: SimplificationError) -> HaltReason {
-    match simplification_stop(error) {
-        Ok(cause) => HaltReason::Stopped(cause),
-        Err(error) => HaltReason::Simplification(error),
-    }
-}
-
-/// The stop a simplification error carries, or the failure it reports, for a loop that arms
-/// step deadlines (execution and proof). Until the simplifier returns its stops apart from its
-/// failures (CBC-04-T7), a stop reaches the loop inside the failure as `Stopped(cause)`, with the
-/// cause its poll observed.
-#[deny(clippy::wildcard_enum_match_arm)]
-pub(crate) fn simplification_stop(
-    error: SimplificationError,
-) -> Result<StopCause, SimplificationError> {
-    match error {
-        SimplificationError::Stopped(cause) => Ok(cause),
-        error @ (SimplificationError::Builtin(_)
-        | SimplificationError::DisjunctiveResult { .. }
-        | SimplificationError::TopEquationOutsideConjunction { .. }
-        | SimplificationError::Smt { .. }
-        | SimplificationError::SmtPredicate { .. }
-        | SimplificationError::IterationLimit { .. }
-        | SimplificationError::PredicateIterationLimit { .. }
-        | SimplificationError::InvalidBuiltinResultSymbol { .. }
-        | SimplificationError::UnsupportedHook { .. }) => Err(error),
     }
 }
 
@@ -1357,13 +1329,16 @@ pub(crate) fn simplify_leaf_pattern(
     solver: &dyn SmtSolver,
     depth: u64,
     trace: &mut Vec<TraceEntry>,
-) -> Result<PatternSimplification, SimplificationError> {
-    let simplified = SimplificationError::bridge(simplify_pattern_details_with_solver(
+) -> Stoppable<Result<PatternSimplification, SimplificationError>> {
+    let simplified = match simplify_pattern_details_with_solver(
         definition,
         pattern,
         SimplificationOptions::keep_partial(max_iterations),
         solver,
-    ))?;
+    )? {
+        Ok(simplified) => simplified,
+        Err(error) => return Ok(Err(error)),
+    };
     trace.extend(
         simplified
             .applied_rules
@@ -1376,7 +1351,7 @@ pub(crate) fn simplify_leaf_pattern(
                 unique_id,
             }),
     );
-    Ok(simplified)
+    Ok(Ok(simplified))
 }
 
 /// `simplify_leaf_pattern` plus the observation and effect bookkeeping of an execution.
@@ -1396,13 +1371,16 @@ pub(crate) fn simplify_result_pattern(
     observation: Option<&mut ObservationHead>,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
-) -> Result<ResultPatternSimplification, SimplificationError> {
+) -> Stoppable<Result<ResultPatternSimplification, SimplificationError>> {
     let before = pattern.clone();
     let PatternSimplification {
         pattern,
         applied_rules,
         effects: simplified_effects,
-    } = simplify_leaf_pattern(definition, pattern, max_iterations, solver, depth, trace)?;
+    } = match simplify_leaf_pattern(definition, pattern, max_iterations, solver, depth, trace)? {
+        Ok(simplified) => simplified,
+        Err(error) => return Ok(Err(error)),
+    };
     if let Some(observation) = observation {
         *observation = observation_log.append_simplification(
             *observation,
@@ -1414,10 +1392,10 @@ pub(crate) fn simplify_result_pattern(
             observation_options,
         );
     }
-    Ok(ResultPatternSimplification {
+    Ok(Ok(ResultPatternSimplification {
         pattern,
         effects: simplified_effects,
-    })
+    }))
 }
 
 /// Externalise a `Stuck`, `DepthBound`, or `Indeterminate` leaf in the simplifier's normal
@@ -1427,8 +1405,8 @@ pub(crate) fn simplify_result_pattern(
 /// cut-point payload. When the simplification fails, an `Indeterminate` leaf keeps its pattern
 /// and its reason, which already names why the state could not progress; any other leaf
 /// reports the failure, as the cut-point and terminal payloads do. The halt reason is decided
-/// before externalisation, which only normalises the pattern, so a step deadline that passes
-/// during it leaves the leaf as it stands with its unsimplified pattern.
+/// before externalisation, which only normalises the pattern, so a stop during it leaves the
+/// leaf as it stands with its unsimplified pattern.
 #[allow(clippy::too_many_arguments)]
 fn externalise_leaf(
     definition: &BackendDefinition,
@@ -1455,22 +1433,31 @@ fn externalise_leaf(
     });
     state.diagnostics.extend(&diagnostics);
     match simplified {
-        Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
+        Ok(Ok(simplified)) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             state.effects.commit(simplified.effects);
             let halt_reason = trivial_halt(state.depth, &simplified.pattern);
             state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
         }
-        Ok(simplified) => {
+        Ok(Ok(simplified)) => {
             state.effects.commit(simplified.effects);
             state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
         }
-        Err(SimplificationError::Stopped(StopCause::Deadline(_))) => {
+        Ok(Err(_)) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
-        Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
+        Ok(Err(error)) => {
+            state.leaf_with_pattern(pattern, HaltReason::Simplification(error), observation_log)
+        }
+        Err(stop) => {
+            // Kept outcome: the decided reason, with the unsimplified pattern. The normalisation
+            // only refines it (at most the constraints simplify to `\bottom` and the leaf becomes
+            // `Trivial`), and none of these reasons claims the instance set is non-empty
+            // (`HaltReason::Stuck` holds of an empty set too). A stop of the request or of the
+            // solver's prelude stays raised, and the next state's first poll publishes it; a
+            // passed step deadline or an exhausted stack ends this step, whose reason is decided.
+            stop.forgo_refinement();
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
-        Err(error) => state.leaf_with_pattern(pattern, simplification_halt(error), observation_log),
     }
 }
 
@@ -1749,6 +1736,174 @@ mod tests {
                 .internalize_term(&syntax, &[])
                 .expect("subject should internalize"),
             constraints: Vec::new(),
+        }
+    }
+
+    /// `probe(X)` rewrites to `done` where `X ==Int 0`, a condition only the solver decides, and
+    /// `stuck(X)`, under the constraint `X >Int 0`, has no rule; `wrap(X)` rewrites to itself
+    /// forever, asking the solver nothing.
+    fn prelude_definition() -> BackendDefinition {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol probe{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol stuck{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol wrap{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        probe{}(X:SortInt{}),
+                        \equals{SortBool{}, SortS{}}(
+                            eqInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    done{}()
+                ) [label{}("probe")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortInt{}), \top{SortS{}}()),
+                    wrap{}(X:SortInt{})
+                ) [label{}("wrap")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A solver whose prelude turns out inconsistent at its first query, as `Z3Solver` finds it:
+    /// that query and every later one raise its prelude signal and return the prelude's stop.
+    #[derive(Default)]
+    struct InconsistentPrelude {
+        signal: crate::stop::PreludeSignal,
+        queries: std::sync::atomic::AtomicUsize,
+    }
+
+    impl InconsistentPrelude {
+        fn fail<T>(&self) -> Stoppable<T> {
+            self.queries
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.signal.raise(crate::stop::PreludeFailure::Inconsistent);
+            Err(Stop::solver_prelude(
+                crate::stop::PreludeFailure::Inconsistent,
+            ))
+        }
+    }
+
+    impl SmtSolver for InconsistentPrelude {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+        ) -> Stoppable<Result<crate::smt::Satisfiability, crate::smt::SmtError>> {
+            self.fail()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<crate::smt::Validity, crate::smt::SmtError>> {
+            self.fail()
+        }
+
+        fn prelude_signal(&self) -> Option<&crate::stop::PreludeSignal> {
+            Some(&self.signal)
+        }
+    }
+
+    /// An inconsistent prelude found by the first solver query of an execution ends it with one
+    /// `Stopped(SolverPrelude(Inconsistent))` leaf, although its other states would go on
+    /// without asking the solver (`wrap` loops; the depth bound only guards against a hang). The
+    /// cause reaches the leaf as the step's or the poll's stop, never as a cancellation read from
+    /// a flag, and the operation boundary reports it too.
+    #[test]
+    fn an_inconsistent_prelude_found_by_the_first_query_ends_the_execution() {
+        let definition = prelude_definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let gt_zero = Predicate::Equals(
+            term(r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#),
+            term(r#"\dv{SortBool{}}("true")"#),
+        );
+        let wrap = Pattern {
+            term: term(r#"wrap{}(\dv{SortInt{}}("0"))"#),
+            constraints: Vec::new(),
+        };
+        let prelude = || {
+            HaltReason::Stopped(StopCause::SolverPrelude(
+                crate::stop::PreludeFailure::Inconsistent,
+            ))
+        };
+        // The first query is posed by `probe`'s step, which the stop ends: `probe` is the stopped
+        // leaf. Or it is posed by the normalisation of `stuck`'s decided leaf, which dismisses the
+        // stop and keeps `Stuck`: `wrap`'s first poll then observes the raised prelude signal,
+        // and `wrap` is the stopped leaf.
+        let cases = [
+            (
+                Pattern {
+                    term: term("probe{}(X:SortInt{})"),
+                    constraints: Vec::new(),
+                },
+                vec![("probe", prelude())],
+            ),
+            (
+                Pattern {
+                    term: term("stuck{}(X:SortInt{})"),
+                    constraints: vec![gt_zero],
+                },
+                vec![("stuck", HaltReason::Stuck), ("wrap", prelude())],
+            ),
+        ];
+        let head = |leaf: &ExecutionLeaf| match leaf.pattern.term.kind() {
+            crate::term::TermKind::Application { symbol, .. } => symbol.name.to_string(),
+            other => panic!("expected an application, found {other:?}"),
+        };
+        for (first, expected) in cases {
+            let solver = InconsistentPrelude::default();
+            let mut result = None;
+            let operation = crate::stop::operation(&solver, || {
+                result = Some(super::super::execute_disjunction_with_solver_and_observer(
+                    &definition,
+                    vec![first.clone(), wrap.clone()],
+                    ExecutionOptions {
+                        max_depth: 64,
+                        ..ExecutionOptions::default()
+                    },
+                    &solver,
+                    |_| {},
+                ));
+            });
+            assert_eq!(
+                operation.map_err(Stop::into_cause),
+                Err(StopCause::SolverPrelude(
+                    crate::stop::PreludeFailure::Inconsistent
+                ))
+            );
+            let result = result.expect("the operation ran the execution");
+            assert_eq!(
+                solver.queries.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "{result:#?}"
+            );
+            let leaves = result
+                .leaves
+                .iter()
+                .map(|leaf| (head(leaf), leaf.halt_reason.clone()))
+                .collect::<Vec<_>>();
+            let expected = expected
+                .into_iter()
+                .map(|(head, reason)| (head.to_string(), reason))
+                .collect::<Vec<_>>();
+            assert_eq!(leaves, expected, "{result:#?}");
         }
     }
 
