@@ -999,12 +999,6 @@ fn establish_disjunction(
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> CheckResult<(Established, Pattern)> {
-    let destinations = consequents
-        .iter()
-        .map(|consequent| {
-            Destination::unsimplified_disjunct(antecedent, consequent, consequent_existentials)
-        })
-        .collect::<Vec<_>>();
     let mut antecedent = antecedent.clone();
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
@@ -1014,6 +1008,22 @@ fn establish_disjunction(
     {
         return Ok((Established::AntecedentEmpty, antecedent));
     }
+    // Every disjunct is matched in the definition's normal form under the antecedent's
+    // constraints, as the single destination is. Each later round's antecedent keeps those
+    // constraints, so a disjunct simplified under them denotes the same set on its instances too.
+    let destinations = consequents
+        .iter()
+        .map(|consequent| {
+            Ok(Destination::prepare(
+                definition,
+                &antecedent,
+                consequent,
+                consequent_existentials,
+                options,
+                solver,
+            )??)
+        })
+        .collect::<CheckResult<Vec<_>>>()?;
 
     // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
@@ -3092,6 +3102,34 @@ mod tests {
             &NoSolver,
         )
         .expect("implication should be checked");
+
+        assert!(covers_every_instance(&result), "{result:#?}");
+    }
+
+    /// Every disjunct of a disjunctive destination is matched in the definition's normal form,
+    /// as a single destination is: `wrap(2 #And n +Int n)` denotes `wrap(2)` because the
+    /// equation erases its second conjunct, so the antecedent `wrap(2)` lies in the first
+    /// disjunct. Matched as written, the conjunct leaves an obligation over `n +Int n` that the
+    /// check cannot decide.
+    #[test]
+    fn simplifies_every_destination_disjunct_with_the_definition_before_matching() {
+        let definition = top_simplification_definition();
+        let antecedent = pattern(&definition, r#"wrap{}(\dv{SortInt{}}("2"))"#);
+        let evaluable = pattern(
+            &definition,
+            r#"wrap{}(\and{SortInt{}}(\dv{SortInt{}}("2"), plus{}(n{}(), n{}())))"#,
+        );
+        let other = pattern(&definition, r#"wrap{}(\dv{SortInt{}}("3"))"#);
+
+        let result = check_disjunctive_implication_with_existentials(
+            &definition,
+            &antecedent,
+            &[evaluable, other],
+            &BTreeSet::new(),
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("disjunctive implication should be checked");
 
         assert!(covers_every_instance(&result), "{result:#?}");
     }

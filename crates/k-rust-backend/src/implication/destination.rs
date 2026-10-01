@@ -4,8 +4,9 @@
 //! antecedent's constraints: a destination term with an unevaluated function application leaves
 //! an obligation the definition's equations could have discharged. The fields are private to
 //! this module, so no other code, including the rest of `implication`, can build a
-//! [`Destination`] except through its constructors (E0451); the match and the discharge take a
-//! `&Destination`, so they compare against what a constructor prepared.
+//! [`Destination`] except through [`Destination::prepare`] (E0451); the match and the discharge
+//! take a `&Destination`, so every destination they compare against, on the single- and the
+//! multi-destination path alike, has been simplified.
 
 use std::collections::BTreeSet;
 
@@ -24,8 +25,7 @@ use super::{ImplicationError, freshen_existentials, simplify_consequent};
 /// existentials freshened apart from the antecedent, then simplified with the definition's
 /// equations under the antecedent's constraints. A term that already carries the evaluated mark
 /// is kept, and a simplification failure keeps the term as written (`simplify_consequent`); the
-/// type records that simplification was attempted. The one exception is the temporary
-/// [`Destination::unsimplified_disjunct`], which CBC-08-T12 removes.
+/// type records that simplification was attempted.
 pub(super) struct Destination {
     pattern: Pattern,
     existentials: BTreeSet<Variable>,
@@ -52,23 +52,6 @@ impl Destination {
                 existentials,
             })
             .layered()
-    }
-
-    /// One disjunct of a multi-destination check, freshened apart from `antecedent` but not
-    /// simplified.
-    ///
-    /// Temporary: it keeps the multi-destination path's present behaviour until CBC-08-T12
-    /// builds those disjuncts with [`Destination::prepare`] and removes this constructor.
-    pub(super) fn unsimplified_disjunct(
-        antecedent: &Pattern,
-        consequent: &Pattern,
-        existentials: &BTreeSet<Variable>,
-    ) -> Self {
-        let (pattern, existentials) = freshen_existentials(antecedent, consequent, existentials);
-        Self {
-            pattern,
-            existentials,
-        }
     }
 
     /// The prepared destination pattern.
