@@ -65,6 +65,7 @@ fn symbol_json(symbol: &Symbol) -> Value {
     // key or inside `other`.
     let SymbolDeclaration {
         symbol_type,
+        declared_constructor,
         anywhere,
         declared_function,
         binder,
@@ -83,6 +84,7 @@ fn symbol_json(symbol: &Symbol) -> Value {
             sort_variables,
             argument_sorts,
             result_sort,
+            declared_constructor,
             binder,
             associative,
             idempotent,

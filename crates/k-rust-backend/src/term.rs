@@ -240,6 +240,10 @@ pub struct SymbolAttributes {
     /// Algorithms read freeness from [`Self::head_role`]; the readers of this field that remain
     /// are listed there.
     pub symbol_type: SymbolType,
+    /// The source symbol carries the KORE `constructor` attribute. `SymbolType::Constructor`
+    /// also covers `sortInjection` declarations, which embed source-sort values rather than
+    /// adding constructor roots.
+    declared_constructor: bool,
     /// The source symbol carries the KORE `anywhere` attribute. Read through [`Self::head_role`].
     anywhere: bool,
     /// The source symbol carries the KORE `function` attribute, as distinct from a symbol that is
@@ -270,6 +274,7 @@ pub struct SymbolAttributes {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SymbolDeclaration {
     pub(crate) symbol_type: SymbolType,
+    pub(crate) declared_constructor: bool,
     pub(crate) anywhere: bool,
     pub(crate) declared_function: bool,
     pub(crate) binder: bool,
@@ -287,6 +292,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
     fn from(declaration: SymbolDeclaration) -> Self {
         let SymbolDeclaration {
             symbol_type,
+            declared_constructor,
             anywhere,
             declared_function,
             binder,
@@ -301,6 +307,7 @@ impl From<SymbolDeclaration> for SymbolAttributes {
         } = declaration;
         Self {
             symbol_type,
+            declared_constructor,
             anywhere,
             declared_function,
             binder,
@@ -317,9 +324,16 @@ impl From<SymbolDeclaration> for SymbolAttributes {
 }
 
 impl SymbolAttributes {
+    /// The instance-sort check applies to symbols declared with the KORE `constructor`
+    /// attribute, including declarations that also carry `sortInjection`.
+    pub(crate) fn declares_constructor(&self) -> bool {
+        self.declared_constructor
+    }
+
     pub fn constructor() -> Self {
         Self {
             symbol_type: SymbolType::Constructor,
+            declared_constructor: true,
             anywhere: false,
             declared_function: false,
             binder: false,
@@ -436,6 +450,7 @@ impl SymbolAttributes {
     pub(crate) fn declaration(&self) -> SymbolDeclaration {
         let Self {
             symbol_type,
+            declared_constructor,
             anywhere,
             declared_function,
             binder,
@@ -450,6 +465,7 @@ impl SymbolAttributes {
         } = self.clone();
         SymbolDeclaration {
             symbol_type,
+            declared_constructor,
             anywhere,
             declared_function,
             binder,

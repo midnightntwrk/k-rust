@@ -1,5 +1,6 @@
 //! Tests of `pub(crate)` entry points: the compiler stops them from naming a private item.
 
+mod constructor_schemas;
 mod definedness;
 mod externalize;
 pub(crate) mod lean_bridge;

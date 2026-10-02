@@ -146,6 +146,8 @@ impl<'a> VerifyContext<'a> {
 
     /// The sort of an application of `symbol` to `arguments`, written plainly when
     /// `associativity` is `None` and as an associative application otherwise.
+    /// Constructor-schema instances are checked here for located sentence diagnostics;
+    /// internalization enforces the condition after alias expansion.
     fn application(
         &mut self,
         symbol: &kore::Symbol,
@@ -158,12 +160,14 @@ impl<'a> VerifyContext<'a> {
                 .iter()
                 .map(|sort| ctx.sort(sort))
                 .collect::<Result<Vec<_>, _>>()?;
-            let (parameters, expected_arguments, result) =
+            let (parameters, expected_arguments, result, constructor_schema) =
                 if let Some(declaration) = ctx.symbols.get(symbol.name.as_str()) {
                     (
                         declaration.sort_variables.clone(),
                         declaration.argument_sorts.clone(),
                         declaration.result_sort.clone(),
+                        declaration.attributes.declares_constructor()
+                            && matches!(declaration.result_sort, Sort::Variable(_)),
                     )
                 } else if let Some(alias) = ctx.aliases.get(&symbol.name) {
                     let parameters = alias
@@ -187,6 +191,7 @@ impl<'a> VerifyContext<'a> {
                             .map_err(|error| ctx.error(format!("{error}")))?,
                         internalize_sort(&alias.result_sort, ctx.sorts, &known)
                             .map_err(|error| ctx.error(format!("{error}")))?,
+                        false,
                     )
                 } else {
                     return Err(ctx.error(format!("Head '{}' not defined.", symbol.name)));
@@ -207,6 +212,19 @@ impl<'a> VerifyContext<'a> {
                 .map(|expected| substitute_sort(expected, &substitution))
                 .collect::<Vec<_>>();
             let result = substitute_sort(&result, &substitution);
+            if constructor_schema
+                && let Sort::Application { name, .. } = &result
+                && ctx
+                    .sorts
+                    .get(name)
+                    .is_some_and(|info| info.hook.is_some() || info.has_domain_values)
+            {
+                return Err(ctx.error(format!(
+                    "Constructor {} is applied at sort {}, which is hooked or has domain values.",
+                    symbol.name,
+                    render_sort(&result)
+                )));
+            }
             let Some(associativity) = associativity else {
                 if expected_arguments.len() != arguments.len() {
                     return Err(ctx.error(format!(
@@ -561,6 +579,8 @@ pub(crate) fn verify_definition(
     Ok(())
 }
 
+/// Verify declaration attributes and concrete constructor result sorts.
+/// A constructor at a sort variable is a schema whose instances are checked where applied.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn verify_declaration(
     module: &kore::Module,
@@ -610,9 +630,8 @@ fn verify_declaration(
                     .sort(result_sort)
                     .map_err(DefinitionError::Verification)?;
                 match result {
-                    Sort::Variable(_) => Err(DefinitionError::Verification(
-                        ctx.error("Constructor result sort must not be a sort variable."),
-                    )),
+                    // The variable denotes an instance sort, not a fixed result head.
+                    Sort::Variable(_) => Ok(()),
                     Sort::Application { name, .. }
                         if sorts
                             .get(&name)

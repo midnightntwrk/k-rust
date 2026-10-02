@@ -590,6 +590,10 @@ pub enum DefinitionError {
         target: Sort,
     },
     InvalidSymbolType(String),
+    ConstructorAtFixedSort {
+        symbol: String,
+        sort: Sort,
+    },
     InvalidSortParameter,
     MalformedAttribute(String),
     MalformedCollection(String),
@@ -701,6 +705,11 @@ impl fmt::Display for DefinitionError {
             Self::InvalidSymbolType(symbol) => {
                 write!(formatter, "Invalid type for symbol '{symbol}'")
             }
+            Self::ConstructorAtFixedSort { symbol, sort } => write!(
+                formatter,
+                "Constructor {symbol} is applied at sort {}, which is hooked or has domain values.",
+                display_sort(sort)
+            ),
             Self::InvalidSortParameter => write!(formatter, "Invalid sort parameter"),
             Self::MalformedAttribute(attribute) => {
                 write!(formatter, "Malformed attribute: {attribute}")
@@ -1762,6 +1771,8 @@ impl BackendDefinition {
         }
     }
 
+    /// Build a symbol application after alias expansion, rejecting constructor-schema
+    /// instances at sorts whose values are fixed by a hook or domain values.
     fn internalize_application(
         &self,
         syntax: &kore::Symbol,
@@ -1799,6 +1810,22 @@ impl BackendDefinition {
             .cloned()
             .zip(sort_arguments.iter().cloned())
             .collect::<BTreeMap<_, _>>();
+        if symbol.attributes.declares_constructor()
+            && matches!(symbol.result_sort, Sort::Variable(_))
+        {
+            let result = substitute_sort(&symbol.result_sort, &substitution);
+            if let Sort::Application { name, .. } = &result
+                && self
+                    .sorts
+                    .get(name)
+                    .is_some_and(|info| info.hook.is_some() || info.has_domain_values)
+            {
+                return Err(DefinitionError::ConstructorAtFixedSort {
+                    symbol: syntax.name.clone(),
+                    sort: result,
+                });
+            }
+        }
         if subsort_validation == SubsortValidation::Check
             && syntax.is(WellKnownSymbol::Inj)
             && let [source, target] = sort_arguments.as_slice()
@@ -2228,6 +2255,7 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
     // the internalizer decides it from the declaration.
     Ok(SymbolDeclaration {
         symbol_type,
+        declared_constructor: attributes.has(KoreAttribute::Constructor),
         anywhere: attributes.has(KoreAttribute::Anywhere),
         declared_function: function,
         binder: attributes.has(KoreAttribute::Binder),
