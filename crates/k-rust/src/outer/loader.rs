@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::definition::AttributeKey;
+use crate::kast::Sort;
 use crate::{
     builtin,
     definition::{
@@ -209,6 +210,23 @@ pub enum LoadError {
         source: Option<String>,
         location: Option<Location>,
     },
+    /// A production whose visible sort synonyms have not been applied.
+    UnappliedSortSynonym {
+        module: String,
+        sentence: usize,
+        synonym: Box<Sort>,
+        sort: Box<Sort>,
+        source: Option<String>,
+        location: Option<Location>,
+    },
+    /// A placeholder cell-sort declaration that loading removes after configuration expansion.
+    TemporaryCellSort {
+        module: String,
+        sentence: usize,
+        sort: Box<Sort>,
+        source: Option<String>,
+        location: Option<Location>,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -302,18 +320,37 @@ impl fmt::Display for LoadError {
                 source,
                 location,
             } => {
-                match (source, location) {
-                    (Some(source), Some(location)) => write!(
-                        formatter,
-                        "{source}:{}:{}: ",
-                        location.start_line, location.start_column
-                    )?,
-                    (Some(source), None) => write!(formatter, "{source}: ")?,
-                    _ => {}
-                }
+                write_location(formatter, source, location)?;
                 write!(
                     formatter,
                     "sentence {sentence} of module {module:?} is an unparsed {sentence_type:?} bubble; a loaded definition has every bubble parsed, and the loader parses only config, rule, claim, context and alias bubbles"
+                )
+            }
+            Self::UnappliedSortSynonym {
+                module,
+                sentence,
+                synonym,
+                sort,
+                source,
+                location,
+            } => {
+                write_location(formatter, source, location)?;
+                write!(
+                    formatter,
+                    "sentence {sentence} of module {module:?} is a production over sort synonym {synonym} of {sort}; a loaded definition has its sort synonyms applied"
+                )
+            }
+            Self::TemporaryCellSort {
+                module,
+                sentence,
+                sort,
+                source,
+                location,
+            } => {
+                write_location(formatter, source, location)?;
+                write!(
+                    formatter,
+                    "sentence {sentence} of module {module:?} declares {sort} with the internal temporary-cell-sort-decl attribute, which loading removes once configuration expansion has declared the cell sorts"
                 )
             }
         }
@@ -322,12 +359,30 @@ impl fmt::Display for LoadError {
 
 impl Error for LoadError {}
 
+fn write_location(
+    formatter: &mut fmt::Formatter<'_>,
+    source: &Option<String>,
+    location: &Option<Location>,
+) -> fmt::Result {
+    match (source, location) {
+        (Some(source), Some(location)) => write!(
+            formatter,
+            "{source}:{}:{}: ",
+            location.start_line, location.start_column
+        ),
+        (Some(source), None) => write!(formatter, "{source}: "),
+        _ => Ok(()),
+    }
+}
+
 /// A completely loaded and import-resolved source graph, at the stage compilation is defined on.
 ///
 /// Every value satisfies, by construction:
 /// - [`resolved()`](Self::resolved) is the resolution of [`definition()`](Self::definition);
 /// - `definition()` has no [`Sentence::Configuration`]: configuration expansion has run;
 /// - `definition()` has no [`Sentence::Bubble`]: every bubble has been parsed;
+/// - synonym application leaves every production unchanged in its module's visible view;
+/// - no [`Sentence::SyntaxSort`] carries [`AttributeKey::TemporaryCellSortDecl`];
 /// - no rule-like sentence carries a label with a written sort parameter;
 /// - [`addressing()`](Self::addressing) names the input space of the sentences' input addresses.
 ///
@@ -396,7 +451,7 @@ pub struct LoadedParts {
     pub files: Vec<SourceFile>,
     pub source_table: SourceTable,
     /// A definition at the loaded stage: configurations expanded, bubbles parsed, no written
-    /// label parameter.
+    /// label parameter, sort synonyms applied, no temporary cell-sort declaration.
     pub definition: Definition,
     /// Load-time warnings retained by the selected diagnostic policy.
     pub diagnostics: Vec<Diagnostic>,
@@ -411,7 +466,9 @@ impl LoadedDefinition {
     /// through [`load_structured`], which does. Rejects a [`Sentence::Bubble`] with
     /// [`LoadError::UnparsedBubble`]: the constructor does not parse, and a definition with
     /// unparsed text goes through [`load_structured`], which does. Rejects a label with a written
-    /// sort parameter with [`LoadError::LabelParameters`]. Then resolves the definition. The
+    /// sort parameter with [`LoadError::LabelParameters`] and a temporary cell-sort declaration
+    /// with [`LoadError::TemporaryCellSort`]. Resolves the definition and rejects unapplied
+    /// production synonyms with [`LoadError::UnappliedSortSynonym`]. The
     /// addressing is [`InputAddressing::Compile`]: the parts are not the unedited result of
     /// [`load_structured`], so compilation addresses each sentence by its position in
     /// `parts.definition`.
@@ -496,7 +553,8 @@ impl LoadedDefinition {
     /// The one constructor body: it holds the only struct literal of `LoadedDefinition`, and
     /// every route ends here. It decides the sentence-level facts of the loaded stage
     /// (`check_loaded_sentences`) before resolving, then resolves `parts.definition` unless the
-    /// caller passes the resolution it already computed of exactly that definition.
+    /// caller passes the resolution it already computed of exactly that definition. With that
+    /// resolution, it also checks the fixpoint of synonym application in each module's view.
     fn at_loaded_stage(
         parts: LoadedParts,
         resolved: Option<ResolvedDefinition>,
@@ -507,6 +565,7 @@ impl LoadedDefinition {
             None => ResolvedDefinition::resolve(&parts.definition)
                 .map_err(LoadError::DefinitionResolution)?,
         };
+        check_loaded_synonyms(&parts.definition, &resolved)?;
         Ok(Self {
             files: parts.files,
             source_table: parts.source_table,
@@ -517,10 +576,11 @@ impl LoadedDefinition {
         })
     }
 
-    /// The sentence-level stage facts of this value, decided again; compile entry asserts them
-    /// in debug builds.
+    /// The stage facts of this value, sentence-level and synonym application, decided again;
+    /// compile entry asserts them in debug builds.
     pub(crate) fn check_stage(&self) -> Result<(), LoadError> {
-        check_loaded_sentences(&self.definition)
+        check_loaded_sentences(&self.definition)?;
+        check_loaded_synonyms(&self.definition, &self.resolved)
     }
 
     /// [`from_loaded_parts`](Self::from_loaded_parts) of `definition` with this value's files,
@@ -592,7 +652,8 @@ impl LoadedDefinition {
 /// compile passes and KORE emission are defined on, which skip both, so either would vanish from
 /// the compiled definition. Every other variant is a parsed sentence. The match names every
 /// variant, so a new one does not compile until the loaded stage decides on it. Then rejects a
-/// written label parameter.
+/// written label parameter. Temporary cell-sort declarations are lowering placeholders,
+/// not declarations supplied by the expanded configuration, and must have been removed.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn check_loaded_sentences(definition: &Definition) -> Result<(), LoadError> {
     for module in &definition.modules {
@@ -617,6 +678,17 @@ fn check_loaded_sentences(definition: &Definition) -> Result<(), LoadError> {
                         location: attributes.location(),
                     });
                 }
+                Sentence::SyntaxSort {
+                    sort, attributes, ..
+                } if attributes.has(AttributeKey::TemporaryCellSortDecl) => {
+                    return Err(LoadError::TemporaryCellSort {
+                        module: module.name.clone(),
+                        sentence: index,
+                        sort: Box::new(sort.clone()),
+                        source: attributes.source().map(str::to_owned),
+                        location: attributes.location(),
+                    });
+                }
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
                 | Sentence::SyntaxLexical { .. }
@@ -631,6 +703,30 @@ fn check_loaded_sentences(definition: &Definition) -> Result<(), LoadError> {
         }
     }
     reject_label_parameters(definition)
+}
+
+/// Check the normalization under the same visible synonyms used by application.
+fn check_loaded_synonyms(
+    definition: &Definition,
+    resolved: &ResolvedDefinition,
+) -> Result<(), LoadError> {
+    if let Some(found) = crate::definition::first_unapplied_synonym(definition, resolved) {
+        let module = definition
+            .modules
+            .iter()
+            .find(|module| module.name == found.module)
+            .expect("the unapplied production belongs to the checked definition");
+        let attributes = module.local_sentences[found.sentence].attributes();
+        return Err(LoadError::UnappliedSortSynonym {
+            module: found.module,
+            sentence: found.sentence,
+            synonym: Box::new(found.synonym),
+            sort: Box::new(found.sort),
+            source: attributes.source().map(str::to_owned),
+            location: attributes.location(),
+        });
+    }
+    Ok(())
 }
 
 /// Reject the first rule-like sentence of `definition` whose label carries a written sort

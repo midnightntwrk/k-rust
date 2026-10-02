@@ -1,9 +1,11 @@
-//! A loaded definition carries no unparsed bubble.
+//! A loaded definition carries parsed sentences with its load normalizations established.
 //!
 //! A [`Sentence::Bubble`] is the text of a sentence that only the inner parser gives a meaning.
 //! The compile passes and KORE emission are defined on parsed sentences and skip a bubble, so a
 //! bubble that reached compilation would vanish from the compiled definition while compilation
 //! succeeded. Every constructor of `LoadedDefinition` therefore rejects one.
+//! Likewise, productions must already name their synonym denotations, and cell-sort declarations
+//! must come from configuration expansion rather than temporary lowering placeholders.
 
 use std::sync::Arc;
 
@@ -210,4 +212,118 @@ fn a_text_load_holds_no_bubble() {
             );
         }
     }
+}
+
+fn load_text(text: &str, module: &str) -> Result<LoadedDefinition, LoadError> {
+    load_with_options(
+        ResolvedSource::new("synonyms.k", text),
+        module,
+        &mut |_: &str, required: &str| {
+            embedded(required)
+                .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))
+        },
+        &options(),
+    )
+}
+
+fn g_argument(definition: &Definition) -> &k_rust::kast::Sort {
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .find_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                items,
+                ..
+            } if label.name == "g" => items.iter().find_map(|item| match item {
+                k_rust::definition::ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("the source declares g with an argument")
+}
+
+#[test]
+fn with_definition_rejects_a_production_over_a_sort_synonym() {
+    use k_rust::{definition::ProductionItem, kast::Sort};
+    let text = "module MAIN\nimports INT\nsyntax Num = Int\nsyntax Foo ::= \"a\" [symbol(a)] | g(Num) [symbol(g)]\nconfiguration <k> $PGM:Foo </k>\nendmodule\n";
+    let loaded = load_text(text, "MAIN").unwrap();
+    assert_eq!(g_argument(loaded.definition()), &Sort::new("Int"));
+    assert!(loaded.with_definition(loaded.definition().clone()).is_ok());
+    let mut edited = loaded.definition().clone();
+    let main = main_module(&mut edited);
+    let index = main.local_sentences.iter().position(|sentence|
+        matches!(&**sentence, Sentence::Production { label: Some(label), .. } if label.name == "g")
+    ).unwrap();
+    let Sentence::Production { items, .. } = Arc::make_mut(&mut main.local_sentences[index]) else {
+        unreachable!("g was found as a production");
+    };
+    let sort = items
+        .iter_mut()
+        .find_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            _ => None,
+        })
+        .unwrap();
+    *sort = Sort::new("Num");
+    let result = loaded.with_definition(edited);
+    let error = result.unwrap_err();
+    assert!(
+        matches!(&error,
+            LoadError::UnappliedSortSynonym { module, sentence, synonym, sort, source, location }
+            if module == "MAIN" && *sentence == index && **synonym == Sort::new("Num")
+                && **sort == Sort::new("Int") && source.as_deref() == Some("synonyms.k")
+                && location.is_some_and(|location| location.start_line == 4)
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(message.starts_with("synonyms.k:4:"), "{message}");
+    assert!(message.contains("sort synonym Num of Int"), "{message}");
+}
+
+#[test]
+fn from_loaded_parts_rejects_a_temporary_cell_sort_declaration() {
+    use k_rust::kast::Sort;
+    let text =
+        "module MAIN\nsyntax Foo ::= \"a\" [symbol(a)] | foo(FooCell) [symbol(foo)]\nendmodule\n";
+    let result = LoadedDefinition::from_loaded_parts(LoadedParts {
+        files: Vec::new(),
+        source_table: Default::default(),
+        definition: lowered("temporary.k", text),
+        diagnostics: Vec::new(),
+    });
+    let error = result.unwrap_err();
+    assert!(
+        matches!(&error,
+            LoadError::TemporaryCellSort { module, sort, source, location, .. }
+            if module == "MAIN" && **sort == Sort::new("FooCell")
+                && source.is_none()
+                && location.is_none()
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("declares FooCell with the internal temporary-cell-sort-decl attribute"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_production_over_a_chained_synonym_loads_with_its_denotation() {
+    let text = "module CHAIN\nimports INT\nsyntax B = Int\nsyntax A = B\nsyntax Foo ::= \"a\" [symbol(a)] | g(A) [symbol(g)]\nendmodule\n";
+    let loaded = load_text(text, "CHAIN").unwrap();
+    assert_eq!(
+        g_argument(loaded.definition()),
+        &k_rust::kast::Sort::new("Int")
+    );
+}
+
+#[test]
+fn a_configuration_cast_through_a_single_synonym_still_loads() {
+    let text = "module MAIN\nimports INT\nsyntax Num = Int\nsyntax Foo ::= \"a\" [symbol(a)] | g(Num) [symbol(g)]\nconfiguration <k> $PGM:Foo </k> <n> 0:Num </n>\nendmodule\n";
+    assert!(load_text(text, "MAIN").is_ok());
 }

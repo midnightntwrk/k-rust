@@ -202,6 +202,107 @@ pub(crate) fn apply_sort_synonyms_with_resolved(
     Ok((transformed, resolved))
 }
 
+pub(crate) struct UnappliedSynonym {
+    pub module: String,
+    pub sentence: usize,
+    pub synonym: Sort,
+    pub sort: Sort,
+}
+
+/// Find the first production that is not a fixpoint of synonym application.
+/// Re-applying a copy checks exactly the positions application rewrites, including after
+/// application is widened. The recursive name prefilter only avoids unnecessary view builds
+/// and copies; it does not decide whether a production has been applied.
+pub(crate) fn first_unapplied_synonym(
+    definition: &Definition,
+    resolved: &ResolvedDefinition,
+) -> Option<UnappliedSynonym> {
+    let names = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match &**sentence {
+            Sentence::SortSynonym { new_sort, .. } => Some(new_sort),
+            Sentence::SyntaxSort { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if names.is_empty() {
+        return None;
+    }
+
+    fn mentions_name(sort: &Sort, names: &BTreeSet<&Sort>) -> bool {
+        names.contains(sort)
+            || sort
+                .parameters
+                .iter()
+                .any(|sort| mentions_name(sort, names))
+    }
+
+    for module in &definition.modules {
+        let mut synonyms = None;
+        for (index, sentence) in module.local_sentences.iter().enumerate() {
+            let Sentence::Production {
+                parameters,
+                sort,
+                items,
+                ..
+            } = &**sentence
+            else {
+                continue;
+            };
+            let operands = || {
+                std::iter::once(sort).chain(items.iter().filter_map(|item| {
+                    if let ProductionItem::NonTerminal { sort, .. } = item {
+                        Some(sort)
+                    } else {
+                        None
+                    }
+                }))
+            };
+            if !operands()
+                .chain(parameters)
+                .any(|sort| mentions_name(sort, &names))
+            {
+                continue;
+            }
+            let synonyms = synonyms.get_or_insert_with(|| {
+                let id = resolved
+                    .module_id(&module.name)
+                    .expect("every flat module was added to the resolved definition");
+                SortSynonyms::of_module(resolved, id)
+            });
+            let mut applied = (**sentence).clone();
+            apply_to_sentence(&mut applied, synonyms);
+            if applied != **sentence {
+                let (synonym, sort) = operands()
+                    .filter(|sort| !parameters.contains(sort))
+                    .find_map(|sort| match synonyms.spelling(sort) {
+                        Spelling::Synonym { denotes } => Some((sort, denotes)),
+                        Spelling::Sort | Spelling::Undenoted => None,
+                    })
+                    .expect("a changed production has an unbound synonym operand");
+                return Some(UnappliedSynonym {
+                    module: module.name.clone(),
+                    sentence: index,
+                    synonym: synonym.clone(),
+                    sort: sort.clone(),
+                });
+            }
+        }
+    }
+    None
+}
+
 fn apply_to_sentence(sentence: &mut Sentence, synonyms: &SortSynonyms<'_>) {
     let Sentence::Production {
         parameters,
@@ -240,6 +341,44 @@ mod tests {
             old_sort: Sort::new(referent),
             attributes: Attributes::default(),
         }
+    }
+
+    fn lowered_definition(text: &str) -> Definition {
+        crate::outer::lower(&crate::outer::parse("synonyms.k", text).unwrap(), "MAIN").unwrap()
+    }
+
+    #[test]
+    fn unapplied_result_and_nonterminal_synonyms_are_reported() {
+        for production in ["syntax Num ::= \"num\"", "syntax Foo ::= g(Num)"] {
+            let definition = lowered_definition(&format!(
+                "module MAIN\nsyntax Num = Int\n{production}\nendmodule\n"
+            ));
+            let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+            let found = first_unapplied_synonym(&definition, &resolved).unwrap();
+            assert_eq!(found.module, "MAIN");
+            assert_eq!(found.sentence, 1);
+            assert_eq!(found.synonym, Sort::new("Num"));
+            assert_eq!(found.sort, Sort::new("Int"));
+            let applied = apply_sort_synonyms(&definition).unwrap();
+            let resolved = ResolvedDefinition::resolve(&applied).unwrap();
+            assert!(first_unapplied_synonym(&applied, &resolved).is_none());
+        }
+    }
+
+    #[test]
+    fn a_definition_without_synonyms_is_a_fixpoint() {
+        let definition = lowered_definition("module MAIN\nsyntax Foo ::= \"foo\"\nendmodule\n");
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        assert!(first_unapplied_synonym(&definition, &resolved).is_none());
+    }
+
+    #[test]
+    fn prefilter_hits_do_not_reject_bound_or_nested_synonyms() {
+        let definition = lowered_definition(
+            "module MAIN\nsyntax Num = Int\nsyntax {Num} Num ::= id(Num)\nsyntax Foo ::= g(MInt{Num})\nendmodule\n",
+        );
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        assert!(first_unapplied_synonym(&definition, &resolved).is_none());
     }
 
     #[test]
