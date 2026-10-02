@@ -232,7 +232,10 @@ pub fn substitute_predicates(
         .collect()
 }
 
-#[deny(clippy::wildcard_enum_match_arm)]
+#[deny(
+    clippy::wildcard_enum_match_arm,
+    clippy::match_wildcard_for_single_variants
+)]
 fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> Predicate {
     match predicate {
         Predicate::True => Predicate::True,

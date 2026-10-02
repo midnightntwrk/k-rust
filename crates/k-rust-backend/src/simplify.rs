@@ -2070,7 +2070,10 @@ fn has_quantifier(predicate: &Predicate) -> bool {
 /// `predicate` with each quantifier's variable renamed to `{name}!binder{counter}`, a name not
 /// in `avoid` (which receives it), at the quantifier and at the occurrences it binds; `scope`
 /// holds the renamings of the enclosing quantifiers, innermost last.
-#[deny(clippy::wildcard_enum_match_arm)]
+#[deny(
+    clippy::wildcard_enum_match_arm,
+    clippy::match_wildcard_for_single_variants
+)]
 fn rename_binders_apart(
     predicate: &Predicate,
     avoid: &mut BTreeSet<crate::term::Name>,
