@@ -30,6 +30,8 @@ pub struct FormatInput {
 /// Without `#[path]`, every existing file named by a `#[cfg_attr(..., path = "...")]`
 /// of the declaration is an input too, as in rustfmt,
 /// and the default file may then be absent.
+/// A module declaration marked `#[rustfmt::skip]` is not followed, as in rustfmt,
+/// so its file, the modules it declares, and an absent file are not inspected.
 /// Modules declared inside macro invocations, such as `cfg_if!`, are not followed.
 /// Other files near a target, such as test fixtures, are not inputs,
 /// and a file that does not parse is an input whose modules are not followed.
@@ -346,6 +348,14 @@ fn module_items(
         let syn::Item::Mod(module) = item else {
             continue;
         };
+        // rustfmt neither formats a skipped module nor follows its declarations.
+        if module
+            .attrs
+            .iter()
+            .any(|attribute| is_rustfmt_skip(&attribute.meta))
+        {
+            continue;
+        }
         let name = module.ident.unraw().to_string();
         let path_attribute = module_path_attribute(module);
         if let Some((_, items)) = &module.content {
@@ -405,6 +415,27 @@ fn module_items(
         }
     }
     Ok(())
+}
+
+/// Whether an attribute is rustfmt's skip marker:
+/// `#[rustfmt::skip]`, the deprecated `#[rustfmt_skip]`,
+/// or a `#[cfg_attr(predicate, ...)]` applying exactly one such marker, as rustfmt accepts.
+fn is_rustfmt_skip(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => {
+            path.is_ident("rustfmt_skip")
+                || (path.leading_colon.is_none()
+                    && path.segments.len() == 2
+                    && path.segments[0].ident == "rustfmt"
+                    && path.segments[1].ident == "skip")
+        }
+        syn::Meta::List(list) if list.path.is_ident("cfg_attr") => list
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
+            .is_ok_and(|arguments| arguments.len() == 2 && is_rustfmt_skip(&arguments[1])),
+        _ => false,
+    }
 }
 
 /// Returns the value of a module's `#[path = "..."]` attribute.
@@ -721,6 +752,57 @@ mod tests {
         assert_eq!(edition("src/bin/tool/main.rs"), Edition::E2021);
         // The library's directory contains the file; the deeper binary directory does not.
         assert_eq!(edition("src/outer/deep.rs"), Edition::E2024);
+    }
+
+    #[test]
+    fn workspace_discovery_skips_modules_rustfmt_skips() {
+        let temporary = temp_dir();
+        let root = temporary.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"format-skips\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\n",
+        )
+        .unwrap();
+        let sources = [
+            (
+                "src/lib.rs",
+                concat!(
+                    "#[rustfmt::skip]\n#[path = \"../golden/expanded.rs\"]\nmod golden;\n",
+                    "#[rustfmt_skip]\nmod legacy;\n",
+                    "#[cfg_attr(test, rustfmt::skip)]\nmod conditional;\n",
+                    "#[cfg_attr(test, cfg_attr(unix, rustfmt::skip))]\nmod nested;\n",
+                    "#[rustfmt::skip]\nmod inline { mod hidden; }\n",
+                    "#[rustfmt::skip]\nmod absent;\n",
+                    // rustfmt honors a `cfg_attr` skip only as its sole attribute.
+                    "#[cfg_attr(test, rustfmt::skip, allow(dead_code))]\nmod formatted;\n",
+                    "#[skip]\nmod unrelated;\n",
+                ),
+            ),
+            ("golden/expanded.rs", "mod inner;\n"),
+            ("golden/inner.rs", "\n"),
+            ("src/legacy.rs", "\n"),
+            ("src/conditional.rs", "\n"),
+            ("src/nested.rs", "\n"),
+            ("src/inline/hidden.rs", "\n"),
+            ("src/formatted.rs", "\n"),
+            ("src/unrelated.rs", "\n"),
+        ];
+        for (file, source) in sources {
+            let file = root.join(file);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, source).unwrap();
+        }
+        let root = root.canonicalize().unwrap();
+        let inputs = discover_format_inputs(Some(&root.join("Cargo.toml")), &[]).unwrap();
+        let selected = inputs
+            .iter()
+            .map(|input| input.path.clone())
+            .collect::<BTreeSet<_>>();
+        let expected = ["src/formatted.rs", "src/lib.rs", "src/unrelated.rs"]
+            .into_iter()
+            .map(|file| root.join(file))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(selected, expected);
     }
 
     #[test]
