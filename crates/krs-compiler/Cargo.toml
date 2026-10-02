@@ -10,7 +10,6 @@ license.workspace = true
 test-support = ["krs-ir/test-support"]
 
 [dependencies]
-krs-collector = { path = "../krs-collector" }
 krs-diagnostic = { path = "../krs-diagnostic" }
 krs-ir = { path = "../krs-ir", features = ["proc-macro2"] }
 krs-syntax = { path = "../krs-syntax" }

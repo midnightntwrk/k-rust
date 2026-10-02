@@ -247,7 +247,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use k::{HostDescriptor, HostDescriptorPayload, ItemKind};
-use krs_collector::{PackageContext, collect_host_descriptors_with_builtins};
+use krs_collector::{FacadeAliases, PackageContext, collect_host_descriptors_with_builtins};
 use krs_compiler::{
     DescriptorLoweringError, emit_k, expand_reference_source, lower_descriptor_bundle,
     lower_semantic_theory,
@@ -1303,9 +1303,12 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         .expect("the readable route has head rules");
     let source = include_str!("imp.rs");
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let facade = FacadeAliases::from_manifest(&manifest)
+        .expect("the IMP manifest names the facade")
+        .scope();
     let expanded = expand_reference_source(
         source,
-        &manifest,
+        &facade,
         &package,
         &["imp".into()],
         &bundle,
@@ -1314,7 +1317,7 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
     .expect("readable IMP projects to reference Rust");
     let repeated = expand_reference_source(
         source,
-        &manifest,
+        &facade,
         &package,
         &["imp".into()],
         &bundle,

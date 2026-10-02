@@ -9,7 +9,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use krs_collector::{CollectionError, FacadeAliases};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
     DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
@@ -18,7 +17,7 @@ use krs_ir::{
     SemanticSortRef, SemanticTheory, SetOperation, Sha256Digest, SourceFileId, StableItemId,
     TermMapOperation,
 };
-use krs_syntax::surface::{self, FunctionMacro, InvocationKind, Scope};
+use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use sha2::{Digest, Sha256};
@@ -33,6 +32,7 @@ use syn::spanned::Spanned;
 /// Every selected descriptor must come from one file and one Rust module,
 /// and the file under the manifest directory must still have its collected
 /// content digest.
+/// `facade` is the package's facade scope before file and inline-module bindings.
 ///
 /// # Errors
 ///
@@ -44,17 +44,11 @@ pub fn expand_package_reference_source(
     semantic: &SemanticTheory,
     package: &PackageId,
     manifest_path: &Path,
+    facade: &FacadeScope,
 ) -> Result<String, ReferenceExpansionError> {
     let (source, module_path) = read_package_source(bundle, package, manifest_path)
         .map_err(ReferenceExpansionError::Source)?;
-    expand_reference_source(
-        &source,
-        manifest_path,
-        package,
-        module_path,
-        bundle,
-        semantic,
-    )
+    expand_reference_source(&source, facade, package, module_path, bundle, semantic)
 }
 
 fn read_package_source<'bundle>(
@@ -142,6 +136,8 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
 /// syntax metadata, strictness, precedence, and explicit associativity are
 /// projected through deterministic identity-preserving layer-2 carriers;
 /// unrelated Rust items remain AST-equivalent.
+/// Readable macros are recognized under `facade`,
+/// the package's facade scope before file and inline-module bindings.
 ///
 /// # Errors
 ///
@@ -151,17 +147,15 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
 #[allow(clippy::too_many_lines)] // The source-order traversal keeps projected items deterministic.
 pub fn expand_reference_source(
     source: &str,
-    facade_manifest: &Path,
+    facade: &FacadeScope,
     package: &PackageId,
     module_path: &[String],
     bundle: &DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
-    let facade =
-        FacadeAliases::from_manifest(facade_manifest).map_err(ReferenceExpansionError::Facade)?;
     let descriptor_index = DescriptorIndex::new(bundle);
-    let macro_entries = reference_macro_entries(&file, &facade);
+    let macro_entries = reference_macro_entries(&file, facade);
     let semantic_rules = semantic
         .modules()
         .iter()
@@ -272,7 +266,7 @@ pub fn expand_reference_source(
 
 fn reference_macro_entries(
     file: &syn::File,
-    facade: &FacadeAliases,
+    facade: &FacadeScope,
 ) -> BTreeMap<usize, FunctionMacro> {
     let item_indices = file
         .items
@@ -280,7 +274,7 @@ fn reference_macro_entries(
         .enumerate()
         .map(|(index, item)| (std::ptr::from_ref(item), index))
         .collect::<BTreeMap<_, _>>();
-    let discovered = surface::invocations(file, &facade.scope());
+    let discovered = surface::invocations(file, facade);
     surface::item_owners(&discovered)
         .into_iter()
         .filter_map(|(item, invocation)| {
@@ -1587,8 +1581,6 @@ pub enum ReferenceExpansionError {
     Source(ReferenceSourceError),
     /// The selected source is not a Rust module.
     RustSyntax(syn::Error),
-    /// The selected package's facade aliases could not be read.
-    Facade(CollectionError),
     /// One readable KRS island is malformed.
     KrsSyntax(krs_syntax::SyntaxError),
     /// Generated Rust unexpectedly failed to parse.
@@ -1693,11 +1685,6 @@ impl ToDiagnostic for ReferenceExpansionError {
         let code = match self {
             Self::Source(error) => return error.to_diagnostic(),
             Self::RustSyntax(_) => codes::reference::RUST_SYNTAX,
-            Self::Facade(error) => {
-                let mut diagnostic = error.to_diagnostic();
-                diagnostic.message = self.to_string();
-                return diagnostic;
-            }
             Self::KrsSyntax(error) => {
                 let mut diagnostic = error.to_diagnostic();
                 diagnostic.message = self.to_string();
@@ -1735,7 +1722,6 @@ impl fmt::Display for ReferenceExpansionError {
         match self {
             Self::Source(error) => error.fmt(formatter),
             Self::RustSyntax(error) => write!(formatter, "invalid Rust source: {error}"),
-            Self::Facade(error) => write!(formatter, "cannot resolve KRS facade: {error}"),
             Self::KrsSyntax(error) => write!(formatter, "invalid readable KRS source: {error}"),
             Self::GeneratedRust(error) => write!(formatter, "invalid generated Rust: {error}"),
             Self::DuplicateRule(name) => write!(formatter, "readable rule `{name}` occurs twice"),
@@ -1827,7 +1813,6 @@ impl Error for ReferenceExpansionError {
         match self {
             Self::Source(error) => error.source(),
             Self::RustSyntax(error) | Self::GeneratedRust(error) => Some(error),
-            Self::Facade(error) => Some(error),
             Self::KrsSyntax(error) => Some(error),
             Self::DuplicateRule(_)
             | Self::RuleCoverage { .. }
@@ -1866,8 +1851,7 @@ mod tests {
 
     #[test]
     fn facade_attributes_prevent_readable_item_macro_projection() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
-        let facade = krs_collector::FacadeAliases::from_manifest(&manifest).unwrap();
+        let facade = krs_syntax::surface::FacadeScope::new(["crate".to_owned()].into());
         let file = syn::parse_file(
             "use crate as k;\n#[k::sort] k::sorts! { A; }\n#[k::unknown] k::rules! { invalid }\n#[doc = \"x\"] k::sorts! { B; }\nk::rules! {}\n",
         )

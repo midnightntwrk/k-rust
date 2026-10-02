@@ -2,6 +2,7 @@ use crate::{
     CollectorPlan, DefinitionRequest, DiagnosticEnvelope, DiagnosticStage, FacetSelector,
     GenerationError, KrsCfg, PlanningError, RegistrationMode, diagnostic_envelope,
 };
+use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
     DEFINITION_ARTIFACT, DescriptorLoweringError, EmitError, LoweringError,
     ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_package_reference_source,
@@ -417,11 +418,13 @@ fn expand(
     .map_err(|error| {
         CommandError::InvalidMetadata(format!("root package identity is invalid: {error}"))
     })?;
+    let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
     let expanded = expand_package_reference_source(
         &prepared.bundle,
         &prepared.semantic,
         &package,
         &root.manifest_path,
+        &facade.scope(),
     )?;
     Ok(CommandOutcome {
         warnings: crate::DiagnosticReports::default(),
@@ -637,6 +640,8 @@ pub enum CommandError {
     Lowering(LoweringError),
     /// Canonical K emission failed.
     Emission(EmitError),
+    /// The root package's facade aliases could not be read for reference projection.
+    Facade(CollectionError),
     /// Readable source could not be projected to deterministic layer-2 Rust.
     ReferenceExpansion(ReferenceExpansionError),
     /// Native structured compilation failed, including typed capabilities.
@@ -697,6 +702,7 @@ impl fmt::Display for CommandError {
             Self::DescriptorLowering(error) => error.fmt(formatter),
             Self::Lowering(error) => error.fmt(formatter),
             Self::Emission(error) => error.fmt(formatter),
+            Self::Facade(error) => write!(formatter, "cannot resolve KRS facade: {error}"),
             Self::ReferenceExpansion(error) => error.fmt(formatter),
             Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => {
                 error.fmt(formatter)
@@ -739,6 +745,7 @@ impl Error for CommandError {
             Self::DescriptorLowering(error) => Some(error),
             Self::Lowering(error) => Some(error),
             Self::Emission(error) => Some(error),
+            Self::Facade(error) => Some(error),
             Self::ReferenceExpansion(error) => Some(error),
             Self::Native(error) | Self::NativeDiagnostics { source: error, .. } => Some(error),
             Self::InvalidRequest(_)
@@ -759,6 +766,7 @@ impl CommandError {
             Self::DescriptorLowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Lowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Emission(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
+            Self::Facade(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::ReferenceExpansion(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Native(error) => (error.to_diagnostic(), DiagnosticStage::Native),
             _ => return None,

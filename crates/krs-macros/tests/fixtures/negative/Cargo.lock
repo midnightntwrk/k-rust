@@ -120,7 +120,6 @@ dependencies = [
 name = "krs-compiler"
 version = "0.1.0"
 dependencies = [
- "krs-collector",
  "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
