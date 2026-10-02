@@ -15,12 +15,14 @@
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
+//! A production with sort parameters is rejected (see [`StrictProduction`]).
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use serde_json::Value;
+use witness::StrictProduction;
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
@@ -33,6 +35,93 @@ use crate::{
     kast::{FrontendSort, Label, Sort, Term, WellKnownModule, parser::parse_sort},
     provenance::{GeneratingPass, seed_generated_sentence_origin, sentence_origin_links},
 };
+
+mod witness {
+    use super::{Attributes, Diagnostic, Label, ProductionItem, Sentence, Sort, error_at};
+
+    /// A labelled production that binds no sort parameter, from which strictness lowering builds
+    /// every context and hybrid rule: its label carries no formal and its casts are at sorts of
+    /// the definition.
+    ///
+    /// A production with sort parameters declares one symbol per instantiation, and strictness
+    /// asks for an evaluation context of each of them. Lowering writes closed rewrite rules that
+    /// place the hole, and freeze the other arguments, at sort `K`. The emitted theory embeds a
+    /// sort in `KItem` only for each declared sort, rewrite rules bind no sort, and a bare parameter
+    /// also ranges over `K` and `KItem`, whose placement at `K` is not an injection. No finite set
+    /// of closed rules states those contexts. A `context` written for one instance is instantiated
+    /// by the parser and lowers to closed rules.
+    pub(super) struct StrictProduction<'a> {
+        sentence: &'a Sentence,
+        label: &'a Label,
+        nonterminals: Vec<Sort>,
+        attributes: &'a Attributes,
+    }
+
+    impl<'a> StrictProduction<'a> {
+        /// Accept a labelled production with no sort parameters; reject an unlabelled production
+        /// or a production whose evaluation contexts would range over its parameter instantiations.
+        pub(super) fn of(production: &'a Sentence) -> Result<Self, Diagnostic> {
+            let Sentence::Production {
+                label,
+                parameters,
+                items,
+                attributes,
+                ..
+            } = production
+            else {
+                unreachable!("strictness is resolved only on productions")
+            };
+            let Some(label) = label else {
+                return Err(error_at(
+                    "Only productions with a KLabel can be strict.",
+                    attributes,
+                ));
+            };
+            if !parameters.is_empty() {
+                return Err(error_at(
+                    format!(
+                        "Strictness is not supported on a production with sort parameters {{{}}}: its evaluation contexts would range over every instantiation of the parameters. Write a context for each instance instead.",
+                        parameters
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    attributes,
+                ));
+            }
+            let nonterminals = items
+                .iter()
+                .filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                    ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+                })
+                .collect();
+            Ok(StrictProduction {
+                sentence: production,
+                label,
+                nonterminals,
+                attributes,
+            })
+        }
+
+        pub(super) fn sentence(&self) -> &'a Sentence {
+            self.sentence
+        }
+
+        pub(super) fn label(&self) -> &'a Label {
+            self.label
+        }
+
+        pub(super) fn nonterminals(&self) -> &[Sort] {
+            &self.nonterminals
+        }
+
+        pub(super) fn attributes(&self) -> &'a Attributes {
+            self.attributes
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveStrictError {
@@ -173,49 +262,22 @@ fn resolve_production(
     labeled: &BTreeMap<String, Vec<&Sentence>>,
     compiled: Option<(&ProductionCatalog<'_>, &SortCatalog<'_>)>,
 ) -> Result<Vec<Sentence>, Vec<Diagnostic>> {
-    let Sentence::Production {
-        label,
-        items,
-        attributes,
-        ..
-    } = production
-    else {
-        unreachable!()
-    };
-    let Some(label) = label else {
-        return Err(vec![error_at(
-            "Only productions with a KLabel can be strict.",
-            attributes,
-        )]);
-    };
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "ProductionItem is syntax; only the listed variants are special here"
-    )]
-    let nonterminals = items
-        .iter()
-        .filter_map(|item| match item {
-            ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let arity = nonterminals.len();
-    let attribute = attribute_text(attributes, key).unwrap_or_default();
+    let production = StrictProduction::of(production).map_err(|diagnostic| vec![diagnostic])?;
+    let arity = production.nonterminals().len();
+    let attribute = attribute_text(production.attributes(), key).unwrap_or_default();
     let mut all_positions = Vec::new();
     let mut generated = Vec::new();
 
     if attribute.is_empty() {
         let positions = (1..=arity).collect::<Vec<_>>();
-        let aliases = vec![default_alias(attributes)];
+        let aliases = vec![default_alias(production.attributes())];
         generate_contexts(
             &mut generated,
             sequential,
             &positions,
             &all_positions,
             &aliases,
-            label,
-            &nonterminals,
-            attributes,
+            &production,
             module_name,
             compiled,
         )?;
@@ -230,13 +292,13 @@ fn resolve_production(
                 .is_some_and(|character| character.is_ascii_digit())
             {
                 (
-                    parse_positions(component, arity, attributes)?,
-                    vec![default_alias(attributes)],
+                    parse_positions(component, arity, production.attributes())?,
+                    vec![default_alias(production.attributes())],
                 )
             } else {
                 (
                     (1..=arity).collect(),
-                    resolve_aliases(component, production, labeled)?,
+                    resolve_aliases(component, production.sentence(), labeled)?,
                 )
             };
             generate_contexts(
@@ -245,26 +307,22 @@ fn resolve_production(
                 &positions,
                 &all_positions,
                 &aliases,
-                label,
-                &nonterminals,
-                attributes,
+                &production,
                 module_name,
                 compiled,
             )?;
             all_positions.extend(positions);
         } else if components.len().is_multiple_of(2) {
             for pair in components.as_chunks::<2>().0 {
-                let aliases = resolve_aliases(pair[0].trim(), production, labeled)?;
-                let positions = parse_positions(pair[1].trim(), arity, attributes)?;
+                let aliases = resolve_aliases(pair[0].trim(), production.sentence(), labeled)?;
+                let positions = parse_positions(pair[1].trim(), arity, production.attributes())?;
                 generate_contexts(
                     &mut generated,
                     sequential,
                     &positions,
                     &all_positions,
                     &aliases,
-                    label,
-                    &nonterminals,
-                    attributes,
+                    &production,
                     module_name,
                     compiled,
                 )?;
@@ -273,13 +331,14 @@ fn resolve_production(
         } else {
             return Err(vec![error_at(
                 "Invalid strict attribute containing multiple semicolons.",
-                attributes,
+                production.attributes(),
             )]);
         }
     }
 
-    if attributes.has(AttributeKey::Hybrid) {
-        let hybrid = attribute_text(attributes, AttributeKey::Hybrid).unwrap_or_default();
+    if production.attributes().has(AttributeKey::Hybrid) {
+        let hybrid =
+            attribute_text(production.attributes(), AttributeKey::Hybrid).unwrap_or_default();
         let hybrid_sorts = if hybrid.is_empty() {
             vec![FrontendSort::KResult.as_str()]
         } else {
@@ -303,7 +362,7 @@ fn resolve_production(
                                 "Definition is missing function {predicate} required by the hybrid attribute. {}",
                                 missing.remedy(sort, &predicate)
                             ),
-                            attributes,
+                            production.attributes(),
                         )
                     })
             })
@@ -316,13 +375,14 @@ fn resolve_production(
             .map(|sort| Label::sort_predicate(&Sort::new(*sort)).name)
             .collect::<Vec<_>>();
         for predicate in predicates {
-            let arguments = nonterminals
+            let arguments = production
+                .nonterminals()
                 .iter()
                 .enumerate()
                 .map(|(index, sort)| semantic_cast(sort, Term::variable(format!("K{index}"))))
                 .collect();
             let term = Term::Apply {
-                label: label.clone(),
+                label: production.label().clone(),
                 arguments,
             };
             let side_conditions = all_positions.iter().map(|position| {
@@ -343,7 +403,7 @@ fn resolve_production(
         }
     }
 
-    let origins = sentence_origin_links(production);
+    let origins = sentence_origin_links(production.sentence());
     // Every generated sentence derives from the production; a context also derives from the
     // context alias it instantiates, whose addresses `merge_attributes` already added after the
     // production's.
@@ -363,21 +423,23 @@ fn generate_contexts(
     positions: &[usize],
     all_positions: &[usize],
     aliases: &[Alias],
-    production_label: &Label,
-    nonterminals: &[Sort],
-    production_attributes: &Attributes,
+    production: &StrictProduction<'_>,
     module_name: &str,
     compiled: Option<(&ProductionCatalog<'_>, &SortCatalog<'_>)>,
 ) -> Result<(), Vec<Diagnostic>> {
     // Invariant: `generated` holds, for every position of `positions` before `position_index`, one context per alias of `aliases`; each iteration consumes one position, and the inner loop over `aliases` makes the work O(`positions` * `aliases`).
     for (position_index, position) in positions.iter().copied().enumerate() {
         let strict_index = position - 1;
-        let base_arguments = nonterminals
+        let base_arguments = production
+            .nonterminals()
             .iter()
             .enumerate()
             .map(|(index, sort)| semantic_cast(sort, Term::variable(format!("K{index}"))))
             .collect::<Vec<_>>();
-        let hole = semantic_cast(&nonterminals[strict_index], Term::variable("HOLE"));
+        let hole = semantic_cast(
+            &production.nonterminals()[strict_index],
+            Term::variable("HOLE"),
+        );
 
         // Invariant: `generated` has gained one context at the strict position `position` for each alias of `aliases` before `alias`; each iteration consumes one alias.
         for alias in aliases {
@@ -391,7 +453,7 @@ fn generate_contexts(
             }
             arguments[strict_index] = this_hole;
             let replacement = Term::Apply {
-                label: production_label.clone(),
+                label: production.label().clone(),
                 arguments,
             };
             let body = replace_here(alias.body.clone(), &replacement);
@@ -413,7 +475,7 @@ fn generate_contexts(
             // context's own `result` attribute, which is `R` unless the alias names no result and
             // the production does; only that case is checked here.
             let context_result = attribute_text(&alias.attributes, AttributeKey::Result)
-                .or_else(|| attribute_text(production_attributes, AttributeKey::Result))
+                .or_else(|| attribute_text(production.attributes(), AttributeKey::Result))
                 .unwrap_or_else(|| FrontendSort::KResult.as_str().into());
             if let Some((productions, sorts)) = compiled
                 && sequential
@@ -443,9 +505,9 @@ fn generate_contexts(
                 bool_token(true)
             };
             let requires = Term::apply("_andBool_", vec![requires, alias.requires.clone()]);
-            let mut attributes = merge_attributes(production_attributes, &alias.attributes);
-            let source_label = attribute_text(production_attributes, AttributeKey::Klabel)
-                .unwrap_or_else(|| production_label.name.clone());
+            let mut attributes = merge_attributes(production.attributes(), &alias.attributes);
+            let source_label = attribute_text(production.attributes(), AttributeKey::Klabel)
+                .unwrap_or_else(|| production.label().name.clone());
             let compact_label = source_label
                 .chars()
                 .filter(|character| *character != '`' && !character.is_whitespace())
@@ -553,9 +615,9 @@ fn labeled_sentences(
     labeled
 }
 
-fn default_alias(production_attributes: &Attributes) -> Alias {
+fn default_alias(source_attributes: &Attributes) -> Alias {
     let mut attributes = Attributes::default();
-    if let Some(result) = production_attributes.value(AttributeKey::Result) {
+    if let Some(result) = source_attributes.value(AttributeKey::Result) {
         attributes.set(AttributeKey::Result, result.clone());
     }
     Alias {

@@ -7956,6 +7956,130 @@ fn rejects_strictness_aliases_that_do_not_exist() {
 }
 
 #[test]
+fn strictness_on_a_production_with_sort_parameters_is_rejected() {
+    for (parameter, label, nonterminals, strictness) in [
+        (
+            "W",
+            "pick",
+            vec![
+                Sort::with_parameters("MInt", vec![Sort::new("W")]),
+                Sort::new("Int"),
+            ],
+            attributes(&[("strict", json!("2"))]),
+        ),
+        (
+            "S",
+            "wrap",
+            vec![Sort::new("S")],
+            attributes(&[("strict", json!("")), ("seqstrict", json!(""))]),
+        ),
+        (
+            "W",
+            "tag",
+            vec![Sort::new("Exp")],
+            attributes(&[("strict", json!(""))]),
+        ),
+        (
+            "W",
+            "pick",
+            vec![
+                Sort::with_parameters("MInt", vec![Sort::new("W")]),
+                Sort::new("Int"),
+            ],
+            attributes(&[("strict", json!("1")), ("hybrid", json!(""))]),
+        ),
+    ] {
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![
+                module("BOOL", Vec::new()),
+                module(
+                    "MAIN",
+                    vec![Sentence::Production {
+                        label: Some(Label::with_parameters(label, vec![Sort::new(parameter)])),
+                        parameters: vec![Sort::new(parameter)],
+                        sort: Sort::new("Foo"),
+                        items: nonterminals
+                            .into_iter()
+                            .map(|sort| ProductionItem::NonTerminal { sort, name: None })
+                            .collect(),
+                        attributes: strictness,
+                    }],
+                ),
+            ],
+            attributes: Attributes::default(),
+        };
+
+        let diagnostics = resolve_strict(&definition).unwrap_err().diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].code,
+            k_rust::diagnostic::DiagnosticCode::InvalidStrictness
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            format!(
+                "Strictness is not supported on a production with sort parameters {{{parameter}}}: its evaluation contexts would range over every instantiation of the parameters. Write a context for each instance instead."
+            )
+        );
+    }
+}
+
+#[test]
+fn strictness_still_lowers_productions_without_sort_parameters() {
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BOOL", Vec::new()),
+            module(
+                "MAIN",
+                vec![
+                    Sentence::Production {
+                        label: Some(Label::new("step")),
+                        parameters: Vec::new(),
+                        sort: Sort::new("Exp"),
+                        items: vec![ProductionItem::NonTerminal {
+                            sort: Sort::new("Exp"),
+                            name: None,
+                        }],
+                        attributes: attributes(&[("strict", json!(""))]),
+                    },
+                    Sentence::Production {
+                        label: Some(Label::with_parameters("wrap", vec![Sort::new("S")])),
+                        parameters: vec![Sort::new("S")],
+                        sort: Sort::new("Foo"),
+                        items: vec![ProductionItem::NonTerminal {
+                            sort: Sort::new("S"),
+                            name: None,
+                        }],
+                        attributes: Attributes::default(),
+                    },
+                ],
+            ),
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_strict(&definition).unwrap();
+    let contexts = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Context { body, .. } => Some(body),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contexts.len(), 1);
+    assert!(matches!(
+        contexts[0].unannotated(),
+        Term::Apply { label, .. } if label == &Label::new("step")
+    ));
+    assert!(!Printer::new().print_term(contexts[0]).contains("wrap"));
+}
+
+#[test]
 fn gives_anonymous_variables_collision_free_sentence_local_names() {
     let first = Sentence::Rule {
         body: application(
