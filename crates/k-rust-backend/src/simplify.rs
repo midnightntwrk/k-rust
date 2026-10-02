@@ -75,7 +75,10 @@ use crate::{
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{
         FunctionType, HeadRole, Sort, SymbolType, Term, TermKind, Variable, VariableKind,
-        head::NormalFormCertificate,
+        head::{
+            CertifiedOnly, Head, NormalFormCertificate, RootComparison, classify_value,
+            compare_roots,
+        },
     },
     transition::ExecutionEvaluationContext,
 };
@@ -1229,6 +1232,57 @@ fn simplify_and_decide_predicate(
     }
 }
 
+/// Decompose equality of two applications of one free constructor, or one equation head
+/// whose applications are certified normal forms, without `assoc` or `idem`, with equal
+/// sort arguments and arity, when unary or one side is provably defined.
+/// With one side defined, the images are equal exactly when their argument patterns are;
+/// a unary image also preserves emptiness. For an n-ary symbol with both sides possibly
+/// empty this is inexact: `c(\bottom, 1) = c(\bottom, 2)` is true although `1 = 2` is false.
+/// Flatten eligible nested applications before re-simplifying the leaf conjunction once.
+/// A defined image has defined arguments on that same side; unary decomposition alone
+/// does not establish definedness, so a nested n-ary pair still needs its own witness.
+fn decompose_free_application(
+    left: &Term,
+    right: &Term,
+    defined: impl Fn(&Term) -> bool,
+) -> Option<Predicate> {
+    let mut pending = vec![(left, right, false, false)];
+    let mut equalities = Vec::new();
+    let mut decomposed = false;
+    while let Some((left, right, left_defined, right_defined)) = pending.pop() {
+        if let (Head::Fixed(left_head), Head::Fixed(right_head)) = (
+            classify_value(left, &mut CertifiedOnly),
+            classify_value(right, &mut CertifiedOnly),
+        ) && let RootComparison::SameApplication(same) = compare_roots(left_head, right_head)
+        {
+            let unary = same.pairs().count() == 1;
+            let left_defined = left_defined || (!unary && !right_defined && defined(left));
+            let right_defined = right_defined || (!unary && !left_defined && defined(right));
+            if unary || left_defined || right_defined {
+                decomposed = true;
+                let start = pending.len();
+                pending.extend(
+                    same.pairs()
+                        .filter(|(left, right)| left != right)
+                        .map(|(left, right)| (left, right, left_defined, right_defined)),
+                );
+                // Visit arguments in their original order with the LIFO work list.
+                pending[start..].reverse();
+                continue;
+            }
+        }
+        if !decomposed {
+            return None;
+        }
+        equalities.push(Predicate::Equals(left.clone(), right.clone()));
+    }
+    Some(match equalities.len() {
+        0 => Predicate::True,
+        1 => equalities.pop().unwrap(),
+        _ => Predicate::And(equalities),
+    })
+}
+
 fn simplify_predicate_with_budget(
     definition: &BackendDefinition,
     predicate: &Predicate,
@@ -1318,38 +1372,48 @@ fn simplify_predicate_with_budget(
             let equality = normalize_injection_equality(definition, equality);
             let equality = match equality {
                 Predicate::Equals(left, right) => {
-                    match terms_apart(Some(&definition.sort_graph), &left, &right) {
-                        // R-eq: disjoint denotations are equal exactly where both are empty;
-                        // a provably defined side makes that condition false.
-                        Some(apart) => {
-                            let equality = apart.equality(left, right, provably_defined);
-                            if matches!(equality, Predicate::And(_)) {
-                                // Expand the negated ceils under the same budget so a lone
-                                // equality reaches ceil theory without an outer fixed point.
-                                let conjunction =
-                                    with_simplification_constraints(constraints, equality);
-                                if *remaining == 0 {
-                                    return Err(SimplificationError::PredicateIterationLimit {
-                                        limit,
-                                        predicate: conjunction,
-                                    }
-                                    .into());
-                                }
-                                *remaining -= 1;
-                                return simplify_predicate_with_budget(
-                                    definition,
-                                    &conjunction,
-                                    assumptions,
-                                    limit,
-                                    remaining,
-                                    active_conditions,
-                                    solver,
-                                );
+                    let (equality, resimplify) =
+                        match terms_apart(Some(&definition.sort_graph), &left, &right) {
+                            // R-eq: disjoint denotations are equal exactly where both are empty;
+                            // a provably defined side makes that condition false.
+                            Some(apart) => {
+                                let equality = apart.equality(left, right, provably_defined);
+                                let resimplify = matches!(equality, Predicate::And(_));
+                                (equality, resimplify)
                             }
-                            equality
+                            // Decomposition is an equivalence, so with the budget spent
+                            // the equality is kept as it is.
+                            None if *remaining > 0 => {
+                                match decompose_free_application(&left, &right, provably_defined) {
+                                    Some(decomposed) => (decomposed, true),
+                                    None => (Predicate::Equals(left, right), false),
+                                }
+                            }
+                            None => (Predicate::Equals(left, right), false),
+                        };
+                    if resimplify {
+                        // Re-enter under the same budget so negated ceils reach ceil theory
+                        // and argument equalities reach injection and path-condition theory.
+                        let conjunction = with_simplification_constraints(constraints, equality);
+                        if *remaining == 0 {
+                            return Err(SimplificationError::PredicateIterationLimit {
+                                limit,
+                                predicate: conjunction,
+                            }
+                            .into());
                         }
-                        None => Predicate::Equals(left, right),
+                        *remaining -= 1;
+                        return simplify_predicate_with_budget(
+                            definition,
+                            &conjunction,
+                            assumptions,
+                            limit,
+                            remaining,
+                            active_conditions,
+                            solver,
+                        );
                     }
+                    equality
                 }
                 equality => equality,
             };

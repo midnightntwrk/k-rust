@@ -13,6 +13,7 @@ use k_rust_backend::{
     term::{Sort, Term, TermKind, Variable},
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+use k_rust_kore::measure::{Counter, snapshot};
 
 // Explicit imports shadow the glob: these tests arm no stop and assert on the failure layer.
 use crate::support::{
@@ -71,6 +72,250 @@ fn apart_terms_definition() -> BackendDefinition {
             ) [subsort{SortOther{}, SortK{}}()]
         "#,
     )
+}
+
+fn free_application_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}(SortS{}) : SortS{} [constructor{}()]
+                symbol p{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+                symbol f{}(SortS{}) : SortS{} [function{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+#[test]
+fn free_application_equality_decomposes_symbolic_unary_arguments() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "a{}(X:SortS{})"),
+        term(&definition, "a{}(Y:SortS{})"),
+    );
+    assert_eq!(
+        simplify_predicate(&definition, &predicate),
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "Y:SortS{}"),
+        ),
+    );
+}
+
+#[test]
+fn free_application_equality_keeps_the_residual_equality_when_the_budget_is_spent() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "a{}(a{}(a{}(a{}(a{}(X:SortS{})))))"),
+        term(&definition, "a{}(a{}(a{}(a{}(a{}(Y:SortS{})))))"),
+    );
+
+    let leaf_equality = Predicate::Equals(
+        term(&definition, "X:SortS{}"),
+        term(&definition, "Y:SortS{}"),
+    );
+    for (max_iterations, expected) in [(0, predicate.clone()), (1, leaf_equality)] {
+        let result = simplify_predicate_with_solver(
+            &definition,
+            &predicate,
+            &[],
+            SimplificationOptions {
+                max_iterations,
+                budget: BudgetPolicy::Fail,
+            },
+            &NoSolver,
+        );
+        assert_eq!(
+            result.expect("equivalent decomposition should keep an exact equality"),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn free_application_equality_keeps_nested_possibly_empty_binary_images() {
+    let definition = free_application_definition();
+    let left = "p{}(f{}(X:SortS{}), Z:SortS{})";
+    let right = "p{}(f{}(Y:SortS{}), W:SortS{})";
+    let predicate = Predicate::Equals(
+        term(&definition, &format!("a{{}}({left})")),
+        term(&definition, &format!("a{{}}({right})")),
+    );
+    assert_eq!(
+        simplify_predicate(&definition, &predicate),
+        Predicate::Equals(term(&definition, left), term(&definition, right),),
+    );
+}
+
+#[test]
+fn free_application_equality_refutes_disequal_arguments() {
+    let definition = free_application_definition();
+    let predicate = Predicate::And(vec![
+        Predicate::Equals(
+            term(&definition, "a{}(X:SortS{})"),
+            term(&definition, "a{}(Y:SortS{})"),
+        ),
+        Predicate::Not(Box::new(Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "Y:SortS{}"),
+        ))),
+    ]);
+    assert_eq!(
+        simplify_predicate(&definition, &predicate),
+        Predicate::False
+    );
+}
+
+#[test]
+fn free_application_equality_decomposes_defined_binary_arguments() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "p{}(X:SortS{}, Z:SortS{})"),
+        term(&definition, "p{}(Y:SortS{}, Z:SortS{})"),
+    );
+    assert_eq!(
+        simplify_predicate(&definition, &predicate),
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "Y:SortS{}"),
+        ),
+    );
+}
+
+#[test]
+fn free_application_equality_decomposes_multiple_argument_pairs() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "p{}(X:SortS{}, Z:SortS{})"),
+        term(&definition, "p{}(Y:SortS{}, W:SortS{})"),
+    );
+    let expected = Predicate::And(vec![
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "Y:SortS{}"),
+        ),
+        Predicate::Equals(
+            term(&definition, "Z:SortS{}"),
+            term(&definition, "W:SortS{}"),
+        ),
+    ]);
+    assert_eq!(simplify_predicate(&definition, &predicate), expected,);
+}
+
+#[test]
+fn free_application_equality_flattens_a_deep_defined_binary_spine() {
+    let definition = free_application_definition();
+    let depth = 100;
+    let spine = |prefix| {
+        let mut source = "End:SortS{}".to_owned();
+        for index in (0..depth).rev() {
+            source = format!("p{{}}({prefix}{index}:SortS{{}}, {source})");
+        }
+        term(&definition, &source)
+    };
+    let predicate = Predicate::Equals(spine('A'), spine('B'));
+    let expected = Predicate::And(
+        (0..depth)
+            .map(|index| {
+                Predicate::Equals(
+                    term(&definition, &format!("A{index}:SortS{{}}")),
+                    term(&definition, &format!("B{index}:SortS{{}}")),
+                )
+            })
+            .collect(),
+    );
+    let before = snapshot();
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &predicate,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("a defined constructor spine should flatten within the default budget");
+    let work = snapshot().delta(&before);
+    assert_eq!(result, expected);
+    eprintln!(
+        "deep spine: {} simplify rounds",
+        work.get(Counter::SimplifyRounds)
+    );
+    // Two source-term rounds, then one round for each side of each leaf equality.
+    assert_eq!(work.get(Counter::SimplifyRounds), 2 * (depth as u64 + 1));
+}
+
+#[test]
+fn free_application_equality_flattens_with_only_one_defined_side() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "p{}(X:SortS{}, p{}(Z:SortS{}, U:SortS{}))"),
+        term(
+            &definition,
+            "p{}(f{}(Y:SortS{}), p{}(f{}(W:SortS{}), f{}(V:SortS{})))",
+        ),
+    );
+    let expected = Predicate::And(vec![
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, "f{}(Y:SortS{})"),
+        ),
+        Predicate::Equals(
+            term(&definition, "Z:SortS{}"),
+            term(&definition, "f{}(W:SortS{})"),
+        ),
+        Predicate::Equals(
+            term(&definition, "U:SortS{}"),
+            term(&definition, "f{}(V:SortS{})"),
+        ),
+    ]);
+    assert_eq!(simplify_predicate(&definition, &predicate), expected);
+    let Predicate::Equals(left, right) = predicate else {
+        unreachable!()
+    };
+    assert_eq!(
+        simplify_predicate(&definition, &Predicate::Equals(right, left)),
+        Predicate::And(vec![
+            Predicate::Equals(
+                term(&definition, "f{}(Y:SortS{})"),
+                term(&definition, "X:SortS{}")
+            ),
+            Predicate::Equals(
+                term(&definition, "f{}(W:SortS{})"),
+                term(&definition, "Z:SortS{}")
+            ),
+            Predicate::Equals(
+                term(&definition, "f{}(V:SortS{})"),
+                term(&definition, "U:SortS{}")
+            ),
+        ])
+    );
+}
+
+#[test]
+fn free_application_equality_preserves_possibly_empty_binary_images() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "p{}(f{}(X:SortS{}), Z:SortS{})"),
+        term(&definition, "p{}(f{}(Y:SortS{}), W:SortS{})"),
+    );
+    assert_eq!(simplify_predicate(&definition, &predicate), predicate);
+}
+
+#[test]
+fn free_application_equality_decomposes_possibly_empty_unary_images() {
+    let definition = free_application_definition();
+    let predicate = Predicate::Equals(
+        term(&definition, "a{}(f{}(X:SortS{}))"),
+        term(&definition, "a{}(f{}(Y:SortS{}))"),
+    );
+    assert_eq!(
+        simplify_predicate(&definition, &predicate),
+        Predicate::Equals(
+            term(&definition, "f{}(X:SortS{})"),
+            term(&definition, "f{}(Y:SortS{})"),
+        ),
+    );
 }
 
 #[test]
@@ -3006,7 +3251,7 @@ fn injection_equality_uses_common_subsorts_to_distinguish_unknown_from_disjoint(
 }
 
 #[test]
-fn preserves_a_symbolic_equality_between_singleton_k_sequences() {
+fn decomposes_a_symbolic_equality_between_singleton_k_sequences() {
     let syntax = parse_definition(
         r#"[]
             module MAIN
@@ -3053,7 +3298,13 @@ fn preserves_a_symbolic_equality_between_singleton_k_sequences() {
     )
     .unwrap();
 
-    assert_eq!(result, predicate);
+    assert_eq!(
+        result,
+        Predicate::Not(Box::new(Predicate::Equals(
+            term(&definition, "STATE:SortState{}"),
+            term(&definition, "peng{}()"),
+        ))),
+    );
 }
 
 #[test]
