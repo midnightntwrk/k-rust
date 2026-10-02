@@ -17,8 +17,8 @@
 //! resolution of the sentence. `kompile.macros.expand` computes this view once per rewrite of a
 //! sentence when some macro rule has a parametric head.
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::definition::{AttributeKey, PartialOrder, ProductionItem, ResolvedDefinition, Sentence};
@@ -186,7 +186,6 @@ impl<'a> SentenceTyper<'a> {
                 sorts: View::Owned(sorts),
                 subsorts: View::Owned(subsorts),
                 next_sort_parameter: Cell::new(0),
-                used_sort_parameters: RefCell::new(BTreeSet::new()),
             },
             declared,
         })
@@ -257,7 +256,6 @@ impl<'a> SentenceTyper<'a> {
     ) -> Result<SentenceTyping, SortInjectionError> {
         let injector = &self.injector;
         injector.next_sort_parameter.set(0);
-        injector.used_sort_parameters.borrow_mut().clear();
         let top = injector.fresh_sort_parameter();
         let boolean = Sort::builtin(BuiltinSort::Bool);
 

@@ -20,12 +20,11 @@
 //!
 //! Production-aware insertion of explicit KORE subsort injections.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use k_rust_kore::measure::{self, Counter};
-use serde_json::json;
 
 use crate::definition::checks::{LabelParameterError, SentenceLabelParameterError};
 use crate::definition::{
@@ -44,6 +43,192 @@ pub use typing::{
     BranchTyping, PositionTyping, SentenceTyper, SentenceTyping, SentenceTypingError,
     sentence_typing,
 };
+
+mod sentence_variables {
+    use super::*;
+    use crate::definition::ProductionItem;
+
+    /// The sort variables an injected sentence quantifies over.
+    /// Each is a whole sort argument of a matching-logic connective: the sort of a predicate,
+    /// which is the whole carrier or empty at every sort alike, so it chooses nothing and the
+    /// sentence binds it. Only `SortInjector::sentence_sort_variables` builds a nonempty set.
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
+    pub struct SentenceSortVariables {
+        names: BTreeSet<String>,
+    }
+
+    impl SentenceSortVariables {
+        pub fn names(&self) -> impl Iterator<Item = &str> {
+            self.names.iter().map(String::as_str)
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.names.is_empty()
+        }
+
+        pub(crate) fn contains(&self, name: &str) -> bool {
+            self.names.contains(name)
+        }
+
+        pub(crate) fn union(&self, other: &Self) -> Self {
+            Self {
+                names: self.names.union(&other.names).cloned().collect(),
+            }
+        }
+    }
+
+    impl SortInjector<'_, '_> {
+        pub(crate) fn sentence_sort_variables<'t>(
+            &self,
+            terms: impl IntoIterator<Item = &'t Term>,
+        ) -> Result<SentenceSortVariables, SortInjectionError> {
+            let mut variables = SentenceSortVariables::default();
+            let mut injection = None;
+            let mut leaf = None;
+            for term in terms {
+                self.classify_sentence_sort_variables(
+                    term,
+                    &mut variables,
+                    &mut injection,
+                    &mut leaf,
+                )?;
+            }
+            if let Some(offender) = injection.or(leaf) {
+                Err(SortInjectionError::UndeterminedInstance(Box::new(offender)))
+            } else {
+                Ok(variables)
+            }
+        }
+
+        // Invariant: each recursive call descends into a direct subterm, so term depth bounds recursion. The walk returns the first non-injection label offender in pre-order, retaining the first injection and leaf only as fallbacks.
+        #[deny(clippy::wildcard_enum_match_arm)]
+        fn classify_sentence_sort_variables(
+            &self,
+            term: &Term,
+            variables: &mut SentenceSortVariables,
+            injection: &mut Option<UndeterminedInstance>,
+            leaf: &mut Option<UndeterminedInstance>,
+        ) -> Result<(), SortInjectionError> {
+            match term.unannotated() {
+                Term::Apply { label, .. } | Term::InjectedLabel(label) => {
+                    for (index, parameter) in label.parameters.iter().enumerate() {
+                        let Some(variable) = first_sort_variable(parameter) else {
+                            continue;
+                        };
+                        if matches!(term.unannotated(), Term::Apply { .. })
+                            && InternalLabel::MATCHING_LOGIC
+                                .iter()
+                                .any(|builtin| label.is(*builtin))
+                            && parameter.is_rigid_variable()
+                            && let [name] = parameter.parameters.as_slice()
+                            && name.parameters.is_empty()
+                        {
+                            variables.names.insert(name.name.clone());
+                            continue;
+                        }
+                        let (formal, phantom) = match self.production(term, label).ok() {
+                            Some(Sentence::Production {
+                                parameters,
+                                sort,
+                                items,
+                                ..
+                            }) => {
+                                let formal = parameters.get(index);
+                                let phantom = formal.is_some_and(|formal| {
+                                    !contains_sort(sort, formal)
+                                        && !items.iter().any(|item| {
+                                            matches!(item,
+                                            ProductionItem::NonTerminal { sort, .. }
+                                                if contains_sort(sort, formal))
+                                        })
+                                });
+                                (formal.cloned(), phantom)
+                            }
+                            Some(
+                                Sentence::SyntaxSort { .. }
+                                | Sentence::SortSynonym { .. }
+                                | Sentence::SyntaxLexical { .. }
+                                | Sentence::SyntaxAssociativity { .. }
+                                | Sentence::SyntaxPriority { .. }
+                                | Sentence::ContextAlias { .. }
+                                | Sentence::Context { .. }
+                                | Sentence::Configuration { .. }
+                                | Sentence::Bubble { .. }
+                                | Sentence::Rule { .. }
+                                | Sentence::Claim { .. },
+                            )
+                            | None => (None, false),
+                        };
+                        let offender = UndeterminedInstance {
+                            term: render_term(term),
+                            label: Some(label.name.clone()),
+                            parameter: formal,
+                            variable: variable.clone(),
+                            phantom,
+                        };
+                        if label.is(WellKnownSymbol::Inj) {
+                            injection.get_or_insert(offender);
+                        } else {
+                            return Err(SortInjectionError::UndeterminedInstance(Box::new(
+                                offender,
+                            )));
+                        }
+                    }
+                    if let Term::Apply { arguments, .. } = term.unannotated() {
+                        for argument in arguments {
+                            self.classify_sentence_sort_variables(
+                                argument, variables, injection, leaf,
+                            )?;
+                        }
+                    }
+                }
+                Term::Variable {
+                    sort: Some(sort), ..
+                }
+                | Term::Token { sort, .. } => {
+                    if let Some(variable) = first_sort_variable(sort) {
+                        leaf.get_or_insert_with(|| UndeterminedInstance {
+                            term: render_term(term),
+                            label: None,
+                            parameter: None,
+                            variable: variable.clone(),
+                            phantom: false,
+                        });
+                    }
+                }
+                Term::Rewrite { left, right } => {
+                    self.classify_sentence_sort_variables(left, variables, injection, leaf)?;
+                    self.classify_sentence_sort_variables(right, variables, injection, leaf)?;
+                }
+                Term::As { pattern, alias } => {
+                    self.classify_sentence_sort_variables(pattern, variables, injection, leaf)?;
+                    self.classify_sentence_sort_variables(alias, variables, injection, leaf)?;
+                }
+                Term::Sequence(items) => {
+                    for item in items {
+                        self.classify_sentence_sort_variables(item, variables, injection, leaf)?;
+                    }
+                }
+                Term::Annotated { term, .. } => {
+                    self.classify_sentence_sort_variables(term, variables, injection, leaf)?;
+                }
+                Term::Variable { sort: None, .. } => {}
+            }
+            Ok(())
+        }
+    }
+
+    // Invariant: each recursive call descends into a direct sort parameter, so sort depth bounds recursion.
+    fn first_sort_variable(sort: &Sort) -> Option<&Sort> {
+        if sort.is_rigid_variable() {
+            Some(sort)
+        } else {
+            sort.parameters.iter().find_map(first_sort_variable)
+        }
+    }
+}
+
+pub use sentence_variables::SentenceSortVariables;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -104,6 +289,8 @@ pub enum SortInjectionError {
     /// A parametric production whose arguments fit several incomparable least instantiations,
     /// so no instantiation fits them most tightly.
     AmbiguousInstance(Box<AmbiguousInstance>),
+    /// An application instance or term sort that no argument, position or cast determined.
+    UndeterminedInstance(Box<UndeterminedInstance>),
     /// A label of a loaded rule-like sentence that carries sort parameters. Sort injection
     /// instantiates every parametric label from its arguments and position, so a written
     /// instance would be re-solved rather than placed; it is rejected instead.
@@ -152,6 +339,16 @@ pub struct AmbiguousInstance {
     /// Declared argument sorts under representative minimal instantiations. When independent
     /// parameter groups are ambiguous, these vary one group while fixing the others.
     pub candidates: Vec<Vec<Sort>>,
+}
+
+/// A sentence sort variable outside the whole sort argument of a matching-logic connective.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndeterminedInstance {
+    pub term: String,
+    pub label: Option<String>,
+    pub parameter: Option<Sort>,
+    pub variable: Sort,
+    pub phantom: bool,
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -283,6 +480,52 @@ impl fmt::Display for SortInjectionError {
                 "semantic cast of {} to sort {} is a downcast from {}, and {} has no sort projection",
                 mismatch.term, mismatch.required, mismatch.found, mismatch.required
             ),
+            Self::UndeterminedInstance(instance) => {
+                if let Some(label) = &instance.label
+                    && let Some(parameter) = &instance.parameter
+                {
+                    write!(
+                        formatter,
+                        "the instance of `{label}` in `{}` is not determined: its sort parameter {parameter} ",
+                        instance.term
+                    )?;
+                    if instance.phantom {
+                        write!(
+                            formatter,
+                            "occurs in neither its argument sorts nor its result sort, so no application of `{label}` determines it"
+                        )?;
+                    } else {
+                        write!(
+                            formatter,
+                            "is fixed neither by its arguments nor by its position"
+                        )?;
+                    }
+                    write!(
+                        formatter,
+                        ", so sort injection left the sentence sort variable {} in it, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                        instance.variable
+                    )
+                } else {
+                    if let Some(label) = &instance.label {
+                        write!(
+                            formatter,
+                            "the instance of `{label}` in `{}` is not determined: ",
+                            instance.term
+                        )?;
+                    } else {
+                        write!(
+                            formatter,
+                            "term `{}` has an undetermined sort: ",
+                            instance.term
+                        )?;
+                    }
+                    write!(
+                        formatter,
+                        "it contains the sentence sort variable {}, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                        instance.variable
+                    )
+                }
+            }
             Self::AmbiguousInstance(ambiguity) => {
                 let list = |sorts: &[Sort]| {
                     sorts
@@ -329,7 +572,6 @@ pub struct SortInjector<'view, 'definition> {
     sorts: View<'view, SortCatalog<'definition>>,
     subsorts: View<'view, PartialOrder<Sort>>,
     next_sort_parameter: Cell<usize>,
-    used_sort_parameters: RefCell<BTreeSet<String>>,
 }
 
 impl<'definition> SortInjector<'definition, 'definition> {
@@ -348,7 +590,6 @@ impl<'definition> SortInjector<'definition, 'definition> {
             sorts: View::Owned(definition.sort_catalog(module)),
             subsorts: View::Owned(subsorts),
             next_sort_parameter: Cell::new(0),
-            used_sort_parameters: RefCell::new(BTreeSet::new()),
         })
     }
 }
@@ -366,7 +607,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             sorts: View::Borrowed(views.sort_catalog(module)),
             subsorts: View::Borrowed(subsorts),
             next_sort_parameter: Cell::new(0),
-            used_sort_parameters: RefCell::new(BTreeSet::new()),
         })
     }
 
@@ -385,16 +625,23 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.sorts.list_sorts().contains(sort)
     }
 
-    /// Forget the sort parameters introduced so far, so that the next term numbers its fresh
-    /// parameters from zero as a new injector would.
+    /// Restart the fresh sort parameter counter at zero, as for a new sentence.
     pub(crate) fn reset_sort_parameters(&self) {
         self.next_sort_parameter.set(0);
-        self.used_sort_parameters.borrow_mut().clear();
     }
 
-    /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
-    #[deny(clippy::wildcard_enum_match_arm)]
+    /// Add sort injections to a sentence; rule and claim conditions have sort `Bool`.
     pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
+        self.inject_sentence_bound(sentence)
+            .map(|(sentence, _)| sentence)
+    }
+
+    /// Inject and classify the predicate sort variables the sentence must bind.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    pub(crate) fn inject_sentence_bound(
+        &self,
+        sentence: &Sentence,
+    ) -> Result<(Sentence, SentenceSortVariables), SortInjectionError> {
         self.reset_sort_parameters();
         match sentence {
             Sentence::Rule {
@@ -406,12 +653,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 let body = self.inject_rule_body(body)?;
                 let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
                 let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
-                Ok(Sentence::Rule {
-                    body,
-                    requires,
-                    ensures,
-                    attributes: self.sentence_attributes(attributes),
-                })
+                let variables = self.sentence_sort_variables([&body, &requires, &ensures])?;
+                Ok((
+                    Sentence::Rule {
+                        body,
+                        requires,
+                        ensures,
+                        attributes: attributes.clone(),
+                    },
+                    variables,
+                ))
             }
             Sentence::Claim {
                 body,
@@ -422,12 +673,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 let body = self.inject_rule_body(body)?;
                 let requires = self.inject(requires, &Sort::builtin(BuiltinSort::Bool))?;
                 let ensures = self.inject(ensures, &Sort::builtin(BuiltinSort::Bool))?;
-                Ok(Sentence::Claim {
-                    body,
-                    requires,
-                    ensures,
-                    attributes: self.sentence_attributes(attributes),
-                })
+                let variables = self.sentence_sort_variables([&body, &requires, &ensures])?;
+                Ok((
+                    Sentence::Claim {
+                        body,
+                        requires,
+                        ensures,
+                        attributes: attributes.clone(),
+                    },
+                    variables,
+                ))
             }
             Sentence::SyntaxSort { .. }
             | Sentence::SortSynonym { .. }
@@ -438,7 +693,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             | Sentence::ContextAlias { .. }
             | Sentence::Context { .. }
             | Sentence::Configuration { .. }
-            | Sentence::Bubble { .. } => Ok(sentence.clone()),
+            | Sentence::Bubble { .. } => Ok((sentence.clone(), SentenceSortVariables::default())),
         }
     }
 
@@ -454,29 +709,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let top = self.fresh_sort_parameter();
         let actual = self.term_sort(&body, Some(&top))?;
         self.inject_with_position(&body, &actual, false)
-    }
-
-    fn sentence_attributes(
-        &self,
-        attributes: &crate::definition::Attributes,
-    ) -> crate::definition::Attributes {
-        let mut attributes = attributes.clone();
-        let parameters = self.used_sort_parameters.borrow();
-        if !parameters.is_empty() {
-            attributes.set(
-                AttributeKey::SortParams,
-                json!({
-                    "node": "KSort",
-                    "name": "",
-                    "params": parameters.iter().map(|name| json!({
-                        "node": "KSort",
-                        "name": name,
-                        "params": [],
-                    })).collect::<Vec<_>>(),
-                }),
-            );
-        }
-        attributes
     }
 
     fn fresh_sort_parameter(&self) -> Sort {
@@ -593,12 +825,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// The injector also serves callers that never ran the `add KItem subsorts` stage, so the
     /// relation states the implicit `KItem` subsorts itself.
     ///
-    /// A sort that mentions a sort variable (`#SortParam`) stands for every instance of it: a
-    /// sentence's sort parameters are universally quantified, so the relation must hold for every
-    /// instantiation. The order has no parametric subsort declarations (a production with sort
-    /// parameters declares no subsort), so that holds only reflexively (the same sort, variables
-    /// included), or through `KItem` when the sort's head is not a parser sort; the relation
-    /// therefore applies unchanged to such sorts.
+    /// While constructing an instance, this relation admits a sort such as
+    /// `MInt{#SortParam{Q}}` below `KItem`. A sentence retaining that sort outside a whole
+    /// predicate-sort argument is rejected after injection, so the emitted theory never
+    /// needs a subsort axiom for it.
     fn below(&self, actual: &Sort, expected: &Sort) -> bool {
         placeable(actual, expected, &self.subsorts)
     }
@@ -1038,13 +1268,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         actual: &Sort,
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
-        if actual.is_rigid_variable()
-            && let Some(parameter) = actual.parameters.first()
-        {
-            self.used_sort_parameters
-                .borrow_mut()
-                .insert(parameter.name.clone());
-        }
         let rebuilt = match term.unannotated() {
             Term::Apply { label, .. } if label.is(WellKnownSymbol::Inj) => return Ok(term.clone()),
             Term::Apply { label, arguments }
@@ -2086,9 +2309,88 @@ fn semantic_projection(term: &Term, projection: Label) -> Term {
 
 #[cfg(test)]
 mod tests {
-    use super::rewrite_projection;
-    use crate::definition::PartialOrder;
-    use crate::kast::{Sort, parser::parse_term};
+    use super::{SortInjectionError, SortInjector, rewrite_projection};
+    use crate::definition::{PartialOrder, ResolvedDefinition, Sentence, production_identity};
+    use crate::kast::{Label, Sort, Term, TermMetadata, parser::parse_term};
+
+    #[test]
+    fn sentence_sort_variables_classifies_only_whole_predicate_sorts() {
+        let parsed = crate::outer::parse(
+            "sentence-sorts.k",
+            "module MAIN\n syntax {S} MInt{S} ::= zero() [symbol(zero)]\n syntax {T} Foo ::= zero() [symbol(zero)]\n endmodule\n",
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let q = Sort::with_parameters("#SortParam", vec![Sort::new("Q0")]);
+        let mint_q = Sort::with_parameters("MInt", vec![q.clone()]);
+        let equals = |parameters| Term::Apply {
+            label: Label::with_parameters("#Equals", parameters),
+            arguments: vec![Term::variable("X"), Term::variable("Y")],
+        };
+        let predicate = equals(vec![Sort::new("Bool"), q.clone()]);
+        let variables = injector.sentence_sort_variables([&predicate]).unwrap();
+        assert_eq!(variables.names().collect::<Vec<_>>(), ["Q0"]);
+        assert!(!variables.is_empty());
+
+        let nested = equals(vec![mint_q.clone(), Sort::new("Bool")]);
+        let variable = Term::Variable {
+            name: "X".into(),
+            sort: Some(q.clone()),
+        };
+        let token = Term::Token {
+            token: "0".into(),
+            sort: mint_q.clone(),
+        };
+        let injected_label = Term::InjectedLabel(Label::with_parameters("zero", vec![q.clone()]));
+        let malformed = equals(vec![Sort::with_parameters(
+            "#SortParam",
+            vec![Sort::with_parameters("Q0", vec![Sort::new("Int")])],
+        )]);
+        for offender in [&nested, &variable, &token, &injected_label, &malformed] {
+            assert!(
+                matches!(
+                    injector.sentence_sort_variables([offender]),
+                    Err(SortInjectionError::UndeterminedInstance(_))
+                ),
+                "{offender}"
+            );
+        }
+
+        let production = definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| {
+                matches!(&***sentence, Sentence::Production { parameters, .. }
+                if parameters == &[Sort::new("S")])
+            })
+            .unwrap();
+        let zero = Term::Apply {
+            label: Label::with_parameters("zero", vec![q.clone()]),
+            arguments: Vec::new(),
+        }
+        .with_metadata(TermMetadata {
+            production: production_identity(production),
+            ..TermMetadata::default()
+        });
+        let injection = Term::Apply {
+            label: Label::with_parameters("inj", vec![mint_q.clone(), Sort::new("KItem")]),
+            arguments: vec![zero],
+        };
+        let error = injector
+            .sentence_sort_variables([&variable, &injection])
+            .unwrap_err();
+        let SortInjectionError::UndeterminedInstance(instance) = error else {
+            panic!("{error:?}")
+        };
+        assert_eq!(instance.label.as_deref(), Some("zero"));
+        assert_eq!(instance.parameter, Some(Sort::new("S")));
+        assert_eq!(instance.variable, q);
+        assert!(!instance.phantom);
+    }
 
     fn order(edges: &[(&str, &str)]) -> PartialOrder<Sort> {
         PartialOrder::new(

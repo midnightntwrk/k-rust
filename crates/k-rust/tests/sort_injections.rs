@@ -15,6 +15,267 @@ use k_rust::kore::printer::Printer;
 use k_rust::provenance::{GeneratingPass, ORIGIN_ATTRIBUTE};
 use serde_json::json;
 
+mod sentence_variables {
+    use indoc::indoc;
+    use k_rust::builtin;
+    use k_rust::definition::CheckMode;
+    use k_rust::kompile::{
+        CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
+        compile_loaded_definition,
+    };
+    use k_rust::outer::{LoadOptions, ResolvedSource, load_for_compilation};
+
+    fn compile(
+        source: &str,
+        main_module: &str,
+        check_mode: CheckMode,
+    ) -> Result<CompiledKoreArtifacts, CompileError> {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        let loaded = load_for_compilation(
+            ResolvedSource::new("sentence-variables.k", source.to_owned()),
+            main_module,
+            Some("MAIN"),
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![builtin::embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust
+                        .excluded_module_attribute()
+                        .to_owned(),
+                ],
+                configuration_module: match &check_mode {
+                    CheckMode::Definition => None,
+                    CheckMode::Proof { definition_module } => Some(definition_module.clone()),
+                },
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("the inline definition loads: {error}"))
+        .0;
+        compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                check_mode,
+                ..CompileOptions::default()
+            },
+        )
+    }
+
+    fn assert_undetermined(
+        source: &str,
+        main_module: &str,
+        check_mode: CheckMode,
+        sentence: &str,
+        label: &str,
+        parameter: &str,
+        phantom: bool,
+    ) {
+        let error = compile(source, main_module, check_mode)
+            .expect_err("the sentence must reject its undetermined label instance");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        let line = source
+            .lines()
+            .position(|line| line.trim_start().starts_with(sentence))
+            .unwrap()
+            + 1;
+        for expected in [
+            format!("sentence-variables.k:{line}: "),
+            format!("the instance of `{label}"),
+            format!("sort parameter {parameter}"),
+            "only the sort of a predicate may stay a sort variable".to_owned(),
+        ] {
+            assert!(error.message.contains(&expected), "{expected}: {error}");
+        }
+        assert_eq!(
+            error
+                .message
+                .contains("occurs in neither its argument sorts nor its result sort"),
+            phantom,
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_reject_a_phantom_instance_in_a_rule() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              syntax {W} Foo ::= tag(Int)
+              syntax Foo ::= "g"
+              rule <k> tag(1) => g ... </k>
+            endmodule
+        "#};
+        assert_undetermined(
+            source,
+            "MAIN",
+            CheckMode::Definition,
+            "rule <k>",
+            "tag",
+            "W",
+            true,
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_reject_a_phantom_instance_at_the_spec_claim_line() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              syntax {W} Foo ::= tag(Int)
+              syntax Foo ::= "g"
+            endmodule
+            module SPEC
+              imports MAIN
+              claim <k> tag(1) => g ... </k>
+            endmodule
+        "#};
+        assert_undetermined(
+            source,
+            "SPEC",
+            CheckMode::Proof {
+                definition_module: "MAIN".to_owned(),
+            },
+            "claim <k>",
+            "tag",
+            "W",
+            true,
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_reject_a_phantom_instance_in_an_equation() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              syntax {S} Int ::= size() [function, total]
+              rule size() => 0
+            endmodule
+        "#};
+        assert_undetermined(
+            source,
+            "MAIN",
+            CheckMode::Definition,
+            "rule size",
+            "size",
+            "S",
+            true,
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_reject_a_phantom_instance_in_a_macro() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              syntax {W} Foo ::= tag(Int)
+              syntax Foo ::= "g" | m() [macro]
+              rule m() => tag(1)
+            endmodule
+        "#};
+        assert_undetermined(
+            source,
+            "MAIN",
+            CheckMode::Definition,
+            "rule m",
+            "tag",
+            "W",
+            true,
+        );
+    }
+
+    const BARE_CHAIN: &str = indoc! {r#"
+        requires "domains.md"
+        module MAIN
+          imports INT
+          syntax {S} S ::= undef() [function, total]
+          syntax {S} Foo ::= wrap(S)
+          syntax Foo ::= "a"
+          rule <k> a => wrap(undef()) ... </k>
+        endmodule
+    "#};
+
+    #[test]
+    fn sentence_sort_variables_reject_the_outer_undetermined_instance() {
+        assert_undetermined(
+            BARE_CHAIN,
+            "MAIN",
+            CheckMode::Definition,
+            "rule <k>",
+            "wrap",
+            "S",
+            false,
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_control_a_cast_fixes_both_instances() {
+        let source = BARE_CHAIN.replace("wrap(undef())", "wrap(undef():Int)");
+        let artifacts = compile(&source, "MAIN", CheckMode::Definition).unwrap();
+        let kore: String = artifacts.definition_kore.split_whitespace().collect();
+        assert!(
+            kore.contains("Lblwrap'LParUndsRParUnds'MAIN'Unds'Foo'Unds'S{SortInt{}}(Lblundef'LParRParUnds'MAIN'Unds'S{SortInt{}}())"),
+            "{kore}"
+        );
+    }
+
+    #[test]
+    fn sentence_sort_variables_keep_a_declared_q0_sort_concrete() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              imports BOOL
+              syntax Q0 ::= "q"
+              syntax Bool ::= isq(Q0) [function, total]
+              rule isq(_) => true
+              rule {isq(X:Q0) #Equals true} => #Top [simplification]
+            endmodule
+        "#};
+        let artifacts = compile(source, "MAIN", CheckMode::Definition).unwrap();
+        let kore: String = artifacts.definition_kore.split_whitespace().collect();
+        assert!(kore.contains("VarX:SortQ0{}"), "{kore}");
+        assert!(!kore.contains("VarX:Q0"), "{kore}");
+        let predicate_axiom = kore.split("axiom{R,Q0}").skip(1).any(|axiom| {
+            axiom
+                .split("axiom{")
+                .next()
+                .unwrap()
+                .contains("\\equals{SortBool{},Q0}")
+        });
+        assert!(predicate_axiom, "{kore}");
+    }
+
+    #[test]
+    fn sentence_sort_variables_control_predicate_sorts_remain_bound() {
+        let source = indoc! {r#"
+            requires "domains.md"
+            module MAIN
+              imports INT
+              imports BOOL
+              syntax Int ::= f(Int) [function, total]
+              rule f(X) => X +Int 1
+              rule {f(X) #Equals 1} => {X #Equals 0} [simplification]
+            endmodule
+        "#};
+        let artifacts = compile(source, "MAIN", CheckMode::Definition).unwrap();
+        let kore: String = artifacts.definition_kore.split_whitespace().collect();
+        let predicate_axiom = kore.split("axiom{R,Q0}").skip(1).any(|axiom| {
+            axiom
+                .split("axiom{")
+                .next()
+                .unwrap()
+                .contains("\\equals{SortInt{},Q0}")
+        });
+        assert!(predicate_axiom, "{kore}");
+    }
+}
+
 fn lowered(source: &str) -> Definition {
     let parsed = k_rust::outer::parse("injections.k", source).expect("definition should parse");
     let definition = k_rust::outer::lower(&parsed, "MAIN").expect("definition should lower");
@@ -737,9 +998,10 @@ fn sorted_variable(sort: Sort) -> Term {
     }
 }
 
-// A sort parameter is universally quantified, so `MInt{Q} <= MInt{8}` would have to hold for every
-// `Q`; that `Q = 8` is one witness does not justify `inj{MInt{Q}, MInt{8}}`. `MInt{Q}` stands
-// below `KItem` for every `Q` (its head is not a parser sort) and below itself.
+// While constructing a sort, the injector admits `MInt{Q} <= KItem` and reflexivity, but not
+// `MInt{Q} <= MInt{8}` from the single witness `Q = 8`. A sentence keeping a sort variable
+// outside a whole predicate-sort argument is rejected after injection, so the emitted theory
+// never needs the subsort `MInt{Q} < KItem`.
 #[test]
 fn sort_with_a_sort_variable_is_below_only_what_every_instance_is_below() {
     let (_, resolved) = use_injector(indoc! {r#"

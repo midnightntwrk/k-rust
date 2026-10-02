@@ -507,12 +507,12 @@ mod native {
     endmodule
     "#;
 
-    fn load_reject_source() -> LoadedDefinition {
+    fn load_reject_source_text(source: &str) -> LoadedDefinition {
         let mut resolver = |_: &str, required: &str| {
             builtin::embedded(required).ok_or_else(|| required.to_owned())
         };
         load_for_compilation(
-            ResolvedSource::new("reject.k", REJECT_SOURCE.to_owned()),
+            ResolvedSource::new("reject.k", source.to_owned()),
             "REJECT",
             None,
             &mut resolver,
@@ -520,6 +520,10 @@ mod native {
         )
         .unwrap_or_else(|error| panic!("the reject definition loads: {error}"))
         .0
+    }
+
+    fn load_reject_source() -> LoadedDefinition {
+        load_reject_source_text(REJECT_SOURCE)
     }
 
     /// `definition` with `parameters` written into the label `name` of the rule labelled `rule`.
@@ -564,22 +568,43 @@ mod native {
     /// fitting the arguments and the position. An upcast on an argument does not raise it
     /// (`wrap(s(X):Num)` is `wrap{Nat}`); an instance above the argument's sort is reached only
     /// through a projection (`wrap({X}:>Num)` is `wrap{Num}` of `project:Num`), as in K source. A
-    /// parameter occurring in neither an argument nor the result (`size`'s `S`) is universally
-    /// quantified in every sentence that uses it. A written parameter is rejected on each entry
+    /// parameter occurring in neither an argument nor the result (`size`'s `S`) determines no
+    /// instance, so a sentence using it is rejected. A written parameter is rejected on each entry
     /// path: a structured load, a `LoadedDefinition` rebuilt with `with_definition`, and the typing
     /// view. The `MInt{8}` rule needs native Z3 sort inference to parse.
     #[test]
     fn a_written_label_parameter_is_rejected_and_the_solved_instance_is_emitted() {
         let backend = CompilationBackend::Rust;
         let source = load_reject_source();
-        let [definition_kore, ..] = try_compile(&source, backend)
-            .unwrap_or_else(|error| panic!("the parameter-free definition compiles: {error}"));
+        let error = try_compile(&source, backend)
+            .expect_err("the phantom parameter of size has no determined instance");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        let line = REJECT_SOURCE
+            .lines()
+            .position(|line| line.contains("rule [sized]"))
+            .unwrap()
+            + 1;
+        for expected in [
+            format!("reject.k:{line}: "),
+            "`size`".to_owned(),
+            "sort parameter S".to_owned(),
+            "occurs in neither its argument sorts nor its result sort".to_owned(),
+        ] {
+            assert!(error.message.contains(&expected), "{expected}: {error}");
+        }
+        let control_source = REJECT_SOURCE
+            .lines()
+            .filter(|line| !line.contains("rule [sized]") && !line.contains("rule [phantom]"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let control = load_reject_source_text(&control_source);
+        let [definition_kore, ..] = try_compile(&control, backend)
+            .unwrap_or_else(|error| panic!("the determined instances compile: {error}"));
         for expected in [
             "Lblwrap{SortNat{}}(VarX:SortNat{})",
             "Lblwrap{SortNat{}}(Lbls{}(VarX:SortNat{}))",
             "Lblwrap{SortNum{}}(\n            Lblproject'Coln'Num{}(",
             "Lbluse{Sort8{}}(VarX:SortMInt{Sort8{}})",
-            "Lblsize{Sort'Hash'SortParam{",
         ] {
             assert!(definition_kore.contains(expected), "{expected}");
         }

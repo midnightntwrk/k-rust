@@ -41,6 +41,7 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 
 use super::fresh_names::{GeneratedVariableIdentity, is_generated_anonymous};
 use super::module_to_kore::encode_kore_label;
+use super::sort_injections::SentenceSortVariables;
 use super::view::View;
 
 /// A failure to recover information required by KORE from the compact public KAST.
@@ -150,7 +151,7 @@ pub struct TermConverter<'view, 'definition> {
     sorts: View<'view, SortCatalog<'definition>>,
     token_sorts: Option<View<'view, SortCatalog<'definition>>>,
     subsorts: View<'view, PartialOrder<Sort>>,
-    sort_variables: BTreeSet<String>,
+    sort_variables: SentenceSortVariables,
     generated_anonymous: Option<BTreeSet<GeneratedVariableIdentity>>,
 }
 
@@ -170,7 +171,7 @@ impl<'definition> TermConverter<'definition, 'definition> {
             sorts: View::Shared(Arc::new(definition.sort_catalog(module))),
             token_sorts: None,
             subsorts: View::Shared(Arc::new(subsorts)),
-            sort_variables: BTreeSet::new(),
+            sort_variables: SentenceSortVariables::default(),
             generated_anonymous: None,
         })
     }
@@ -189,7 +190,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             sorts: View::Borrowed(views.sort_catalog(module)),
             token_sorts: None,
             subsorts: View::Borrowed(subsorts),
-            sort_variables: BTreeSet::new(),
+            sort_variables: SentenceSortVariables::default(),
             generated_anonymous: None,
         })
     }
@@ -231,10 +232,10 @@ impl<'definition> TermConverter<'definition, 'definition> {
 }
 
 impl<'view, 'definition> TermConverter<'view, 'definition> {
-    /// Treat the supplied K sort names as KORE sort variables during conversion.
-    pub fn with_sort_variables(&self, variables: impl IntoIterator<Item = String>) -> Self {
+    /// Bind the predicate sort variables classified from an injected sentence.
+    pub(crate) fn with_sort_variables(&self, variables: &SentenceSortVariables) -> Self {
         let mut converter = self.clone();
-        converter.sort_variables = variables.into_iter().collect();
+        converter.sort_variables = variables.clone();
         converter
     }
 
@@ -621,8 +622,6 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             && self.sort_variables.contains(&parameter.name)
         {
             crate::kore::ast::Sort::Variable(parameter.name.clone())
-        } else if sort.parameters.is_empty() && self.sort_variables.contains(&sort.name) {
-            crate::kore::ast::Sort::Variable(sort.name.clone())
         } else {
             crate::kore::ast::Sort::Application {
                 name: identifier::encode_sort_name(&sort.name),

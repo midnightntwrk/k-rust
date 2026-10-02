@@ -36,6 +36,7 @@
 
 use super::roles::{EmittedEquation, SymbolRoles};
 use super::*;
+use crate::kompile::sort_injections::SentenceSortVariables;
 use k_rust_kore::measure::{self, Counter};
 
 pub(super) struct RuleEmissionContext<'a, 'definition> {
@@ -64,7 +65,9 @@ pub(super) fn emit_rule_or_claim(
         default_reachability,
         roles,
     } = context;
-    let injected = injector.inject_sentence(sentence)?;
+    let (injected, sort_variables) = injector.inject_sentence_bound(sentence)?;
+    let converter = converter.with_sort_variables(&sort_variables);
+    let converter = &converter;
     let (body, requires, ensures, attributes) = match &injected {
         Sentence::Rule {
             body,
@@ -138,6 +141,7 @@ pub(super) fn emit_rule_or_claim(
             injector,
             module_rules,
             owise_competitors,
+            &sort_variables,
         );
     }
     if is_macro_rule(&injected) {
@@ -158,7 +162,15 @@ pub(super) fn emit_rule_or_claim(
                 roles.debug_assert_heads_equation(production, label, EmittedEquation::Macro);
             }
         }
-        return emit_macro_axiom(left, right, attributes, valued, injector, converter);
+        return emit_macro_axiom(
+            left,
+            right,
+            attributes,
+            valued,
+            injector,
+            converter,
+            &sort_variables,
+        );
     }
     if !claim && !body_sort.is_builtin(BuiltinSort::GeneratedTopCell) {
         return Err(ModuleToKoreError::ExpectedGeneratedTopCell {
@@ -166,7 +178,7 @@ pub(super) fn emit_rule_or_claim(
             rule: body.to_string(),
         });
     }
-    let result_sort = encode_kore_sort(&body_sort);
+    let result_sort = converter.convert_sort(&body_sort);
     let left = converter.convert(left)?;
     let right = converter.convert(right)?;
     let requires = side_condition(requires, &result_sort, converter)?;
@@ -226,13 +238,13 @@ pub(super) fn emit_rule_or_claim(
     let attributes = emit_attributes(attributes.semantic_entries(), valued, &attribute_overrides);
     Ok(if claim {
         KoreSentence::Claim {
-            parameters: Vec::new(),
+            parameters: sort_variables.names().map(str::to_owned).collect(),
             pattern: Box::new(pattern),
             attributes,
         }
     } else {
         KoreSentence::Axiom {
-            parameters: Vec::new(),
+            parameters: sort_variables.names().map(str::to_owned).collect(),
             pattern: Box::new(pattern),
             attributes,
         }
@@ -246,9 +258,12 @@ fn emit_macro_axiom(
     valued: &BTreeSet<String>,
     injector: &SortInjector<'_, '_>,
     converter: &TermConverter<'_, '_>,
+    sort_variables: &SentenceSortVariables,
 ) -> Result<KoreSentence, ModuleToKoreError> {
-    let parameters = equation_parameters(attributes);
-    let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
+    let parameters = std::iter::once("R")
+        .chain(sort_variables.names())
+        .map(str::to_owned)
+        .collect();
     let result_sort = converter.convert_sort(&injector.term_sort(left, None)?);
     let pattern = Pattern::Equals {
         operand_sort: Box::new(result_sort),
@@ -444,14 +459,17 @@ fn emit_equation(
     injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
     owise_competitors: &mut OwiseCompetitors,
+    sort_variables: &SentenceSortVariables,
 ) -> Result<KoreSentence, ModuleToKoreError> {
-    let parameters = equation_parameters(attributes);
-    let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
+    let parameters = std::iter::once("R")
+        .chain(sort_variables.names())
+        .map(str::to_owned)
+        .collect();
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort);
     let avoid_variables = variable_names([left, requires]);
-    let requires = side_condition(requires, &predicate_sort, &converter)?;
-    let ensures = side_condition(ensures, &result_sort, &converter)?;
+    let requires = side_condition(requires, &predicate_sort, converter)?;
+    let ensures = side_condition(ensures, &result_sort, converter)?;
     let right = Pattern::And {
         sort: result_sort.clone(),
         arguments: vec![converter.convert(right)?, ensures],
@@ -468,12 +486,12 @@ fn emit_equation(
             requires,
             attributes,
             valued,
-            &converter,
+            converter,
             productions,
             injector,
             module_rules,
             owise_competitors,
-            parameters,
+            sort_variables,
             &avoid_variables,
         );
     }
@@ -567,9 +585,27 @@ fn emit_owise_equation(
     injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
     owise_competitors: &mut OwiseCompetitors,
-    parameters: Vec<String>,
+    sort_variables: &SentenceSortVariables,
     avoid_variables: &BTreeSet<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
+    owise_competitors.scan_once(module_rules, injector, productions);
+    let (candidates, failure) = owise_competitors.candidates(&equation);
+    // Each competitor's classified variables are predicate sorts, so equal names may share a
+    // binder without identifying symbol instances or term carriers.
+    let sort_variables = candidates
+        .iter()
+        .fold(sort_variables.clone(), |variables, &index| {
+            let (_, competitor_variables) = owise_competitors.injected[index]
+                .as_ref()
+                .expect("indexed competitors are injected rules");
+            variables.union(competitor_variables)
+        });
+    let parameters = std::iter::once("R")
+        .chain(sort_variables.names())
+        .map(str::to_owned)
+        .collect();
+    let converter = converter.with_sort_variables(&sort_variables);
+    let converter = &converter;
     // O1: bind one fresh KORE variable per argument and match the equation's own children.
     let predicate_sort = KoreSort::Variable("R".into());
     let result_sort = converter.convert_sort(&equation.result_sort);
@@ -582,25 +618,26 @@ fn emit_owise_equation(
         converter,
     )?;
 
-    // O2: reserve caller variables and allocate the per-module injection cache lazily.
+    // O2: reserve caller variables.
     let mut fresh = FreshNames::default();
     // Invariant: `fresh` has reserved every name of `avoid_variables` before `name`; each name is visited once.
     for name in avoid_variables {
         fresh.reserve(name.clone());
     }
     // O3: visit each executable same-signature competitor once in rule-catalog order.
-    owise_competitors.scan_once(module_rules, injector, productions);
-    let (candidates, failure) = owise_competitors.candidates(&equation);
     let mut competitors = Vec::new();
     // Invariant: `competitors` contains exactly the accepted rules before `index`, each with
     // refreshed variables.
     for &index in candidates {
         measure::bump(Counter::KompileOwiseCompetitorScans);
-        let Some(Sentence::Rule {
-            body,
-            requires: competitor_requires,
-            ..
-        }) = &owise_competitors.injected[index]
+        let Some((
+            Sentence::Rule {
+                body,
+                requires: competitor_requires,
+                ..
+            },
+            _,
+        )) = &owise_competitors.injected[index]
         else {
             unreachable!("indexed competitors are injected rules")
         };
@@ -730,7 +767,7 @@ fn emit_owise_equation(
 #[derive(Default)]
 pub(super) struct OwiseCompetitors {
     scanned: bool,
-    injected: Vec<Option<Sentence>>,
+    injected: Vec<Option<(Sentence, SentenceSortVariables)>>,
     by_signature: BTreeMap<(Label, Vec<Sort>), Vec<usize>>,
     failure: Option<ModuleToKoreError>,
 }
@@ -769,7 +806,7 @@ impl OwiseCompetitors {
         // executable equation, and no earlier rule failed.
         for (index, sentence) in module_rules.iter().enumerate() {
             measure::bump(Counter::KompileOwiseCompetitorScans);
-            let injected = match injector.inject_sentence(sentence) {
+            let (injected, sort_variables) = match injector.inject_sentence_bound(sentence) {
                 Ok(injected) => injected,
                 Err(error) => {
                     self.failure = Some(error.into());
@@ -802,7 +839,7 @@ impl OwiseCompetitors {
                 continue;
             }
             self.by_signature.entry(signature).or_default().push(index);
-            self.injected[index] = Some(injected);
+            self.injected[index] = Some((injected, sort_variables));
         }
     }
 }
@@ -1059,25 +1096,6 @@ fn visit_pattern_variables<'a>(pattern: &'a Pattern, visitor: &mut impl FnMut(&'
     }
 }
 
-fn equation_parameters(attributes: &KAttributes) -> Vec<String> {
-    let mut parameters = vec!["R".into()];
-    let Some(sort_parameters) = attributes
-        .value(AttributeKey::SortParams)
-        .and_then(Value::as_object)
-        .and_then(|sort| sort.get("params"))
-        .and_then(Value::as_array)
-    else {
-        return parameters;
-    };
-    parameters.extend(sort_parameters.iter().filter_map(|sort| {
-        sort.as_object()
-            .and_then(|sort| sort.get("name"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    }));
-    parameters
-}
-
 pub(super) fn substitute_equation_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
     substitution.get(sort).cloned().unwrap_or_else(|| {
         Sort::with_parameters(
@@ -1257,8 +1275,6 @@ mod tests {
             }),
         );
         let attributes = KAttributes::new(entries);
-        assert_eq!(equation_parameters(&attributes), ["R", "Q0", "Q1"]);
-
         let truth = Term::Token {
             token: "true".into(),
             sort: Sort::new("Bool"),
@@ -1275,6 +1291,123 @@ mod tests {
             emit_attributes(attributes.semantic_entries(), &valued, &BTreeMap::new()),
             Attributes::default()
         );
+    }
+
+    #[test]
+    fn owise_binds_predicate_sort_variables_from_its_selected_competitors() {
+        let parsed = crate::outer::parse(
+            "owise-predicate-sorts.k",
+            indoc! {r#"
+                module MAIN
+                  syntax Bool
+                  syntax Int ::= "f(" Int ")" [function, total, symbol(f)]
+                endmodule
+            "#},
+        )
+        .unwrap();
+        let definition = crate::outer::lower(&parsed, "MAIN").unwrap();
+        let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+        let catalog = resolved.production_catalog(resolved.main_module_id());
+        let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+        let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+        let int = Sort::new("Int");
+        let bool_sort = Sort::new("Bool");
+        let x = Term::Variable {
+            name: "X".into(),
+            sort: Some(int.clone()),
+        };
+        let left = Term::apply("f", vec![x.clone()]);
+        let predicate_at = |name| {
+            let variable = Sort::with_parameters("#SortParam", vec![Sort::new(name)]);
+            Term::Apply {
+                label: Label::with_parameters(
+                    InternalLabel::Equals.as_str(),
+                    vec![variable.clone(), bool_sort.clone()],
+                ),
+                arguments: vec![
+                    Term::Apply {
+                        label: Label::with_parameters(
+                            InternalLabel::Equals.as_str(),
+                            vec![int.clone(), variable.clone()],
+                        ),
+                        arguments: vec![x.clone(), x.clone()],
+                    },
+                    Term::Apply {
+                        label: Label::with_parameters(InternalLabel::Top.as_str(), vec![variable]),
+                        arguments: Vec::new(),
+                    },
+                ],
+            }
+        };
+        let requires = Term::Apply {
+            label: Label::with_parameters(InternalLabel::And.as_str(), vec![bool_sort.clone()]),
+            arguments: vec![predicate_at("Q1"), predicate_at("Q2")],
+        };
+        let unused_requires = predicate_at("Q9");
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        let competitor = |requires| Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(left.clone()),
+                right: Box::new(x.clone()),
+            },
+            requires,
+            ensures: truth.clone(),
+            attributes: KAttributes::default(),
+        };
+        let mut cache = OwiseCompetitors {
+            scanned: true,
+            injected: vec![
+                Some((
+                    competitor(requires.clone()),
+                    injector.sentence_sort_variables([&requires]).unwrap(),
+                )),
+                Some((
+                    competitor(unused_requires.clone()),
+                    injector
+                        .sentence_sort_variables([&unused_requires])
+                        .unwrap(),
+                )),
+            ],
+            by_signature: BTreeMap::from([((Label::new("f"), vec![int]), vec![0])]),
+            failure: None,
+        };
+        let attributes = KAttributes::default();
+        let equation = equation_info(&left, &attributes, &catalog)
+            .unwrap()
+            .unwrap();
+        let predicate_sort = KoreSort::Variable("R".into());
+        let emitted = emit_owise_equation(
+            equation,
+            converter.convert(&x).unwrap(),
+            Pattern::Top {
+                sort: predicate_sort,
+            },
+            &attributes,
+            &BTreeSet::new(),
+            &converter,
+            &catalog,
+            &injector,
+            &[],
+            &mut cache,
+            &SentenceSortVariables::default(),
+            &BTreeSet::from(["X".into()]),
+        )
+        .unwrap();
+        let KoreSentence::Axiom { parameters, .. } = &emitted else {
+            panic!("an owise equation must emit an axiom");
+        };
+        assert_eq!(parameters, &["R", "Q1", "Q2"]);
+        let kore = crate::kore::printer::Printer::pretty(100)
+            .print_sentence(&emitted)
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
+        assert!(kore.contains("\\equals{SortInt{},Q1}"), "{kore}");
+        assert!(kore.contains("\\equals{SortInt{},Q2}"), "{kore}");
+        assert!(!kore.contains("Sort'Hash'SortParam"), "{kore}");
     }
 
     #[test]
