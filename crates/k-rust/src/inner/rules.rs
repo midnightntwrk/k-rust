@@ -383,6 +383,9 @@ fn bubble_error(
         }
         | ParseError::Ambiguous {
             span: Some(span), ..
+        }
+        | ParseError::ProjectionCastWithoutProjection {
+            span: Some(span), ..
         } => Some(*span),
         ParseError::CyclicDerivation(cycle) => cycle.span,
         _ => None,
@@ -668,8 +671,9 @@ fn rule_grammar(
         universe
             .members()
             .filter(|member| rule_member_productions(member.role()).projection)
-            .filter(|member| !has_production_labeled(&Label::projection(member.sort()).name))
-            .map(|member| sort_projection_production(&member)),
+            .filter_map(|member| Label::projection(member.sort()).map(|label| (member, label)))
+            .filter(|(_, label)| !has_production_labeled(&label.name))
+            .map(|(member, label)| sort_projection_production(&member, label)),
     );
     parsing_sentences.extend(named_projection_productions(visible.iter().copied()));
     if !parsing_sentences
@@ -822,8 +826,7 @@ fn sort_predicate_production(sort: &GrammarSort) -> Sentence {
     }
 }
 
-fn sort_projection_production(sort: &GrammarSort) -> Sentence {
-    let label = Label::projection(sort.sort());
+fn sort_projection_production(sort: &GrammarSort, label: Label) -> Sentence {
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
     attributes.mark(AttributeKey::Projection);
@@ -1787,6 +1790,54 @@ endmodule
                 panic!("`{rule}` loads: {error}");
             }
         }
+    }
+
+    /// A definition's own production labelled `#OuterCast` reads its operand through the
+    /// projection into its result sort. With a numeral result there is no such projection, so a
+    /// use of it is a parse error at the use; with a defined result it lowers to `project:Foo`.
+    #[test]
+    fn a_definitions_own_projection_cast_to_a_sort_without_a_projection_does_not_parse() {
+        let source = |result: &str, rule: &str| {
+            format!(
+                r#"
+module MAIN
+  imports BOOL
+  syntax 8 ::= "eight"
+  syntax {result} ::= "{{" K "}}" "as{result}" [symbol(#OuterCast)]
+  syntax Foo ::= foo(8) | g(K) [function]
+  {rule}
+endmodule
+"#
+            )
+        };
+        let rejected = source("8", "rule g(X) => foo({X} as8)");
+        match try_load_with_prelude(&rejected) {
+            Ok(_) => panic!("`rule g(X) => foo({{X}} as8)` loads"),
+            Err(error) => {
+                let error = error.to_string();
+                assert!(
+                    error.starts_with("main.k:7:")
+                        && error.contains("could not parse rule")
+                        && error.contains(
+                            "projection cast to sort 8, which has no sort projection because no K term has sort 8"
+                        ),
+                    "{error}"
+                );
+            }
+        }
+
+        let accepted = load_with_prelude(&source("Foo", "rule g(X) => {X} asFoo"));
+        let mut projects = false;
+        for module in &accepted.definition().modules {
+            for sentence in &module.local_sentences {
+                if let Sentence::Rule { body, .. } = &**sentence {
+                    body.visit_preorder(&mut |term| {
+                        projects |= matches!(term, Term::Apply { label, .. } if label.name == "project:Foo");
+                    });
+                }
+            }
+        }
+        assert!(projects, "the rule body mentions project:Foo");
     }
 
     /// The configuration grammar offers the projection cast under the same condition, so a

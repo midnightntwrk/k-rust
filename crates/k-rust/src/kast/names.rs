@@ -353,9 +353,17 @@ impl Label {
         Self::new(format!("{SEMANTIC_CAST_PREFIX}{sort}"))
     }
 
-    /// `project:{sort}`.
-    pub fn projection(sort: &Sort) -> Self {
-        Self::new(format!("{PROJECTION_PREFIX}{sort}"))
+    /// `project:{sort}`, the label of the sort projection compilation generates for `sort`.
+    ///
+    /// `None` when the sort's role has no sort projection (`SortRole::has_sort_projection`):
+    /// no K term has such a sort, so no projection into it is ever declared. This is the only
+    /// constructor of a sort-projection label, so every site that would name one decides
+    /// what to do with such a sort. Whether a module's closure contains `sort` is not decided
+    /// here.
+    pub fn projection(sort: &Sort) -> Option<Self> {
+        sort.role()
+            .has_sort_projection()
+            .then(|| Self::new(format!("{PROJECTION_PREFIX}{sort}")))
     }
 
     /// `project:{label}:{field}`.
@@ -647,7 +655,7 @@ mod tests {
         );
         assert_eq!(Label::semantic_cast(&list).semantic_cast_sort(), Some(list));
         assert_eq!(
-            Label::projection(&int).generated(),
+            Label::projection(&int).as_ref().and_then(Label::generated),
             Some(GeneratedLabel::Projection { sort_text: "Int" })
         );
         assert_eq!(
@@ -672,6 +680,38 @@ mod tests {
             assert!(built.is(internal), "{internal:?}");
             assert_eq!(InternalLabel::of(&built.name), Some(internal));
             assert_eq!(built.generated(), None, "{internal:?}");
+        }
+    }
+
+    #[test]
+    fn a_sort_projection_label_exists_exactly_for_a_sort_with_a_sort_projection() {
+        for name in [
+            "8",
+            "Bag",
+            "Cell",
+            "KBott",
+            "KConfigVar",
+            "KLabel",
+            "KList",
+            "KString",
+            "#Layout",
+            "#SortParam",
+        ] {
+            assert_eq!(Label::projection(&Sort::new(name)), None, "{name}");
+        }
+        let mint = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        for (sort, expected) in [
+            (Sort::builtin(BuiltinSort::Int), "project:Int"),
+            (Sort::builtin(BuiltinSort::K), "project:K"),
+            (Sort::builtin(BuiltinSort::KItem), "project:KItem"),
+            (Sort::builtin(BuiltinSort::Bool), "project:Bool"),
+            (mint, "project:MInt{8}"),
+        ] {
+            assert_eq!(
+                Label::projection(&sort).map(|label| label.name),
+                Some(expected.to_owned()),
+                "{sort}"
+            );
         }
     }
 

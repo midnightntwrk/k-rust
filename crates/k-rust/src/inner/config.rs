@@ -168,6 +168,9 @@ fn bubble_error(
         }
         | ParseError::Ambiguous {
             span: Some(span), ..
+        }
+        | ParseError::ProjectionCastWithoutProjection {
+            span: Some(span), ..
         } => Some(*span),
         ParseError::CyclicDerivation(cycle) => cycle.span,
         _ => None,

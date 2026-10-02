@@ -328,14 +328,14 @@ impl Generator<'_, '_> {
             }
             Term::Token { sort, .. } => Ok(GeneratedNode {
                 child_sorts: vec![sort.clone()],
-                initializer: leaf_initializer(term),
+                initializer: self.leaf_initializer(term)?,
                 leaf: true,
                 initializer_takes_map: has_configuration_or_regular_variable(term),
             }),
             Term::Sequence(_) | Term::Variable { .. } | Term::InjectedLabel(_) => {
                 Ok(GeneratedNode {
                     child_sorts: vec![Sort::builtin(BuiltinSort::K)],
-                    initializer: leaf_initializer(term),
+                    initializer: self.leaf_initializer(term)?,
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
                 })
@@ -370,7 +370,7 @@ impl Generator<'_, '_> {
                 };
                 Ok(GeneratedNode {
                     child_sorts: vec![sort],
-                    initializer: leaf_initializer(term),
+                    initializer: self.leaf_initializer(term)?,
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
                 })
@@ -952,6 +952,16 @@ impl Generator<'_, '_> {
         }
     }
 
+    /// [`leaf_initializer`], reporting a configuration variable that cannot be initialized
+    /// as an error at this configuration.
+    fn leaf_initializer(&self, term: &Term) -> Result<Term, ConfigurationError> {
+        leaf_initializer(term).map_err(|UnprojectableConfigurationVariable { variable, sort }| {
+            self.error(format!(
+                "configuration variable `{variable}` is cast to sort `{sort}`, which has no sort projection: no K term has sort `{sort}`, so no initial value can be supplied"
+            ))
+        })
+    }
+
     fn error(&self, message: impl Into<String>) -> ConfigurationError {
         let source = self
             .attributes
@@ -1049,9 +1059,25 @@ fn has_configuration_or_regular_variable(term: &Term) -> bool {
     found
 }
 
-fn leaf_initializer(term: &Term) -> Term {
+/// A configuration variable whose initial value is read through the projection into the sort of
+/// its nearest enclosing semantic cast, where that sort has no sort projection.
+struct UnprojectableConfigurationVariable {
+    variable: String,
+    sort: Sort,
+}
+
+/// The initializer of a configuration leaf: every configuration variable is replaced by the
+/// projection of its entry in the initial map into the sort of its nearest enclosing semantic
+/// cast (`KItem` when there is none or the cast is to `K`).
+///
+/// Fails for a variable cast to a sort without a sort projection: no K term has that sort, so
+/// no value of the initial map can supply it.
+fn leaf_initializer(term: &Term) -> Result<Term, UnprojectableConfigurationVariable> {
     // Invariant: `sort` is the sort of the nearest enclosing semantic cast of `term`, or `None` at the root, and each recursive call rebuilds a strict subterm of `term`, so the size of `term` bounds the calls.
-    fn transform(term: &Term, sort: Option<&Sort>) -> Term {
+    fn transform(
+        term: &Term,
+        sort: Option<&Sort>,
+    ) -> Result<Term, UnprojectableConfigurationVariable> {
         let replaces_source_node = matches!(
             term.unannotated(),
             Term::Token { sort, .. } if sort.name == BuiltinSort::KConfigVar.k_name()
@@ -1065,8 +1091,14 @@ fn leaf_initializer(term: &Term) -> Term {
                     .filter(|sort| sort.name != BuiltinSort::K.k_name())
                     .cloned()
                     .unwrap_or_else(|| Sort::builtin(BuiltinSort::KItem));
+                let Some(label) = Label::projection(&project) else {
+                    return Err(UnprojectableConfigurationVariable {
+                        variable: token.clone(),
+                        sort: project,
+                    });
+                };
                 Term::Apply {
-                    label: Label::projection(&project),
+                    label,
                     arguments: vec![Term::apply(
                         "Map:lookup",
                         vec![
@@ -1086,20 +1118,23 @@ fn leaf_initializer(term: &Term) -> Term {
                     arguments: arguments
                         .iter()
                         .map(|argument| transform(argument, next_sort.as_ref().or(sort)))
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 }
             }
             Term::Rewrite { left, right } => Term::Rewrite {
-                left: Box::new(transform(left, sort)),
-                right: Box::new(transform(right, sort)),
+                left: Box::new(transform(left, sort)?),
+                right: Box::new(transform(right, sort)?),
             },
             Term::As { pattern, alias } => Term::As {
-                pattern: Box::new(transform(pattern, sort)),
-                alias: Box::new(transform(alias, sort)),
+                pattern: Box::new(transform(pattern, sort)?),
+                alias: Box::new(transform(alias, sort)?),
             },
-            Term::Sequence(items) => {
-                Term::Sequence(items.iter().map(|item| transform(item, sort)).collect())
-            }
+            Term::Sequence(items) => Term::Sequence(
+                items
+                    .iter()
+                    .map(|item| transform(item, sort))
+                    .collect::<Result<_, _>>()?,
+            ),
             _ => term.unannotated().clone(),
         };
         if let Some(metadata) = term.metadata() {
@@ -1111,9 +1146,9 @@ fn leaf_initializer(term: &Term) -> Term {
                 // its result sort during final sort-injection materialization.
                 metadata.sort = None;
             }
-            transformed.with_metadata(metadata)
+            Ok(transformed.with_metadata(metadata))
         } else {
-            transformed
+            Ok(transformed)
         }
     }
     transform(term, None)
@@ -1413,6 +1448,75 @@ mod tests {
             ("MAIN", index, "#configCell", std::slice::from_ref(&nat)),
             "{error}"
         );
+    }
+
+    fn configuration_location(definition: &Definition) -> Option<crate::definition::Location> {
+        definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Configuration { attributes, .. } => Some(attributes.location()),
+                _ => None,
+            })
+            .expect("the module has a configuration")
+    }
+
+    fn mentions_label(definition: &Definition, name: &str) -> bool {
+        let mut found = false;
+        for module in &definition.modules {
+            for sentence in &module.local_sentences {
+                if let Sentence::Rule { body, .. } = &**sentence {
+                    body.visit_preorder(&mut |term| {
+                        found |= matches!(term, Term::Apply { label, .. } if label.name == name);
+                    });
+                }
+            }
+        }
+        found
+    }
+
+    /// A configuration variable is initialized through the projection into the sort it is cast
+    /// to; a numeral has no K terms and so no projection, which expansion reports at the
+    /// configuration instead of naming a projection that compilation never declares.
+    #[test]
+    fn a_configuration_variable_cast_to_a_sort_without_a_projection_is_rejected() {
+        let definition = parsed(indoc! {r#"
+            module MAIN
+              syntax 8 ::= "eight"
+              syntax Foo ::= foo(8)
+              configuration <k> $PGM:8 </k>
+            endmodule
+        "#});
+        let error = expand_configurations(&definition)
+            .expect_err("a configuration variable cast to `8` has no initial value");
+        let ConfigurationError::Invalid {
+            module,
+            location,
+            message,
+            ..
+        } = &error
+        else {
+            panic!("{error}")
+        };
+        assert_eq!(module, "MAIN");
+        assert!(location.is_some(), "{error}");
+        assert_eq!(*location, configuration_location(&definition), "{error}");
+        assert!(
+            message.contains("`$PGM`") && message.contains("sort `8`"),
+            "{message}"
+        );
+
+        let control = parsed(indoc! {r#"
+            module MAIN
+              syntax 8 ::= "eight"
+              syntax Foo ::= foo(8)
+              configuration <k> $PGM:Foo </k>
+            endmodule
+        "#});
+        let expanded = expand_configurations(&control).expect("`$PGM:Foo` expands");
+        assert!(mentions_label(&expanded, "project:Foo"));
     }
 
     #[test]

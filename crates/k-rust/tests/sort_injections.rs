@@ -873,6 +873,34 @@ fn cast_of_a_k_sequence_to_an_incomparable_sort_is_rejected() {
     );
 }
 
+// Here `KConfigVar < KItem < K`, so a K sequence cast to `KConfigVar` is a downcast. No K term has
+// sort `KConfigVar` (a configuration variable is a placeholder that configuration expansion
+// replaces), so the sort has no projection and the downcast is rejected rather than lowered to
+// a `project:KConfigVar` that no definition declares.
+#[test]
+fn downcast_of_a_k_sequence_to_a_sort_without_a_projection_is_rejected() {
+    let definition = generate_sort_projections(&lowered(indoc! {r#"
+        module MAIN
+          syntax KItem ::= KConfigVar
+          syntax K ::= KItem
+        endmodule
+    "#}))
+    .expect("sort projections should generate");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let sequence = cast_to("KConfigVar", Term::Sequence(Vec::new()));
+
+    let error = injector
+        .inject(&sequence, &Sort::new("KConfigVar"))
+        .unwrap_err();
+
+    assert!(
+        matches!(&error, SortInjectionError::DowncastWithoutProjection(mismatch)
+            if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("KConfigVar")),
+        "{error}"
+    );
+}
+
 fn semantic_bound_definition(source: &str) -> ResolvedDefinition {
     ResolvedDefinition::resolve(&lowered(source)).unwrap()
 }

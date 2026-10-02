@@ -32,8 +32,8 @@ pub(crate) fn internal_labels(
     // term may mention them without a production for exactly those sorts.
     for sort in sorts.all_sorts() {
         labels.insert(Label::semantic_cast(sort).name);
-        if sort.role().has_sort_projection() {
-            labels.insert(Label::projection(sort).name);
+        if let Some(label) = Label::projection(sort) {
+            labels.insert(label.name);
         }
         if sort.role().has_sort_predicate() {
             labels.insert(Label::sort_predicate(sort).name);

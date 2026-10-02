@@ -328,6 +328,14 @@ pub enum ParseError {
     ListTerminator {
         possible_sorts: Vec<Sort>,
     },
+    /// A production labelled `#OuterCast` reads its operand as a term of its result sort
+    /// through that sort's projection, and the result sort has none: no K term has that sort.
+    /// Only a definition's own `#OuterCast` production can have such a result, because the
+    /// generated projection casts exist only for sorts with a sort projection.
+    ProjectionCastWithoutProjection {
+        sort: Sort,
+        span: Option<TermSpan>,
+    },
 }
 
 impl fmt::Display for ParseError {
@@ -556,6 +564,10 @@ impl fmt::Display for ParseError {
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
+            ),
+            Self::ProjectionCastWithoutProjection { sort, .. } => write!(
+                formatter,
+                "projection cast to sort {sort}, which has no sort projection because no K term has sort {sort}"
             ),
         }
     }
@@ -1760,9 +1772,17 @@ fn term_metadata(
     }
 }
 
-fn lower_term(production: &Production, children: &[Term]) -> Term {
+/// The term a completed production denotes over its lowered children.
+///
+/// Fails only for a production labelled `#OuterCast` whose result sort has no sort projection;
+/// `span` locates that diagnostic.
+fn lower_term(
+    production: &Production,
+    children: &[Term],
+    span: Option<TermSpan>,
+) -> Result<Term, ParseError> {
     if production.transparent || production.label.is_none() && children.len() == 1 {
-        return children[0].clone();
+        return Ok(children[0].clone());
     }
     let mut label = production
         .label
@@ -1770,11 +1790,15 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
         .unwrap_or_else(|| Label::new("#anonymous"));
     // The outer-cast label is parser-only: `{term}:>Sort` reads `term` as a term of the cast's
     // result sort, which is the sort projection of that sort. `add_casts` adds `#OuterCast`
-    // productions only for result sorts with a sort projection, so a generated production
-    // lowers to a declared `project:` label. A definition's own production labelled
-    // `#OuterCast` is not decided there and may still name an undeclared projection.
+    // productions only for result sorts with a sort projection; a definition's own production
+    // labelled `#OuterCast` may have any result, and one without a projection denotes nothing.
     if label.is(InternalLabel::OuterCast) {
-        label = Label::projection(&production.result);
+        label = Label::projection(&production.result).ok_or_else(|| {
+            ParseError::ProjectionCastWithoutProjection {
+                sort: production.result.clone(),
+                span,
+            }
+        })?;
     }
     if label.is(InternalLabel::KToken)
         && let [value, sort] = children
@@ -1785,9 +1809,9 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
         )
         && let Ok(sort) = crate::kast::parser::parse_sort_text(&sort)
     {
-        return Term::Token { token: value, sort };
+        return Ok(Term::Token { token: value, sort });
     }
-    match (InternalLabel::of(&label.name), children) {
+    Ok(match (InternalLabel::of(&label.name), children) {
         (Some(InternalLabel::EmptyK), []) => Term::Sequence(Vec::new()),
         (Some(InternalLabel::KSequence), items) => Term::sequence(items.iter().cloned()),
         (Some(InternalLabel::KRewrite), [left, right]) => Term::Rewrite {
@@ -1802,7 +1826,7 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
             label,
             arguments: children.to_vec(),
         },
-    }
+    })
 }
 
 fn kstring_token(term: &Term) -> Option<&str> {

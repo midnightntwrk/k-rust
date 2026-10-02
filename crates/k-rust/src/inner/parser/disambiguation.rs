@@ -1015,7 +1015,7 @@ impl Grammar {
                     .into_iter()
                     .map(|child| self.resolve_ambiguities_node(child))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(self.lower_production(production, None, children, metadata))
+                self.lower_production(production, None, children, metadata)
             }
             ParsedTerm::InstantiatedProduction {
                 production,
@@ -1027,7 +1027,7 @@ impl Grammar {
                     .into_iter()
                     .map(|child| self.resolve_ambiguities_node(child))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(self.lower_production(production, Some(&parameters), children, metadata))
+                self.lower_production(production, Some(&parameters), children, metadata)
             }
             ParsedTerm::Ambiguity(alternatives) => {
                 let parses = alternatives.iter().fold(0usize, |count, alternative| {
@@ -1071,18 +1071,20 @@ impl Grammar {
         parameters: Option<&[Sort]>,
         children: Vec<Term>,
         mut metadata: crate::kast::TermMetadata,
-    ) -> Term {
+    ) -> Result<Term, ParseError> {
         let production = &self.productions[production];
         metadata.production = production.source_production;
-        if let Some(parameters) = parameters {
+        let span = metadata.span;
+        let term = if let Some(parameters) = parameters {
             let mut instantiated = production.clone();
             if let Some(label) = &mut instantiated.label {
                 label.parameters = parameters.to_vec();
             }
-            lower_term(&instantiated, &children).with_metadata(metadata)
+            lower_term(&instantiated, &children, span)?
         } else {
-            lower_term(production, &children).with_metadata(metadata)
-        }
+            lower_term(production, &children, span)?
+        };
+        Ok(term.with_metadata(metadata))
     }
 
     fn reported_production(&self, term: &ParsedTerm) -> Option<String> {

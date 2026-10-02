@@ -254,10 +254,9 @@ pub(crate) fn generate_sort_projections_pass(
         // `sorts.all_sorts()` before `sort` whose role has a sort projection and whose projection
         // label is not in `defined_labels`; each iteration consumes one sort.
         for sort in sorts.all_sorts() {
-            if !sort.role().has_sort_projection() {
+            let Some(label) = Label::projection(sort) else {
                 continue;
-            }
-            let label = Label::projection(sort);
+            };
             if defined_labels.contains(&LabelHead::from(&label)) {
                 continue;
             }

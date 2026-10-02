@@ -97,6 +97,10 @@ pub enum SortInjectionError {
     /// (`found`) nor strictly below it, so the cast is neither an upcast (an injection) nor a
     /// downcast (a projection).
     IncomparableCast(Box<SortMismatch>),
+    /// A semantic cast whose target (`required`) is strictly below the operand's sort (`found`),
+    /// so it is a downcast, and whose target has no sort projection: no K term has that sort, so
+    /// no projection can read the operand as one.
+    DowncastWithoutProjection(Box<SortMismatch>),
     /// A parametric production whose arguments fit several incomparable least instantiations,
     /// so no instantiation fits them most tightly.
     AmbiguousInstance(Box<AmbiguousInstance>),
@@ -273,6 +277,11 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "semantic cast of {} to sort {} is not comparable with its sort {}: it is neither an upcast nor a downcast",
                 mismatch.term, mismatch.required, mismatch.found
+            ),
+            Self::DowncastWithoutProjection(mismatch) => write!(
+                formatter,
+                "semantic cast of {} to sort {} is a downcast from {}, and {} has no sort projection",
+                mismatch.term, mismatch.required, mismatch.found, mismatch.required
             ),
             Self::AmbiguousInstance(ambiguity) => {
                 let list = |sorts: &[Sort]| {
@@ -515,7 +524,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             .0)
     }
 
-    /// Infer a term's sort together with the downcast target the injector projects it to.
+    /// Infer a term's sort together with the projection the injector applies to it for a downcast.
     ///
     /// A semantic cast on an application or token whose target is at or above the selected
     /// production's result sort records the intended overload/context, not a replacement for that
@@ -523,7 +532,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// and an exact-sort cast needs nothing. A target strictly below the result sort is a
     /// downcast: the injector replaces the term by `project:<target>(term)`, whose declared result
     /// sort is `target`, so `target` is the sort of the term the sentence contains and the second
-    /// component is `Some(target)`. Every enclosing inference must see that sort.
+    /// component is `Some` of that projection's label. Every enclosing inference must see that
+    /// sort. A downcast to a sort without a sort projection is rejected as
+    /// [`SortInjectionError::DowncastWithoutProjection`]: no K term has that sort, so no
+    /// projection reads the operand as one.
     ///
     /// A cast `t:S` claims that `t` denotes an element of `S`. When `S` is neither at or above the
     /// sort of `t` nor strictly below it, no injection or projection realizes that claim, so the
@@ -536,7 +548,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         term: &Term,
         expected: Option<&Sort>,
         allow_trailing_arguments: bool,
-    ) -> Result<(Sort, Option<Sort>), SortInjectionError> {
+    ) -> Result<(Sort, Option<Label>), SortInjectionError> {
         let cast = term.metadata().and_then(|metadata| metadata.sort.as_ref());
         match (term.unannotated(), cast) {
             // A cast on a rewrite or an `as` pattern is the sort its sides are placed at: each
@@ -552,7 +564,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let natural = self.natural_sort(term, expected, allow_trailing_arguments)?;
         match cast {
             Some(target) if *target != natural && self.subsorts.less_than_eq(target, &natural) => {
-                Ok((target.clone(), Some(target.clone())))
+                match Label::projection(target) {
+                    Some(projection) => Ok((target.clone(), Some(projection))),
+                    None => Err(SortInjectionError::DowncastWithoutProjection(Box::new(
+                        SortMismatch {
+                            term: render_term(term),
+                            found: natural,
+                            required: target.clone(),
+                        },
+                    ))),
+                }
             }
             Some(target) if !self.below(&natural, target) && !self.below(target, &natural) => Err(
                 SortInjectionError::IncomparableCast(Box::new(SortMismatch {
@@ -748,8 +769,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
         let (actual, downcast) = self.sort_and_downcast(term, Some(expected), false)?;
-        if let Some(target) = downcast {
-            let projected = semantic_projection(term, &target);
+        if let Some(projection) = downcast {
+            let projected = semantic_projection(term, projection);
             return self.inject_with_position(&projected, expected, is_lhs);
         }
         if actual == *expected {
@@ -2004,11 +2025,11 @@ fn with_variable_sort(term: &Term, sort: &Sort) -> Term {
     }
 }
 
-/// Wrap a downcast term in the runtime projection generated for its cast target.
+/// Wrap a downcast term in `projection`, the runtime projection generated for its cast target.
 ///
 /// The argument keeps its metadata except the cast sort, so it sorts as its production's natural
 /// result sort and is not projected again.
-fn semantic_projection(term: &Term, target: &Sort) -> Term {
+fn semantic_projection(term: &Term, projection: Label) -> Term {
     let mut argument = term.clone().into_unannotated();
     if let Some(metadata) = term.metadata() {
         let mut metadata = metadata.clone();
@@ -2016,7 +2037,7 @@ fn semantic_projection(term: &Term, target: &Sort) -> Term {
         argument = argument.with_metadata(metadata);
     }
     Term::Apply {
-        label: Label::projection(target),
+        label: projection,
         arguments: vec![argument],
     }
 }

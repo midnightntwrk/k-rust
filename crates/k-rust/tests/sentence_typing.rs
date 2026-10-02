@@ -286,6 +286,29 @@ fn a_sentence_the_compiler_rejects_returns_the_same_error() {
         "{error}"
     );
 
+    // `KConfigVar < KItem` (BASIC-K), so `.K` cast to `KConfigVar` is a downcast into a sort
+    // without a sort projection.
+    let unprojectable = edited(
+        &loaded,
+        "TYPED.increment",
+        &[0, 1, 0],
+        Term::apply(
+            "#SemanticCastToKConfigVar",
+            vec![Term::Sequence(Vec::new())],
+        ),
+    );
+    let error = sentence_typing(loaded.resolved(), "TYPED", &unprojectable).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            SentenceTypingError::Sort {
+                error: SortInjectionError::DowncastWithoutProjection(mismatch),
+                ..
+            } if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("KConfigVar")
+        ),
+        "{error}"
+    );
+
     let conflicting = edited(
         &loaded,
         "TYPED.branch",
