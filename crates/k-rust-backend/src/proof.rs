@@ -45,7 +45,7 @@ use k_rust_kore::{
 
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
-    condition::{eliminate_bindings, instantiate_constraints},
+    condition::{MatchSolution, eliminate_bindings, instantiate_constraints},
     definedness::{ceil_term, pattern_knowledge},
     definition::BackendDefinition,
     fresh::fresh_name,
@@ -1369,7 +1369,7 @@ fn apply_claim(
         }
     };
     let (mut substitution, match_conditions) =
-        bind_subject_variables(definition, &claim, substitution, match_conditions);
+        bind_subject_variables(definition, &claim, substitution, match_conditions).into_parts();
     let simplification = SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
@@ -1613,12 +1613,16 @@ fn remainder_is_unsatisfiable(
 /// conditions on the subject, not part of the claim's instantiation: keep them as equalities
 /// (with the definedness of the bound value) and drop them from the substitution, as rule
 /// application does for configuration variables.
+/// The conditions leave under the remaining substitution of claim variables ([`MatchSolution`]):
+/// they were gathered while the unifier and the collection solver still bound claim variables,
+/// and the claim's right-hand side and requires are instantiated by that substitution, which
+/// uses its bindings up.
 fn bind_subject_variables(
     definition: &BackendDefinition,
     claim: &ReachabilityClaim,
     mut substitution: Substitution,
     mut conditions: Vec<crate::rule::Predicate>,
-) -> (Substitution, Vec<crate::rule::Predicate>) {
+) -> MatchSolution {
     let claim_variables = variables_of_claim(claim);
     let bound = substitution
         .iter()
@@ -1638,7 +1642,7 @@ fn bind_subject_variables(
             extend_unique(&mut conditions, ceil_term(definition, &value));
         }
     }
-    (substitution, conditions)
+    MatchSolution::from_parts(substitution, conditions)
 }
 
 fn variables_of_claim(claim: &ReachabilityClaim) -> BTreeSet<crate::term::Variable> {

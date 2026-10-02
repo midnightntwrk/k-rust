@@ -38,7 +38,10 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    condition::{Condition, InstantiatedCondition, Obligation, ResultConditions, RhsDefinedness},
+    condition::{
+        Condition, InstantiatedCondition, MatchSolution, Obligation, ResultConditions,
+        RhsDefinedness,
+    },
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
@@ -454,7 +457,7 @@ fn apply_rule_phases(
 ) -> Phase<RuleAttempt> {
     let (matching, mut inherited_conditions) = initial_match(context, matched);
     let (path_knowledge, mut inherited_knowledge) = knowledge(context, &inherited_conditions);
-    let (mut substitution, mut match_conditions) = dispatch_match(
+    let (substitution, match_conditions) = dispatch_match(
         context,
         fresh_counter,
         matching,
@@ -470,13 +473,14 @@ fn apply_rule_phases(
             },
         )));
     }
-    configuration_bindings(context, &mut substitution, &mut match_conditions);
-    let mut match_conditions = simplify_conditions(
+    let (substitution, conditions) = configuration_bindings(
         context,
+        substitution,
         inherited_conditions,
         match_conditions,
-        &path_knowledge,
-    )?;
+    )
+    .into_parts();
+    let mut match_conditions = simplify_conditions(context, conditions, &path_knowledge)?;
     definedness(
         context,
         &substitution,
@@ -911,11 +915,16 @@ fn recover_by_unification(
 
 /// P7: the substitution binds only `rule.lhs` variables afterwards; every binding of a subject
 /// variable became `Equals(variable, value)` plus `ceil(value)` among the match conditions.
+/// The inherited conditions, then the match conditions, leave under that substitution
+/// ([`MatchSolution`]): they were recorded while later recovery steps (a split strategy's match,
+/// the collection solver, unification, the freshening of unbound rule variables) still bound rule
+/// variables, and the attempt instantiates the rule by the substitution and uses its bindings up.
 fn configuration_bindings(
     context: RuleContext<'_>,
-    substitution: &mut Substitution,
-    match_conditions: &mut Vec<Predicate>,
-) {
+    mut substitution: Substitution,
+    mut inherited_conditions: Vec<Predicate>,
+    mut match_conditions: Vec<Predicate>,
+) -> MatchSolution {
     let configuration_bindings = substitution
         .iter()
         .filter(|(variable, _)| !context.rule.lhs.attributes().variables.contains(*variable))
@@ -932,22 +941,22 @@ fn configuration_bindings(
         if !match_conditions.contains(&condition) {
             match_conditions.push(condition);
         }
-        extend_unique(match_conditions, ceil_term(context.definition, &value));
+        extend_unique(&mut match_conditions, ceil_term(context.definition, &value));
     }
+    inherited_conditions.append(&mut match_conditions);
+    MatchSolution::from_parts(substitution, inherited_conditions)
 }
 
-/// P8: the inherited and match conditions simplified under the path; `False` ends the
-/// attempt; what remains are the `Unknown` conditions.
+/// P8: the conditions of P7 simplified under the path; `False` ends the attempt; what remains
+/// are the `Unknown` conditions.
 fn simplify_conditions(
     context: RuleContext<'_>,
-    mut inherited_conditions: Vec<Predicate>,
-    mut match_conditions: Vec<Predicate>,
+    conditions: Vec<Predicate>,
     path_knowledge: &[Predicate],
 ) -> Phase<Vec<Predicate>> {
-    inherited_conditions.append(&mut match_conditions);
-    let inherited_conditions = match simplify_predicates_with_solver(
+    let conditions = match simplify_predicates_with_solver(
         context.definition,
-        &inherited_conditions,
+        &conditions,
         path_knowledge,
         context.simplification_options,
         context.solver,
@@ -957,10 +966,10 @@ fn simplify_conditions(
             return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
-    if predicates_truth(&inherited_conditions) == Truth::False {
+    if predicates_truth(&conditions) == Truth::False {
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
-    Ok(inherited_conditions
+    Ok(conditions
         .into_iter()
         .filter(|condition| predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown)
         .collect::<Vec<_>>())

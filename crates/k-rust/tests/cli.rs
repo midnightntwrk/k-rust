@@ -5279,6 +5279,125 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
     }
 }
 
+/// A trusted lemma or rule records a condition over X, either a kept unifier equation or
+/// the definedness of a discarded partial argument, before the collection solver binds X
+/// from a set element. The application covers only instances where the condition holds of
+/// the bound value. Both lemmas are true; both main claims are false at A = 0. The rule's
+/// condition is c(B, A) = f(A).
+const LATER_BINDING_KEPT: &str = r#"
+module LEMMAKEPT
+  imports INT
+  imports SET
+  syntax Elem ::= a(Int) | b(Int)
+  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
+  configuration <k> $PGM:K </k>
+  rule <k> go(S) => run(5, S) ... </k>
+  rule <k> run(N, SetItem(a(X)) _S) => done(X) ... </k> requires N ==Int X +Int 1
+endmodule
+module LEMMAKEPT-SPEC
+  imports LEMMAKEPT
+  claim [lemma]: <k> run(X +Int 1, SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
+  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
+endmodule
+"#;
+
+const LATER_BINDING_RECOVERED: &str = r#"
+module LEMMADEF
+  imports INT
+  imports SET
+  syntax Elem ::= a(Int) | b(Int)
+  syntax KItem ::= go(Set) | run(Int, Set) | done(Int)
+  syntax Int ::= h(Int) [function, total]
+  configuration <k> $PGM:K </k>
+  rule h(_) => 7
+  rule <k> go(S) => run(7, S) ... </k>
+  rule <k> run(7, SetItem(a(X)) _S) => done(X) ... </k> requires X =/=Int 0
+endmodule
+module LEMMADEF-SPEC
+  imports LEMMADEF
+  claim [lemma]: <k> run(h(10 /Int X), SetItem(a(X)) SetItem(b(_Y))) => done(X) ... </k> [trusted]
+  claim [main]: <k> go(SetItem(a(A)) SetItem(b(_B))) => done(A) ... </k>
+endmodule
+"#;
+
+const LATER_BINDING_RULE: &str = r#"
+module RULESOLVED
+  imports INT
+  imports SET
+  syntax Elem ::= a(Int) | b(Int)
+  syntax Foo ::= c(Int, Int) | f(Int) [function, total]
+  syntax KItem ::= go(Int, Set) | foo(Int, Foo, Set) | bar(Int) | done()
+  configuration <k> $PGM:K </k>
+  rule <k> go(A, S) => foo(A, f(A), S) ... </k>
+  rule <k> foo(Y, c(X, Y), SetItem(a(X)) SetItem(b(_Z))) => bar(X) ... </k>
+endmodule
+module RULESOLVED-SPEC
+  imports RULESOLVED
+  claim [main]: <k> go(A, SetItem(a(B)) SetItem(b(C))) => done() ... </k>
+endmodule
+"#;
+
+#[test]
+fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
+    for (source, module) in [
+        (LATER_BINDING_KEPT, "LEMMAKEPT"),
+        (LATER_BINDING_RECOVERED, "LEMMADEF"),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                &format!("{module}-SPEC"),
+                "--definition-module",
+                module,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        assert!(!output.status.success(), "{module}: {stdout}");
+        assert!(
+            stdout.contains(&format!("claim {module}-SPEC.lemma: proven")),
+            "{module}: {stdout}"
+        );
+        assert!(
+            stdout.contains(&format!("claim {module}-SPEC.main: failed")),
+            "{module}: {stdout}"
+        );
+    }
+}
+
+#[test]
+fn kprove_rule_condition_over_a_later_binding_is_stated_under_it() {
+    let (root, definition) = fixture();
+    fs::write(&definition, LATER_BINDING_RULE).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "RULESOLVED-SPEC",
+            "--definition-module",
+            "RULESOLVED",
+            "--max-counterexamples",
+            "5",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    assert!(stdout.contains("RULESOLVED-SPEC.main: failed"), "{stdout}");
+    assert!(stdout.contains("Lblbar"), "{stdout}");
+    assert!(!stdout.contains("RuleVar"), "{stdout}");
+    assert!(!stdout.contains(r"\exists"), "{stdout}");
+}
+
 /// A condition over `10 /Int A`, written directly (`PLAIN`) or through the lambda a `#let`
 /// generates (`LET`).
 const LET_PARTIAL_CONDITION: &str = r#"

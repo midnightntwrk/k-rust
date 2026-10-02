@@ -302,6 +302,75 @@ pub(crate) fn eliminate_bindings(
     result
 }
 
+/// A substitution and the conditions a match or a unification found with it, each condition
+/// stated over the variables the substitution leaves free (N).
+///
+/// `(sigma, C)` denotes the bindings `x = sigma(x)` conjoined with `C`. Claim and rule application
+/// use `sigma` up: they instantiate the right-hand side and the `requires` by it and keep `C`
+/// without restating the bindings. That reads the pair correctly only when no condition mentions a
+/// variable `sigma` binds; a condition `phi(x)` recorded before a later step bound `x` to `t` would
+/// keep `x` free and mean `exists x. phi(x)` where the match needs `phi(t)`.
+///
+/// The fields are private: a value is built by [`MatchSolution::from_parts`], which applies the
+/// substitution to the conditions, and is taken apart only by [`MatchSolution::into_parts`]. For an
+/// element variable `x`, `x = t and phi(x)` is `x = t and phi(t)`, and the binding stays in the
+/// substitution, so no definedness is stated here; a consumer that drops a binding states it (I2).
+#[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct MatchSolution {
+    substitution: Substitution,
+    conditions: Vec<Predicate>,
+}
+
+impl MatchSolution {
+    /// `conditions` under `substitution`, in their order. Only a condition that mentions a variable
+    /// `substitution` binds is rewritten; without one, nothing is allocated.
+    pub(crate) fn from_parts(substitution: Substitution, conditions: Vec<Predicate>) -> Self {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "match conditions under the substitution they leave with: for an element variable x, x = t and phi(x) is x = t and phi(t), and the binding stays in the substitution"
+        )]
+        let conditions = if conditions
+            .iter()
+            .any(|condition| mentions_bound_variable(condition, &substitution))
+        {
+            substitute_predicates(&conditions, &substitution)
+        } else {
+            conditions
+        };
+        Self {
+            substitution,
+            conditions,
+        }
+    }
+
+    /// The substitution and its conditions. In debug builds this checks N; a condition that still
+    /// mentions a bound variable means the substitution was not idempotent.
+    pub(crate) fn into_parts(self) -> (Substitution, Vec<Predicate>) {
+        debug_assert!(
+            !self.conditions.iter().any(|condition| condition
+                .free_variables()
+                .iter()
+                .any(|variable| self.substitution.contains_key(variable))),
+            "a match condition mentions a variable its substitution binds: {self:?}"
+        );
+        (self.substitution, self.conditions)
+    }
+}
+
+/// Whether a term of `predicate` has a variable `substitution` binds. Bound occurrences count too;
+/// they only make the substitution a no-op there.
+fn mentions_bound_variable(predicate: &Predicate, substitution: &Substitution) -> bool {
+    let mut found = false;
+    predicate.visit_terms(&mut |term| {
+        found |= term
+            .attributes()
+            .variables
+            .iter()
+            .any(|variable| substitution.contains_key(variable));
+    });
+    found
+}
+
 /// The instance of an equation's left-hand side under its match (I1, I2): the equation's
 /// `requires` under the match, and what the equation's use needs once that is decided.
 ///
@@ -744,6 +813,25 @@ mod tests {
             .obligations()
             .map(Obligation::into_predicate)
             .collect()
+    }
+
+    #[test]
+    fn a_match_solution_states_its_conditions_under_its_substitution() {
+        let sort = Sort::simple("SortInt");
+        let x = Variable::new("X", sort.clone());
+        let a = Term::variable(Variable::new("A", sort.clone()));
+        let b = Term::variable(Variable::new("B", sort));
+        let substitution = Substitution::from([(x.clone(), b.clone())]);
+        let (kept, conditions) = MatchSolution::from_parts(
+            substitution.clone(),
+            vec![
+                Predicate::Equals(Term::variable(x), a.clone()),
+                atom("Free"),
+            ],
+        )
+        .into_parts();
+        assert_eq!(kept, substitution);
+        assert_eq!(conditions, [Predicate::Equals(b, a), atom("Free")]);
     }
 
     #[test]
