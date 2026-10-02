@@ -34,10 +34,7 @@ use crate::{
     definition::{
         AttributeKey, CheckMode, Definition, FlatModule, ResolvedDefinition, Sentence,
         StructuralCheckBackend, StructuralCheckOptions,
-        checks::{
-            check_definition_with_options, check_singleton_overloads,
-            reject_label_parameters_in_definition,
-        },
+        checks::{check_definition_with_options, check_singleton_overloads},
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     kast::{GeneratedLabel, Sort, Term},
@@ -740,8 +737,8 @@ fn transform_loaded_definition(
         "LoadedDefinition::resolved is not the resolution of LoadedDefinition::definition"
     );
     debug_assert!(
-        reject_label_parameters_in_definition(loaded.definition()).is_ok(),
-        "a LoadedDefinition carries a written label parameter"
+        loaded.check_stage().is_ok(),
+        "a LoadedDefinition is not at the loaded stage"
     );
     // Every sentence the caller handed over is an input sentence: give each one its address in
     // `loaded.definition()` before any pass moves, merges, or derives from it. Only the

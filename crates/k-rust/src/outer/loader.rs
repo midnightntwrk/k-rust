@@ -197,6 +197,18 @@ pub enum LoadError {
         module: String,
         sentence: usize,
     },
+    /// A [`Sentence::Bubble`] in a definition at the loaded stage: text that no inner parser
+    /// read, so it denotes no sentence. `sentence` is its index among the module's local
+    /// sentences of the checked definition: `parts.definition` for
+    /// [`LoadedDefinition::from_loaded_parts`], the loaded definition on a loader route.
+    /// `source` and `location` are the bubble's own source attributes.
+    UnparsedBubble {
+        module: String,
+        sentence: usize,
+        sentence_type: String,
+        source: Option<String>,
+        location: Option<Location>,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -283,6 +295,27 @@ impl fmt::Display for LoadError {
                 formatter,
                 "sentence {sentence} of module {module:?} is an unexpanded configuration; a loaded definition has its configurations expanded, so load a structured definition with load_structured"
             ),
+            Self::UnparsedBubble {
+                module,
+                sentence,
+                sentence_type,
+                source,
+                location,
+            } => {
+                match (source, location) {
+                    (Some(source), Some(location)) => write!(
+                        formatter,
+                        "{source}:{}:{}: ",
+                        location.start_line, location.start_column
+                    )?,
+                    (Some(source), None) => write!(formatter, "{source}: ")?,
+                    _ => {}
+                }
+                write!(
+                    formatter,
+                    "sentence {sentence} of module {module:?} is an unparsed {sentence_type:?} bubble; a loaded definition has every bubble parsed, and the loader parses only config, rule, claim, context and alias bubbles"
+                )
+            }
         }
     }
 }
@@ -294,12 +327,14 @@ impl Error for LoadError {}
 /// Every value satisfies, by construction:
 /// - [`resolved()`](Self::resolved) is the resolution of [`definition()`](Self::definition);
 /// - `definition()` has no [`Sentence::Configuration`]: configuration expansion has run;
+/// - `definition()` has no [`Sentence::Bubble`]: every bubble has been parsed;
 /// - no rule-like sentence carries a label with a written sort parameter;
 /// - [`addressing()`](Self::addressing) names the input space of the sentences' input addresses.
 ///
 /// The loader routes ([`load`], [`load_structured`] and their variants) and
-/// [`from_loaded_parts`](Self::from_loaded_parts) are the only constructors, so compilation
-/// receives no value that a caller assembled without these facts. A struct literal is rejected:
+/// [`from_loaded_parts`](Self::from_loaded_parts) are the only constructors, and every one of
+/// them runs the same stage check in one constructor body, so compilation receives no value that
+/// a caller assembled without these facts. A struct literal is rejected:
 ///
 /// ```compile_fail,E0451
 /// # use k_rust::{definition::{Definition, ResolvedDefinition}, outer::LoadedDefinition};
@@ -360,7 +395,8 @@ pub struct LoadedParts {
     /// Parsed files in dependency-first `requires` order.
     pub files: Vec<SourceFile>,
     pub source_table: SourceTable,
-    /// A definition at the loaded stage: configurations expanded, no written label parameter.
+    /// A definition at the loaded stage: configurations expanded, bubbles parsed, no written
+    /// label parameter.
     pub definition: Definition,
     /// Load-time warnings retained by the selected diagnostic policy.
     pub diagnostics: Vec<Diagnostic>,
@@ -372,9 +408,11 @@ impl LoadedDefinition {
     ///
     /// Rejects a [`Sentence::Configuration`] with [`LoadError::UnexpandedConfiguration`]: the
     /// constructor does not expand, and a structured definition with a configuration goes
-    /// through [`load_structured`], which does. Rejects a label with a written sort parameter
-    /// with [`LoadError::LabelParameters`]. Then resolves the definition. The addressing is
-    /// [`InputAddressing::Compile`]: the parts are not the unedited result of
+    /// through [`load_structured`], which does. Rejects a [`Sentence::Bubble`] with
+    /// [`LoadError::UnparsedBubble`]: the constructor does not parse, and a definition with
+    /// unparsed text goes through [`load_structured`], which does. Rejects a label with a written
+    /// sort parameter with [`LoadError::LabelParameters`]. Then resolves the definition. The
+    /// addressing is [`InputAddressing::Compile`]: the parts are not the unedited result of
     /// [`load_structured`], so compilation addresses each sentence by its position in
     /// `parts.definition`.
     ///
@@ -410,25 +448,79 @@ impl LoadedDefinition {
     ///     LoadError::UnexpandedConfiguration { module: "MAIN".into(), sentence: 0 }
     /// );
     /// ```
+    ///
+    /// A configuration still in text form is a bubble, one stage earlier, and is rejected too:
+    ///
+    /// ```
+    /// # use k_rust::{definition::{Definition, FlatModule, Sentence},
+    /// #     outer::{LoadError, LoadedDefinition, LoadedParts}};
+    /// # use std::sync::Arc;
+    /// let bubble = Sentence::Bubble {
+    ///     sentence_type: "config".into(),
+    ///     contents: "<k> $PGM:K </k>".into(),
+    ///     attributes: Default::default(),
+    /// };
+    /// let module = FlatModule {
+    ///     name: "MAIN".into(),
+    ///     imports: Vec::new(),
+    ///     local_sentences: vec![Arc::new(bubble)],
+    ///     attributes: Default::default(),
+    /// };
+    /// let definition = Definition {
+    ///     main_module: "MAIN".into(),
+    ///     modules: vec![module],
+    ///     attributes: Default::default(),
+    /// };
+    /// let error = LoadedDefinition::from_loaded_parts(LoadedParts {
+    ///     files: Vec::new(),
+    ///     source_table: Default::default(),
+    ///     definition,
+    ///     diagnostics: Vec::new(),
+    /// })
+    /// .unwrap_err();
+    /// assert_eq!(
+    ///     error,
+    ///     LoadError::UnparsedBubble {
+    ///         module: "MAIN".into(),
+    ///         sentence: 0,
+    ///         sentence_type: "config".into(),
+    ///         source: None,
+    ///         location: None,
+    ///     }
+    /// );
+    /// ```
     pub fn from_loaded_parts(parts: LoadedParts) -> Result<Self, LoadError> {
-        let LoadedParts {
-            files,
-            source_table,
-            definition,
-            diagnostics,
-        } = parts;
-        reject_unexpanded_configurations(&definition)?;
-        reject_label_parameters(&definition)?;
-        let resolved =
-            ResolvedDefinition::resolve(&definition).map_err(LoadError::DefinitionResolution)?;
+        Self::at_loaded_stage(parts, None)
+    }
+
+    /// The one constructor body: it holds the only struct literal of `LoadedDefinition`, and
+    /// every route ends here. It decides the sentence-level facts of the loaded stage
+    /// (`check_loaded_sentences`) before resolving, then resolves `parts.definition` unless the
+    /// caller passes the resolution it already computed of exactly that definition.
+    fn at_loaded_stage(
+        parts: LoadedParts,
+        resolved: Option<ResolvedDefinition>,
+    ) -> Result<Self, LoadError> {
+        check_loaded_sentences(&parts.definition)?;
+        let resolved = match resolved {
+            Some(resolved) => resolved,
+            None => ResolvedDefinition::resolve(&parts.definition)
+                .map_err(LoadError::DefinitionResolution)?,
+        };
         Ok(Self {
-            files,
-            source_table,
-            definition,
+            files: parts.files,
+            source_table: parts.source_table,
+            definition: parts.definition,
             resolved,
-            diagnostics,
+            diagnostics: parts.diagnostics,
             addressing: InputAddressing::Compile,
         })
+    }
+
+    /// The sentence-level stage facts of this value, decided again; compile entry asserts them
+    /// in debug builds.
+    pub(crate) fn check_stage(&self) -> Result<(), LoadError> {
+        check_loaded_sentences(&self.definition)
     }
 
     /// [`from_loaded_parts`](Self::from_loaded_parts) of `definition` with this value's files,
@@ -493,22 +585,52 @@ impl LoadedDefinition {
     }
 }
 
-/// Reject the first [`Sentence::Configuration`] of `definition`: a loaded definition has its
-/// configurations expanded into cell syntax and initializer rules.
-fn reject_unexpanded_configurations(definition: &Definition) -> Result<(), LoadError> {
+/// The sentence-level facts of the loaded stage, decided once for every constructor.
+///
+/// A [`Sentence::Configuration`] has not been expanded into cell syntax and initializer rules,
+/// and a [`Sentence::Bubble`] is text that no inner parser read: neither denotes what the
+/// compile passes and KORE emission are defined on, which skip both, so either would vanish from
+/// the compiled definition. Every other variant is a parsed sentence. The match names every
+/// variant, so a new one does not compile until the loaded stage decides on it. Then rejects a
+/// written label parameter.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn check_loaded_sentences(definition: &Definition) -> Result<(), LoadError> {
     for module in &definition.modules {
-        if let Some(sentence) = module
-            .local_sentences
-            .iter()
-            .position(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
-        {
-            return Err(LoadError::UnexpandedConfiguration {
-                module: module.name.clone(),
-                sentence,
-            });
+        for (index, sentence) in module.local_sentences.iter().enumerate() {
+            match &**sentence {
+                Sentence::Configuration { .. } => {
+                    return Err(LoadError::UnexpandedConfiguration {
+                        module: module.name.clone(),
+                        sentence: index,
+                    });
+                }
+                Sentence::Bubble {
+                    sentence_type,
+                    attributes,
+                    ..
+                } => {
+                    return Err(LoadError::UnparsedBubble {
+                        module: module.name.clone(),
+                        sentence: index,
+                        sentence_type: sentence_type.clone(),
+                        source: attributes.source().map(str::to_owned),
+                        location: attributes.location(),
+                    });
+                }
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. } => {}
+            }
         }
     }
-    Ok(())
+    reject_label_parameters(definition)
 }
 
 /// Reject the first rule-like sentence of `definition` whose label carries a written sort
@@ -970,20 +1092,19 @@ fn finish_load(
     {
         return Err(LoadError::SourceDiagnostics(diagnostics));
     }
-    // Configuration expansion moves configuration content into generated rules; the walk covers
-    // those rules and every authored rule-like sentence, so no route yields a written parameter.
-    reject_label_parameters(&definition)?;
-    Ok((
-        LoadedDefinition {
+    // Configuration expansion moves configuration content into generated rules; the stage check
+    // walks those rules as well as every authored sentence, so no route yields a written label
+    // parameter or a bubble that neither parsing phase read.
+    let loaded = LoadedDefinition::at_loaded_stage(
+        LoadedParts {
             files,
             source_table,
             definition,
-            resolved,
             diagnostics,
-            addressing: InputAddressing::Compile,
         },
-        syntax_module,
-    ))
+        Some(resolved),
+    )?;
+    Ok((loaded, syntax_module))
 }
 
 fn remove_temporary_cell_sort_declarations(definition: &mut Definition) {
