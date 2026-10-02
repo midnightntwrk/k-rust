@@ -49,8 +49,10 @@
 //! whose subject or target has a term that is not ceil_free also computes the subject's \
 //! pattern_knowledge (condition_definedness of its constraints and ceil_term of its term) and \
 //! condition_definedness of the instantiated target constraints, and the knowledge members not \
-//! among the subject's constraints join the simplification and the is_sat query, while a \
-//! ceil_free subject and target cost one stored-attribute read per term"""
+//! among the subject's constraints are simplified once on their own (a member simplified to \
+//! bottom ends the match with no match) before they join the simplification and the is_sat \
+//! query as known facts, while a ceil_free subject and target cost one stored-attribute read \
+//! per term"""
 //! ```
 //!
 //! ```toml algorithm
@@ -84,17 +86,14 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{
-    borrow::Cow,
-    collections::{BTreeSet, HashSet, VecDeque},
-};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
     condition::{eliminate_bindings, instantiate_constraints},
-    definedness::pattern_knowledge,
+    definedness::{FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -504,6 +503,9 @@ impl PatternPathSearchResult {
 }
 
 /// Match a constrained pattern against each alternative in a disjunction.
+///
+/// An alternative with no instance by its own definedness (a partial subterm of its term, or an
+/// obligation of its constraints, that is false) has no match.
 ///
 /// The result has two layers: the outer `Err` is a [`Stop`], for which no match was decided; the
 /// inner result is the matches, or why one of them could not be decided.
@@ -2302,7 +2304,7 @@ fn match_pattern_with_variables(
     // condition, not reported in it: it holds on every instance of the subject, which the
     // match's state carries. The subject's constraints themselves travel in the condition, and
     // so does a fact that an equation of the target rewrites (`normalize_match_condition`).
-    let facts = subject_facts(subject_knowledge, &subject.constraints);
+    let facts = knowledge_facts(subject_knowledge, &subject.constraints);
     let (substitution, constraints, facts) = normalize_match_condition(
         definition,
         substitution,
@@ -2311,24 +2313,40 @@ fn match_pattern_with_variables(
         facts,
         output_variables,
     );
-    let constraints =
-        match simplify_predicates_with_solver(definition, &constraints, &facts, options, solver)? {
-            Ok(constraints) => constraints,
-            Err(error) => return Ok(Err(PatternMatchError::Simplification(error))),
-        };
+    // A match reports that an instance exists, so the facts are decided before they are taken as
+    // known (I7'): a refuted fact means the subject has no instance, and so no instance of it
+    // matches. An undecided fact stays a fact about the subject, not a condition of the match.
+    // Only the decided residual is assumed, which leaves the condition's meaning on the subject's
+    // instances unchanged: `F' ∧ simplify(C | F')` is `F' ∧ C`.
+    let facts = match facts.decide(definition, options, solver)? {
+        FactsVerdict::Refuted => return Ok(Ok(None)),
+        FactsVerdict::NotRefuted(facts) => facts,
+    };
+    let constraints = match simplify_predicates_with_solver(
+        definition,
+        &constraints,
+        facts.as_known(),
+        options,
+        solver,
+    )? {
+        Ok(constraints) => constraints,
+        Err(error) => return Ok(Err(PatternMatchError::Simplification(error))),
+    };
     match predicates_truth(&constraints) {
         Truth::False => return Ok(Ok(None)),
         Truth::True => {}
         Truth::Unknown if retain_unknown => {}
         // A stop leaves the match without an answer; it is returned, never read as a match.
-        Truth::Unknown => match is_sat_with_facts(solver, &facts, &constraints, &substitution)? {
-            Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
-            Ok(Satisfiability::Sat) => {}
-            Ok(Satisfiability::Unknown(reason)) => {
-                return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+        Truth::Unknown => {
+            match is_sat_with_facts(solver, facts.as_known(), &constraints, &substitution)? {
+                Ok(Satisfiability::Unsat) => return Ok(Ok(None)),
+                Ok(Satisfiability::Sat) => {}
+                Ok(Satisfiability::Unknown(reason)) => {
+                    return Ok(Err(PatternMatchError::Smt(SmtError::Unknown(reason))));
+                }
+                Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
             }
-            Err(error) => return Ok(Err(PatternMatchError::Smt(error))),
-        },
+        }
     }
 
     Ok(Ok(Some(PatternMatch {
@@ -2352,29 +2370,15 @@ fn is_sat_with_facts(
     solver.is_sat(&query, substitution)
 }
 
-/// The members of a subject's `pattern_knowledge` that are not among its constraints.
-fn subject_facts(knowledge: Cow<'_, [Predicate]>, constraints: &[Predicate]) -> Vec<Predicate> {
-    match knowledge {
-        // The knowledge of a `ceil_free` subject is its constraints themselves.
-        Cow::Borrowed(_) => Vec::new(),
-        Cow::Owned(knowledge) => {
-            let constraints = constraints.iter().collect::<HashSet<_>>();
-            knowledge
-                .into_iter()
-                .filter(|fact| !constraints.contains(fact))
-                .collect()
-        }
-    }
-}
-
 /// Solve the match condition's equalities `x = t` for a variable `x`, eliminating each binding
 /// from the remaining constraints with its definedness kept (I2): an element variable denotes a
 /// defined element, so `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`.
 ///
 /// The condition is a predicate over the instances of the state; its first `state_constraints`
 /// constraints are the state's own, and `facts` are further predicates that hold on every
-/// instance of the state. The decision is on `facts ∧ constraints`, and the facts are passed to
-/// the caller as known, so a predicate stays among them only while it holds on every instance:
+/// instance of the state. The returned facts are undecided: the caller decides them (I7',
+/// [`UndecidedFacts::decide`]) before it takes them as known while it decides the returned
+/// constraints, so a predicate stays among them only while it holds on every instance:
 ///
 /// - An equation that holds on every instance (one of the state's own constraints, or one
 ///   derived from them by such equations) leaves that set unchanged when it is eliminated:
@@ -2387,7 +2391,9 @@ fn subject_facts(knowledge: Cow<'_, [Predicate]>, constraints: &[Predicate]) -> 
 ///   condition, decided and reported like the other obligations. A fact that does not mention
 ///   `x` is unchanged and stays known, as does every constraint's status that `x` leaves alone.
 ///
-/// An obligation `⌈t⌉` is omitted only where the remaining facts, or the constraints, hold it.
+/// An obligation `⌈t⌉` is omitted only where the remaining facts, or the constraints, hold it. An
+/// obligation omitted because a fact holds it is a member of the returned facts, so it is decided
+/// with that fact.
 fn normalize_match_condition(
     definition: &BackendDefinition,
     output: Substitution,
@@ -2395,7 +2401,7 @@ fn normalize_match_condition(
     state_constraints: usize,
     mut facts: Vec<Predicate>,
     output_variables: &BTreeSet<crate::term::Variable>,
-) -> (Substitution, Vec<Predicate>, Vec<Predicate>) {
+) -> (Substitution, Vec<Predicate>, UndecidedFacts) {
     let _span = measure::algorithm_span(Algorithm::BackendSubstitutionExtractOutput);
     let mut solved = Substitution::new();
     // `on_every_instance[i]`: constraint `i` holds on every instance of the state.
@@ -2477,7 +2483,7 @@ fn normalize_match_condition(
     // value is `s[t/x]` for bindings `y ↦ s` and `x ↦ t`, whose definedness `⌈s⌉[t/x] ∧ ⌈t⌉`
     // is among the constraints or the facts. No constraint mentions a solved variable, so
     // `solved` is not applied to them again.
-    (output, constraints, facts)
+    (output, constraints, UndecidedFacts::new(facts))
 }
 
 /// Whether a term of `predicate` has `variable` free.
@@ -5054,9 +5060,12 @@ mod tests {
     /// A definition with a partial `divInt` (no `total` attribute, no ceil equation) and a
     /// partial uninterpreted `g` (no `total` attribute, no equation).
     fn partial_target_definition() -> BackendDefinition {
-        let syntax = parse_definition(
-            r#"[]
-            module MAIN
+        partial_target_definition_with("")
+    }
+
+    /// `partial_target_definition` with `declarations` added to its module.
+    fn partial_target_definition_with(declarations: &str) -> BackendDefinition {
+        const SENTENCES: &str = r#"
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
                 sort SortState{} []
@@ -5067,9 +5076,10 @@ mod tests {
                     [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
                 hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
-                symbol g{}(SortInt{}) : SortInt{} [function{}()]
-            endmodule []"#,
-        )
+                symbol g{}(SortInt{}) : SortInt{} [function{}()]"#;
+        let syntax = parse_definition(&format!(
+            "[]\nmodule MAIN{SENTENCES}\n{declarations}\nendmodule []"
+        ))
         .expect("definition should parse");
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
@@ -5397,5 +5407,183 @@ mod tests {
         let definition = partial_target_definition();
         let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
         assert_the_divisor_cannot_be_zero(&definition, false, Some(&solver));
+    }
+
+    /// `partial_target_definition` with `neInt` and the simplification axiom
+    /// `⌈divInt(I1, I2)⌉ = (neInt(I2, 0) = true)`: `divInt` is defined exactly where its divisor
+    /// is not zero.
+    fn ceil_axiom_definition() -> BackendDefinition {
+        partial_target_definition_with(
+            r#"hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+                    \ceil{SortInt{}, R}(divInt{}(I1:SortInt{}, I2:SortInt{})),
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            neInt{}(I2:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")),
+                        \top{R}())))
+                    [label{}("ceil-div"), simplification{}()]"#,
+        )
+    }
+
+    fn pair_target(definition: &BackendDefinition) -> Pattern {
+        pattern(definition, r#"pair{}(A:SortInt{}, B:SortInt{})"#)
+    }
+
+    /// The subject `pair(X, X /Int 0)`, which has no instance under `ceil_axiom_definition`.
+    fn zero_divisor_subject(definition: &BackendDefinition) -> Pattern {
+        pattern(
+            definition,
+            r#"pair{}(X:SortInt{}, divInt{}(X:SortInt{}, \dv{SortInt{}}("0")))"#,
+        )
+    }
+
+    /// Matches of `subject` against `target` through `match_disjunction` and through
+    /// `match_disjunction_with_solver` without a solver, in that order.
+    fn matches_with_and_without_retention(
+        definition: &BackendDefinition,
+        target: &Pattern,
+        subject: &Pattern,
+    ) -> [Vec<PatternMatch>; 2] {
+        let retained = match_disjunction(definition, target, std::slice::from_ref(subject))
+            .expect("no stop is armed")
+            .expect("the match should be computed");
+        let decided = match_disjunction_with_solver(
+            definition,
+            target,
+            std::slice::from_ref(subject),
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop is armed")
+        .expect("the match should be decided without a solver");
+        [retained, decided]
+    }
+
+    /// `pair(X, X /Int 0)` denotes `⌈X /Int 0⌉ ∧ pair(X, X /Int 0)`, and the ceil axiom makes
+    /// `⌈X /Int 0⌉` the false `0 =/=Int 0`: the subject has no instance, so none matches (I7').
+    #[test]
+    fn a_state_empty_by_its_term_definedness_does_not_match() {
+        let definition = ceil_axiom_definition();
+        let target = pair_target(&definition);
+        let subject = zero_divisor_subject(&definition);
+        for matches in matches_with_and_without_retention(&definition, &target, &subject) {
+            assert!(matches.is_empty(), "{matches:#?}");
+        }
+    }
+
+    /// `10 /Int 0` evaluates to `\bottom`, so `⌈10 /Int 0⌉` is false without any ceil axiom and
+    /// `pair(X, 10 /Int 0)` has no instance to match.
+    #[test]
+    fn a_ground_undefined_subterm_empties_the_state() {
+        let definition = partial_target_definition();
+        let target = pair_target(&definition);
+        let subject = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), \dv{SortInt{}}("0")))"#,
+        );
+        for matches in matches_with_and_without_retention(&definition, &target, &subject) {
+            assert!(matches.is_empty(), "{matches:#?}");
+        }
+    }
+
+    /// The subject `pair(X, X /Int 0) ∧ ⌈X /Int 0⌉`: its term's fact (the ceil axiom's instance,
+    /// false) is decided before it is assumed, so it cannot hold the constraint `⌈X /Int 0⌉` that
+    /// it refutes, and the subject does not match.
+    #[test]
+    fn a_refuted_state_fact_is_not_assumed_for_its_constraints() {
+        let definition = ceil_axiom_definition();
+        let target = pair_target(&definition);
+        let mut subject = zero_divisor_subject(&definition);
+        subject.constraints.push(Predicate::Ceil(
+            pattern(&definition, r#"divInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#).term,
+        ));
+        let matches = match_disjunction(&definition, &target, &[subject])
+            .expect("no stop is armed")
+            .expect("the match should be computed");
+        assert!(matches.is_empty(), "{matches:#?}");
+    }
+
+    /// `pair(X, 10 /Int X)` has the fact `X =/=Int 0`, which neither the simplifier nor an absent
+    /// solver refutes: the fact restates the subject and is not a condition of the match, so the
+    /// match is decided, with no constraints, as without the fact.
+    #[test]
+    fn an_undecided_state_fact_keeps_the_match() {
+        let definition = ceil_axiom_definition();
+        let target = pair_target(&definition);
+        let subject = pattern(
+            &definition,
+            r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#,
+        );
+        let matches = match_disjunction_with_solver(
+            &definition,
+            &target,
+            &[subject],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("no stop is armed")
+        .expect("the match should be decided without a solver");
+        let [found] = matches.as_slice() else {
+            panic!("expected one match, found {matches:#?}");
+        };
+        let int = Sort::simple("SortInt");
+        let expected = Substitution::from([
+            (
+                Variable::new("A", int.clone()),
+                Term::variable(Variable::new("X", int.clone())),
+            ),
+            (
+                Variable::new("B", int),
+                pattern(
+                    &definition,
+                    r#"divInt{}(\dv{SortInt{}}("10"), X:SortInt{})"#,
+                )
+                .term,
+            ),
+        ]);
+        assert_eq!(found.substitution, expected, "{found:#?}");
+        assert!(found.constraints.is_empty(), "{found:#?}");
+    }
+
+    /// An initial state with no instance yields no match, so it does not take the only result
+    /// slot of a bounded search, and the search goes on to the state that matches.
+    #[test]
+    fn an_empty_initial_state_does_not_take_a_result_bound() {
+        let definition = ceil_axiom_definition();
+        let target = pair_target(&definition);
+        let result = search_pattern_disjunction_with_solver(
+            &definition,
+            vec![
+                zero_divisor_subject(&definition),
+                pattern(
+                    &definition,
+                    r#"pair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#,
+                ),
+            ],
+            &target,
+            SearchOptions {
+                search_type: SearchType::Star,
+                max_results: Some(1),
+                ..SearchOptions::default()
+            },
+            &NoSolver,
+        );
+        let [found] = result.matches.as_slice() else {
+            panic!("expected one match, found {:#?}", result.matches);
+        };
+        let int = Sort::simple("SortInt");
+        let expected = Substitution::from([
+            (
+                Variable::new("A", int.clone()),
+                pattern(&definition, r#"\dv{SortInt{}}("1")"#).term,
+            ),
+            (
+                Variable::new("B", int),
+                pattern(&definition, r#"\dv{SortInt{}}("2")"#).term,
+            ),
+        ]);
+        assert_eq!(found.substitution, expected, "{found:#?}");
     }
 }

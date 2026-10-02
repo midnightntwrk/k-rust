@@ -27,7 +27,7 @@
 //! true, plus pairwise distinctness checks over map keys and set elements, with `FxHashSet`
 //! deduplication; no counter, no worklist loop.
 
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 use k_rust_kore::measure::{self, Algorithm};
 use rustc_hash::FxHashSet;
@@ -38,10 +38,11 @@ use crate::{
         InjectionEquality, MatchMode, MatchResult, match_injection_equality,
         match_terms_in_definition,
     },
-    rewrite::{Pattern, substitute_predicates},
+    rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
-    smt::NoSolver,
+    smt::{NoSolver, SmtSolver},
+    stop::Stoppable,
     term::{
         FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind,
         head::certified_ground_normal_form,
@@ -442,9 +443,16 @@ fn predicates_are_ceil_free(predicates: &[Predicate]) -> bool {
 /// A pattern denotes `⌈t⌉ ∧ t ∧ φ`, since a term is `\bottom` where it is undefined and
 /// `\bottom ∧ φ` is `\bottom`, so `⌈t⌉` holds on each of its instances. And `φ` equals
 /// `condition_definedness(φ)`, so the obligations that call states are consequences of `φ` there.
-/// A decision taken on the pattern's instances (a claim applied to a proof state) takes these as
-/// known: a stated `⌈s⌉` they contain is a fact, not an open condition, and a solver that reads
-/// `⌈s⌉` as an opaque atom would otherwise find a model where it fails.
+/// A decision whose answer is relative to the pattern's instances (a claim applied to a proof
+/// state, a condition reported together with its state) takes these as known: a stated `⌈s⌉`
+/// they contain is a fact, not an open condition, and a solver that reads `⌈s⌉` as an opaque atom
+/// would otherwise find a model where it fails. On an empty pattern every such answer is right.
+///
+/// A verdict that an instance exists (a match reported) decides them first (I7'): a member that
+/// simplifies to `\bottom` means the pattern has no instance, and an assumed false fact would both
+/// hide that and let the simplifier answer anything about the rest. Such a verdict takes the
+/// members not among the constraints through [`knowledge_facts`] and [`UndecidedFacts::decide`],
+/// and assumes only the decided residual.
 ///
 /// The result is equivalent to `pattern.constraints` on the pattern's instances. It is the
 /// constraints themselves, borrowed, when the term and every constraint term are `ceil_free`, after
@@ -463,6 +471,99 @@ pub(crate) fn pattern_knowledge<'a>(
         }
     }
     Cow::Owned(knowledge)
+}
+
+/// The members of `knowledge` (a pattern's [`pattern_knowledge`]) that are not among its
+/// `constraints`.
+pub(crate) fn knowledge_facts(
+    knowledge: Cow<'_, [Predicate]>,
+    constraints: &[Predicate],
+) -> Vec<Predicate> {
+    match knowledge {
+        // The knowledge of a `ceil_free` pattern is its constraints themselves.
+        Cow::Borrowed(_) => Vec::new(),
+        Cow::Owned(knowledge) => {
+            let constraints = constraints.iter().collect::<HashSet<_>>();
+            knowledge
+                .into_iter()
+                .filter(|fact| !constraints.contains(fact))
+                .collect()
+        }
+    }
+}
+
+/// Facts every instance of a pattern satisfies (I7), not yet decided.
+///
+/// There is no view of the facts: they are taken as known only through the [`DecidedFacts`] that
+/// [`Self::decide`] returns when none of them is refuted, so a verdict that an instance exists
+/// cannot assume a false fact (I7').
+#[must_use]
+pub(crate) struct UndecidedFacts(Vec<Predicate>);
+
+impl UndecidedFacts {
+    pub(crate) fn new(facts: Vec<Predicate>) -> Self {
+        Self(facts)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Simplify the facts with nothing assumed.
+    ///
+    /// A member simplified to `\bottom` is a false fact about every instance, so the pattern has
+    /// no instance: [`FactsVerdict::Refuted`]. Otherwise the simplified facts without their
+    /// `\top` members are the residual a decision may take as known, since they are equivalent to
+    /// the facts. The decision only refutes: an undecided member stays in the residual, a fact
+    /// about the pattern rather than a condition to discharge. A failed simplification leaves the
+    /// facts undecided and returns them unsimplified, which is sound for the same reason. Empty
+    /// facts return at once, without calling the simplifier.
+    pub(crate) fn decide(
+        self,
+        definition: &BackendDefinition,
+        options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) -> Stoppable<FactsVerdict> {
+        let Self(facts) = self;
+        if facts.is_empty() {
+            return Ok(FactsVerdict::NotRefuted(DecidedFacts(facts)));
+        }
+        Ok(
+            match simplify_predicates_with_solver(definition, &facts, &[], options, solver)? {
+                Ok(simplified) if predicates_truth(&simplified) == Truth::False => {
+                    FactsVerdict::Refuted
+                }
+                Ok(simplified) => FactsVerdict::NotRefuted(DecidedFacts(
+                    simplified
+                        .into_iter()
+                        .filter(|fact| fact != &Predicate::True)
+                        .collect(),
+                )),
+                Err(_failure) => FactsVerdict::NotRefuted(DecidedFacts(facts)),
+            },
+        )
+    }
+}
+
+/// The outcome of [`UndecidedFacts::decide`].
+#[must_use]
+pub(crate) enum FactsVerdict {
+    /// A fact is false: the pattern has no instance.
+    Refuted,
+    /// No fact is refuted; the residual may be taken as known.
+    NotRefuted(DecidedFacts),
+}
+
+/// Facts of a pattern that [`UndecidedFacts::decide`] did not refute, equivalent to them on the
+/// pattern's instances.
+pub(crate) struct DecidedFacts(Vec<Predicate>);
+
+impl DecidedFacts {
+    /// The facts, to be taken as known by a decision on the pattern's instances.
+    pub(crate) fn as_known(&self) -> &[Predicate] {
+        &self.0
+    }
 }
 
 /// The Boolean term an atom asserts to equal a defined value, if any.
