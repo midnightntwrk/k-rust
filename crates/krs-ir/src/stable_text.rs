@@ -33,17 +33,7 @@ impl StableText for ItemKind {
 
 impl StableText for BuiltinSort {
     fn stable_text(&self) -> Cow<'static, str> {
-        Cow::Borrowed(match self {
-            Self::KSequence => "KSequence",
-            Self::Int => "Int",
-            Self::Bool => "Bool",
-            Self::Map => "Map",
-            Self::Id => "Id",
-            Self::Bytes => "Bytes",
-            Self::String => "String",
-            Self::List => "List",
-            Self::Set => "Set",
-        })
+        Cow::Borrowed(self.spec().marker_name)
     }
 }
 

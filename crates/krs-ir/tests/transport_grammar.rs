@@ -17,13 +17,12 @@ use krs_ir::{
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, FormatFragment, GrammarDescriptor,
     GrammarTransportError, GroupAssociativity, HostApplicationIdentity, HostApplicationTarget,
-    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
-    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostListOperationRegistration, HostMapOperationRegistration,
-    HostSetOperationRegistration, HostTypeKey, HostTypeReference, ItemKind, ListOperation,
-    MapOperation, OriginStack, PackageId, ProductionFieldId, ProductionGroupId, ProvenanceKey,
-    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind,
-    StructuredRuleDescriptor, enum_variant_disambiguator,
+    HostBuiltinRegistry, HostBuiltinRegistryError, HostDeclarationIdentity, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostListOperationRegistration,
+    HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
+    ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
+    ProductionGroupId, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
+    StrictnessKind, StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -1194,22 +1193,16 @@ type_keys! {
 #[allow(clippy::too_many_lines)] // Enumerates the complete builtin test registry.
 fn registry() -> HostBuiltinRegistry {
     let sorts = [
-        (BuiltinSort::KSequence, k_sequence_key as fn() -> TypeId),
-        (BuiltinSort::Int, int_key),
-        (BuiltinSort::Bool, bool_key),
-        (BuiltinSort::Map, map_key),
-        (BuiltinSort::Id, id_key),
-        (BuiltinSort::Bytes, bytes_key),
-        (BuiltinSort::String, string_key),
-        (BuiltinSort::List, list_key),
-        (BuiltinSort::Set, set_key),
-    ]
-    .into_iter()
-    .map(|(sort, key)| HostBuiltinSortRegistration {
-        sort,
-        target: HostTypeKey(key),
-    })
-    .collect();
+        HostTypeKey(k_sequence_key),
+        HostTypeKey(int_key),
+        HostTypeKey(bool_key),
+        HostTypeKey(map_key),
+        HostTypeKey(id_key),
+        HostTypeKey(bytes_key),
+        HostTypeKey(string_key),
+        HostTypeKey(list_key),
+        HostTypeKey(set_key),
+    ];
     let operations = [
         HostTypeKey(int_add_key),
         HostTypeKey(int_sub_key),

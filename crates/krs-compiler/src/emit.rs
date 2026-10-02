@@ -291,15 +291,7 @@ impl<'a> EmitContext<'a> {
     fn sort_name_ref(&self, sort: &DefinitionSortRef) -> Result<&str, EmitError> {
         match sort {
             DefinitionSortRef::Declared(id) => self.sort_name(id),
-            DefinitionSortRef::Builtin(BuiltinSort::KSequence) => Ok("K"),
-            DefinitionSortRef::Builtin(BuiltinSort::Int) => Ok("Int"),
-            DefinitionSortRef::Builtin(BuiltinSort::Bool) => Ok("Bool"),
-            DefinitionSortRef::Builtin(BuiltinSort::Id) => Ok("Id"),
-            DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
-            DefinitionSortRef::Builtin(BuiltinSort::Bytes) => Ok("Bytes"),
-            DefinitionSortRef::Builtin(BuiltinSort::String) => Ok("String"),
-            DefinitionSortRef::Builtin(BuiltinSort::List) => Ok("List"),
-            DefinitionSortRef::Builtin(BuiltinSort::Set) => Ok("Set"),
+            DefinitionSortRef::Builtin(sort) => Ok(sort.spec().k_name),
         }
     }
 
@@ -603,24 +595,10 @@ fn builtin_import(
     sort: BuiltinSort,
     operation_sorts: &BTreeSet<BuiltinSort>,
 ) -> Option<&'static str> {
-    match sort {
-        BuiltinSort::KSequence => None,
-        BuiltinSort::Int => Some(if operation_sorts.contains(&BuiltinSort::Int) {
-            "INT"
-        } else {
-            "INT-SYNTAX"
-        }),
-        BuiltinSort::Bool => Some(if operation_sorts.contains(&BuiltinSort::Bool) {
-            "BOOL"
-        } else {
-            "BOOL-SYNTAX"
-        }),
-        BuiltinSort::Map => Some("MAP"),
-        BuiltinSort::Id => Some("ID-SYNTAX"),
-        BuiltinSort::Bytes => Some("BYTES"),
-        BuiltinSort::String => Some("STRING-SYNTAX"),
-        BuiltinSort::List => Some("LIST"),
-        BuiltinSort::Set => Some("SET"),
+    if operation_sorts.contains(&sort) {
+        sort.spec().k_module
+    } else {
+        sort.spec().k_syntax_module
     }
 }
 

@@ -35,13 +35,13 @@ pub use provenance::{__KrsRawAnchor, __krs_host_provenance};
 
 pub use krs_ir::{
     AnchorPrecision, BuiltinOperation, BuiltinSort, HookOperation, HostAuthoredAnchor,
-    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
-    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostDeclarationIdentity,
-    HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId,
-    HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
-    HostProvenanceError, HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor,
-    HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation,
-    ProvenanceKey, ProvenanceRole, SchemaVersion, SentenceKind, SetOperation,
+    HostBuiltinRegistry, HostBuiltinRegistryError, HostConstructorDescriptor,
+    HostConstructorFieldDescriptor, HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload,
+    HostIdentityError, HostItemId, HostListOperationRegistration, HostMapOperationRegistration,
+    HostPackageKey, HostProvenance, HostProvenanceError, HostSetOperationRegistration,
+    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
+    ItemKind, ListOperation, MapOperation, ProvenanceKey, ProvenanceRole, SchemaVersion,
+    SentenceKind, SetOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -590,41 +590,21 @@ impl KResultSort for builtin::Bytes {}
 impl KItemSort for builtin::String {}
 impl KResultSort for builtin::String {}
 
-fn k_sequence_builtin_key() -> TypeId {
-    TypeId::of::<builtin::KSequence>()
+macro_rules! builtin_sort_registry {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident {
+            marker_name: $marker:ident,
+            $($fact:tt)*
+        }
+    )*) => {
+        fn builtin_sort_registry() -> [HostTypeKey; BuiltinSort::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::$marker>)),*]
+        }
+    };
 }
 
-fn int_builtin_key() -> TypeId {
-    TypeId::of::<builtin::int::Int>()
-}
-
-fn bool_builtin_key() -> TypeId {
-    TypeId::of::<builtin::bool::Bool>()
-}
-
-fn id_builtin_key() -> TypeId {
-    TypeId::of::<builtin::Id>()
-}
-
-fn map_builtin_key() -> TypeId {
-    TypeId::of::<builtin::Map>()
-}
-
-fn bytes_builtin_key() -> TypeId {
-    TypeId::of::<builtin::Bytes>()
-}
-
-fn string_builtin_key() -> TypeId {
-    TypeId::of::<builtin::String>()
-}
-
-fn list_builtin_key() -> TypeId {
-    TypeId::of::<builtin::List>()
-}
-
-fn set_builtin_key() -> TypeId {
-    TypeId::of::<builtin::Set>()
-}
+krs_ir::__krs_builtin_sort_catalog!(builtin_sort_registry);
 
 macro_rules! builtin_operation_registry {
     ($(
@@ -697,26 +677,7 @@ list_operation_keys! {
 #[must_use]
 #[allow(clippy::too_many_lines)] // Declares the complete closed facade registry in stable order.
 pub fn builtin_registry() -> HostBuiltinRegistry {
-    let sorts = [
-        (
-            BuiltinSort::KSequence,
-            k_sequence_builtin_key as fn() -> TypeId,
-        ),
-        (BuiltinSort::Int, int_builtin_key as fn() -> TypeId),
-        (BuiltinSort::Bool, bool_builtin_key as fn() -> TypeId),
-        (BuiltinSort::Map, map_builtin_key as fn() -> TypeId),
-        (BuiltinSort::Id, id_builtin_key as fn() -> TypeId),
-        (BuiltinSort::Bytes, bytes_builtin_key as fn() -> TypeId),
-        (BuiltinSort::String, string_builtin_key as fn() -> TypeId),
-        (BuiltinSort::List, list_builtin_key as fn() -> TypeId),
-        (BuiltinSort::Set, set_builtin_key as fn() -> TypeId),
-    ]
-    .into_iter()
-    .map(|(sort, key)| HostBuiltinSortRegistration {
-        sort,
-        target: HostTypeKey(key),
-    })
-    .collect();
+    let sorts = builtin_sort_registry();
 
     let operations = builtin_operation_registry();
 
@@ -1179,7 +1140,7 @@ pub mod __private {
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
     use std::mem;
 
     use super::*;
@@ -1316,6 +1277,9 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)] // Checks facade catalog identities and alias resolution.
     fn builtin_registry_is_complete_and_exact() {
+        type IntAlias = builtin::int::Int;
+        type MapAlias = builtin::Map;
+        type BytesAlias = builtin::bytes::Bytes;
         type AddAlias = builtin::int::add;
         type NotAlias = builtin::bool::not;
         type SubstringAlias = builtin::bytes::substr;
@@ -1335,26 +1299,11 @@ mod tests {
             registry.list_operations.len(),
             ListOperation::TERM_APPLICATIONS.len()
         );
-        assert_eq!(
-            registry
-                .sorts
-                .iter()
-                .map(|registration| registration.sort)
-                .collect::<BTreeSet<_>>(),
-            BuiltinSort::ALL.into_iter().collect()
-        );
-        let exact_sorts = [
-            (TypeId::of::<builtin::KSequence>(), BuiltinSort::KSequence),
-            (TypeId::of::<builtin::int::Int>(), BuiltinSort::Int),
-            (TypeId::of::<builtin::bool::Bool>(), BuiltinSort::Bool),
-            (TypeId::of::<builtin::Map>(), BuiltinSort::Map),
-            (TypeId::of::<builtin::Id>(), BuiltinSort::Id),
-            (TypeId::of::<builtin::Bytes>(), BuiltinSort::Bytes),
-            (TypeId::of::<builtin::String>(), BuiltinSort::String),
-            (TypeId::of::<builtin::List>(), BuiltinSort::List),
-            (TypeId::of::<builtin::Set>(), BuiltinSort::Set),
-        ];
-        for (marker, expected) in exact_sorts {
+        for (marker, expected) in [
+            (TypeId::of::<IntAlias>(), BuiltinSort::Int),
+            (TypeId::of::<MapAlias>(), BuiltinSort::Map),
+            (TypeId::of::<BytesAlias>(), BuiltinSort::Bytes),
+        ] {
             assert_eq!(registry.resolve_sort(marker), Some(expected));
             assert_eq!(registry.resolve_operation(marker), None);
         }

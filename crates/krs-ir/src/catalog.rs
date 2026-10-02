@@ -1,8 +1,143 @@
-//! Declarative compiler-provided operation catalog for the pinned K frontend.
+//! Declarative builtin catalogs for the pinned K frontend.
 
 use serde::{Deserialize, Serialize};
 
-use crate::BuiltinSort;
+/// Per-sort facts shared by the Rust facade and pinned K adapters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BuiltinSortSpec {
+    /// Rust marker name under `k::builtin`.
+    pub marker_name: &'static str,
+    /// Sort name in K source.
+    pub k_name: &'static str,
+    /// K module supplying the sort and its operations.
+    pub k_module: Option<&'static str>,
+    /// K module imported by the printer when no operation of this sort is used.
+    pub k_syntax_module: Option<&'static str>,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_builtin_sort_catalog {
+    ($callback:path) => {
+        $callback! {
+            /// Sort of an ordered K computation sequence (`K` in source K).
+            KSequence {
+                marker_name: KSequence,
+                k_name: "K",
+                k_module: None,
+                k_syntax_module: None
+            }
+            /// Arbitrary-precision integer domain from pinned module `INT`.
+            Int {
+                marker_name: Int,
+                k_name: "Int",
+                k_module: Some("INT"),
+                k_syntax_module: Some("INT-SYNTAX")
+            }
+            /// Boolean domain from pinned module `BOOL`.
+            Bool {
+                marker_name: Bool,
+                k_name: "Bool",
+                k_module: Some("BOOL"),
+                k_syntax_module: Some("BOOL-SYNTAX")
+            }
+            /// Finite map collection from pinned module `MAP`.
+            Map {
+                marker_name: Map,
+                k_name: "Map",
+                k_module: Some("MAP"),
+                k_syntax_module: Some("MAP")
+            }
+            /// Identifier token domain from pinned module `ID-SYNTAX`.
+            Id {
+                marker_name: Id,
+                k_name: "Id",
+                k_module: Some("ID-SYNTAX"),
+                k_syntax_module: Some("ID-SYNTAX")
+            }
+            /// Byte-string domain from pinned module `BYTES`.
+            Bytes {
+                marker_name: Bytes,
+                k_name: "Bytes",
+                k_module: Some("BYTES"),
+                k_syntax_module: Some("BYTES")
+            }
+            /// String token domain from pinned module `STRING-SYNTAX`.
+            String {
+                marker_name: String,
+                k_name: "String",
+                k_module: Some("STRING-SYNTAX"),
+                k_syntax_module: Some("STRING-SYNTAX")
+            }
+            /// Associative finite sequence domain from pinned module `LIST`.
+            List {
+                marker_name: List,
+                k_name: "List",
+                k_module: Some("LIST"),
+                k_syntax_module: Some("LIST")
+            }
+            /// Associative, commutative finite set domain from pinned module `SET`.
+            Set {
+                marker_name: Set,
+                k_name: "Set",
+                k_module: Some("SET"),
+                k_syntax_module: Some("SET")
+            }
+        }
+    };
+}
+
+macro_rules! define_builtin_sorts {
+    ($( $(#[$meta:meta])* $variant:ident {
+        marker_name: $marker:ident,
+        k_name: $name:literal,
+        k_module: $module:expr,
+        k_syntax_module: $syntax_module:expr
+    })*) => {
+        /// Frontend-neutral identities for K sorts supplied by the K language rather
+        /// than declared as generated KRS symbols.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum BuiltinSort {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl BuiltinSort {
+            /// Complete IR catalog in stable semantic order.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// Returns the pinned sort specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static BuiltinSortSpec {
+                match self {
+                    $(Self::$variant => {
+                        const SPEC: BuiltinSortSpec = BuiltinSortSpec {
+                            marker_name: stringify!($marker),
+                            k_name: $name,
+                            k_module: $module,
+                            k_syntax_module: $syntax_module,
+                        };
+                        &SPEC
+                    },)*
+                }
+            }
+
+            /// Name of the Rust marker type `k::builtin::<name>` that denotes this sort.
+            #[must_use]
+            pub const fn marker_name(self) -> &'static str {
+                self.spec().marker_name
+            }
+
+            /// Name of this sort in K source.
+            #[must_use]
+            pub const fn k_name(self) -> &'static str {
+                self.spec().k_name
+            }
+        }
+    };
+}
+
+__krs_builtin_sort_catalog!(define_builtin_sorts);
 
 /// K application spelling and argument-rendering convention.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

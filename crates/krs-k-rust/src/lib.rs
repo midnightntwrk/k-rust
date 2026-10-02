@@ -2522,15 +2522,7 @@ impl Adapter {
     ) -> Result<NativeSort, AdapterError> {
         Ok(NativeSort::new(match sort {
             DefinitionSortRef::Declared(symbol) => self.symbol_name(symbol, origin)?,
-            DefinitionSortRef::Builtin(BuiltinSort::KSequence) => "K",
-            DefinitionSortRef::Builtin(BuiltinSort::Int) => "Int",
-            DefinitionSortRef::Builtin(BuiltinSort::Bool) => "Bool",
-            DefinitionSortRef::Builtin(BuiltinSort::Map) => "Map",
-            DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
-            DefinitionSortRef::Builtin(BuiltinSort::Bytes) => "Bytes",
-            DefinitionSortRef::Builtin(BuiltinSort::String) => "String",
-            DefinitionSortRef::Builtin(BuiltinSort::List) => "List",
-            DefinitionSortRef::Builtin(BuiltinSort::Set) => "Set",
+            DefinitionSortRef::Builtin(sort) => sort.spec().k_name,
         }))
     }
 
@@ -2690,17 +2682,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
     }
     sorts
         .into_iter()
-        .filter_map(|sort| match sort {
-            BuiltinSort::KSequence => None,
-            BuiltinSort::Int => Some("INT".to_owned()),
-            BuiltinSort::Bool => Some("BOOL".to_owned()),
-            BuiltinSort::Map => Some("MAP".to_owned()),
-            BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
-            BuiltinSort::Bytes => Some("BYTES".to_owned()),
-            BuiltinSort::String => Some("STRING-SYNTAX".to_owned()),
-            BuiltinSort::List => Some("LIST".to_owned()),
-            BuiltinSort::Set => Some("SET".to_owned()),
-        })
+        .filter_map(|sort| sort.spec().k_module.map(str::to_owned))
         .collect()
 }
 

@@ -338,15 +338,6 @@ impl fmt::Display for HostEnumVariantReferenceError {
 
 impl Error for HostEnumVariantReferenceError {}
 
-/// One builtin sort marker registered by the author-facing facade.
-#[derive(Clone, Copy, Debug)]
-pub struct HostBuiltinSortRegistration {
-    /// Target-neutral builtin identity.
-    pub sort: BuiltinSort,
-    /// Function producing the marker type's build-local identity.
-    pub target: HostTypeKey,
-}
-
 /// One ordinary Map operation marker registered by the author-facing facade.
 #[derive(Clone, Copy, Debug)]
 pub struct HostMapOperationRegistration {
@@ -380,8 +371,8 @@ pub struct HostSetOperationRegistration {
 /// [`DescriptorSortRef`] and [`DescriptorApplicationRef`] before emitting JSON.
 #[derive(Clone, Debug)]
 pub struct HostBuiltinRegistry {
-    /// Registered sort markers.
-    pub sorts: Vec<HostBuiltinSortRegistration>,
+    /// Registered sort markers in [`BuiltinSort::ALL`] order.
+    pub sorts: [HostTypeKey; BuiltinSort::ALL.len()],
     /// Registered operation markers in [`BuiltinOperation::ALL`] order.
     pub operations: [HostTypeKey; BuiltinOperation::ALL.len()],
     /// Registered ordinary Map operation markers.
@@ -400,16 +391,12 @@ impl HostBuiltinRegistry {
     /// Returns an error for a missing or duplicate dynamic catalog identity or any reused Rust marker `TypeId`.
     /// Alias paths remain valid because aliases preserve the same `TypeId`; no authored spelling participates in this check.
     pub fn validate(&self) -> Result<(), HostBuiltinRegistryError> {
-        let mut sort_ids = BTreeSet::new();
         let mut map_operation_ids = BTreeSet::new();
         let mut list_operation_ids = BTreeSet::new();
         let mut set_operation_ids = BTreeSet::new();
         let mut rust_ids = BTreeSet::new();
-        for registration in &self.sorts {
-            if !sort_ids.insert(registration.sort) {
-                return Err(HostBuiltinRegistryError::DuplicateSort(registration.sort));
-            }
-            if !rust_ids.insert(registration.target.resolve()) {
+        for target in &self.sorts {
+            if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
@@ -463,11 +450,6 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
-        for sort in BuiltinSort::ALL {
-            if !sort_ids.contains(&sort) {
-                return Err(HostBuiltinRegistryError::MissingSort(sort));
-            }
-        }
         for operation in MapOperation::TERM_APPLICATIONS {
             if !map_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingMapOperation(operation));
@@ -489,10 +471,11 @@ impl HostBuiltinRegistry {
     /// Resolves one build-local type as a builtin sort.
     #[must_use]
     pub fn resolve_sort(&self, target: TypeId) -> Option<BuiltinSort> {
-        self.sorts
-            .iter()
-            .find(|registration| registration.target.resolve() == target)
-            .map(|registration| registration.sort)
+        BuiltinSort::ALL
+            .into_iter()
+            .zip(&self.sorts)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(sort, _)| sort)
     }
 
     /// Resolves one build-local type as a builtin operation.
@@ -536,10 +519,6 @@ impl HostBuiltinRegistry {
 /// Invalid host builtin catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HostBuiltinRegistryError {
-    /// A builtin sort identity occurred more than once.
-    DuplicateSort(BuiltinSort),
-    /// A required builtin sort was absent.
-    MissingSort(BuiltinSort),
     /// A Map operation identity occurred more than once.
     DuplicateMapOperation(MapOperation),
     /// A required ordinary Map operation was absent.
@@ -565,8 +544,6 @@ pub enum HostBuiltinRegistryError {
 impl fmt::Display for HostBuiltinRegistryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateSort(sort) => write!(formatter, "duplicate builtin sort {sort}"),
-            Self::MissingSort(sort) => write!(formatter, "missing builtin sort {sort}"),
             Self::DuplicateMapOperation(operation) => {
                 write!(formatter, "duplicate {operation}")
             }

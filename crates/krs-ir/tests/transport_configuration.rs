@@ -16,13 +16,13 @@ use krs_ir::{
     DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance, DescriptorRuleBinding,
     DescriptorRuleCells, DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostCellIdentity, HostCellReference, HostConfigurationReference,
-    HostConfigurationRule, HostListOperationRegistration, HostMapOperationRegistration,
-    HostRuleCells, HostSetOperationRegistration, HostSortReference, HostTerm, HostTypeKey,
-    HostTypeReference, ItemKind, ListOperation, MapOperation, OriginStack, PackageId,
-    ProtocolCellContent, ProtocolContextAliasBinding, ProtocolContextAliasBindingKind,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
-    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
+    HostCellIdentity, HostCellReference, HostConfigurationReference, HostConfigurationRule,
+    HostListOperationRegistration, HostMapOperationRegistration, HostRuleCells,
+    HostSetOperationRegistration, HostSortReference, HostTerm, HostTypeKey, HostTypeReference,
+    ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProtocolCellContent,
+    ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
     ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
@@ -273,26 +273,19 @@ fn marker<const N: usize>() -> TypeId {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Exhaustively constructs and rejects the incomplete registry.
-fn builtin_registry_requires_map_and_id() {
-    let sorts = BuiltinSort::ALL
-        .into_iter()
-        .enumerate()
-        .map(|(index, sort)| HostBuiltinSortRegistration {
-            sort,
-            target: match index {
-                0 => HostTypeKey(marker::<0>),
-                1 => HostTypeKey(marker::<1>),
-                2 => HostTypeKey(marker::<2>),
-                3 => HostTypeKey(marker::<3>),
-                4 => HostTypeKey(marker::<4>),
-                5 => HostTypeKey(marker::<5>),
-                6 => HostTypeKey(marker::<6>),
-                7 => HostTypeKey(marker::<42>),
-                _ => HostTypeKey(marker::<53>),
-            },
-        })
-        .collect();
+#[allow(clippy::too_many_lines)] // Constructs the complete registry and verifies sort identity.
+fn builtin_registry_resolves_map_and_id() {
+    let sorts = [
+        HostTypeKey(marker::<0>),
+        HostTypeKey(marker::<1>),
+        HostTypeKey(marker::<2>),
+        HostTypeKey(marker::<3>),
+        HostTypeKey(marker::<4>),
+        HostTypeKey(marker::<5>),
+        HostTypeKey(marker::<6>),
+        HostTypeKey(marker::<42>),
+        HostTypeKey(marker::<53>),
+    ];
     let operations = [
         HostTypeKey(marker::<7>),
         HostTypeKey(marker::<8>),
@@ -377,11 +370,14 @@ fn builtin_registry_requires_map_and_id() {
     };
     registry.validate().unwrap();
 
-    let mut missing = registry.clone();
-    missing.sorts.retain(|entry| entry.sort != BuiltinSort::Map);
+    assert_eq!(registry.resolve_sort(marker::<3>()), Some(BuiltinSort::Map));
+    assert_eq!(registry.resolve_sort(marker::<4>()), Some(BuiltinSort::Id));
+
+    let mut collision = registry.clone();
+    collision.sorts[3] = collision.sorts[4];
     assert_eq!(
-        missing.validate(),
-        Err(HostBuiltinRegistryError::MissingSort(BuiltinSort::Map))
+        collision.validate(),
+        Err(HostBuiltinRegistryError::ReusedRustType)
     );
 }
 

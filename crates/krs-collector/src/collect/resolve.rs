@@ -808,10 +808,9 @@ mod tests {
 
     use super::*;
     use krs_ir::{
-        BuiltinSort, HostApplicationReference, HostApplicationTarget, HostBuiltinSortRegistration,
-        HostEnumVariantReference, HostListOperationRegistration, HostMapOperationRegistration,
-        HostSetOperationRegistration, HostTypeKey, ListOperation, MapOperation, PackageId,
-        ProvenanceKey, SetOperation,
+        BuiltinSort, HostApplicationReference, HostApplicationTarget, HostEnumVariantReference,
+        HostListOperationRegistration, HostMapOperationRegistration, HostSetOperationRegistration,
+        HostTypeKey, ListOperation, MapOperation, PackageId, ProvenanceKey, SetOperation,
     };
 
     struct Boolean;
@@ -921,11 +920,7 @@ mod tests {
             HostTypeKey(marker_key::<Op28>),
         ];
         HostBuiltinRegistry {
-            sorts: BuiltinSort::ALL
-                .into_iter()
-                .zip(sort_keys)
-                .map(|(sort, target)| HostBuiltinSortRegistration { sort, target })
-                .collect(),
+            sorts: sort_keys,
             operations: operation_keys,
             map_operations: MapOperation::TERM_APPLICATIONS
                 .into_iter()
