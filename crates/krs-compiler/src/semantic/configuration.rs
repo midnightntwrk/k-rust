@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     CellAttribute, CellCollectionType, CellMultiplicity, ConfigurationRoot, Descriptor,
-    DescriptorCellDeclaration, DescriptorFixedConfiguration, DescriptorInitializerCell,
-    DescriptorInitializerStateTerm, DescriptorPayload, DescriptorTerm, FixedCell,
-    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, ItemKind, MapOperation,
+    DescriptorCellDeclaration, DescriptorFixedConfiguration, DescriptorIndex,
+    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm, FixedCell,
+    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, MapOperation,
     ProtocolCellContent, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
     ProtocolMapBody, ProvenanceKey, SemanticConfiguration, SemanticId, SemanticSortRef,
     SemanticTerm, StableItemId,
@@ -14,12 +14,12 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::error::DescriptorLoweringError;
 use super::infer::{StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, semantic_cell_id, semantic_origin};
-use super::references::{require_cell_field, require_descriptor};
+use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
     descriptor: &Descriptor,
     configuration: &DescriptorFixedConfiguration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticConfiguration, DescriptorLoweringError> {
@@ -96,7 +96,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
 fn lower_cell_declaration(
     descriptor: &Descriptor,
     declaration: &DescriptorCellDeclaration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     visiting: &mut BTreeSet<StableItemId>,
 ) -> Result<Vec<FixedCell<SemanticSortRef, SemanticId>>, DescriptorLoweringError> {
     let mut cells = Vec::with_capacity(declaration.fields.len());
@@ -152,11 +152,8 @@ fn lower_cell_declaration(
                         ),
                     });
                 }
-                let nested =
-                    require_descriptor(&declaration.declaration, ItemKind::Cell, declarations)?;
-                let DescriptorPayload::Cell(nested_declaration) = &nested.payload else {
-                    unreachable!("kind-checked descriptor has a cell payload")
-                };
+                let (nested, nested_declaration) =
+                    declarations.cell_descriptor(&declaration.declaration)?;
                 let children =
                     lower_cell_declaration(nested, nested_declaration, declarations, visiting)?;
                 visiting.remove(&declaration.declaration);
@@ -171,7 +168,7 @@ fn lower_cell_declaration(
 fn lower_initializer_cell(
     descriptor: &Descriptor,
     cell: &DescriptorInitializerCell,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,

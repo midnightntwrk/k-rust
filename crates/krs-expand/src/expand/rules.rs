@@ -7,7 +7,7 @@ use krs_ir::wire::{
 };
 use krs_ir::{
     DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
-    DescriptorSimplificationPriority,
+    DescriptorSimplificationPriority, StableText,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
@@ -316,13 +316,8 @@ fn expand_ordinary_rule(
                 value,
             }),
     });
-    let item_kind = match sentence_kind {
-        krs_ir::SentenceKind::Transition => quote!(#facade::ItemKind::Rule),
-        krs_ir::SentenceKind::Equation => quote!(#facade::ItemKind::Equation),
-        krs_ir::SentenceKind::Simplification => quote!(#facade::ItemKind::Simplification),
-        krs_ir::SentenceKind::Alias => quote!(#facade::ItemKind::Alias),
-        krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
-    };
+    let item_kind_variant = format_ident!("{}", sentence_kind.item_kind().stable_text());
+    let item_kind = quote!(#facade::ItemKind::#item_kind_variant);
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
         label,

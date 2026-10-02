@@ -18,8 +18,8 @@ pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorPayload, ItemKind,
-    ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
+    BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
+    DescriptorPayload, ItemKind, ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
 };
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
@@ -48,7 +48,7 @@ pub fn lower_descriptor_bundle(
         .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::HeadRule(_)))
         .map(|descriptor| descriptor.id.clone())
         .collect::<BTreeSet<_>>();
-    let mut declarations = BTreeMap::new();
+    let mut declaration_ids = BTreeSet::new();
     for descriptor in &descriptors {
         descriptor.validate_grammar_contract().map_err(|error| {
             DescriptorLoweringError::ParserReferenceDisagreement {
@@ -62,10 +62,7 @@ pub fn lower_descriptor_bundle(
                 detail: error.to_string(),
             }
         })?;
-        if declarations
-            .insert(descriptor.id.clone(), *descriptor)
-            .is_some()
-        {
+        if !declaration_ids.insert(&descriptor.id) {
             return Err(DescriptorLoweringError::DuplicateItemId(Box::new(
                 descriptor.id.clone(),
             )));
@@ -80,6 +77,7 @@ pub fn lower_descriptor_bundle(
         return Err(DescriptorLoweringError::ConfigurationCount(configurations));
     }
 
+    let declarations = DescriptorIndex::from_descriptors(descriptors.iter().copied());
     validate_all_stable_references(&descriptors, &declarations)?;
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
@@ -132,9 +130,7 @@ pub fn lower_descriptor_bundle(
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     if let Some((first, second)) = crate::overlap::first_head_rule_overlap(&modules, &head_rule_ids)
     {
-        let second_head_range = declarations
-            .get(&second)
-            .and_then(|descriptor| exact_rule_head_range(descriptor));
+        let second_head_range = declarations.get(&second).and_then(exact_rule_head_range);
         return Err(DescriptorLoweringError::OverlappingRules {
             first: Box::new(first),
             second: Box::new(second),
@@ -188,28 +184,10 @@ fn require_payload_kind(descriptor: &Descriptor) -> Result<(), DescriptorLowerin
         DescriptorPayload::Constructor(_) => ItemKind::Constructor,
         DescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
         DescriptorPayload::Grammar(_) => ItemKind::Grammar,
-        DescriptorPayload::StructuredRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        DescriptorPayload::StructuredRule(rule) => rule.sentence_kind.item_kind(),
         DescriptorPayload::Cell(_) => ItemKind::Cell,
-        DescriptorPayload::ConfigurationRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
-        DescriptorPayload::HeadRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        DescriptorPayload::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
+        DescriptorPayload::HeadRule(rule) => rule.sentence_kind.item_kind(),
         DescriptorPayload::ContextAlias(_) => ItemKind::ContextAlias,
     };
     let actual = descriptor.id.item_kind();

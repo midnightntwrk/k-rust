@@ -2238,15 +2238,7 @@ fn validate_sentence_kind(
             StateTermReason::ConfigurationSimplification,
         ));
     }
-    let expected = match sentence_kind {
-        SentenceKind::Transition => ItemKind::Rule,
-        SentenceKind::Equation => ItemKind::Equation,
-        SentenceKind::Simplification => {
-            unreachable!("configuration simplifications were rejected above")
-        }
-        SentenceKind::Alias => unreachable!("configuration aliases were rejected above"),
-        SentenceKind::Claim => ItemKind::Claim,
-    };
+    let expected = sentence_kind.item_kind();
     if actual == expected {
         Ok(())
     } else {

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellReference, DescriptorClaim,
-    DescriptorClaimBinder, DescriptorTerm, FixedCellClause, FixedCellPattern,
+    DescriptorClaimBinder, DescriptorIndex, DescriptorTerm, FixedCellClause, FixedCellPattern,
     FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind, MapOperation,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolRuleBindingKind,
     ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
@@ -28,7 +28,7 @@ type DescriptorRuleCell = ProtocolRuleCell<DescriptorCellReference, DescriptorTe
 /// context alias, and the variables those terms introduce, in order.
 struct StateRuleTerms<'a> {
     descriptor: &'a Descriptor,
-    declarations: &'a BTreeMap<StableItemId, &'a Descriptor>,
+    declarations: &'a DescriptorIndex<'a>,
     sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     wildcard_ordinal: usize,
@@ -192,7 +192,7 @@ fn configuration_rule_bindings(
 pub(super) fn lower_configuration_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
@@ -457,7 +457,7 @@ fn lower_claim_binder(
 pub(super) fn lower_context_alias_descriptor(
     descriptor: &Descriptor,
     alias: &krs_ir::DescriptorContextAlias,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticContextAlias, DescriptorLoweringError> {

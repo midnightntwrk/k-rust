@@ -1557,13 +1557,7 @@ impl StructuredRuleDescriptor {
         descriptor_kind: ItemKind,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
     ) -> Result<(), GrammarTransportError> {
-        let expected = match self.sentence_kind {
-            SentenceKind::Transition => ItemKind::Rule,
-            SentenceKind::Equation => ItemKind::Equation,
-            SentenceKind::Simplification => ItemKind::Simplification,
-            SentenceKind::Alias => ItemKind::Alias,
-            SentenceKind::Claim => ItemKind::Claim,
-        };
+        let expected = self.sentence_kind.item_kind();
         if descriptor_kind != expected {
             return Err(GrammarTransportError::DescriptorItemKind {
                 expected,

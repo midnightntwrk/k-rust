@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
+    DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
     ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, MapOperation, OriginFrame, PackageId,
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SemanticRule,
     SemanticSortRef, SemanticTheory, SetOperation, Sha256Digest, SourceFileId, StableItemId,
@@ -159,6 +159,7 @@ pub fn expand_reference_source(
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
     let facade =
         FacadeAliases::from_manifest(facade_manifest).map_err(ReferenceExpansionError::Facade)?;
+    let descriptor_index = DescriptorIndex::new(bundle);
     let macro_entries = reference_macro_entries(&file, &facade);
     let semantic_rules = semantic
         .modules()
@@ -179,7 +180,13 @@ pub fn expand_reference_source(
             materialize_configuration_wrappers(item_struct)?;
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
-            materialize_enum_productions(item_enum, package, module_path, bundle)?
+            materialize_enum_productions(
+                item_enum,
+                package,
+                module_path,
+                bundle,
+                &descriptor_index,
+            )?
         } else {
             Vec::new()
         };
@@ -211,24 +218,19 @@ pub fn expand_reference_source(
             if !rendered_names.insert(name.clone()) {
                 return Err(ReferenceExpansionError::DuplicateRule(name));
             }
-            let descriptors = bundle
-                .descriptors
-                .iter()
-                .filter(|descriptor| {
+            let descriptors = descriptor_index
+                .head_rules()
+                .filter(|(descriptor, _)| {
                     descriptor.id.package() == package
                         && descriptor.id.module_path() == module_path
                         && descriptor.id.item_name() == name
-                        && matches!(descriptor.payload, DescriptorPayload::HeadRule(_))
                 })
                 .collect::<Vec<_>>();
-            let [descriptor] = descriptors.as_slice() else {
+            let [(descriptor, rule)] = descriptors.as_slice() else {
                 return Err(ReferenceExpansionError::RuleCoverage {
                     name,
                     found: descriptors.len(),
                 });
-            };
-            let DescriptorPayload::HeadRule(rule) = &descriptor.payload else {
-                unreachable!("the descriptor filter selected only head rules")
             };
             needs_map_macro |= !rule.extras.is_empty();
             let semantic_rule = semantic_rules.get(&descriptor.id).ok_or_else(|| {
@@ -302,7 +304,8 @@ fn materialize_enum_productions(
     item: &mut syn::ItemEnum,
     package: &PackageId,
     module_path: &[String],
-    bundle: &krs_ir::DescriptorBundle,
+    bundle: &DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
     if !has_attribute(&item.attrs, "constructors") {
         return Ok(Vec::new());
@@ -377,6 +380,7 @@ fn materialize_enum_productions(
             package,
             module_path,
             bundle,
+            descriptor_index,
         )?;
         materialize_reference_strictness(output_variant, variant)?;
     }
@@ -409,29 +413,25 @@ fn materialize_reference_variant_fields(
     family: &Ident,
     package: &PackageId,
     module_path: &[String],
-    bundle: &krs_ir::DescriptorBundle,
+    bundle: &DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<(), ReferenceExpansionError> {
     let disambiguator = format!("{ENUM_VARIANT_DISAMBIGUATOR_PREFIX}{family}");
-    let descriptors = bundle
-        .descriptors
-        .iter()
-        .filter(|descriptor| {
+    let descriptors = descriptor_index
+        .constructors()
+        .filter(|(descriptor, _)| {
             descriptor.id.package() == package
                 && descriptor.id.module_path() == module_path
                 && output.ident == descriptor.id.item_name()
                 && descriptor.id.disambiguator() == disambiguator
-                && matches!(descriptor.payload, DescriptorPayload::Constructor(_))
         })
         .collect::<Vec<_>>();
-    let [descriptor] = descriptors.as_slice() else {
+    let [(_, constructor)] = descriptors.as_slice() else {
         return Err(ReferenceExpansionError::ConstructorCoverage {
             family: family.to_string(),
             variant: output.ident.to_string(),
             found: descriptors.len(),
         });
-    };
-    let DescriptorPayload::Constructor(constructor) = &descriptor.payload else {
-        unreachable!("the descriptor filter selected only constructors")
     };
     match &mut output.fields {
         syn::Fields::Named(fields) => {

@@ -522,28 +522,10 @@ fn validate_payload_item_kind(host: &HostDescriptor) -> Result<(), CollectionErr
         HostDescriptorPayload::Constructor(_) => ItemKind::Constructor,
         HostDescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
         HostDescriptorPayload::Grammar(_) => ItemKind::Grammar,
-        HostDescriptorPayload::StructuredRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        HostDescriptorPayload::StructuredRule(rule) => rule.sentence_kind.item_kind(),
         HostDescriptorPayload::Cell(_) => ItemKind::Cell,
-        HostDescriptorPayload::ConfigurationRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
-        HostDescriptorPayload::HeadRule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        HostDescriptorPayload::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
+        HostDescriptorPayload::HeadRule(rule) => rule.sentence_kind.item_kind(),
         HostDescriptorPayload::ContextAlias(_) => ItemKind::ContextAlias,
     };
     if host.id.item_kind() != expected {

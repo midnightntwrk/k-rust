@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
-    ItemKind, ListOperation, MapOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey,
-    SemanticId, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation, StableItemId,
+    DescriptorApplicationReference, DescriptorIndex, DescriptorPayload, DescriptorTerm,
+    DescriptorTermArgument, ListOperation, MapOperation, ProductionFieldId, ProtocolCellContent,
+    ProvenanceKey, SemanticId, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation,
+    StableItemId,
 };
 
 use super::catalog::{
@@ -12,12 +13,11 @@ use super::catalog::{
 };
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
-use super::references::require_descriptor;
 
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
-    pub(super) declarations: Option<&'a BTreeMap<StableItemId, &'a Descriptor>>,
+    pub(super) declarations: Option<&'a DescriptorIndex<'a>>,
     pub(super) k_item_sort: Option<SemanticSortRef>,
     pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     pub(super) binding_names: &'a BTreeSet<String>,
@@ -738,10 +738,7 @@ impl StructuredTermBuilder<'_> {
         let declarations = self.declarations.ok_or_else(|| {
             self.invalid_term("fragment! is supported only where cell declarations are available")
         })?;
-        let descriptor = require_descriptor(owner, ItemKind::Cell, declarations)?;
-        let DescriptorPayload::Cell(declaration) = &descriptor.payload else {
-            unreachable!("kind-checked cell descriptor has cell payload")
-        };
+        let declaration = declarations.cell(owner)?;
         Ok(declaration)
     }
 

@@ -203,16 +203,6 @@ stage_shape! {
 /// Stable collector-resolved head rule.
 pub type DescriptorHeadRule = ResolvedHeadRule<DescriptorStage>;
 
-fn sentence_item_kind(kind: SentenceKind) -> ItemKind {
-    match kind {
-        SentenceKind::Transition => ItemKind::Rule,
-        SentenceKind::Equation => ItemKind::Equation,
-        SentenceKind::Simplification => ItemKind::Simplification,
-        SentenceKind::Alias => ItemKind::Alias,
-        SentenceKind::Claim => ItemKind::Claim,
-    }
-}
-
 fn validate_owise_priority(
     kind: SentenceKind,
     priority: Option<&DescriptorRulePriority>,
@@ -266,7 +256,7 @@ impl HostHeadRule {
     /// Returns [`StateTransportError`] for a wrong relational item kind,
     /// malformed structural key, undeclared binding, or duplicate extra cell.
     pub fn validate(&self, item_kind: ItemKind) -> Result<(), StateTransportError> {
-        let expected = sentence_item_kind(self.sentence_kind);
+        let expected = self.sentence_kind.item_kind();
         if item_kind != expected {
             return Err(StateTransportError::ItemKind {
                 field: TransportField::HeadAnchoredRuleDescriptor,
@@ -360,7 +350,7 @@ impl DescriptorHeadRule {
     /// invalid configuration ownership, undeclared binding, duplicate cell,
     /// or an extra that selects the computation cell.
     pub fn validate(&self, item_kind: ItemKind) -> Result<(), StateTransportError> {
-        let expected = sentence_item_kind(self.sentence_kind);
+        let expected = self.sentence_kind.item_kind();
         if item_kind != expected {
             return Err(StateTransportError::ItemKind {
                 field: TransportField::HeadAnchoredRuleDescriptor,

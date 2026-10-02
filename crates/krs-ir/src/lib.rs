@@ -16,6 +16,7 @@ pub mod bytes_token;
 mod catalog;
 pub mod coordinates;
 pub mod definition;
+pub mod descriptor_index;
 mod detail_macros;
 mod display;
 mod error_detail;
@@ -67,6 +68,7 @@ pub use definition::{
     ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
     SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
+pub use descriptor_index::{DescriptorIndex, LookupError};
 pub use error_detail::{
     Bn128PointSignature, IdentityComponent, IrField, IrIdentityKind, ProductionAttributeFamily,
     SemanticIdentityKind,

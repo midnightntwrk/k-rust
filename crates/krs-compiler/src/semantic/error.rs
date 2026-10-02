@@ -193,6 +193,23 @@ impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
     }
 }
 
+impl From<krs_ir::LookupError> for DescriptorLoweringError {
+    fn from(error: krs_ir::LookupError) -> Self {
+        match error {
+            krs_ir::LookupError::Missing { id } => Self::DanglingReference(id),
+            krs_ir::LookupError::WrongKind {
+                id,
+                expected,
+                actual,
+            } => Self::ReferenceKindMismatch {
+                id,
+                expected,
+                actual,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,27 +1,25 @@
-use std::collections::BTreeMap;
-
 use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorCellDeclaration, DescriptorCellField,
-    DescriptorCellIdentity, DescriptorFixedConfiguration, DescriptorInitializerCell,
-    DescriptorInitializerStateTerm, DescriptorPayload, DescriptorProductionAttribute,
-    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRuleCells, DescriptorSortRef,
-    DescriptorTerm, DescriptorTermArgument, GrammarDescriptor, ItemKind, ProtocolCellContent,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
-    ProtocolRuleBindingKind, ProtocolRuleMapBody, ProtocolRuleStateTerm, StableItemId,
-    StructuredRuleDescriptor,
+    DescriptorCellIdentity, DescriptorFixedConfiguration, DescriptorIndex,
+    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorPayload,
+    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
+    DescriptorRuleCells, DescriptorSortRef, DescriptorTerm, DescriptorTermArgument,
+    GrammarDescriptor, ProtocolCellContent, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, StructuredRuleDescriptor,
 };
 
 use super::error::DescriptorLoweringError;
 
 pub(super) fn validate_all_stable_references(
     descriptors: &[&Descriptor],
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
         match &descriptor.payload {
             DescriptorPayload::Sort(sort) => {
                 for parent in &sort.parents {
-                    require_descriptor(parent, ItemKind::Sort, declarations)?;
+                    declarations.sort(parent)?;
                 }
             }
             DescriptorPayload::Constructor(constructor) => {
@@ -52,20 +50,12 @@ pub(super) fn validate_all_stable_references(
                 validate_cell_declaration_references(declaration, declarations)?;
             }
             DescriptorPayload::ConfigurationRule(rule) => {
-                require_descriptor(
-                    &rule.subject_configuration.configuration,
-                    ItemKind::Configuration,
-                    declarations,
-                )?;
-                require_descriptor(
-                    &rule.result_configuration.configuration,
-                    ItemKind::Configuration,
-                    declarations,
-                )?;
+                declarations.configuration(&rule.subject_configuration.configuration)?;
+                declarations.configuration(&rule.result_configuration.configuration)?;
                 validate_configuration_rule_references(rule, declarations)?;
             }
             DescriptorPayload::HeadRule(rule) => {
-                require_descriptor(&rule.configuration, ItemKind::Configuration, declarations)?;
+                declarations.configuration(&rule.configuration)?;
                 if let Some(head_sort) = &rule.head_sort {
                     validate_sort_ref(&head_sort.sort, declarations)?;
                 }
@@ -76,11 +66,7 @@ pub(super) fn validate_all_stable_references(
                 }
             }
             DescriptorPayload::ContextAlias(alias) => {
-                require_descriptor(
-                    &alias.configuration.configuration,
-                    ItemKind::Configuration,
-                    declarations,
-                )?;
+                declarations.configuration(&alias.configuration.configuration)?;
                 validate_rule_cells_references(&alias.pattern, declarations)?;
             }
         }
@@ -88,49 +74,29 @@ pub(super) fn validate_all_stable_references(
     Ok(())
 }
 
-pub(super) fn require_descriptor<'a>(
-    id: &StableItemId,
-    expected: ItemKind,
-    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
-) -> Result<&'a Descriptor, DescriptorLoweringError> {
-    let descriptor = declarations
-        .get(id)
-        .copied()
-        .ok_or_else(|| DescriptorLoweringError::DanglingReference(Box::new(id.clone())))?;
-    let actual = descriptor.id.item_kind();
-    if actual != expected {
-        return Err(DescriptorLoweringError::ReferenceKindMismatch {
-            id: Box::new(id.clone()),
-            expected,
-            actual,
-        });
-    }
-    Ok(descriptor)
-}
-
 fn validate_sort_ref(
     sort: &DescriptorSortRef,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     if let DescriptorSortRef::Declared(id) = sort {
-        require_descriptor(id, ItemKind::Sort, declarations)?;
+        declarations.sort(id)?;
     }
     Ok(())
 }
 
 fn validate_application_ref(
     application: &DescriptorApplicationRef,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     if let DescriptorApplicationRef::Declared(id) = application {
-        require_descriptor(id, ItemKind::Constructor, declarations)?;
+        declarations.constructor(id)?;
     }
     Ok(())
 }
 
 fn validate_grammar_references(
     grammar: &GrammarDescriptor,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     match grammar {
         GrammarDescriptor::Production(production) => {
@@ -168,7 +134,7 @@ fn validate_grammar_references(
 
 fn validate_structured_rule_references(
     rule: &StructuredRuleDescriptor,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     validate_sort_ref(&rule.subject_sort.sort, declarations)?;
     validate_sort_ref(&rule.result_sort.sort, declarations)?;
@@ -182,7 +148,7 @@ fn validate_structured_rule_references(
 
 fn validate_structured_term_references(
     term: &DescriptorTerm,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     if let DescriptorTerm::Application {
         reference,
@@ -204,7 +170,7 @@ fn validate_structured_term_references(
 
 fn validate_fixed_configuration_references(
     configuration: &DescriptorFixedConfiguration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     validate_cell_declaration_references(&configuration.declaration, declarations)?;
     for variable in &configuration.initializer.variables {
@@ -218,7 +184,7 @@ fn validate_fixed_configuration_references(
 
 fn validate_cell_declaration_references(
     declaration: &DescriptorCellDeclaration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for field in &declaration.fields {
         match &field.content {
@@ -226,7 +192,7 @@ fn validate_cell_declaration_references(
                 validate_sort_ref(&sort.sort, declarations)?;
             }
             ProtocolCellContent::Nested { declaration } => {
-                require_descriptor(&declaration.declaration, ItemKind::Cell, declarations)?;
+                declarations.cell(&declaration.declaration)?;
             }
         }
     }
@@ -235,7 +201,7 @@ fn validate_cell_declaration_references(
 
 fn validate_initializer_cell_references(
     cell: &DescriptorInitializerCell,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     let declared = require_cell_field(&cell.field.cell, declarations)?;
     match (&cell.content, &declared.content) {
@@ -257,11 +223,7 @@ fn validate_initializer_cell_references(
                     detail: "nested initializer declaration disagrees with its cell field".into(),
                 });
             }
-            let nested =
-                require_descriptor(&declaration.declaration, ItemKind::Cell, declarations)?;
-            let DescriptorPayload::Cell(nested_declaration) = &nested.payload else {
-                unreachable!("kind-checked descriptor has a cell payload")
-            };
+            let nested_declaration = declarations.cell(&declaration.declaration)?;
             if children.len() != nested_declaration.fields.len()
                 || children
                     .iter()
@@ -288,7 +250,7 @@ fn validate_initializer_cell_references(
 
 fn validate_initializer_state_references(
     state: &DescriptorInitializerStateTerm,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     match state {
         ProtocolInitializerStateTerm::Term(term) => {
@@ -324,7 +286,7 @@ fn validate_initializer_state_references(
 
 fn validate_configuration_rule_references(
     rule: &krs_ir::DescriptorConfigurationRule,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for binding in &rule.bindings {
         if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
@@ -341,7 +303,7 @@ fn validate_configuration_rule_references(
 
 fn validate_rule_cells_references(
     cells: &DescriptorRuleCells,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for cell in &cells.cells {
         require_cell_field(&cell.field.cell, declarations)?;
@@ -377,22 +339,9 @@ fn validate_rule_cells_references(
 
 pub(super) fn require_cell_field<'a>(
     identity: &DescriptorCellIdentity,
-    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
+    declarations: &'a DescriptorIndex<'_>,
 ) -> Result<&'a DescriptorCellField, DescriptorLoweringError> {
-    let descriptor = declarations.get(&identity.owner).copied().ok_or_else(|| {
-        DescriptorLoweringError::DanglingReference(Box::new(identity.owner.clone()))
-    })?;
-    let declaration = match &descriptor.payload {
-        DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
-        DescriptorPayload::Cell(declaration) => declaration.as_ref(),
-        _ => {
-            return Err(DescriptorLoweringError::ReferenceKindMismatch {
-                id: Box::new(identity.owner.clone()),
-                expected: ItemKind::Cell,
-                actual: descriptor.id.item_kind(),
-            });
-        }
-    };
+    let declaration = declarations.cell_owner(&identity.owner)?;
     declaration
         .fields
         .iter()

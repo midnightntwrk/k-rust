@@ -17,7 +17,7 @@ use crate::transport::{
 
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
-    ExplicitSymbol, GrammarTransportError, OriginStack, ProvenanceKey, ProvenanceRole,
+    ExplicitSymbol, GrammarTransportError, ItemKind, OriginStack, ProvenanceKey, ProvenanceRole,
     RustVisibility, SchemaVersion, StableItemId, StateTransportError, StructuredRuleDescriptor,
 };
 
@@ -830,4 +830,18 @@ pub enum SentenceKind {
     Alias,
     /// Reachability or logical claim.
     Claim,
+}
+
+impl SentenceKind {
+    /// Returns the stable item namespace for this sentence kind.
+    #[must_use]
+    pub const fn item_kind(self) -> ItemKind {
+        match self {
+            Self::Transition => ItemKind::Rule,
+            Self::Equation => ItemKind::Equation,
+            Self::Simplification => ItemKind::Simplification,
+            Self::Alias => ItemKind::Alias,
+            Self::Claim => ItemKind::Claim,
+        }
+    }
 }

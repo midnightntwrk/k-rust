@@ -281,13 +281,7 @@ impl SemanticTheory {
                 insert_node::<SemanticLevel>(&mut node_keys, associativity.origin().key())?;
             }
             for rule in &module.rules {
-                let expected = match rule.kind {
-                    SentenceKind::Transition => ItemKind::Rule,
-                    SentenceKind::Equation => ItemKind::Equation,
-                    SentenceKind::Simplification => ItemKind::Simplification,
-                    SentenceKind::Alias => ItemKind::Alias,
-                    SentenceKind::Claim => ItemKind::Claim,
-                };
+                let expected = rule.kind.item_kind();
                 validate_item_kind(&rule.id, expected)?;
                 insert_declaration(&mut declarations, &rule.id)?;
                 insert_node::<SemanticLevel>(&mut node_keys, rule.origin.key())?;
@@ -890,13 +884,7 @@ impl SemanticRule {
                 Box::new(id),
             ));
         }
-        let expected = match kind {
-            SentenceKind::Transition => ItemKind::Rule,
-            SentenceKind::Equation => ItemKind::Equation,
-            SentenceKind::Simplification => ItemKind::Simplification,
-            SentenceKind::Alias => unreachable!("configuration aliases were rejected above"),
-            SentenceKind::Claim => ItemKind::Claim,
-        };
+        let expected = kind.item_kind();
         if id.item_kind() != expected {
             return Err(SemanticValidationError::WrongItemKind {
                 id: Box::new(id.clone()),

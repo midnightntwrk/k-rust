@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorPayload,
-    DescriptorProductionItem, DescriptorProductionOwner, DescriptorSortRef,
+    Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorIndex,
+    DescriptorPayload, DescriptorProductionItem, DescriptorProductionOwner, DescriptorSortRef,
     GeneratedProductionKind, GrammarDescriptor, ProductionFieldId, SemanticSortRef, SemanticTerm,
     StableItemId, generated_production_id,
 };
@@ -154,7 +154,7 @@ pub(super) fn build_production_catalog(
 }
 
 pub(super) struct DeclarationCatalog<'a> {
-    pub(super) descriptors: &'a BTreeMap<StableItemId, &'a Descriptor>,
+    pub(super) descriptors: &'a DescriptorIndex<'a>,
     pub(super) metadata: &'a BTreeMap<StableItemId, DescriptorDeclaration>,
 }
 

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellDeclaration,
     DescriptorCellIdentity, DescriptorCellReference, DescriptorFixedConfiguration,
-    DescriptorHeadRuleExtra, DescriptorPayload, DescriptorRuleCondition, DescriptorRuleLabel,
+    DescriptorHeadRuleExtra, DescriptorIndex, DescriptorRuleCondition, DescriptorRuleLabel,
     DescriptorRulePriority, DescriptorSimplification, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, MapOperation,
     ProtocolCellContent, ProvenanceKey, SemanticId, SemanticRule, SemanticRuleCondition,
@@ -20,10 +20,10 @@ use super::origin::{
     generated_semantic_id, role_key, semantic_cell_id, semantic_origin,
     semantic_origin_from_primary,
 };
-use super::references::{require_cell_field, require_descriptor};
+use super::references::require_cell_field;
 
 pub(super) fn framework_k_item_sort(
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<SemanticSortRef, DescriptorLoweringError> {
     let mut matches = declarations.keys().filter(|id| {
         id.item_kind() == ItemKind::Sort
@@ -50,27 +50,30 @@ pub(super) fn framework_k_item_sort(
 /// Resolves `configuration` to its fixed-configuration payload.
 pub(super) fn require_fixed_configuration<'a>(
     configuration: &StableItemId,
-    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
+    declarations: &'a DescriptorIndex<'_>,
     node: &'static str,
     detail: &'static str,
 ) -> Result<&'a DescriptorFixedConfiguration, DescriptorLoweringError> {
-    let configuration_descriptor =
-        require_descriptor(configuration, ItemKind::Configuration, declarations)?;
-    let DescriptorPayload::FixedConfiguration(configuration) = &configuration_descriptor.payload
-    else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node,
-            detail: detail.into(),
-        });
-    };
-    Ok(configuration)
+    declarations
+        .configuration(configuration)
+        .map_err(|error| match error {
+            krs_ir::LookupError::WrongKind { ref id, .. }
+                if id.item_kind() == ItemKind::Configuration =>
+            {
+                DescriptorLoweringError::UnsupportedShape {
+                    node,
+                    detail: detail.into(),
+                }
+            }
+            other => other.into(),
+        })
 }
 
 /// Returns the semantic identities of every fixed leaf cell of `declaration`
 /// that `selected` does not name, in declaration order.
 pub(super) fn omitted_leaf_cells(
     declaration: &DescriptorCellDeclaration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     selected: &BTreeSet<DescriptorCellIdentity>,
 ) -> Result<Vec<SemanticId>, DescriptorLoweringError> {
     let mut all_leaves = Vec::new();
@@ -140,7 +143,7 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
 pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
@@ -229,7 +232,7 @@ pub(super) fn lower_head_rule_descriptor(
 /// fixed configuration.
 fn head_rule_configuration<'a>(
     rule: &krs_ir::DescriptorHeadRule,
-    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
+    declarations: &'a DescriptorIndex<'_>,
 ) -> Result<&'a DescriptorFixedConfiguration, DescriptorLoweringError> {
     if rule.sentence_kind != krs_ir::SentenceKind::Transition {
         return Err(DescriptorLoweringError::UnsupportedShape {
@@ -264,7 +267,7 @@ fn head_rule_configuration<'a>(
 fn seed_head_rule_sorts(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
 ) -> Result<HeadRuleSeeds, DescriptorLoweringError> {
     let binding_names = rule
         .bindings
@@ -469,7 +472,7 @@ fn lower_head_rule_computation_clause(
 fn lower_head_rule_extra(
     builder: &mut StructuredTermBuilder<'_>,
     extra: &DescriptorHeadRuleExtra,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     selected: &mut BTreeSet<DescriptorCellIdentity>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let cell_reference = head_rule_extra_cell(extra);
@@ -639,7 +642,7 @@ fn lower_head_rule_cell_rewrite(
 
 fn collect_declared_leaf_identities(
     declaration: &DescriptorCellDeclaration,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    declarations: &DescriptorIndex<'_>,
     visiting: &mut BTreeSet<StableItemId>,
     leaves: &mut Vec<DescriptorCellIdentity>,
 ) -> Result<(), DescriptorLoweringError> {
@@ -653,11 +656,7 @@ fn collect_declared_leaf_identities(
                         detail: "cyclic nominal cell declaration".into(),
                     });
                 }
-                let descriptor =
-                    require_descriptor(&declaration.declaration, ItemKind::Cell, declarations)?;
-                let DescriptorPayload::Cell(nested) = &descriptor.payload else {
-                    unreachable!("kind-checked descriptor has a cell payload")
-                };
+                let nested = declarations.cell(&declaration.declaration)?;
                 collect_declared_leaf_identities(nested, declarations, visiting, leaves)?;
                 visiting.remove(&declaration.declaration);
             }

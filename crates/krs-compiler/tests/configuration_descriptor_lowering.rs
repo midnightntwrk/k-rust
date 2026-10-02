@@ -693,3 +693,78 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
                 && variable.sort() == &krs_ir::SemanticSortRef::map())
     );
 }
+
+#[test]
+fn descriptor_lookup_errors_preserve_kind_messages_and_missing_ids() {
+    for reference in [
+        id("Missing", ItemKind::Sort),
+        id("State", ItemKind::Configuration),
+    ] {
+        let mut bundle = bundle();
+        let reference = if reference.item_kind() == ItemKind::Configuration {
+            bundle
+                .descriptors
+                .iter()
+                .find(|descriptor| descriptor.id.item_kind() == ItemKind::Configuration)
+                .unwrap()
+                .id
+                .clone()
+        } else {
+            reference
+        };
+        bundle.descriptors.push(descriptor(
+            id("Referrer", ItemKind::Sort),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::from([reference.clone()]),
+            }),
+        ));
+        let error = lower_descriptor_bundle(&bundle).unwrap_err();
+        if reference.item_kind() == ItemKind::Sort {
+            assert_eq!(
+                error,
+                krs_compiler::DescriptorLoweringError::DanglingReference(Box::new(
+                    reference.clone()
+                ))
+            );
+            assert_eq!(
+                error.to_string(),
+                format!("dangling descriptor reference {reference}")
+            );
+        } else {
+            assert_eq!(
+                error,
+                krs_compiler::DescriptorLoweringError::ReferenceKindMismatch {
+                    id: Box::new(reference.clone()),
+                    expected: ItemKind::Sort,
+                    actual: ItemKind::Configuration,
+                }
+            );
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "descriptor reference {reference} has kind {}, expected {}",
+                    ItemKind::Configuration,
+                    ItemKind::Sort
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn duplicate_descriptor_precedes_dangling_reference_validation() {
+    let mut bundle = bundle();
+    let duplicate_id = id("Referrer", ItemKind::Sort);
+    let referrer = descriptor(
+        duplicate_id.clone(),
+        DescriptorPayload::Sort(SortDescriptor {
+            parents: BTreeSet::from([id("Missing", ItemKind::Sort)]),
+        }),
+    );
+    bundle.descriptors.push(referrer.clone());
+    bundle.descriptors.push(referrer);
+    assert_eq!(
+        lower_descriptor_bundle(&bundle).unwrap_err(),
+        krs_compiler::DescriptorLoweringError::DuplicateItemId(Box::new(duplicate_id))
+    );
+}
