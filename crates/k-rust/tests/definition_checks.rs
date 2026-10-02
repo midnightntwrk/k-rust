@@ -2578,6 +2578,9 @@ fn outer_sort_diagnostics(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
                 || diagnostic
                     .message
                     .starts_with("Nested parametric sorts are currently unsupported:")
+                || diagnostic
+                    .message
+                    .starts_with("Parametric subsort declarations are currently unsupported:")
         })
         .collect()
 }
@@ -2645,7 +2648,7 @@ fn check_sorts_rejects_undefined_nonterminals_in_every_module() {
 }
 
 #[test]
-fn check_sorts_accepts_variables_synonyms_and_declared_instantiations() {
+fn check_sorts_accepts_synonyms_and_declared_instantiations_but_rejects_a_parametric_subsort() {
     let formal = Sort::new("S");
     let mint_six = Sort::with_parameters("MInt", vec![Sort::new("6")]);
     let diagnostics = outer_check_diagnostics(
@@ -2686,9 +2689,12 @@ fn check_sorts_accepts_variables_synonyms_and_declared_instantiations() {
         )],
     );
 
-    assert!(
-        outer_sort_diagnostics(&diagnostics).is_empty(),
-        "{diagnostics:#?}"
+    let errors = outer_sort_diagnostics(&diagnostics);
+    assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+    assert_eq!(errors[0].code, DiagnosticCode::UnsupportedParametricSort);
+    assert_eq!(
+        errors[0].message,
+        "Parametric subsort declarations are currently unsupported: GenericResult ::= S; declare the subsort of each instance instead",
     );
 }
 
@@ -2910,6 +2916,105 @@ fn operand(sort: Sort) -> ProductionItem {
 }
 
 #[test]
+fn check_sorts_rejects_parametric_subsort_declarations_but_the_kernel_order_ones() {
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Foo")),
+                Sentence::SyntaxSort {
+                    parameters: vec![Sort::new("W")],
+                    sort: mint(Sort::new("W")),
+                    attributes: Attributes::default(),
+                },
+                syntax_sort(mint(Sort::new("8"))),
+                parametric_production(
+                    &["W"],
+                    Sort::new("Foo"),
+                    vec![operand(mint(Sort::new("W")))],
+                ),
+                parametric_production(
+                    &["S", "W"],
+                    Sort::new("Foo"),
+                    vec![operand(mint(Sort::new("W")))],
+                ),
+                parametric_production(&["S"], Sort::new("Foo"), vec![operand(Sort::new("S"))]),
+                parametric_production(&["S"], Sort::new("S"), vec![operand(mint(Sort::new("S")))]),
+            ],
+        )],
+    );
+    let errors = outer_sort_diagnostics(&diagnostics);
+    assert!(errors.iter().all(|diagnostic| {
+        diagnostic.code == DiagnosticCode::UnsupportedParametricSort
+            && diagnostic.severity == Severity::Error
+    }));
+    let mut messages = errors
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    messages.sort_unstable();
+    assert_eq!(
+        messages,
+        vec![
+            "Parametric subsort declarations are currently unsupported: Foo ::= MInt{W}; declare the subsort of each instance instead",
+            "Parametric subsort declarations are currently unsupported: Foo ::= MInt{W}; declare the subsort of each instance instead",
+            "Parametric subsort declarations are currently unsupported: Foo ::= S; declare the subsort of each instance instead",
+            "Parametric subsort declarations are currently unsupported: S ::= MInt{S}; declare the subsort of each instance instead",
+        ]
+    );
+}
+
+#[test]
+fn check_sorts_admits_kernel_order_and_labelled_parametric_productions() {
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("KBott")),
+                Sentence::SyntaxSort {
+                    parameters: vec![Sort::new("W")],
+                    sort: mint(Sort::new("W")),
+                    attributes: Attributes::default(),
+                },
+                syntax_sort(mint(Sort::new("8"))),
+                parametric_production(&["S"], Sort::new("KItem"), vec![operand(Sort::new("S"))]),
+                parametric_production(&["S"], Sort::new("S"), vec![operand(Sort::new("KBott"))]),
+                Sentence::Production {
+                    label: Some(Label::new("wrap")),
+                    parameters: vec![Sort::new("S")],
+                    sort: Sort::new("S"),
+                    items: vec![
+                        ProductionItem::Terminal("wrap(".into()),
+                        operand(Sort::new("S")),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("inner")),
+                    parameters: vec![Sort::new("T")],
+                    sort: Sort::new("T"),
+                    items: vec![
+                        ProductionItem::Terminal("inner(".into()),
+                        operand(mint(Sort::new("T"))),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+    );
+    assert!(
+        outer_sort_diagnostics(&diagnostics).is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn check_sorts_rejects_other_arities_nesting_and_undeclared_arguments_of_mint() {
     let (p, q, w) = (Sort::new("P"), Sort::new("Q"), Sort::new("W"));
     let diagnostics = outer_check_diagnostics(
@@ -2952,6 +3057,7 @@ fn check_sorts_rejects_other_arities_nesting_and_undeclared_arguments_of_mint() 
             "Nested parametric sorts are currently unsupported: MInt{MInt{8}}",
             "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
             "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
+            "Parametric subsort declarations are currently unsupported: Uses ::= MInt{MInt{W}}; declare the subsort of each instance instead",
             "User-defined parametric sorts are currently unsupported: MInt{8,16}",
             "User-defined parametric sorts are currently unsupported: MInt{P,Q}",
         ]

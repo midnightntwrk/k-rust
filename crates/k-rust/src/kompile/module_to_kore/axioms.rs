@@ -19,6 +19,7 @@ use super::*;
 use crate::definition::production_kind::{
     ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, ResultSorts, mentions_parameter,
 };
+use crate::definition::relations::SubsortDeclaration;
 use crate::kompile::passes::{Injectable, has_subsort_axiom};
 
 pub(super) struct GeneratedAxioms {
@@ -862,25 +863,16 @@ fn marker_attribute(attribute: KoreAttribute) -> Attributes {
 }
 
 fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
-    let Sentence::Production {
-        label: None,
-        parameters,
-        sort,
-        items,
-        ..
-    } = production
+    let Some(SubsortDeclaration::Pair { child, parent }) = SubsortDeclaration::of(production)
     else {
         return None;
     };
-    let [ProductionItem::NonTerminal { sort: subsort, .. }] = items.as_slice() else {
-        return None;
-    };
-    if !has_subsort_axiom(sort) {
+    if !has_subsort_axiom(parent) {
         return None;
     }
 
-    let subsort = encode_kore_sort_with_formals(subsort, parameters);
-    let sort = encode_kore_sort_with_formals(sort, parameters);
+    let subsort = encode_kore_sort(child);
+    let sort = encode_kore_sort(parent);
     let value = Variable {
         kind: VariableKind::Element,
         name: "Val".into(),

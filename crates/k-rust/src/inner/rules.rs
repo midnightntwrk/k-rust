@@ -33,6 +33,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use web_time::Instant;
 
 use crate::definition::AttributeKey;
+use crate::definition::relations::SubsortDeclaration;
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
@@ -612,30 +613,14 @@ fn rule_grammar(
     let universe = SortUniverse::new(&visible);
     let has_generated_top_sort = visible.iter().any(|sentence| {
         matches!(
-            sentence,
-            Sentence::Production {
-                label: None,
-                parameters,
-                sort,
-                items,
-                ..
-            } if sort.name == BuiltinSort::KItem.k_name()
-                && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
-                    if parameters.contains(child))
+            SubsortDeclaration::of(sentence),
+            Some(SubsortDeclaration::KernelTop)
         )
     });
     let has_generated_bottom_sort = visible.iter().any(|sentence| {
         matches!(
-            sentence,
-            Sentence::Production {
-                label: None,
-                parameters,
-                sort,
-                items,
-                ..
-            } if parameters.contains(sort)
-                && matches!(items.as_slice(), [ProductionItem::NonTerminal { sort: child, .. }]
-                    if child.name == FrontendSort::KBott.as_str())
+            SubsortDeclaration::of(sentence),
+            Some(SubsortDeclaration::KernelBottom)
         )
     });
     let explicit_top_sorts = visible

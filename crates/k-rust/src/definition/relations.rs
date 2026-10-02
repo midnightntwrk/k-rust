@@ -41,6 +41,7 @@ use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::definition::AttributeKey;
 use crate::kast::Sort;
+use crate::kast::sort_role::KernelSort;
 
 #[derive(Clone, Debug)]
 pub struct OverloadOrder<'a> {
@@ -89,6 +90,53 @@ impl std::fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+/// What an unlabelled production whose only item is a nonterminal states about the sort order.
+///
+/// The order relates sorts, and KORE states it with subsort axioms between sorts.
+/// A production with sort parameters states no pair and has no subsort axiom.
+/// Only the two kernel shapes state facts K fixes for every sort; every other parametric
+/// subsort declaration is unsupported.
+pub(crate) enum SubsortDeclaration<'a> {
+    /// No sort parameters: `child < parent`, a pair of both relations and a subsort axiom.
+    Pair { child: &'a Sort, parent: &'a Sort },
+    /// `{S} KItem ::= S`: every sort of K terms is a KItem, which compilation states per sort.
+    KernelTop,
+    /// `{S} S ::= KBott`: the parse-time bottom is below every sort.
+    KernelBottom,
+    /// Any other subsort-shaped production with parameters states no fact of the order.
+    Parametric,
+}
+
+impl<'a> SubsortDeclaration<'a> {
+    pub(crate) fn of(production: &'a Sentence) -> Option<Self> {
+        let Sentence::Production {
+            label: None,
+            parameters,
+            sort,
+            items,
+            ..
+        } = production
+        else {
+            return None;
+        };
+        let [ProductionItem::NonTerminal { sort: child, .. }] = items.as_slice() else {
+            return None;
+        };
+        if parameters.is_empty() {
+            Some(Self::Pair {
+                child,
+                parent: sort,
+            })
+        } else if *sort == KernelSort::KItem.sort() && parameters.contains(child) {
+            Some(Self::KernelTop)
+        } else if parameters.contains(sort) && *child == KernelSort::KBott.sort() {
+            Some(Self::KernelBottom)
+        } else {
+            Some(Self::Parametric)
+        }
+    }
+}
 
 /// Compute Scala's semantic or syntactic subsort relation.
 ///
@@ -156,8 +204,19 @@ fn disambiguation_subsort_pairs_of(sentence: &Sentence) -> impl Iterator<Item = 
 /// The `(child, sort)` pair a non-parametric unary production states: in the semantic relation
 /// only when it is unlabeled, in the syntactic relation always.
 fn subsort_pair(sentence: &Sentence, syntactic: bool) -> Option<(Sort, Sort)> {
+    match SubsortDeclaration::of(sentence) {
+        Some(SubsortDeclaration::Pair { child, parent }) => {
+            return Some((child.clone(), parent.clone()));
+        }
+        Some(
+            SubsortDeclaration::KernelTop
+            | SubsortDeclaration::KernelBottom
+            | SubsortDeclaration::Parametric,
+        ) => return None,
+        None => {}
+    }
     let Sentence::Production {
-        label,
+        label: Some(_),
         parameters,
         sort,
         items,
@@ -174,8 +233,7 @@ fn subsort_pair(sentence: &Sentence, syntactic: bool) -> Option<(Sort, Sort)> {
     else {
         return None;
     };
-    (parameters.is_empty() && (label.is_none() || syntactic))
-        .then(|| (child_sort.clone(), sort.clone()))
+    (parameters.is_empty() && syntactic).then(|| (child_sort.clone(), sort.clone()))
 }
 
 /// The `(element, list)` pair a non-parametric user-list production states, which the rule

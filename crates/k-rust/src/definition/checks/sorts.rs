@@ -5,7 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::partial_order::{Cycle, first_cycle};
-use super::super::relations::{disambiguation_subsort_pairs, states_disambiguation_subsort};
+use super::super::relations::{
+    SubsortDeclaration, disambiguation_subsort_pairs, states_disambiguation_subsort,
+};
 use super::super::sort_catalog::SortShape;
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
@@ -47,6 +49,25 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                 items,
                 ..
             } => {
+                match SubsortDeclaration::of(sentence) {
+                    Some(SubsortDeclaration::Parametric) => {
+                        let [ProductionItem::NonTerminal { sort: child, .. }] = items.as_slice()
+                        else {
+                            unreachable!("a subsort declaration has exactly one nonterminal");
+                        };
+                        diagnostics.push(Diagnostic::error(
+                            DiagnosticCode::UnsupportedParametricSort,
+                            format!("Parametric subsort declarations are currently unsupported: {sort} ::= {child}; declare the subsort of each instance instead"),
+                            sentence,
+                        ));
+                    }
+                    Some(
+                        SubsortDeclaration::Pair { .. }
+                        | SubsortDeclaration::KernelTop
+                        | SubsortDeclaration::KernelBottom,
+                    )
+                    | None => {}
+                }
                 check_declared_sort(sort, parameters, sorts, sentence, &mut diagnostics);
 
                 let missing = items

@@ -116,6 +116,12 @@ Every instance notion the frontend builds (declared instances, the instance an o
 Any other parametric head or arity (`MInt{A, B}`) is rejected when the definition is loaded with `User-defined parametric sorts are currently unsupported: MInt{A,B}`, a nested parametric sort (`MInt{MInt{W}}`, `MInt{MInt{8}}`) with `Nested parametric sorts are currently unsupported: MInt{MInt{W}}`, and a declared instance with an undeclared argument (`MInt{Foo}`) with `Could not find sorts: [Foo]`.
 This is a recorded divergence from the pinned K frontend: it accepts a nested parametric declaration that nothing uses (`syntax {W} MInt{MInt{W}}`), and Rust rejects it by the same rule, since a nested sort names no width wherever it is written.
 
+A production with sort parameters shaped like a subsort declaration is rejected at load with `Parametric subsort declarations are currently unsupported: {parent} ::= {child}; declare the subsort of each instance instead`.
+The exceptions are `{S} KItem ::= S` and `{S} S ::= KBott`, which state what K fixes for every sort: every sort of K terms is a KItem, and the parse-time bottom is below every sort.
+The definition's order relates sorts, and KORE's subsort axioms relate sorts, so a production with sort parameters states no pair of that order and has no subsort axiom.
+Write the subsort of each declared instance instead, for example `syntax Foo ::= MInt{8} | MInt{16}`.
+This is a recorded divergence from the pinned K frontend: it accepts such a declaration and writes a definition that its own backend validation refuses.
+
 A sort synonym is a spelling of the sort at the end of its chain in the module's full view, including private imports.
 Production result and nonterminal sorts use that denotation; a production's own sort parameter shadows a synonym of the same spelling.
 A cycle, or one alias with two denotations in a view, is rejected at load with `InvalidSortSynonym`, whether used or not: those equations name no unique sort.
@@ -170,6 +176,7 @@ The instances this leaves unwritable cannot change behaviour a definition can ob
 Execution terms are unaffected: their KORE symbols carry every instance explicitly.
 Honouring a present parameter as an assertion is a compatible later extension, since it only accepts terms that are rejected now; it becomes worth its cost when a consumer needs to write a specific instance source text cannot derive.
 A sort that mentions a sort parameter stands for every instance of it, since a sentence's sort parameters are universally quantified, and productions with sort parameters declare no subsorts: `MInt{Q}` is below itself and below `KItem`, and not below `MInt{8}`.
+Such a production has no subsort axiom; the per-sort KItem subsorts are stated separately.
 A cast on a K sequence, an injected label, or a sorted variable is compared with the operand's own sort like a cast on an application; a cast on a rewrite or `as` pattern is the sort both sides are injected at; an `as` alias variable with its own sort is placed at that sort like the pattern, and only a sortless alias takes it.
 The check applies to every rule-like sentence `compile_loaded_definition` emits, whether parsed from source, supplied through `load_structured`, or edited and rebuilt with `LoadedDefinition::with_definition` or `from_loaded_parts`; a pass that meets an ill-sorted term earlier may reject it first with its own message.
 [Sort-injection tests](../crates/k-rust/tests/sort_injections.rs) pin the rejections and their controls.

@@ -35,6 +35,26 @@ fn rules(source: &str, main_module: &str) -> k_rust::definition::Definition {
         .expect("rule bubbles should resolve")
 }
 
+#[test]
+fn a_production_with_sort_parameters_has_no_subsort_axiom() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "g"
+          syntax {S} KItem ::= S
+        endmodule
+    "#};
+    let definition = k_rust::kompile::subsort_kitem(&rules(source, "MAIN"))
+        .expect("the per-sort KItem subsorts should generate");
+    let modules = module_to_kore(&definition, "MAIN").expect("KORE modules should emit");
+    let printer = Printer::pretty(100);
+    for module in [&modules.semantics, &modules.syntax] {
+        let kore = printer.print_module(module);
+        assert!(!kore.contains("subsort{SortS"), "{kore}");
+        assert!(!kore.contains("SortS}"), "{kore}");
+        assert!(kore.contains("subsort{SortFoo{}, SortKItem{}}"), "{kore}");
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[derive(Deserialize)]
 struct StrictnessAttributeOracle {
