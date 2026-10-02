@@ -739,6 +739,34 @@ impl Grammar {
             .any(|sort| self.placeholders.get(sort) == Some(&Placeholder::Scaffolding))
     }
 
+    /// The parametric sorts a term of this grammar can have: every result sort and declared
+    /// nonterminal item sort of a production that has parameters and is not a scaffolding
+    /// placeholder.
+    ///
+    /// On a grammar that satisfies the G1 check these are the view's declared instances, plus a
+    /// placeholder spelling the definition declares (`Placeholder::DeclaredInstance`). A
+    /// scaffolding placeholder denotes no set of terms, so it is left out. The sorts a position
+    /// is only recognized at (`Production::item_sort_ids`) are not read: they describe what the
+    /// recognizer accepts, not what a term is.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn parametric_values(&self) -> BTreeSet<&Sort> {
+        self.productions
+            .iter()
+            .flat_map(|production| {
+                std::iter::once(&production.result).chain(production.items.iter().filter_map(
+                    |item| match item {
+                        Item::NonTerminal(sort) => Some(sort),
+                        _ => None,
+                    },
+                ))
+            })
+            .filter(|sort| {
+                !sort.parameters.is_empty()
+                    && self.placeholders.get(*sort) != Some(&Placeholder::Scaffolding)
+            })
+            .collect()
+    }
+
     fn insert_subsort_pair(&mut self, lesser: &Sort, greater: &Sort, relation: SubsortRelation) {
         debug_assert!(
             !self.touches_scaffolding(lesser, greater),
@@ -1721,6 +1749,81 @@ mod tests {
         assert_eq!(
             field_labels(&pass(closed)),
             ["project:pick:x", "project:pick:y"]
+        );
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn syntax_sort(parameters: Vec<Sort>, sort: Sort) -> Sentence {
+        Sentence::SyntaxSort {
+            parameters,
+            sort,
+            attributes: Attributes::default(),
+        }
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn production(
+        parameters: Vec<Sort>,
+        sort: Sort,
+        label: &str,
+        arguments: Vec<ProductionItem>,
+    ) -> Sentence {
+        let mut items = vec![ProductionItem::Terminal(format!("{label}("))];
+        for (index, argument) in arguments.into_iter().enumerate() {
+            if index != 0 {
+                items.push(ProductionItem::Terminal(",".into()));
+            }
+            items.push(argument);
+        }
+        items.push(ProductionItem::Terminal(")".into()));
+        Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters,
+            sort,
+            items,
+            attributes: Attributes::default(),
+        }
+    }
+
+    #[cfg(feature = "z3-inference")]
+    fn nonterminal(sort: Sort) -> ProductionItem {
+        ProductionItem::NonTerminal { sort, name: None }
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn parametric_values_are_the_declared_instances_without_scaffolding() {
+        // `syntax {W} Int ::= width(MInt{W})` next to the one declared instance `MInt{8}`: the
+        // instance production mentions the scaffolding placeholder `MInt{K}`, which denotes no
+        // set of terms, so only `MInt{8}` is a parametric sort a term can have.
+        let w = Sort::new("W");
+        let mint_w = Sort::with_parameters("MInt", vec![w.clone()]);
+        let mint_8 = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        let mint_k = Sort::with_parameters("MInt", vec![Sort::new("K")]);
+        let mut sentences = vec![
+            syntax_sort(Vec::new(), Sort::new("Int")),
+            syntax_sort(vec![w.clone()], mint_w.clone()),
+            syntax_sort(Vec::new(), mint_8.clone()),
+            production(
+                vec![w],
+                Sort::new("Int"),
+                "width",
+                vec![nonterminal(mint_w)],
+            ),
+        ];
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+        assert_eq!(
+            grammar.placeholders.get(&mint_k),
+            Some(&Placeholder::Scaffolding)
+        );
+        assert_eq!(grammar.parametric_values(), BTreeSet::from([&mint_8]));
+
+        // Declared, the placeholder spelling is a sort of the module like any other instance.
+        sentences.push(syntax_sort(Vec::new(), mint_k.clone()));
+        let grammar = Grammar::from_sentences(&sentences).unwrap();
+        assert_eq!(
+            grammar.parametric_values(),
+            BTreeSet::from([&mint_8, &mint_k])
         );
     }
 }

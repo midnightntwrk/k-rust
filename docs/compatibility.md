@@ -191,6 +191,10 @@ A formal sort parameter of a parametric production is not a variable of the sent
 Sort inference therefore orders the readings of a sentence only by well-sortedness, by maximality over the sorts of its variables, and then by `prefer`/`avoid`; a sentence with several readings left after these steps is an ambiguous parse error (K user manual, "Variable Sort Inference" and "Symbol priority and associativity").
 The `K`/`KItem`/`Bag` preference on formal parameters only chooses how a kept reading is instantiated: it compares parameter vectors that keep the same set of well-sorted readings and never removes a reading that some vector types.
 A parameter that the kept readings leave free is instantiated at `K` by that preference.
+A parameter is instantiated only at sorts of the module.
+A parameter that occurs inside a parametric sort (the `Width` of `MInt{Width}`) ranges over the module's declared instances of that sort, so a width the kept readings leave free takes them: one fitting instance is chosen, several are an ambiguous parse error, and none is a rejection naming the production.
+For example, `rule foo(X) => g` over `syntax {W} Foo ::= foo(MInt{W})` is accepted at `MInt{8}` when `MInt{8}` is the only instance.
+The pinned K frontend does not terminate on that rule, and picks one of two declared widths where Rust reports the ambiguity.
 Alternatives that are equal once bracket nodes are erased are one reading, not several: `rule #Ceil(X:W) => (#Top) [simplification]` has one parse, `#Top{K}`, exactly as without the brackets.
 The concrete instances of one parametric production are one production of the parsed term, so they never form separate readings either.
 The instance a kept reading was parsed at is not part of the loaded sentence: rule, claim, context, context-alias and configuration bodies are loaded with no label sort parameter, since source text cannot write one, and sort injection instantiates every parametric label from its arguments and position ([Sorts of compiled terms](#sorts-of-compiled-terms)).

@@ -5384,3 +5384,187 @@ fn a_production_with_sort_parameters_contributes_no_field_projection_to_the_rule
     resolve_rule_bubbles(&lowered(source))
         .expect("the rule grammar has no projection of the parametric pick");
 }
+
+/// Run `f` on its own thread and return its result, panicking when it does not finish within
+/// 120 seconds, so that a sort inference that never terminates fails the test instead of
+/// hanging the suite. The thread of a timed-out `f` is left running; the test process ends it.
+#[cfg(feature = "z3-inference")]
+fn within_deadline<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // The receiver is gone only after a timeout, when the result is no longer wanted.
+        let _ = sender.send(f());
+    });
+    match receiver.recv_timeout(std::time::Duration::from_secs(120)) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            panic!("sort inference did not terminate within 120 s")
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("the inference thread panicked")
+        }
+    }
+}
+
+/// The rule bodies of `source`, loaded with the prelude within the deadline, or the load error's
+/// text.
+#[cfg(feature = "z3-inference")]
+fn rule_bodies_within_deadline(
+    source: &'static str,
+    name: &'static str,
+) -> Result<Vec<String>, String> {
+    within_deadline(move || {
+        load_with_prelude(source, name, "TEST")
+            .map(|loaded| rule_bodies(&loaded))
+            .map_err(|error| error.to_string())
+    })
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_width_only_the_module_decides_takes_its_one_declared_instance() {
+    // `W` is bound by `foo`'s production alone and nothing in the rule fixes it, so the width of
+    // `X` is whatever the module's `MInt` sorts allow. The module declares one, `MInt{8}`: the
+    // rule has exactly one well-sorted reading over the module's sorts.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports BOOL
+          imports MINT-SYNTAX
+          syntax MInt{8}
+          syntax {W} Foo ::= foo(MInt{W}) [symbol(foo)]
+          syntax Foo ::= "g"
+          rule foo(X) => g
+        endmodule
+    "#};
+    let bodies = rule_bodies_within_deadline(source, "one-width.k")
+        .expect("the one declared width is the rule's only reading");
+    let [body] = bodies.as_slice() else {
+        panic!("expected one rule, got {bodies:?}");
+    };
+    assert!(body.contains("MInt{8}"), "{body}");
+    assert!(!body.contains("MInt{K}"), "{body}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_width_without_a_declared_instance_is_rejected_naming_the_production() {
+    // No `MInt` instance is a sort of the module, so no instantiation of `foo` is one either:
+    // the rule has no reading, and the rejection names the production, not a sort the user never
+    // wrote.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports BOOL
+          imports MINT-SYNTAX
+          syntax {W} Foo ::= foo(MInt{W}) [symbol(foo)]
+          syntax Foo ::= "g"
+          rule foo(X) => g
+        endmodule
+    "#};
+    let message = rule_bodies_within_deadline(source, "no-width.k")
+        .expect_err("no instantiation of foo is a sort of the module");
+    assert!(
+        message.contains("No sort declared in this module instantiates MInt{W}"),
+        "{message}"
+    );
+    assert!(message.contains("foo"), "{message}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn two_declared_widths_make_a_free_width_ambiguous() {
+    // Two declared instances give two well-sorted readings that no criterion orders.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports BOOL
+          imports MINT-SYNTAX
+          syntax MInt{8}
+          syntax MInt{16}
+          syntax {W} Foo ::= foo(MInt{W}) [symbol(foo)]
+          syntax Foo ::= "g"
+          rule foo(X) => g
+        endmodule
+    "#};
+    let alternatives = within_deadline(move || {
+        let Err(error) = load_with_prelude(source, "two-widths.k", "TEST") else {
+            return Err("the definition loaded".to_owned());
+        };
+        let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = &error else {
+            return Err(format!("expected a rule parse error, got {error:?}"));
+        };
+        let ParseError::Ambiguous { alternatives, .. } = &error.error else {
+            return Err(format!(
+                "expected ParseError::Ambiguous, got {:?}",
+                error.error
+            ));
+        };
+        Ok(alternatives
+            .iter()
+            .map(|alternative| alternative.term.clone())
+            .collect::<Vec<_>>())
+    })
+    .expect("two declared widths are two readings");
+    assert_eq!(alternatives.len(), 2, "{alternatives:#?}");
+    assert!(
+        alternatives.iter().any(|term| term.contains("{8}")),
+        "{alternatives:#?}"
+    );
+    assert!(
+        alternatives.iter().any(|term| term.contains("{16}")),
+        "{alternatives:#?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_free_width_of_a_parametric_result_takes_the_declared_instance() {
+    // The widths of `bitwidthMInt` and `Int2MInt` must agree and nothing else fixes them. No
+    // unknown has the instantiated sort, so it is the instantiated positions themselves that must
+    // be sorts of the module: `MInt{8}` is the only one.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports BOOL
+          imports MINT
+          syntax MInt{8}
+          syntax Foo ::= "g" | h(Int)
+          rule h(I) => g requires bitwidthMInt(Int2MInt(I)) ==Int 8
+        endmodule
+    "#};
+    let texts = within_deadline(move || {
+        load_with_prelude(source, "free-result.k", "TEST")
+            .map(|loaded| rule_like_texts(&loaded, "free-result.k"))
+            .map_err(|error| error.to_string())
+    })
+    .expect("the one declared width is the rule's only reading");
+    let [text] = texts.as_slice() else {
+        panic!("expected one rule, got {texts:?}");
+    };
+    assert!(text.contains("#SemanticCastToMInt{8}"), "{text}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn an_overload_whose_parametric_alternative_has_no_instance_keeps_the_other() {
+    // The `MInt` alternative of `foo` has no instantiation that is a sort of the module, so it is
+    // a dead reading; being part of that alternative's own constraint, its instantiation
+    // constrains nothing else, and the `Int` overload stays the rule's reading.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports BOOL
+          imports MINT-SYNTAX
+          syntax {W} Foo ::= foo(MInt{W}) [symbol(foo)]
+          syntax Foo ::= foo(Int) [symbol(fooInt)] | "g"
+          rule foo(X) => g
+        endmodule
+    "#};
+    let bodies =
+        rule_bodies_within_deadline(source, "overload.k").expect("the Int overload is a reading");
+    let [body] = bodies.as_slice() else {
+        panic!("expected one rule, got {bodies:?}");
+    };
+    assert!(body.contains("fooInt"), "{body}");
+}

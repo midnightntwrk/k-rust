@@ -107,11 +107,13 @@ impl Sort {
         self.role() == SortRole::RigidVariable
     }
 
-    /// Whether this sort is a value an inference unknown can take.
+    /// Whether a position of a grammar at this sort is a real sort rather than parser
+    /// scaffolding: a shape-level classifier of positions, which admits every parametric sort
+    /// and a nullary sort by its role.
     ///
-    /// A parametric sort reaches the inner parser only as a declared instance or as a registered
-    /// placeholder, and inference treats both as values, so every parametric sort is admitted;
-    /// a nullary sort is admitted by its role.
+    /// It does not decide which values an inference unknown can take. Those are the grammar's
+    /// sorts: the Z3 `DomainSolver` admits a parametric value only when it is one of
+    /// `Grammar::parametric_values`, the parametric sorts of the module.
     pub(crate) fn in_inference_domain(&self) -> bool {
         !self.parameters.is_empty() || self.role().in_inference_domain()
     }

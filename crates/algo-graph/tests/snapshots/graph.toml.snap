@@ -6855,6 +6855,10 @@ bound = "O(N + I) formula nodes over the recorded node constraints, built once p
 mode = "cached encoding base that does not cover the term sorts"
 bound = "one uncached encoding construction per inference"
 
+[[node.cost]]
+mode = "domain assertions of one solver"
+bound = "O(U x (H + V)) for U unknowns, H datatype heads and V parametric values of the grammar"
+
 [[node]]
 kind = "algorithm"
 id = "parser.location.span"

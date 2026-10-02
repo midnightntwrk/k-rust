@@ -42,6 +42,10 @@
 //! [[cost]]
 //! mode = "cached encoding base that does not cover the term sorts"
 //! bound = "one uncached encoding construction per inference"
+//!
+//! [[cost]]
+//! mode = "domain assertions of one solver"
+//! bound = "O(U x (H + V)) for U unknowns, H datatype heads and V parametric values of the grammar"
 //! ```
 //!
 //! Z3-backed maximal-model sort inference for ambiguous and parametric parse forests.
@@ -117,6 +121,11 @@ struct EncodingBase {
     /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
     /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
     declared_nat_sorts: BTreeSet<String>,
+    /// Keyed by the head index of every head with `parameters() != 0`: the closed values of
+    /// `Grammar::parametric_values` with that head, the parametric sorts of the module that an
+    /// unknown or an instantiated position may take; an empty vector when the module declares
+    /// none.
+    parametric_values: BTreeMap<usize, Vec<Datatype>>,
 }
 
 /// One subsort order over the real ground sort values (`EncodingBase::order_relation`), with the
@@ -226,11 +235,19 @@ mod domain {
     use super::{Encoding, ParseError};
     use crate::kast::Sort;
 
-    /// A Z3 solver on which the domain of every unknown of one encoding is asserted: each
-    /// unknown ranges over the values with a parametric head or a nullary head whose role is in
-    /// the inference domain (`SortRole::in_inference_domain`), and each sort parameter
-    /// additionally over nullary heads whose role is in the parameter domain
-    /// (`SortRole::in_parameter_domain`).
+    /// A Z3 solver on which the domain of every unknown of one encoding is asserted. Each
+    /// unknown ranges over:
+    ///
+    /// - the nullary heads whose role is in the inference domain
+    ///   (`SortRole::in_inference_domain`); a sort parameter, over those whose role is also in
+    ///   the parameter domain (`SortRole::in_parameter_domain`);
+    /// - the grammar's parametric values (`Grammar::parametric_values`, read into
+    ///   `EncodingBase::parametric_values`): an unknown with a parametric head equals one of the
+    ///   module's sorts with that head, and a head with none is excluded.
+    ///
+    /// Both parts are finite and fixed when the encoding base is built, so the domain of every
+    /// unknown is a finite set of sorts of the module, and every enumeration over models of a
+    /// domain solver terminates.
     ///
     /// The sort datatype also carries the grammar's other sorts (`KList`, `KBott`, the
     /// `#`-prefixed scaffolding sorts), because the production constraints need them as ground
@@ -332,6 +349,24 @@ mod domain {
                     solver.assert(is_outside.not());
                 }
             }
+            // A value with a parametric head is one of the module's parametric sorts with that
+            // head; a head with none is excluded outright.
+            for (index, values) in &self.parametric_values {
+                let tester = &self.datatype.variants[*index].tester;
+                for value in self.variables.values() {
+                    let has_head = tester
+                        .apply(&[value])
+                        .as_bool()
+                        .expect("a datatype tester returns a Bool");
+                    let member = super::or_all(
+                        &values
+                            .iter()
+                            .map(|declared| value.eq(declared))
+                            .collect::<Vec<_>>(),
+                    );
+                    solver.assert(has_head.implies(&member));
+                }
+            }
             self.domain_issued.set(true);
             Ok(DomainSolver(solver))
         }
@@ -402,7 +437,9 @@ const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
 const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
 
 /// The most admissible parameter vectors `Encoding::admissible_parameters` returns for one
-/// recorded variable typing; it fails instead of keeping a subset when there are more.
+/// recorded variable typing; it fails instead of keeping a subset when there are more. The
+/// vectors are drawn from the finite domain of `DomainSolver`, so the enumeration ends without
+/// this limit; it bounds the cost of a large domain, not its termination.
 const PARAMETER_CHOICE_LIMIT: usize = 256;
 
 /// The constraint of each node of one term constraint, recorded while it is built
@@ -646,6 +683,12 @@ struct ReplayConstraint {
 }
 
 enum ReplaySubject {
+    /// An instantiated position of a parametric production, which must be a sort of the module
+    /// (`Encoding::instantiation_constraint`).
+    Instantiation {
+        formal: Sort,
+        production: String,
+    },
     Variable {
         name: String,
         variable: Datatype,
@@ -1013,6 +1056,7 @@ impl EncodingBase {
             closed_values: HashSet::new(),
             semantic_relation: OrderRelation::new(Vec::new()),
             declared_nat_sorts,
+            parametric_values: BTreeMap::new(),
         };
         for sort in &base.ground_sorts {
             base.sort_value(sort, &BTreeMap::new())?;
@@ -1021,6 +1065,21 @@ impl EncodingBase {
         // `ground_values` does not grow after this point.
         base.closed_values = base.ground_values.borrow().values().cloned().collect();
         base.semantic_relation = OrderRelation::new(base.order_relation()?);
+        // The module's parametric sorts are read from the grammar alone, not from the term: a
+        // sort that only the term mentions is not a sort of the module.
+        for (index, head) in base.heads.iter().enumerate() {
+            if head.parameters() != 0 {
+                base.parametric_values.insert(index, Vec::new());
+            }
+        }
+        for sort in grammar.parametric_values() {
+            let head = SortHead::from(sort);
+            let index = base.head_indexes.get(&head).copied().ok_or_else(|| {
+                z3_error(format!("sort head {head} is missing from the Z3 datatype"))
+            })?;
+            let value = base.sort_value(sort, &BTreeMap::new())?;
+            base.parametric_values.entry(index).or_default().push(value);
+        }
         Ok(base)
     }
 
@@ -1378,6 +1437,11 @@ impl<'a> Encoding<'a> {
                 let actual_sort = production_result(descriptor);
                 let actual = self.sort_value(actual_sort, &parameters)?;
                 let mut constraints = Vec::new();
+                if let Some(instantiation) =
+                    self.instantiation_constraint(descriptor, &parameters)?
+                {
+                    constraints.push(instantiation);
+                }
                 if cast_context != CastContext::Parser
                     && is_real_sort(actual_sort, parameters.keys())
                 {
@@ -1571,6 +1635,11 @@ impl<'a> Encoding<'a> {
                 let actual_sort = production_result(descriptor);
                 let actual = self.sort_value(actual_sort, &parameters)?;
                 let mut constraints = Vec::new();
+                if let Some(instantiation) =
+                    self.instantiation_constraint(descriptor, &parameters)?
+                {
+                    constraints.push(instantiation);
+                }
                 if cast_context != CastContext::Parser
                     && is_real_sort(actual_sort, parameters.keys())
                 {
@@ -1937,6 +2006,63 @@ impl<'a> Encoding<'a> {
         }
     }
 
+    /// The constraint that every instantiated parametric position of `descriptor` is a sort of
+    /// the module: for the result and each nonterminal item sort of its parametric origin that
+    /// has parameters and is not itself a formal parameter, its value under `parameters` is one
+    /// of `EncodingBase::parametric_values` of its head (`false` when the module declares none).
+    /// `None` for a production without a parametric origin or without such a position.
+    ///
+    /// The caller makes it part of the production's node constraint, never a global assertion:
+    /// it lives and dies with that alternative, so a dead alternative constrains nothing. A bare
+    /// formal parameter is an unknown, which the domain of `DomainSolver` already restricts.
+    fn instantiation_constraint(
+        &mut self,
+        descriptor: &Production,
+        parameters: &BTreeMap<Sort, Datatype>,
+    ) -> Result<Option<Bool>, ParseError> {
+        let Some(origin) = &descriptor.parametric_origin else {
+            return Ok(None);
+        };
+        let formals = std::iter::once(&origin.result).chain(origin.items.iter().filter_map(
+            |item| match item {
+                crate::definition::ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            },
+        ));
+        let mut members = Vec::new();
+        for formal in formals {
+            if formal.parameters.is_empty() || origin.parameters.contains(formal) {
+                continue;
+            }
+            let value = self.sort_value(formal, parameters)?;
+            let head = SortHead::from(formal);
+            let index = self.head_indexes.get(&head).copied().ok_or_else(|| {
+                z3_error(format!("sort head {head} is missing from the Z3 datatype"))
+            })?;
+            let member = or_all(
+                &self
+                    .parametric_values
+                    .get(&index)
+                    .map_or(&[][..], Vec::as_slice)
+                    .iter()
+                    .map(|declared| value.eq(declared))
+                    .collect::<Vec<_>>(),
+            );
+            if self.incremental {
+                self.record_replay(
+                    &member,
+                    ReplaySubject::Instantiation {
+                        formal: formal.clone(),
+                        production: production_text(descriptor),
+                    },
+                    &value,
+                );
+            }
+            members.push(member);
+        }
+        Ok((!members.is_empty()).then(|| and_all(&members)))
+    }
+
     /// Keep a diagnostic constraint during unsatisfiable replay.
     /// Callers gate construction of production text on `incremental`, since that text can render an origin receipt.
     fn record_replay(&mut self, constraint: &Bool, subject: ReplaySubject, expected: &Datatype) {
@@ -2017,8 +2143,13 @@ impl<'a> Encoding<'a> {
     fn replay_constraints(&self) -> Result<ParseError, ParseError> {
         let solver = self.domain_solver()?;
         let mut constraints = self.replay.iter().collect::<Vec<_>>();
-        constraints.sort_by_key(|constraint| {
-            !matches!(constraint.subject, ReplaySubject::Variable { .. })
+        // Instantiations first, so a production instantiated at no sort of the module is named
+        // before a variable bound that merely inherits the impossible instantiation; the sort is
+        // stable, so inputs without one keep the order variables, then terms.
+        constraints.sort_by_key(|constraint| match constraint.subject {
+            ReplaySubject::Instantiation { .. } => 0,
+            ReplaySubject::Variable { .. } => 1,
+            ReplaySubject::Term { .. } => 2,
         });
         // Invariant: the solver contains exactly the satisfiable replay prefix; the next
         // constraint becomes permanent only when its temporary scoped check is satisfiable.
@@ -2043,6 +2174,9 @@ impl<'a> Encoding<'a> {
                         .ok_or_else(|| z3_error("Z3 produced no model for the replay"))?;
                     let expected = self.eval_sort(&model, &constraint.expected)?;
                     let message = match &constraint.subject {
+                        ReplaySubject::Instantiation { formal, production } => format!(
+                            "No sort declared in this module instantiates {formal} in production {production}"
+                        ),
                         ReplaySubject::Variable { name, variable } => format!(
                             "Unexpected sort {} for variable {name}. Expected: {expected}",
                             self.eval_sort(&model, variable)?
@@ -2286,7 +2420,9 @@ impl<'a> Encoding<'a> {
         let mut models = Vec::new();
         let mut first = seed;
         // Invariant: every recorded model is maximal and blocked; each iteration consumes the
-        // optional seed or finds the next unblocked satisfying assignment.
+        // optional seed or finds the next unblocked satisfying assignment. Each iteration blocks
+        // a typing of the real variables, an element of the finite product of their domains
+        // (the domain of `DomainSolver`: finitely many sorts of the module), so the loop ends.
         loop {
             let mut values = if let Some(seed) = first.take() {
                 seed
@@ -2307,7 +2443,8 @@ impl<'a> Encoding<'a> {
                 )?
             };
             // Invariant: `values` is satisfiable and each successful iteration strictly raises
-            // at least one real variable in the finite sort order.
+            // at least one real variable in the sort order over the finite domain of
+            // `DomainSolver`, so the climb ends.
             loop {
                 solver.push();
                 let greater = real_variables
@@ -2430,10 +2567,9 @@ impl<'a> Encoding<'a> {
     /// vectors: the blocking clauses of earlier records name only real variables and hold at
     /// `chosen`, which is unblocked. Each step excludes exactly the last vector found, so an
     /// `Unsat` answer means that the whole set has been returned; each vector has exactly one live
-    /// set, so no vector is returned twice. A parameter linked by the order constraints to no ground sort
-    /// and no real variable can range over infinitely many values of the datatype's parametric
-    /// heads; when there are more than `PARAMETER_CHOICE_LIMIT` vectors the inference fails
-    /// instead of keeping a subset.
+    /// set, so no vector is returned twice. Every unknown ranges over the finite domain of
+    /// `DomainSolver`, so the enumeration ends; `PARAMETER_CHOICE_LIMIT` bounds the cost of a
+    /// large one, and the inference fails instead of keeping a subset when it is exceeded.
     fn admissible_parameters(
         &self,
         solver: &DomainSolver,
