@@ -505,6 +505,15 @@ impl UndecidedFacts {
         Self(facts)
     }
 
+    /// The facts of `pattern` itself: the members of its [`pattern_knowledge`] that are not
+    /// among its constraints. A `ceil_free` pattern has none, found without a simplification.
+    pub(crate) fn of_pattern(definition: &BackendDefinition, pattern: &Pattern) -> Self {
+        Self(knowledge_facts(
+            pattern_knowledge(definition, pattern),
+            &pattern.constraints,
+        ))
+    }
+
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()

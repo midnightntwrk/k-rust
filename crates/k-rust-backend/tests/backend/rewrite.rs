@@ -37,8 +37,8 @@ use k_rust_kore::{
 use sha2::{Digest, Sha256};
 
 use crate::support::{
-    ScriptedQuery, ScriptedSolver, ground_cell_set_definition, ground_overload_definition,
-    internal_term,
+    ScriptedQuery, ScriptedSolver, ceil_div_definition, ground_cell_set_definition,
+    ground_overload_definition, internal_term,
     unstopped::{rewrite_step, rewrite_step_sequential_with_solver, rewrite_step_with_solver},
 };
 
@@ -1267,6 +1267,61 @@ fn initial_bottom_metadata_requires_completed_bottom_simplification_for_every_in
         |_| {},
     );
     assert!(!not_started.simplified_to_bottom());
+}
+
+/// `pair(X, X /Int 0)` denotes `⌈X /Int 0⌉ ∧ pair(X, X /Int 0)`, and the ceil axiom makes
+/// `⌈X /Int 0⌉` the false `0 =/=Int 0`: the initial configuration has no instance, so it is
+/// vacuous before any step, as the same configuration with `⌈X /Int 0⌉` written as a constraint
+/// is. `pair(X, 10 /Int X)` is defined where `X =/=Int 0`, an undecided fact, and stays a
+/// depth-bounded state.
+#[test]
+fn an_initial_configuration_empty_by_its_term_definedness_is_vacuous() {
+    let definition = ceil_div_definition();
+    let execute = |term: &str| {
+        execute_disjunction_with_solver_and_observer_with_initial_status(
+            &definition,
+            vec![Pattern {
+                term: internal_term(&definition, term),
+                constraints: Vec::new(),
+            }],
+            ExecutionOptions {
+                max_depth: 0,
+                ..ExecutionOptions::default()
+            },
+            &NoSolver,
+            |_| {},
+        )
+    };
+
+    let (empty, empty_status) =
+        execute(r#"pair{}(X:SortInt{}, divInt{}(X:SortInt{}, \dv{SortInt{}}("0")))"#);
+    assert!(
+        matches!(
+            empty.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::Vacuous { depth: 0, .. },
+                ..
+            }]
+        ),
+        "{:#?}",
+        empty.leaves
+    );
+    assert!(empty_status.simplified_to_bottom());
+
+    let (defined, defined_status) =
+        execute(r#"pair{}(X:SortInt{}, divInt{}(\dv{SortInt{}}("10"), X:SortInt{}))"#);
+    assert!(
+        matches!(
+            defined.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::DepthBound,
+                ..
+            }]
+        ),
+        "{:#?}",
+        defined.leaves
+    );
+    assert!(!defined_status.simplified_to_bottom());
 }
 
 #[test]

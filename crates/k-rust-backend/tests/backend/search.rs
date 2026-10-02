@@ -7,14 +7,16 @@ use k_rust_backend::{
     rule::Predicate,
     search::{
         IncompleteSearch, PathWitness, SearchOptions, SearchState, SearchType, search_graph,
-        search_paths, search_pattern, search_pattern_paths,
+        search_graph_disjunction_with_solver_and_observer, search_paths, search_paths_with_solver,
+        search_pattern, search_pattern_paths,
     },
     simplify::BudgetSubject,
+    smt::NoSolver,
     term::TermKind,
 };
 use k_rust_kore::kore::parser::parse_definition;
 
-use crate::support::internal_term;
+use crate::support::{ceil_div_definition, internal_term};
 
 /// A definition over constructors `start`, `a`, `b`, `c`, `ok` with:
 /// - `g(X) = g(g(X))`, a simplification equation under which simplifying any `g` application
@@ -486,4 +488,48 @@ fn an_incomplete_entry_carries_its_states_path_diagnostics() {
     };
     assert_eq!(head(&bounded.pattern), "held");
     assert_eq!(bounded.diagnostics, [term_exhausted(3)]);
+}
+
+/// `pair(X, X /Int 0)` denotes `⌈X /Int 0⌉ ∧ pair(X, X /Int 0)`, and the ceil axiom makes
+/// `⌈X /Int 0⌉` the false `0 =/=Int 0`: the initial state has no instance, so it is neither a
+/// result nor explored, and the one result the bound admits is `pair(1, 2)`. A path search from
+/// it has no witness.
+#[test]
+fn an_initial_state_empty_by_its_term_definedness_is_no_result() {
+    let definition = ceil_div_definition();
+    let state = |term: &str| Pattern {
+        term: internal_term(&definition, term),
+        constraints: Vec::new(),
+    };
+    let empty = r#"pair{}(X:SortInt{}, divInt{}(X:SortInt{}, \dv{SortInt{}}("0")))"#;
+    let defined = state(r#"pair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#);
+
+    let result = search_graph_disjunction_with_solver_and_observer(
+        &definition,
+        vec![state(empty), defined.clone()],
+        SearchOptions {
+            search_type: SearchType::Star,
+            max_results: Some(1),
+            ..SearchOptions::default()
+        },
+        &NoSolver,
+        |_| {},
+    );
+    let patterns = result
+        .states
+        .iter()
+        .map(|state| &state.pattern)
+        .collect::<Vec<_>>();
+    assert_eq!(patterns, [&defined]);
+
+    let paths = search_paths_with_solver(
+        &definition,
+        state(empty),
+        SearchOptions {
+            search_type: SearchType::Star,
+            ..SearchOptions::default()
+        },
+        &NoSolver,
+    );
+    assert!(paths.witnesses.is_empty(), "{:#?}", paths.witnesses);
 }

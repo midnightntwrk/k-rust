@@ -47,6 +47,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
+    definedness::{FactsVerdict, UndecidedFacts},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     rule::Predicate,
@@ -445,8 +446,9 @@ impl<'a> Execution<'a> {
     }
 
     /// E3: the term is simplified under its constraints, the simplification is observed and
-    /// traced, initial-input bookkeeping is done (a `False` after term simplification is
-    /// `Vacuous`), and the depth bound is checked (`DepthBound` leaf).
+    /// traced, initial-input bookkeeping is done (a `False` after term simplification, or a
+    /// refuted fact of the initial configuration's own definedness, is `Vacuous`), and the depth
+    /// bound is checked (`DepthBound` leaf).
     fn simplify_term(
         &mut self,
         mut state: ExecutionState,
@@ -526,6 +528,37 @@ impl<'a> Execution<'a> {
                     contradicted_total,
                 );
                 return Err(state.leaf(halt_reason, &self.observation_log));
+            }
+            if !vacuity_deferred {
+                // The initial configuration is the caller's pattern `t ∧ φ`, which denotes
+                // `⌈t⌉ ∧ t ∧ φ`, and nothing has decided its own facts (I7'). A refuted fact
+                // means it has no instance, exactly as constraints simplified to `\bottom` do;
+                // that holds as well when the caller asserts the facts
+                // (`assume_initial_defined`), since asserting a false fact leaves nothing. A
+                // successor needs no such decision: its step decided its right-hand side's
+                // definedness, and term simplification conjoins its own obligations.
+                let (verdict, diagnostics) = diagnostic::collect(|| {
+                    UndecidedFacts::of_pattern(self.definition, &state.pattern).decide(
+                        self.definition,
+                        SimplificationOptions {
+                            max_iterations: self.options.max_simplification_iterations,
+                            ..SimplificationOptions::default()
+                        },
+                        self.solver,
+                    )
+                });
+                state.diagnostics.extend(&diagnostics);
+                match verdict {
+                    Ok(FactsVerdict::Refuted) => {
+                        self.bottom_initial_simplifications += 1;
+                        // No equation of a `total` symbol emptied it: its own fact did.
+                        let halt_reason =
+                            vacuous_halt(state.depth, &state.pattern, &state.trace, None);
+                        return Err(state.leaf(halt_reason, &self.observation_log));
+                    }
+                    Ok(FactsVerdict::NotRefuted(_)) => {}
+                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                }
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False

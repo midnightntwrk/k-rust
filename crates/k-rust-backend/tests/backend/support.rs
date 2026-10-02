@@ -139,6 +139,37 @@ pub fn ground_overload_definition() -> BackendDefinition {
         .expect("ground overload fixture should internalize")
 }
 
+/// A constructor `pair(SortInt, SortInt) : SortState`, the partial hooked `divInt` (`INT.tdiv`,
+/// not `total`), the total `neInt`, and the simplification axiom
+/// `⌈divInt(I1, I2)⌉ = (neInt(I2, 0) = true)`, with no rewrite rule. Under it
+/// `pair(X, divInt(X, 0))` has no instance, while `pair(X, divInt(10, X))` is defined exactly
+/// where `X =/=Int 0`.
+pub fn ceil_div_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pair{}(SortInt{}, SortInt{}) : SortState{} [constructor{}()]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+                axiom{R} \implies{R}(\top{R}(), \equals{R, R}(
+                    \ceil{SortInt{}, R}(divInt{}(I1:SortInt{}, I2:SortInt{})),
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            neInt{}(I2:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")),
+                        \top{R}())))
+                    [label{}("ceil-div"), simplification{}()]
+            endmodule []"#,
+    )
+    .expect("ceil-div definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("ceil-div definition should internalize")
+}
+
 /// Parse a KORE pattern and internalize it as a term of `definition`.
 pub fn internal_term(definition: &BackendDefinition, source: &str) -> Term {
     let syntax = parse_pattern(source).expect("term should parse");

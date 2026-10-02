@@ -880,6 +880,22 @@ fn search_graph_collecting(
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             continue;
         }
+        // So is an initial state whose own definedness is refuted: it has no instance.
+        match initial_state_is_empty(
+            definition,
+            &state,
+            is_rewritable,
+            options.max_simplification_iterations,
+            solver,
+            &mut diagnostics,
+        ) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(stop) => publish_stop!(
+                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
+                stop
+            ),
+        }
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
         // reports the path recorded first, like its trace.
         if !expanded.insert((state.depth, state.pattern.clone(), is_rewritable)) {
@@ -1155,6 +1171,44 @@ impl SearchWorkState {
             observation_log,
         )
     }
+}
+
+/// Whether `state`, popped as `is_rewritable`, is an initial state with no instance by its own
+/// definedness (I7'); the decision's diagnostics join `diagnostics`.
+///
+/// A pattern `t ∧ φ` denotes `⌈t⌉ ∧ t ∧ φ`. An initial state is the caller's pattern, whose
+/// facts (the members of its knowledge that are not among its constraints) nothing has decided,
+/// so a refuted fact means it has no instance, exactly as constraints simplified to `\bottom` do.
+/// A successor needs no decision: the step that produced it decided its right-hand side's
+/// definedness, and term simplification conjoins its own obligations. The initial states are
+/// exactly the rewritable states at depth 0, since a successor is queued at its step's depth + 1
+/// and a step's remainder, which carries its state's term, at the step's depth as `Remaining`.
+fn initial_state_is_empty(
+    definition: &BackendDefinition,
+    state: &SearchState,
+    is_rewritable: bool,
+    max_simplification_iterations: usize,
+    solver: &dyn SmtSolver,
+    diagnostics: &mut PathDiagnostics,
+) -> Stoppable<bool> {
+    if state.depth != 0 || !is_rewritable {
+        return Ok(false);
+    }
+    let (verdict, emitted) = diagnostic::collect(|| {
+        UndecidedFacts::of_pattern(definition, &state.pattern).decide(
+            definition,
+            SimplificationOptions {
+                max_iterations: max_simplification_iterations,
+                ..SimplificationOptions::default()
+            },
+            solver,
+        )
+    });
+    diagnostics.extend(&emitted);
+    Ok(match verdict? {
+        FactsVerdict::Refuted => true,
+        FactsVerdict::NotRefuted(_) => false,
+    })
 }
 
 fn materialize_search_state(
@@ -1565,8 +1619,22 @@ fn search_paths_collecting(
             Err(stop) => publish_stop!(stop),
         }
 
+        // A path ends at a state with no instance: one whose constraints are false, or an
+        // initial state whose own definedness is refuted.
         if predicates_truth(&path.state.pattern.constraints) == Truth::False {
             continue;
+        }
+        match initial_state_is_empty(
+            definition,
+            &path.state,
+            is_rewritable,
+            options.max_simplification_iterations,
+            solver,
+            &mut path.diagnostics,
+        ) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(stop) => publish_stop!(stop),
         }
         if path
             .visited
