@@ -3491,7 +3491,6 @@ fn the_standard_prelude_agrees_under_checked_inference() {
     );
 }
 
-#[cfg(feature = "z3-inference")]
 fn load_with_prelude(
     source: &str,
     name: &str,
@@ -4385,29 +4384,78 @@ fn a_declared_mint_k_keeps_its_subsorts_while_the_bridges_stay_recognition_only(
 #[cfg(feature = "z3-inference")]
 #[test]
 fn a_definition_production_shaped_like_a_recognition_bridge_keeps_its_subsort() {
-    // `syntax MInt{K, K} ::= MInt{Foo, Foo}` is the definition's own unary production between two
-    // declared instances of the arity-two head, so it states `MInt{Foo, Foo} <= MInt{K, K}` and
-    // `h(X) => f(X)` is well sorted. It has the shape of a recognition bridge, but only the
-    // bridges the grammar adds for placeholder slots are recognition-only.
-    load_with_prelude(
-        indoc! {r#"
-            module TEST
-              syntax {A, B} MInt{A, B}
-              syntax MInt{Foo, Foo}
-              syntax MInt{K, K}
-              syntax MInt{K, K} ::= MInt{Foo, Foo}
-              syntax MInt{Foo, Foo} ::= "a"
+    // `syntax MInt{K} ::= MInt{Foo}` is the definition's own unary production between two
+    // declared instances, so it states `MInt{Foo} <= MInt{K}`. The grammar also adds the
+    // recognition bridge `MInt{K} ::= MInt{Foo}` for the declared instance `MInt{Foo}`, with the
+    // same shape. Only that bridge is recognition-only, so `h(X) => f(X)` is well sorted through
+    // the definition's own production.
+    let module = |own_production: &str| {
+        format!(
+            r#"module TEST
+              imports SORT-K
+              syntax MInt{{Foo}}
+              syntax MInt{{K}}
+              {own_production}
+              syntax MInt{{Foo}} ::= "a"
               syntax Foo ::= "foo"
-              syntax Foo ::= f(MInt{K, K}) [function]
+              syntax Foo ::= f(MInt{{K}}) [function]
               rule f(_) => foo
-              syntax Foo ::= h(MInt{Foo, Foo}) [function]
+              syntax Foo ::= h(MInt{{Foo}}) [function]
               rule h(X) => f(X)
             endmodule
-        "#},
-        "test.k",
-        "TEST",
-    )
-    .expect("the definition's MInt{Foo, Foo} <= MInt{K, K} holds");
+            "#
+        )
+    };
+    load_with_prelude(&module("syntax MInt{K} ::= MInt{Foo}"), "test.k", "TEST")
+        .expect("the definition's MInt{Foo} <= MInt{K} holds");
+
+    // Without the definition's own production, only the recognition bridge relates the two
+    // instances, and it states no subsort.
+    let Err(error) = load_with_prelude(&module(""), "test.k", "TEST") else {
+        panic!("MInt{{Foo}} <= MInt{{K}} must not hold through the recognition bridge alone");
+    };
+    let message = error.to_string();
+    assert!(message.contains("Unexpected sort MInt{Foo}"), "{message}");
+    assert!(message.contains("Expected: MInt{K}"), "{message}");
+}
+
+#[test]
+fn nested_and_other_arity_parametric_sorts_are_rejected_at_load() {
+    let messages = |source: &str| {
+        let Err(k_rust::outer::LoadError::SourceDiagnostics(diagnostics)) =
+            load_with_prelude(source, "test.k", "TEST")
+        else {
+            panic!("the parametric sorts of the definition must be rejected at load");
+        };
+        diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.message)
+            .collect::<Vec<_>>()
+    };
+
+    let nested = messages(
+        "module TEST\n  imports INT\n  imports MINT-SYNTAX\n  syntax MInt{8}\n  syntax {W} MInt{MInt{W}} ::= nest(x: Int, y: Int)\nendmodule\n",
+    );
+    assert!(
+        nested
+            .iter()
+            .any(|message| message
+                == "Nested parametric sorts are currently unsupported: MInt{MInt{W}}"),
+        "{nested:#?}"
+    );
+
+    let other_arity = messages(
+        "module TEST\n  imports INT\n  syntax Foo ::= \"g\"\n  syntax {A, B} MInt{A, B}\n  syntax MInt{8, 16}\n  syntax {A, B} Foo ::= pair(x: MInt{A, B}, y: Int) [function]\nendmodule\n",
+    );
+    for expected in [
+        "User-defined parametric sorts are currently unsupported: MInt{A,B}",
+        "User-defined parametric sorts are currently unsupported: MInt{8,16}",
+    ] {
+        assert!(
+            other_arity.iter().any(|message| message == expected),
+            "{expected}: {other_arity:#?}"
+        );
+    }
 }
 
 #[cfg(feature = "z3-inference")]

@@ -6,13 +6,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::partial_order::first_cycle;
 use super::super::relations::{disambiguation_subsort_pairs, states_disambiguation_subsort};
+use super::super::sort_catalog::SortShape;
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
 };
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::sort_role::KernelSort;
-use crate::kast::{FrontendSort, Sort};
+use crate::kast::{FrontendSort, Sort, SortRole};
 
 /// Java `Module.checkSorts` (`outer.scala:486-516`).
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
@@ -21,19 +22,30 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
     // Invariant: `diagnostics` holds the parametric-sort and undefined-sort errors of every entry of `module.local_sentences` before `sentence`; each iteration consumes one local sentence.
     for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
         match sentence {
-            Sentence::SyntaxSort { sort, .. } => {
-                check_parametric_sort(sort, sentence, &mut diagnostics);
+            Sentence::SyntaxSort {
+                parameters, sort, ..
+            } => {
+                check_declared_sort(sort, parameters, sorts, sentence, &mut diagnostics);
             }
-            Sentence::SortSynonym { new_sort, .. } => {
-                check_parametric_sort(new_sort, sentence, &mut diagnostics);
-            }
+            Sentence::SortSynonym { new_sort, .. } => match SortShape::of(new_sort, &[]) {
+                SortShape::UnsupportedHead => {
+                    diagnostics.push(unsupported_head(new_sort, sentence));
+                }
+                SortShape::NestedArgument => {
+                    diagnostics.push(nested_argument(new_sort, sentence));
+                }
+                SortShape::Parameter
+                | SortShape::Nullary
+                | SortShape::Instance { .. }
+                | SortShape::Schematic { .. } => {}
+            },
             Sentence::Production {
                 parameters,
                 sort,
                 items,
                 ..
             } => {
-                check_parametric_sort(sort, sentence, &mut diagnostics);
+                check_declared_sort(sort, parameters, sorts, sentence, &mut diagnostics);
 
                 let missing = items
                     .iter()
@@ -41,6 +53,19 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                         let ProductionItem::NonTerminal { sort, .. } = item else {
                             return None;
                         };
+                        match SortShape::of(sort, parameters) {
+                            // A nested operand names no instance, so it is reported as nested
+                            // and not also as a missing sort.
+                            SortShape::NestedArgument => {
+                                diagnostics.push(nested_argument(sort, sentence));
+                                return None;
+                            }
+                            SortShape::Parameter
+                            | SortShape::Nullary
+                            | SortShape::Instance { .. }
+                            | SortShape::Schematic { .. }
+                            | SortShape::UnsupportedHead => {}
+                        }
                         let head = SortHead::from(sort);
                         let missing_head = !parameters.contains(sort)
                             && !sorts.defined_heads().contains(&head)
@@ -80,14 +105,52 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
     diagnostics
 }
 
-fn check_parametric_sort(sort: &Sort, sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
-    if !sort.parameters.is_empty() && sort.name != FrontendSort::MInt.as_str() {
-        diagnostics.push(Diagnostic::error(
-            DiagnosticCode::UnsupportedParametricSort,
-            format!("User-defined parametric sorts are currently unsupported: {sort}"),
-            sentence,
-        ));
+/// Check the sort a declaration or a production result writes, with the sentence's formal sort
+/// `parameters`, against the admitted shapes ([`SortShape`]).
+///
+/// A declared instance `MInt{a}` whose argument is not a formal parameter must name a width or a
+/// sort the module knows: its argument is judged as an operand would be, so it is a numeral, a
+/// defined sort head or a synonym alias.
+fn check_declared_sort(
+    sort: &Sort,
+    parameters: &[Sort],
+    sorts: &SortCatalog<'_>,
+    sentence: &Sentence,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    match SortShape::of(sort, parameters) {
+        SortShape::UnsupportedHead => diagnostics.push(unsupported_head(sort, sentence)),
+        SortShape::NestedArgument => diagnostics.push(nested_argument(sort, sentence)),
+        SortShape::Instance { argument } => {
+            if argument.role() != SortRole::Nat
+                && !sorts.defined_heads().contains(&SortHead::from(argument))
+                && !sorts.synonym_map().contains_key(argument)
+            {
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::UndefinedSort,
+                    format!("Could not find sorts: [{argument}]"),
+                    sentence,
+                ));
+            }
+        }
+        SortShape::Parameter | SortShape::Nullary | SortShape::Schematic { .. } => {}
     }
+}
+
+fn unsupported_head(sort: &Sort, sentence: &Sentence) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::UnsupportedParametricSort,
+        format!("User-defined parametric sorts are currently unsupported: {sort}"),
+        sentence,
+    )
+}
+
+fn nested_argument(sort: &Sort, sentence: &Sentence) -> Diagnostic {
+    Diagnostic::error(
+        DiagnosticCode::UnsupportedParametricSort,
+        format!("Nested parametric sorts are currently unsupported: {sort}"),
+        sentence,
+    )
 }
 
 /// Java `Module.checkUserLists` (`outer.scala:518-534`).

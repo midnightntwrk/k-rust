@@ -2575,6 +2575,9 @@ fn outer_sort_diagnostics(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
                 || diagnostic
                     .message
                     .starts_with("User-defined parametric sorts are currently unsupported:")
+                || diagnostic
+                    .message
+                    .starts_with("Nested parametric sorts are currently unsupported:")
         })
         .collect()
 }
@@ -2750,6 +2753,130 @@ fn check_sorts_rejects_undeclared_instantiations_and_parametric_results() {
     assert!(
         outer_sort_diagnostics(&accepted).is_empty(),
         "{accepted:#?}"
+    );
+}
+
+fn mint(argument: Sort) -> Sort {
+    Sort::with_parameters("MInt", vec![argument])
+}
+
+fn parametric_production(parameters: &[&str], sort: Sort, items: Vec<ProductionItem>) -> Sentence {
+    Sentence::Production {
+        label: None,
+        parameters: parameters.iter().map(|name| Sort::new(*name)).collect(),
+        sort,
+        items,
+        attributes: Attributes::default(),
+    }
+}
+
+fn operand(sort: Sort) -> ProductionItem {
+    ProductionItem::NonTerminal { sort, name: None }
+}
+
+#[test]
+fn check_sorts_rejects_other_arities_nesting_and_undeclared_arguments_of_mint() {
+    let (p, q, w) = (Sort::new("P"), Sort::new("Q"), Sort::new("W"));
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("A")),
+                Sentence::SyntaxSort {
+                    parameters: vec![p.clone(), q.clone()],
+                    sort: Sort::with_parameters("MInt", vec![p, q]),
+                    attributes: Attributes::default(),
+                },
+                syntax_sort(Sort::with_parameters(
+                    "MInt",
+                    vec![Sort::new("8"), Sort::new("16")],
+                )),
+                parametric_production(
+                    &["W"],
+                    mint(mint(w.clone())),
+                    vec![ProductionItem::Terminal("mkn".into())],
+                ),
+                syntax_sort(mint(mint(Sort::new("8")))),
+                parametric_production(&["W"], Sort::new("Uses"), vec![operand(mint(mint(w)))]),
+                syntax_sort(mint(Sort::new("Undeclared"))),
+            ],
+        )],
+    );
+    let mut messages = outer_sort_diagnostics(&diagnostics)
+        .into_iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    messages.sort_unstable();
+
+    assert_eq!(
+        messages,
+        vec![
+            "Could not find sorts: [Undeclared]",
+            "Nested parametric sorts are currently unsupported: MInt{MInt{8}}",
+            "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
+            "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
+            "User-defined parametric sorts are currently unsupported: MInt{8,16}",
+            "User-defined parametric sorts are currently unsupported: MInt{P,Q}",
+        ]
+    );
+}
+
+#[test]
+fn check_sorts_admits_mint_parameters_numerals_and_declared_arguments() {
+    let a = Sort::new("A");
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(a.clone()),
+                syntax_sort(mint(Sort::new("8"))),
+                syntax_sort(mint(a)),
+                Sentence::SyntaxSort {
+                    parameters: vec![Sort::new("W")],
+                    sort: mint(Sort::new("W")),
+                    attributes: Attributes::default(),
+                },
+                parametric_production(
+                    &["W"],
+                    Sort::new("Uses"),
+                    vec![
+                        ProductionItem::Terminal("f".into()),
+                        ProductionItem::Terminal("(".into()),
+                        operand(mint(Sort::new("W"))),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                ),
+                parametric_production(
+                    &["S"],
+                    mint(Sort::new("S")),
+                    vec![
+                        ProductionItem::Terminal("wrap".into()),
+                        ProductionItem::Terminal("(".into()),
+                        operand(Sort::new("S")),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                ),
+                parametric_production(
+                    &["T"],
+                    Sort::new("T"),
+                    vec![
+                        ProductionItem::Terminal("inner".into()),
+                        ProductionItem::Terminal("(".into()),
+                        operand(mint(Sort::new("T"))),
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                ),
+            ],
+        )],
+    );
+
+    assert!(
+        outer_sort_diagnostics(&diagnostics).is_empty(),
+        "{diagnostics:#?}"
     );
 }
 

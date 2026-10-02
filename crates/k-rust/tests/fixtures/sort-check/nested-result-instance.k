@@ -1,5 +1,6 @@
-// A parameter nested two levels inside the result. `MInt{MInt{B}}` is the one declared instance
-// of `MInt{MInt{W}}`; `MInt{A}` is below `MInt{B}`, but `MInt{MInt{A}}` is not declared.
+// A definition the sort checks reject, because it has nested parametric sorts: the declaration
+// `MInt{MInt{B}}` and the production result `MInt{MInt{W}}` apply `MInt` to an argument that has
+// arguments itself.
 module NESTED-RESULT-INSTANCE-SYNTAX
   imports SORT-BOOL
   syntax A

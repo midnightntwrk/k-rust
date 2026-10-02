@@ -25,7 +25,7 @@ use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
-use crate::kast::Sort;
+use crate::kast::{FrontendSort, Sort};
 use crate::names::BuiltinSort;
 
 #[derive(Clone, Debug)]
@@ -337,6 +337,62 @@ impl ResolvedDefinition {
             })
             .collect::<BTreeSet<_>>();
         SortCatalog::new(self.sentences(module), imported_sorts)
+    }
+}
+
+/// The shape of a sort written in a sentence whose formal sort parameters are `parameters`,
+/// relative to the one parametric sort a definition may use.
+///
+/// The frontend has one parametric sort constructor: the head `MInt` of arity one, whose argument
+/// is the width of a machine integer. Every instance notion built from the definition reads that
+/// one argument at depth one: the declared instances of [`SortCatalog::instantiations`], the
+/// instance an operand must name, the concretization of a parametric production, the recognition
+/// placeholder `MInt{K}`, and the numerals a definition declares as widths. So a sort written in
+/// a sentence is admitted only when it is a formal parameter of the sentence, a sort without
+/// arguments, or `MInt{a}` with exactly one argument `a` that is itself a formal parameter or a
+/// sort without arguments. `MInt{A, B}` has another head (a head is a name and an arity), so it is
+/// a user-defined parametric sort; a nested `MInt{MInt{W}}` names no width.
+///
+/// Whether a formal parameter occurs anywhere inside a sort, at any depth, is
+/// [`mentions_parameter`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SortShape<'s> {
+    /// A formal parameter of the sentence (`W`).
+    Parameter,
+    /// A sort without arguments (`Int`, `8`).
+    Nullary,
+    /// `MInt` applied to an argument without arguments that is not a formal parameter
+    /// (`MInt{8}`, `MInt{Foo}`).
+    Instance { argument: &'s Sort },
+    /// `MInt` applied to a formal parameter of the sentence (`MInt{W}`).
+    Schematic { parameter: &'s Sort },
+    /// Any other parametric head or arity (`Box{S}`, `MInt{A, B}`, `List{MInt{W}}`).
+    UnsupportedHead,
+    /// `MInt` applied to an argument that has arguments itself (`MInt{MInt{W}}`, `MInt{MInt{8}}`).
+    NestedArgument,
+}
+
+impl<'s> SortShape<'s> {
+    /// Classify `sort`, written in a sentence whose formal sort parameters are `parameters`.
+    pub(crate) fn of(sort: &'s Sort, parameters: &[Sort]) -> Self {
+        if parameters.contains(sort) {
+            return Self::Parameter;
+        }
+        match sort.parameters.as_slice() {
+            [] => Self::Nullary,
+            [argument] if sort.name == FrontendSort::MInt.as_str() => {
+                if !argument.parameters.is_empty() {
+                    Self::NestedArgument
+                } else if parameters.contains(argument) {
+                    Self::Schematic {
+                        parameter: argument,
+                    }
+                } else {
+                    Self::Instance { argument }
+                }
+            }
+            _ => Self::UnsupportedHead,
+        }
     }
 }
 

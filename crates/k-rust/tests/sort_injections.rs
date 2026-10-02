@@ -2098,7 +2098,9 @@ mod cast_instances {
         CompilationBackend, CompileError, CompileOptions, SentenceTyping, SentenceTypingError,
         SortInjectionError, compile_loaded_definition, sentence_typing,
     };
-    use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation};
+    use k_rust::outer::{
+        LoadError, LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation,
+    };
 
     const PRELUDE: &str = include_str!("fixtures/sort-check/portable-prelude.k");
 
@@ -2128,6 +2130,11 @@ mod cast_instances {
     };
 
     fn load(fixture: &Fixture) -> LoadedDefinition {
+        try_load(fixture).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// [`load`], keeping the load error.
+    fn try_load(fixture: &Fixture) -> Result<LoadedDefinition, LoadError> {
         let mut resolver = |_: &str, required: &str| {
             builtin::embedded(required).ok_or_else(|| required.to_owned())
         };
@@ -2149,8 +2156,7 @@ mod cast_instances {
                 ..LoadOptions::default()
             },
         )
-        .unwrap_or_else(|error| panic!("{error}"))
-        .0
+        .map(|(loaded, _)| loaded)
     }
 
     /// The `holder` rule with `right` as its right side, relinked into the loaded definition, with
@@ -2416,25 +2422,24 @@ mod cast_instances {
         );
     }
 
-    // `mkn`'s result `MInt{MInt{W}}` has one declared instance, `MInt{MInt{B}}`. `W = A` matches
-    // the inner sort below `MInt{B}`, but `MInt{MInt{A}}` is not declared, so it is no instance
-    // and `mkn` at `KItem` is `mkn{B}`, not ambiguous. The typing view is checked: compiling a
-    // production with a nested parametric result fails earlier, in a generated sentence.
+    // A nested parametric sort names no instance of the one parametric sort a definition may
+    // use, whose instances are read at depth one, so the fixture's `MInt{MInt{B}}` declaration and
+    // `{W} MInt{MInt{W}}` result are rejected where the definition is loaded.
     #[test]
-    fn a_result_only_candidate_is_a_declared_instance_of_the_whole_result() {
-        let (loaded, edited) =
-            with_right_side(&NESTED_RESULT, cast("KItem", Term::apply("mkn", vec![])));
-        let typing = sentence_typing(loaded.resolved(), NESTED_RESULT.module, &edited)
-            .unwrap_or_else(|error| panic!("{error}"));
-        let mint = |sort: Sort| Sort::with_parameters("MInt", vec![sort]);
-        assert_eq!(
-            typing
-                .positions
-                .get(&vec![0, 1, 0])
-                .unwrap_or_else(|| panic!("no operand position in {:#?}", typing.positions))
-                .sort,
-            Some(mint(mint(Sort::new("B"))))
-        );
+    fn a_nested_parametric_result_is_rejected_at_load() {
+        let Err(LoadError::SourceDiagnostics(diagnostics)) = try_load(&NESTED_RESULT) else {
+            panic!("the nested parametric sorts of the fixture must be rejected at load");
+        };
+        let messages = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        for expected in [
+            "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
+            "Nested parametric sorts are currently unsupported: MInt{MInt{B}}",
+        ] {
+            assert!(messages.contains(&expected), "{expected}: {messages:#?}");
+        }
     }
 
     // While `outer` is solved, its argument `inner2` sits at `MInt{S}` with `S` unsolved, so
