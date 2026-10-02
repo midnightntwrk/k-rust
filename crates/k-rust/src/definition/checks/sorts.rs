@@ -126,8 +126,8 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
 /// `parameters`, against the admitted shapes ([`SortShape`]).
 ///
 /// A declared instance `MInt{a}` whose argument is not a formal parameter must name a width or a
-/// sort the module knows: a numeral or a defined sort head. A synonym argument is rejected because application does not rewrite inside
-/// sort arguments.
+/// sort the module knows: a numeral or a defined sort head. A synonym argument is rejected because
+/// application does not rewrite inside sort arguments.
 fn check_declared_sort(
     sort: &Sort,
     parameters: &[Sort],
@@ -183,6 +183,8 @@ fn nested_argument(sort: &Sort, sentence: &Sentence) -> Diagnostic {
 
 /// Report each synonym defect once, at the first module whose view contains it.
 /// Views only grow under import, so an importer does not repeat its importee's defect.
+/// Equations with neither source nor location are deduplicated by spelling, so identical defects
+/// in unrelated modules without origins produce one diagnostic.
 pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut reported = BTreeSet::new();

@@ -120,7 +120,7 @@ A sort synonym is a spelling of the sort at the end of its chain in the module's
 Production result and nonterminal sorts use that denotation; a production's own sort parameter shadows a synonym of the same spelling.
 A cycle, or one alias with two denotations in a view, is rejected at load with `InvalidSortSynonym`, whether used or not: those equations name no unique sort.
 A synonym inside a sort argument is rejected, because application rewrites whole production sorts and the alias itself declares no sort.
-Casts currently use the denotation of a single-step synonym; support for chains and private intermediate aliases in casts is pending FU-10-T2.
+Rule and configuration casts still read a synonym one step, so a cast through a chain does not yet parse.
 The pinned frontend applies one step, so a chain fails backend validation with `Sort 'SortB' not defined`, and rewrites a sort that a production parameter binds; these are recorded divergences.
 
 ## Variable sort annotations
