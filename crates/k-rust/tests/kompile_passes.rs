@@ -2637,15 +2637,16 @@ fn heat_cool_rejects_a_declared_result_sort_without_a_sort_predicate() {
         })
         .collect::<Vec<_>>();
     assert_eq!(messages.len(), 2, "{messages:?}");
+    // Diagnostic sorting orders the two missing-predicate messages by their text.
     assert!(
         messages[0].starts_with(
-            "Definition is missing function is8 required for strictness. Sort 8 has no sort predicate"
+            "Definition is missing function is#Foo required for strictness. Sort #Foo has no sort predicate"
         ),
         "{messages:?}"
     );
     assert!(
         messages[1].starts_with(
-            "Definition is missing function is#Foo required for strictness. Sort #Foo has no sort predicate"
+            "Definition is missing function is8 required for strictness. Sort 8 has no sort predicate"
         ),
         "{messages:?}"
     );
@@ -2682,8 +2683,8 @@ fn a_strict_result_sort_without_a_sort_predicate_is_an_invalid_heat_cool_diagnos
     .unwrap();
     let error = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap_err();
     assert_eq!(error.stage, "resolve heat/cool attributes", "{error}");
-    // One diagnostic for the strict position's heating rule and one for its cooling rule.
-    assert_eq!(error.diagnostics.len(), 2, "{error}");
+    // Heating and cooling require the same predicate at the same production location.
+    assert_eq!(error.diagnostics.len(), 1, "{error}");
     for diagnostic in &error.diagnostics {
         assert_eq!(
             diagnostic.code,
@@ -2721,6 +2722,76 @@ fn compile_main_with_prelude(
     )
     .unwrap();
     compile_loaded_definition(&loaded, CompileOptions::default())
+}
+
+#[test]
+fn a_strict_result_synonym_compiles_with_denoted_heat_and_cool_predicates() {
+    let artifacts = compile_main_with_prelude(
+        "result-synonym.k",
+        indoc! {r#"
+        module MAIN
+          imports INT
+          syntax R = Int
+          syntax Exp ::= f(Int) [strict, result(R), symbol(f)]
+        endmodule
+    "#},
+    )
+    .unwrap_or_else(|error| panic!("a strict result synonym should compile: {error}"));
+    let conditions = artifacts
+        .execution_definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                requires,
+                attributes,
+                ..
+            } if attributes.get("heat").is_some() || attributes.get("cool").is_some() => {
+                Some(requires)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(conditions.len(), 2, "one heating and one cooling condition");
+    for condition in conditions {
+        let mut predicates = Vec::new();
+        condition.visit_preorder(&mut |term| {
+            if let Term::Apply { label, .. } = term
+                && (label.name == "isInt" || label.name == "isR")
+            {
+                predicates.push(label.name.clone());
+            }
+        });
+        assert_eq!(predicates, ["isInt"], "{condition}");
+    }
+}
+
+#[test]
+fn an_undeclared_strict_result_reports_one_invalid_heat_cool_diagnostic() {
+    let error = compile_main_with_prelude(
+        "undeclared-result.k",
+        indoc! {r#"
+        module MAIN
+          imports INT
+          syntax Exp ::= f(Int) [strict, result(Foo), symbol(f)]
+        endmodule
+    "#},
+    )
+    .unwrap_err();
+    assert_eq!(error.stage, "resolve heat/cool attributes", "{error}");
+    assert_eq!(error.diagnostics.len(), 1, "{error}");
+    assert_eq!(
+        error.diagnostics[0].code,
+        k_rust::diagnostic::DiagnosticCode::InvalidHeatCool
+    );
+    assert!(
+        error.diagnostics[0]
+            .message
+            .starts_with("Definition is missing function isFoo required for strictness."),
+        "{error}"
+    );
 }
 
 /// The compiled definition is the main module's import closure, so a strict production declared

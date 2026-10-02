@@ -32,6 +32,15 @@ pub enum KeyParameter {
     Forbidden,
 }
 
+/// The shape of a builtin attribute parameter that names sorts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SortValues {
+    /// The whole parameter names one sort.
+    One,
+    /// A comma-separated list of sort spellings, with each element trimmed.
+    List,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BuiltinKey {
     pub(crate) parameter: KeyParameter,
@@ -57,7 +66,7 @@ const fn builtin(parameter: KeyParameter, targets: u16) -> KeyClass {
 }
 
 macro_rules! attribute_keys {
-    ($($variant:ident = $spelling:literal ($class:expr, $emits:literal)),+ $(,)?) => {
+    ($($variant:ident = $spelling:literal ($class:expr, $emits:literal $(, sorts = $sorts:ident)?)),+ $(,)?) => {
         /// A well-known attribute key; `as_str` is its spelling in K source, KAST JSON, and the
         /// `Attributes` map.
         #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -91,6 +100,15 @@ macro_rules! attribute_keys {
                 }
             }
 
+            /// Only builtin keys whose parameter names sorts carry this column.
+            /// The cell `type` attribute selects a collection kind, a keyword rather than a sort.
+            /// Internal keys (`predicate`, `sortParams`, `cellSort`) are written by the compiler from applied sorts.
+            pub const fn sort_values(self) -> Option<SortValues> {
+                match self {
+                    $(Self::$variant => attribute_keys!(@sorts $($sorts)?)),+
+                }
+            }
+
             /// The one string-to-key lookup; `None` for unrecognized keys.
             pub fn from_name(name: &str) -> Option<Self> {
                 match name {
@@ -100,6 +118,8 @@ macro_rules! attribute_keys {
             }
         }
     };
+    (@sorts $sorts:ident) => { Some(SortValues::$sorts) };
+    (@sorts) => { None };
 }
 
 use KeyClass::{Internal, Krust};
@@ -119,7 +139,7 @@ attribute_keys! {
     Comm = "comm" (builtin(Forbidden, PRODUCTION | RULE), true),
     Initializer = "initializer" (builtin(Forbidden, PRODUCTION | RULE), false),
     Priority = "priority" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), true),
-    Result = "result" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), false),
+    Result = "result" (builtin(Required, CONTEXT | CONTEXT_ALIAS | PRODUCTION | RULE), false, sorts = One),
     Private = "private" (builtin(Forbidden, MODULE | PRODUCTION), false),
     Public = "public" (builtin(Forbidden, MODULE | PRODUCTION), false),
     Stream = "stream" (builtin(Optional, PRODUCTION | RULE), false),
@@ -163,7 +183,7 @@ attribute_keys! {
     Unit = "unit" (builtin(Required, PRODUCTION), true),
     Update = "update" (builtin(Required, PRODUCTION), true),
     WrapElement = "wrapElement" (builtin(Required, PRODUCTION), false),
-    Hybrid = "hybrid" (builtin(Optional, PRODUCTION), false),
+    Hybrid = "hybrid" (builtin(Optional, PRODUCTION), false, sorts = List),
     Seqstrict = "seqstrict" (builtin(Optional, PRODUCTION), false),
     Strict = "strict" (builtin(Optional, PRODUCTION), false),
     Symbol = "symbol" (builtin(Optional, PRODUCTION), true),
@@ -308,6 +328,21 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
+
+    #[test]
+    fn sort_valued_keys_are_result_and_hybrid() {
+        let keys = AttributeKey::ALL
+            .into_iter()
+            .filter_map(|key| key.sort_values().map(|values| (key, values)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            keys,
+            vec![
+                (AttributeKey::Result, SortValues::One),
+                (AttributeKey::Hybrid, SortValues::List),
+            ]
+        );
+    }
 
     #[test]
     fn every_key_round_trips_through_its_spelling() {

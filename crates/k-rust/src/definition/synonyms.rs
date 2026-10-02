@@ -1,7 +1,10 @@
-//! Sort synonym denotations are closed in each module's full view before application to productions.
+//! Sort synonym denotations are closed in each module's full view before application to production sorts and sort-valued attributes.
 //! Cost is one scan of each module's view for synonym declarations and their closure, plus the existing `ResolvedDefinition::resolve` and `ResolvedDefinition::update`; `KompileResolveCalls`, `KompileResolveUpdates`, and `KompileSentenceCopies` count the resolve, update and local sentence copies.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::LazyLock,
+};
 
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::DiGraph;
@@ -10,7 +13,8 @@ use crate::kast::{GeneratedCell, Sort, SortRole};
 use crate::provenance::GeneratingPass;
 
 use super::{
-    Definition, ModuleId, ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortHead,
+    AttributeKey, Definition, ModuleId, ProductionItem, ResolveError, ResolvedDefinition, Sentence,
+    SortHead, SortValues,
 };
 
 /// What a whole sort spelling denotes in a view.
@@ -372,7 +376,7 @@ pub(crate) fn synonym_overlaps<'a>(
     overlaps
 }
 
-/// Replace each production's result and nonterminal sorts by their denotations in its module's full view.
+/// Replace production result and nonterminal sorts and every sentence's sort-valued attributes by their denotations in its module's full view.
 /// Chains are followed to their end; spellings bound by the production's parameters stay as written.
 /// Undenoted aliases stay in place for [`super::check_sort_synonyms`] to report their declaration defects.
 /// Sort arguments, parameters and synonym declarations are unchanged.
@@ -415,14 +419,15 @@ pub(crate) fn apply_sort_synonyms_with_resolved(
 pub(crate) struct UnappliedSynonym {
     pub module: String,
     pub sentence: usize,
+    pub attribute: Option<AttributeKey>,
     pub synonym: Sort,
     pub sort: Sort,
 }
 
-/// Find the first production that is not a fixpoint of synonym application.
+/// Find the first sentence that is not a fixpoint of synonym application.
 /// Re-applying a copy checks exactly the positions application rewrites, including after
 /// application is widened. The recursive name prefilter only avoids unnecessary view builds
-/// and copies; it does not decide whether a production has been applied.
+/// and copies; it does not decide whether a sentence has been applied.
 pub(crate) fn first_unapplied_synonym(
     definition: &Definition,
     resolved: &ResolvedDefinition,
@@ -461,27 +466,11 @@ pub(crate) fn first_unapplied_synonym(
     for module in &definition.modules {
         let mut synonyms = None;
         for (index, sentence) in module.local_sentences.iter().enumerate() {
-            let Sentence::Production {
-                parameters,
-                sort,
-                items,
-                ..
-            } = &**sentence
-            else {
-                continue;
-            };
-            let operands = || {
-                std::iter::once(sort).chain(items.iter().filter_map(|item| {
-                    if let ProductionItem::NonTerminal { sort, .. } = item {
-                        Some(sort)
-                    } else {
-                        None
-                    }
-                }))
-            };
-            if !operands()
+            let parameters = production_parameters(sentence);
+            if !production_operands(sentence)
                 .chain(parameters)
                 .any(|sort| mentions_name(sort, &names))
+                && !sort_attribute_elements(sentence).any(|(_, sort)| mentions_name(&sort, &names))
             {
                 continue;
             }
@@ -494,18 +483,33 @@ pub(crate) fn first_unapplied_synonym(
             let mut applied = (**sentence).clone();
             apply_to_sentence(&mut applied, synonyms);
             if applied != **sentence {
-                let (synonym, sort) = operands()
+                let (synonym, sort, attribute) = production_operands(sentence)
                     .filter(|sort| !parameters.contains(sort))
                     .find_map(|sort| match synonyms.spelling(sort) {
-                        Spelling::Synonym { denotes } => Some((sort, denotes)),
+                        Spelling::Synonym { denotes } => {
+                            Some((sort.clone(), denotes.clone(), None))
+                        }
                         Spelling::Sort | Spelling::Undenoted => None,
                     })
-                    .expect("a changed production has an unbound synonym operand");
+                    .or_else(|| {
+                        sort_attribute_elements(sentence)
+                            .filter(|(_, sort)| !parameters.contains(sort))
+                            .find_map(|(key, sort)| match synonyms.spelling(&sort) {
+                                Spelling::Synonym { denotes } => {
+                                    Some((sort.clone(), denotes.clone(), Some(key)))
+                                }
+                                Spelling::Sort | Spelling::Undenoted => None,
+                            })
+                    })
+                    .expect(
+                        "a changed sentence has an unbound synonym operand or attribute element",
+                    );
                 return Some(UnappliedSynonym {
                     module: module.name.clone(),
                     sentence: index,
-                    synonym: synonym.clone(),
-                    sort: sort.clone(),
+                    attribute,
+                    synonym,
+                    sort,
                 });
             }
         }
@@ -513,29 +517,122 @@ pub(crate) fn first_unapplied_synonym(
     None
 }
 
+static SORT_VALUED: LazyLock<Vec<AttributeKey>> = LazyLock::new(|| {
+    AttributeKey::ALL
+        .into_iter()
+        .filter(|key| key.sort_values().is_some())
+        .collect()
+});
+
+fn attribute_elements(value: &str, values: SortValues) -> impl Iterator<Item = &str> {
+    value
+        .split(move |character| match values {
+            SortValues::One => false,
+            SortValues::List => character == ',',
+        })
+        .map(str::trim)
+}
+
+fn sort_attribute_elements(sentence: &Sentence) -> impl Iterator<Item = (AttributeKey, Sort)> + '_ {
+    SORT_VALUED.iter().flat_map(|&key| {
+        let values = key
+            .sort_values()
+            .expect("the key table selects sort-valued attributes");
+        sentence
+            .attributes()
+            .string(key)
+            .into_iter()
+            .flat_map(move |value| {
+                attribute_elements(value, values)
+                    .filter_map(|element| crate::kast::parser::parse_sort(element).ok())
+                    .map(move |sort| (key, sort))
+            })
+    })
+}
+
+fn production_parameters(sentence: &Sentence) -> &[Sort] {
+    if let Sentence::Production { parameters, .. } = sentence {
+        parameters
+    } else {
+        &[]
+    }
+}
+
+fn production_operands(sentence: &Sentence) -> impl Iterator<Item = &Sort> {
+    let production = if let Sentence::Production { sort, items, .. } = sentence {
+        Some((sort, items))
+    } else {
+        None
+    };
+    production.into_iter().flat_map(|(sort, items)| {
+        std::iter::once(sort).chain(items.iter().filter_map(|item| {
+            if let ProductionItem::NonTerminal { sort, .. } = item {
+                Some(sort)
+            } else {
+                None
+            }
+        }))
+    })
+}
+
+/// Apply whole sort spellings in production operands and every sentence's sort-valued attributes.
+/// Production parameters bind their spelling in both positions.
 fn apply_to_sentence(sentence: &mut Sentence, synonyms: &SortSynonyms<'_>) {
-    let Sentence::Production {
+    if let Sentence::Production {
         parameters,
         sort,
         items,
         ..
     } = sentence
-    else {
+    {
+        for sort in std::iter::once(sort).chain(items.iter_mut().filter_map(|item| {
+            if let ProductionItem::NonTerminal { sort, .. } = item {
+                Some(sort)
+            } else {
+                None
+            }
+        })) {
+            if parameters.contains(sort) {
+                continue;
+            }
+            match synonyms.spelling(sort) {
+                Spelling::Synonym { denotes } => *sort = denotes.clone(),
+                Spelling::Sort | Spelling::Undenoted => {}
+            }
+        }
+    }
+    if synonyms.is_empty() {
         return;
-    };
-    for sort in std::iter::once(sort).chain(items.iter_mut().filter_map(|item| {
-        if let ProductionItem::NonTerminal { sort, .. } = item {
-            Some(sort)
-        } else {
-            None
-        }
-    })) {
-        if parameters.contains(sort) {
+    }
+    for &key in SORT_VALUED.iter() {
+        let Some(value) = sentence.attributes().string(key) else {
             continue;
-        }
-        match synonyms.spelling(sort) {
-            Spelling::Synonym { denotes } => *sort = denotes.clone(),
-            Spelling::Sort | Spelling::Undenoted => {}
+        };
+        let values = key
+            .sort_values()
+            .expect("the key table selects sort-valued attributes");
+        let parameters = production_parameters(sentence);
+        let mut changed = false;
+        let elements = attribute_elements(value, values)
+            .map(|element| {
+                if let Ok(sort) = crate::kast::parser::parse_sort(element)
+                    && !parameters.contains(&sort)
+                {
+                    match synonyms.spelling(&sort) {
+                        Spelling::Synonym { denotes } => {
+                            changed = true;
+                            return denotes.to_string();
+                        }
+                        Spelling::Sort | Spelling::Undenoted => {}
+                    }
+                }
+                element.to_owned()
+            })
+            .collect::<Vec<_>>();
+        if changed {
+            sentence
+                .attributes_mut()
+                .set(key, serde_json::Value::String(elements.join(", ")));
         }
     }
 }
@@ -579,6 +676,56 @@ mod tests {
             !matches!(sentence.as_ref(), Sentence::SyntaxSort { sort, .. }
                 if sort == &Sort::new("FooCell"))
         }));
+    }
+
+    #[test]
+    fn result_attributes_follow_chains_and_leave_undenoted_aliases() {
+        let mut sentence = Sentence::Bubble {
+            sentence_type: "rule".into(),
+            contents: "X => X".into(),
+            attributes: Attributes::default(),
+        };
+        sentence
+            .attributes_mut()
+            .set(AttributeKey::Result, serde_json::json!("A"));
+        apply_to_sentence(&mut sentence, &SortSynonyms::of([&synonym("A", "A")]));
+        assert_eq!(
+            sentence.attributes().string(AttributeKey::Result),
+            Some("A")
+        );
+        apply_to_sentence(
+            &mut sentence,
+            &SortSynonyms::of([&synonym("A", "B"), &synonym("B", "Int")]),
+        );
+        assert_eq!(
+            sentence.attributes().string(AttributeKey::Result),
+            Some("Int")
+        );
+    }
+
+    #[test]
+    fn unchanged_attribute_values_preserve_their_representation() {
+        let declaration = synonym("A", "Int");
+        for synonyms in [SortSynonyms::default(), SortSynonyms::of([&declaration])] {
+            for (key, value) in [
+                (AttributeKey::Result, serde_json::json!(" Int ")),
+                (AttributeKey::Result, serde_json::json!("Box{A}")),
+                (AttributeKey::Result, serde_json::json!("A{")),
+                (AttributeKey::Result, serde_json::json!(["A"])),
+                (AttributeKey::Hybrid, serde_json::json!(" Bool , Int ")),
+                (AttributeKey::Hybrid, serde_json::json!("")),
+            ] {
+                let mut sentence = Sentence::Bubble {
+                    sentence_type: "rule".into(),
+                    contents: "X => X".into(),
+                    attributes: Attributes::default(),
+                };
+                sentence.attributes_mut().set(key, value);
+                let original = sentence.clone();
+                apply_to_sentence(&mut sentence, &synonyms);
+                assert_eq!(sentence, original);
+            }
+        }
     }
 
     #[test]

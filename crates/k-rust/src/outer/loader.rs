@@ -210,10 +210,11 @@ pub enum LoadError {
         source: Option<String>,
         location: Option<Location>,
     },
-    /// A production whose visible sort synonyms have not been applied.
+    /// A sentence whose visible sort synonyms have not been applied to its operands or attributes.
     UnappliedSortSynonym {
         module: String,
         sentence: usize,
+        attribute: Option<AttributeKey>,
         synonym: Box<Sort>,
         sort: Box<Sort>,
         source: Option<String>,
@@ -329,16 +330,24 @@ impl fmt::Display for LoadError {
             Self::UnappliedSortSynonym {
                 module,
                 sentence,
+                attribute,
                 synonym,
                 sort,
                 source,
                 location,
             } => {
                 write_location(formatter, source, location)?;
-                write!(
-                    formatter,
-                    "sentence {sentence} of module {module:?} is a production over sort synonym {synonym} of {sort}; a loaded definition has its sort synonyms applied"
-                )
+                match attribute {
+                    Some(key) => write!(
+                        formatter,
+                        "sentence {sentence} of module {module:?} names sort synonym {synonym} of {sort} in its `{}` attribute; a loaded definition has its sort synonyms applied",
+                        key.as_str()
+                    ),
+                    None => write!(
+                        formatter,
+                        "sentence {sentence} of module {module:?} is a production over sort synonym {synonym} of {sort}; a loaded definition has its sort synonyms applied"
+                    ),
+                }
             }
             Self::TemporaryCellSort {
                 module,
@@ -468,7 +477,7 @@ impl LoadedDefinition {
     /// unparsed text goes through [`load_structured`], which does. Rejects a label with a written
     /// sort parameter with [`LoadError::LabelParameters`] and a temporary cell-sort declaration
     /// with [`LoadError::TemporaryCellSort`]. Resolves the definition and rejects unapplied
-    /// production synonyms with [`LoadError::UnappliedSortSynonym`]. The
+    /// synonyms in production operands or sort-valued attributes with [`LoadError::UnappliedSortSynonym`]. The
     /// addressing is [`InputAddressing::Compile`]: the parts are not the unedited result of
     /// [`load_structured`], so compilation addresses each sentence by its position in
     /// `parts.definition`.
@@ -715,11 +724,12 @@ fn check_loaded_synonyms(
             .modules
             .iter()
             .find(|module| module.name == found.module)
-            .expect("the unapplied production belongs to the checked definition");
+            .expect("the unapplied sentence belongs to the checked definition");
         let attributes = module.local_sentences[found.sentence].attributes();
         return Err(LoadError::UnappliedSortSynonym {
             module: found.module,
             sentence: found.sentence,
+            attribute: found.attribute,
             synonym: Box::new(found.synonym),
             sort: Box::new(found.sort),
             source: attributes.source().map(str::to_owned),

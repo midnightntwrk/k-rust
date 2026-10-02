@@ -128,9 +128,11 @@ Other meanings include visible sort declarations, configuration-expansion cell s
 A production written with the alias where the synonym is visible is a use of it, as is a temporary cell-sort declaration added for that production's nonterminal.
 The sorts compilation later generates around the top wrapper (`GeneratedTopCellFragment` and the `…CellOpt` sorts of its children when the configuration has a single root cell) are not yet excluded.
 Production result and nonterminal sorts use that denotation; a production's own sort parameter shadows a synonym of the same spelling.
+The `result` and `hybrid` attribute values use the same denotation for each whole sort spelling in the sentence's module's full view, including private imports; a production's own parameter shadows that spelling there too.
+The loaded definition shows the denotation in these attributes.
 A cycle, or one alias with two denotations in a view, is rejected at load with `InvalidSortSynonym`, whether used or not: those equations name no unique sort.
 A synonym inside a sort argument is rejected, because application rewrites whole production sorts and the alias itself declares no sort.
-Rule and configuration casts still read a synonym one step, so a cast through a chain does not yet parse.
+Rule and configuration casts use the denotation of aliases declared in their grammar's view.
 The pinned frontend applies one step, so a chain fails backend validation with `Sort 'SortB' not defined`, and rewrites a sort that a production parameter binds; these are recorded divergences.
 
 ## Variable sort annotations

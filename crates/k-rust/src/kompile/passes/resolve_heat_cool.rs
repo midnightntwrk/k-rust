@@ -141,6 +141,8 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
     if diagnostics.is_empty() {
         Ok(output)
     } else {
+        diagnostics.sort();
+        diagnostics.dedup();
         Err(ResolveHeatCoolError { diagnostics })
     }
 }

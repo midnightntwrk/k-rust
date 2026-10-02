@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use k_rust::{
     builtin::embedded,
-    definition::{Definition, Sentence},
+    definition::{AttributeKey, Definition, Sentence},
     kast::Term,
     kompile::{CompileOptions, compile_loaded_definition},
     outer::{
@@ -272,7 +272,7 @@ fn with_definition_rejects_a_production_over_a_sort_synonym() {
     let error = result.unwrap_err();
     assert!(
         matches!(&error,
-            LoadError::UnappliedSortSynonym { module, sentence, synonym, sort, source, location }
+            LoadError::UnappliedSortSynonym { module, sentence, synonym, sort, attribute: None, source, location }
             if module == "MAIN" && *sentence == index && **synonym == Sort::new("Num")
                 && **sort == Sort::new("Int") && source.as_deref() == Some("synonyms.k")
                 && location.is_some_and(|location| location.start_line == 4)
@@ -282,6 +282,56 @@ fn with_definition_rejects_a_production_over_a_sort_synonym() {
     let message = error.to_string();
     assert!(message.starts_with("synonyms.k:4:"), "{message}");
     assert!(message.contains("sort synonym Num of Int"), "{message}");
+}
+
+#[test]
+fn from_loaded_parts_rejects_a_rule_with_an_unapplied_result_synonym() {
+    use k_rust::kast::Sort;
+    let loaded = load_text(
+        r#"
+        module MAIN
+          imports INT
+          syntax R = Int
+          syntax Exp ::= f(Int) [symbol(f)]
+          rule f(1) => f(1) [heat, result(Int)]
+        endmodule
+    "#,
+        "MAIN",
+    )
+    .unwrap();
+    let from_parts = |definition| {
+        LoadedDefinition::from_loaded_parts(LoadedParts {
+            files: Vec::new(),
+            source_table: Default::default(),
+            definition,
+            diagnostics: Vec::new(),
+        })
+    };
+    assert!(from_parts(loaded.definition().clone()).is_ok());
+    let mut definition = loaded.definition().clone();
+    let main = main_module(&mut definition);
+    let index = main
+        .local_sentences
+        .iter()
+        .position(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
+        .unwrap();
+    Arc::make_mut(&mut main.local_sentences[index])
+        .attributes_mut()
+        .set(AttributeKey::Result, serde_json::json!("R"));
+    let error = from_parts(definition).unwrap_err();
+    assert!(
+        matches!(&error,
+            LoadError::UnappliedSortSynonym {
+                module, sentence, synonym, sort, attribute: Some(AttributeKey::Result), ..
+            } if module == "MAIN" && *sentence == index && **synonym == Sort::new("R")
+                && **sort == Sort::new("Int")
+        ),
+        "{error:?}"
+    );
+    assert!(
+        error.to_string().contains("in its `result` attribute"),
+        "{error}"
+    );
 }
 
 #[test]
