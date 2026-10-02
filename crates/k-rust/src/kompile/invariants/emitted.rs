@@ -9,7 +9,12 @@
 //! element of `S` that `s` names in `S`'s domain, which exists only when the declaration of `S`'s
 //! head carries `hasDomainValues`. A compiler-generated binder variable is introduced to bind
 //! something, so a generated `\exists` or `\forall` whose body does not mention its variable binds
-//! it in place of whatever the construct means to bind.
+//! it in place of whatever the construct means to bind. KORE quantifies sort variables only at a
+//! sentence (`axiom{R, W}`, `symbol f{W}`), never inside a pattern, and a sort application
+//! `SortH{A1, .., An}` names a sort declared with `n` parameters; a sentence that mentions any
+//! other sort refers to nothing the theory declares, and when a sort parameter of a source
+//! sentence leaked out of its binder as `SortW{}` it states the source's property at a sort that
+//! does not exist instead of at every instantiation.
 //!
 //! [`EmittedTheory`] collects those facts from one emitted module and checks a sentence against
 //! them:
@@ -20,17 +25,29 @@
 //! - K2: every `\dv{S}` has a sort `S` whose head is declared with `hasDomainValues`.
 //! - K3: every `\exists` and `\forall` whose variable decodes to a name that
 //!   `is_generated_anonymous` accepts has that variable free in its body.
+//! - K4 (sort scope): every sort the sentence mentions is a sort variable the sentence binds, or
+//!   an application of a sort declared (as a sort or hooked sort) in the module or in the
+//!   embedded prelude with exactly as many parameters as it is applied to, whose arguments
+//!   satisfy K4 in turn. An axiom or claim binds its `parameters` and mentions every sort of its
+//!   pattern; a symbol or alias declaration binds its sort parameters, each of which must be a
+//!   sort variable, and mentions its argument and result sorts (and an alias its two patterns);
+//!   a sort declaration or import mentions nothing. K4 runs before K1-K3, so a sentence over an
+//!   undeclared sort reports that cause rather than a symptom such as a junk injection.
 //!
-//! The checks read the patterns of a sentence (the pattern of an axiom or claim, the left and
-//! right patterns of an alias declaration), not its attributes. They traverse with the kore
-//! crate's own [`for_each_post_order`], so a new `Pattern` variant reaches them through the one
-//! exhaustive match of `walk::children` and through the exhaustive match of `check_node`.
+//! The checks read the sorts and patterns of a sentence (the pattern of an axiom or claim, the
+//! left and right patterns of an alias declaration, the signature of a symbol or alias
+//! declaration), not its attributes. They traverse with the kore crate's own
+//! [`for_each_post_order`] and [`Pattern::for_each_sort`], so a new `Pattern` variant reaches
+//! them through the exhaustive matches of `walk::children` and `for_each_sort` and through the
+//! exhaustive match of `violation`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use crate::kast::identifier::decode_variable;
 use crate::kompile::fresh_names::is_generated_anonymous;
+use crate::kompile::module_to_kore::standard_kore_prelude;
 use crate::kore::ast::{
     Module, Pattern, Sentence as KoreSentence, Sort as KoreSort, Symbol, Variable,
 };
@@ -49,20 +66,26 @@ pub(crate) struct EmittedTheory {
     schemas: Vec<(KoreSort, KoreSort)>,
     /// Heads of sort declarations that carry `hasDomainValues{}()`.
     domain_heads: BTreeSet<String>,
+    /// `name -> number of parameters` for every sort declared in the module or in the embedded
+    /// prelude.
+    sorts: BTreeMap<String, usize>,
     /// Whether a path of one or more subsort axioms leads from the first sort to the second,
     /// for every pair asked so far.
     paths: RefCell<BTreeMap<(KoreSort, KoreSort), bool>>,
 }
 
 impl EmittedTheory {
-    /// Collect the subsort axioms and the domain-value sort heads of `module`.
+    /// Collect the subsort axioms, the domain-value sort heads and the declared sorts of
+    /// `module`.
     pub(crate) fn of(module: &Module) -> Self {
         let mut subsorts = BTreeMap::<KoreSort, BTreeSet<KoreSort>>::new();
         let mut schemas = Vec::new();
         let mut domain_heads = BTreeSet::new();
+        let mut sorts = prelude_sorts().clone();
         // Invariant: `subsorts` and `schemas` hold one edge per `subsort` attribute of every axiom
-        // before `sentence`, and `domain_heads` the name of every sort declaration before
-        // `sentence` that carries `hasDomainValues`.
+        // before `sentence`, `domain_heads` the name of every sort declaration before `sentence`
+        // that carries `hasDomainValues`, and `sorts` the prelude's sorts and every sort declared
+        // before `sentence` with its number of parameters.
         for sentence in &module.sentences {
             match sentence {
                 KoreSentence::Axiom { attributes, .. } => {
@@ -78,8 +101,12 @@ impl EmittedTheory {
                     }
                 }
                 KoreSentence::SortDeclaration {
-                    name, attributes, ..
+                    name,
+                    parameters,
+                    attributes,
+                    ..
                 } => {
+                    sorts.insert(name.clone(), parameters.len());
                     if attributes.0.iter().any(|attribute| {
                         is_nullary_attribute(attribute, KoreAttribute::HasDomainValues)
                     }) {
@@ -96,15 +123,25 @@ impl EmittedTheory {
             subsorts,
             schemas,
             domain_heads,
+            sorts,
             paths: RefCell::default(),
         }
     }
 
-    /// Check one emitted sentence against K1, K2 and K3; panics on the first violation.
+    /// Check one emitted sentence against K4, then K1, K2 and K3; panics on the first violation.
     ///
     /// `source` describes what the sentence was emitted from and, for a rule or claim, the pass
     /// of its origin record (see [`emitted_from`]); it is called only to report a violation.
     pub(crate) fn check(&self, sentence: &KoreSentence, source: &dyn Fn() -> String) {
+        let report = |violation: String| -> ! {
+            panic!(
+                "kompile invariant {violation}\n  in the sentence emitted from: {}\n  emitted sentence: {sentence}",
+                source()
+            )
+        };
+        if let Some(reason) = self.scope_violation(sentence) {
+            report(format!("K4 (sort scope) violated: {reason}"));
+        }
         let patterns: Vec<&Pattern> = match sentence {
             KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => {
                 vec![pattern]
@@ -117,13 +154,129 @@ impl EmittedTheory {
         for pattern in patterns {
             for_each_post_order(pattern, |node| {
                 if let Some(violation) = self.violation(node) {
-                    panic!(
-                        "kompile invariant {violation}\n  in the sentence emitted from: {}\n  emitted sentence: {sentence}",
-                        source()
-                    );
+                    report(violation);
                 }
             });
         }
+    }
+
+    /// The reason `sentence` violates K4, if it does: the first sort it mentions, in signature
+    /// then pattern order, that is neither a sort variable it binds nor a declared sort applied
+    /// to as many arguments as its declaration has parameters.
+    fn scope_violation(&self, sentence: &KoreSentence) -> Option<String> {
+        // An axiom or claim binds its `parameters`, which are sort variables by construction; a
+        // symbol or alias declaration binds its `binder` sorts, which must be sort variables.
+        let (parameters, binder, signature, patterns): (
+            &[String],
+            &[KoreSort],
+            Vec<&KoreSort>,
+            Vec<&Pattern>,
+        ) = match sentence {
+            KoreSentence::Axiom {
+                parameters,
+                pattern,
+                ..
+            }
+            | KoreSentence::Claim {
+                parameters,
+                pattern,
+                ..
+            } => (parameters, &[], Vec::new(), vec![pattern]),
+            KoreSentence::SymbolDeclaration {
+                symbol,
+                argument_sorts,
+                result_sort,
+                ..
+            } => (
+                &[],
+                &symbol.sort_parameters,
+                argument_sorts.iter().chain([result_sort]).collect(),
+                Vec::new(),
+            ),
+            KoreSentence::AliasDeclaration {
+                alias,
+                argument_sorts,
+                result_sort,
+                left,
+                right,
+                ..
+            } => (
+                &[],
+                &alias.sort_parameters,
+                argument_sorts.iter().chain([result_sort]).collect(),
+                vec![left, right],
+            ),
+            KoreSentence::Import { .. } | KoreSentence::SortDeclaration { .. } => return None,
+        };
+        let mut bound: BTreeSet<&str> = parameters.iter().map(String::as_str).collect();
+        // Invariant: `bound` holds `parameters` and the names of the binder's sorts before
+        // `parameter`, each of which is a sort variable.
+        for parameter in binder {
+            match parameter {
+                KoreSort::Variable(name) => {
+                    bound.insert(name);
+                }
+                KoreSort::Application { .. } => {
+                    return Some(format!(
+                        "the sort parameter {} of the declaration is not a sort variable",
+                        render_sort(parameter)
+                    ));
+                }
+            }
+        }
+        if let Some(reason) = signature
+            .into_iter()
+            .find_map(|sort| self.sort_scope_violation(sort, &bound))
+        {
+            return Some(reason);
+        }
+        let mut first = None;
+        // Invariant: `first` is the first violation among the sorts of the patterns before
+        // `pattern`, if any; the loop stops at the first pattern that holds one.
+        for pattern in patterns {
+            pattern.for_each_sort(|sort| {
+                if first.is_none() {
+                    first = self.sort_scope_violation(sort, &bound);
+                }
+            });
+            if first.is_some() {
+                break;
+            }
+        }
+        first
+    }
+
+    /// The reason `sort` violates K4 under the bound sort variables `bound`, if it does.
+    fn sort_scope_violation(&self, sort: &KoreSort, bound: &BTreeSet<&str>) -> Option<String> {
+        let mut work = vec![sort];
+        // Invariant: every sort popped so far is a bound sort variable or a declared sort applied
+        // to as many arguments as its declaration has parameters, and `work` holds the unvisited
+        // subsorts of `sort`; each pop pushes only its direct arguments, so each subsort
+        // occurrence is popped once.
+        while let Some(sort) = work.pop() {
+            match sort {
+                KoreSort::Variable(name) => {
+                    if !bound.contains(name.as_str()) {
+                        return Some(format!("sort variable {name} is not bound by the sentence"));
+                    }
+                }
+                KoreSort::Application { name, arguments } => {
+                    match self.sorts.get(name) {
+                        None => return Some(format!("sort {name} is not declared")),
+                        Some(&parameters) if parameters != arguments.len() => {
+                            return Some(format!(
+                                "sort {name} is declared with {parameters} parameters but \
+                                 applied to {}",
+                                arguments.len()
+                            ));
+                        }
+                        Some(_) => {}
+                    }
+                    work.extend(arguments);
+                }
+            }
+        }
+        None
     }
 
     /// The violated rule and its reason, when `node` itself violates K1, K2 or K3.
@@ -241,6 +394,28 @@ impl EmittedTheory {
         }
         result
     }
+}
+
+/// `name -> number of parameters` for every sort the embedded prelude declares, parsed once.
+fn prelude_sorts() -> &'static BTreeMap<String, usize> {
+    static SORTS: OnceLock<BTreeMap<String, usize>> = OnceLock::new();
+    SORTS.get_or_init(|| {
+        standard_kore_prelude()
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                KoreSentence::SortDeclaration {
+                    name, parameters, ..
+                } => Some((name.clone(), parameters.len())),
+                KoreSentence::Import { .. }
+                | KoreSentence::SymbolDeclaration { .. }
+                | KoreSentence::AliasDeclaration { .. }
+                | KoreSentence::Axiom { .. }
+                | KoreSentence::Claim { .. } => None,
+            })
+            .collect()
+    })
 }
 
 /// The K3 violation of a binder `binder` over `variable` with body `body`, if any.
@@ -463,6 +638,8 @@ mod tests {
     fn injection_along_a_schema_axiom_passes_only_for_its_instances() {
         let schema = theory(
             r#"module MAIN
+                 sort SortNat{} []
+                 sort SortInt{} []
                  sort SortList{S} []
                  sort SortColl{S} []
                  axiom{S, R} \top{R}() [subsort{SortList{S}, SortColl{S}}()]
@@ -536,6 +713,103 @@ mod tests {
             r#"axiom{S} \exists{S}(Var'Unds'Gen0:SortK{}, \equals{SortInt{}, S}(Var'Unds'Gen0:SortInt{}, \dv{SortInt{}}("1"))) []"#,
         );
         assert!(violation(&theory(THEORY), &other_sort).is_some());
+    }
+
+    /// A theory with `Foo`, the hooked parametric sort `MInt{S0}` and `8`; `W` is not a sort.
+    const SCOPE: &str = r#"
+        module MAIN
+          sort SortFoo{} []
+          sort Sort8{} []
+          hooked-sort SortMInt{S0} [hook{}("MINT.MInt")]
+        endmodule []
+    "#;
+
+    fn check_scope(text: &str) {
+        theory(SCOPE).check(&sentence(text), &source);
+    }
+
+    #[test]
+    #[should_panic(expected = "K4 (sort scope) violated: sort SortW is not declared")]
+    fn leaked_sort_parameter_in_an_axiom_pattern_panics() {
+        check_scope(
+            r#"axiom{} \or{SortFoo{}}(\exists{SortFoo{}}(X0:SortMInt{SortW{}}, pick{SortW{}}(X0:SortMInt{SortW{}})), \bottom{SortFoo{}}()) [constructor{}()]"#,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "K4 (sort scope) violated: sort SortW is not declared")]
+    fn leaked_sort_parameter_in_a_symbol_signature_panics() {
+        check_scope(r#"symbol f{}(SortFoo{}) : SortMInt{SortW{}} [function{}()]"#);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "K4 (sort scope) violated: sort SortMInt is declared with 1 parameters but applied to 2"
+    )]
+    fn sort_applied_to_the_wrong_number_of_arguments_panics() {
+        check_scope(
+            r#"axiom{R} \equals{SortMInt{SortFoo{}, SortFoo{}}, R}(X:SortMInt{SortFoo{}, SortFoo{}}, X:SortMInt{SortFoo{}, SortFoo{}}) []"#,
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "K4 (sort scope) violated: sort variable W is not bound by the sentence"
+    )]
+    fn sort_variable_the_axiom_does_not_bind_panics() {
+        check_scope(r#"axiom{} \equals{SortMInt{W}, SortFoo{}}(X:SortMInt{W}, X:SortMInt{W}) []"#);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "K4 (sort scope) violated: the sort parameter SortFoo{} of the declaration is not a sort variable"
+    )]
+    fn declaration_binding_a_sort_application_panics() {
+        check_scope(r#"symbol f{SortFoo{}}(SortFoo{}) : SortFoo{} []"#);
+    }
+
+    #[test]
+    fn k4_reports_the_cause_before_a_k1_symptom() {
+        let message = violation(
+            &theory(SCOPE),
+            &sentence(
+                r#"axiom{} \rewrites{SortK{}}(kseq{}(inj{SortMInt{SortW{}}, SortKItem{}}(X:SortMInt{SortW{}}), dotk{}()), dotk{}()) []"#,
+            ),
+        )
+        .expect("the sentence violates K4 and K1");
+        assert!(
+            message.contains("K4 (sort scope) violated: sort SortW is not declared"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn bound_sort_variables_declared_and_prelude_sorts_pass() {
+        let scope = theory(SCOPE);
+        // Sort variables bound by the axiom, and the prelude's `SortK` and `SortKItem`, which the
+        // module does not declare itself.
+        let bound_axiom = sentence(
+            r#"axiom{R, W} \equals{SortMInt{W}, R}(X:SortMInt{W}, Y:SortMInt{W}) [subsort{SortK{}, SortKItem{}}()]"#,
+        );
+        assert_eq!(violation(&scope, &bound_axiom), None);
+        let prelude = sentence(
+            r#"axiom{R} \equals{SortK{}, R}(kseq{}(X:SortKItem{}, dotk{}()), Y:SortK{}) []"#,
+        );
+        assert_eq!(violation(&scope, &prelude), None);
+        // A sort variable bound by a symbol declaration.
+        let bound_symbol = sentence(r#"symbol pick{W}(SortMInt{W}) : SortFoo{} [constructor{}()]"#);
+        assert_eq!(violation(&scope, &bound_symbol), None);
+        // A declared parametric sort applied to a declared sort.
+        let instance = sentence(
+            r#"axiom{R} \equals{SortMInt{Sort8{}}, R}(X:SortMInt{Sort8{}}, Y:SortMInt{Sort8{}}) []"#,
+        );
+        assert_eq!(violation(&scope, &instance), None);
+        // Attributes are not read by K4.
+        let attribute = sentence(r#"axiom{R} \top{R}() [subsort{SortW{}, SortFoo{}}()]"#);
+        assert_eq!(violation(&scope, &attribute), None);
+        // Sort and import declarations mention nothing.
+        assert_eq!(violation(&scope, &sentence("sort SortBar{S} []")), None);
+        assert_eq!(violation(&scope, &sentence("import UNKNOWN []")), None);
     }
 
     #[test]

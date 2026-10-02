@@ -1490,9 +1490,14 @@ fn a_sort_with_a_generator_leaving_a_sort_parameter_free_gets_no_no_junk_axiom()
     // Property: `pick{W}` is a value of `Foo` for every sort `W`, so no finite disjunction lists
     // `Foo`'s values and `Foo` gets no no-junk axiom, whether `W` occurs in an argument or nowhere;
     // `Bar`, whose generator is closed, keeps its axiom.
+    // `mintOf` is a function, so it declares the parametric head without adding a constructor
+    // to the hooked sort or changing the generators of `Foo` and `Bar`.
+    // Its production makes `MInt{W}` a declared sort of the emitted theory; the standalone
+    // parametric sort declaration alone does not register that head today.
     let open = indoc! {r#"
         module MAIN
           syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax {W} MInt{W} ::= mintOf(Bar) [function, symbol(mintOf)]
           syntax Bar ::= "b" [symbol(b)]
           syntax {W} Foo ::= pick(MInt{W}, Bar) [symbol(pick)]
           syntax Foo ::= "g" [symbol(g)]
@@ -1501,6 +1506,7 @@ fn a_sort_with_a_generator_leaving_a_sort_parameter_free_gets_no_no_junk_axiom()
     let phantom = indoc! {r#"
         module MAIN
           syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax {W} MInt{W} ::= mintOf(Bar) [function, symbol(mintOf)]
           syntax Bar ::= "b" [symbol(b)]
           syntax {W} Foo ::= pick(Bar) [symbol(pick)]
           syntax Foo ::= "g" [symbol(g)]

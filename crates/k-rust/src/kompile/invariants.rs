@@ -7,12 +7,17 @@
 //!
 //! - [`emitted`] checks every sentence of the emitted KORE theory (the semantics and syntax
 //!   modules and the macro sentences) against the facts of that theory which give its
-//!   injections, domain values and generated binders a meaning:
+//!   injections, domain values, generated binders and sorts a meaning:
 //!   K1, every `inj{A, B}` has `A != B` and a path from `A` to `B` along the theory's
 //!   `subsort{..}` axioms;
 //!   K2, every `\dv{S}` has a sort head declared with `hasDomainValues`;
 //!   K3, every `\exists` or `\forall` over a compiler-generated variable binds a variable that
-//!   occurs free in its body.
+//!   occurs free in its body;
+//!   K4 (sort scope), every sort a sentence mentions is a sort variable that the sentence binds
+//!   or a sort declared in the module or the embedded prelude, applied to as many arguments as
+//!   its declaration has parameters, whose arguments satisfy K4 in turn. K4 is checked first,
+//!   so a sort parameter that escaped its binder is reported as such rather than through a
+//!   symptom.
 //!
 //! - [`stage`] checks the output of every stage of the table-driven pipeline: R3, every
 //!   right-hand-side variable of a rule-like sentence stays bound by its left-hand side or

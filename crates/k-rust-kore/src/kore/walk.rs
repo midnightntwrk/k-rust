@@ -339,29 +339,21 @@ impl Pattern {
         result
     }
 
-    pub fn sort_variables(&self) -> BTreeSet<String> {
-        fn collect(sort: &Sort, result: &mut BTreeSet<String>) {
-            let mut work = vec![sort];
-            // Invariant: `result` holds every `Sort::Variable` popped so far and `work` holds unvisited subsorts of `sort`; each pop pushes only its direct arguments, so each subsort occurrence is popped once.
-            while let Some(sort) = work.pop() {
-                match sort {
-                    Sort::Variable(name) => {
-                        result.insert(name.clone());
-                    }
-                    Sort::Application { arguments, .. } => work.extend(arguments),
-                }
-            }
-        }
-
-        let mut result = BTreeSet::new();
+    /// Visit every sort that a node of `self` carries, node by node in post-order and, within a
+    /// node, in field order: a variable's sort, an application's sort parameters, a connective's
+    /// sort, a binder's sort and its bound variable's sort, the operand and result sorts of a
+    /// predicate, and a domain value's sort. Sort arguments are not visited separately: a visited
+    /// `Sort::Application` carries its own arguments.
+    ///
+    /// This is the one enumeration of the sorts each `Pattern` variant carries; its match is
+    /// exhaustive, so a new variant must say which sorts it carries.
+    pub fn for_each_sort(&self, mut visit: impl FnMut(&Sort)) {
         for_each_post_order(self, |pattern| match pattern {
             Pattern::String(_) => {}
-            Pattern::Variable(variable) => collect(&variable.sort, &mut result),
+            Pattern::Variable(variable) => visit(&variable.sort),
             Pattern::Application { symbol, .. }
             | Pattern::AssociativeApplication { symbol, .. } => {
-                for sort in &symbol.sort_parameters {
-                    collect(sort, &mut result);
-                }
+                symbol.sort_parameters.iter().for_each(&mut visit);
             }
             Pattern::Top { sort }
             | Pattern::Bottom { sort }
@@ -371,14 +363,13 @@ impl Pattern {
             | Pattern::Next { sort, .. }
             | Pattern::Implies { sort, .. }
             | Pattern::Iff { sort, .. }
-            | Pattern::Rewrites { sort, .. } => collect(sort, &mut result),
+            | Pattern::Rewrites { sort, .. }
+            | Pattern::DomainValue { sort, .. } => visit(sort),
             Pattern::Exists { sort, variable, .. } | Pattern::Forall { sort, variable, .. } => {
-                collect(sort, &mut result);
-                collect(&variable.sort, &mut result);
+                visit(sort);
+                visit(&variable.sort);
             }
-            Pattern::Mu { variable, .. } | Pattern::Nu { variable, .. } => {
-                collect(&variable.sort, &mut result);
-            }
+            Pattern::Mu { variable, .. } | Pattern::Nu { variable, .. } => visit(&variable.sort),
             Pattern::Ceil {
                 operand_sort,
                 result_sort,
@@ -399,10 +390,25 @@ impl Pattern {
                 result_sort,
                 ..
             } => {
-                collect(operand_sort, &mut result);
-                collect(result_sort, &mut result);
+                visit(operand_sort);
+                visit(result_sort);
             }
-            Pattern::DomainValue { sort, .. } => collect(sort, &mut result),
+        });
+    }
+
+    pub fn sort_variables(&self) -> BTreeSet<String> {
+        let mut result = BTreeSet::new();
+        self.for_each_sort(|sort| {
+            let mut work = vec![sort];
+            // Invariant: `result` holds every `Sort::Variable` popped so far and `work` holds unvisited subsorts of `sort`; each pop pushes only its direct arguments, so each subsort occurrence is popped once.
+            while let Some(sort) = work.pop() {
+                match sort {
+                    Sort::Variable(name) => {
+                        result.insert(name.clone());
+                    }
+                    Sort::Application { arguments, .. } => work.extend(arguments),
+                }
+            }
         });
         result
     }
@@ -553,5 +559,296 @@ impl Pattern {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
+
+    fn sort(name: &str) -> Sort {
+        Sort::Application {
+            name: name.into(),
+            arguments: Vec::new(),
+        }
+    }
+
+    fn variable(sort_name: &str) -> Box<Variable> {
+        Box::new(Variable {
+            kind: VariableKind::Element,
+            name: "X".into(),
+            sort: sort(sort_name),
+        })
+    }
+
+    /// A child that carries no sort, so a fixture's visited sorts are its own node's.
+    fn leaf() -> Box<Pattern> {
+        Box::new(Pattern::String("s".into()))
+    }
+
+    fn symbol(sort_names: &[&str]) -> Symbol {
+        Symbol {
+            name: "f".into(),
+            sort_parameters: sort_names.iter().map(|name| sort(name)).collect(),
+        }
+    }
+
+    /// The variant name of `pattern`; exhaustive, so a new variant fails to compile here until
+    /// it is named and given a fixture below.
+    fn variant(pattern: &Pattern) -> &'static str {
+        match pattern {
+            Pattern::String(_) => "String",
+            Pattern::Variable(_) => "Variable",
+            Pattern::Application { .. } => "Application",
+            Pattern::Top { .. } => "Top",
+            Pattern::Bottom { .. } => "Bottom",
+            Pattern::And { .. } => "And",
+            Pattern::Or { .. } => "Or",
+            Pattern::Not { .. } => "Not",
+            Pattern::Next { .. } => "Next",
+            Pattern::Implies { .. } => "Implies",
+            Pattern::Iff { .. } => "Iff",
+            Pattern::Rewrites { .. } => "Rewrites",
+            Pattern::Exists { .. } => "Exists",
+            Pattern::Forall { .. } => "Forall",
+            Pattern::Mu { .. } => "Mu",
+            Pattern::Nu { .. } => "Nu",
+            Pattern::Ceil { .. } => "Ceil",
+            Pattern::Floor { .. } => "Floor",
+            Pattern::Equals { .. } => "Equals",
+            Pattern::In { .. } => "In",
+            Pattern::DomainValue { .. } => "DomainValue",
+            Pattern::AssociativeApplication { .. } => "AssociativeApplication",
+        }
+    }
+
+    const VARIANTS: [&str; 22] = [
+        "String",
+        "Variable",
+        "Application",
+        "Top",
+        "Bottom",
+        "And",
+        "Or",
+        "Not",
+        "Next",
+        "Implies",
+        "Iff",
+        "Rewrites",
+        "Exists",
+        "Forall",
+        "Mu",
+        "Nu",
+        "Ceil",
+        "Floor",
+        "Equals",
+        "In",
+        "DomainValue",
+        "AssociativeApplication",
+    ];
+
+    /// One node of every variant, each with the sorts it carries in field order.
+    fn fixtures() -> Vec<(Pattern, Vec<&'static str>)> {
+        vec![
+            (Pattern::String("s".into()), vec![]),
+            (
+                Pattern::Variable(*variable("SortVariable")),
+                vec!["SortVariable"],
+            ),
+            (
+                Pattern::Application {
+                    symbol: symbol(&["SortApp1", "SortApp2"]),
+                    arguments: vec![*leaf()],
+                },
+                vec!["SortApp1", "SortApp2"],
+            ),
+            (
+                Pattern::Top {
+                    sort: sort("SortTop"),
+                },
+                vec!["SortTop"],
+            ),
+            (
+                Pattern::Bottom {
+                    sort: sort("SortBottom"),
+                },
+                vec!["SortBottom"],
+            ),
+            (
+                Pattern::And {
+                    sort: sort("SortAnd"),
+                    arguments: vec![*leaf()],
+                },
+                vec!["SortAnd"],
+            ),
+            (
+                Pattern::Or {
+                    sort: sort("SortOr"),
+                    arguments: vec![*leaf()],
+                },
+                vec!["SortOr"],
+            ),
+            (
+                Pattern::Not {
+                    sort: sort("SortNot"),
+                    argument: leaf(),
+                },
+                vec!["SortNot"],
+            ),
+            (
+                Pattern::Next {
+                    sort: sort("SortNext"),
+                    argument: leaf(),
+                },
+                vec!["SortNext"],
+            ),
+            (
+                Pattern::Implies {
+                    sort: sort("SortImplies"),
+                    left: leaf(),
+                    right: leaf(),
+                },
+                vec!["SortImplies"],
+            ),
+            (
+                Pattern::Iff {
+                    sort: sort("SortIff"),
+                    left: leaf(),
+                    right: leaf(),
+                },
+                vec!["SortIff"],
+            ),
+            (
+                Pattern::Rewrites {
+                    sort: sort("SortRewrites"),
+                    left: leaf(),
+                    right: leaf(),
+                },
+                vec!["SortRewrites"],
+            ),
+            (
+                Pattern::Exists {
+                    sort: sort("SortExists"),
+                    variable: variable("SortExistsVar"),
+                    body: leaf(),
+                },
+                vec!["SortExists", "SortExistsVar"],
+            ),
+            (
+                Pattern::Forall {
+                    sort: sort("SortForall"),
+                    variable: variable("SortForallVar"),
+                    body: leaf(),
+                },
+                vec!["SortForall", "SortForallVar"],
+            ),
+            (
+                Pattern::Mu {
+                    variable: variable("SortMuVar"),
+                    body: leaf(),
+                },
+                vec!["SortMuVar"],
+            ),
+            (
+                Pattern::Nu {
+                    variable: variable("SortNuVar"),
+                    body: leaf(),
+                },
+                vec!["SortNuVar"],
+            ),
+            (
+                Pattern::Ceil {
+                    operand_sort: Box::new(sort("SortCeilOp")),
+                    result_sort: sort("SortCeilRes"),
+                    argument: leaf(),
+                },
+                vec!["SortCeilOp", "SortCeilRes"],
+            ),
+            (
+                Pattern::Floor {
+                    operand_sort: Box::new(sort("SortFloorOp")),
+                    result_sort: sort("SortFloorRes"),
+                    argument: leaf(),
+                },
+                vec!["SortFloorOp", "SortFloorRes"],
+            ),
+            (
+                Pattern::Equals {
+                    operand_sort: Box::new(sort("SortEqualsOp")),
+                    result_sort: sort("SortEqualsRes"),
+                    left: leaf(),
+                    right: leaf(),
+                },
+                vec!["SortEqualsOp", "SortEqualsRes"],
+            ),
+            (
+                Pattern::In {
+                    operand_sort: Box::new(sort("SortInOp")),
+                    result_sort: sort("SortInRes"),
+                    left: leaf(),
+                    right: leaf(),
+                },
+                vec!["SortInOp", "SortInRes"],
+            ),
+            (
+                Pattern::DomainValue {
+                    sort: sort("SortDv"),
+                    value: "1".into(),
+                },
+                vec!["SortDv"],
+            ),
+            (
+                Pattern::AssociativeApplication {
+                    associativity: Associativity::Left,
+                    symbol: symbol(&["SortAssoc"]),
+                    arguments: vec![*leaf(), *leaf()],
+                },
+                vec!["SortAssoc"],
+            ),
+        ]
+    }
+
+    fn visited(pattern: &Pattern) -> Vec<Sort> {
+        let mut result = Vec::new();
+        pattern.for_each_sort(|sort| result.push(sort.clone()));
+        result
+    }
+
+    #[test]
+    fn for_each_sort_visits_the_sorts_of_every_pattern_variant() {
+        let fixtures = fixtures();
+        assert_eq!(
+            fixtures
+                .iter()
+                .map(|(pattern, _)| variant(pattern))
+                .collect::<Vec<_>>(),
+            VARIANTS,
+            "one fixture per Pattern variant"
+        );
+        for (pattern, expected) in &fixtures {
+            assert_eq!(
+                visited(pattern),
+                expected.iter().map(|name| sort(name)).collect::<Vec<_>>(),
+                "sorts of {}",
+                variant(pattern)
+            );
+        }
+    }
+
+    #[test]
+    fn for_each_sort_visits_nested_nodes_and_not_sort_arguments() {
+        let parametric = Sort::Application {
+            name: "SortList".into(),
+            arguments: vec![sort("SortElement"), Sort::Variable("W".into())],
+        };
+        let pattern = Pattern::Not {
+            sort: sort("SortOuter"),
+            argument: Box::new(Pattern::Variable(Variable {
+                kind: VariableKind::Element,
+                name: "X".into(),
+                sort: parametric.clone(),
+            })),
+        };
+        assert_eq!(visited(&pattern), [parametric, sort("SortOuter")]);
     }
 }
