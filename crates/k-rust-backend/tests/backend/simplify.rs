@@ -51,6 +51,82 @@ fn term(definition: &BackendDefinition, source: &str) -> Term {
         .expect("term should internalize")
 }
 
+fn apart_terms_definition() -> BackendDefinition {
+    definition(
+        r#"
+            sort SortE{} []
+            sort SortOther{} []
+            sort SortK{} []
+            symbol a{}(SortS{}) : SortE{} [constructor{}(), functional{}(), injective{}()]
+            symbol b{}(SortS{}) : SortE{} [constructor{}(), functional{}(), injective{}()]
+            symbol g{}(SortOther{}) : SortOther{} [function{}()]
+            symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+            axiom{R} \exists{R}(
+                Value:SortK{},
+                \equals{SortK{}, R}(Value:SortK{}, inj{SortS{}, SortK{}}(From:SortS{}))
+            ) [subsort{SortS{}, SortK{}}()]
+            axiom{R} \exists{R}(
+                Value:SortK{},
+                \equals{SortK{}, R}(Value:SortK{}, inj{SortOther{}, SortK{}}(From:SortOther{}))
+            ) [subsort{SortOther{}, SortK{}}()]
+        "#,
+    )
+}
+
+#[test]
+fn predicate_simplification_preserves_definedness_for_apart_partial_terms() {
+    let definition = apart_terms_definition();
+    let simplify_equality = |left: &str, right: &str| {
+        simplify_predicate_with_solver(
+            &definition,
+            &Predicate::Equals(term(&definition, left), term(&definition, right)),
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the apart equality should simplify")
+    };
+
+    // Disjoint constructor images are equal exactly where both partial arguments are empty.
+    assert_eq!(
+        simplify_equality("a{}(f{}(X:SortS{}))", "b{}(f{}(Y:SortS{}))"),
+        Predicate::And(vec![
+            Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                "f{}(X:SortS{})",
+            )))),
+            Predicate::Not(Box::new(Predicate::Ceil(term(
+                &definition,
+                "f{}(Y:SortS{})",
+            )))),
+        ])
+    );
+    // An element variable denotes a value, so the left constructor image cannot be empty.
+    assert_eq!(
+        simplify_equality("a{}(X:SortS{})", "b{}(f{}(Y:SortS{}))"),
+        Predicate::False
+    );
+}
+
+#[test]
+fn separated_injection_equality_preserves_partial_definedness() {
+    let definition = apart_terms_definition();
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &Predicate::Equals(
+            term(&definition, "inj{SortS{}, SortK{}}(f{}(X:SortS{}))"),
+            term(&definition, "inj{SortOther{}, SortK{}}(g{}(Y:SortOther{}))"),
+        ),
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the separated injection equality should simplify");
+
+    // Separated source sorts forbid a common value but permit both denotations to be empty.
+    assert_ne!(result, Predicate::False);
+}
+
 fn anywhere_cache_definition() -> BackendDefinition {
     let syntax = parse_definition(
         r#"[]

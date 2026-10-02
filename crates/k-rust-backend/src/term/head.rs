@@ -33,7 +33,8 @@
 //! `injective` attribute) is never evidence.
 //!
 //! The decisive outcomes carry witnesses built here: [`HeadClash`] (two terms whose roots
-//! differ), `Distinct` (two ground terms that denote distinct values) and [`RigidCycle`] (a
+//! differ), [`Apart`] (two terms with disjoint denotations), [`Distinct`] (two ground terms that
+//! denote distinct values) and [`RigidCycle`] (a
 //! variable occurring in a term through free constructors and injections only).
 
 #[cfg(feature = "check-normal-forms")]
@@ -43,6 +44,7 @@ use super::{HeadRole, InjectionComparison, Term, TermKind, Variable};
 use crate::{
     definition::{BackendDefinition, SelectionComplete},
     instance_normal::{InstanceNormal, NormalArguments},
+    rule::Predicate,
     simplify::scan::{FunctionTheory, NoOfferedEquationMatched, SimplificationTheory},
 };
 
@@ -671,15 +673,15 @@ impl HeadClash {
     }
 }
 
-/// Witness that two ground terms denote distinct values, the only answer "distinct" of
-/// structural distinctness (`Term::structurally_distinct_with`). Zero-sized; minted only here,
-/// by the four constructors below, each from a fact that separates the values of two terms.
+/// Witness that no value of one term is a value of the other, on every valuation: their denotations are disjoint.
+/// Zero-sized; minted only here, from the facts that separate two roots.
+/// It says nothing about definedness: two apart terms are \equals exactly where both are \bottom ([`Apart::equality`]).
 #[derive(Debug)]
-pub(crate) struct Distinct(());
+#[must_use]
+pub(crate) struct Apart(());
 
-impl Distinct {
-    /// Two fixed roots that differ denote distinct values.
-    #[must_use]
+impl Apart {
+    /// Two fixed roots that differ have disjoint denotations.
     pub(crate) fn of_roots(_witness: RootsDiffer<'_>) -> Self {
         Self(())
     }
@@ -712,9 +714,40 @@ impl Distinct {
         }
     }
 
-    /// Two applications of one free symbol are distinct when a pair of their arguments is.
+    /// Two applications of one free symbol are apart when a pair of their arguments is.
+    pub(crate) fn through_argument(_same: SameApplication<'_>, _argument: Apart) -> Self {
+        Self(())
+    }
+
+    /// R-eq: disjoint denotations are equal exactly when both are empty.
+    /// A provably defined side rules out equality; otherwise both sides must be undefined.
+    pub(crate) fn equality(
+        self,
+        left: Term,
+        right: Term,
+        defined: impl Fn(&Term) -> bool,
+    ) -> Predicate {
+        if defined(&left) || defined(&right) {
+            Predicate::False
+        } else {
+            Predicate::And(vec![
+                Predicate::Not(Box::new(Predicate::Ceil(left))),
+                Predicate::Not(Box::new(Predicate::Ceil(right))),
+            ])
+        }
+    }
+}
+
+/// Witness that two concrete terms denote distinct values, the answer of `Term::structurally_distinct_with`.
+/// Zero-sized; minted only from an [`Apart`] after the caller's concrete-term gate.
+#[derive(Debug)]
+pub(crate) struct Distinct(());
+
+impl Distinct {
+    /// R-ground: concrete terms contain no variables or function applications.
+    /// The apartness witness uses a certificate for any equation head that decides, so the concrete pair denotes different values.
     #[must_use]
-    pub(crate) fn through_argument(_same: SameApplication<'_>, _argument: Distinct) -> Self {
+    pub(crate) fn of_concrete(_apart: Apart) -> Self {
         Self(())
     }
 }
@@ -1150,7 +1183,7 @@ mod tests {
 
     /// The remaining rows of `compare_roots`, and the witnesses built from them.
     #[test]
-    fn distinct_roots_mint_clashes_and_distinctness() {
+    fn distinct_roots_mint_clashes_and_apartness() {
         let definition = definition();
         let constructor = symbol("c", 1, |_| {});
         let other = symbol("d", 1, |_| {});
@@ -1169,7 +1202,7 @@ mod tests {
         let clash = HeadClash::new(witness.release(), application.clone(), another.clone());
         assert_eq!(clash.left(), &application);
         assert_eq!(clash.right(), &another);
-        let _: Distinct = Distinct::of_roots(witness);
+        let _: Apart = Apart::of_roots(witness);
         assert_eq!(
             clash.clone().into_terms(),
             (application.clone(), another.clone())
@@ -1204,13 +1237,13 @@ mod tests {
             compare_roots(value(&one), value(&two)),
             RootComparison::DomainValues
         ));
-        assert!(Distinct::of_domain_values(value(&one), value(&two)).is_some());
-        assert!(Distinct::of_domain_values(value(&one), value(&one)).is_none());
-        assert!(Distinct::of_domain_values(value(&one), value(&application)).is_none());
-        assert!(Distinct::of_injection_sorts(&InjectionComparison::Distinct).is_some());
-        assert!(Distinct::of_injection_sorts(&InjectionComparison::Undecided).is_none());
+        assert!(Apart::of_domain_values(value(&one), value(&two)).is_some());
+        assert!(Apart::of_domain_values(value(&one), value(&one)).is_none());
+        assert!(Apart::of_domain_values(value(&one), value(&application)).is_none());
+        assert!(Apart::of_injection_sorts(&InjectionComparison::Distinct).is_some());
+        assert!(Apart::of_injection_sorts(&InjectionComparison::Undecided).is_none());
         assert!(
-            Distinct::of_injection_sorts(&InjectionComparison::Compare(one.clone(), two.clone()))
+            Apart::of_injection_sorts(&InjectionComparison::Compare(one.clone(), two.clone()))
                 .is_none()
         );
         let left = apply(&constructor, vec![one.clone()]);
@@ -1219,9 +1252,9 @@ mod tests {
         else {
             panic!("one free constructor pairs its arguments");
         };
-        let argument = Distinct::of_domain_values(value(&one), value(&two))
-            .expect("different domain values are distinct");
-        let _: Distinct = Distinct::through_argument(same, argument);
+        let argument = Apart::of_domain_values(value(&one), value(&two))
+            .expect("different domain values are apart");
+        let _: Apart = Apart::through_argument(same, argument);
 
         let residual = apply(
             &symbol("m", 1, |symbol| symbol.attributes.macro_or_alias = true),
@@ -1231,6 +1264,17 @@ mod tests {
         assert_eq!(residual_clash.right(), &residual);
         let overload_clash = HeadClash::overload_family(one.clone(), another.clone());
         assert_eq!(overload_clash.into_terms(), (one, another));
+    }
+
+    /// The ground reading consumes the disjoint-denotation witness of two concrete values.
+    #[test]
+    fn concrete_apartness_mints_distinctness() {
+        let one = Term::domain_value(sort(), "1");
+        let two = Term::domain_value(sort(), "2");
+        assert!(one.concrete_after_normalization() && two.concrete_after_normalization());
+        let apart = Apart::of_domain_values(value(&one), value(&two))
+            .expect("different domain values are apart");
+        let _: Distinct = Distinct::of_concrete(apart);
     }
 
     /// Two collections of one kind are compared as collections; of different kinds they differ.

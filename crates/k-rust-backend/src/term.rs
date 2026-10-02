@@ -1349,31 +1349,35 @@ impl Term {
             .is_some()
     }
 
-    /// [`Self::structurally_distinct_after_normalization`] with its witness, where two injections
-    /// into the same position with different source sorts are compared by `injections`, which is
-    /// called on the two injections (their arguments need not be normal forms). It answers
-    /// [`InjectionComparison::Distinct`] only when no value of one injection equals a value of
-    /// the other, and [`InjectionComparison::Compare`] with a pair of terms that are equal
-    /// exactly when the two injections are.
-    ///
-    /// Each side is classified as the value it denotes with the simplifier's certificate as the
-    /// only evidence for an equation head ([`head::CertifiedOnly`]), and the answer is a
-    /// [`head::Distinct`], which only `term::head` mints: from two fixed roots that differ, from
-    /// two different domain values, from the sort graph's separation of two injections, or from
-    /// a distinct argument pair of two applications of one free symbol.
-    /// [`Self::concrete_after_normalization`] stays a filter that keeps terms with variables,
-    /// functions or conjunctions out; it is not the evidence.
+    /// R-ground: restrict symbolic apartness to two concrete terms before minting [`head::Distinct`].
+    /// Every subterm of a concrete term is concrete, so this preserves the ground decider's answers.
     #[must_use]
-    #[deny(clippy::wildcard_enum_match_arm)]
     pub(crate) fn structurally_distinct_with(
         &self,
         other: &Self,
         injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
     ) -> Option<head::Distinct> {
-        if self == other
-            || !self.concrete_after_normalization()
-            || !other.concrete_after_normalization()
-        {
+        if !self.concrete_after_normalization() || !other.concrete_after_normalization() {
+            return None;
+        }
+        self.apart_with(other, injections)
+            .map(head::Distinct::of_concrete)
+    }
+
+    /// A: no value of one term is a value of the other on any valuation.
+    /// Only fixed roots classified with [`head::CertifiedOnly`] decide: different application roots accepted by `distinct_roots_decide`, different domain values, separated injection sorts, or an apart argument pair of one free symbol.
+    /// Variables, functions, conjunctions, residual macros and uncertified equation heads decide nothing at their position; another argument pair may still decide.
+    /// Collections are not separated by this comparison table.
+    /// Symbolic equation heads have no certificate, because [`Self::with_evaluated_cache`] requires groundness.
+    /// The injection callback receives two injections and may separate their denotations or supply operands whose equality is equivalent to theirs.
+    #[must_use]
+    #[deny(clippy::wildcard_enum_match_arm)]
+    pub(crate) fn apart_with(
+        &self,
+        other: &Self,
+        injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
+    ) -> Option<head::Apart> {
+        if self == other {
             return None;
         }
         let fixed = |term| match head::classify_value(term, &mut head::CertifiedOnly) {
@@ -1387,17 +1391,17 @@ impl Term {
         match head::compare_roots(left, right) {
             head::RootComparison::Distinct(witness) => {
                 distinct_roots_decide(left.root(), right.root())
-                    .then(|| head::Distinct::of_roots(witness))
+                    .then(|| head::Apart::of_roots(witness))
             }
             head::RootComparison::SameApplication(same) => same
                 .pairs()
-                .find_map(|(left, right)| left.structurally_distinct_with(right, injections))
-                .map(|argument| head::Distinct::through_argument(same, argument)),
+                .find_map(|(left, right)| left.apart_with(right, injections))
+                .map(|argument| head::Apart::through_argument(same, argument)),
             // The `assoc` or `idem` axioms of the symbol reassociate or collapse the arguments of
             // one value, so distinct arguments do not make distinct values; and two applications
             // of one symbol with different arities are ill-formed. Neither decides.
             head::RootComparison::SameAlgebraicSymbol | head::RootComparison::ArityMismatch => None,
-            head::RootComparison::DomainValues => head::Distinct::of_domain_values(left, right),
+            head::RootComparison::DomainValues => head::Apart::of_domain_values(left, right),
             head::RootComparison::Injections => {
                 let (
                     TermKind::Injection {
@@ -1415,20 +1419,15 @@ impl Term {
                     unreachable!("two injection roots are injections");
                 };
                 if left_source == right_source && left_target == right_target {
-                    // One injection is injective: its values are distinct exactly when its
-                    // operands' values are, so the operands' witness is the injections'.
-                    return left.structurally_distinct_with(right, injections);
+                    // One injection is injective, so disjoint operands have disjoint images.
+                    return left.apart_with(right, injections);
                 }
                 let comparison = injections(self, other);
                 match &comparison {
-                    InjectionComparison::Distinct => {
-                        head::Distinct::of_injection_sorts(&comparison)
-                    }
+                    InjectionComparison::Distinct => head::Apart::of_injection_sorts(&comparison),
                     // The injections are equal exactly when these terms are, so a witness for
                     // the terms is one for the injections.
-                    InjectionComparison::Compare(left, right) => {
-                        left.structurally_distinct_with(right, injections)
-                    }
+                    InjectionComparison::Compare(left, right) => left.apart_with(right, injections),
                     InjectionComparison::Undecided => None,
                 }
             }
@@ -1484,15 +1483,15 @@ impl Term {
 /// - `And`, an injection and a list only collect their children's predicates;
 /// - a domain value and an element variable emit nothing; a set variable emits its ceil;
 /// - a map or a set emits a not-in predicate per key or element when it has a rest, and a
-///   disequality for each pair of keys (elements) that `normalized_ground_terms_are_distinct`
+///   disequality for each pair of keys (elements) that `elements_are_apart`
 ///   does not separate.
 ///
 /// For the pairs, the attribute accepts only keys that share one `KeyHeader`: all domain values,
 /// or all `inj{S, T}` of a domain value for one `S` and `T`. Two distinct such keys are separated
 /// by `structurally_distinct_after_normalization` alone, so the matcher that
-/// `normalized_ground_terms_are_distinct` falls back on is never needed. Keys with different
-/// headers, such as `inj{Int, KItem}(1)` and `inj{String, KItem}("a")`, fall to that matcher, and
-/// the attribute is false for them. Distinctness of the keys themselves comes from the sorted
+/// `elements_are_apart` falls back on is never needed. Keys with different
+/// headers, such as `inj{Int, KItem}(1)` and `inj{String, KItem}("a")`, may need the sort graph's injection comparison, which the attribute does not consult.
+/// The attribute is false for them. Distinctness of the keys themselves comes from the sorted
 /// order the constructors keep and a check here: `Term::set` sorts its elements and keeps a
 /// repeated one (concatenation is nilpotent, so the repeat makes the set `\bottom`); `Term::map`
 /// sorts its entries by `(key, value)` and keeps a repeated key, with the same value or not
@@ -1605,7 +1604,7 @@ fn k_cells(kind: &TermKind) -> u8 {
     })
 }
 
-/// Whether [`Term::structurally_distinct_with`] decides two fixed roots that differ: two
+/// Whether [`Term::apart_with`] decides two fixed roots that differ: two
 /// applications, or an application and an injection, whose values have different roots. A
 /// domain value against another root, and every collection, stay undecided there.
 #[deny(clippy::wildcard_enum_match_arm)]
@@ -1626,7 +1625,7 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
 }
 
 /// How two injections with different source sorts into one position compare; see
-/// [`Term::structurally_distinct_with`].
+/// [`Term::apart_with`].
 pub(crate) enum InjectionComparison {
     /// No value of one injection is a value of the other.
     Distinct,

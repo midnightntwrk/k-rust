@@ -43,6 +43,7 @@ KRust.TermAttributes.adjacentElementsDiffer_adjacent
 KRust.TermAttributes.adjacentKeysDiffer_adjacent
 KRust.TermAttributes.adjacent_and
 KRust.TermAttributes.adjacent_pairwise
+KRust.TermAttributes.apart_complete
 KRust.TermAttributes.ceilEntries_sound
 KRust.TermAttributes.ceilFree_sound
 KRust.TermAttributes.ceilList_sound

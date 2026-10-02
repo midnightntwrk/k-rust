@@ -53,6 +53,20 @@ def anywhereCtor : Sym := { ctor "tag" with anywhere := true }
 #guard !structDistinct (fun _ => false) (fun _ _ => false) (.app wrap [] [.app (ctor "z") [] []])
   (injK "SortInt" (int "1"))
 
+def evar (x : String) : Term := .var .element "SortInt" x
+
+-- Apartness separates fixed roots and an apart argument pair with symbolic siblings (A).
+#guard apart (fun _ => false) (fun _ _ => false)
+  (.app (ctor "a") [] [evar "X"]) (.app (ctor "b") [] [evar "Y"])
+#guard !structDistinct (fun _ => false) (fun _ _ => false)
+  (.app (ctor "a") [] [evar "X"]) (.app (ctor "b") [] [evar "Y"])
+#guard apart (fun _ => false) (fun _ _ => false)
+  (.app (ctor "p") [] [evar "X", int "1"]) (.app (ctor "p") [] [evar "Y", int "2"])
+#guard !apart (fun _ => false) (fun _ _ => false)
+  (.app (ctor "a") [] [evar "X"]) (.app (ctor "a") [] [evar "Y"])
+#guard !apart (fun _ => false) (fun _ _ => false)
+  (evar "X") (.app (ctor "b") [] [evar "Y"])
+
 -- Narrowed class: one header per map.
 #guard ceilFree (.map "M" [(injK "SortInt" (int "1"), int "0"), (injK "SortInt" (int "2"), int "0")] none)
 #guard !ceilFree (.map "M" [(injK "SortInt" (int "1"), int "0"),

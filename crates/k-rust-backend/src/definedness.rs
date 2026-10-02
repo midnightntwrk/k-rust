@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "normalized_ground_terms_are_distinct", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
+//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "elements_are_apart", "terms_apart", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -24,7 +24,7 @@
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
 //! pass over the term, which stops at subterms whose construction-time `ceil_free` attribute is
-//! true, plus pairwise distinctness checks over map keys and set elements, with `FxHashSet`
+//! true, plus pairwise apartness checks over map keys and set elements, with `FxHashSet`
 //! deduplication; no counter, no worklist loop.
 
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
@@ -35,7 +35,7 @@ use rustc_hash::FxHashSet;
 use crate::{
     definition::BackendDefinition,
     matching::{
-        InjectionEquality, MatchMode, MatchResult, match_injection_equality,
+        InjectionEquality, MatchMode, MatchResult, SortGraph, match_injection_equality,
         match_terms_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
@@ -45,7 +45,7 @@ use crate::{
     stop::Stoppable,
     term::{
         FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind,
-        head::certified_ground_normal_form,
+        head::{Apart, certified_ground_normal_form},
     },
 };
 
@@ -180,7 +180,9 @@ fn ceil_term_node(
             }
             for (position, (left, _)) in entries.iter().enumerate() {
                 for (right, _) in &entries[position + 1..] {
-                    if !normalized_ground_terms_are_distinct(definition, left, right) {
+                    // R-def: this list states both elements' definedness obligations, so
+                    // an apart pair's disequality is implied wherever the list holds.
+                    if !elements_are_apart(definition, left, right) {
                         predicates.push(Predicate::Not(Box::new(Predicate::Equals(
                             left.clone(),
                             right.clone(),
@@ -211,7 +213,9 @@ fn ceil_term_node(
             }
             for (position, left) in elements.iter().enumerate() {
                 for right in &elements[position + 1..] {
-                    if !normalized_ground_terms_are_distinct(definition, left, right) {
+                    // R-def: this list states both elements' definedness obligations, so
+                    // an apart pair's disequality is implied wherever the list holds.
+                    if !elements_are_apart(definition, left, right) {
                         predicates.push(Predicate::Not(Box::new(Predicate::Equals(
                             left.clone(),
                             right.clone(),
@@ -234,49 +238,36 @@ fn ceil_term_node(
     predicates
 }
 
-/// `Term::structurally_distinct_after_normalization`, where two injections from different source
-/// sorts into one position are also separated when the sort graph shows that no value of one
-/// source injects to a value of the other (`InjectionEquality::Distinct`: the sources have no
-/// common subsort, or one argument has a constructor head and so is not an injection from a
-/// common subsort). That argument uses only the sorts of the injected terms, which equation
-/// normalization preserves, so it needs no normal-form certificate. `true` exactly when
-/// `Term::structurally_distinct_with` returns a `Distinct` witness.
-pub(crate) fn ground_terms_structurally_distinct(
-    definition: &BackendDefinition,
-    left: &Term,
-    right: &Term,
-) -> bool {
-    left.structurally_distinct_with(right, &|left, right| match match_injection_equality(
-        Some(&definition.sort_graph),
-        left,
+/// Apartness (A): no value of one term is a value of the other on any valuation.
+/// `Term::apart_with` supplies the fixed-root decision; the optional sort graph separates
+/// injections whose source sorts share no value, without requiring a normal-form certificate.
+/// Without a sort graph the callback retains only injection facts that need no subsort lookup.
+pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) -> Option<Apart> {
+    left.apart_with(
         right,
-    ) {
-        Some(InjectionEquality::Distinct) => InjectionComparison::Distinct,
-        Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
-            InjectionComparison::Compare(left, right)
-        }
-        Some(InjectionEquality::Unknown) | None => InjectionComparison::Undecided,
-    })
-    .is_some()
+        &|left, right| match match_injection_equality(sorts, left, right) {
+            Some(InjectionEquality::Distinct) => InjectionComparison::Distinct,
+            Some(
+                InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right),
+            ) => InjectionComparison::Compare(left, right),
+            Some(InjectionEquality::Unknown) | None => InjectionComparison::Undecided,
+        },
+    )
 }
 
-/// Whether two collection keys or elements cannot denote the same value.
+/// R-def: whether two collection keys or elements need no disequality when both are defined.
 ///
 /// The keys reach here from any term `ceil_term` walks, including instantiated right-hand sides
 /// no simplification has seen, so nothing here assumes they are normal forms.
-/// `ground_terms_structurally_distinct` is sound on any ground terms. Rewrite matching
+/// Apartness first separates any terms with disjoint denotations. Rewrite matching
 /// additionally compares overloads and widening injections, which occur in generated cells; it
 /// treats `anywhere` heads as rigid, so its failure separates two terms only when both are
 /// normal forms. It is consulted only for ground terms whose every subterm is certified normal
 /// by the `evaluated` bit (a constructor or injection over certified arguments, a domain value,
 /// or an `anywhere` application the simplifier cached as a fixed point). Requiring failure in
 /// both directions keeps the decision independent of matching orientation.
-fn normalized_ground_terms_are_distinct(
-    definition: &BackendDefinition,
-    left: &Term,
-    right: &Term,
-) -> bool {
-    if ground_terms_structurally_distinct(definition, left, right) {
+fn elements_are_apart(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
+    if terms_apart(Some(&definition.sort_graph), left, right).is_some() {
         return true;
     }
     certified_ground_normal_form(left)

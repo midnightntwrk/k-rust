@@ -1211,7 +1211,12 @@ symbol = "ceil_term_node"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
-symbol = "normalized_ground_terms_are_distinct"
+symbol = "elements_are_apart"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "terms_apart"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1235,7 +1240,7 @@ symbol = "nested_condition_definedness"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 apartness checks per map or set, each a walk of the two elements' shared fixed-root spine that stops at the first open root, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"

@@ -47,7 +47,7 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
   crates/k-rust-kore/src/names.rs:45  (KCell spelling)
   crates/k-rust-backend/src/definedness.rs
     ceil_term :94-97, ceil_term_recursive :99-189,
-    normalized_ground_terms_are_distinct :196-214, apply_ceil_equation :216,
+    elements_are_apart :269-283, apply_ceil_equation :216,
     not_in_collection :284, deduplicate :307-310
   crates/k-rust-backend/src/rule.rs
     rule_index :766-777, find_k_cells :789-840
@@ -265,7 +265,7 @@ application only when the simplifier found every equation inapplicable, so an ap
 constructor that also carries `anywhere`) decides only when `ev` certifies it as a normal form
 (term.rs `certified_normal_application`); a free-constructor application always decides. `injd` is the answer
 for two injections with different sources or targets, opened in Rust by the `injections`
-callback (definedness.rs `ground_terms_structurally_distinct`: the sort graph's
+callback (definedness.rs `terms_apart`: the sort graph's
 `InjectionEquality`, with the recursive comparison of a split pair); the model keeps it opaque. -/
 mutual
 def structDistinct (ev : Term → Bool) (injd : Term → Term → Bool) (a b : Term) : Bool :=
@@ -288,6 +288,28 @@ def structDistinctZip (ev : Term → Bool) (injd : Term → Term → Bool) :
   | _, _             => false
 end
 
+/- `apart_with` (term.rs): `structurally_distinct_with` without the ground gate (A). -/
+mutual
+def apart (ev : Term → Bool) (injd : Term → Term → Bool) (a b : Term) : Bool :=
+  decide (a ≠ b) &&
+  match a, b with
+  | .dv s v, .dv s' v' => s != s' || v != v'
+  | .app f fs as, .app g gs bs =>
+      if !((f.isFree || ev (.app f fs as)) && (g.isFree || ev (.app g gs bs))) then false
+      else if f.name != g.name || fs != gs then true
+      else apartZip ev injd as bs
+  | .inj s t x, .inj s' t' y =>
+      if s == s' && t == t' then apart ev injd x y else injd (.inj s t x) (.inj s' t' y)
+  | .app f fs as, .inj _ _ _ => f.isFree || ev (.app f fs as)
+  | .inj _ _ _, .app g gs bs => g.isFree || ev (.app g gs bs)
+  | _, _ => false
+/-- A: `left_arguments.iter().zip(right_arguments).any(…)` lifts an apart argument pair. -/
+def apartZip (ev : Term → Bool) (injd : Term → Term → Bool) :
+    List Term → List Term → Bool
+  | a :: as, b :: bs => apart ev injd a b || apartZip ev injd as bs
+  | _, _             => false
+end
+
 /-! ## 3. Today's walk: `ceil_term_recursive`, position for position -/
 
 /-- Predicates `ceil_term` can emit (rule.rs `Predicate`, the variants built by definedness.rs). -/
@@ -307,7 +329,7 @@ structure Oracles where
   fixed-point cache sets on an anywhere application. -/
   evaluated       : Term → Bool
   /-- The sort graph's answer for two injections with different sources or targets
-  (definedness.rs `ground_terms_structurally_distinct`). -/
+  (definedness.rs `terms_apart`). -/
   injectionsDistinct : Term → Term → Bool
   /-- `not_in_collection` (definedness.rs:284). -/
   notInCollection : String → Term → Term → Pred
@@ -317,10 +339,11 @@ structure Oracles where
   Rust test: definedness.rs `tests::deduplicate_keeps_an_empty_vector_empty`. -/
   dedup_nil       : dedup [] = []
 
-/-- `normalized_ground_terms_are_distinct` (definedness.rs), opened: the structural test first,
-then, for two certified normal forms (concrete and `evaluated`), the matcher in both directions. -/
+/-- R-def: `elements_are_apart` (definedness.rs), opened: apartness first, then, for two certified
+ground normal forms (concrete and `evaluated`), the matcher in both directions. The collection
+walk states both elements' definedness, so apartness implies their disequality there. -/
 def normDistinct (O : Oracles) (l r : Term) : Bool :=
-  structDistinct O.evaluated O.injectionsDistinct l r
+  apart O.evaluated O.injectionsDistinct l r
     || (concrete l && O.evaluated l && concrete r && O.evaluated r
         && O.matchFails l r && O.matchFails r l)
 
@@ -599,6 +622,23 @@ theorem structDistinct_complete (ev : Term → Bool) (injd : Term → Term → B
     have : ¬(a = a' ∧ x = x') := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
     simpa [hne, Ne.symm] using ne_or_ne_of_ne this
 
+/-- A: two distinct keys with the same header are apart, whatever `ev` and `injd`; their domain
+values differ, directly or below matching injections. -/
+theorem apart_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k' : Term)
+    (h : (keyHeader k).isSome) (hh : keyHeader k = keyHeader k') (hne : k ≠ k') :
+    apart ev injd k k' = true := by
+  obtain ⟨hdr, hk⟩ := Option.isSome_iff_exists.mp h
+  have hk' : keyHeader k' = some hdr := hh ▸ hk
+  rcases keyHeader_some hk with ⟨s, v, rfl, rfl⟩ | ⟨s, t, a, x, rfl, rfl⟩ <;>
+  rcases keyHeader_some hk' with ⟨s', v', rfl, h2⟩ | ⟨s', t', a', x', rfl, h2⟩ <;>
+    simp only [reduceCtorEq, Header.inj.injEq] at h2
+  · simp only [apart]
+    simpa [hne] using ne_or_ne_of_ne fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
+  · obtain ⟨rfl, rfl⟩ := h2
+    simp only [apart]
+    have : ¬(a = a' ∧ x = x') := fun ⟨h1, h2⟩ => hne (by rw [h1, h2])
+    simpa [hne, Ne.symm] using ne_or_ne_of_ne this
+
 /-! ## 8. The side obligations vanish on the narrowed class -/
 
 theorem mapSide_none (O : Oracles) : ∀ es : List (Term × Term),
@@ -619,6 +659,8 @@ theorem setSide_none (O : Oracles) : ∀ es : List Term,
       intro e he
       simp [h.1 e he]
 
+/-- R-def: distinct keys in the narrowed class are apart, so their pairwise disequalities follow
+from the key-definedness obligations in the collection walk. -/
 theorem map_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O : Oracles)
     (es : List (Term × Term)) (hs : Adjacent (fun a b => lexLe le a b = true) es)
     (hadj : adjacentKeysDiffer es = true) (hh : oneHeader (es.map (·.1)) = true) :
@@ -626,8 +668,10 @@ theorem map_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   refine (map_keys_pairwise_distinct hle es hs hadj).imp_of_mem ?_
   intro a b ha hb hne
   have := oneHeader_same _ hh a.1 (List.mem_map_of_mem ha) b.1 (List.mem_map_of_mem hb)
-  simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a.1 b.1 this.1 this.2 hne]
+  simp [normDistinct, apart_complete O.evaluated O.injectionsDistinct a.1 b.1 this.1 this.2 hne]
 
+/-- R-def: distinct elements in the narrowed class are apart, so their pairwise disequalities
+follow from the element-definedness obligations in the collection walk. -/
 theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O : Oracles)
     (es : List Term) (hs : Adjacent (fun a b => le a b = true) es)
     (hadj : adjacentElementsDiffer es = true) (hh : oneHeader es = true) :
@@ -635,7 +679,7 @@ theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   refine (set_pairwise_distinct hle es hs hadj).imp_of_mem ?_
   intro a b ha hb hne
   have := oneHeader_same _ hh a ha b hb
-  simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a b this.1 this.2 hne]
+  simp [normDistinct, apart_complete O.evaluated O.injectionsDistinct a b this.1 this.2 hne]
 
 /-! ## 9. Case study 1: the attribute is sound for the early return
 

@@ -54,7 +54,7 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     condition::{DecidedEquation, EquationInstance, InstantiatedCondition, MatchedEquation},
-    definedness::{ceil_term, ground_terms_structurally_distinct},
+    definedness::{ceil_term, terms_apart},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -1317,10 +1317,39 @@ fn simplify_predicate_with_budget(
                 normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right));
             let equality = normalize_injection_equality(definition, equality);
             let equality = match equality {
-                Predicate::Equals(left, right)
-                    if ground_terms_structurally_distinct(definition, &left, &right) =>
-                {
-                    Predicate::False
+                Predicate::Equals(left, right) => {
+                    match terms_apart(Some(&definition.sort_graph), &left, &right) {
+                        // R-eq: disjoint denotations are equal exactly where both are empty;
+                        // a provably defined side makes that condition false.
+                        Some(apart) => {
+                            let equality = apart.equality(left, right, provably_defined);
+                            if matches!(equality, Predicate::And(_)) {
+                                // Expand the negated ceils under the same budget so a lone
+                                // equality reaches ceil theory without an outer fixed point.
+                                let conjunction =
+                                    with_simplification_constraints(constraints, equality);
+                                if *remaining == 0 {
+                                    return Err(SimplificationError::PredicateIterationLimit {
+                                        limit,
+                                        predicate: conjunction,
+                                    }
+                                    .into());
+                                }
+                                *remaining -= 1;
+                                return simplify_predicate_with_budget(
+                                    definition,
+                                    &conjunction,
+                                    assumptions,
+                                    limit,
+                                    remaining,
+                                    active_conditions,
+                                    solver,
+                                );
+                            }
+                            equality
+                        }
+                        None => Predicate::Equals(left, right),
+                    }
                 }
                 equality => equality,
             };
@@ -1547,8 +1576,11 @@ fn normalize_injection_equality(definition: &BackendDefinition, predicate: Predi
         Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
             normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right))
         }
-        Some(InjectionEquality::Distinct) => Predicate::False,
-        Some(InjectionEquality::Unknown) | None => Predicate::Equals(left, right),
+        // Separated injections are apart; the caller reads that through `terms_apart`
+        // (R-eq), which states the definedness a refutation requires.
+        Some(InjectionEquality::Distinct | InjectionEquality::Unknown) | None => {
+            Predicate::Equals(left, right)
+        }
     }
 }
 

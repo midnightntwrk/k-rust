@@ -5364,10 +5364,13 @@ fn kprove_claim_condition_over_a_later_binding_is_stated_under_it() {
             stdout.contains(&format!("claim {module}-SPEC.lemma: proven")),
             "{module}: {stdout}"
         );
+        // Apart elements need no disequality, so the false main claim's stuck instance
+        // is certifiable without an opaque equality between the constructor applications.
         assert!(
-            stdout.contains(&format!("claim {module}-SPEC.main: failed")),
+            stdout.contains(&format!("claim {module}-SPEC.main: disproved")),
             "{module}: {stdout}"
         );
+        assert!(stdout.contains("Stuck (certified)"), "{module}: {stdout}");
     }
 }
 
@@ -5467,6 +5470,72 @@ fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
         assert_eq!(verdict("ground"), "disproved", "{case}: {stdout}");
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+const APART_COLLECTIONS: &str = r#"
+module APART
+  imports INT
+  imports SET
+  imports MAP
+  imports K-EQUAL
+  syntax Elem ::= a(Int) | b(Int) | p(Int, Int)
+  syntax KItem ::= start(Int, Int) | startm(Int, Int) | startp(Int, Int) | same(Int, Int) | chk(Int, Int) | run(Set) | runm(Map) | done()
+  configuration <k> $PGM:K </k>
+  rule <k> start(A, B) => run(SetItem(a(A)) SetItem(b(B))) ... </k>
+  rule <k> startm(A, B) => runm(a(A) |-> 1 b(B) |-> 2) ... </k>
+  rule <k> startp(A, B) => run(SetItem(p(A, 1)) SetItem(p(B, 2))) ... </k>
+  rule <k> same(A, B) => run(SetItem(a(A)) SetItem(a(B))) ... </k>
+  rule <k> chk(A, B) => done() ... </k> requires p(A, 1) =/=K p(B, 2)
+  rule <k> run(_) => done() ... </k>
+  rule <k> runm(_) => done() ... </k>
+endmodule
+module APART-SPEC
+  imports APART
+  claim [set]: <k> start(_A, _B) => done() ... </k>
+  claim [map]: <k> startm(_A, _B) => done() ... </k>
+  claim [args]: <k> startp(_A, _B) => done() ... </k>
+  claim [keq]: <k> chk(_A, _B) => done() ... </k>
+  claim [same]: <k> same(_A, _B) => done() ... </k>
+endmodule
+"#;
+
+#[test]
+fn kprove_proves_collections_of_apart_symbolic_elements() {
+    let (root, definition) = fixture();
+    fs::write(&definition, APART_COLLECTIONS).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "APART-SPEC",
+            "--definition-module",
+            "APART",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    let verdict = |claim: &str| {
+        let prefix = format!("claim APART-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}\n{stderr}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(
+        ["set", "map", "args", "keq"].map(verdict),
+        ["proven"; 4],
+        "{stdout}\n{stderr}"
+    );
+    // At equal arguments `same` builds a repeated element, so its set is undefined.
+    assert_ne!(verdict("same"), "proven", "{stdout}\n{stderr}");
 }
 
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`

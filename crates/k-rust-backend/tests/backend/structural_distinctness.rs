@@ -183,6 +183,13 @@ fn set_of_cells(definition: &BackendDefinition, left: &str, right: &str) -> Term
     )
 }
 
+fn set_of_elements(definition: &BackendDefinition, left: &str, right: &str) -> Term {
+    internal_term(
+        definition,
+        &format!("setConcat{{}}(setItem{{}}({left}), setItem{{}}({right}))"),
+    )
+}
+
 fn has_disequality(predicates: &[Predicate]) -> bool {
     predicates
         .iter()
@@ -191,6 +198,58 @@ fn has_disequality(predicates: &[Predicate]) -> bool {
 
 const REDEX: &str = "wrap{}(s{}(z{}()))";
 const NORMAL: &str = "wrap{}(z{}())";
+
+#[test]
+fn set_definedness_separates_symbolic_elements_whose_roots_differ() {
+    let definition = definition(false);
+    for (left, right, needs_disequality) in [
+        (
+            "cell{}(addr{}(X:SortNat{}))",
+            "spare{}(addr{}(Y:SortNat{}))",
+            false,
+        ),
+        (
+            "cell{}(addr{}(s{}(X:SortNat{})))",
+            "cell{}(addr{}(z{}()))",
+            false,
+        ),
+        (
+            "cell{}(addr{}(X:SortNat{}))",
+            "cell{}(addr{}(Y:SortNat{}))",
+            true,
+        ),
+        (
+            "cell{}(wrap{}(s{}(X:SortNat{})))",
+            "cell{}(wrap{}(z{}()))",
+            true,
+        ),
+    ] {
+        let set = set_of_elements(&definition, left, right);
+        assert_eq!(
+            has_disequality(&ceil_term(&definition, &set)),
+            needs_disequality,
+            "{left}, {right}"
+        );
+    }
+}
+
+#[test]
+fn predicate_simplification_refutes_apart_symbolic_terms() {
+    let definition = definition(false);
+    for (left, right) in [
+        (
+            "cell{}(addr{}(X:SortNat{}))",
+            "spare{}(addr{}(Y:SortNat{}))",
+        ),
+        ("cell{}(addr{}(s{}(X:SortNat{})))", "cell{}(addr{}(z{}()))"),
+    ] {
+        assert_eq!(
+            simplify_equality(&definition, left, right, &NoSolver),
+            Predicate::False,
+            "{left}, {right}"
+        );
+    }
+}
 
 #[test]
 fn an_unnormalized_ground_anywhere_redex_is_not_structurally_distinct() {
