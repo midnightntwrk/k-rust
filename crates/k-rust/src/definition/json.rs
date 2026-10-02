@@ -784,7 +784,7 @@ fn collect_definition_metadata(
 ) -> Result<(), Error> {
     for (module_index, module) in definition.modules.iter().enumerate() {
         for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
-            for (field, term) in sentence_terms(sentence) {
+            for (field, term) in sentence.terms() {
                 collect_term_metadata(
                     term,
                     encoder,
@@ -910,27 +910,6 @@ fn collect_metadata_child(
     );
     path.pop();
     result
-}
-
-fn sentence_terms(sentence: &Sentence) -> Vec<(u32, &Term)> {
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![(0, body), (1, requires), (2, ensures)],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => vec![(0, body), (1, requires)],
-        Sentence::Configuration { body, ensures, .. } => vec![(0, body), (1, ensures)],
-        _ => Vec::new(),
-    }
 }
 
 fn decode_term_metadata(
@@ -1160,36 +1139,14 @@ fn addressed_term_mut<'a>(
         .local_sentences
         .get_mut(usize::try_from(entry.sentence_index).expect("u32 fits usize"))
         .ok_or_else(|| Error::InvalidProvenance("term metadata names no sentence".into()))?;
-    let mut term = sentence_term_mut(crate::definition::sentence_mut(sentence), entry.field)
+    let mut term = crate::definition::sentence_mut(sentence)
+        .term_mut(entry.field)
         .ok_or_else(|| Error::InvalidProvenance("term metadata names no sentence field".into()))?;
     for child in &entry.path {
         term = term_child_mut(term, *child)
             .ok_or_else(|| Error::InvalidProvenance("term metadata path is invalid".into()))?;
     }
     Ok(term)
-}
-
-fn sentence_term_mut(sentence: &mut Sentence, field: u32) -> Option<&mut Term> {
-    match (sentence, field) {
-        (
-            Sentence::Rule { body, .. }
-            | Sentence::Claim { body, .. }
-            | Sentence::Context { body, .. }
-            | Sentence::ContextAlias { body, .. }
-            | Sentence::Configuration { body, .. },
-            0,
-        ) => Some(body),
-        (
-            Sentence::Rule { requires, .. }
-            | Sentence::Claim { requires, .. }
-            | Sentence::Context { requires, .. }
-            | Sentence::ContextAlias { requires, .. },
-            1,
-        ) => Some(requires),
-        (Sentence::Configuration { ensures, .. }, 1)
-        | (Sentence::Rule { ensures, .. } | Sentence::Claim { ensures, .. }, 2) => Some(ensures),
-        _ => None,
-    }
 }
 
 fn term_child_mut(term: &mut Term, child: u32) -> Option<&mut Term> {

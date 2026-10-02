@@ -659,6 +659,104 @@ impl Sentence {
             | Self::Bubble { attributes, .. } => attributes,
         }
     }
+
+    /// The term-bearing fields of the sentence, indexed by field number (see
+    /// [`Sentence::terms`]).
+    ///
+    /// This function and [`Sentence::term_fields_mut`] are the only places that state which
+    /// fields of which sentence kind hold terms; every walker over a sentence's terms reads them,
+    /// so a kind cannot be visited by one walker and skipped by another.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn term_fields(&self) -> [Option<&Term>; 3] {
+        match self {
+            Self::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            }
+            | Self::Claim {
+                body,
+                requires,
+                ensures,
+                ..
+            } => [Some(body), Some(requires), Some(ensures)],
+            Self::Context { body, requires, .. } | Self::ContextAlias { body, requires, .. } => {
+                [Some(body), Some(requires), None]
+            }
+            Self::Configuration { body, ensures, .. } => [Some(body), Some(ensures), None],
+            Self::SyntaxSort { .. }
+            | Self::SortSynonym { .. }
+            | Self::SyntaxLexical { .. }
+            | Self::Production { .. }
+            | Self::SyntaxAssociativity { .. }
+            | Self::SyntaxPriority { .. }
+            | Self::Bubble { .. } => [None, None, None],
+        }
+    }
+
+    /// The mutable counterpart of [`Sentence::term_fields`], with the same numbering.
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn term_fields_mut(&mut self) -> [Option<&mut Term>; 3] {
+        match self {
+            Self::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            }
+            | Self::Claim {
+                body,
+                requires,
+                ensures,
+                ..
+            } => [Some(body), Some(requires), Some(ensures)],
+            Self::Context { body, requires, .. } | Self::ContextAlias { body, requires, .. } => {
+                [Some(body), Some(requires), None]
+            }
+            Self::Configuration { body, ensures, .. } => [Some(body), Some(ensures), None],
+            Self::SyntaxSort { .. }
+            | Self::SortSynonym { .. }
+            | Self::SyntaxLexical { .. }
+            | Self::Production { .. }
+            | Self::SyntaxAssociativity { .. }
+            | Self::SyntaxPriority { .. }
+            | Self::Bubble { .. } => [None, None, None],
+        }
+    }
+
+    /// The terms of the sentence with their field numbers, in increasing field order.
+    ///
+    /// `body` is field 0; `requires` is field 1 of a rule, claim, context or context alias;
+    /// `ensures` is field 2 of a rule or claim and field 1 of a configuration. Sort declarations,
+    /// sort synonyms, lexical declarations, productions, associativity and priority blocks, and
+    /// bubbles have no term fields. Provenance paths and KAST JSON term metadata address a
+    /// sentence's term by this number.
+    pub fn terms(&self) -> impl Iterator<Item = (u32, &Term)> {
+        (0..)
+            .zip(self.term_fields())
+            .filter_map(|(field, term)| Some((field, term?)))
+    }
+
+    /// The mutable counterpart of [`Sentence::terms`], with the same numbering and order.
+    pub fn terms_mut(&mut self) -> impl Iterator<Item = (u32, &mut Term)> {
+        (0..)
+            .zip(self.term_fields_mut())
+            .filter_map(|(field, term)| Some((field, term?)))
+    }
+
+    /// The term in field `field`, numbered as in [`Sentence::terms`]; `None` when this kind of
+    /// sentence has no such field.
+    pub fn term(&self, field: u32) -> Option<&Term> {
+        let index = usize::try_from(field).ok()?;
+        self.term_fields().into_iter().nth(index).flatten()
+    }
+
+    /// The mutable counterpart of [`Sentence::term`], with the same numbering.
+    pub fn term_mut(&mut self, field: u32) -> Option<&mut Term> {
+        let index = usize::try_from(field).ok()?;
+        self.term_fields_mut().into_iter().nth(index).flatten()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -699,5 +797,170 @@ mod tests {
     #[should_panic(expected = "declare_total")]
     fn raw_total_marker_requires_evidence() {
         Attributes::default().mark(AttributeKey::Total);
+    }
+}
+
+#[cfg(test)]
+mod term_field_tests {
+    use super::*;
+
+    fn term(name: &str) -> Term {
+        Term::variable(name)
+    }
+
+    /// One sentence of every kind, each term field holding a variable named after its field,
+    /// paired with the fields `terms()` must yield.
+    fn sentences() -> Vec<(Sentence, Vec<(u32, &'static str)>)> {
+        let attributes = Attributes::default;
+        let sort = || Sort::new("Foo");
+        vec![
+            (
+                Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: sort(),
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::SortSynonym {
+                    new_sort: sort(),
+                    old_sort: Sort::new("Bar"),
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::SyntaxLexical {
+                    name: "Lexical".into(),
+                    regex: "[a-z]+".into(),
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::Production {
+                    label: Some(Label::new("foo")),
+                    parameters: Vec::new(),
+                    sort: sort(),
+                    items: Vec::new(),
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::SyntaxAssociativity {
+                    associativity: Associativity::Left,
+                    tags: vec!["foo".into()],
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::SyntaxPriority {
+                    priorities: vec![vec!["foo".into()]],
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+            (
+                Sentence::ContextAlias {
+                    body: term("aliasBody"),
+                    requires: term("aliasRequires"),
+                    attributes: attributes(),
+                },
+                vec![(0, "aliasBody"), (1, "aliasRequires")],
+            ),
+            (
+                Sentence::Context {
+                    body: term("contextBody"),
+                    requires: term("contextRequires"),
+                    attributes: attributes(),
+                },
+                vec![(0, "contextBody"), (1, "contextRequires")],
+            ),
+            (
+                Sentence::Rule {
+                    body: term("ruleBody"),
+                    requires: term("ruleRequires"),
+                    ensures: term("ruleEnsures"),
+                    attributes: attributes(),
+                },
+                vec![(0, "ruleBody"), (1, "ruleRequires"), (2, "ruleEnsures")],
+            ),
+            (
+                Sentence::Claim {
+                    body: term("claimBody"),
+                    requires: term("claimRequires"),
+                    ensures: term("claimEnsures"),
+                    attributes: attributes(),
+                },
+                vec![(0, "claimBody"), (1, "claimRequires"), (2, "claimEnsures")],
+            ),
+            (
+                Sentence::Configuration {
+                    body: term("configurationBody"),
+                    ensures: term("configurationEnsures"),
+                    attributes: attributes(),
+                },
+                vec![(0, "configurationBody"), (1, "configurationEnsures")],
+            ),
+            (
+                Sentence::Bubble {
+                    sentence_type: "rule".into(),
+                    contents: "X => Y".into(),
+                    attributes: attributes(),
+                },
+                vec![],
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_sentence_kind_numbers_its_term_fields() {
+        let cases = sentences();
+        assert_eq!(cases.len(), 12, "one case per sentence kind");
+        for (mut sentence, expected) in cases {
+            let expected = expected
+                .into_iter()
+                .map(|(field, name)| (field, term(name)))
+                .collect::<Vec<_>>();
+            let yielded = sentence
+                .terms()
+                .map(|(field, term)| (field, term.clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(yielded, expected, "terms() of {sentence:?}");
+            let yielded_mut = sentence
+                .terms_mut()
+                .map(|(field, term)| (field, term.clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(yielded_mut, expected, "terms_mut() of {sentence:?}");
+            for field in 0..4 {
+                let listed = expected
+                    .iter()
+                    .find(|(listed, _)| *listed == field)
+                    .map(|(_, term)| term.clone());
+                assert_eq!(sentence.term(field).cloned(), listed, "term({field})");
+                assert_eq!(
+                    sentence.term_mut(field).map(|term| term.clone()),
+                    listed,
+                    "term_mut({field})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn term_mut_reaches_the_numbered_field() {
+        let mut sentence = Sentence::Configuration {
+            body: term("body"),
+            ensures: term("ensures"),
+            attributes: Attributes::default(),
+        };
+        *sentence.term_mut(1).expect("configuration field 1") = term("replaced");
+        let Sentence::Configuration { body, ensures, .. } = &sentence else {
+            unreachable!("the sentence was built as a configuration");
+        };
+        assert_eq!((body, ensures), (&term("body"), &term("replaced")));
     }
 }

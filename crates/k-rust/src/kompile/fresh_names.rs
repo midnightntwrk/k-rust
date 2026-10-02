@@ -85,30 +85,7 @@ impl FreshNames {
 
     /// Reserve every variable name occurring in a sentence's term-bearing fields.
     pub(crate) fn for_sentence(sentence: &Sentence) -> Self {
-        match sentence {
-            Sentence::Rule {
-                body,
-                requires,
-                ensures,
-                ..
-            }
-            | Sentence::Claim {
-                body,
-                requires,
-                ensures,
-                ..
-            } => Self::for_terms([body, requires, ensures]),
-            Sentence::Context { body, requires, .. }
-            | Sentence::ContextAlias { body, requires, .. } => Self::for_terms([body, requires]),
-            Sentence::Configuration { body, ensures, .. } => Self::for_terms([body, ensures]),
-            Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-            | Sentence::Bubble { .. } => Self::default(),
-        }
+        Self::for_terms(sentence.terms().map(|(_, term)| term))
     }
 
     pub(crate) fn reserve(&mut self, name: impl Into<String>) {

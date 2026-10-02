@@ -523,6 +523,60 @@ fn unused_symbols_follow_check_klabels_exemptions() {
 }
 
 #[test]
+fn unused_symbols_count_uses_in_claims() {
+    // A claim is a sentence of the specification: a symbol it applies is used, because deleting
+    // the production would break the claim. The unused control production keeps the check
+    // observable, so the test cannot pass by the check not running.
+    let definition = resolved_definition(
+        "MAIN",
+        vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                i107_syntax_sort("Bool"),
+                i107_syntax_sort("Int"),
+                i107_syntax_sort("Foo"),
+                i107_syntax_sort("Bar"),
+                Arc::new(production(Some("foo"), "Foo", &["Int"], located())),
+                Arc::new(production(
+                    Some("bar"),
+                    "Bar",
+                    &["Int"],
+                    attrs(&[
+                        (SOURCE_ATTRIBUTE, json!("checks.k")),
+                        (LOCATION_ATTRIBUTE, json!([2, 1, 2, 20])),
+                    ]),
+                )),
+                Arc::new(Sentence::Claim {
+                    body: rewrite(Term::apply("foo", vec![token("0")]), token("0")),
+                    requires: truth(),
+                    ensures: truth(),
+                    attributes: Attributes::default(),
+                }),
+            ],
+            attributes: Attributes::default(),
+        }],
+    );
+    let diagnostics = k_rust::definition::check_definition_with_options(
+        &definition,
+        StructuralCheckOptions {
+            builtin_source_prefixes: vec!["krust-builtin://".into()],
+            ..StructuralCheckOptions::default()
+        },
+    )
+    .unwrap();
+    let unused = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnusedSymbol)
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        unused,
+        ["Symbol 'bar' defined but not used. Add the 'unused' attribute if this is intentional."]
+    );
+}
+
+#[test]
 fn duplicate_overload_sets_warn_once_per_disconnected_component() {
     let overload = |label: &str, result: &str, arity: usize, line: usize| {
         production(
@@ -1854,23 +1908,52 @@ fn klabel_checks_use_visible_productions_and_internal_labels() {
         Term::apply("isInt", vec![token("0")]),
     ));
     let claim = Sentence::Claim {
-        body: rewrite(Term::apply("ignoredInClaims", Vec::new()), token("0")),
+        body: rewrite(Term::apply("missingInClaim", Vec::new()), token("0")),
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    // Compilation declares the generated counter cell, so a claim may name it before then.
+    let counter_claim = Sentence::Claim {
+        body: Term::apply(
+            "<generatedCounter>",
+            vec![rewrite(
+                Term::variable("Counter"),
+                Term::variable("NextCounter"),
+            )],
+        ),
         requires: truth(),
         ensures: truth(),
         attributes: Attributes::default(),
     };
     let productions = ProductionCatalog::from_visible([&defined, &parametric]);
     let sorts = SortCatalog::from_visible([&defined, &parametric]);
-    let diagnostics = check_klabels(&[&missing, &injected, &claim], &productions, &sorts);
+    let diagnostics = check_klabels(
+        &[&missing, &injected, &claim, &counter_claim],
+        &productions,
+        &sorts,
+    );
 
-    assert_eq!(diagnostics.len(), 2);
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::UndefinedKLabel && diagnostic.message.contains("missing")
-    }));
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::UndefinedKLabel
-            && diagnostic.message.contains("alsoMissing")
-    }));
+    // A claim applying an undeclared label denotes nothing, exactly like a rule that does.
+    assert_eq!(diagnostics.len(), 3);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == DiagnosticCode::UndefinedKLabel)
+    );
+    let mut messages = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    messages.sort_unstable();
+    assert_eq!(
+        messages,
+        [
+            "Found klabel alsoMissing not defined in any production.",
+            "Found klabel missing not defined in any production.",
+            "Found klabel missingInClaim not defined in any production.",
+        ]
+    );
 }
 
 #[test]

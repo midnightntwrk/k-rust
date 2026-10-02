@@ -217,7 +217,7 @@ pub fn check_definition_with_options(
 pub fn check_k_terms(sentences: &[&Sentence]) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
-        for term in checked_terms(sentence) {
+        for (_, term) in sentence.terms() {
             term.visit_preorder(&mut |term| {
                 let Term::As { alias, .. } = term else {
                     return;
@@ -266,7 +266,7 @@ pub fn check_anonymous_variables(sentences: &[&Sentence]) -> Vec<Diagnostic> {
             continue;
         }
         let mut counts = BTreeMap::<String, usize>::new();
-        for term in checked_terms(sentence) {
+        for (_, term) in sentence.terms() {
             term.visit_preorder(&mut |term| {
                 if let Term::Variable { name, .. } = term {
                     *counts.entry(name.clone()).or_default() += 1;
@@ -491,30 +491,10 @@ fn invalid_assoc(attribute: &str, hint: String, sentence: &Sentence) -> Diagnost
     )
 }
 
-fn checked_terms(sentence: &Sentence) -> Vec<&Term> {
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
-        _ => Vec::new(),
-    }
-}
-
 fn check_domain_value_tokens(sentences: &[&Sentence], sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
-        for root in checked_terms(sentence) {
+        for (_, root) in sentence.terms() {
             root.visit_preorder(&mut |term| {
                 if let Term::Token { token, sort } = term
                     && !sorts.admits_domain_value(sort)

@@ -1393,7 +1393,9 @@ fn sentence_kind(sentence: &Sentence) -> &'static str {
 
 pub(crate) fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
     let mut links = LinkSet::default();
-    for_each_term(sentence, &mut |term| collect_source_links(term, &mut links));
+    for (_, term) in sentence.terms() {
+        collect_source_links(term, &mut links);
+    }
     links.into_iter().collect()
 }
 
@@ -1589,37 +1591,6 @@ fn insert_link<L: Eq + Hash>(links: &mut LinkSet<L>, link: L) {
     links.insert(link);
 }
 
-fn for_each_term(sentence: &Sentence, visitor: &mut impl FnMut(&Term)) {
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            visitor(body);
-            visitor(requires);
-            visitor(ensures);
-        }
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => {
-            visitor(body);
-            visitor(requires);
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            visitor(body);
-            visitor(ensures);
-        }
-        _ => {}
-    }
-}
-
 #[derive(Clone, Copy)]
 struct AnnotationContext<'a> {
     pass: GeneratingPass,
@@ -1643,68 +1614,14 @@ fn annotate_sentence_terms(
         sentence: sentence_name,
         sentence_index,
     };
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            annotate_term(body, sentence_term(before, 0), context, origins, vec![0]);
-            annotate_term(
-                requires,
-                sentence_term(before, 1),
-                context,
-                origins,
-                vec![1],
-            );
-            annotate_term(ensures, sentence_term(before, 2), context, origins, vec![2]);
-        }
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => {
-            annotate_term(body, sentence_term(before, 0), context, origins, vec![0]);
-            annotate_term(
-                requires,
-                sentence_term(before, 1),
-                context,
-                origins,
-                vec![1],
-            );
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            annotate_term(body, sentence_term(before, 0), context, origins, vec![0]);
-            annotate_term(ensures, sentence_term(before, 1), context, origins, vec![1]);
-        }
-        _ => {}
-    }
-}
-
-fn sentence_term(sentence: Option<&Sentence>, field: u32) -> Option<&Term> {
-    match (sentence?, field) {
-        (
-            Sentence::Rule { body, .. }
-            | Sentence::Claim { body, .. }
-            | Sentence::Context { body, .. }
-            | Sentence::ContextAlias { body, .. }
-            | Sentence::Configuration { body, .. },
-            0,
-        ) => Some(body),
-        (
-            Sentence::Rule { requires, .. }
-            | Sentence::Claim { requires, .. }
-            | Sentence::Context { requires, .. }
-            | Sentence::ContextAlias { requires, .. },
-            1,
-        ) => Some(requires),
-        (Sentence::Configuration { ensures, .. }, 1)
-        | (Sentence::Rule { ensures, .. } | Sentence::Claim { ensures, .. }, 2) => Some(ensures),
-        _ => None,
+    for (field, term) in sentence.terms_mut() {
+        annotate_term(
+            term,
+            before.and_then(|before| before.term(field)),
+            context,
+            origins,
+            vec![field],
+        );
     }
 }
 

@@ -944,34 +944,8 @@ fn assert_sentence_identities(
     catalog: &ProductionCatalog<'_>,
     module_name: &str,
 ) {
-    let check = |term: &Term| assert_term_identities(term, catalog, module_name);
-    match sentence {
-        Sentence::ContextAlias { body, requires, .. }
-        | Sentence::Context { body, requires, .. } => {
-            check(body);
-            check(requires);
-        }
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            check(body);
-            check(requires);
-            check(ensures);
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            check(body);
-            check(ensures);
-        }
-        _ => {}
+    for (_, term) in sentence.terms() {
+        assert_term_identities(term, catalog, module_name);
     }
 }
 

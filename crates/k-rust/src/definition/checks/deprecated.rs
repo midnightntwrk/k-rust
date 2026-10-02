@@ -2,7 +2,7 @@
 //!
 //! Warnings for terms parsed through deprecated productions.
 
-use super::{Sentence, checked_terms};
+use super::Sentence;
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -14,7 +14,7 @@ pub fn check_deprecated_productions(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
-        for term in checked_terms(sentence) {
+        for (_, term) in sentence.terms() {
             visit_with_metadata(term, &mut |term| {
                 if !uses_deprecated_production(term, productions) {
                     return;

@@ -22,7 +22,11 @@ pub(crate) fn internal_labels(
         .iter()
         .map(|label| label.as_str().to_owned())
         .collect();
+    // Compilation declares the generated top cell and, inside it, the generated counter cell;
+    // a rule or claim may name either before that (the counter has a parse-only production so a
+    // claim can state how fresh values advance it).
     labels.insert(GeneratedCell::Top.label().to_owned());
+    labels.insert(GeneratedCell::Counter.label().to_owned());
     labels.insert(Label::semantic_cast(&Sort::frontend(FrontendSort::Bag)).name);
     // Compilation declares `isS` and `project:S` only for the sorts whose role has them, so a
     // term may mention them without a production for exactly those sorts.
@@ -73,7 +77,7 @@ pub fn check_klabels(
     let internal = internal_labels(productions, sorts);
     let mut diagnostics = Vec::new();
     for sentence in sentences {
-        for term in label_checked_terms(sentence) {
+        for (_, term) in sentence.terms() {
             term.visit_preorder(&mut |term| {
                 let label = match term {
                     Term::Apply { label, .. } | Term::InjectedLabel(label) => label,
@@ -187,7 +191,7 @@ pub(super) fn check_unused_symbols_with_views(
         .filter(|module| visible_modules.contains(module))
     {
         for sentence in &definition.module(*module).local_sentences {
-            for term in label_checked_terms(sentence) {
+            for (_, term) in sentence.terms() {
                 term.visit_preorder(&mut |term| match term {
                     Term::Apply { label, .. } | Term::InjectedLabel(label) => {
                         used.insert(label.name.clone());
@@ -451,20 +455,6 @@ pub(super) fn check_function_rule_attributes_with_views(
         }
     }
     diagnostics
-}
-
-fn label_checked_terms(sentence: &Sentence) -> Vec<&Term> {
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        } => vec![body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
-        _ => Vec::new(),
-    }
 }
 
 fn main_module_closure(definition: &ResolvedDefinition) -> BTreeSet<ModuleId> {

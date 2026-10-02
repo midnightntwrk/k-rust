@@ -40,37 +40,9 @@ fn retarget_sentence(
     sentence: &mut Sentence,
     replacements: &BTreeMap<ProductionIdentity, ProductionIdentity>,
 ) {
-    let retarget = |term: &mut Term| {
+    for (_, term) in sentence.terms_mut() {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
         *term = retarget_term(taken, replacements);
-    };
-    match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => {
-            retarget(body);
-            retarget(requires);
-            retarget(ensures);
-        }
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => {
-            retarget(body);
-            retarget(requires);
-        }
-        Sentence::Configuration { body, ensures, .. } => {
-            retarget(body);
-            retarget(ensures);
-        }
-        _ => {}
     }
 }
 

@@ -1082,33 +1082,8 @@ mod tests {
             {
                 receipts.push(receipt.clone());
             }
-            match &**sentence {
-                Sentence::Rule {
-                    body,
-                    requires,
-                    ensures,
-                    ..
-                }
-                | Sentence::Claim {
-                    body,
-                    requires,
-                    ensures,
-                    ..
-                } => {
-                    collect_term(body, &mut receipts);
-                    collect_term(requires, &mut receipts);
-                    collect_term(ensures, &mut receipts);
-                }
-                Sentence::Context { body, requires, .. }
-                | Sentence::ContextAlias { body, requires, .. } => {
-                    collect_term(body, &mut receipts);
-                    collect_term(requires, &mut receipts);
-                }
-                Sentence::Configuration { body, ensures, .. } => {
-                    collect_term(body, &mut receipts);
-                    collect_term(ensures, &mut receipts);
-                }
-                _ => {}
+            for (_, term) in sentence.terms() {
+                collect_term(term, &mut receipts);
             }
         }
         receipts

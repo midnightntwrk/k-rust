@@ -76,26 +76,8 @@ impl SentenceLabelParameterError {
 /// Reject the first label of a rule-like sentence (rule, claim, context, context alias,
 /// configuration) that carries sort parameters.
 pub(crate) fn reject_label_parameters(sentence: &Sentence) -> Result<(), LabelParameterError> {
-    let terms: &[&Term] = match sentence {
-        Sentence::Rule {
-            body,
-            requires,
-            ensures,
-            ..
-        }
-        | Sentence::Claim {
-            body,
-            requires,
-            ensures,
-            ..
-        } => &[body, requires, ensures],
-        Sentence::Context { body, requires, .. }
-        | Sentence::ContextAlias { body, requires, .. } => &[body, requires],
-        Sentence::Configuration { body, ensures, .. } => &[body, ensures],
-        _ => &[],
-    };
     let mut found = None;
-    for term in terms {
+    for (_, term) in sentence.terms() {
         term.visit_preorder(&mut |term| {
             if found.is_some() {
                 return;
