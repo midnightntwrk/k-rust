@@ -19,26 +19,30 @@ use std::iter;
 
 use k_rust_kore::measure;
 
-use crate::definition::PartialOrder;
+use crate::definition::production_kind::mentions_parameter;
+use crate::definition::{PartialOrder, ProductionItem};
 use crate::inner::sort_universe::SortUniverse;
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{Sort, SortRole};
 
 use super::grammar::render_parsing_production;
+use super::parametric::substitute_sort;
 use super::scanner::Item;
 use super::{Grammar, Production};
 
 impl Grammar {
     /// Panic, naming the rule, the production and the sort, when a production this grammar
-    /// generated (one without a source production) violates the sort-role invariant, or when the
-    /// grammar's semantic subsort relation is cyclic:
+    /// generated (one without a source production), or a parametric instance's substitution,
+    /// violates the sort-role invariant, or when the grammar's semantic subsort relation is cyclic:
     ///
     /// - G0 acyclic: the semantic subsort relation has no cycle. The panic names each step of the
     ///   cycle, marked `(generated)` when a generated unlabeled unary production states it and
     ///   `(declared)` otherwise (a pair a generated production also states is marked generated).
     /// - G1 classified: every sort of its result and of its nonterminal items, declared or
     ///   recognized, is a member or synonym alias of `universe`, a kernel sort, a scaffolding
-    ///   sort, or a registered placeholder.
+    ///   sort, or a registered placeholder. Every parametric instance binds exactly its formal
+    ///   parameters and writes the substituted sort at each parameter-dependent result or item;
+    ///   every such written sort is classified too.
     /// - G2 no bottom operand: a labeled production declares no nonterminal item at a sort at or
     ///   below `KBott`. No term sort is below a bottom sort, so a term standing there, a variable
     ///   above all, has no sort.
@@ -49,10 +53,12 @@ impl Grammar {
     ///   types its term by a sort that denotes no set of terms; the wrapper may only be the sort
     ///   the position is recognized at.
     ///
-    /// Only generated productions are checked: the definition's own productions are judged by the
-    /// definition checks, and the operand sorts that generated productions copy from them (a cell
-    /// body, the injected `<generatedCounter>` cell) are universe members because every unbound
-    /// operand sort of a visible production is one.
+    /// A definition's own productions are judged by the definition checks. The sorts that a
+    /// concretized instance's substitution writes are chosen by the parametric plan, so G1 checks
+    /// those sorts on every instance. Every other sort of an instance is the definition's.
+    /// The operand sorts that generated productions copy from the definition (a cell body, the
+    /// injected `<generatedCounter>` cell) are universe members because every unbound operand
+    /// sort of a visible production is one.
     ///
     /// G2 and G3 read the order of the semantic subsort relation, which G0 guarantees. Every
     /// cycle a definition can cause is ruled out before this point, on every path that builds a
@@ -77,6 +83,56 @@ impl Grammar {
                 self.render_cycle_steps(&cycle.path),
             ),
         };
+        for production in &self.productions {
+            let Some(origin) = &production.parametric_origin else {
+                continue;
+            };
+            assert!(
+                origin
+                    .substitution
+                    .keys()
+                    .all(|parameter| origin.parameters.contains(parameter))
+                    && origin
+                        .parameters
+                        .iter()
+                        .all(|parameter| origin.substitution.contains_key(parameter)),
+                "G1: the parametric instance `{}` has substitution {:?}, which does not bind \
+                 exactly its parameters {:?}",
+                render_parsing_production(production),
+                origin.substitution,
+                origin.parameters,
+            );
+            let formal_operands = origin.items.iter().filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            });
+            debug_assert_eq!(
+                formal_operands.clone().count(),
+                declared_operands(production).count()
+            );
+            for (formal, sort) in iter::once((&origin.result, &production.result))
+                .chain(formal_operands.zip(declared_operands(production)))
+            {
+                if mentions_parameter(formal, &origin.parameters) {
+                    assert_eq!(
+                        *sort,
+                        substitute_sort(formal, &origin.substitution),
+                        "G1: the parametric instance `{}` writes `{sort}` for `{formal}`, which \
+                         differs from its substitution {:?}",
+                        render_parsing_production(production),
+                        origin.substitution,
+                    );
+                    assert!(
+                        self.is_classified(sort, universe),
+                        "G1: the parametric instance `{}` writes `{sort}` for `{formal}`, which \
+                         is neither a sort of the grammar's universe nor a kernel, scaffolding \
+                         or registered placeholder sort (substitution {:?})",
+                        render_parsing_production(production),
+                        origin.substitution,
+                    );
+                }
+            }
+        }
         let bottom = KernelSort::KBott.sort();
         for production in self
             .productions
@@ -196,12 +252,14 @@ fn term_sort_below_wrapper<'o>(order: &'o PartialOrder<Sort>, sort: &Sort) -> Op
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::definition::{Attributes, ProductionItem, Sentence};
     use crate::inner::sort_universe::SortUniverse;
     use crate::kast::{Label, Sort};
 
-    use super::super::Grammar;
     use super::super::scanner::Item;
+    use super::super::{Grammar, ParametricOrigin};
 
     fn nonterminal(sort: Sort) -> ProductionItem {
         ProductionItem::NonTerminal { sort, name: None }
@@ -261,6 +319,114 @@ mod tests {
         grammar
             .add(result, vec![nonterminal(child)], None, false, true)
             .expect("the subsort is added");
+    }
+
+    fn add_instance(grammar: &mut Grammar, slot: Sort, origin: ParametricOrigin) {
+        let source = grammar
+            .productions
+            .iter()
+            .find_map(|production| production.source_production)
+            .expect("the module has a source production");
+        grammar
+            .add(
+                Sort::new("Int"),
+                vec![
+                    terminal("inner"),
+                    terminal("("),
+                    nonterminal(slot),
+                    terminal(")"),
+                ],
+                None,
+                false,
+                false,
+            )
+            .expect("the instance is added");
+        let instance = grammar.productions.last_mut().unwrap();
+        instance.parametric_origin = Some(origin);
+        instance.source_production = Some(source);
+    }
+
+    fn instance_origin(parameters: Vec<Sort>, result: Sort, slot: Sort) -> ParametricOrigin {
+        ParametricOrigin {
+            label: None,
+            parameters,
+            result,
+            items: vec![
+                terminal("inner"),
+                terminal("("),
+                nonterminal(slot),
+                terminal(")"),
+            ],
+            attributes: Attributes::default(),
+            substitution: BTreeMap::new(),
+        }
+    }
+
+    fn instance_grammar_and_universe() -> (Grammar, SortUniverse) {
+        let mut sentences = module();
+        sentences.push(syntax_sort(Vec::new(), Sort::new("Int")));
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let grammar = Grammar::from_configuration_sentences(visible.iter().copied())
+            .expect("the module's grammar builds");
+        (grammar, SortUniverse::new(&visible))
+    }
+
+    #[test]
+    #[should_panic(expected = "writes `MInt{Int}` for `MInt{T}`")]
+    fn an_instance_that_writes_an_undeclared_instance_fails_g1() {
+        let (mut grammar, universe) = instance_grammar_and_universe();
+        let parameter = Sort::new("T");
+        let mut origin = instance_origin(vec![parameter.clone()], parameter.clone(), mint("T"));
+        origin.substitution.insert(parameter, Sort::new("Int"));
+        assert!(!universe.admits(&mint("Int")));
+        add_instance(&mut grammar, mint("Int"), origin);
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    #[test]
+    #[should_panic(expected = "which does not bind exactly its parameters")]
+    fn an_instance_with_a_partial_substitution_fails_g1() {
+        let (mut grammar, universe) = instance_grammar_and_universe();
+        let parameter = Sort::new("S");
+        let mut origin = instance_origin(
+            vec![parameter.clone(), Sort::new("W")],
+            parameter.clone(),
+            mint("W"),
+        );
+        origin.substitution.insert(parameter, Sort::new("Int"));
+        add_instance(&mut grammar, mint("W"), origin);
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    #[test]
+    #[should_panic(expected = "which differs from its substitution")]
+    fn an_instance_that_disagrees_with_its_substitution_fails_g1() {
+        let (mut grammar, universe) = instance_grammar_and_universe();
+        let parameter = Sort::new("T");
+        let mut origin = instance_origin(vec![parameter.clone()], parameter.clone(), mint("T"));
+        origin.substitution.insert(parameter, Sort::new("Int"));
+        assert!(universe.admits(&mint("64")));
+        add_instance(&mut grammar, mint("64"), origin);
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    #[test]
+    fn an_instance_at_sorts_of_the_grammar_passes_the_check() {
+        let (mut grammar, universe) = instance_grammar_and_universe();
+        assert!(universe.admits(&Sort::new("Int")));
+        let parameter = Sort::new("T");
+        let mut origin = instance_origin(
+            vec![parameter.clone()],
+            parameter.clone(),
+            parameter.clone(),
+        );
+        origin.substitution.insert(parameter, Sort::new("Int"));
+        add_instance(&mut grammar, Sort::new("Int"), origin);
+
+        grammar.assert_generated_sort_roles(&universe);
     }
 
     /// The control: the productions of the four demonstrations with each sort at its role are
