@@ -1141,6 +1141,168 @@ module_snapshot!(
     "MAIN"
 );
 
+fn assert_axiom_sort_variables_are_bound(sentences: &[Sentence]) {
+    for sentence in sentences {
+        if let Sentence::Axiom {
+            parameters,
+            pattern,
+            attributes,
+        } = sentence
+        {
+            let mut variables = pattern.sort_variables();
+            for attribute in &attributes.0 {
+                variables.extend(attribute.sort_variables());
+            }
+            assert!(
+                variables.iter().all(|name| parameters.contains(name)),
+                "unbound sort variables {variables:?} in {}",
+                Printer::compact().print_sentence(sentence)
+            );
+        }
+    }
+}
+
+fn disjointness_pair(sentences: &[Sentence], left: &str, right: &str) -> Vec<String> {
+    sentences
+        .iter()
+        .filter(|sentence| {
+            matches!(sentence, Sentence::Axiom { pattern, .. }
+            if matches!(pattern.as_ref(), Pattern::Not { .. })
+                && pattern.find_application(|symbol, _| symbol.name == left).is_some()
+                && pattern.find_application(|symbol, _| symbol.name == right).is_some())
+        })
+        .map(|sentence| Printer::compact().print_sentence(sentence))
+        .collect()
+}
+
+#[test]
+fn disjointness_unifies_a_closed_result_with_a_parametric_constructor() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A
+          syntax {W} MInt{W}
+          syntax MInt{A}
+          syntax MInt{A} ::= "ka" [symbol(ka)]
+          syntax {W} MInt{W} ::= "mk" [symbol(mk)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&lowered(source, "MAIN"), "MAIN").unwrap();
+    assert_eq!(
+        disjointness_pair(&modules.semantics.sentences, "Lblka", "Lblmk"),
+        [
+            r"axiom{} \not{SortMInt{SortA{}}}(\and{SortMInt{SortA{}}}(Lblka{}(), Lblmk{SortA{}}())) [constructor{}()]"
+        ]
+    );
+    assert_axiom_sort_variables_are_bound(&modules.semantics.sentences);
+    assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
+}
+
+#[test]
+fn disjointness_renames_independent_formals_before_unifying_results() {
+    for (result, argument, remaining) in [("W", "V", "SortV'1"), ("V", "W", "SortW'1")] {
+        let source = format!(
+            r#"module MAIN
+              syntax {{W}} MInt{{W}}
+              syntax {{W}} MInt{{W}} ::= "mk" [symbol(mk)]
+              syntax {{W, V}} MInt{{{result}}} ::= "mk2(" {argument} ")" [symbol(mk2)]
+            endmodule"#
+        );
+        let modules = module_to_kore(&lowered(&source, "MAIN"), "MAIN").unwrap();
+        let symbol_parameters = if result == "W" {
+            format!("SortW, {remaining}")
+        } else {
+            format!("{remaining}, SortW")
+        };
+        let mut parameters = [remaining, "SortW"];
+        parameters.sort();
+        let parameters = parameters.join(", ");
+        assert_eq!(
+            disjointness_pair(&modules.semantics.sentences, "Lblmk", "Lblmk2"),
+            [format!(
+                r"axiom{{{parameters}}} \not{{SortMInt{{SortW}}}}(\and{{SortMInt{{SortW}}}}(Lblmk{{SortW}}(), Lblmk2{{{symbol_parameters}}}(Y0:{remaining}))) [constructor{{}}()]"
+            )]
+        );
+        assert_axiom_sort_variables_are_bound(&modules.semantics.sentences);
+        assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
+    }
+}
+
+#[test]
+fn disjointness_omits_constructors_at_non_unifying_closed_results() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax {W} MInt{W}
+          syntax MInt{A} ::= "ka" [symbol(ka)]
+          syntax MInt{B} ::= "kb" [symbol(kb)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&lowered(source, "MAIN"), "MAIN").unwrap();
+    assert_eq!(
+        disjointness_pair(&modules.semantics.sentences, "Lblka", "Lblkb"),
+        Vec::<String>::new()
+    );
+    assert_axiom_sort_variables_are_bound(&modules.semantics.sentences);
+    assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn disjointness_result_instance_fixture_binds_every_axiom_sort_variable() {
+    let prelude = embedded("prelude.md").unwrap();
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new(
+            "result-instance.k",
+            include_str!("fixtures/sort-check/result-instance.k"),
+        ),
+        "RESULT-INSTANCE",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    for kore in [
+        &artifacts.definition_kore,
+        &artifacts.syntax_definition_kore,
+    ] {
+        let definition = parse_definition(kore).unwrap();
+        for module in &definition.modules {
+            assert_axiom_sort_variables_are_bound(&module.sentences);
+        }
+    }
+}
+
+#[test]
+fn disjointness_binds_phantom_symbol_parameters_independently() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax A
+          syntax {W} MInt{W}
+          syntax {P} MInt{A} ::= "ka" [symbol(ka)]
+          syntax {P} MInt{A} ::= "kb" [symbol(kb)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&lowered(source, "MAIN"), "MAIN").unwrap();
+    assert_eq!(
+        disjointness_pair(&modules.semantics.sentences, "Lblka", "Lblkb"),
+        [
+            r"axiom{SortP, SortP'1} \not{SortMInt{SortA{}}}(\and{SortMInt{SortA{}}}(Lblka{SortP}(), Lblkb{SortP'1}())) [constructor{}()]"
+        ]
+    );
+    assert_axiom_sort_variables_are_bound(&modules.semantics.sentences);
+    assert_axiom_sort_variables_are_bound(&modules.syntax.sentences);
+}
+
 module_snapshot!(
     labelled_token_productions_contribute_only_top_to_no_junk,
     r#"

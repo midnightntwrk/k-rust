@@ -122,6 +122,8 @@ pub(super) fn generated_axioms(
 /// A schema's disjointness from each instance sort's constructors is its `constructor`
 /// attribute's claim. No sort-generic disjointness axiom is emitted: pairing by a parameter's
 /// spelling binds nothing.
+/// Productions with the same result head are disjoint at the most general common instance of
+/// their result sorts, with independent formals renamed apart and all remaining variables bound.
 #[deny(clippy::wildcard_enum_match_arm)]
 fn no_confusion_axioms(
     id: ProductionId,
@@ -167,8 +169,8 @@ fn no_confusion_axioms(
     }
 
     let result_sorts = ResultSorts::of(production);
-    // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a
-    // disjointness axiom, so each unordered pair is emitted once; this scan of
+    // Invariant: `emitted_pairs` holds both orderings of every matching-head no-confusion pair
+    // already considered, including pairs whose results do not unify, so each is considered once; this scan of
     // `productions.productions()` runs once per no-confusion `id`, O(n^2) in the catalog size.
     for (other_id, other_production) in productions.productions() {
         if other_id == id
@@ -189,29 +191,144 @@ fn no_confusion_axioms(
         };
         emitted_pairs.insert((id, other_id));
         emitted_pairs.insert((other_id, id));
+        let Some(pattern) = disjointness_pattern(&current, other) else {
+            continue;
+        };
         axioms.push(KoreSentence::Axiom {
-            parameters: current.parameters.clone(),
-            pattern: Box::new(Pattern::Not {
-                sort: current.result.clone(),
-                argument: Box::new(Pattern::And {
-                    sort: current.result.clone(),
-                    arguments: vec![
-                        generated_application(&current, "X"),
-                        generated_application(&other, "Y"),
-                    ],
-                }),
-            }),
+            parameters: pattern.sort_variables().into_iter().collect(),
+            pattern: Box::new(pattern),
             attributes: marker_attribute(KoreAttribute::Constructor),
         });
     }
     axioms
 }
 
+#[derive(Clone)]
 struct GeneratedProduction {
     parameters: Vec<String>,
     symbol: Symbol,
     arguments: Vec<KoreSort>,
     result: KoreSort,
+}
+
+impl GeneratedProduction {
+    fn substitute_sorts(&mut self, substitution: &BTreeMap<String, KoreSort>) {
+        for sort in self
+            .symbol
+            .sort_parameters
+            .iter_mut()
+            .chain(&mut self.arguments)
+            .chain(std::iter::once(&mut self.result))
+        {
+            *sort = substitute_kore_sort(sort, substitution);
+        }
+    }
+}
+
+fn disjointness_pattern(
+    current: &GeneratedProduction,
+    mut other: GeneratedProduction,
+) -> Option<Pattern> {
+    let mut occupied = current
+        .parameters
+        .iter()
+        .chain(&other.parameters)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut renames = BTreeMap::new();
+    for parameter in &other.parameters {
+        let mut suffix = 1;
+        let fresh = loop {
+            let candidate = format!("{parameter}'{suffix}");
+            if occupied.insert(candidate.clone()) {
+                break candidate;
+            }
+            suffix += 1;
+        };
+        renames.insert(parameter.clone(), KoreSort::Variable(fresh));
+    }
+    other.substitute_sorts(&renames);
+    let substitution = unify_kore_sorts(&current.result, &other.result)?;
+    let mut current = current.clone();
+    current.substitute_sorts(&substitution);
+    other.substitute_sorts(&substitution);
+    Some(Pattern::Not {
+        sort: current.result.clone(),
+        argument: Box::new(Pattern::And {
+            sort: current.result.clone(),
+            arguments: vec![
+                generated_application(&current, "X"),
+                generated_application(&other, "Y"),
+            ],
+        }),
+    })
+}
+
+/// First-order unification of KORE sorts: a variable may denote any finite sort term, while
+/// applications must have equal heads and arities. The occurs check excludes cyclic bindings.
+/// Substitution chains are followed when solving each equation and when instantiating a sort.
+fn unify_kore_sorts(left: &KoreSort, right: &KoreSort) -> Option<BTreeMap<String, KoreSort>> {
+    let mut substitution = BTreeMap::new();
+    let mut equations = vec![(left.clone(), right.clone())];
+    // Invariant: solutions of the remaining equations under `substitution` are exactly the
+    // unifiers of the original pair; each step removes an equality, decomposes applications,
+    // or eliminates an unbound variable without introducing a cycle.
+    while let Some((left, right)) = equations.pop() {
+        let left = substitute_kore_sort(&left, &substitution);
+        let right = substitute_kore_sort(&right, &substitution);
+        if left == right {
+            continue;
+        }
+        match (left, right) {
+            (sort, KoreSort::Variable(name)) | (KoreSort::Variable(name), sort) => {
+                if kore_sort_contains_variable(&sort, &name) {
+                    return None;
+                }
+                substitution.insert(name, sort);
+            }
+            (
+                KoreSort::Application {
+                    name: left_name,
+                    arguments: left_arguments,
+                },
+                KoreSort::Application {
+                    name: right_name,
+                    arguments: right_arguments,
+                },
+            ) => {
+                if left_name != right_name || left_arguments.len() != right_arguments.len() {
+                    return None;
+                }
+                equations.extend(left_arguments.into_iter().zip(right_arguments).rev());
+            }
+        }
+    }
+    Some(substitution)
+}
+
+fn substitute_kore_sort(sort: &KoreSort, substitution: &BTreeMap<String, KoreSort>) -> KoreSort {
+    match sort {
+        KoreSort::Variable(name) => substitution.get(name).map_or_else(
+            || sort.clone(),
+            |sort| substitute_kore_sort(sort, substitution),
+        ),
+        KoreSort::Application { name, arguments } => KoreSort::Application {
+            name: name.clone(),
+            arguments: arguments
+                .iter()
+                .map(|sort| substitute_kore_sort(sort, substitution))
+                .collect(),
+        },
+    }
+}
+
+fn kore_sort_contains_variable(sort: &KoreSort, variable: &str) -> bool {
+    match sort {
+        KoreSort::Variable(name) => name == variable,
+        KoreSort::Application { arguments, .. } => arguments
+            .iter()
+            .any(|sort| kore_sort_contains_variable(sort, variable)),
+    }
 }
 
 fn generated_production(production: &Sentence) -> Option<GeneratedProduction> {
@@ -1049,6 +1166,44 @@ mod tests {
 
     use super::*;
     use crate::definition::compute_overloads;
+
+    #[test]
+    fn kore_sort_unification_checks_cycles_and_repeated_variables() {
+        let variable = |name: &str| KoreSort::Variable(name.into());
+        let application = |name: &str, arguments| KoreSort::Application {
+            name: name.into(),
+            arguments,
+        };
+        let x = variable("X");
+        let y = variable("Y");
+        let a = application("A", vec![]);
+        let b = application("B", vec![]);
+        for (left, right) in [
+            (x.clone(), application("F", vec![x.clone()])),
+            (
+                application("Pair", vec![x.clone(), y.clone()]),
+                application("Pair", vec![y.clone(), application("F", vec![x.clone()])]),
+            ),
+            (
+                application("Pair", vec![x.clone(), x.clone()]),
+                application("Pair", vec![a.clone(), b]),
+            ),
+            (application("F", vec![x.clone()]), application("F", vec![])),
+        ] {
+            assert_eq!(unify_kore_sorts(&left, &right), None, "{left:?}, {right:?}");
+            assert_eq!(unify_kore_sorts(&right, &left), None, "{right:?}, {left:?}");
+        }
+        let left = application("Pair", vec![x.clone(), x.clone()]);
+        let right = application("Pair", vec![y.clone(), application("F", vec![a.clone()])]);
+        let substitution = unify_kore_sorts(&left, &right).unwrap();
+        let expected = application("F", vec![a]);
+        assert_eq!(substitute_kore_sort(&x, &substitution), expected);
+        assert_eq!(substitute_kore_sort(&y, &substitution), expected);
+        assert_eq!(
+            substitute_kore_sort(&left, &substitution),
+            substitute_kore_sort(&right, &substitution)
+        );
+    }
 
     fn sort(name: &str) -> Sort {
         Sort::new(name)
