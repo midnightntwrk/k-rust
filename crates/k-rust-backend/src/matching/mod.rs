@@ -40,7 +40,8 @@
 //! problem for p bounded by |pattern| plus subject-side `And` duplications and one `map_queue`
 //! postponement per map pair, each pop O(arity) plus an eager composition of the substitution per
 //! binding; `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
-//! queries over the closures `definition.rs` builds, O(log |S|) sort comparisons per query, each linear in the compared sorts, and a linear scan of the overload closure for `common_overloads`.
+//! queries over the closures `definition.rs` builds, O(log |S|) sort comparisons per query, each
+//! linear in the compared sorts, and a linear scan of the overload closure for `common_overloads`.
 //! AC and A collection matching is `collections`, re-exported here so every entry
 //! point of `crate::matching` keeps its path.
 
@@ -236,12 +237,17 @@ fn first_sort_variable(sort: &Sort) -> Option<&Name> {
 /// over-approximates whether some instance of one head may be below another.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SortGraph {
+    /// Every node and the nodes below it, itself included: the closure of the subsort axioms.
     below: BTreeMap<ClosedSort, BTreeSet<ClosedSort>>,
+    /// The declared sort constructors; a closed sort of one that is no node is below only itself.
     constructors: BTreeSet<Name>,
+    /// Head projection of `below` (I2), reflexive on every constructor.
     heads_below: BTreeMap<Name, BTreeSet<Name>>,
 }
 
 impl SortGraph {
+    /// Derives `heads_below` from the closure: for each node, the heads of its set plus its own
+    /// head; each declared constructor maps at least to itself.
     pub(crate) fn from_closure(
         constructors: impl IntoIterator<Item = Name>,
         below: BTreeMap<ClosedSort, BTreeSet<ClosedSort>>,
@@ -292,6 +298,7 @@ impl SortGraph {
             return Err(SortError::FoundSortVariable(name.clone()));
         };
         // A node's down-set states every declared path to that whole sort, without covariance.
+        // A closed sub absent from that complete set has no path to sup, so the answer is false.
         if let Some(set) = self.below.get(sup) {
             if set.contains(sub) {
                 return Ok(true);
@@ -301,6 +308,7 @@ impl SortGraph {
             }
         }
         // A closed instance absent from the axioms is below only itself; its head must be known.
+        // The declared-sort check keeps an undeclared head an error.
         if !self.constructors.contains(sup_head) && !self.heads_below.contains_key(sup_head) {
             return Err(SortError::FoundUnknownSort(sup.clone()));
         }

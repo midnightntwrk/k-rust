@@ -530,6 +530,7 @@ Its reason: a `\dv{S}` pattern names a domain value of `S`, and `hasDomainValues
 The verifier enforces further conditions beyond the specification (among them `BOOL.Bool` literals, subsorts of sorts with domain values, function heads and constructor result sorts, attributes, and claim right-hand-side variables); they are not yet justified in this section.
 A subsort axiom `subsort{S, S}` states `S <= S`.
 The subsort order is the reflexive-transitive closure of the declared pairs, so it contains `S <= S` for every sort even without a subsort axiom, and the axiom `\exists V:S. V = inj{S, S}(W:S)` is a valid pattern.
+A reflexive subsort declaration therefore adds nothing to the order and is not rejected for being reflexive; the other subsort conditions still apply, so `subsort{S, S}` on a sort with `hasDomainValues` is rejected because the verifier does not accept subsorts of a sort with domain values.
 
 The order is over closed sorts: `subsort{SortMInt{Sort8{}}, SortKResult{}}` places `MInt{8}` below `KResult` and says nothing about `MInt{16}`.
 No pair is derived from a sort's arguments: `A <= B` does not place `S{A}` below `S{B}`, because no axiom makes a sort constructor monotone.
@@ -537,7 +538,6 @@ A sort that mentions a sort variable is below another only if every instance is;
 A collection sort (one with `unit`, `element` and `concat` attributes) has no sort parameters, because those attributes name one symbol each and so describe one sort.
 Such a declaration with parameters is rejected at load.
 
-A reflexive subsort declaration therefore adds nothing to the order and is not rejected for being reflexive; the other subsort conditions still apply, so `subsort{S, S}` on a sort with `hasDomainValues` is rejected because the verifier does not accept subsorts of a sort with domain values.
 The [definition fixture index](../crates/k-rust/tests/fixtures/reference/definition/index.toml) records pinned verification outcomes and diagnostic fragments.
 
 ## Search results
