@@ -3,9 +3,9 @@
 use super::{QueryResult, accepts, encoded, enum_name, read};
 use krs_compiler::{SourceMap, SymbolMap, definition_module_imports, definition_sentence_source};
 use krs_ir::{
-    CellContentFrame, CellPost, DefinitionIr, DefinitionRuleBody, DefinitionSentence,
-    DescriptorBundle, DescriptorHeadRuleResult, DescriptorPayload, DescriptorTerm,
-    DescriptorTermArgument, GrammarDescriptor, RustVisibility, SentenceKind,
+    CellContentFrame, CellPost, DefinitionIr, DefinitionSentence, DescriptorBundle,
+    DescriptorHeadRuleResult, DescriptorPayload, DescriptorTerm, GrammarDescriptor, RuleBodyRef,
+    RustVisibility, SentenceKind, TermArgumentRef,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -117,8 +117,8 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     let fields = arguments
         .iter()
         .map(|arg| match arg {
-            DescriptorTermArgument::Named { field, .. } => Ok(field.as_str()),
-            DescriptorTermArgument::Positional { .. } => {
+            TermArgumentRef::Named { field, .. } => Ok(field.as_str()),
+            TermArgumentRef::Positional { .. } => {
                 Err("walkthrough subject requires named arguments")
             }
         })
@@ -137,14 +137,9 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
     let args = result_args
         .iter()
         .map(|arg| match arg {
-            DescriptorTermArgument::Positional { value }
-                if matches!(**value, DescriptorTerm::Variable { .. }) =>
-            {
-                let DescriptorTerm::Variable { name, .. } = &**value else {
-                    unreachable!()
-                };
-                Ok(name.as_str())
-            }
+            TermArgumentRef::Positional {
+                value: DescriptorTerm::Variable { name, .. },
+            } => Ok(name.as_str()),
             _ => Err("walkthrough replacement requires positional variables"),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -333,7 +328,9 @@ fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> Que
         }
         let (kind, label) = match (&d.payload, head) {
             (DescriptorPayload::HeadRule(r), true) => (r.sentence_kind, r.label.as_ref()),
-            (DescriptorPayload::ConfigurationRule(r), false) => (r.sentence_kind, r.label.as_ref()),
+            (DescriptorPayload::ConfigurationRule(r), false) => {
+                (r.sentence_kind.into(), r.label.as_ref())
+            }
             _ => continue,
         };
         if kind != SentenceKind::Transition {
@@ -366,7 +363,7 @@ pub(super) fn frame_normalized(
     let DefinitionSentence::Rule(rule) = sentence else {
         return Ok(sentence.clone());
     };
-    let DefinitionRuleBody::Configuration(body) = rule.relational_body() else {
+    let RuleBodyRef::Configuration { body, .. } = rule.relational_body() else {
         return Ok(sentence.clone());
     };
     let mut value = encoded(sentence);

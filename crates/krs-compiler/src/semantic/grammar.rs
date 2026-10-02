@@ -36,7 +36,9 @@ pub(super) fn lower_grammar_descriptor(
         )),
         GrammarDescriptor::Precedence { chains, .. } => {
             for (chain_index, chain) in chains.iter().enumerate() {
-                for (edge_index, pair) in chain.groups.windows(2).enumerate() {
+                for (edge_index, (tighter, looser)) in
+                    chain.groups.iter().zip(chain.groups.tail()).enumerate()
+                {
                     module.precedences.push(
                         PrecedenceRelation::new(
                             semantic_origin(
@@ -44,8 +46,8 @@ pub(super) fn lower_grammar_descriptor(
                                 chain.key.clone(),
                                 &format!("precedence-{chain_index}-{edge_index}"),
                             )?,
-                            vec![pair[0].group.clone()],
-                            vec![pair[1].group.clone()],
+                            vec![tighter.group.clone()],
+                            vec![looser.group.clone()],
                         )
                         .map_err(|error| {
                             DescriptorLoweringError::UnsupportedShape {

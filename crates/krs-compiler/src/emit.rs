@@ -8,12 +8,12 @@ use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperationNotation, BuiltinSort, ByteRange,
     CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
     ContextAliasSentence, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
-    DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
+    FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
     GroupAssociativity, LabelIdentity, ListOperation, MapOperation, ProductionAttribute,
-    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind, SentenceKind,
-    SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId,
+    ProductionGroupId, ProductionSentence, RuleBodyRef, RuleSentence, SemanticId, SemanticIdKind,
+    SentenceKind, SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -859,7 +859,7 @@ fn emit_rule(
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let sentence_start = writer.source.len();
-    if let DefinitionRuleBody::Configuration(body) = sentence.relational_body() {
+    if let RuleBodyRef::Configuration { body, .. } = sentence.relational_body() {
         if sentence.kind() == SentenceKind::Claim {
             let claim_start = writer.source.len();
             writer.push("claim");
@@ -909,11 +909,17 @@ fn emit_rule(
         record_claim_binders(sentence, context, sentence_start, writer)?;
         return Ok(());
     }
-    let DefinitionRuleBody::Term(body) = sentence.relational_body() else {
+    let RuleBodyRef::Term(body) = sentence.relational_body() else {
         unreachable!()
     };
     writer.push("rule ");
-    writer.append_rendered(render_rule_term(body, sentence, context, true)?)?;
+    let existentials = sentence
+        .claim()
+        .map_or(&[][..], |claim| claim.existentials());
+    writer.append_rendered(
+        render_rewrite(body.from(), body.to(), context, true, existentials)?
+            .finish(body.origin().key(), 0),
+    )?;
     emit_requires(sentence, context, writer)?;
     emit_term_rule_attributes(sentence, writer)?;
     Ok(())
@@ -1335,6 +1341,31 @@ fn render_rule_term(
     render_term_with_binders(term, context, root_rewrite, existentials)
 }
 
+fn render_rewrite(
+    from: &DefinitionTerm,
+    to: &DefinitionTerm,
+    context: &EmitContext<'_>,
+    root_rewrite: bool,
+    existentials: &[DefinitionClaimBinder],
+) -> Result<Rendered, EmitError> {
+    let mut output = Rendered::default();
+    if !root_rewrite {
+        output.push("(");
+    }
+    output.append(render_term_with_binders(
+        from,
+        context,
+        false,
+        existentials,
+    )?);
+    output.push(" => ");
+    output.append(render_term_with_binders(to, context, false, existentials)?);
+    if !root_rewrite {
+        output.push(")");
+    }
+    Ok(output)
+}
+
 #[allow(clippy::too_many_lines)]
 fn render_term_with_binders(
     term: &DefinitionTerm,
@@ -1506,20 +1537,13 @@ fn render_term_with_binders(
             output.push(">");
         }
         DefinitionTermKind::Rewrite { from, to } => {
-            if !root_rewrite {
-                output.push("(");
-            }
-            output.append(render_term_with_binders(
+            output.append(render_rewrite(
                 from,
+                to,
                 context,
-                false,
+                root_rewrite,
                 existentials,
             )?);
-            output.push(" => ");
-            output.append(render_term_with_binders(to, context, false, existentials)?);
-            if !root_rewrite {
-                output.push(")");
-            }
         }
     }
     Ok(output.finish(term.origin().key(), start))

@@ -1818,7 +1818,7 @@ fn smoke_definition_with_claim() -> (DefinitionIr, NodeOrigin) {
                 "ORG-EXAMPLE-SMOKE.claims.foo-to-bar",
             )
             .unwrap(),
-            SentenceKind::Claim,
+            krs_ir::ConfigurationSentenceKind::Claim,
             Vec::new(),
             body,
         )

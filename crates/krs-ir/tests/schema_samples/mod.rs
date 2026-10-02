@@ -232,7 +232,7 @@ impl Sample for DescriptorCellType {
     fn samples() -> Vec<Self> {
         vec![Self {
             key: sample::<ProvenanceKey>(),
-            value: sample::<String>(),
+            value: DescriptorCellCollectionType::Bag,
         }]
     }
 }
@@ -283,12 +283,14 @@ impl Sample for DescriptorLexicalPrecedence {
 }
 impl Sample for DescriptorPrecedenceChain {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            key: sample::<ProvenanceKey>(),
-            groups: sample::<Vec<DescriptorGroupReference>>(),
-        }]
+        let first = sample::<DescriptorGroupReference>();
+        let mut second = first.clone();
+        second.group = ProductionGroupId::new("second").unwrap();
+        second.key = ProvenanceKey::new(ProvenanceRole::PrecedenceGroupReference, 1);
+        vec![Self::new(sample::<ProvenanceKey>(), vec![first, second]).unwrap()]
     }
 }
+
 impl Sample for DescriptorRuleLabel {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -810,7 +812,7 @@ impl Sample for DescriptorApplicationRef {
             vec![
                 Self::Declared(sample::<StableItemId>()),
                 Self::Builtin(sample::<BuiltinOperation>()),
-                Self::Map(sample::<MapOperation>()),
+                Self::Map(TermMapOperation::Update),
                 Self::List(sample::<ListOperation>()),
                 Self::Set(sample::<SetOperation>()),
             ],
@@ -1037,7 +1039,7 @@ impl Sample for DescriptorTerm {
                     head_class: sample::<DescriptorApplicationHeadClass>(),
                     reference: sample::<DescriptorApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
-                    arguments: sample::<Vec<DescriptorTermArgument>>(),
+                    arguments: sample::<Vec<DescriptorTermArgument>>().try_into().unwrap(),
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -1058,7 +1060,11 @@ impl Sample for DescriptorTerm {
                 },
                 Self::OrBool {
                     key: sample::<ProvenanceKey>(),
-                    arguments: sample::<Vec<DescriptorTerm>>(),
+                    arguments: AtLeastTwo::new(
+                        sample::<DescriptorTerm>(),
+                        sample::<DescriptorTerm>(),
+                        Vec::new(),
+                    ),
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
@@ -1882,7 +1888,7 @@ impl Sample for WireTerm {
                     head_class: sample::<DescriptorApplicationHeadClass>(),
                     reference: sample::<WireApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
-                    arguments: sample::<Vec<WireTermArgument>>(),
+                    arguments: sample::<Vec<WireTermArgument>>().try_into().unwrap(),
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -1903,7 +1909,11 @@ impl Sample for WireTerm {
                 },
                 Self::OrBool {
                     key: sample::<ProvenanceKey>(),
-                    arguments: sample::<Vec<WireTerm>>(),
+                    arguments: AtLeastTwo::new(
+                        sample::<WireTerm>(),
+                        sample::<WireTerm>(),
+                        Vec::new(),
+                    ),
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
@@ -1970,7 +1980,7 @@ impl Sample for DefinitionRuleBody {
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
-                Self::Term(sample::<DefinitionTerm>()),
+                Self::Term(sample::<IrRewrite<DefinitionLevel>>()),
                 Self::Configuration(
                     sample::<FixedConfigurationRewrite<SymbolId, DefinitionTerm>>(),
                 ),
@@ -1988,7 +1998,7 @@ impl Sample for SemanticRuleBody {
     fn samples() -> Vec<Self> {
         checked_samples(
             vec![
-                Self::Term(sample::<Box<SemanticTerm>>()),
+                Self::Term(sample::<IrRewrite<SemanticLevel>>()),
                 Self::Configuration(
                     sample::<FixedConfigurationRewrite<SemanticId, SemanticTerm>>(),
                 ),
@@ -2152,7 +2162,7 @@ impl Sample for DescriptorClaimBinder {
 impl Sample for DescriptorConfigurationRule {
     fn samples() -> Vec<Self> {
         vec![Self {
-            sentence_kind: sample::<SentenceKind>(),
+            sentence_kind: sample::<ConfigurationSentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<crate::DescriptorRulePriority>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
@@ -2661,7 +2671,7 @@ impl Sample for WireClaimBinder {
 impl Sample for WireConfigurationRule {
     fn samples() -> Vec<Self> {
         vec![Self {
-            sentence_kind: sample::<SentenceKind>(),
+            sentence_kind: sample::<ConfigurationSentenceKind>(),
             label: sample::<Option<DescriptorRuleLabel>>(),
             priority: sample::<Option<DescriptorRulePriority>>(),
             requires: sample::<Option<WireRuleCondition>>(),
@@ -2817,6 +2827,13 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
 }
 
 fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
+    insert::<DescriptorPrecedenceChain>(corpus, "DescriptorPrecedenceChain");
+    insert::<DescriptorCellType>(corpus, "DescriptorCellType");
+    insert::<Arguments<DescriptorStage>>(corpus, "Arguments");
+    insert::<AtLeastTwo<String>>(corpus, "AtLeastTwo");
+    insert::<ConfigurationSentenceKind>(corpus, "ConfigurationSentenceKind");
+    insert::<IrRewrite<SemanticLevel>>(corpus, "IrRewrite");
+    insert::<TermMapOperation>(corpus, "TermMapOperation");
     insert::<DefinitionTerm>(corpus, "DefinitionTerm");
     insert::<Descriptor>(corpus, "Descriptor");
     insert::<GrammarProductionItem<SemanticSortRef>>(corpus, "GrammarProductionItem");
@@ -2951,4 +2968,45 @@ pub(super) fn corpus() -> BTreeMap<&'static str, Vec<serde_json::Value>> {
     insert_transitive_first(&mut corpus);
     insert_transitive_rest(&mut corpus);
     corpus
+}
+
+impl<L: IrLevel> Sample for IrRewrite<L>
+where
+    IrTerm<L>: Sample,
+    L::Sort: Sample,
+{
+    fn samples() -> Vec<Self> {
+        let from = sample::<IrTerm<L>>();
+        vec![Self::new(
+            from.origin().clone(),
+            from.sort().clone(),
+            from.clone(),
+            from,
+        )]
+    }
+}
+impl Sample for ConfigurationSentenceKind {
+    fn samples() -> Vec<Self> {
+        vec![Self::Transition, Self::Equation, Self::Claim]
+    }
+}
+
+impl Sample for Arguments<DescriptorStage> {
+    fn samples() -> Vec<Self> {
+        vec![sample::<Vec<DescriptorTermArgument>>().try_into().unwrap()]
+    }
+}
+impl Sample for AtLeastTwo<String> {
+    fn samples() -> Vec<Self> {
+        vec![Self::new(
+            sample::<String>(),
+            sample::<String>(),
+            Vec::new(),
+        )]
+    }
+}
+impl Sample for TermMapOperation {
+    fn samples() -> Vec<Self> {
+        Self::ALL.to_vec()
+    }
 }

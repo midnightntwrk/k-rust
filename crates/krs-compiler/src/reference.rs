@@ -12,10 +12,11 @@ use std::path::{Path, PathBuf};
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, MapOperation, OriginFrame, PackageId,
+    DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, OriginFrame, PackageId,
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SemanticRule,
     SemanticSortRef, SemanticTheory, SetOperation, Sha256Digest, SourceFileId, StableItemId,
+    TermMapOperation,
 };
 use krs_syntax::surface::{self, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream};
@@ -1206,7 +1207,7 @@ fn render_term(
                 DescriptorApplicationRef::Builtin(operation) => {
                     render_builtin_operation(*operation)
                 }
-                DescriptorApplicationRef::Map(operation) => render_map_operation(*operation)?,
+                DescriptorApplicationRef::Map(operation) => render_map_operation(*operation),
                 DescriptorApplicationRef::List(operation) => render_list_operation(*operation),
                 DescriptorApplicationRef::Set(operation) => render_set_operation(*operation),
             };
@@ -1218,20 +1219,19 @@ fn render_term(
             {
                 return Ok(head);
             }
-            let positional = arguments
-                .iter()
-                .filter_map(|argument| match argument {
-                    DescriptorTermArgument::Positional { value } => Some(value),
-                    DescriptorTermArgument::Named { .. } => None,
-                })
-                .collect::<Vec<_>>();
-            if positional.len() == arguments.len() {
-                let values = positional
-                    .into_iter()
-                    .map(|value| render_term(value, pattern, package, bundle))
-                    .collect::<Result<Vec<_>, _>>()?;
-                return Ok(quote!(#head(#(#values),*)));
+            if arguments.is_empty() {
+                return Ok(quote!(#head()));
             }
+            let arguments = match arguments {
+                krs_ir::Arguments::Positional(values) => {
+                    let values = values
+                        .iter()
+                        .map(|value| render_term(value, pattern, package, bundle))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(quote!(#head(#(#values),*)));
+                }
+                krs_ir::Arguments::Named(values) => values,
+            };
             let DescriptorApplicationRef::Declared(id) = &reference.application else {
                 return Err(ReferenceExpansionError::NamedBuiltinApplication);
             };
@@ -1247,9 +1247,8 @@ fn render_term(
             };
             let mut supplied = BTreeMap::new();
             for argument in arguments {
-                let DescriptorTermArgument::Named { field, value, .. } = argument else {
-                    return Err(ReferenceExpansionError::MixedApplicationArguments);
-                };
+                let field = &argument.field;
+                let value = argument.value.as_ref();
                 if supplied.insert(field.as_str(), value).is_some() {
                     return Err(ReferenceExpansionError::DuplicateApplicationField {
                         id: Box::new(id.clone()),
@@ -1411,14 +1410,11 @@ fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
     quote!(k::builtin::#module::#name)
 }
 
-fn render_map_operation(operation: MapOperation) -> Result<TokenStream, ReferenceExpansionError> {
+fn render_map_operation(operation: TermMapOperation) -> TokenStream {
     match operation {
-        MapOperation::Update => Ok(quote!(k::builtin::map::update)),
-        MapOperation::Get => Ok(quote!(k::builtin::map::get)),
-        MapOperation::InKeys => Ok(quote!(k::builtin::map::in_keys)),
-        MapOperation::Empty | MapOperation::Item => {
-            Err(ReferenceExpansionError::NamedBuiltinApplication)
-        }
+        TermMapOperation::Update => quote!(k::builtin::map::update),
+        TermMapOperation::Get => quote!(k::builtin::map::get),
+        TermMapOperation::InKeys => quote!(k::builtin::map::in_keys),
     }
 }
 
@@ -1861,8 +1857,8 @@ mod tests {
     };
     use krs_ir::{
         BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
-        DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, DescriptorTermArgument,
-        ItemKind, ListOperation, PackageId, ProvenanceKey, ProvenanceRole, StableItemId,
+        DescriptorApplicationReference, DescriptorBundle, DescriptorTerm, ItemKind, ListOperation,
+        PackageId, ProvenanceKey, ProvenanceRole, StableItemId,
     };
     use quote::ToTokens;
 
@@ -1965,14 +1961,10 @@ mod tests {
                 application: DescriptorApplicationRef::List(ListOperation::Get),
             },
             path_key: ProvenanceKey::new(ProvenanceRole::ClaimEnsuresPath, 2),
-            arguments: vec![
-                DescriptorTermArgument::Positional {
-                    value: Box::new(variable("program", 0)),
-                },
-                DescriptorTermArgument::Positional {
-                    value: Box::new(variable("index", 1)),
-                },
-            ],
+            arguments: krs_ir::Arguments::Positional(vec![
+                Box::new(variable("program", 0)),
+                Box::new(variable("index", 1)),
+            ]),
         };
         let rendered = render_term(&lookup, false, &package, &DescriptorBundle::new(Vec::new()))
             .unwrap()

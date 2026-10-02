@@ -484,7 +484,7 @@ fn context_alias() -> DescriptorContextAlias {
 
 fn configuration_rule() -> DescriptorConfigurationRule {
     DescriptorConfigurationRule {
-        sentence_kind: SentenceKind::Claim,
+        sentence_kind: crate::ConfigurationSentenceKind::Claim,
         label: None,
         priority: None,
         requires: Some(DescriptorRuleCondition {

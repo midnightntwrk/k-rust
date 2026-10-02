@@ -2,6 +2,7 @@ use super::*;
 use crate::transport::detail::{
     StateCellContentReason, StateTermReason, TransportField, TransportItemKind,
 };
+use crate::transport::grammar::TermArgument;
 
 use crate::transport::grammar::{
     DescriptorApplicationRef, DescriptorApplicationReference, HostApplicationReference,
@@ -466,7 +467,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
                 application: DescriptorApplicationRef::Declared(item(ItemKind::Sort)),
             },
             path_key: path_key.clone(),
-            arguments: Vec::new(),
+            arguments: crate::Arguments::default(),
         }),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidApplicationTarget
@@ -483,7 +484,7 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
                 }),
             },
             path_key,
-            arguments: Vec::new(),
+            arguments: crate::Arguments::default(),
         }),
         Ok(())
     );
@@ -501,9 +502,15 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
     assert_eq!(
         initializer_term::<S>(Term::OrBool {
             key: key(ProvenanceRole::InitializerTerm),
-            arguments: vec![Term::Wildcard {
-                key: key(ProvenanceRole::InitializerTermPath)
-            }],
+            arguments: crate::AtLeastTwo::new(
+                Term::Wildcard {
+                    key: key(ProvenanceRole::InitializerTermPath)
+                },
+                Term::Wildcard {
+                    key: key(ProvenanceRole::InitializerTermPath)
+                },
+                Vec::new()
+            ),
         }),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerClaimTerm
@@ -548,7 +555,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         head_class: DescriptorApplicationHeadClass::Applied,
         path_key: key(ProvenanceRole::InitializerTermPath),
         reference: reference.clone(),
-        arguments,
+        arguments: crate::Arguments::try_from(arguments).unwrap(),
     };
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),
@@ -556,19 +563,17 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
             StateTermReason::InitializerRecordFieldProvenance
         ))
     );
-    assert_eq!(
-        initializer_term::<S>(application(vec![
+    assert!(matches!(
+        crate::Arguments::<S>::try_from(vec![
             TermArgument::Positional {
                 value: Box::new(Term::Wildcard {
                     key: key(ProvenanceRole::InitializerTermPath)
-                }),
+                })
             },
             named(),
-        ])),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::WildcardsAreNotAllowedInInitializers
-        ))
-    );
+        ]),
+        Err(crate::ArgumentsError::MixedForms)
+    ));
 }
 
 #[test]

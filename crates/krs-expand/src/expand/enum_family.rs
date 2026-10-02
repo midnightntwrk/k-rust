@@ -321,10 +321,16 @@ fn expand_enum_family_grammar(
         }
         let grammar = WireGrammarDescriptor::Precedence {
             key: wire_key(precedence_declaration_role, 0),
-            chains: vec![DescriptorPrecedenceChain {
-                key: wire_key(precedence_chain_role, 0),
-                groups,
-            }],
+            chains: vec![
+                DescriptorPrecedenceChain::new(wire_key(precedence_chain_role, 0), groups)
+                    .map_err(|error| {
+                        ExpandError::new(
+                            expand::DESCRIPTOR_CAPACITY,
+                            declaration.sort_name().span(),
+                            error.to_string(),
+                        )
+                    })?,
+            ],
         };
         let descriptor = grammar_macro_descriptor(
             facade,

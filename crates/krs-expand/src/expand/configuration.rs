@@ -301,10 +301,15 @@ fn configuration_fields(
         let cell_type = field
             .attribute()
             .cell_type()
-            .map(|value| DescriptorCellType {
-                key: wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
-                value: value.value(),
-            });
+            .map(|value| {
+                Ok::<_, ExpandError>(DescriptorCellType {
+                    key: wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
+                    value: value.value().try_into().map_err(|error| {
+                        ExpandError::new(expand::CONFIGURATION_SHAPE, value.span(), error)
+                    })?,
+                })
+            })
+            .transpose()?;
         let content = configuration_content(
             field.cell_content(),
             index,

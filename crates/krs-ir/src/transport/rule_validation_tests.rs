@@ -2,6 +2,7 @@ use super::*;
 use crate::transport::detail::{
     StateCellContentReason, StateTermReason, TransportField, TransportItemKind,
 };
+use crate::transport::grammar::TermArgument;
 
 use crate::{
     CellTermField, DescriptorApplicationRef, DescriptorApplicationReference, DescriptorLiteral,
@@ -152,7 +153,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
             application: DescriptorApplicationRef::Declared(item("Target", ItemKind::Sort)),
         },
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
-        arguments: Vec::new(),
+        arguments: crate::Arguments::default(),
     };
     let host: Term<HostStage> = Term::Application {
         head_class: DescriptorApplicationHeadClass::Applied,
@@ -161,7 +162,7 @@ fn rule_applications_preserve_reference_check_and_path_error_order() {
             target: HostApplicationTarget::Nominal(host_type::<()>()),
         },
         path_key: key(ProvenanceRole::RuleLeftApplicationHead),
-        arguments: Vec::new(),
+        arguments: crate::Arguments::default(),
     };
     assert_eq!(
         check_term(&descriptor),
@@ -205,7 +206,9 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
                     name: "undeclared".to_owned(),
                 }),
             },
-        ],
+        ]
+        .try_into()
+        .unwrap(),
     };
     assert_eq!(
         check_term(&term),
@@ -214,9 +217,9 @@ fn assert_named_argument_order<S: ValidationStage>(reference: S::Application) {
         )),
     );
     if let Term::Application { arguments, .. } = &mut term
-        && let TermArgument::Named { value, .. } = &mut arguments[0]
+        && let crate::Arguments::Named(arguments) = arguments
     {
-        **value = Term::Literal {
+        *arguments.first_mut().value = Term::Literal {
             key: key(ProvenanceRole::RuleLeftLiteral),
             literal: DescriptorLiteral::Int("-1".to_owned()),
         };
@@ -593,7 +596,7 @@ fn empty_rule<S: RuleValidationStage>(
     result_configuration: S::Configuration,
 ) -> ConfigurationRule<S> {
     ConfigurationRule {
-        sentence_kind: SentenceKind::Transition,
+        sentence_kind: crate::ConfigurationSentenceKind::Transition,
         label: Some(DescriptorRuleLabel {
             key: key(ProvenanceRole::RuleLabel),
             name: "step".into(),

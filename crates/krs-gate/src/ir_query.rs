@@ -2,11 +2,10 @@
 
 use krs_compiler::{MappedIdentity, SourceMap, SymbolMap, definition_module_imports};
 use krs_ir::{
-    ApplicationRef, CellPost, DefinitionIr, DefinitionRuleBody, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DescriptorBundle, DescriptorPayload,
-    FixedCell, FixedCellContent, FixedInitializerCell, FixedInitializerContent,
-    GrammarProductionItemKind, OriginFrame, ProductionAttribute, RangedOriginKind, SemanticTheory,
-    SentenceKind, SymbolId,
+    ApplicationRef, CellPost, DefinitionIr, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionTermKind, DescriptorBundle, DescriptorPayload, FixedCell, FixedCellContent,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, OriginFrame,
+    ProductionAttribute, RangedOriginKind, RuleBodyRef, SemanticTheory, SentenceKind, SymbolId,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -429,10 +428,15 @@ fn frame_fact(frame: &krs_ir::CellContentFrame) -> Value {
     json!({"kind":kind,"binding":binding})
 }
 
-fn rule_body(context: &Context<'_>, body: &DefinitionRuleBody) -> Value {
+fn rule_body(context: &Context<'_>, body: RuleBodyRef<'_, krs_ir::DefinitionLevel>) -> Value {
     match body {
-        DefinitionRuleBody::Term(term) => context.term(term),
-        DefinitionRuleBody::Configuration(body) => {
+        RuleBodyRef::Term(term) => json!({
+            "sort": context.sort(term.sort()),
+            "kind": "rewrite",
+            "from": context.term(term.from()),
+            "to": context.term(term.to()),
+        }),
+        RuleBodyRef::Configuration { body, .. } => {
             let clauses = body
                 .clauses()
                 .iter()
@@ -539,17 +543,19 @@ fn operations(
                 let name = module.id().as_str();
                 let label = rule.label().emitted_name();
                 match rule.relational_body() {
-                    DefinitionRuleBody::Term(t) => {
-                        context.operation_rows(
-                            t,
-                            &mut rows,
-                            name,
-                            label,
-                            filter,
-                            include_arguments,
-                        );
+                    RuleBodyRef::Term(t) => {
+                        for endpoint in [t.from(), t.to()] {
+                            context.operation_rows(
+                                endpoint,
+                                &mut rows,
+                                name,
+                                label,
+                                filter,
+                                include_arguments,
+                            );
+                        }
                     }
-                    DefinitionRuleBody::Configuration(c) => {
+                    RuleBodyRef::Configuration { body: c, .. } => {
                         for clause in c.clauses() {
                             context.operation_rows(
                                 clause.before(),
@@ -1759,17 +1765,15 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let DefinitionRuleBody::Term(rewrite) = ordinary.relational_body() else {
+        let RuleBodyRef::Term(rewrite) = ordinary.relational_body() else {
             unreachable!()
         };
-        let DefinitionTermKind::Rewrite { from, to } = rewrite.kind() else {
-            unreachable!()
-        };
+        let (from, to) = (rewrite.from(), rewrite.to());
         let make = |frame: krs_ir::CellContentFrame, after: CellPost<DefinitionTerm>| {
             DefinitionSentence::Rule(krs_ir::RuleSentence::new_configuration(
                 ordinary.origin().clone(),
                 ordinary.label().clone(),
-                ordinary.kind(),
+                ordinary.kind().try_into().unwrap(),
                 vec![krs_ir::DefinitionVariable::new(
                     SemanticId::new("tail").unwrap(),
                     DefinitionSortRef::k_sequence(),
@@ -1783,7 +1787,7 @@ mod tests {
                         DefinitionTerm::k_sequence(
                             origin("test.before"),
                             from.sort().clone(),
-                            vec![(**from).clone()],
+                            vec![from.clone()],
                         ),
                         after,
                         frame,
@@ -1801,7 +1805,7 @@ mod tests {
             term: DefinitionTerm::k_sequence(
                 origin("test.after"),
                 to.sort().clone(),
-                vec![(**to).clone()],
+                vec![to.clone()],
             ),
         };
         let input = make(tail(), replace());
@@ -1873,9 +1877,9 @@ mod tests {
 
     fn head_rule_artifacts() -> krs_test_support::TempDir {
         use krs_ir::{
-            DescriptorApplicationRef, DescriptorApplicationReference, DescriptorHeadRule,
-            DescriptorHeadRuleBinding, DescriptorHeadRuleResult, DescriptorTerm,
-            DescriptorTermArgument, ProvenanceKey, ProvenanceRole,
+            Arguments, DescriptorApplicationRef, DescriptorApplicationReference,
+            DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleResult,
+            DescriptorTerm, NamedTermArgument, ProvenanceKey, ProvenanceRole,
         };
         let dir = artifacts();
         let original: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
@@ -1927,23 +1931,25 @@ mod tests {
             ],
             subject: application(
                 DescriptorApplicationRef::Declared(item("syntax", "Add", ItemKind::Constructor)),
-                ["lhs", "rhs"]
-                    .iter()
-                    .map(|name| DescriptorTermArgument::Named {
-                        key: key(ProvenanceRole::RuleLeftReference),
-                        field: krs_ir::ProductionFieldId::new(*name).unwrap(),
-                        value: Box::new(var(name)),
-                    })
-                    .collect(),
+                Arguments::named(
+                    ["lhs", "rhs"]
+                        .iter()
+                        .map(|name| NamedTermArgument {
+                            key: key(ProvenanceRole::RuleLeftReference),
+                            field: krs_ir::ProductionFieldId::new(*name).unwrap(),
+                            value: Box::new(var(name)),
+                        })
+                        .collect(),
+                ),
             ),
             result: DescriptorHeadRuleResult::Replace(application(
                 DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
-                ["lhs", "rhs"]
-                    .iter()
-                    .map(|name| DescriptorTermArgument::Positional {
-                        value: Box::new(var(name)),
-                    })
-                    .collect(),
+                Arguments::Positional(
+                    ["lhs", "rhs"]
+                        .iter()
+                        .map(|name| Box::new(var(name)))
+                        .collect(),
+                ),
             )),
             requires: None,
             extras: vec![],
@@ -1995,7 +2001,7 @@ mod tests {
                     .iter()
                     .map(|sentence| {
                         if let DefinitionSentence::Rule(rule) = sentence {
-                            let DefinitionRuleBody::Term(body) = rule.relational_body() else {
+                            let RuleBodyRef::Term(body) = rule.relational_body() else {
                                 panic!("fixture has an ordinary rewrite");
                             };
                             let tail = SemanticId::new("tail").unwrap();

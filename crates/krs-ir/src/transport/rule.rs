@@ -15,8 +15,8 @@ use crate::transport::configuration::{
 };
 use crate::transport::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorRuleLabel, DescriptorSortRef,
-    DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, HostSortReference, HostTerm,
-    Term, TermArgument, valid_rule_label_name,
+    DescriptorSortReference, DescriptorTerm, HostSortReference, HostTerm, Term,
+    valid_rule_label_name,
 };
 use crate::{
     ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole, RuleRole, RuleSide, SentenceKind,
@@ -674,8 +674,8 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
         DescriptorTerm::Application { arguments, .. } => arguments
             .iter()
             .map(|argument| match argument {
-                DescriptorTermArgument::Positional { value }
-                | DescriptorTermArgument::Named { value, .. } => count_here_in_term(value, here),
+                crate::TermArgumentRef::Positional { value }
+                | crate::TermArgumentRef::Named { value, .. } => count_here_in_term(value, here),
             })
             .sum(),
         DescriptorTerm::Literal { .. }
@@ -791,8 +791,8 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
             keys.extend([reference.key.clone(), path_key.clone()]);
             for argument in arguments {
                 match argument {
-                    DescriptorTermArgument::Positional { value } => collect_term_keys(value, keys),
-                    DescriptorTermArgument::Named { key, value, .. } => {
+                    crate::TermArgumentRef::Positional { value } => collect_term_keys(value, keys),
+                    crate::TermArgumentRef::Named { key, value, .. } => {
                         keys.insert(key.clone());
                         collect_term_keys(value, keys);
                     }
@@ -809,7 +809,7 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
         }
         DescriptorTerm::OrBool { key, arguments } => {
             keys.insert(key.clone());
-            for argument in arguments {
+            for argument in arguments.iter() {
                 collect_term_keys(argument, keys);
             }
         }
@@ -848,7 +848,7 @@ stage_shape! {
     )]
     pub struct ConfigurationRule<S: Stage> {
         /// Explicit relational sentence meaning.
-        pub sentence_kind: SentenceKind => [keep],
+        pub sentence_kind: crate::ConfigurationSentenceKind => [keep],
         /// Optional explicit emitted K label.
         #[serde(skip_serializing_if = "S::skip_none")]
         pub label: Option<DescriptorRuleLabel> => [keep],
@@ -1296,7 +1296,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     validate_sentence_kind(rule.sentence_kind, descriptor_kind)?;
-    if rule.sentence_kind == SentenceKind::Claim {
+    if rule.sentence_kind == crate::ConfigurationSentenceKind::Claim {
         if rule.claim.is_none() || rule.label.is_none() {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::MissingClaimMetadataOrLabel,
@@ -1308,7 +1308,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ));
     }
     if let Some(label) = &rule.label {
-        let label_role = if rule.sentence_kind == SentenceKind::Claim {
+        let label_role = if rule.sentence_kind == crate::ConfigurationSentenceKind::Claim {
             ProvenanceRole::ClaimLabel
         } else {
             ProvenanceRole::RuleLabel
@@ -1320,7 +1320,9 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     }
     if let Some(priority) = &rule.priority {
         insert_rule_exact(keys, &priority.key, ProvenanceRole::RuleOwise, 0)?;
-        if rule.sentence_kind != SentenceKind::Transition || priority.value != 200 {
+        if rule.sentence_kind != crate::ConfigurationSentenceKind::Transition
+            || priority.value != 200
+        {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::ConfigurationRuleOrderedFallbackPriority,
             ));
@@ -1347,7 +1349,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
         ProvenanceRole::RuleResultType,
         0,
     )?;
-    S::insert_rule_declaration(keys, rule.sentence_kind);
+    S::insert_rule_declaration(keys, rule.sentence_kind.into());
     validate_rule_binding_catalog::<S>(&rule.bindings, keys)?;
 
     let mut discovered = Vec::new();
@@ -1893,7 +1895,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         head_class: DescriptorApplicationHeadClass,
         reference: &S::Application,
         path_key: &ProvenanceKey,
-        arguments: &[TermArgument<S>],
+        arguments: &crate::Arguments<S>,
     ) -> Result<(), Self::Error> {
         if head_class == DescriptorApplicationHeadClass::BareReference && !arguments.is_empty() {
             return Err(StateTransportError::InvalidTerm(
@@ -2002,12 +2004,11 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         Ok(())
     }
 
-    fn or_bool(&mut self, key: &ProvenanceKey, arguments: &[Term<S>]) -> Result<(), Self::Error> {
-        if arguments.len() < 2 {
-            return Err(StateTransportError::InvalidTerm(
-                StateTermReason::OrBoolRequiresAtLeastTwoOperands,
-            ));
-        }
+    fn or_bool(
+        &mut self,
+        key: &ProvenanceKey,
+        _arguments: &crate::AtLeastTwo<Term<S>>,
+    ) -> Result<(), Self::Error> {
         self.keys.insert(key.clone());
         Ok(())
     }
@@ -2032,13 +2033,12 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
 
     fn argument(
         &mut self,
-        argument: &TermArgument<S>,
-        named: bool,
+        argument: crate::TermArgumentRef<'_, S>,
         fields: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         match argument {
-            TermArgument::Positional { .. } if !named => Ok(()),
-            TermArgument::Named { key, field, .. } if named => {
+            crate::TermArgumentRef::Positional { .. } => Ok(()),
+            crate::TermArgumentRef::Named { key, field, .. } => {
                 if !fields.insert(field.clone()) {
                     return Err(StateTransportError::DuplicateValue(
                         TransportField::RuleApplicationRecordFields,
@@ -2054,9 +2054,6 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
                 self.counters.record_field = rule_increment(self.counters.record_field)?;
                 Ok(())
             }
-            TermArgument::Positional { .. } | TermArgument::Named { .. } => Err(
-                StateTransportError::InvalidTerm(StateTermReason::MixedRuleArgumentForms),
-            ),
         }
     }
 
@@ -2225,19 +2222,9 @@ fn binding_names_match<S>(bindings: &[ProtocolRuleBinding<S>], discovered: &[Str
 }
 
 fn validate_sentence_kind(
-    sentence_kind: SentenceKind,
+    sentence_kind: crate::ConfigurationSentenceKind,
     actual: ItemKind,
 ) -> Result<(), StateTransportError> {
-    if sentence_kind == SentenceKind::Alias {
-        return Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationStaticAlias,
-        ));
-    }
-    if sentence_kind == SentenceKind::Simplification {
-        return Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationSimplification,
-        ));
-    }
     let expected = sentence_kind.item_kind();
     if actual == expected {
         Ok(())
@@ -2245,13 +2232,9 @@ fn validate_sentence_kind(
         Err(StateTransportError::ItemKind {
             field: TransportField::ConfigurationRuleDescriptor,
             expected: match sentence_kind {
-                SentenceKind::Transition => TransportItemKind::Rule,
-                SentenceKind::Equation => TransportItemKind::Equation,
-                SentenceKind::Simplification => {
-                    unreachable!("configuration simplifications were rejected above")
-                }
-                SentenceKind::Alias => unreachable!("configuration aliases were rejected above"),
-                SentenceKind::Claim => TransportItemKind::Claim,
+                crate::ConfigurationSentenceKind::Transition => TransportItemKind::Rule,
+                crate::ConfigurationSentenceKind::Equation => TransportItemKind::Equation,
+                crate::ConfigurationSentenceKind::Claim => TransportItemKind::Claim,
             },
             actual,
         })

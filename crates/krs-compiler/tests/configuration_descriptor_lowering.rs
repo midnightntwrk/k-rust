@@ -19,7 +19,7 @@ use krs_ir::{
     ProtocolKSequenceItem, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
     ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
     ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole,
-    RuleSide, SentenceKind, SortDescriptor, StableItemId,
+    RuleSide, SortDescriptor, StableItemId,
 };
 
 fn package() -> PackageId {
@@ -311,7 +311,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
         })
     };
     DescriptorConfigurationRule {
-        sentence_kind: SentenceKind::Transition,
+        sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label: None,
         priority: None,
         requires: None,
@@ -496,8 +496,7 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
         .iter()
         .find(|module| !module.rules().is_empty())
         .unwrap();
-    let krs_ir::semantic::SemanticRuleBody::Configuration(rule) =
-        module.rules()[0].relational_body()
+    let krs_ir::RuleBodyRef::Configuration { body: rule, .. } = module.rules()[0].relational_body()
     else {
         panic!("a configuration rule must remain a simultaneous configuration rewrite");
     };
@@ -565,7 +564,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
         .iter()
         .find(|module| !module.rules().is_empty())
         .unwrap();
-    let krs_ir::semantic::SemanticRuleBody::Configuration(rewrite) =
+    let krs_ir::RuleBodyRef::Configuration { body: rewrite, .. } =
         module.rules()[0].relational_body()
     else {
         panic!("a configuration rule must remain a simultaneous configuration rewrite");

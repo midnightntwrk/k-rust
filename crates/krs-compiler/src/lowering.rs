@@ -14,11 +14,11 @@ use krs_ir::{
     GroupAssociativitySentence, IrIdentityError, LabelId, LabelIdentity, ModuleId, NodeOrigin,
     OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
-    ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
-    RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticRuleBody,
-    SemanticSortRef, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable,
-    SourceMapKey, StableItemId, StableText, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence, TransformationOriginKind, lower_hex,
+    ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence, RuleBodyRef,
+    RuleSentence, SemanticConfiguration, SemanticModule, SemanticProduction, SemanticSortRef,
+    SemanticTerm, SemanticTermKind, SemanticTheory, SemanticVariable, SourceMapKey, StableItemId,
+    StableText, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    TransformationOriginKind, lower_hex,
 };
 use sha2::{Digest, Sha256};
 
@@ -359,10 +359,8 @@ impl NamingPass {
                 let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
                     || match rule.relational_body() {
-                        SemanticRuleBody::Term(_) => {
-                            LabelIdentity::fallback_name(&short_hash(&owner))
-                        }
-                        SemanticRuleBody::Configuration(_) => lower_camel(rule.id().item_name()),
+                        RuleBodyRef::Term(_) => LabelIdentity::fallback_name(&short_hash(&owner)),
+                        RuleBodyRef::Configuration { .. } => lower_camel(rule.id().item_name()),
                     },
                     |label| label.name().to_owned(),
                 );
@@ -635,17 +633,17 @@ fn lower_module(
         let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
         let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
         let sentence = match rule.relational_body() {
-            SemanticRuleBody::Term(body) => RuleSentence::new(
+            RuleBodyRef::Term(body) => RuleSentence::new(
                 origin,
                 label,
                 rule.kind(),
                 variables,
-                lower_term(body, names, origins)?,
+                lower_rule_rewrite(body, names, origins)?,
             )?,
-            SemanticRuleBody::Configuration(body) => RuleSentence::new_configuration(
+            RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
                 origin,
                 label,
-                rule.kind(),
+                kind,
                 variables,
                 lower_configuration_rewrite(body, names, origins)?,
             ),
@@ -1271,6 +1269,20 @@ fn lower_production_attributes(
             })
         })
         .collect()
+}
+
+fn lower_rule_rewrite(
+    body: &krs_ir::IrRewrite<krs_ir::SemanticLevel>,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<DefinitionTerm, LoweringError> {
+    let origin = origins.lower(body.origin(), "term", None, None)?;
+    Ok(DefinitionTerm::rewrite(
+        origin,
+        lower_sort_ref(body.sort(), names)?,
+        lower_term(body.from(), names, origins)?,
+        lower_term(body.to(), names, origins)?,
+    )?)
 }
 
 fn lower_term(

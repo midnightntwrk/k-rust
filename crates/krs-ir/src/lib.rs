@@ -32,8 +32,10 @@ pub mod k_surface;
 pub mod measure;
 pub mod provenance;
 pub mod provenance_role;
+pub mod refined;
 pub mod semantic;
 pub mod sorted;
+pub use refined::{AtLeastTwo, AtLeastTwoError, NonEmpty};
 pub mod stable_text;
 pub mod stage;
 #[cfg(test)]
@@ -46,10 +48,10 @@ pub mod transport;
 pub mod wire;
 
 pub use bundle::{
-    Constructor, ConstructorDescriptor, ConstructorField, ConstructorFieldDescriptor, Descriptor,
-    DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin,
-    DescriptorPayload, DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind,
-    SortDescriptor, SortPayload,
+    ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
+    ConstructorFieldDescriptor, Descriptor, DescriptorBundle, DescriptorDeclaration,
+    DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance,
+    DescriptorProvenanceError, Payload, SentenceKind, SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
@@ -93,9 +95,9 @@ pub use identity::{
 };
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
 pub use ir_level::{
-    DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRuleBody, IrRuleCondition,
-    IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef, IrSubsort, IrTerm,
-    IrTermKind, IrVariable, SemanticLevel,
+    DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRewrite, IrRuleBody,
+    IrRuleCondition, IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef,
+    IrSubsort, IrTerm, IrTermKind, IrVariable, RuleBodyRef, SemanticLevel,
 };
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
@@ -117,10 +119,10 @@ pub use state::{
     ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
     FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, ListOperation,
-    MapOperation, SetOperation, StateShapeError,
+    MapOperation, SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
-    CellWrapper, DescriptorCellColor, DescriptorCellDeclaration,
+    CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
     DescriptorCellDeclarationReference, DescriptorCellField, DescriptorCellIdentity,
     DescriptorCellMultiplicity, DescriptorCellName, DescriptorCellReference, DescriptorCellType,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
@@ -137,13 +139,13 @@ pub use transport::configuration::{
     StageConfigurationInitializer, StateTransportError,
 };
 pub use transport::grammar::{
-    CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorAssociativitySentence, DescriptorCellTermField,
-    DescriptorContextAliasReference, DescriptorFieldReference, DescriptorFormatFragment,
-    DescriptorGroupReference, DescriptorLexicalPrecedence, DescriptorLiteral,
-    DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
-    DescriptorProductionItem, DescriptorProductionOwner, DescriptorRuleCondition,
-    DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
+    Arguments, ArgumentsError, CellTermField, DescriptorApplicationHeadClass,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
+    DescriptorCellTermField, DescriptorContextAliasReference, DescriptorFieldReference,
+    DescriptorFormatFragment, DescriptorGroupReference, DescriptorLexicalPrecedence,
+    DescriptorLiteral, DescriptorPrecedenceChain, DescriptorProduction,
+    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
+    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
     DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
     DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
     GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
@@ -153,10 +155,10 @@ pub use transport::grammar::{
     HostListOperationRegistration, HostMapOperationRegistration, HostProduction,
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
     HostSetOperationRegistration, HostSortReference, HostStructuredRuleDescriptor, HostTerm,
-    HostTermArgument, Production, ProductionAttribute as TransportProductionAttribute,
-    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition,
-    StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
-    enum_variant_disambiguator,
+    HostTermArgument, NamedTermArgument, Production,
+    ProductionAttribute as TransportProductionAttribute, ProductionItem as TransportProductionItem,
+    ProductionOwner, RuleCondition, StageGrammarDescriptor, StructuredRule,
+    StructuredRuleDescriptor, Term, TermArgument, TermArgumentRef, enum_variant_disambiguator,
 };
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,

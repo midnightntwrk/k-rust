@@ -5,12 +5,12 @@ use krs_ir::{
     DescriptorFixedConfiguration, DescriptorInitializerCell, DescriptorInitializerStateTerm,
     DescriptorPayload, DescriptorProductionAttribute, DescriptorProductionItem,
     DescriptorProductionOwner, DescriptorRuleCells, DescriptorSortRef, DescriptorTerm,
-    DescriptorTermArgument, GrammarDescriptor, GroupAssociativitySentence, ModuleId, PackageId,
-    PrecedenceRelation, ProtocolCellContent, ProtocolContextAliasBindingKind,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
-    ProtocolRuleBindingKind, ProtocolRuleMapBody, ProtocolRuleStateTerm, SemanticConfiguration,
-    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticRule, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SortDescriptor, StableItemId,
+    GrammarDescriptor, GroupAssociativitySentence, ModuleId, PackageId, PrecedenceRelation,
+    ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, SemanticConfiguration, SemanticContextAlias, SemanticModule,
+    SemanticProduction, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
+    SortDescriptor, StableItemId,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -389,8 +389,8 @@ fn collect_term_packages(term: &DescriptorTerm, packages: &mut BTreeSet<PackageI
         }
         for argument in arguments {
             let value = match argument {
-                DescriptorTermArgument::Positional { value }
-                | DescriptorTermArgument::Named { value, .. } => value,
+                krs_ir::TermArgumentRef::Positional { value }
+                | krs_ir::TermArgumentRef::Named { value, .. } => value,
             };
             collect_term_packages(value, packages);
         }

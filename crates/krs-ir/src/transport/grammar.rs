@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 
+use crate::Stage;
 use serde::{Deserialize, Serialize};
 
 use super::detail::{
@@ -22,7 +23,7 @@ use crate::stage::{DescriptorStage, HostStage, stage_shape};
 use crate::{
     BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
     ListOperation, MapOperation, ProductionFieldId, ProductionGroupId, ProvenanceKey,
-    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind,
+    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
@@ -93,7 +94,7 @@ pub enum DescriptorApplicationRef {
     /// A compiler-provided operation from the exact builtin catalog.
     Builtin(BuiltinOperation),
     /// A compiler-provided Map-theory term operation.
-    Map(MapOperation),
+    Map(TermMapOperation),
     /// A compiler-provided List-theory term operation.
     List(ListOperation),
     /// A compiler-provided Set-theory term operation.
@@ -342,9 +343,25 @@ impl Error for HostEnumVariantReferenceError {}
 #[derive(Clone, Copy, Debug)]
 pub struct HostMapOperationRegistration {
     /// Target-neutral Map operation identity.
-    pub operation: MapOperation,
+    pub operation: TermMapOperation,
     /// Function producing the marker type's build-local identity.
     pub target: HostTypeKey,
+}
+
+impl HostMapOperationRegistration {
+    /// Registers an ordinary Map operation marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostBuiltinRegistryError::UnsupportedMapOperation`] for structural Map operations.
+    pub fn new(
+        operation: MapOperation,
+        target: HostTypeKey,
+    ) -> Result<Self, HostBuiltinRegistryError> {
+        let operation = TermMapOperation::try_from(operation)
+            .map_err(|_| HostBuiltinRegistryError::UnsupportedMapOperation(operation))?;
+        Ok(Self { operation, target })
+    }
 }
 
 /// One ordinary List operation marker registered by the author-facing facade.
@@ -406,14 +423,9 @@ impl HostBuiltinRegistry {
             }
         }
         for registration in &self.map_operations {
-            if !MapOperation::TERM_APPLICATIONS.contains(&registration.operation) {
-                return Err(HostBuiltinRegistryError::UnsupportedMapOperation(
-                    registration.operation,
-                ));
-            }
             if !map_operation_ids.insert(registration.operation) {
                 return Err(HostBuiltinRegistryError::DuplicateMapOperation(
-                    registration.operation,
+                    registration.operation.into(),
                 ));
             }
             if !rust_ids.insert(registration.target.resolve()) {
@@ -450,9 +462,11 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
-        for operation in MapOperation::TERM_APPLICATIONS {
+        for operation in TermMapOperation::ALL {
             if !map_operation_ids.contains(&operation) {
-                return Err(HostBuiltinRegistryError::MissingMapOperation(operation));
+                return Err(HostBuiltinRegistryError::MissingMapOperation(
+                    operation.into(),
+                ));
             }
         }
         for operation in ListOperation::TERM_APPLICATIONS {
@@ -490,7 +504,7 @@ impl HostBuiltinRegistry {
 
     /// Resolves one build-local type as an ordinary Map operation.
     #[must_use]
-    pub fn resolve_map_operation(&self, target: TypeId) -> Option<MapOperation> {
+    pub fn resolve_map_operation(&self, target: TypeId) -> Option<TermMapOperation> {
         self.map_operations
             .iter()
             .find(|registration| registration.target.resolve() == target)
@@ -867,13 +881,49 @@ pub type HostProduction = Production<HostStage>;
 
 /// One direct precedence edge with every group occurrence retained.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, try_from = "DescriptorPrecedenceChainWire")]
 pub struct DescriptorPrecedenceChain {
     /// Complete precedence-chain provenance.
     pub key: ProvenanceKey,
-    /// Groups from tightest to loosest binding. The compiler expands adjacent
-    /// pairs into target-neutral precedence edges.
-    pub groups: Vec<DescriptorGroupReference>,
+    /// Groups from tightest to loosest binding.
+    /// The compiler expands adjacent pairs into target-neutral precedence edges.
+    pub groups: crate::AtLeastTwo<DescriptorGroupReference>,
+}
+
+/// Plain wire shape of an ordered precedence chain.
+#[doc(hidden)]
+#[derive(Deserialize)]
+#[serde(rename = "DescriptorPrecedenceChain", deny_unknown_fields)]
+pub struct DescriptorPrecedenceChainWire {
+    key: ProvenanceKey,
+    groups: Vec<DescriptorGroupReference>,
+}
+
+impl DescriptorPrecedenceChain {
+    /// Creates an ordered precedence chain with at least two groups.
+    /// # Errors
+    /// Returns the existing empty-collection or short-chain error.
+    pub fn new(
+        key: ProvenanceKey,
+        groups: Vec<DescriptorGroupReference>,
+    ) -> Result<Self, GrammarTransportError> {
+        if groups.is_empty() {
+            return Err(GrammarTransportError::EmptyCollection(
+                TransportField::PrecedenceGroups,
+            ));
+        }
+        let groups = groups.try_into().map_err(|_| {
+            GrammarTransportError::InvalidProduction(GrammarProductionReason::ShortPrecedenceChain)
+        })?;
+        Ok(Self { key, groups })
+    }
+}
+
+impl TryFrom<DescriptorPrecedenceChainWire> for DescriptorPrecedenceChain {
+    type Error = GrammarTransportError;
+    fn try_from(value: DescriptorPrecedenceChainWire) -> Result<Self, Self::Error> {
+        Self::new(value.key, value.groups)
+    }
 }
 
 /// One associativity sentence with every group occurrence retained.
@@ -1000,6 +1050,228 @@ stage_shape! {
     }
 }
 
+stage_shape! {
+    /// One named argument with its field identity and provenance.
+    #[derive(Clone, Debug)]
+    pub struct NamedTermArgument<S: Stage> {
+        /// Exact authored field provenance.
+        pub key: ProvenanceKey => [keep],
+        /// Stable constructor-field identity.
+        pub field: ProductionFieldId => [keep],
+        /// Structured field value.
+        pub value: Box<Term<S>> => [box nested],
+    }
+}
+
+stage_shape! {
+    /// Homogeneous positional or named application arguments.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        try_from = "Vec<TermArgument<S>>", into = "Vec<TermArgument<S>>",
+        bound(
+            serialize = "S::Sort: Serialize, S::Application: Serialize, S::Nominal: Serialize",
+            deserialize = "S::Sort: Deserialize<'de>, S::Application: Deserialize<'de>, S::Nominal: Deserialize<'de>"
+        )
+    )]
+    pub enum Arguments<S: Stage> {
+        /// Ordered positional values.
+        Positional(values: Vec<Box<Term<S>>> => [vec box nested]),
+        /// Ordered named values.
+        Named(values: crate::NonEmpty<NamedTermArgument<S>> => [nonempty nested]),
+    }
+}
+
+impl<S: Stage> Default for Arguments<S> {
+    fn default() -> Self {
+        Self::Positional(Vec::new())
+    }
+}
+
+impl<S: Stage> TryFrom<Vec<TermArgument<S>>> for Arguments<S> {
+    type Error = ArgumentsError;
+    fn try_from(values: Vec<TermArgument<S>>) -> Result<Self, Self::Error> {
+        let mut positional = Vec::new();
+        let mut named = Vec::new();
+        for value in values {
+            match value {
+                TermArgument::Positional { value } => positional.push(value),
+                TermArgument::Named { key, field, value } => {
+                    named.push(NamedTermArgument { key, field, value });
+                }
+            }
+            if !positional.is_empty() && !named.is_empty() {
+                return Err(ArgumentsError::MixedForms);
+            }
+        }
+        Ok(if named.is_empty() {
+            Self::Positional(positional)
+        } else {
+            Self::named(named)
+        })
+    }
+}
+
+impl<S: Stage> From<Arguments<S>> for Vec<TermArgument<S>> {
+    fn from(value: Arguments<S>) -> Self {
+        match value {
+            Arguments::Positional(values) => values
+                .into_iter()
+                .map(|value| TermArgument::Positional { value })
+                .collect(),
+            Arguments::Named(values) => values
+                .into_iter()
+                .map(
+                    |NamedTermArgument { key, field, value }| TermArgument::Named {
+                        key,
+                        field,
+                        value,
+                    },
+                )
+                .collect(),
+        }
+    }
+}
+
+/// A borrowed argument in a homogeneous argument collection.
+#[derive(Clone, Copy, Debug)]
+pub enum TermArgumentRef<'a, S: Stage> {
+    /// Ordered positional value.
+    Positional {
+        /// Structured argument value.
+        value: &'a Term<S>,
+    },
+    /// Value with authored field metadata.
+    Named {
+        /// Authored field provenance.
+        key: &'a ProvenanceKey,
+        /// Stable field identity.
+        field: &'a ProductionFieldId,
+        /// Structured field value.
+        value: &'a Term<S>,
+    },
+}
+
+/// Borrowed iteration over homogeneous arguments.
+pub enum ArgumentIter<'a, S: Stage> {
+    /// Positional traversal.
+    Positional(std::slice::Iter<'a, Box<Term<S>>>),
+    /// Named traversal.
+    Named(<&'a crate::NonEmpty<NamedTermArgument<S>> as IntoIterator>::IntoIter),
+}
+
+impl<'a, S: Stage> Iterator for ArgumentIter<'a, S> {
+    type Item = TermArgumentRef<'a, S>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Positional(values) => values
+                .next()
+                .map(|value| TermArgumentRef::Positional { value }),
+            Self::Named(values) => values.next().map(|value| TermArgumentRef::Named {
+                key: &value.key,
+                field: &value.field,
+                value: &value.value,
+            }),
+        }
+    }
+}
+
+/// Homogeneous argument forms cannot be mixed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArgumentsError {
+    /// Positional and named values occur in the same application.
+    MixedForms,
+}
+
+impl fmt::Display for ArgumentsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("mixed positional and named arguments")
+    }
+}
+
+impl Error for ArgumentsError {}
+
+fn deserialize_state_arguments<'de, S: Stage, D>(deserializer: D) -> Result<Arguments<S>, D::Error>
+where
+    S::Sort: Deserialize<'de>,
+    S::Application: Deserialize<'de>,
+    S::Nominal: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<TermArgument<S>>::deserialize(deserializer)?;
+    Arguments::try_from(values).map_err(|ArgumentsError::MixedForms| {
+        serde::de::Error::custom(super::configuration::StateTransportError::InvalidTerm(
+            super::detail::StateTermReason::MixedRuleArgumentForms,
+        ))
+    })
+}
+
+fn deserialize_grammar_value<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    T::deserialize(deserializer).map_err(|error| {
+        let state = super::configuration::StateTransportError::InvalidTerm(
+            super::detail::StateTermReason::MixedRuleArgumentForms,
+        )
+        .to_string();
+        let grammar =
+            GrammarTransportError::InvalidApplication(GrammarApplicationReason::MixedArgumentForms)
+                .to_string();
+        let message = error.to_string();
+        if message.contains(&state) {
+            serde::de::Error::custom(message.replace(&state, &grammar))
+        } else {
+            error
+        }
+    })
+}
+
+impl<S: Stage> Arguments<S> {
+    /// Creates named arguments, canonicalizing an empty list to positional form.
+    #[must_use]
+    pub fn named(values: Vec<NamedTermArgument<S>>) -> Self {
+        let mut values = values.into_iter();
+        match values.next() {
+            Some(first) => Self::Named(crate::NonEmpty::new(first, values.collect())),
+            None => Self::default(),
+        }
+    }
+
+    /// Returns the number of authored arguments.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Positional(values) => values.len(),
+            Self::Named(values) => values.len(),
+        }
+    }
+    /// Reports whether there are no authored arguments.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// Reports whether the arguments have field identities.
+    #[must_use]
+    pub fn is_named(&self) -> bool {
+        matches!(self, Self::Named(_))
+    }
+    /// Traverses arguments in source order.
+    #[must_use]
+    pub fn iter(&self) -> ArgumentIter<'_, S> {
+        match self {
+            Self::Positional(values) => ArgumentIter::Positional(values.iter()),
+            Self::Named(values) => ArgumentIter::Named(values.into_iter()),
+        }
+    }
+}
+
+impl<'a, S: Stage> IntoIterator for &'a Arguments<S> {
+    type Item = TermArgumentRef<'a, S>;
+    type IntoIter = ArgumentIter<'a, S>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// Descriptor-stage form of [`TermArgument`].
 pub type DescriptorTermArgument = TermArgument<DescriptorStage>;
 
@@ -1029,6 +1301,26 @@ stage_shape! {
 
 /// Descriptor-stage form of [`CellTermField`].
 pub type DescriptorCellTermField = CellTermField<DescriptorStage>;
+
+fn refine_or_bool_arguments<T>(
+    arguments: Vec<T>,
+) -> Result<crate::AtLeastTwo<T>, super::configuration::StateTransportError> {
+    crate::AtLeastTwo::try_from(arguments).map_err(|_| {
+        super::configuration::StateTransportError::InvalidTerm(
+            super::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
+        )
+    })
+}
+
+fn deserialize_or_bool_arguments<'de, T, D>(
+    deserializer: D,
+) -> Result<crate::AtLeastTwo<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    refine_or_bool_arguments(Vec::<T>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
 
 /// Host-stage form of [`CellTermField`].
 pub type HostCellTermField = CellTermField<HostStage>;
@@ -1065,7 +1357,8 @@ stage_shape! {
             path_key: ProvenanceKey => [keep],
             /// Positional or named arguments.
             /// One application may not mix forms.
-            arguments: Vec<TermArgument<S>> => [vec nested],
+            #[serde(deserialize_with = "deserialize_state_arguments")]
+            arguments: Arguments<S> => [nested],
         },
         /// Exact Int/Bool literal.
         Literal {
@@ -1103,7 +1396,8 @@ stage_shape! {
             /// Complete macro-shell provenance.
             key: ProvenanceKey => [keep],
             /// Ordered operands, at least two.
-            arguments: Vec<Term<S>> => [vec nested],
+            #[serde(deserialize_with = "deserialize_or_bool_arguments")]
+            arguments: crate::AtLeastTwo<Term<S>> => [at_least_two nested],
         },
         /// Complete nominal parent-cell term constructed by `fragment!`.
         Cell {
@@ -1216,6 +1510,7 @@ stage_shape! {
         pub label: Option<DescriptorRuleLabel> => [keep],
         /// Optional object-language Boolean applicability condition.
         #[serde(skip_serializing_if = "S::skip_none")]
+        #[serde(default, deserialize_with = "deserialize_grammar_value")]
         pub requires: Option<RuleCondition<S>> => [option nested],
         /// Optional explicit equation or ordered-fallback priority.
         #[serde(skip_serializing_if = "S::skip_none")]
@@ -1234,8 +1529,10 @@ stage_shape! {
         /// Bound names in deterministic pattern preorder.
         pub bindings: Vec<String> => [keep],
         /// Structured left pattern.
+        #[serde(deserialize_with = "deserialize_grammar_value")]
         pub subject: Term<S> => [nested],
         /// Structured right result.
+        #[serde(deserialize_with = "deserialize_grammar_value")]
         pub result: Term<S> => [nested],
     }
 }
@@ -1377,13 +1674,6 @@ impl DescriptorApplicationRef {
                 id.item_kind(),
             ));
         }
-        if let Self::Map(operation) = self
-            && !MapOperation::TERM_APPLICATIONS.contains(operation)
-        {
-            return Err(GrammarTransportError::InvalidApplication(
-                GrammarApplicationReason::StructuralMapApplication,
-            ));
-        }
         if let Self::List(operation) = self
             && !ListOperation::TERM_APPLICATIONS.contains(operation)
         {
@@ -1419,7 +1709,7 @@ impl DescriptorLiteral {
 fn validate_map_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
-    arguments: &[DescriptorTermArgument],
+    arguments: &Arguments<DescriptorStage>,
 ) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::Map(operation) = application else {
         return Ok(());
@@ -1430,9 +1720,8 @@ fn validate_map_application_shape(
         ));
     }
     let expected = match operation {
-        MapOperation::Update => 3,
-        MapOperation::Get | MapOperation::InKeys => 2,
-        MapOperation::Empty | MapOperation::Item => unreachable!("validated application catalog"),
+        TermMapOperation::Update => 3,
+        TermMapOperation::Get | TermMapOperation::InKeys => 2,
     };
     if arguments.len() != expected {
         return Err(GrammarTransportError::InvalidApplication(
@@ -1441,7 +1730,7 @@ fn validate_map_application_shape(
     }
     if arguments
         .iter()
-        .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
+        .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::MapOperationsAcceptPositionalArgumentsOnly,
@@ -1453,7 +1742,7 @@ fn validate_map_application_shape(
 fn validate_set_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
-    arguments: &[DescriptorTermArgument],
+    arguments: &Arguments<DescriptorStage>,
 ) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::Set(operation) = application else {
         return Ok(());
@@ -1475,7 +1764,7 @@ fn validate_set_application_shape(
     }
     if arguments
         .iter()
-        .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
+        .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::SetOperationsAcceptPositionalArgumentsOnly,
@@ -1487,7 +1776,7 @@ fn validate_set_application_shape(
 fn validate_list_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
-    arguments: &[DescriptorTermArgument],
+    arguments: &Arguments<DescriptorStage>,
 ) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::List(operation) = application else {
         return Ok(());
@@ -1510,7 +1799,7 @@ fn validate_list_application_shape(
     }
     if arguments
         .iter()
-        .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
+        .any(|argument| !matches!(argument, TermArgumentRef::Positional { .. }))
     {
         return Err(GrammarTransportError::InvalidApplication(
             GrammarApplicationReason::ListOperationsAcceptPositionalArgumentsOnly,
@@ -1713,11 +2002,6 @@ impl GrammarDescriptor {
                         provenance,
                         TransportField::PrecedenceGroups,
                     )?;
-                    if chain.groups.len() < 2 {
-                        return Err(GrammarTransportError::InvalidProduction(
-                            GrammarProductionReason::ShortPrecedenceChain,
-                        ));
-                    }
                 }
                 Ok(())
             }
@@ -2628,12 +2912,13 @@ fn validate_sort_reference(
     reference.sort.validate()
 }
 
-fn validate_group_references(
-    references: &[DescriptorGroupReference],
+fn validate_group_references<'a>(
+    references: impl IntoIterator<Item = &'a DescriptorGroupReference>,
     provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
     field: TransportField,
 ) -> Result<(), GrammarTransportError> {
-    if references.is_empty() {
+    let mut references = references.into_iter().peekable();
+    if references.peek().is_none() {
         return Err(GrammarTransportError::EmptyCollection(field));
     }
     let mut groups = BTreeSet::new();
@@ -2798,7 +3083,9 @@ mod traversal_tests {
                     path_key: key(3),
                     arguments: vec![TermArgument::Positional {
                         value: Box::new(anonymous()),
-                    }],
+                    }]
+                    .try_into()
+                    .unwrap(),
                 },
                 Term::Literal {
                     key: key(4),
@@ -2813,7 +3100,7 @@ mod traversal_tests {
                 anonymous(),
                 Term::OrBool {
                     key: key(7),
-                    arguments: vec![anonymous(), anonymous()],
+                    arguments: vec![anonymous(), anonymous()].try_into().unwrap(),
                 },
                 Term::Cell {
                     key: key(8),
@@ -2824,7 +3111,9 @@ mod traversal_tests {
                         value: Box::new(anonymous()),
                     }],
                 },
-            ],
+            ]
+            .try_into()
+            .unwrap(),
         };
         assert_traversal!(
             term,
@@ -3020,7 +3309,7 @@ mod traversal_tests {
                 key: key(1),
                 chains: vec![DescriptorPrecedenceChain {
                     key: key(2),
-                    groups: vec![group()],
+                    groups: crate::AtLeastTwo::new(group(), group(), Vec::new()),
                 }],
             },
             StageGrammarDescriptor::Associativity {

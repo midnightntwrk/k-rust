@@ -139,6 +139,17 @@ const UNSUPPORTED_FLATTENED: &[&str] = &[
 // Untagged variants must remain outside reflection.
 const UNSUPPORTED_UNTAGGED: &[&str] = &["DefinitionRuleBody", "SemanticRuleBody"];
 
+// Refined types reject the tracer's default values, so they must remain outside reflection.
+const UNSUPPORTED_REFINED: &[&str] = &[
+    "DescriptorPrecedenceChain",
+    "DescriptorCellType",
+    "Arguments",
+    "AtLeastTwo",
+    "ConfigurationSentenceKind",
+    "IrRewrite",
+    "TermMapOperation",
+];
+
 // Validated deserializers that reach unsupported descendants must remain outside reflection.
 const UNSUPPORTED_VALIDATED: &[&str] = &[
     "DefinitionIr",
@@ -235,6 +246,7 @@ const UNTRACEABLE: &[&[&str]] = &[
     UNSUPPORTED_FLATTENED,
     UNSUPPORTED_UNTAGGED,
     UNSUPPORTED_VALIDATED,
+    UNSUPPORTED_REFINED,
     UNSUPPORTED_TRANSITIVE,
 ];
 
@@ -673,14 +685,25 @@ fn registry() -> Registry {
     trace!(DescriptorCellMultiplicity: DescriptorCellMultiplicity);
     trace!(DescriptorCellName: DescriptorCellName);
     trace!(DescriptorCellReference: DescriptorCellReference);
-    trace!(DescriptorCellType: DescriptorCellType);
+    trace!(DescriptorCellTypeWire: krs_ir::transport::configuration::DescriptorCellTypeWire);
+    {
+        let mut probe = Tracer::new(
+            TracerConfig::default()
+                .is_human_readable(true)
+                .default_string_value("Bag".to_owned()),
+        );
+        probe
+            .trace_type::<DescriptorCellCollectionType>(&Samples::new())
+            .unwrap();
+        assert!(classified.insert("DescriptorCellCollectionType".to_owned()));
+    }
     trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
     trace!(DescriptorContextAliasReference: DescriptorContextAliasReference);
     trace!(DescriptorFieldReference: DescriptorFieldReference);
     trace!(DescriptorGroupReference: DescriptorGroupReference);
     trace!(DescriptorKSequenceNotation: DescriptorKSequenceNotation);
     trace!(DescriptorLexicalPrecedence: DescriptorLexicalPrecedence);
-    trace!(DescriptorPrecedenceChain: DescriptorPrecedenceChain);
+    trace!(DescriptorPrecedenceChainWire: krs_ir::transport::grammar::DescriptorPrecedenceChainWire);
     trace!(DescriptorRuleLabel: DescriptorRuleLabel);
     trace!(DescriptorRulePriority: DescriptorRulePriority);
     trace!(DescriptorSimplification: DescriptorSimplification);
@@ -765,6 +788,39 @@ fn registry() -> Registry {
             probed.insert(stringify!($name).to_owned());
         }};
     }
+    macro_rules! refined {
+        ($name:ident : $ty:ty) => {{
+            let mut probe = Tracer::new(config());
+            assert!(
+                probe.trace_type::<$ty>(&samples).is_err(),
+                "{} requires a valid sample",
+                stringify!($name)
+            );
+            assert!(classified.insert(stringify!($name).to_owned()));
+            probed.insert(stringify!($name).to_owned());
+        }};
+    }
+    // A container whose trace first reaches a refined descendant fails with that type's rejection.
+    macro_rules! reaches_refined {
+        ($name:ident : $ty:ty) => {{
+            let mut probe = Tracer::new(config());
+            let error = probe.trace_type::<$ty>(&samples).unwrap_err();
+            assert!(
+                matches!(error, Error::Custom(_)),
+                "{} changed reflection status: {error:?}",
+                stringify!($name)
+            );
+            assert!(classified.insert(stringify!($name).to_owned()));
+            probed.insert(stringify!($name).to_owned());
+        }};
+    }
+    refined!(DescriptorPrecedenceChain: DescriptorPrecedenceChain);
+    refined!(DescriptorCellType: DescriptorCellType);
+    refined!(Arguments: Arguments<DescriptorStage>);
+    refined!(AtLeastTwo: AtLeastTwo<String>);
+    refined!(ConfigurationSentenceKind: ConfigurationSentenceKind);
+    refined!(IrRewrite: IrRewrite<SemanticLevel>);
+    refined!(TermMapOperation: TermMapOperation);
     unsupported!(CellAttribute: CellAttribute);
     unsupported!(CellContentFrame: CellContentFrame);
     unsupported!(ConfigurationRoot: ConfigurationRoot);
@@ -881,7 +937,7 @@ fn registry() -> Registry {
     unsupported!(FixedConfigurationPattern: FixedConfigurationPattern<String,String>);
     unsupported!(FixedConfigurationRewrite: FixedConfigurationRewrite<String,String>);
     unsupported!(ProtocolCellContent: ProtocolCellContent<String,String>);
-    unsupported!(ProtocolCellField: ProtocolCellField<String,String,String>);
+    reaches_refined!(ProtocolCellField: ProtocolCellField<String,String,String>);
     unsupported!(ProtocolMapBody: ProtocolMapBody<String>);
     unsupported!(ProtocolMap: ProtocolMap<String>);
     unsupported!(ProtocolInitializerStateTerm: ProtocolInitializerStateTerm<String>);

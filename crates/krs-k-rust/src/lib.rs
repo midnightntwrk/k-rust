@@ -30,13 +30,13 @@ use krs_diagnostic::{Code, Diagnostic, Label, Location, Severity, ToDiagnostic, 
 use krs_ir::{
     ApplicationRef, BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality,
     ConfigurationRoot, ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
-    DefinitionIr, DefinitionProductionAttribute, DefinitionRuleBody, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
-    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
-    GrammarProductionItemKind, GroupAssociativity, ListOperation, MapOperation, NodeOrigin,
-    OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind,
-    SentenceKind, SetOperation, SourceMapKey, StableItemId, StrictnessKind, SymbolId,
+    DefinitionIr, DefinitionProductionAttribute, DefinitionSentence, DefinitionSortRef,
+    DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
+    GroupAssociativity, ListOperation, MapOperation, NodeOrigin, OriginFrame, ProductionGroupId,
+    ProductionSentence, RuleBodyRef, RuleSentence, SemanticId, SemanticIdKind, SentenceKind,
+    SetOperation, SourceMapKey, StableItemId, StrictnessKind, SymbolId,
 };
 use serde_json::json;
 
@@ -1913,15 +1913,33 @@ impl<'a> Adapter<'a> {
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
         let body = match sentence.relational_body() {
-            DefinitionRuleBody::Term(term) => self.term(
-                term,
-                module,
-                sentence_index,
-                Vec::new(),
-                TermContext::Normal,
-                Some(sentence),
-            )?,
-            DefinitionRuleBody::Configuration(rewrite) => {
+            RuleBodyRef::Term(term) => {
+                self.map_sentence_origin(
+                    term.origin(),
+                    module,
+                    sentence_index,
+                    SentenceNodeRole::Term(Vec::new()),
+                );
+                NativeTerm::Rewrite {
+                    left: Box::new(self.term(
+                        term.from(),
+                        module,
+                        sentence_index,
+                        vec![0],
+                        TermContext::Normal,
+                        Some(sentence),
+                    )?),
+                    right: Box::new(self.term(
+                        term.to(),
+                        module,
+                        sentence_index,
+                        vec![1],
+                        TermContext::Normal,
+                        Some(sentence),
+                    )?),
+                }
+            }
+            RuleBodyRef::Configuration { body: rewrite, .. } => {
                 self.configuration_rewrite(rewrite, module, sentence_index, sentence)?
             }
         };

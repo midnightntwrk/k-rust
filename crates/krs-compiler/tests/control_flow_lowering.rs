@@ -9,12 +9,12 @@ use krs_compiler::{
 use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
-    DefinitionRuleBody, DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause,
-    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, PackageId,
     PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, SemanticClaim, SemanticClaimBinder,
+    ProductionGroupId, ProductionResultSort, RuleBodyRef, SemanticClaim, SemanticClaimBinder,
     SemanticContextAlias, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
     SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
     SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
@@ -1063,10 +1063,10 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
     );
     assert!(rules.values().all(|rule| matches!(
         rule.relational_body(),
-        DefinitionRuleBody::Configuration(body)
+        RuleBodyRef::Configuration { body, .. }
             if body.clauses().len() == 1 && body.omitted_siblings().len() == 1
     )));
-    let DefinitionRuleBody::Configuration(done) = rules["done"].relational_body() else {
+    let RuleBodyRef::Configuration { body: done, .. } = rules["done"].relational_body() else {
         unreachable!()
     };
     assert!(matches!(
@@ -1075,7 +1075,7 @@ fn assert_definition_structure(lowered: &LoweredDefinition) {
             if matches!(term.kind(), DefinitionTermKind::KSequence { items, .. }
                 if items.is_empty())
     ));
-    let DefinitionRuleBody::Configuration(block) = rules["block"].relational_body() else {
+    let RuleBodyRef::Configuration { body: block, .. } = rules["block"].relational_body() else {
         unreachable!()
     };
     assert!(matches!(

@@ -343,6 +343,8 @@ macro_rules! stage_shape {
     (@map [keep] $value:expr, $map:ident) => { $value };
     (@map [keep] $value:tt $map:ident) => { $value };
     (@map [box $($inner:tt)+] $value:tt $map:ident) => { Box::new(stage_shape!(@map [$($inner)+] (*$value) $map)) };
+    (@map [nonempty $($inner:tt)+] $value:tt $map:ident) => { $value.try_map(|value| Ok(stage_shape!(@map [$($inner)+] value $map)))? };
+    (@map [at_least_two $($inner:tt)+] $value:tt $map:ident) => { $value.try_map(|value| Ok(stage_shape!(@map [$($inner)+] value $map)))? };
     (@map [vec $($inner:tt)+] $value:tt $map:ident) => { $value.into_iter().map(|value| Ok(stage_shape!(@map [$($inner)+] value $map))).collect::<Result<Vec<_>, M::Error>>()? };
     (@map [option $($inner:tt)+] $value:tt $map:ident) => { $value.map(|value| Ok(stage_shape!(@map [$($inner)+] value $map))).transpose()? };
     (@map [nested] $value:tt $map:ident) => { $value.try_map_refs($map)? };

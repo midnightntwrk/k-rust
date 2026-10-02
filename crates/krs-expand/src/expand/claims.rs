@@ -6,9 +6,7 @@ use krs_ir::wire::{
     WireClaim, WireClaimBinder, WireConfigurationReference, WireConfigurationRule, WirePayload,
     WireRuleCondition, WireTypeReference,
 };
-use krs_ir::{
-    ClaimModality, DescriptorRuleLabel, ProtocolRuleBinding, ProtocolRuleBindingKind, SentenceKind,
-};
+use krs_ir::{ClaimModality, DescriptorRuleLabel, ProtocolRuleBinding, ProtocolRuleBindingKind};
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ProvenanceRole, RuleSide, StateRuleBindingKind,
@@ -258,7 +256,7 @@ fn configuration_claim(
     }
     let island_import_checks = consumed_state_island_import_checks(original);
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
-        sentence_kind: SentenceKind::Claim,
+        sentence_kind: krs_ir::ConfigurationSentenceKind::Claim,
         label: Some(DescriptorRuleLabel {
             key: wire_key(ProvenanceRole::ClaimLabel, 0),
             name: label_name,

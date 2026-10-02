@@ -6,14 +6,14 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_compiler::{EmittedK, LoweringError, SourceMapNodeKind, lower_semantic_theory};
 use krs_ir::testing;
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
-    DefinitionRuleBody, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
-    FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, PackageId,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionFieldReference,
-    ProductionGroupId, ProductionResultSort, SemanticId, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
-    SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, StableItemId, StrictnessKind,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, FixedCell,
+    FixedCellClause, FixedConfiguration, FixedConfigurationRewrite, FixedConfigurationVariable,
+    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, ItemKind,
+    MapOperation, ModuleId, NodeOrigin, PackageId, PrecedenceRelation, ProductionAttribute,
+    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionResultSort,
+    RuleBodyRef, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SemanticVariable, SentenceKind, StableItemId, StrictnessKind,
 };
 use krs_test_support::kompile_reference;
 
@@ -673,7 +673,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         rules.keys().copied().collect::<Vec<_>>(),
         ["assign", "step", "var"]
     );
-    let DefinitionRuleBody::Configuration(step) = rules["step"].relational_body() else {
+    let RuleBodyRef::Configuration { body: step, .. } = rules["step"].relational_body() else {
         panic!("step must remain a configuration rule")
     };
     assert_eq!(step.clauses().len(), 1);
@@ -690,7 +690,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
             if matches!(term.kind(), krs_ir::DefinitionTermKind::KSequence { items, .. }
                 if items.len() == 2)
     ));
-    let DefinitionRuleBody::Configuration(var_rule) = rules["var"].relational_body() else {
+    let RuleBodyRef::Configuration { body: var_rule, .. } = rules["var"].relational_body() else {
         panic!("var must remain a configuration rule")
     };
     assert!(matches!(
@@ -705,7 +705,10 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         var_rule.clauses()[1].frame(),
         CellContentFrame::MapRemainder { binding: None, .. }
     ));
-    let DefinitionRuleBody::Configuration(assign_rule) = rules["assign"].relational_body() else {
+    let RuleBodyRef::Configuration {
+        body: assign_rule, ..
+    } = rules["assign"].relational_body()
+    else {
         panic!("assign must remain a configuration rule")
     };
     assert!(matches!(

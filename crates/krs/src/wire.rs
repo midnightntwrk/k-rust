@@ -486,10 +486,17 @@ mod tests {
     fn grammar_ordering_and_subsort_wire_match_code_built_payloads() {
         let chain = DescriptorPrecedenceChain {
             key: key(ProvenanceRole::PrecedenceChain),
-            groups: vec![DescriptorGroupReference {
-                key: key(ProvenanceRole::AssociativityGroupReference),
-                group: ProductionGroupId::new("arith").unwrap(),
-            }],
+            groups: krs_ir::AtLeastTwo::new(
+                DescriptorGroupReference {
+                    key: key(ProvenanceRole::PrecedenceGroupReference),
+                    group: ProductionGroupId::new("arith").unwrap(),
+                },
+                DescriptorGroupReference {
+                    key: krs_ir::ProvenanceKey::new(ProvenanceRole::PrecedenceGroupReference, 1),
+                    group: ProductionGroupId::new("atom").unwrap(),
+                },
+                Vec::new(),
+            ),
         };
         let actual = decode(
             &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Precedence {
@@ -1049,7 +1056,7 @@ mod tests {
             });
             let actual = decode(
                 &WirePayload::ConfigurationRule(Box::new(krs_ir::wire::WireConfigurationRule {
-                    sentence_kind,
+                    sentence_kind: sentence_kind.try_into().unwrap(),
                     label: None,
                     priority: None,
                     requires: None,
@@ -1066,7 +1073,7 @@ mod tests {
             );
             let expected =
                 HostDescriptorPayload::ConfigurationRule(Box::new(krs_ir::HostConfigurationRule {
-                    sentence_kind,
+                    sentence_kind: sentence_kind.try_into().unwrap(),
                     label: None,
                     priority: None,
                     requires: None,

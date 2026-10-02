@@ -17,7 +17,7 @@ use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shap
 use crate::host::{HostTypeKey, HostTypeReference};
 use crate::transport::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference,
-    DescriptorTerm, HostSortReference, HostTerm, Term, TermArgument,
+    DescriptorTerm, HostSortReference, HostTerm, Term,
 };
 use crate::{
     BuiltinSort, DescriptorLiteral, ItemKind, ProductionFieldId, ProvenanceKey, ProvenanceRole,
@@ -137,14 +137,80 @@ pub struct DescriptorCellMultiplicity {
     pub value: String,
 }
 
+/// Supported K collection spellings for repeated-cell declarations.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum DescriptorCellCollectionType {
+    /// Commutative bag collection.
+    Bag,
+    /// Ordered list collection.
+    List,
+    /// Keyed map collection.
+    Map,
+    /// Commutative set collection.
+    Set,
+}
+
+impl TryFrom<String> for DescriptorCellCollectionType {
+    type Error = StateTransportError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "Bag" => Ok(Self::Bag),
+            "List" => Ok(Self::List),
+            "Map" => Ok(Self::Map),
+            "Set" => Ok(Self::Set),
+            _ => Err(StateTransportError::InvalidTerm(
+                StateTermReason::UnsupportedRepeatedCellCollection,
+            )),
+        }
+    }
+}
+
+impl From<DescriptorCellCollectionType> for crate::CellCollectionType {
+    fn from(value: DescriptorCellCollectionType) -> Self {
+        match value {
+            DescriptorCellCollectionType::Bag => Self::Bag,
+            DescriptorCellCollectionType::List => Self::List,
+            DescriptorCellCollectionType::Map => Self::Map,
+            DescriptorCellCollectionType::Set => Self::Set,
+        }
+    }
+}
+
+impl From<DescriptorCellCollectionType> for String {
+    fn from(value: DescriptorCellCollectionType) -> Self {
+        crate::CellCollectionType::from(value).as_str().into()
+    }
+}
+
 /// Optional classified repeated-cell collection type.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, try_from = "DescriptorCellTypeWire")]
 pub struct DescriptorCellType {
     /// Exact string-literal provenance.
     pub key: ProvenanceKey,
     /// Exact supported K collection type spelling.
-    pub value: String,
+    pub value: DescriptorCellCollectionType,
+}
+
+/// Plain string wire shape for the repeated-cell collection attribute.
+#[doc(hidden)]
+#[derive(Deserialize)]
+#[serde(rename = "DescriptorCellType", deny_unknown_fields)]
+pub struct DescriptorCellTypeWire {
+    key: ProvenanceKey,
+    value: String,
+}
+
+impl TryFrom<DescriptorCellTypeWire> for DescriptorCellType {
+    type Error = StateTransportError;
+    fn try_from(value: DescriptorCellTypeWire) -> Result<Self, Self::Error> {
+        Ok(Self {
+            key: value.key,
+            value: value.value.try_into()?,
+        })
+    }
 }
 
 protocol_shape! {
@@ -1228,11 +1294,6 @@ fn validate_cell_metadata<I, S, N>(
                 StateTermReason::CellTypeRequiresRepeatedMultiplicity,
             ));
         }
-        if !matches!(cell_type.value.as_str(), "Bag" | "List" | "Map" | "Set") {
-            return Err(StateTransportError::InvalidTerm(
-                StateTermReason::UnsupportedRepeatedCellCollection,
-            ));
-        }
         insert_exact(
             keys,
             &cell_type.key,
@@ -1768,7 +1829,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         head_class: DescriptorApplicationHeadClass,
         reference: &S::Application,
         path_key: &ProvenanceKey,
-        arguments: &[TermArgument<S>],
+        arguments: &crate::Arguments<S>,
     ) -> Result<(), Self::Error> {
         if S::application_key(reference) != path_key
             || (head_class == DescriptorApplicationHeadClass::BareReference
@@ -1832,7 +1893,11 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         ))
     }
 
-    fn or_bool(&mut self, _: &ProvenanceKey, _: &[Term<S>]) -> Result<(), Self::Error> {
+    fn or_bool(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &crate::AtLeastTwo<Term<S>>,
+    ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerClaimTerm,
         ))
@@ -1851,13 +1916,12 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn argument(
         &mut self,
-        argument: &TermArgument<S>,
-        _: bool,
+        argument: crate::TermArgumentRef<'_, S>,
         _: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         match argument {
-            TermArgument::Positional { .. } => Ok(()),
-            TermArgument::Named { .. } => Err(StateTransportError::InvalidTerm(
+            crate::TermArgumentRef::Positional { .. } => Ok(()),
+            crate::TermArgumentRef::Named { .. } => Err(StateTransportError::InvalidTerm(
                 StateTermReason::InitializerRecordFieldProvenance,
             )),
         }

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use krs_ir::bytes_token;
 use krs_ir::wire::{
     ItemSlot, TargetSlot, TypeSlot, WireApplicationReference, WireCellTermField, WireSortReference,
-    WireTerm, WireTermArgument, WireTypeReference,
+    WireTerm, WireTypeReference,
 };
 use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, ProvenanceKey};
 use krs_syntax::{ProvenanceRole, TermArguments, TermTree};
@@ -304,28 +304,29 @@ impl<'a> TermBuilder<'a> {
                 } else {
                     self.application_wire_slot(application.head(), slots)?
                 };
-                let mut arguments = Vec::new();
-                match application.arguments() {
+                let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
+                        let mut arguments = Vec::new();
                         for value in values {
-                            arguments.push(WireTermArgument::Positional {
-                                value: Box::new(self.expand_wire(value, side, slots)?),
-                            });
+                            arguments.push(Box::new(self.expand_wire(value, side, slots)?));
                         }
+                        krs_ir::Arguments::Positional(arguments)
                     }
                     TermArguments::Named(values) => {
+                        let mut arguments = Vec::new();
                         for argument in values {
                             let ordinal = take_counter(&mut self.counters.field)?;
                             let field = ProductionFieldId::new(argument.name().to_string())
                                 .expect("Rust field identifiers are valid production fields");
-                            arguments.push(WireTermArgument::Named {
+                            arguments.push(krs_ir::NamedTermArgument {
                                 key: wire_key(side.role(TermRole::RecordFieldName), ordinal),
                                 field,
                                 value: Box::new(self.expand_wire(argument.value(), side, slots)?),
                             });
                         }
+                        krs_ir::Arguments::named(arguments)
                     }
-                }
+                };
                 Ok(WireTerm::Application {
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
@@ -370,7 +371,7 @@ impl<'a> TermBuilder<'a> {
                             authored_path,
                         },
                         path_key,
-                        arguments: Vec::new(),
+                        arguments: krs_ir::Arguments::default(),
                     })
                 }
             }
@@ -448,7 +449,18 @@ impl<'a> TermBuilder<'a> {
                     .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::OrBool {
                     key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    arguments,
+                    arguments: arguments.try_into().map_err(
+                        |_: krs_ir::AtLeastTwoError| {
+                            ExpandError::new(
+                                expand::CLAIM_ONLY_TERM,
+                                Span::call_site(),
+                                krs_ir::StateTransportError::InvalidTerm(
+                                    krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
+                                )
+                                .to_string(),
+                            )
+                        },
+                    )?,
                 })
             }
             TermTree::Cell(cell) => {

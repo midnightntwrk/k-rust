@@ -899,13 +899,57 @@ pub enum MapOperation {
     InKeys,
 }
 
-impl MapOperation {
-    /// Map operations which may occur as ordinary authored term applications.
+/// Map operations available as ordinary term application heads.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "MapOperation", into = "MapOperation")]
+pub enum TermMapOperation {
+    /// Functional map update.
+    Update,
+    /// Partial lookup of the value associated with a key.
+    Get,
+    /// Boolean key membership.
+    InKeys,
+}
+
+impl TermMapOperation {
+    /// Map operations which may occur as ordinary authored term applications, in stable semantic order.
     ///
-    /// Empty maps and map items retain their dedicated `map!` structural
-    /// syntax. Persistent update is the one function-shaped operation and is
-    /// therefore resolved through the ordinary application-head registry.
-    pub const TERM_APPLICATIONS: [Self; 3] = [Self::Update, Self::Get, Self::InKeys];
+    /// Empty maps and map items retain their dedicated `map!` structural syntax.
+    /// Update, lookup, and key membership resolve through the ordinary application-head registry.
+    pub const ALL: [Self; 3] = [Self::Update, Self::Get, Self::InKeys];
+}
+
+impl TryFrom<MapOperation> for TermMapOperation {
+    type Error = crate::GrammarTransportError;
+
+    fn try_from(operation: MapOperation) -> Result<Self, Self::Error> {
+        match operation {
+            MapOperation::Update => Ok(Self::Update),
+            MapOperation::Get => Ok(Self::Get),
+            MapOperation::InKeys => Ok(Self::InKeys),
+            MapOperation::Empty | MapOperation::Item => {
+                Err(crate::GrammarTransportError::InvalidApplication(
+                    crate::transport::detail::GrammarApplicationReason::StructuralMapApplication,
+                ))
+            }
+        }
+    }
+}
+
+impl From<TermMapOperation> for MapOperation {
+    fn from(operation: TermMapOperation) -> Self {
+        match operation {
+            TermMapOperation::Update => Self::Update,
+            TermMapOperation::Get => Self::Get,
+            TermMapOperation::InKeys => Self::InKeys,
+        }
+    }
+}
+
+impl fmt::Display for TermMapOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&MapOperation::from(*self), formatter)
+    }
 }
 
 /// Exact builtin-list operations selected from pinned module `LIST`.

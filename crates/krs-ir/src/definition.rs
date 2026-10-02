@@ -900,9 +900,52 @@ pub type DefinitionSimplification = crate::IrSimplification;
 pub type DefinitionSimplificationPriority = crate::IrSimplificationPriority;
 
 /// Rule, equation, or claim sentence.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
+#[serde(deny_unknown_fields, try_from = "RuleSentenceWire")]
 pub struct RuleSentence {
+    origin: NodeOrigin,
+    label: LabelIdentity,
+    variables: Vec<DefinitionVariable>,
+    requires: Option<DefinitionRuleCondition>,
+    priority: Option<DefinitionRulePriority>,
+    simplification: Option<DefinitionSimplification>,
+    claim: Option<DefinitionClaim>,
+    content: crate::ir_level::RuleContent<crate::DefinitionLevel>,
+}
+
+impl Serialize for RuleSentence {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let count = 5
+            + usize::from(self.requires.is_some())
+            + usize::from(self.priority.is_some())
+            + usize::from(self.simplification.is_some())
+            + usize::from(self.claim.is_some());
+        let mut fields = serializer.serialize_struct("RuleSentence", count)?;
+        fields.serialize_field("origin", &self.origin)?;
+        fields.serialize_field("label", &self.label)?;
+        fields.serialize_field("kind", &self.kind())?;
+        fields.serialize_field("variables", &self.variables)?;
+        if let Some(value) = &self.requires {
+            fields.serialize_field("requires", value)?;
+        }
+        if let Some(value) = &self.priority {
+            fields.serialize_field("priority", value)?;
+        }
+        if let Some(value) = &self.simplification {
+            fields.serialize_field("simplification", value)?;
+        }
+        if let Some(value) = &self.claim {
+            fields.serialize_field("claim", value)?;
+        }
+        fields.serialize_field("body", &self.relational_body())?;
+        fields.end()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "RuleSentence", deny_unknown_fields)]
+struct RuleSentenceWire {
     origin: NodeOrigin,
     label: LabelIdentity,
     kind: SentenceKind,
@@ -915,7 +958,35 @@ pub struct RuleSentence {
     simplification: Option<DefinitionSimplification>,
     #[serde(skip_serializing_if = "Option::is_none")]
     claim: Option<DefinitionClaim>,
-    body: DefinitionRuleBody,
+    body: crate::ir_level::RuleBodyWire<crate::DefinitionLevel>,
+}
+
+impl TryFrom<RuleSentenceWire> for RuleSentence {
+    type Error = DefinitionValidationError;
+    fn try_from(value: RuleSentenceWire) -> Result<Self, Self::Error> {
+        let content = value.body.refine(value.kind).map_err(|error| match error {
+            crate::ir_level::RuleBodyRefinementError::NotRewrite => {
+                DefinitionValidationError::RuleBodyNotRewrite(value.label.id.clone())
+            }
+            crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
+                if value.kind == SentenceKind::Alias {
+                    DefinitionValidationError::InvalidAliasRoot(value.label.id.clone())
+                } else {
+                    DefinitionValidationError::InvalidSimplificationRoot(value.label.id.clone())
+                }
+            }
+        })?;
+        Ok(Self {
+            origin: value.origin,
+            label: value.label,
+            variables: value.variables,
+            requires: value.requires,
+            priority: value.priority,
+            simplification: value.simplification,
+            claim: value.claim,
+            content,
+        })
+    }
 }
 
 /// Structured relational body of one ordinary labeled Definition rule.
@@ -933,42 +1004,38 @@ impl RuleSentence {
         variables: Vec<DefinitionVariable>,
         body: DefinitionTerm,
     ) -> Result<Self, DefinitionValidationError> {
-        if !matches!(body.kind, DefinitionTermKind::Rewrite { .. }) {
-            return Err(DefinitionValidationError::RuleBodyNotRewrite(
-                label.id.clone(),
-            ));
-        }
+        let body = body
+            .try_into()
+            .map_err(|_| DefinitionValidationError::RuleBodyNotRewrite(label.id.clone()))?;
         Ok(Self {
             origin,
             label,
-            kind,
             variables,
             requires: None,
             priority: None,
             simplification: None,
             claim: None,
-            body: DefinitionRuleBody::Term(body),
+            content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
     /// Creates an ordinary labeled simultaneous fixed-configuration rule.
     #[must_use]
-    pub const fn new_configuration(
+    pub fn new_configuration(
         origin: NodeOrigin,
         label: LabelIdentity,
-        kind: SentenceKind,
+        kind: crate::ConfigurationSentenceKind,
         variables: Vec<DefinitionVariable>,
         body: FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     ) -> Self {
         Self {
             origin,
             label,
-            kind,
             variables,
             requires: None,
             priority: None,
             simplification: None,
             claim: None,
-            body: DefinitionRuleBody::Configuration(body),
+            content: crate::ir_level::RuleContent::Configuration { kind, body },
         }
     }
     /// Returns sentence provenance.
@@ -984,7 +1051,7 @@ impl RuleSentence {
     /// Returns the explicit sentence kind.
     #[must_use]
     pub const fn kind(&self) -> SentenceKind {
-        self.kind
+        self.content.kind()
     }
     /// Attaches an explicit equation or transition-rule priority.
     ///
@@ -997,7 +1064,10 @@ impl RuleSentence {
         priority: Option<DefinitionRulePriority>,
     ) -> Result<Self, DefinitionValidationError> {
         if priority.is_some()
-            && !matches!(self.kind, SentenceKind::Equation | SentenceKind::Transition)
+            && !matches!(
+                self.kind(),
+                SentenceKind::Equation | SentenceKind::Transition
+            )
         {
             return Err(DefinitionValidationError::InvalidRulePriority(
                 self.label.id.clone(),
@@ -1061,18 +1131,20 @@ impl RuleSentence {
     pub const fn requires(&self) -> Option<&DefinitionRuleCondition> {
         self.requires.as_ref()
     }
-    /// Returns the ordinary term rewrite body, when present.
+    /// Borrows the term rewrite body, when present.
     #[must_use]
-    pub const fn body(&self) -> Option<&DefinitionTerm> {
-        match &self.body {
-            DefinitionRuleBody::Term(value) => Some(value),
-            DefinitionRuleBody::Configuration(_) => None,
+    pub fn body(&self) -> Option<&crate::IrRewrite<crate::DefinitionLevel>> {
+        match &self.content {
+            crate::ir_level::RuleContent::Term { body, .. } => Some(body),
+            crate::ir_level::RuleContent::Configuration { .. } => None,
         }
     }
     /// Returns the typed relational body.
     #[must_use]
-    pub const fn relational_body(&self) -> &DefinitionRuleBody {
-        &self.body
+    pub const fn relational_body(
+        &self,
+    ) -> crate::ir_level::RuleBodyRef<'_, crate::DefinitionLevel> {
+        self.content.body()
     }
 }
 
@@ -1766,7 +1838,6 @@ mod tests {
                 "reachability",
             )
             .expect("valid label"),
-            kind: SentenceKind::Claim,
             variables: vec![DefinitionVariable::new(
                 sid("exists"),
                 DefinitionSortRef::Builtin(BuiltinSort::Int),
@@ -1782,7 +1853,59 @@ mod tests {
                 vec![binder],
                 None,
             )),
-            body: DefinitionRuleBody::Configuration(body),
+            content: crate::ir_level::RuleContent::Configuration {
+                kind: crate::ConfigurationSentenceKind::Claim,
+                body,
+            },
+        }
+    }
+
+    #[test]
+    fn configuration_rule_round_trip_retains_refined_sentence_kind() {
+        for expected in [
+            crate::ConfigurationSentenceKind::Transition,
+            crate::ConfigurationSentenceKind::Equation,
+            crate::ConfigurationSentenceKind::Claim,
+        ] {
+            let mut sentence = claim_sentence(int_token("before"), int_token("after"));
+            let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut sentence.content
+            else {
+                panic!("fixture requires a configuration body")
+            };
+            *kind = expected;
+            let json = serde_json::to_value(&sentence).unwrap();
+            assert_eq!(json["kind"], serde_json::to_value(expected).unwrap());
+            assert!(json["body"].get("kind").is_none());
+            let decoded: RuleSentence = serde_json::from_value(json).unwrap();
+            assert_eq!(decoded, sentence);
+            assert!(matches!(
+                decoded.relational_body(),
+                crate::RuleBodyRef::Configuration { kind, .. } if kind == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn configuration_rule_boundary_rejects_alias_and_simplification() {
+        let sentence = claim_sentence(int_token("before"), int_token("after"));
+        for (kind, expected) in [
+            (
+                SentenceKind::Alias,
+                DefinitionValidationError::InvalidAliasRoot(sentence.label().id().clone()),
+            ),
+            (
+                SentenceKind::Simplification,
+                DefinitionValidationError::InvalidSimplificationRoot(sentence.label().id().clone()),
+            ),
+        ] {
+            let mut json = serde_json::to_value(&sentence).unwrap();
+            json["kind"] = serde_json::to_value(kind).unwrap();
+            assert!(
+                serde_json::from_value::<RuleSentence>(json)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(&expected.to_string())
+            );
         }
     }
 
@@ -1852,7 +1975,9 @@ mod tests {
     #[test]
     fn definition_claim_metadata_is_exclusive_to_claim_sentences() {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
-        sentence.kind = SentenceKind::Transition;
+        if let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut sentence.content {
+            *kind = crate::ConfigurationSentenceKind::Transition;
+        }
         assert!(matches!(
             validate_rule::<DefinitionLevel>(
                 &sentence,
@@ -1890,15 +2015,18 @@ mod tests {
     #[test]
     fn definition_claim_requires_configuration_body() {
         let mut sentence = claim_sentence(int_token("before"), int_variable("after", "exists"));
-        sentence.body = DefinitionRuleBody::Term(
-            DefinitionTerm::rewrite(
+        sentence.content = crate::ir_level::RuleContent::Term {
+            kind: SentenceKind::Claim,
+            body: DefinitionTerm::rewrite(
                 node("term-rewrite"),
                 DefinitionSortRef::Builtin(BuiltinSort::Int),
                 int_token("term-before"),
                 int_variable("term-after", "exists"),
             )
-            .expect("valid rewrite"),
-        );
+            .expect("valid rewrite")
+            .try_into()
+            .unwrap(),
+        };
         assert!(matches!(
             validate_rule::<DefinitionLevel>(
                 &sentence,

@@ -22,7 +22,7 @@ use krs_ir::{
     HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
     ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
     ProductionGroupId, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
-    StrictnessKind, StructuredRuleDescriptor, enum_variant_disambiguator,
+    StrictnessKind, StructuredRuleDescriptor, TermMapOperation, enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -313,7 +313,9 @@ fn expression_descriptors() -> Vec<Descriptor> {
                         field: ProductionFieldId::new("lhs").unwrap(),
                         value: Box::new(variable()),
                     },
-                ],
+                ]
+                .try_into()
+                .unwrap(),
             },
             result: DescriptorTerm::Variable {
                 key: key(ProvenanceRole::RuleRightReference, 0),
@@ -437,7 +439,9 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
                         literal: DescriptorLiteral::Int("0".into()),
                     }),
                 },
-            ],
+            ]
+            .try_into()
+            .unwrap(),
         },
     });
 
@@ -468,9 +472,10 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value } = &mut arguments[0] else {
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
+    let value = &mut arguments[0];
     let DescriptorTerm::Variable { name, .. } = value.as_mut() else {
         unreachable!()
     };
@@ -492,9 +497,10 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value } = &mut arguments[0] else {
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
+    let value = &mut arguments[0];
     let DescriptorTerm::Variable { name, .. } = value.as_mut() else {
         unreachable!()
     };
@@ -598,7 +604,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
             application: DescriptorApplicationRef::Declared(item("False", ItemKind::Constructor)),
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
-        arguments: vec![],
+        arguments: vec![].try_into().unwrap(),
     };
     descriptors[1].validate_grammar_contract().unwrap();
     let bundle = DescriptorBundle::new(descriptors);
@@ -622,7 +628,9 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
                 key: key(ProvenanceRole::RuleRightLiteral, 0),
                 literal: DescriptorLiteral::Int("0".into()),
             }),
-        }],
+        }]
+        .try_into()
+        .unwrap(),
     };
     assert!(matches!(
         descriptors[1].validate_grammar_contract(),
@@ -657,7 +665,7 @@ fn ordinary_map_references_have_closed_wire_shapes() {
     };
     let application = DescriptorApplicationReference {
         key: key(ProvenanceRole::RuleRightApplicationHead, 0),
-        application: DescriptorApplicationRef::Map(MapOperation::Update),
+        application: DescriptorApplicationRef::Map(TermMapOperation::Update),
     };
     assert_eq!(
         serde_json::to_string(&application).unwrap(),
@@ -667,12 +675,12 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: application,
         path_key: key(ProvenanceRole::RuleRightPath, 0),
-        arguments: ["map", "key", "value"]
-            .into_iter()
-            .map(|name| DescriptorTermArgument::Positional {
-                value: Box::new(variable(name)),
-            })
-            .collect(),
+        arguments: krs_ir::Arguments::Positional(
+            ["map", "key", "value"]
+                .into_iter()
+                .map(|name| Box::new(variable(name)))
+                .collect(),
+        ),
     };
     let bindings = ["map", "key", "value"]
         .into_iter()
@@ -681,8 +689,8 @@ fn ordinary_map_references_have_closed_wire_shapes() {
     term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
         .unwrap();
     for (operation, names) in [
-        (MapOperation::Get, ["map", "key"]),
-        (MapOperation::InKeys, ["key", "map"]),
+        (TermMapOperation::Get, ["map", "key"]),
+        (TermMapOperation::InKeys, ["key", "map"]),
     ] {
         let term = DescriptorTerm::Application {
             head_class: DescriptorApplicationHeadClass::Applied,
@@ -691,12 +699,12 @@ fn ordinary_map_references_have_closed_wire_shapes() {
                 application: DescriptorApplicationRef::Map(operation),
             },
             path_key: key(ProvenanceRole::RuleRightPath, 0),
-            arguments: names
-                .into_iter()
-                .map(|name| DescriptorTermArgument::Positional {
-                    value: Box::new(variable(name)),
-                })
-                .collect(),
+            arguments: krs_ir::Arguments::Positional(
+                names
+                    .into_iter()
+                    .map(|name| Box::new(variable(name)))
+                    .collect(),
+            ),
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -704,6 +712,9 @@ fn ordinary_map_references_have_closed_wire_shapes() {
 
     let mut wrong_arity = term.clone();
     let DescriptorTerm::Application { arguments, .. } = &mut wrong_arity else {
+        unreachable!()
+    };
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
     arguments.pop();
@@ -714,12 +725,38 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         ))
     ));
 
-    assert!(matches!(
-        DescriptorApplicationRef::Map(MapOperation::Item).validate(),
-        Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::StructuralMapApplication
-        ))
-    ));
+    for operation in [MapOperation::Empty, MapOperation::Item] {
+        assert_eq!(
+            TermMapOperation::try_from(operation),
+            Err(GrammarTransportError::InvalidApplication(
+                GrammarApplicationReason::StructuralMapApplication
+            ))
+        );
+        let json = serde_json::json!({
+            "application_source": "map",
+            "application": operation,
+        });
+        let error = serde_json::from_value::<DescriptorApplicationRef>(json).unwrap_err();
+        assert!(
+            error.to_string().contains(
+                &GrammarTransportError::InvalidApplication(
+                    GrammarApplicationReason::StructuralMapApplication
+                )
+                .to_string()
+            )
+        );
+    }
+    for operation in TermMapOperation::ALL {
+        let json = serde_json::to_value(operation).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(MapOperation::from(operation)).unwrap()
+        );
+        assert_eq!(
+            serde_json::from_value::<TermMapOperation>(json).unwrap(),
+            operation
+        );
+    }
 }
 
 #[test]
@@ -759,7 +796,9 @@ fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
                 .map(|name| DescriptorTermArgument::Positional {
                     value: Box::new(variable(name)),
                 })
-                .collect(),
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -804,7 +843,9 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
                 .map(|name| DescriptorTermArgument::Positional {
                     value: Box::new(variable(name)),
                 })
-                .collect(),
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -819,7 +860,9 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![DescriptorTermArgument::Positional {
             value: Box::new(variable("list")),
-        }],
+        }]
+        .try_into()
+        .unwrap(),
     };
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),
@@ -977,7 +1020,9 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
                         key: key(ProvenanceRole::PrecedenceGroupReference, 1),
                         group: ProductionGroupId::new("additive").unwrap(),
                     },
-                ],
+                ]
+                .try_into()
+                .unwrap(),
             }],
         },
     );
@@ -1235,9 +1280,9 @@ fn registry() -> HostBuiltinRegistry {
         HostTypeKey(bytes_substring_key),
     ];
     let map_operations = [
-        (MapOperation::Update, map_update_key as fn() -> TypeId),
-        (MapOperation::Get, map_get_key),
-        (MapOperation::InKeys, map_in_keys_key),
+        (TermMapOperation::Update, map_update_key as fn() -> TypeId),
+        (TermMapOperation::Get, map_get_key),
+        (TermMapOperation::InKeys, map_in_keys_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostMapOperationRegistration {
@@ -1319,7 +1364,7 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
     );
     assert_eq!(
         registry.resolve_map_operation(map_update_key()),
-        Some(MapOperation::Update)
+        Some(TermMapOperation::Update)
     );
     assert_eq!(
         registry.resolve_list_operation(list_get_key()),
@@ -1346,13 +1391,17 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
             MapOperation::Update
         ))
     );
-    let mut unsupported = registry.clone();
-    unsupported.map_operations[0].operation = MapOperation::Item;
+    for operation in [MapOperation::Empty, MapOperation::Item] {
+        assert!(matches!(
+            HostMapOperationRegistration::new(operation, HostTypeKey(map_update_key)),
+            Err(HostBuiltinRegistryError::UnsupportedMapOperation(rejected)) if rejected == operation
+        ));
+    }
     assert_eq!(
-        unsupported.validate(),
-        Err(HostBuiltinRegistryError::UnsupportedMapOperation(
-            MapOperation::Item
-        ))
+        HostMapOperationRegistration::new(MapOperation::Update, HostTypeKey(map_update_key))
+            .unwrap()
+            .operation,
+        TermMapOperation::Update
     );
     let mut duplicate = registry.clone();
     duplicate.map_operations.push(duplicate.map_operations[0]);
@@ -1672,4 +1721,87 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
         descriptors[0].validate_grammar_contract(),
         Err(GrammarTransportError::ExtraProvenance(_))
     ));
+}
+
+#[test]
+fn grammar_argument_boundary_preserves_its_contextual_mixed_form_message() {
+    let rule = expression_descriptors()
+        .into_iter()
+        .find_map(|descriptor| match descriptor.payload {
+            DescriptorPayload::StructuredRule(rule) => Some(rule),
+            _ => None,
+        })
+        .unwrap();
+    let original = serde_json::to_value(rule).unwrap();
+    let expected =
+        GrammarTransportError::InvalidApplication(GrammarApplicationReason::MixedArgumentForms);
+    for field in ["subject", "result", "requires"] {
+        for nested in [false, true] {
+            for positional_first in [false, true] {
+                let mut mixed = original["subject"].clone();
+                let positional = serde_json::json!({
+                    "argument_kind": "positional",
+                    "value": mixed["arguments"][0]["value"].clone(),
+                });
+                mixed["arguments"][usize::from(!positional_first)] = positional;
+                let mut term = original["subject"].clone();
+                if nested {
+                    term["arguments"][0]["value"] = mixed;
+                } else {
+                    term = mixed;
+                }
+                let mut json = original.clone();
+                if field == "requires" {
+                    json[field] = serde_json::json!({
+                        "key": key(ProvenanceRole::RuleRequires, 0),
+                        "term": term,
+                    });
+                } else {
+                    json[field] = term;
+                }
+                assert!(
+                    serde_json::from_value::<StructuredRuleDescriptor>(json)
+                        .unwrap_err()
+                        .to_string()
+                        .starts_with(&expected.to_string())
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn grammar_disjunction_boundary_preserves_its_minimum_operand_message() {
+    let rule = expression_descriptors()
+        .into_iter()
+        .find_map(|descriptor| match descriptor.payload {
+            DescriptorPayload::StructuredRule(rule) => Some(rule),
+            _ => None,
+        })
+        .unwrap();
+    let original = serde_json::to_value(rule).unwrap();
+    let expected = krs_ir::StateTransportError::InvalidTerm(
+        krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
+    );
+    for nested in [false, true] {
+        for operands in 0..2 {
+            let mut json = original.clone();
+            let disjunction = serde_json::json!({
+                "term_kind": "or_bool",
+                "key": key(ProvenanceRole::ClaimOrBool, 0),
+                "arguments": vec![original["subject"]["arguments"][0]["value"].clone(); operands],
+            });
+            if nested {
+                json["subject"]["arguments"][0]["value"] = disjunction;
+            } else {
+                json["subject"] = disjunction;
+            }
+            assert!(
+                serde_json::from_value::<StructuredRuleDescriptor>(json)
+                    .unwrap_err()
+                    .to_string()
+                    .starts_with(&expected.to_string())
+            );
+        }
+    }
 }

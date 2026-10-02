@@ -4,10 +4,10 @@ use std::fmt;
 
 use krs_ir::{
     ByteRange, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr,
-    DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    DisplayPath, FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell,
-    FixedInitializerContent, LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack,
-    SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolKind,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DisplayPath,
+    FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent,
+    LabelId, LineIndex, ModuleId, NodeOrigin, OriginFrame, OriginStack, RuleBodyRef, SourceMapKey,
+    SourceRange, StableItemId, SymbolId, SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -817,11 +817,15 @@ fn insert_fixed_configuration(
 
 fn insert_rule_body(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
-    body: &DefinitionRuleBody,
+    body: RuleBodyRef<'_, krs_ir::DefinitionLevel>,
 ) -> Result<(), SidecarError> {
     match body {
-        DefinitionRuleBody::Term(body) => insert_term(entries, body),
-        DefinitionRuleBody::Configuration(body) => {
+        RuleBodyRef::Term(body) => {
+            insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
+            insert_term(entries, body.from())?;
+            insert_term(entries, body.to())
+        }
+        RuleBodyRef::Configuration { body, .. } => {
             insert_origin(
                 entries,
                 body.origin(),

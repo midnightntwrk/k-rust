@@ -285,7 +285,7 @@ mod tests {
                 authored_path: "Op::Gt".to_owned(),
             },
             path_key: ProvenanceKey::new(ProvenanceRole::RuleLeftPath, 4),
-            arguments: vec![],
+            arguments: vec![].try_into().unwrap(),
         };
         let json = serde_json::to_string(&term).unwrap();
         assert_eq!(
@@ -492,7 +492,7 @@ mod tests {
         );
         assert_traversal(
             super::WireConfigurationRule {
-                sentence_kind: crate::SentenceKind::Transition,
+                sentence_kind: crate::ConfigurationSentenceKind::Transition,
                 label: None,
                 priority: None,
                 requires: None,

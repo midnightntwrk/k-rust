@@ -281,7 +281,7 @@ impl SemanticTheory {
                 insert_node::<SemanticLevel>(&mut node_keys, associativity.origin().key())?;
             }
             for rule in &module.rules {
-                let expected = rule.kind.item_kind();
+                let expected = rule.kind().item_kind();
                 validate_item_kind(&rule.id, expected)?;
                 insert_declaration(&mut declarations, &rule.id)?;
                 insert_node::<SemanticLevel>(&mut node_keys, rule.origin.key())?;
@@ -807,9 +807,57 @@ impl SemanticRuleLabel {
 }
 
 /// One relational semantic sentence.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
+#[serde(deny_unknown_fields, try_from = "SemanticRuleWire")]
 pub struct SemanticRule {
+    origin: NodeOrigin,
+    id: StableItemId,
+    label: Option<SemanticRuleLabel>,
+    requires: Option<SemanticRuleCondition>,
+    priority: Option<SemanticRulePriority>,
+    simplification: Option<SemanticSimplification>,
+    claim: Option<SemanticClaim>,
+    variables: Vec<SemanticVariable>,
+    content: crate::ir_level::RuleContent<crate::SemanticLevel>,
+}
+
+impl Serialize for SemanticRule {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let count = 5
+            + usize::from(self.label.is_some())
+            + usize::from(self.requires.is_some())
+            + usize::from(self.priority.is_some())
+            + usize::from(self.simplification.is_some())
+            + usize::from(self.claim.is_some());
+        let mut fields = serializer.serialize_struct("SemanticRule", count)?;
+        fields.serialize_field("origin", &self.origin)?;
+        fields.serialize_field("id", &self.id)?;
+        fields.serialize_field("kind", &self.kind())?;
+        if let Some(value) = &self.label {
+            fields.serialize_field("label", value)?;
+        }
+        if let Some(value) = &self.requires {
+            fields.serialize_field("requires", value)?;
+        }
+        if let Some(value) = &self.priority {
+            fields.serialize_field("priority", value)?;
+        }
+        if let Some(value) = &self.simplification {
+            fields.serialize_field("simplification", value)?;
+        }
+        if let Some(value) = &self.claim {
+            fields.serialize_field("claim", value)?;
+        }
+        fields.serialize_field("variables", &self.variables)?;
+        fields.serialize_field("body", &self.relational_body())?;
+        fields.end()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename = "SemanticRule", deny_unknown_fields)]
+struct SemanticRuleWire {
     origin: NodeOrigin,
     id: StableItemId,
     kind: SentenceKind,
@@ -824,7 +872,36 @@ pub struct SemanticRule {
     #[serde(skip_serializing_if = "Option::is_none")]
     claim: Option<SemanticClaim>,
     variables: Vec<SemanticVariable>,
-    body: SemanticRuleBody,
+    body: crate::ir_level::RuleBodyWire<crate::SemanticLevel>,
+}
+
+impl TryFrom<SemanticRuleWire> for SemanticRule {
+    type Error = SemanticValidationError;
+    fn try_from(value: SemanticRuleWire) -> Result<Self, Self::Error> {
+        let content = value.body.refine(value.kind).map_err(|error| match error {
+            crate::ir_level::RuleBodyRefinementError::NotRewrite => {
+                SemanticValidationError::RuleBodyNotRewrite(Box::new(value.id.clone()))
+            }
+            crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
+                if value.kind == SentenceKind::Alias {
+                    SemanticValidationError::InvalidAliasRoot(Box::new(value.id.clone()))
+                } else {
+                    SemanticValidationError::InvalidSimplificationRoot(Box::new(value.id.clone()))
+                }
+            }
+        })?;
+        Ok(Self {
+            origin: value.origin,
+            id: value.id,
+            label: value.label,
+            requires: value.requires,
+            priority: value.priority,
+            simplification: value.simplification,
+            claim: value.claim,
+            variables: value.variables,
+            content,
+        })
+    }
 }
 
 /// One source-level, one-sided reusable fixed-configuration context template.
@@ -846,20 +923,19 @@ impl SemanticRule {
         variables: Vec<SemanticVariable>,
         body: SemanticTerm,
     ) -> Result<Self, SemanticValidationError> {
-        if !matches!(body.kind, SemanticTermKind::Rewrite { .. }) {
-            return Err(SemanticValidationError::RuleBodyNotRewrite(Box::new(id)));
-        }
+        let body = body
+            .try_into()
+            .map_err(|_| SemanticValidationError::RuleBodyNotRewrite(Box::new(id.clone())))?;
         Ok(Self {
             origin,
             id,
-            kind,
             label: None,
             requires: None,
             priority: None,
             simplification: None,
             claim: None,
             variables,
-            body: SemanticRuleBody::Term(Box::new(body)),
+            content: crate::ir_level::RuleContent::Term { kind, body },
         })
     }
 
@@ -876,14 +952,13 @@ impl SemanticRule {
         variables: Vec<SemanticVariable>,
         body: FixedConfigurationRewrite<SemanticId, SemanticTerm>,
     ) -> Result<Self, SemanticValidationError> {
-        if kind == SentenceKind::Alias {
-            return Err(SemanticValidationError::InvalidAliasRoot(Box::new(id)));
-        }
-        if kind == SentenceKind::Simplification {
-            return Err(SemanticValidationError::InvalidSimplificationRoot(
-                Box::new(id),
-            ));
-        }
+        let kind = crate::ConfigurationSentenceKind::try_from(kind).map_err(|_| {
+            if kind == SentenceKind::Alias {
+                SemanticValidationError::InvalidAliasRoot(Box::new(id.clone()))
+            } else {
+                SemanticValidationError::InvalidSimplificationRoot(Box::new(id.clone()))
+            }
+        })?;
         let expected = kind.item_kind();
         if id.item_kind() != expected {
             return Err(SemanticValidationError::WrongItemKind {
@@ -895,14 +970,13 @@ impl SemanticRule {
         Ok(Self {
             origin,
             id,
-            kind,
             label: None,
             requires: None,
             priority: None,
             simplification: None,
             claim: None,
             variables,
-            body: SemanticRuleBody::Configuration(body),
+            content: crate::ir_level::RuleContent::Configuration { kind, body },
         })
     }
     /// Returns the authored sentence ID.
@@ -918,7 +992,7 @@ impl SemanticRule {
     /// Returns the explicit sentence kind.
     #[must_use]
     pub const fn kind(&self) -> SentenceKind {
-        self.kind
+        self.content.kind()
     }
     /// Attaches an explicit equation or transition-rule priority.
     ///
@@ -931,7 +1005,10 @@ impl SemanticRule {
         priority: Option<SemanticRulePriority>,
     ) -> Result<Self, SemanticValidationError> {
         if priority.is_some()
-            && !matches!(self.kind, SentenceKind::Equation | SentenceKind::Transition)
+            && !matches!(
+                self.kind(),
+                SentenceKind::Equation | SentenceKind::Transition
+            )
         {
             return Err(SemanticValidationError::InvalidRulePriority(Box::new(
                 self.id.clone(),
@@ -1006,19 +1083,19 @@ impl SemanticRule {
     pub fn variables(&self) -> &[SemanticVariable] {
         &self.variables
     }
-    /// Returns the ordinary term rewrite, when present.
+    /// Borrows the term rewrite, when present.
     #[must_use]
-    pub fn body(&self) -> Option<&SemanticTerm> {
-        match &self.body {
-            SemanticRuleBody::Term(body) => Some(body),
-            SemanticRuleBody::Configuration(_) => None,
+    pub fn body(&self) -> Option<&crate::IrRewrite<crate::SemanticLevel>> {
+        match &self.content {
+            crate::ir_level::RuleContent::Term { body, .. } => Some(body),
+            crate::ir_level::RuleContent::Configuration { .. } => None,
         }
     }
 
     /// Returns the typed relational body.
     #[must_use]
-    pub const fn relational_body(&self) -> &SemanticRuleBody {
-        &self.body
+    pub const fn relational_body(&self) -> crate::ir_level::RuleBodyRef<'_, crate::SemanticLevel> {
+        self.content.body()
     }
 }
 
@@ -1486,7 +1563,6 @@ mod tests {
         SemanticRule {
             origin: node("rule"),
             id: claim_id(),
-            kind: SentenceKind::Claim,
             label: Some(
                 SemanticRuleLabel::new(node("label"), "reachability").expect("valid label"),
             ),
@@ -1505,7 +1581,72 @@ mod tests {
                 sid("exists"),
                 SemanticSortRef::Builtin(BuiltinSort::Int),
             )],
-            body: SemanticRuleBody::Configuration(body),
+            content: crate::ir_level::RuleContent::Configuration {
+                kind: crate::ConfigurationSentenceKind::Claim,
+                body,
+            },
+        }
+    }
+
+    #[test]
+    fn configuration_rule_round_trip_retains_refined_sentence_kind() {
+        for expected in [
+            crate::ConfigurationSentenceKind::Transition,
+            crate::ConfigurationSentenceKind::Equation,
+            crate::ConfigurationSentenceKind::Claim,
+        ] {
+            let mut rule = claim_rule(int_token("before"), int_token("after"));
+            let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut rule.content else {
+                panic!("fixture requires a configuration body")
+            };
+            *kind = expected;
+            let json = serde_json::to_value(&rule).unwrap();
+            assert_eq!(json["kind"], serde_json::to_value(expected).unwrap());
+            assert!(json["body"].get("kind").is_none());
+            let decoded: SemanticRule = serde_json::from_value(json).unwrap();
+            assert_eq!(decoded, rule);
+            assert!(matches!(
+                decoded.relational_body(),
+                crate::RuleBodyRef::Configuration { kind, .. } if kind == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn configuration_rule_boundary_rejects_alias_and_simplification() {
+        let rule = claim_rule(int_token("before"), int_token("after"));
+        let crate::RuleBodyRef::Configuration { body, .. } = rule.relational_body() else {
+            panic!("claim fixture requires a configuration body")
+        };
+        for (kind, expected) in [
+            (
+                SentenceKind::Alias,
+                SemanticValidationError::InvalidAliasRoot(Box::new(rule.id().clone())),
+            ),
+            (
+                SentenceKind::Simplification,
+                SemanticValidationError::InvalidSimplificationRoot(Box::new(rule.id().clone())),
+            ),
+        ] {
+            assert_eq!(
+                SemanticRule::new_configuration(
+                    rule.origin().clone(),
+                    rule.id().clone(),
+                    kind,
+                    vec![],
+                    body.clone(),
+                )
+                .unwrap_err(),
+                expected
+            );
+            let mut json = serde_json::to_value(&rule).unwrap();
+            json["kind"] = serde_json::to_value(kind).unwrap();
+            assert!(
+                serde_json::from_value::<SemanticRule>(json)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(&expected.to_string())
+            );
         }
     }
 
@@ -1596,7 +1737,9 @@ mod tests {
     #[test]
     fn semantic_claim_metadata_is_exclusive_to_claim_sentences() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.kind = SentenceKind::Transition;
+        if let crate::ir_level::RuleContent::Configuration { kind, .. } = &mut rule.content {
+            *kind = crate::ConfigurationSentenceKind::Transition;
+        }
         assert!(matches!(
             validate_rule::<SemanticLevel>(
                 &rule,
@@ -1653,15 +1796,18 @@ mod tests {
     #[test]
     fn semantic_claim_requires_configuration_body() {
         let mut rule = claim_rule(int_token("before"), int_variable("after", "exists"));
-        rule.body = SemanticRuleBody::Term(Box::new(
-            SemanticTerm::rewrite(
+        rule.content = crate::ir_level::RuleContent::Term {
+            kind: SentenceKind::Claim,
+            body: SemanticTerm::rewrite(
                 node("term-rewrite"),
                 SemanticSortRef::Builtin(BuiltinSort::Int),
                 int_token("term-before"),
                 int_variable("term-after", "exists"),
             )
-            .expect("valid rewrite"),
-        ));
+            .expect("valid rewrite")
+            .try_into()
+            .unwrap(),
+        };
         assert!(matches!(
             validate_rule::<SemanticLevel>(
                 &rule,

@@ -41,7 +41,7 @@ pub use krs_ir::{
     HostPackageKey, HostProvenance, HostProvenanceError, HostSetOperationRegistration,
     HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
     ItemKind, ListOperation, MapOperation, ProvenanceKey, ProvenanceRole, SchemaVersion,
-    SentenceKind, SetOperation,
+    SentenceKind, SetOperation, TermMapOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -683,11 +683,11 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
 
     let map_operations = [
         (
-            MapOperation::Update,
+            TermMapOperation::Update,
             map_update_builtin_key as fn() -> TypeId,
         ),
-        (MapOperation::Get, map_get_builtin_key),
-        (MapOperation::InKeys, map_in_keys_builtin_key),
+        (TermMapOperation::Get, map_get_builtin_key),
+        (TermMapOperation::InKeys, map_in_keys_builtin_key),
     ]
     .into_iter()
     .map(|(operation, key)| HostMapOperationRegistration {
@@ -1291,10 +1291,7 @@ mod tests {
             .expect("facade builtin catalog is valid");
 
         assert_eq!(registry.sorts.len(), BuiltinSort::ALL.len());
-        assert_eq!(
-            registry.map_operations.len(),
-            MapOperation::TERM_APPLICATIONS.len()
-        );
+        assert_eq!(registry.map_operations.len(), TermMapOperation::ALL.len());
         assert_eq!(
             registry.list_operations.len(),
             ListOperation::TERM_APPLICATIONS.len()
@@ -1321,9 +1318,15 @@ mod tests {
             assert_eq!(registry.resolve_sort(marker), None);
         }
         for (marker, expected) in [
-            (TypeId::of::<builtin::map::update>(), MapOperation::Update),
-            (TypeId::of::<builtin::map::get>(), MapOperation::Get),
-            (TypeId::of::<builtin::map::in_keys>(), MapOperation::InKeys),
+            (
+                TypeId::of::<builtin::map::update>(),
+                TermMapOperation::Update,
+            ),
+            (TypeId::of::<builtin::map::get>(), TermMapOperation::Get),
+            (
+                TypeId::of::<builtin::map::in_keys>(),
+                TermMapOperation::InKeys,
+            ),
         ] {
             assert_eq!(registry.resolve_map_operation(marker), Some(expected));
             assert_eq!(registry.resolve_operation(marker), None);
@@ -1417,7 +1420,7 @@ mod tests {
         );
         assert_eq!(
             dialect::builtin_registry().resolve_map_operation(TypeId::of::<persistent_update>()),
-            Some(MapOperation::Update)
+            Some(TermMapOperation::Update)
         );
         let lookup: indexed_lookup = indexed_lookup(dialect::builtin::List::__new(), integer::Int);
         let _: dialect::builtin::list::Get = lookup;

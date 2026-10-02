@@ -5,7 +5,7 @@ use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
     WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
-    WireSortReference, WireTerm, WireTermArgument, WireTypeReference,
+    WireSortReference, WireTerm, WireTypeReference,
 };
 use krs_ir::{
     CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
@@ -520,9 +520,7 @@ impl<'a> InitializerBuilder<'a> {
                     .iter()
                     .map(|value| {
                         self.expand_term_tree(value, structural_key.clone())
-                            .map(|value| WireTermArgument::Positional {
-                                value: Box::new(value),
-                            })
+                            .map(Box::new)
                     })
                     .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::Application {
@@ -533,7 +531,7 @@ impl<'a> InitializerBuilder<'a> {
                         authored_path,
                     },
                     path_key: key,
-                    arguments,
+                    arguments: krs_ir::Arguments::Positional(arguments),
                 })
             }
             TermTree::Reference(path) => {
@@ -557,7 +555,7 @@ impl<'a> InitializerBuilder<'a> {
                             authored_path,
                         },
                         path_key: key,
-                        arguments: vec![],
+                        arguments: krs_ir::Arguments::default(),
                     })
                 }
             }

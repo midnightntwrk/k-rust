@@ -19,11 +19,14 @@ pub trait IrLevel: Clone + Debug + Eq + Ord + Sized {
     type Declaration: Clone + Debug + Display + Eq + Ord + Serialize + DeserializeOwned;
     /// A fixed-cell identity before or after generated-symbol allocation.
     type Cell: Clone + Debug + Display + Eq + Ord + Serialize + DeserializeOwned;
-    /// The representation of an ordinary rule-body term.
+    /// The wire representation of an ordinary rule-body term.
     /// Semantic rule bodies box terms; Definition rule bodies store terms directly.
-    type RuleTerm: Clone + Debug + Eq + Ord + Serialize + DeserializeOwned + AsRef<IrTerm<Self>>;
+    type RuleTerm: Clone + Debug + Eq + Ord + Serialize + DeserializeOwned;
     /// A construction or validation failure for this IR level.
     type Error: std::error::Error;
+
+    /// Consumes the level's rule-body representation without cloning its term.
+    fn into_rule_term(term: Self::RuleTerm) -> IrTerm<Self>;
 
     /// Constructs the level's reference to an intrinsic K sort.
     fn builtin_sort(sort: BuiltinSort) -> Self::Sort;
@@ -46,6 +49,10 @@ impl IrLevel for SemanticLevel {
     type RuleTerm = Box<IrTerm<Self>>;
     type Error = SemanticValidationError;
 
+    fn into_rule_term(term: Self::RuleTerm) -> IrTerm<Self> {
+        *term
+    }
+
     fn builtin_sort(sort: BuiltinSort) -> Self::Sort {
         IrSortRef::Builtin(sort)
     }
@@ -61,6 +68,10 @@ impl IrLevel for DefinitionLevel {
     type Cell = SymbolId;
     type RuleTerm = IrTerm<Self>;
     type Error = DefinitionValidationError;
+
+    fn into_rule_term(term: Self::RuleTerm) -> IrTerm<Self> {
+        term
+    }
 
     fn builtin_sort(sort: BuiltinSort) -> Self::Sort {
         IrSortRef::Builtin(sort)
@@ -397,9 +408,167 @@ impl<L: IrLevel> IrRuleCondition<L> {
 #[serde(untagged, bound = "")]
 pub enum IrRuleBody<L: IrLevel> {
     /// One ordinary term rewrite in the level's rule-body representation.
-    Term(L::RuleTerm),
+    Term(IrRewrite<L>),
     /// One simultaneous fixed-configuration rewrite.
     Configuration(FixedConfigurationRewrite<L::Cell, IrTerm<L>>),
+}
+
+/// An ordinary rule body with explicit rewrite endpoints.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(bound = "", try_from = "IrTerm<L>", into = "IrTerm<L>")]
+pub struct IrRewrite<L: IrLevel> {
+    origin: NodeOrigin,
+    sort: L::Sort,
+    from: Box<IrTerm<L>>,
+    to: Box<IrTerm<L>>,
+}
+
+impl<L: IrLevel> IrRewrite<L> {
+    /// Creates a rewrite with its declared sort and endpoint provenance.
+    #[must_use]
+    pub fn new(origin: NodeOrigin, sort: L::Sort, from: IrTerm<L>, to: IrTerm<L>) -> Self {
+        Self {
+            origin,
+            sort,
+            from: Box::new(from),
+            to: Box::new(to),
+        }
+    }
+    /// Returns rewrite provenance.
+    #[must_use]
+    pub const fn origin(&self) -> &NodeOrigin {
+        &self.origin
+    }
+    /// Returns the declared rewrite sort.
+    #[must_use]
+    pub const fn sort(&self) -> &L::Sort {
+        &self.sort
+    }
+    /// Returns the pre-pattern.
+    #[must_use]
+    pub fn from(&self) -> &IrTerm<L> {
+        &self.from
+    }
+    /// Returns the post-term.
+    #[must_use]
+    pub fn to(&self) -> &IrTerm<L> {
+        &self.to
+    }
+}
+
+impl<L: IrLevel> TryFrom<IrTerm<L>> for IrRewrite<L> {
+    type Error = &'static str;
+    fn try_from(term: IrTerm<L>) -> Result<Self, Self::Error> {
+        match term.kind {
+            IrTermKind::Rewrite { from, to } => Ok(Self {
+                origin: term.origin,
+                sort: term.sort,
+                from,
+                to,
+            }),
+            _ => Err("rule body must be a rewrite"),
+        }
+    }
+}
+
+impl<L: IrLevel> From<IrRewrite<L>> for IrTerm<L> {
+    fn from(value: IrRewrite<L>) -> Self {
+        Self {
+            origin: value.origin,
+            sort: value.sort,
+            kind: IrTermKind::Rewrite {
+                from: value.from,
+                to: value.to,
+            },
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged, bound = "")]
+pub(crate) enum RuleBodyWire<L: IrLevel> {
+    Term(L::RuleTerm),
+    Configuration(FixedConfigurationRewrite<L::Cell, IrTerm<L>>),
+}
+
+/// A borrowed rule body with the sentence kind refined for configuration rewrites.
+#[derive(Clone, Debug)]
+pub enum RuleBodyRef<'a, L: IrLevel> {
+    /// One ordinary term rewrite.
+    Term(&'a IrRewrite<L>),
+    /// One configuration rewrite and its permitted sentence kind.
+    Configuration {
+        /// The configuration sentence classification.
+        kind: crate::ConfigurationSentenceKind,
+        /// The simultaneous configuration rewrite.
+        body: &'a FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
+    },
+}
+
+impl<L: IrLevel> Copy for RuleBodyRef<'_, L> {}
+
+impl<L: IrLevel> Serialize for RuleBodyRef<'_, L> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Term(body) => body.serialize(serializer),
+            Self::Configuration { body, .. } => body.serialize(serializer),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum RuleContent<L: IrLevel> {
+    Term {
+        kind: crate::SentenceKind,
+        body: IrRewrite<L>,
+    },
+    Configuration {
+        kind: crate::ConfigurationSentenceKind,
+        body: FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
+    },
+}
+
+impl<L: IrLevel> RuleContent<L> {
+    pub(crate) const fn kind(&self) -> crate::SentenceKind {
+        match self {
+            Self::Term { kind, .. } => *kind,
+            Self::Configuration { kind, .. } => kind.sentence_kind(),
+        }
+    }
+
+    pub(crate) const fn body(&self) -> RuleBodyRef<'_, L> {
+        match self {
+            Self::Term { body, .. } => RuleBodyRef::Term(body),
+            Self::Configuration { kind, body } => RuleBodyRef::Configuration { kind: *kind, body },
+        }
+    }
+}
+
+pub(crate) enum RuleBodyRefinementError {
+    NotRewrite,
+    InvalidConfigurationKind,
+}
+
+impl<L: IrLevel> RuleBodyWire<L> {
+    pub(crate) fn refine(
+        self,
+        kind: crate::SentenceKind,
+    ) -> Result<RuleContent<L>, RuleBodyRefinementError> {
+        match self {
+            Self::Term(term) => Ok(RuleContent::Term {
+                kind,
+                body: L::into_rule_term(term)
+                    .try_into()
+                    .map_err(|_| RuleBodyRefinementError::NotRewrite)?,
+            }),
+            Self::Configuration(body) => Ok(RuleContent::Configuration {
+                kind: kind
+                    .try_into()
+                    .map_err(|_| RuleBodyRefinementError::InvalidConfigurationKind)?,
+                body,
+            }),
+        }
+    }
 }
 
 /// A target-neutral term at one IR level.

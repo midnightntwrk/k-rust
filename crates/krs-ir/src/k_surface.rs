@@ -4,10 +4,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    ApplicationRef, BuiltinSort, CellPost, DefinitionIr, DefinitionModule, DefinitionRuleBody,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
-    FixedCellContent, FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    ProductionAttribute, ProductionGroupId, ProductionSentence, SemanticId, StableItemId, SymbolId,
+    ApplicationRef, BuiltinSort, CellPost, DefinitionIr, DefinitionModule, DefinitionSentence,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
+    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind, ProductionAttribute,
+    ProductionGroupId, ProductionSentence, RuleBodyRef, SemanticId, StableItemId, SymbolId,
     SymbolIdentity,
 };
 
@@ -187,8 +187,12 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
                     requirements.sort(variable.sort());
                 }
                 match sentence.relational_body() {
-                    DefinitionRuleBody::Term(term) => requirements.term(term),
-                    DefinitionRuleBody::Configuration(rewrite) => {
+                    RuleBodyRef::Term(term) => {
+                        requirements.sort(term.sort());
+                        requirements.term(term.from());
+                        requirements.term(term.to());
+                    }
+                    RuleBodyRef::Configuration { body: rewrite, .. } => {
                         for clause in rewrite.clauses() {
                             requirements.term(clause.before());
                             if let CellPost::Replace { term } = clause.after() {

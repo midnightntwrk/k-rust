@@ -845,3 +845,61 @@ impl SentenceKind {
         }
     }
 }
+
+/// Sentence meanings permitted for simultaneous configuration rewrites.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(try_from = "SentenceKind", into = "SentenceKind")]
+pub enum ConfigurationSentenceKind {
+    /// Computational transition.
+    Transition,
+    /// Equational meaning.
+    Equation,
+    /// Reachability claim.
+    Claim,
+}
+
+impl ConfigurationSentenceKind {
+    /// Returns the corresponding general sentence meaning.
+    #[must_use]
+    pub const fn sentence_kind(self) -> SentenceKind {
+        match self {
+            Self::Transition => SentenceKind::Transition,
+            Self::Equation => SentenceKind::Equation,
+            Self::Claim => SentenceKind::Claim,
+        }
+    }
+
+    /// Returns the stable item namespace for this sentence meaning.
+    #[must_use]
+    pub const fn item_kind(self) -> ItemKind {
+        match self {
+            Self::Transition => ItemKind::Rule,
+            Self::Equation => ItemKind::Equation,
+            Self::Claim => ItemKind::Claim,
+        }
+    }
+}
+
+impl TryFrom<SentenceKind> for ConfigurationSentenceKind {
+    type Error = crate::transport::configuration::StateTransportError;
+    fn try_from(value: SentenceKind) -> Result<Self, Self::Error> {
+        use crate::transport::{configuration::StateTransportError, detail::StateTermReason};
+        match value {
+            SentenceKind::Transition => Ok(Self::Transition),
+            SentenceKind::Equation => Ok(Self::Equation),
+            SentenceKind::Claim => Ok(Self::Claim),
+            SentenceKind::Alias => Err(StateTransportError::InvalidTerm(
+                StateTermReason::ConfigurationStaticAlias,
+            )),
+            SentenceKind::Simplification => Err(StateTransportError::InvalidTerm(
+                StateTermReason::ConfigurationSimplification,
+            )),
+        }
+    }
+}
+
+impl From<ConfigurationSentenceKind> for SentenceKind {
+    fn from(value: ConfigurationSentenceKind) -> Self {
+        value.sentence_kind()
+    }
+}

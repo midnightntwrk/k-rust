@@ -10,7 +10,6 @@ use crate::{
 use super::configuration::StateTransportError;
 use super::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, GrammarTransportError, Term,
-    TermArgument,
 };
 
 pub(crate) trait ValidationStage: Stage {
@@ -105,7 +104,7 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         head_class: DescriptorApplicationHeadClass,
         reference: &S::Application,
         path_key: &ProvenanceKey,
-        arguments: &[TermArgument<S>],
+        arguments: &crate::Arguments<S>,
     ) -> Result<(), Self::Error>;
 
     fn literal(
@@ -130,7 +129,11 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         spelling: &str,
     ) -> Result<(), Self::Error>;
 
-    fn or_bool(&mut self, key: &ProvenanceKey, arguments: &[Term<S>]) -> Result<(), Self::Error>;
+    fn or_bool(
+        &mut self,
+        key: &ProvenanceKey,
+        _arguments: &crate::AtLeastTwo<Term<S>>,
+    ) -> Result<(), Self::Error>;
 
     fn cell(
         &mut self,
@@ -141,8 +144,7 @@ pub(crate) trait TermValidation<S: ValidationStage> {
 
     fn argument(
         &mut self,
-        argument: &TermArgument<S>,
-        named: bool,
+        argument: crate::TermArgumentRef<'_, S>,
         fields: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error>;
 
@@ -182,7 +184,7 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
         } => context.anonymous(key, sort, spelling),
         Term::OrBool { key, arguments } => {
             context.or_bool(key, arguments)?;
-            for argument in arguments {
+            for argument in arguments.iter() {
                 validate_term(argument, context)?;
             }
             Ok(())
@@ -204,16 +206,14 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
 }
 
 fn validate_arguments<S: ValidationStage, C: TermValidation<S>>(
-    arguments: &[TermArgument<S>],
+    arguments: &crate::Arguments<S>,
     context: &mut C,
 ) -> Result<(), C::Error> {
-    let named = arguments
-        .first()
-        .is_some_and(|argument| matches!(argument, TermArgument::Named { .. }));
     let mut fields = BTreeSet::new();
     for argument in arguments {
-        context.argument(argument, named, &mut fields)?;
-        let (TermArgument::Positional { value } | TermArgument::Named { value, .. }) = argument;
+        context.argument(argument.clone(), &mut fields)?;
+        let (crate::TermArgumentRef::Positional { value }
+        | crate::TermArgumentRef::Named { value, .. }) = argument;
         validate_term(value, context)?;
     }
     Ok(())

@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, SemanticApplicationRef,
-    SemanticId, SemanticModule, SemanticRule, SemanticRuleBody, SemanticSortRef, SemanticTerm,
-    SemanticTermKind, SetOperation, StableItemId,
+    BuiltinSort, FixedConfigurationRewrite, ListOperation, MapOperation, RuleBodyRef,
+    SemanticApplicationRef, SemanticId, SemanticModule, SemanticRule, SemanticSortRef,
+    SemanticTerm, SemanticTermKind, SetOperation, StableItemId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -512,8 +512,8 @@ fn configuration_body(
     rule: &SemanticRule,
 ) -> Option<&FixedConfigurationRewrite<SemanticId, SemanticTerm>> {
     match rule.relational_body() {
-        SemanticRuleBody::Configuration(body) => Some(body),
-        SemanticRuleBody::Term(_) => None,
+        RuleBodyRef::Configuration { body, .. } => Some(body),
+        RuleBodyRef::Term(_) => None,
     }
 }
 

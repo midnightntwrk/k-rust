@@ -267,7 +267,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         semantic_origin(
             descriptor,
             role_key(
-                if rule.sentence_kind == krs_ir::SentenceKind::Claim {
+                if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Claim {
                     ProvenanceRole::ClaimDeclaration
                 } else {
                     ProvenanceRole::RuleDeclaration
@@ -277,7 +277,7 @@ pub(super) fn lower_configuration_rule_descriptor(
             "configuration-rule",
         )?,
         descriptor.id.clone(),
-        rule.sentence_kind,
+        rule.sentence_kind.into(),
         terms.variables,
         body,
     )?
@@ -588,6 +588,20 @@ enum AssociativeStateFamily {
 }
 
 #[derive(Clone, Copy, Debug)]
+enum AssociativeStateFrame<'a> {
+    Anonymous {
+        key: &'a ProvenanceKey,
+    },
+    Bind {
+        key: &'a ProvenanceKey,
+        binding: &'a str,
+    },
+    Reuse {
+        binding: &'a str,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
 enum RuleStateFrame<'a> {
     // Exactness is independent of surface notation: an ordinary whole-Map
     // term, `.Map`, exact map items, and a functional update all omit no
@@ -595,7 +609,7 @@ enum RuleStateFrame<'a> {
     Exact,
     Framed {
         family: AssociativeStateFamily,
-        frame: &'a ProtocolRuleFrame,
+        frame: AssociativeStateFrame<'a>,
     },
 }
 
@@ -603,11 +617,13 @@ fn associative_state_frame(
     family: AssociativeStateFamily,
     frame: &ProtocolRuleFrame,
 ) -> RuleStateFrame<'_> {
-    if matches!(frame, ProtocolRuleFrame::Exact) {
-        RuleStateFrame::Exact
-    } else {
-        RuleStateFrame::Framed { family, frame }
-    }
+    let frame = match frame {
+        ProtocolRuleFrame::Exact => return RuleStateFrame::Exact,
+        ProtocolRuleFrame::Anonymous { key } => AssociativeStateFrame::Anonymous { key },
+        ProtocolRuleFrame::Bind { key, binding } => AssociativeStateFrame::Bind { key, binding },
+        ProtocolRuleFrame::Reuse { binding, .. } => AssociativeStateFrame::Reuse { binding },
+    };
+    RuleStateFrame::Framed { family, frame }
 }
 
 fn rule_state_frame(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> RuleStateFrame<'_> {
@@ -635,43 +651,39 @@ fn lower_subject_cell_frame(
         RuleStateFrame::Exact => Ok(CellContentFrame::Exact),
         RuleStateFrame::Framed {
             family: AssociativeStateFamily::KSequence,
-            frame: ProtocolRuleFrame::Anonymous { key },
+            frame: AssociativeStateFrame::Anonymous { key },
         } => Ok(CellContentFrame::KSequenceTail {
             origin: semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
             binding: None,
         }),
         RuleStateFrame::Framed {
             family: AssociativeStateFamily::KSequence,
-            frame: ProtocolRuleFrame::Bind { key, binding },
+            frame: AssociativeStateFrame::Bind { key, binding },
         } => Ok(CellContentFrame::KSequenceTail {
             origin: semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
-            binding: Some(SemanticId::new(binding.clone())?),
+            binding: Some(SemanticId::new(binding)?),
         }),
         RuleStateFrame::Framed {
             family: AssociativeStateFamily::Map,
-            frame: ProtocolRuleFrame::Anonymous { key },
+            frame: AssociativeStateFrame::Anonymous { key },
         } => Ok(CellContentFrame::MapRemainder {
             origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
             binding: None,
         }),
         RuleStateFrame::Framed {
             family: AssociativeStateFamily::Map,
-            frame: ProtocolRuleFrame::Bind { key, binding },
+            frame: AssociativeStateFrame::Bind { key, binding },
         } => Ok(CellContentFrame::MapRemainder {
             origin: semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
-            binding: Some(SemanticId::new(binding.clone())?),
+            binding: Some(SemanticId::new(binding)?),
         }),
         RuleStateFrame::Framed {
-            frame: ProtocolRuleFrame::Reuse { .. },
+            frame: AssociativeStateFrame::Reuse { .. },
             ..
         } => Err(DescriptorLoweringError::UnsupportedShape {
             node: "subject cell frame",
             detail: "a subject frame cannot reuse a result binding".into(),
         }),
-        RuleStateFrame::Framed {
-            frame: ProtocolRuleFrame::Exact,
-            ..
-        } => unreachable!("exact associative frames are normalized"),
     }
 }
 
@@ -680,7 +692,7 @@ fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'
         (
             RuleStateFrame::Exact
             | RuleStateFrame::Framed {
-                frame: ProtocolRuleFrame::Anonymous { .. },
+                frame: AssociativeStateFrame::Anonymous { .. },
                 ..
             },
             RuleStateFrame::Exact,
@@ -689,14 +701,14 @@ fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'
             RuleStateFrame::Framed {
                 family: subject_family,
                 frame:
-                    ProtocolRuleFrame::Bind {
+                    AssociativeStateFrame::Bind {
                         binding: subject, ..
                     },
             },
             RuleStateFrame::Framed {
                 family: result_family,
                 frame:
-                    ProtocolRuleFrame::Reuse {
+                    AssociativeStateFrame::Reuse {
                         binding: result, ..
                     },
             },

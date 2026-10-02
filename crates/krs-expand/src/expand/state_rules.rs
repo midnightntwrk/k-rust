@@ -6,8 +6,7 @@ use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellIdentity, WireCellReference, WireCellTermField,
     WireConfigurationReference, WireConfigurationRule, WireContextAlias, WirePayload,
-    WireRuleCells, WireRuleCondition, WireSortReference, WireTerm, WireTermArgument,
-    WireTypeReference,
+    WireRuleCells, WireRuleCondition, WireSortReference, WireTerm, WireTypeReference,
 };
 use krs_ir::{
     BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
@@ -15,7 +14,7 @@ use krs_ir::{
     ProtocolContextAliasBindingKind, ProtocolRuleBinding, ProtocolRuleBindingKind,
     ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem,
     ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm,
-    ProvenanceKey, SentenceKind,
+    ProvenanceKey,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
@@ -339,7 +338,7 @@ pub(super) fn configuration_rule(
     let island_import_checks = consumed_state_island_import_checks(original);
 
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
-        sentence_kind: SentenceKind::Transition,
+        sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label,
         priority,
         requires,
@@ -703,27 +702,28 @@ impl<'a> StateRuleBuilder<'a> {
                     .terms
                     .application_wire_slot(application.head(), slots)?;
                 let authored_path = self.terms.application_authored_path(application.head());
-                let mut arguments = Vec::new();
-                match application.arguments() {
+                let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
+                        let mut arguments = Vec::new();
                         for value in values {
-                            arguments.push(WireTermArgument::Positional {
-                                value: Box::new(self.expand_term(value, slots)?),
-                            });
+                            arguments.push(Box::new(self.expand_term(value, slots)?));
                         }
+                        krs_ir::Arguments::Positional(arguments)
                     }
                     TermArguments::Named(values) => {
+                        let mut arguments = Vec::new();
                         for argument in values {
                             let ordinal = take_counter(&mut self.counters.record_field)?;
-                            arguments.push(WireTermArgument::Named {
+                            arguments.push(krs_ir::NamedTermArgument {
                                 key: self.term_key(TermRole::RecordFieldName, ordinal),
                                 field: ProductionFieldId::new(argument.name().to_string())
                                     .expect("Rust field identifiers are valid production fields"),
                                 value: Box::new(self.expand_term(argument.value(), slots)?),
                             });
                         }
+                        krs_ir::Arguments::named(arguments)
                     }
-                }
+                };
                 Ok(WireTerm::Application {
                     head_class: DescriptorApplicationHeadClass::Applied,
                     reference: WireApplicationReference {
@@ -754,7 +754,7 @@ impl<'a> StateRuleBuilder<'a> {
                             authored_path: self.terms.application_authored_path(path),
                         },
                         path_key: key,
-                        arguments: Vec::new(),
+                        arguments: krs_ir::Arguments::default(),
                     })
                 }
             }
@@ -856,7 +856,18 @@ impl<'a> StateRuleBuilder<'a> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(WireTerm::OrBool {
                     key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    arguments,
+                    arguments: arguments.try_into().map_err(
+                        |_: krs_ir::AtLeastTwoError| {
+                            ExpandError::new(
+                                expand::CLAIM_ONLY_TERM,
+                                Span::call_site(),
+                                krs_ir::StateTransportError::InvalidTerm(
+                                    krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
+                                )
+                                .to_string(),
+                            )
+                        },
+                    )?,
                 })
             }
             TermTree::Cell(cell) => {

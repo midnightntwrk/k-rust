@@ -154,7 +154,7 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
                                             application: DescriptorApplicationRef::Declared(start),
                                         },
                                         path_key: key(ProvenanceRole::InitializerTermPath, 0),
-                                        arguments: vec![],
+                                        arguments: vec![].try_into().unwrap(),
                                     },
                                 },
                             }],
@@ -446,7 +446,9 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                         key: key(ProvenanceRole::PrecedenceGroupReference, 1),
                         group: additive.clone(),
                     },
-                ],
+                ]
+                .try_into()
+                .unwrap(),
             }],
         })),
     });
@@ -531,7 +533,9 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                             name: "x".into(),
                         }),
                     },
-                ],
+                ]
+                .try_into()
+                .unwrap(),
             },
             result: DescriptorTerm::Application {
                 head_class: DescriptorApplicationHeadClass::BareReference,
@@ -540,7 +544,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                     application: DescriptorApplicationRef::Declared(unit),
                 },
                 path_key: key(ProvenanceRole::RuleRightPath, 0),
-                arguments: vec![],
+                arguments: vec![].try_into().unwrap(),
             },
         })),
     });
@@ -668,7 +672,7 @@ fn replace_rule_result_with_builtin(
             application: DescriptorApplicationRef::Builtin(operation),
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
-        arguments,
+        arguments: arguments.try_into().unwrap(),
     };
     bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
@@ -814,7 +818,9 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
                     path_key: key(ProvenanceRole::RuleRequiresPath, 1),
                     name: "x".into(),
                 }),
-            }],
+            }]
+            .try_into()
+            .unwrap(),
         },
     });
     bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
@@ -899,7 +905,7 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
         head_class: DescriptorApplicationHeadClass::Applied,
         reference: DescriptorApplicationReference {
             key: key(ProvenanceRole::RuleRightApplicationHead, 1),
-            application: DescriptorApplicationRef::Map(MapOperation::Update),
+            application: DescriptorApplicationRef::Map(krs_ir::TermMapOperation::Update),
         },
         path_key: key(ProvenanceRole::RuleRightPath, 1),
         arguments: vec![
@@ -912,7 +918,9 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
             DescriptorTermArgument::Positional {
                 value: Box::new(literal(1, "1")),
             },
-        ],
+        ]
+        .try_into()
+        .unwrap(),
     };
     rule.result = DescriptorTerm::Application {
         head_class: DescriptorApplicationHeadClass::Applied,
@@ -928,7 +936,9 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
             DescriptorTermArgument::Positional {
                 value: Box::new(variable(1, 3)),
             },
-        ],
+        ]
+        .try_into()
+        .unwrap(),
     };
     bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
 }
@@ -973,9 +983,10 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value: update } = &mut outer[0] else {
+    let krs_ir::Arguments::Positional(outer) = outer else {
         unreachable!()
     };
+    let update = &mut outer[0];
     let DescriptorTerm::Application {
         arguments: update_arguments,
         ..
@@ -983,16 +994,15 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     else {
         unreachable!()
     };
-    update_arguments[0] = DescriptorTermArgument::Positional {
-        value: Box::new(DescriptorTerm::Literal {
-            key: key(ProvenanceRole::RuleRightLiteral, 0),
-            literal: DescriptorLiteral::Int("2".into()),
-        }),
+    let krs_ir::Arguments::Positional(update_arguments) = update_arguments else {
+        unreachable!()
+    };
+    *update_arguments[0] = DescriptorTerm::Literal {
+        key: key(ProvenanceRole::RuleRightLiteral, 0),
+        literal: DescriptorLiteral::Int("2".into()),
     };
     for (argument, ordinal) in update_arguments[1..].iter_mut().zip(1_u32..) {
-        let DescriptorTermArgument::Positional { value } = argument else {
-            unreachable!()
-        };
+        let value = argument;
         let DescriptorTerm::Literal {
             key: literal_key, ..
         } = value.as_mut()
@@ -1001,9 +1011,7 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
         };
         *literal_key = key(ProvenanceRole::RuleRightLiteral, ordinal);
     }
-    let DescriptorTermArgument::Positional { value: second } = &mut outer[1] else {
-        unreachable!()
-    };
+    let second = &mut outer[1];
     let DescriptorTerm::Variable {
         key: reference_key,
         path_key,
@@ -1142,10 +1150,8 @@ fn nested_ordinary_map_update_survives_every_ir_and_emission_layer() {
     assert_canonical_contract(&semantic);
     let rule = &semantic.modules()[0].rules()[0];
     assert_eq!(rule.variables()[0].sort(), &SemanticSortRef::map());
-    let SemanticTermKind::Rewrite { to, .. } = rule.body().unwrap().kind() else {
-        panic!("ordinary rule must lower to a rewrite")
-    };
-    let SemanticTermKind::Application { arguments, .. } = to.kind() else {
+    let body = rule.body().unwrap();
+    let SemanticTermKind::Application { arguments, .. } = body.to().kind() else {
         panic!("map update must remain nested under Add")
     };
     assert!(matches!(
@@ -1341,7 +1347,8 @@ fn structured_rule_bindings_refine_to_builtin_subsort_in_every_occurrence() {
         &SemanticSortRef::Builtin(BuiltinSort::Int)
     );
     let mut occurrences = Vec::new();
-    variable_sorts(rule.body().unwrap(), &mut occurrences);
+    variable_sorts(rule.body().unwrap().from(), &mut occurrences);
+    variable_sorts(rule.body().unwrap().to(), &mut occurrences);
     assert_eq!(
         occurrences,
         vec![
@@ -1367,7 +1374,8 @@ fn structured_rule_bindings_infer_unique_common_descendant_from_all_occurrences(
     assert_eq!(rule.variables()[0].sort(), &expected);
 
     let mut occurrences = Vec::new();
-    variable_sorts(rule.body().unwrap(), &mut occurrences);
+    variable_sorts(rule.body().unwrap().from(), &mut occurrences);
+    variable_sorts(rule.body().unwrap().to(), &mut occurrences);
     variable_sorts(rule.requires().unwrap().term(), &mut occurrences);
     assert_eq!(
         occurrences,
@@ -1598,7 +1606,9 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
                         literal: DescriptorLiteral::Int("1".into()),
                     }),
                 },
-            ],
+            ]
+            .try_into()
+            .unwrap(),
         },
     });
 

@@ -84,10 +84,16 @@ pub(crate) fn precedence(
                     .expect("Rust identifiers are valid production groups"),
             });
         }
-        chains.push(DescriptorPrecedenceChain {
-            key: wire_key(precedence_chain_role, chain_ordinal),
-            groups,
-        });
+        chains.push(
+            DescriptorPrecedenceChain::new(wire_key(precedence_chain_role, chain_ordinal), groups)
+                .map_err(|error| {
+                    ExpandError::new(
+                        expand::DESCRIPTOR_CAPACITY,
+                        Span::call_site(),
+                        error.to_string(),
+                    )
+                })?,
+        );
     }
     let grammar = WireGrammarDescriptor::Precedence {
         key: wire_key(precedence_declaration_role, 0),

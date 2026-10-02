@@ -19,14 +19,14 @@ use krs_ir::{
     HostCellIdentity, HostCellReference, HostConfigurationReference, HostConfigurationRule,
     HostListOperationRegistration, HostMapOperationRegistration, HostRuleCells,
     HostSetOperationRegistration, HostSortReference, HostTerm, HostTypeKey, HostTypeReference,
-    ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProtocolCellContent,
+    ItemKind, ListOperation, OriginStack, PackageId, ProtocolCellContent,
     ProtocolContextAliasBinding, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
     ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
     ProtocolRuleStateTerm, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
-    StateTransportError,
+    StateTransportError, TermMapOperation,
 };
 
 fn package() -> PackageId {
@@ -317,7 +317,7 @@ fn builtin_registry_resolves_map_and_id() {
         HostTypeKey(marker::<41>),
         HostTypeKey(marker::<51>),
     ];
-    let map_operations = MapOperation::TERM_APPLICATIONS
+    let map_operations = TermMapOperation::ALL
         .into_iter()
         .enumerate()
         .map(|(index, operation)| HostMapOperationRegistration {
@@ -658,7 +658,7 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
     (
         rule_id,
         DescriptorConfigurationRule {
-            sentence_kind: SentenceKind::Transition,
+            sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
             label: None,
             priority: None,
             requires: None,
@@ -747,42 +747,28 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
 }
 
 #[test]
-fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
-    let (_, mut descriptor) = var_configuration_rule();
-    descriptor.sentence_kind = SentenceKind::Alias;
-    assert!(matches!(
-        descriptor.validate(ItemKind::Alias),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationStaticAlias
-        ))
-    ));
-
-    let mut host = host_wildcard_configuration_rule();
-    host.sentence_kind = SentenceKind::Alias;
-    assert!(matches!(
-        host.validate(ItemKind::Alias),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationStaticAlias
-        ))
-    ));
-
-    let (_, mut descriptor) = var_configuration_rule();
-    descriptor.sentence_kind = SentenceKind::Simplification;
-    assert!(matches!(
-        descriptor.validate(ItemKind::Simplification),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationSimplification
-        ))
-    ));
-
-    let mut host = host_wildcard_configuration_rule();
-    host.sentence_kind = SentenceKind::Simplification;
-    assert!(matches!(
-        host.validate(ItemKind::Simplification),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::ConfigurationSimplification
-        ))
-    ));
+fn configuration_rule_protocol_rejects_alias_and_simplification_at_the_boundary() {
+    for (kind, reason) in [
+        (
+            SentenceKind::Alias,
+            StateTermReason::ConfigurationStaticAlias,
+        ),
+        (
+            SentenceKind::Simplification,
+            StateTermReason::ConfigurationSimplification,
+        ),
+    ] {
+        let expected = StateTransportError::InvalidTerm(reason);
+        assert_eq!(
+            krs_ir::ConfigurationSentenceKind::try_from(kind).unwrap_err(),
+            expected
+        );
+        let (_, descriptor) = var_configuration_rule();
+        let mut json = serde_json::to_value(descriptor).unwrap();
+        json["sentence_kind"] = serde_json::to_value(kind).unwrap();
+        let error = serde_json::from_value::<DescriptorConfigurationRule>(json).unwrap_err();
+        assert!(error.to_string().contains(&expected.to_string()));
+    }
 }
 
 #[test]
@@ -811,7 +797,9 @@ fn configuration_requires_is_exact_and_term_binding_only() {
                         literal: DescriptorLiteral::Int("0".into()),
                     }),
                 },
-            ],
+            ]
+            .try_into()
+            .unwrap(),
         },
     });
 
@@ -829,9 +817,10 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value } = &mut arguments[0] else {
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
+    let value = &mut arguments[0];
     let DescriptorTerm::Variable { name, .. } = value.as_mut() else {
         unreachable!()
     };
@@ -849,9 +838,10 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value } = &mut arguments[1] else {
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
+    let value = &mut arguments[1];
     let DescriptorTerm::Literal {
         key: literal_key, ..
     } = value.as_mut()
@@ -870,9 +860,10 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     else {
         unreachable!()
     };
-    let DescriptorTermArgument::Positional { value } = &mut arguments[1] else {
+    let krs_ir::Arguments::Positional(arguments) = arguments else {
         unreachable!()
     };
+    let value = &mut arguments[1];
     let DescriptorTerm::Literal {
         key: literal_key, ..
     } = value.as_mut()
@@ -955,7 +946,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
 fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
     let configuration = item("Machine", ItemKind::Configuration);
     DescriptorConfigurationRule {
-        sentence_kind: SentenceKind::Transition,
+        sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label: None,
         priority: None,
         requires: None,
@@ -1079,7 +1070,7 @@ fn host_wildcard_configuration_rule() -> HostConfigurationRule {
         value: ProtocolRuleStateTerm::Term(value),
     };
     HostConfigurationRule {
-        sentence_kind: SentenceKind::Transition,
+        sentence_kind: krs_ir::ConfigurationSentenceKind::Transition,
         label: None,
         priority: None,
         requires: None,
@@ -1231,4 +1222,43 @@ fn simultaneous_k_and_map_update_is_structured() {
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     assert!(keys.contains(&key(ProvenanceRole::RuleRightMapUpdateBase, 0)));
     assert!(keys.contains(&key(ProvenanceRole::RuleRightCellsField, 1)));
+}
+
+#[test]
+fn repeated_cell_collection_spelling_is_closed_at_the_boundary() {
+    use krs_ir::transport::configuration::DescriptorCellCollectionType;
+
+    for (spelling, collection) in [
+        ("Bag", DescriptorCellCollectionType::Bag),
+        ("List", DescriptorCellCollectionType::List),
+        ("Map", DescriptorCellCollectionType::Map),
+        ("Set", DescriptorCellCollectionType::Set),
+    ] {
+        assert_eq!(
+            DescriptorCellCollectionType::try_from(spelling.to_owned()).unwrap(),
+            collection
+        );
+        let json = serde_json::to_string(spelling).unwrap();
+        assert_eq!(serde_json::to_string(&collection).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<DescriptorCellCollectionType>(&json).unwrap(),
+            collection
+        );
+    }
+
+    for spelling in ["", "bag", "sample", "Other"] {
+        let expected =
+            StateTransportError::InvalidTerm(StateTermReason::UnsupportedRepeatedCellCollection);
+        assert_eq!(
+            DescriptorCellCollectionType::try_from(spelling.to_owned()).unwrap_err(),
+            expected
+        );
+        let json = serde_json::to_string(spelling).unwrap();
+        assert!(
+            serde_json::from_str::<DescriptorCellCollectionType>(&json)
+                .unwrap_err()
+                .to_string()
+                .starts_with(&expected.to_string())
+        );
+    }
 }

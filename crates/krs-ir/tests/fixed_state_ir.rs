@@ -6,8 +6,8 @@ use krs_ir::{
     DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
     DefinitionVariable, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, LabelId, LabelIdentity, MapOperation,
-    ModuleId, NodeOrigin, RuleSentence, SemanticId, SentenceKind, StateShapeError, SubsortSentence,
-    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ModuleId, NodeOrigin, RuleSentence, SemanticId, StateShapeError, SubsortSentence, SymbolId,
+    SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
@@ -212,7 +212,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
     sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
         node("rule.step"),
         LabelIdentity::new(LabelId::new("rule.step").unwrap(), "step")?,
-        SentenceKind::Transition,
+        krs_ir::ConfigurationSentenceKind::Transition,
         vec![
             DefinitionVariable::new(sid("variable.s1"), stmt.clone()),
             DefinitionVariable::new(sid("variable.s2"), stmt.clone()),
@@ -272,7 +272,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
     sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
         node("rule.var"),
         LabelIdentity::new(LabelId::new("rule.var").unwrap(), "var")?,
-        SentenceKind::Transition,
+        krs_ir::ConfigurationSentenceKind::Transition,
         vec![
             DefinitionVariable::new(sid("variable.x"), DefinitionSortRef::id()),
             DefinitionVariable::new(sid("variable.v"), value.clone()),
@@ -354,7 +354,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
     sentences.push(DefinitionSentence::Rule(RuleSentence::new_configuration(
         node("rule.assign"),
         LabelIdentity::new(LabelId::new("rule.assign").unwrap(), "assign")?,
-        SentenceKind::Transition,
+        krs_ir::ConfigurationSentenceKind::Transition,
         vec![
             DefinitionVariable::new(sid("variable.assign.statement"), stmt),
             DefinitionVariable::new(sid("variable.assign.e"), DefinitionSortRef::map()),

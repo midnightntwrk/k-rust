@@ -3,9 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef,
     DescriptorApplicationReference, DescriptorIndex, DescriptorPayload, DescriptorTerm,
-    DescriptorTermArgument, ListOperation, MapOperation, ProductionFieldId, ProtocolCellContent,
-    ProvenanceKey, SemanticId, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation,
-    StableItemId,
+    ListOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId,
+    SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation, StableItemId,
 };
 
 use super::catalog::{
@@ -132,7 +131,7 @@ impl StructuredTermBuilder<'_> {
     fn infer_application(
         &mut self,
         reference: &DescriptorApplicationReference,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
@@ -180,8 +179,8 @@ impl StructuredTermBuilder<'_> {
 
     fn infer_map_operation(
         &mut self,
-        operation: MapOperation,
-        arguments: &[DescriptorTermArgument],
+        operation: krs_ir::TermMapOperation,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
@@ -190,14 +189,11 @@ impl StructuredTermBuilder<'_> {
         let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         let result_sort = match operation {
-            MapOperation::Get => expected_sort
+            krs_ir::TermMapOperation::Get => expected_sort
                 .cloned()
                 .ok_or_else(|| self.invalid_term("map::get requires an expected result sort"))?,
-            MapOperation::InKeys => bool_sort.clone(),
-            MapOperation::Update => map_sort.clone(),
-            MapOperation::Empty | MapOperation::Item => {
-                return Err(self.invalid_term("structural Map operation used as an application"));
-            }
+            krs_ir::TermMapOperation::InKeys => bool_sort.clone(),
+            krs_ir::TermMapOperation::Update => map_sort.clone(),
         };
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
@@ -207,10 +203,9 @@ impl StructuredTermBuilder<'_> {
             )));
         }
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
-            MapOperation::Update => vec![Some(&map_sort), None, None],
-            MapOperation::Get => vec![Some(&map_sort), None],
-            MapOperation::InKeys => vec![None, Some(&map_sort)],
-            MapOperation::Empty | MapOperation::Item => unreachable!("checked above"),
+            krs_ir::TermMapOperation::Update => vec![Some(&map_sort), None, None],
+            krs_ir::TermMapOperation::Get => vec![Some(&map_sort), None],
+            krs_ir::TermMapOperation::InKeys => vec![None, Some(&map_sort)],
         };
         for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
             self.infer(argument, expected, subject)?;
@@ -221,8 +216,8 @@ impl StructuredTermBuilder<'_> {
     fn lower_map_operation(
         &mut self,
         reference: &krs_ir::DescriptorApplicationReference,
-        operation: MapOperation,
-        arguments: &[DescriptorTermArgument],
+        operation: krs_ir::TermMapOperation,
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -231,20 +226,16 @@ impl StructuredTermBuilder<'_> {
         let map_sort = SemanticSortRef::Builtin(BuiltinSort::Map);
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         let result_sort = match operation {
-            MapOperation::Get => expected_sort
+            krs_ir::TermMapOperation::Get => expected_sort
                 .cloned()
                 .ok_or_else(|| self.invalid_term("map::get requires an expected result sort"))?,
-            MapOperation::InKeys => bool_sort,
-            MapOperation::Update => map_sort.clone(),
-            MapOperation::Empty | MapOperation::Item => {
-                return Err(self.invalid_term("structural Map operation used as an application"));
-            }
+            krs_ir::TermMapOperation::InKeys => bool_sort,
+            krs_ir::TermMapOperation::Update => map_sort.clone(),
         };
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
-            MapOperation::Update => vec![Some(&map_sort), None, None],
-            MapOperation::Get => vec![Some(&map_sort), None],
-            MapOperation::InKeys => vec![None, Some(&map_sort)],
-            MapOperation::Empty | MapOperation::Item => unreachable!("checked above"),
+            krs_ir::TermMapOperation::Update => vec![Some(&map_sort), None, None],
+            krs_ir::TermMapOperation::Get => vec![Some(&map_sort), None],
+            krs_ir::TermMapOperation::InKeys => vec![None, Some(&map_sort)],
         };
         let lowered = arguments
             .into_iter()
@@ -254,7 +245,7 @@ impl StructuredTermBuilder<'_> {
         Ok(SemanticTerm::typed_map(
             semantic_origin(self.descriptor, reference.key.clone(), "term-map-operation")?,
             result_sort,
-            operation,
+            operation.into(),
             lowered,
         ))
     }
@@ -280,14 +271,14 @@ impl StructuredTermBuilder<'_> {
         }
         let ordered = match (&reference.application, cell_sort) {
             (
-                DescriptorApplicationRef::Map(MapOperation::Update),
+                DescriptorApplicationRef::Map(krs_ir::TermMapOperation::Update),
                 SemanticSortRef::Builtin(BuiltinSort::Map),
-            ) => ordinary_map_arguments(MapOperation::Update, arguments)
+            ) => UpdateArguments::new(krs_ir::TermMapOperation::Update, arguments)
                 .map_err(|detail| self.invalid_term(detail))?,
             (
                 DescriptorApplicationRef::List(ListOperation::Update),
                 SemanticSortRef::Builtin(BuiltinSort::List),
-            ) => ordinary_list_arguments(ListOperation::Update, arguments)
+            ) => UpdateArguments::new(ListOperation::Update, arguments)
                 .map_err(|detail| self.invalid_term(detail))?,
             _ => {
                 return Err(self.invalid_term(
@@ -295,9 +286,7 @@ impl StructuredTermBuilder<'_> {
                 ));
             }
         };
-        let [base, key, value] = ordered.as_slice() else {
-            unreachable!("collection update arity is checked")
-        };
+        let UpdateArguments { base, key, value } = ordered;
         let DescriptorTerm::Variable { name, .. } = base else {
             return Err(
                 self.invalid_term("updated-cell base is not the matched whole-collection binding")
@@ -326,7 +315,7 @@ impl StructuredTermBuilder<'_> {
     fn infer_list_operation(
         &mut self,
         operation: ListOperation,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
@@ -377,7 +366,7 @@ impl StructuredTermBuilder<'_> {
         &mut self,
         reference: &krs_ir::DescriptorApplicationReference,
         operation: ListOperation,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -431,7 +420,7 @@ impl StructuredTermBuilder<'_> {
     fn infer_set_operation(
         &mut self,
         operation: SetOperation,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<(), DescriptorLoweringError> {
@@ -469,7 +458,7 @@ impl StructuredTermBuilder<'_> {
         &mut self,
         reference: &krs_ir::DescriptorApplicationReference,
         operation: SetOperation,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         _expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -638,7 +627,7 @@ impl StructuredTermBuilder<'_> {
     fn lower_application(
         &mut self,
         reference: &DescriptorApplicationReference,
-        arguments: &[DescriptorTermArgument],
+        arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
         expected_sort: Option<&SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -704,17 +693,14 @@ impl StructuredTermBuilder<'_> {
     fn lower_or_bool(
         &mut self,
         key: &ProvenanceKey,
-        arguments: &[DescriptorTerm],
+        arguments: &krs_ir::AtLeastTwo<DescriptorTerm>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-        let lowered = arguments
-            .iter()
-            .map(|argument| self.lower(argument, Some(&bool_sort), subject))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut iter = lowered.into_iter();
-        let mut value = iter.next().expect("validated nonempty");
-        for right in iter {
+        let lowered =
+            arguments.try_map_ref(|argument| self.lower(argument, Some(&bool_sort), subject))?;
+        let (mut value, tail) = lowered.into_head_tail();
+        for right in tail {
             value = SemanticTerm::application(
                 semantic_origin(self.descriptor, key.clone(), "claim-or-bool")?,
                 bool_sort.clone(),
@@ -975,18 +961,43 @@ fn builtin_production_signature(operation: BuiltinOperation) -> ProductionSignat
     }
 }
 
+struct UpdateArguments<'a> {
+    base: &'a DescriptorTerm,
+    key: &'a DescriptorTerm,
+    value: &'a DescriptorTerm,
+}
+
+impl<'a> UpdateArguments<'a> {
+    fn new(
+        operation: impl std::fmt::Display,
+        arguments: &'a krs_ir::Arguments<krs_ir::DescriptorStage>,
+    ) -> Result<Self, String> {
+        match arguments {
+            krs_ir::Arguments::Positional(arguments) => match arguments.as_slice() {
+                [base, key, value] => Ok(Self { base, key, value }),
+                _ => Err(format!(
+                    "the {operation} operation expects 3 positional arguments but received {}",
+                    arguments.len()
+                )),
+            },
+            krs_ir::Arguments::Named(arguments) if arguments.len() != 3 => Err(format!(
+                "the {operation} operation expects 3 positional arguments but received {}",
+                arguments.len()
+            )),
+            krs_ir::Arguments::Named(_) => {
+                Err("builtin collection operations accept positional arguments only".to_owned())
+            }
+        }
+    }
+}
+
 fn ordinary_map_arguments(
-    operation: MapOperation,
-    arguments: &[DescriptorTermArgument],
+    operation: krs_ir::TermMapOperation,
+    arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
 ) -> Result<Vec<&DescriptorTerm>, String> {
     let expected = match operation {
-        MapOperation::Update => 3,
-        MapOperation::Get | MapOperation::InKeys => 2,
-        MapOperation::Empty | MapOperation::Item => {
-            return Err(format!(
-                "the {operation} operation is not available as an ordinary term application"
-            ));
-        }
+        krs_ir::TermMapOperation::Update => 3,
+        krs_ir::TermMapOperation::Get | krs_ir::TermMapOperation::InKeys => 2,
     };
     if arguments.len() != expected {
         return Err(format!(
@@ -1001,11 +1012,11 @@ fn ordinary_map_arguments(
 }
 
 fn ordinary_map_positional_argument(
-    argument: &DescriptorTermArgument,
+    argument: krs_ir::TermArgumentRef<'_, krs_ir::DescriptorStage>,
 ) -> Result<&DescriptorTerm, String> {
     match argument {
-        DescriptorTermArgument::Positional { value } => Ok(value),
-        DescriptorTermArgument::Named { .. } => {
+        krs_ir::TermArgumentRef::Positional { value } => Ok(value),
+        krs_ir::TermArgumentRef::Named { .. } => {
             Err("builtin collection operations accept positional arguments only".to_owned())
         }
     }
@@ -1013,7 +1024,7 @@ fn ordinary_map_positional_argument(
 
 fn ordinary_set_arguments(
     operation: SetOperation,
-    arguments: &[DescriptorTermArgument],
+    arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
 ) -> Result<Vec<&DescriptorTerm>, String> {
     let expected = match operation {
         SetOperation::Empty => 0,
@@ -1034,7 +1045,7 @@ fn ordinary_set_arguments(
 
 fn ordinary_list_arguments(
     operation: ListOperation,
-    arguments: &[DescriptorTermArgument],
+    arguments: &krs_ir::Arguments<krs_ir::DescriptorStage>,
 ) -> Result<Vec<&DescriptorTerm>, String> {
     let expected = match operation {
         ListOperation::Empty => 0,
@@ -1055,44 +1066,26 @@ fn ordinary_list_arguments(
 }
 
 fn order_structured_arguments<'a>(
-    arguments: &'a [DescriptorTermArgument],
+    arguments: &'a krs_ir::Arguments<krs_ir::DescriptorStage>,
     fields: &[(ProductionFieldId, SemanticSortRef)],
     allow_missing_named: bool,
 ) -> Result<Vec<Option<&'a DescriptorTerm>>, String> {
-    if arguments.len() != fields.len()
-        && (!allow_missing_named
-            || arguments.first().is_none_or(|argument| {
-                matches!(argument, DescriptorTermArgument::Positional { .. })
-            }))
-    {
+    if arguments.len() != fields.len() && (!allow_missing_named || !arguments.is_named()) {
         return Err(format!(
             "application expects {} arguments but received {}",
             fields.len(),
             arguments.len()
         ));
     }
-    if arguments
-        .first()
-        .is_none_or(|argument| matches!(argument, DescriptorTermArgument::Positional { .. }))
-    {
-        return Ok(arguments
-            .iter()
-            .map(|argument| match argument {
-                DescriptorTermArgument::Positional { value } => Some(value.as_ref()),
-                DescriptorTermArgument::Named { .. } => {
-                    unreachable!("protocol validation rejects mixed arguments")
-                }
-            })
-            .collect());
-    }
+    let arguments = match arguments {
+        krs_ir::Arguments::Positional(arguments) => {
+            return Ok(arguments.iter().map(|value| Some(value.as_ref())).collect());
+        }
+        krs_ir::Arguments::Named(arguments) => arguments,
+    };
     let mut by_name = arguments
         .iter()
-        .map(|argument| match argument {
-            DescriptorTermArgument::Named { field, value, .. } => (field.clone(), value.as_ref()),
-            DescriptorTermArgument::Positional { .. } => {
-                unreachable!("protocol validation rejects mixed arguments")
-            }
-        })
+        .map(|argument| (argument.field.clone(), argument.value.as_ref()))
         .collect::<BTreeMap<_, _>>();
     let ordered = fields
         .iter()

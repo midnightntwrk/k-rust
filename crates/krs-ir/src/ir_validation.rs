@@ -1,8 +1,8 @@
 //! Shared shape validation with level-specific identity and context checks.
 
 use crate::ir_level::{
-    IrClaim, IrLevel, IrRuleBody, IrRuleCondition, IrRulePriority, IrSimplification, IrTerm,
-    IrTermKind, IrVariable,
+    IrClaim, IrLevel, IrRuleCondition, IrRulePriority, IrSimplification, IrTerm, IrTermKind,
+    IrVariable, RuleBodyRef,
 };
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
@@ -29,7 +29,7 @@ pub(crate) struct RuleView<'a, L: Validation> {
     pub kind: SentenceKind,
     pub id: L::RuleId,
     pub variables: &'a [IrVariable<L>],
-    pub body: &'a IrRuleBody<L>,
+    pub body: RuleBodyRef<'a, L>,
     pub requires: Option<&'a IrRuleCondition<L>>,
     pub priority: Option<&'a IrRulePriority>,
     pub simplification: Option<&'a IrSimplification>,
@@ -127,7 +127,6 @@ pub(crate) enum ValidationError<L: Validation> {
     PrecedenceCycle(ProductionGroupId),
     RegexWithoutToken,
     RewriteSortMismatch,
-    RuleBodyNotRewrite(L::RuleId),
     RuleConditionSortMismatch,
     SequenceItemSortMismatch,
     SequenceSortMismatch,
@@ -421,7 +420,7 @@ pub(crate) fn validate_rule<L: Validation>(
             )));
         }
         L::claim_label(sentence)?;
-        if !matches!(rule.body, IrRuleBody::Configuration(_)) {
+        if !matches!(rule.body, RuleBodyRef::Configuration { .. }) {
             return Err(L::error(ValidationError::ClaimBodyNotConfiguration(
                 rule.id.clone(),
             )));
@@ -430,18 +429,32 @@ pub(crate) fn validate_rule<L: Validation>(
     L::rule_label_origin(sentence, nodes)?;
     let scope = variable_scope::<L>(rule.variables, declarations)?;
     match rule.body {
-        IrRuleBody::Term(body) => {
-            let body: &IrTerm<L> = body.as_ref();
-            validate_term::<L>(body, &scope, declarations, signatures, sort_parents, nodes)?;
-            if !matches!(body.kind(), IrTermKind::Rewrite { .. }) {
-                return Err(L::error(ValidationError::RuleBodyNotRewrite(
-                    rule.id.clone(),
-                )));
+        RuleBodyRef::Term(body) => {
+            insert_node::<L>(nodes, body.origin().key())?;
+            require_sort::<L>(declarations, body.sort())?;
+            validate_term::<L>(
+                body.from(),
+                &scope,
+                declarations,
+                signatures,
+                sort_parents,
+                nodes,
+            )?;
+            validate_term::<L>(
+                body.to(),
+                &scope,
+                declarations,
+                signatures,
+                sort_parents,
+                nodes,
+            )?;
+            if !is_subsort::<L>(body.from().sort(), body.sort(), sort_parents)
+                || !is_subsort::<L>(body.to().sort(), body.sort(), sort_parents)
+            {
+                return Err(L::error(ValidationError::RewriteSortMismatch));
             }
+            let from = body.from();
             if rule.kind == SentenceKind::Equation {
-                let IrTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
                 let IrTermKind::Application {
                     application: ApplicationRef::Declared(production),
                     ..
@@ -458,9 +471,6 @@ pub(crate) fn validate_rule<L: Validation>(
                 }
             }
             if rule.kind == SentenceKind::Alias {
-                let IrTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
                 let IrTermKind::Application {
                     application: ApplicationRef::Declared(production),
                     ..
@@ -473,9 +483,6 @@ pub(crate) fn validate_rule<L: Validation>(
                 }
             }
             if rule.kind == SentenceKind::Simplification {
-                let IrTermKind::Rewrite { from, .. } = body.kind() else {
-                    unreachable!("rule bodies were checked as rewrites")
-                };
                 match from.kind() {
                     IrTermKind::Application {
                         application: ApplicationRef::Declared(production),
@@ -493,15 +500,7 @@ pub(crate) fn validate_rule<L: Validation>(
                 }
             }
         }
-        IrRuleBody::Configuration(body) => {
-            if rule.kind == SentenceKind::Alias {
-                return Err(L::error(ValidationError::InvalidAliasRoot(rule.id.clone())));
-            }
-            if rule.kind == SentenceKind::Simplification {
-                return Err(L::error(ValidationError::InvalidSimplificationRoot(
-                    rule.id.clone(),
-                )));
-            }
+        RuleBodyRef::Configuration { body, .. } => {
             let configuration = configuration.ok_or_else(|| {
                 L::error(ValidationError::ConfigurationRuleWithoutFixedConfiguration(
                     rule.id.clone(),
@@ -576,8 +575,11 @@ pub(crate) fn validate_rule<L: Validation>(
     }
     let mut used = BTreeSet::new();
     match rule.body {
-        IrRuleBody::Term(body) => collect_term_variables::<L>(body.as_ref(), &mut used),
-        IrRuleBody::Configuration(body) => {
+        RuleBodyRef::Term(body) => {
+            collect_term_variables::<L>(body.from(), &mut used);
+            collect_term_variables::<L>(body.to(), &mut used);
+        }
+        RuleBodyRef::Configuration { body, .. } => {
             for clause in body.clauses() {
                 collect_term_variables::<L>(clause.before(), &mut used);
                 if let CellPost::Replace { term } = clause.after() {
@@ -638,7 +640,7 @@ pub(crate) fn validate_claim<L: Validation>(
 
     let mut left_uses = BTreeSet::new();
     let mut right_uses = BTreeSet::new();
-    let IrRuleBody::Configuration(body) = rule.body else {
+    let RuleBodyRef::Configuration { body, .. } = rule.body else {
         return Err(L::error(ValidationError::ClaimBodyNotConfiguration(
             rule.id.clone(),
         )));

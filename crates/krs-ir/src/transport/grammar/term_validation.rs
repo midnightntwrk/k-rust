@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use super::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationReference,
-    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
-    GrammarTransportError, TermKeyCounters, TermSide, increment, insert_exact, require_key,
+    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError,
+    TermKeyCounters, TermSide, increment, insert_exact, require_key,
     validate_list_application_shape, validate_map_application_shape,
     validate_set_application_shape,
 };
@@ -45,7 +45,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         head_class: DescriptorApplicationHeadClass,
         reference: &DescriptorApplicationReference,
         path_key: &ProvenanceKey,
-        arguments: &[DescriptorTermArgument],
+        arguments: &crate::Arguments<crate::DescriptorStage>,
     ) -> Result<(), Self::Error> {
         require_key(&reference.key, self.provenance)?;
         require_key(path_key, self.provenance)?;
@@ -97,7 +97,11 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         unsupported_claim_term()
     }
 
-    fn or_bool(&mut self, _: &ProvenanceKey, _: &[DescriptorTerm]) -> Result<(), Self::Error> {
+    fn or_bool(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &crate::AtLeastTwo<DescriptorTerm>,
+    ) -> Result<(), Self::Error> {
         unsupported_claim_term()
     }
 
@@ -112,13 +116,12 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn argument(
         &mut self,
-        argument: &DescriptorTermArgument,
-        named: bool,
+        argument: crate::TermArgumentRef<'_, crate::DescriptorStage>,
         fields: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         match argument {
-            DescriptorTermArgument::Positional { .. } if !named => Ok(()),
-            DescriptorTermArgument::Named { key, field, .. } if named => {
+            crate::TermArgumentRef::Positional { .. } => Ok(()),
+            crate::TermArgumentRef::Named { key, field, .. } => {
                 require_key(key, self.provenance)?;
                 if !fields.insert(field.clone()) {
                     return Err(GrammarTransportError::InvalidApplication(
@@ -126,11 +129,6 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
                     ));
                 }
                 Ok(())
-            }
-            DescriptorTermArgument::Positional { .. } | DescriptorTermArgument::Named { .. } => {
-                Err(GrammarTransportError::InvalidApplication(
-                    GrammarApplicationReason::MixedArgumentForms,
-                ))
             }
         }
     }
@@ -181,7 +179,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         head_class: DescriptorApplicationHeadClass,
         reference: &DescriptorApplicationReference,
         path_key: &ProvenanceKey,
-        _: &[DescriptorTermArgument],
+        _: &crate::Arguments<crate::DescriptorStage>,
     ) -> Result<(), Self::Error> {
         insert_exact(
             self.keys,
@@ -253,7 +251,11 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         unsupported_claim_term()
     }
 
-    fn or_bool(&mut self, _: &ProvenanceKey, _: &[DescriptorTerm]) -> Result<(), Self::Error> {
+    fn or_bool(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &crate::AtLeastTwo<DescriptorTerm>,
+    ) -> Result<(), Self::Error> {
         unsupported_claim_term()
     }
 
@@ -268,11 +270,10 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
 
     fn argument(
         &mut self,
-        argument: &DescriptorTermArgument,
-        _: bool,
+        argument: crate::TermArgumentRef<'_, crate::DescriptorStage>,
         _: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
-        if let DescriptorTermArgument::Named { key, .. } = argument {
+        if let crate::TermArgumentRef::Named { key, .. } = argument {
             insert_exact(
                 self.keys,
                 key,
@@ -329,7 +330,7 @@ mod tests {
                 )),
             },
             path_key: key(ProvenanceRole::RuleLeftPath, 0),
-            arguments,
+            arguments: arguments.try_into().unwrap(),
         }
     }
 
@@ -386,9 +387,13 @@ mod tests {
                 field: field.clone(),
                 value: literal(0),
             },
-            DescriptorTermArgument::Positional { value: literal(1) },
             DescriptorTermArgument::Named {
                 key: key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+                field: ProductionFieldId::new("other").unwrap(),
+                value: literal(1),
+            },
+            DescriptorTermArgument::Named {
+                key: key(ProvenanceRole::RuleLeftRecordFieldName, 2),
                 field,
                 value: literal(2),
             },
@@ -436,6 +441,7 @@ mod tests {
                     key(head_role, 0),
                     key(ProvenanceRole::RuleLeftRecordFieldName, 0),
                     key(ProvenanceRole::RuleLeftRecordFieldName, 1),
+                    key(ProvenanceRole::RuleLeftRecordFieldName, 2),
                     key(ProvenanceRole::RuleLeftLiteral, 0),
                     key(ProvenanceRole::RuleLeftLiteral, 1),
                     key(ProvenanceRole::RuleLeftLiteral, 2),

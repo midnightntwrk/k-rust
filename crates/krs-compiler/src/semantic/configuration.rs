@@ -1,13 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    CellAttribute, CellCollectionType, CellMultiplicity, ConfigurationRoot, Descriptor,
-    DescriptorCellDeclaration, DescriptorFixedConfiguration, DescriptorIndex,
-    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm, FixedCell,
-    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, MapOperation,
-    ProtocolCellContent, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
-    ProtocolMapBody, ProvenanceKey, SemanticConfiguration, SemanticId, SemanticSortRef,
-    SemanticTerm, StableItemId,
+    CellAttribute, CellMultiplicity, ConfigurationRoot, Descriptor, DescriptorCellDeclaration,
+    DescriptorFixedConfiguration, DescriptorIndex, DescriptorInitializerCell,
+    DescriptorInitializerStateTerm, DescriptorTerm, FixedCell, FixedConfiguration,
+    FixedConfigurationVariable, FixedInitializerCell, MapOperation, ProtocolCellContent,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey,
+    SemanticConfiguration, SemanticId, SemanticSortRef, SemanticTerm, StableItemId,
 };
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
@@ -121,16 +120,9 @@ fn lower_cell_declaration(
             ));
         }
         if let Some(cell_type) = &field.cell_type {
-            let value = match cell_type.value.as_str() {
-                "Bag" => CellCollectionType::Bag,
-                "List" => CellCollectionType::List,
-                "Map" => CellCollectionType::Map,
-                "Set" => CellCollectionType::Set,
-                _ => unreachable!("protocol validation rejects unsupported cell types"),
-            };
             attributes.push(CellAttribute::collection_type(
                 semantic_origin(descriptor, cell_type.key.clone(), "cell-type")?,
-                value,
+                cell_type.value.into(),
             ));
         }
         let origin = semantic_origin(

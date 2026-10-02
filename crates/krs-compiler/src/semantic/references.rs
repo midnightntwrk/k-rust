@@ -3,10 +3,9 @@ use krs_ir::{
     DescriptorCellIdentity, DescriptorFixedConfiguration, DescriptorIndex,
     DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorPayload,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorRuleCells, DescriptorSortRef, DescriptorTerm, DescriptorTermArgument,
-    GrammarDescriptor, ProtocolCellContent, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, StructuredRuleDescriptor,
+    DescriptorRuleCells, DescriptorSortRef, DescriptorTerm, GrammarDescriptor, ProtocolCellContent,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
+    ProtocolRuleBindingKind, ProtocolRuleMapBody, ProtocolRuleStateTerm, StructuredRuleDescriptor,
 };
 
 use super::error::DescriptorLoweringError;
@@ -159,8 +158,8 @@ fn validate_structured_term_references(
         validate_application_ref(&reference.application, declarations)?;
         for argument in arguments {
             let value = match argument {
-                DescriptorTermArgument::Positional { value }
-                | DescriptorTermArgument::Named { value, .. } => value,
+                krs_ir::TermArgumentRef::Positional { value }
+                | krs_ir::TermArgumentRef::Named { value, .. } => value,
             };
             validate_structured_term_references(value, declarations)?;
         }

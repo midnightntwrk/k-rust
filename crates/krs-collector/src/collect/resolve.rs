@@ -810,7 +810,7 @@ mod tests {
     use krs_ir::{
         BuiltinSort, HostApplicationReference, HostApplicationTarget, HostEnumVariantReference,
         HostListOperationRegistration, HostMapOperationRegistration, HostSetOperationRegistration,
-        HostTypeKey, ListOperation, MapOperation, PackageId, ProvenanceKey, SetOperation,
+        HostTypeKey, ListOperation, PackageId, ProvenanceKey, SetOperation, TermMapOperation,
     };
 
     struct Boolean;
@@ -922,7 +922,7 @@ mod tests {
         HostBuiltinRegistry {
             sorts: sort_keys,
             operations: operation_keys,
-            map_operations: MapOperation::TERM_APPLICATIONS
+            map_operations: TermMapOperation::ALL
                 .into_iter()
                 .zip([
                     HostTypeKey(marker_key::<MapUpdateOp>),
@@ -1393,7 +1393,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             map_update.application,
-            DescriptorApplicationRef::Map(MapOperation::Update)
+            DescriptorApplicationRef::Map(TermMapOperation::Update)
         );
 
         let list_get = resolve_application_reference(

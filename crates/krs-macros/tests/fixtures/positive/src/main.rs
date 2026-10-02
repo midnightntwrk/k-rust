@@ -844,9 +844,9 @@ mod tests {
     use super::*;
     use language_host::{
         FormatFragment, HostApplicationIdentity, HostDescriptorPayload, HostGrammarDescriptor,
-        HostProductionAttribute, HostProductionItem, HostProductionOwner, HostTerm,
-        HostTermArgument, ItemKind, ProtocolInitializerStateTerm, ProtocolRuleBindingKind,
-        ProtocolRuleStateTerm, ProvenanceRole, SchemaVersion,
+        HostProductionAttribute, HostProductionItem, HostProductionOwner, HostTerm, ItemKind,
+        ProtocolInitializerStateTerm, ProtocolRuleBindingKind, ProtocolRuleStateTerm,
+        ProvenanceRole, SchemaVersion,
     };
 
     #[test]
@@ -1467,7 +1467,7 @@ mod tests {
                 &krs_ir::SemanticSortRef::Builtin(language_host::BuiltinSort::Int),
             ]
         );
-        let krs_ir::semantic::SemanticRuleBody::Configuration(eval_add_body) =
+        let krs_ir::RuleBodyRef::Configuration { body: eval_add_body, .. } =
             eval_add.relational_body()
         else {
             panic!("eval_add must lower to one configuration rewrite")
@@ -1773,11 +1773,10 @@ mod tests {
         let HostTerm::Application { arguments, .. } = &sequence.items[0].value else {
             panic!("whole-state wildcard must be nested in Pair")
         };
-        assert!(matches!(
-            &arguments[1],
-            HostTermArgument::Positional { value }
-                if matches!(value.as_ref(), HostTerm::Wildcard { .. })
-        ));
+        let krs_ir::Arguments::Positional(arguments) = arguments else {
+            panic!("Pair must have positional arguments")
+        };
+        assert!(matches!(arguments[1].as_ref(), HostTerm::Wildcard { .. }));
     }
 
     #[test]
@@ -2413,10 +2412,11 @@ mod tests {
         let HostTerm::Application { arguments, .. } = &record_rule.result else {
             panic!("enum record result must be an application")
         };
-        assert!(matches!(
-            &arguments[..],
-            [HostTermArgument::Named { field, .. }] if field.as_str() == "value"
-        ));
+        let krs_ir::Arguments::Named(arguments) = arguments else {
+            panic!("enum record must have named arguments")
+        };
+        assert_eq!(arguments.len(), 1);
+        assert_eq!(arguments.first().field.as_str(), "value");
 
         let wildcard_rule = descriptor(&descriptors, "subject_wildcard", ItemKind::Rule);
         let HostDescriptorPayload::StructuredRule(wildcard_rule) = &wildcard_rule.payload else {
@@ -2425,9 +2425,12 @@ mod tests {
         let HostTerm::Application { arguments, .. } = &wildcard_rule.subject else {
             panic!("wildcard subject must be an application")
         };
+        let krs_ir::Arguments::Named(arguments) = arguments else {
+            panic!("wildcard subject must have named arguments")
+        };
         assert!(matches!(
-            &arguments[0],
-            HostTermArgument::Named { value, .. } if matches!(value.as_ref(), HostTerm::Wildcard { .. })
+            arguments.first().value.as_ref(),
+            HostTerm::Wildcard { .. }
         ));
 
         let literal_rule = descriptor(&descriptors, "boolean_literal", ItemKind::Rule);
@@ -2860,8 +2863,8 @@ mod tests {
             );
         }
         let (
-            krs_ir::semantic::SemanticRuleBody::Configuration(readable),
-            krs_ir::semantic::SemanticRuleBody::Configuration(explicit),
+            krs_ir::RuleBodyRef::Configuration { body: readable, .. },
+            krs_ir::RuleBodyRef::Configuration { body: explicit, .. },
         ) = (readable.relational_body(), explicit.relational_body())
         else {
             panic!("equivalent readable and explicit rules must rewrite configurations")
