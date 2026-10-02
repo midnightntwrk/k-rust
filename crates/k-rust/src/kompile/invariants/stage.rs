@@ -193,7 +193,14 @@ fn render_sentence(sentence: &Sentence) -> String {
         Sentence::ContextAlias { body, requires, .. } => {
             format!("context alias {body} requires {requires}")
         }
-        other => format!("{other:?}"),
+        other @ Sentence::SyntaxSort { .. }
+        | other @ Sentence::SortSynonym { .. }
+        | other @ Sentence::SyntaxLexical { .. }
+        | other @ Sentence::Production { .. }
+        | other @ Sentence::SyntaxAssociativity { .. }
+        | other @ Sentence::SyntaxPriority { .. }
+        | other @ Sentence::Configuration { .. }
+        | other @ Sentence::Bubble { .. } => format!("{other:?}"),
     }
 }
 

@@ -723,6 +723,7 @@ impl BackendDefinition {
         Ok(result)
     }
 
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn internalize_canonical(
         definition: &kore::Definition,
         main_module: &str,
@@ -860,7 +861,10 @@ impl BackendDefinition {
                         pattern,
                         attributes,
                     } => (&mut claims, parameters, pattern, attributes, false),
-                    _ => continue,
+                    kore::Sentence::Import { .. }
+                    | kore::Sentence::SortDeclaration { .. }
+                    | kore::Sentence::SymbolDeclaration { .. }
+                    | kore::Sentence::AliasDeclaration { .. } => continue,
                 };
                 reject_duplicates(parameters)?;
                 if let Some((sub, sup)) = subsort_attribute(pattern, attributes, &sorts)? {

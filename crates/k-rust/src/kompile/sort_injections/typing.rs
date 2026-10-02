@@ -521,6 +521,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
     /// Type the loaded term at `path`, whose resolved form (semantic casts replaced by sort
     /// metadata) is `resolved`, at a position of sort `hint`, and every subterm.
     // Invariant: each call records `path` and recurses only into the direct subterms of `loaded` (and the corresponding subterms of `resolved`), extending `path` by one step; the depth of `loaded` bounds the recursion.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     fn visit(
         &mut self,
         loaded: &Term,
@@ -684,6 +688,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         } else {
             (term.clone(), sort.clone())
         };
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is not a sentence kind; only the listed variants are special here"
+        )]
         let reported_sort = match term.unannotated() {
             Term::Variable { sort: None, .. } => None,
             _ => reported(&sort),
@@ -824,6 +832,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         let Sentence::Production { sort, items, .. } = injector.production(loaded, label)? else {
             unreachable!("the production catalog holds productions")
         };
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+        )]
         let children = items
             .iter()
             .filter_map(|item| match item {

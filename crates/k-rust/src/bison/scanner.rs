@@ -114,7 +114,16 @@ impl Scanner {
                 Sentence::SyntaxSort { sort, .. } if sort.is_frontend(FrontendSort::Layout) => {
                     layout_declared = true;
                 }
-                _ => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => {}
             }
         }
 

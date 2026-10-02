@@ -17,7 +17,17 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
         .iter()
         .filter_map(|sentence| match sentence {
             Sentence::SyntaxLexical { name, .. } => Some((name.clone(), *sentence)),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeMap<_, _>>();
     let mut dependencies = BTreeMap::<String, BTreeSet<String>>::new();
@@ -58,7 +68,16 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
                     }
                 }
             }
-            _ => continue,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => continue,
         }
 
         let mut bad_names = Vec::new();
@@ -102,6 +121,10 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
 
 // Descending ranges are reported per occurrence; the non-ASCII findings of all regexes in one
 // sentence are merged, so a sentence gets at most one diagnostic of each non-ASCII kind.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Issue is not a sentence kind; only the listed variants are special here"
+)]
 fn check_parsed_regexes(regexes: &[Regex], sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
     let mut negated_non_ascii = Vec::new();
     let mut range_non_ascii = Vec::new();

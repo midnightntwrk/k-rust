@@ -121,6 +121,10 @@ fn anywhere_lhs_label(rule: &Sentence) -> Option<LabelHead> {
     let Sentence::Rule { body, .. } = rule else {
         return None;
     };
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     let left = match body.unannotated() {
         Term::Rewrite { left, .. } => left.as_ref(),
         _ => body,

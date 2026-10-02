@@ -134,7 +134,18 @@ impl<'a> SortCatalog<'a> {
                 | Sentence::SyntaxSort {
                     sort, attributes, ..
                 } if attributes.has(AttributeKey::Token) => Some(sort.clone()),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<BTreeSet<_>>();
         let token_heads = token_sorts.iter().map(SortHead::from).collect();
@@ -155,7 +166,18 @@ impl<'a> SortCatalog<'a> {
                 } if !parameters.is_empty() && attributes.has(AttributeKey::Token) => {
                     Some((sort.clone(), parameters.clone()))
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect();
         let list_sorts = sentences
@@ -164,7 +186,18 @@ impl<'a> SortCatalog<'a> {
                 Sentence::Production {
                     sort, attributes, ..
                 } if attributes.has(AttributeKey::UserList) => Some(sort.clone()),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect();
 

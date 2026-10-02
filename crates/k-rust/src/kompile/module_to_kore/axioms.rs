@@ -87,7 +87,19 @@ pub(super) fn generated_axioms(
                 if cfg!(debug_assertions) {
                     let head = |id| match overloads.production(id) {
                         Sentence::Production { sort, .. } => SortHead::from(sort),
-                        _ => unreachable!("overload catalogs contain productions"),
+                        Sentence::SyntaxSort { .. }
+                        | Sentence::SortSynonym { .. }
+                        | Sentence::SyntaxLexical { .. }
+                        | Sentence::SyntaxAssociativity { .. }
+                        | Sentence::SyntaxPriority { .. }
+                        | Sentence::ContextAlias { .. }
+                        | Sentence::Context { .. }
+                        | Sentence::Rule { .. }
+                        | Sentence::Claim { .. }
+                        | Sentence::Configuration { .. }
+                        | Sentence::Bubble { .. } => {
+                            unreachable!("overload catalogs contain productions")
+                        }
                     };
                     roles.debug_assert_overload_axiom(
                         overloads,
@@ -151,7 +163,17 @@ fn no_confusion_axioms(
 
     let result_head = match production {
         Sentence::Production { sort, .. } => SortHead::from(sort),
-        _ => unreachable!("production catalogs contain productions"),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!("production catalogs contain productions"),
     };
     // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a
     // disjointness axiom, so each unordered pair is emitted once; this scan of

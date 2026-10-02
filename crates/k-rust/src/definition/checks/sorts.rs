@@ -99,7 +99,15 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                     ));
                 }
             }
-            _ => {}
+            Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
 
@@ -328,7 +336,17 @@ fn kernel_position_search(
             } if !parameters.contains(sort) => {
                 sorts.insert(sort.clone());
             }
-            _ => {}
+            Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     let completion = kernel_completion(&sorts);

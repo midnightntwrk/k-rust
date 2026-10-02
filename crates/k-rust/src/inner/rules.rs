@@ -24,6 +24,8 @@
 //! pipeline. `Counter::KompileRuleBubblesParsed` counts bubbles; `parse_rule_content` deliberately
 //! rebuilds its standalone grammar. Total cost is grammar construction plus bubble parse work.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -267,6 +269,10 @@ pub(crate) fn resolve_rule_bubbles_with_resolved(
     Ok((transformed, resolved))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "ParseError is not a sentence kind; only the listed variants are special here"
+)]
 fn global_rule_grammar(definition: &ResolvedDefinition) -> Result<Grammar, RuleError> {
     let main = definition.main_module_id();
     rule_grammar(definition, main, RuleGrammarScope::GlobalScanner).map_err(|error| match error {
@@ -377,6 +383,10 @@ fn bubble_error(
     contents: Option<&str>,
     error: ParseError,
 ) -> RuleError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ParseError is not a sentence kind; only the listed variants are special here"
+    )]
     let span = match &error {
         ParseError::NoParse {
             span: Some(span), ..
@@ -643,7 +653,18 @@ fn rule_grammar(
                     _ => None,
                 }
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let mut parsing_sentences = visible
@@ -718,7 +739,18 @@ fn rule_grammar(
             Sentence::Production {
                 sort, attributes, ..
             } if attributes.has(AttributeKey::Bracket) => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let klabel_terminals = visible
@@ -734,7 +766,18 @@ fn rule_grammar(
             {
                 Some(label.name.clone())
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     add_k_syntax(&mut grammar, BuiltinTokenGrammar::Rule)?;
@@ -1061,7 +1104,18 @@ fn production_labels(sentences: &[Sentence]) -> BTreeSet<String> {
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect()
 }
@@ -1288,7 +1342,18 @@ fn add_rule_cells(
             Sentence::Production {
                 sort, attributes, ..
             } if attributes.has(AttributeKey::Cell) => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let collection_sorts = sentences
@@ -1297,7 +1362,18 @@ fn add_rule_cells(
             Sentence::SyntaxSort {
                 sort, attributes, ..
             } if attributes.has(AttributeKey::CellCollection) => Some(sort.clone()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
 
@@ -1388,13 +1464,25 @@ fn add_rule_cells(
                     true,
                 )?;
             }
-            _ => {}
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     Ok(())
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::*;
     use crate::definition::SortCatalog;

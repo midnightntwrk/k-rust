@@ -256,6 +256,10 @@ impl Attributes {
     }
 
     /// Read a typed K label while accepting the string form emitted by older krust builds.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Value is not a sentence kind; only the listed variants are special here"
+    )]
     pub fn label(&self, key: AttributeKey) -> Option<Label> {
         match self.value(key)? {
             Value::String(name) => Some(Label::new(name.clone())),

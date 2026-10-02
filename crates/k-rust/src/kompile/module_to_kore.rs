@@ -722,7 +722,18 @@ fn definition_attributes(
             {
                 Some(label)
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
     {
         attributes.push(Pattern::Application {
@@ -972,7 +983,16 @@ fn describe_source_sentence(sentence: &Sentence) -> String {
     }
     match sentence {
         Sentence::Rule { body, .. } | Sentence::Claim { body, .. } => body.to_string(),
-        _ => format!("{sentence:?}"),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => format!("{sentence:?}"),
     }
 }
 
@@ -1220,6 +1240,10 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     else {
         return sentence.clone();
     };
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     let left = match body.unannotated() {
         Term::Rewrite { left, .. } => left.as_ref(),
         _ => body,
@@ -1277,7 +1301,18 @@ fn transitive_impure_labels(
                 attributes,
                 ..
             } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     graph
@@ -1634,6 +1669,10 @@ fn default_format(items: &[ProductionItem]) -> Option<String> {
 }
 
 fn is_named_prefix_production(items: &[ProductionItem]) -> bool {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+    )]
     let nonterminals = items
         .iter()
         .filter_map(|item| match item {
@@ -1762,6 +1801,10 @@ fn kore_attribute_name(key: &str) -> String {
 /// so the link lives with the emitter. `every_emitted_key_names_the_kore_attribute_the_backend_reads`
 /// pins each spelling against `identifier::encode` and reaches every non-marker variant.
 impl From<AttributeKey> for KoreAttribute {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "AttributeKey is not a sentence kind; only the listed variants are special here"
+    )]
     fn from(key: AttributeKey) -> Self {
         match key {
             AttributeKey::Label => Self::Label,
@@ -1861,7 +1904,17 @@ fn label_pattern(
     };
     let parameters = match productions.production(*production) {
         Sentence::Production { label, .. } => label.as_ref(),
-        _ => None,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
     .map(|label| label.parameters.clone())
     .unwrap_or_default();

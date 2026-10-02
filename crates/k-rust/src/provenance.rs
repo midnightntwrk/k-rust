@@ -72,6 +72,8 @@
 //! that share an input address with it, else from its source spans, else from the module-wide
 //! origin set.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     borrow::Borrow,
     cell::OnceCell,
@@ -1795,6 +1797,10 @@ fn term_origin_links(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn only_child_mut(term: &mut Term) -> Option<&mut Term> {
     match unannotated_mut(term) {
         Term::Sequence(items)
@@ -1805,6 +1811,10 @@ fn only_child_mut(term: &mut Term) -> Option<&mut Term> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn unannotated_mut(mut term: &mut Term) -> &mut Term {
     loop {
         match term {
@@ -1828,6 +1838,10 @@ fn annotate_child(
 }
 
 /// Primitive tokens and structural dots are deliberately origin-free.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 pub fn declared_origin_free(term: &Term) -> bool {
     match term.unannotated() {
         Term::Token { .. } => true,
@@ -1844,6 +1858,7 @@ pub fn declared_origin_free(term: &Term) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use proptest::prelude::*;
 

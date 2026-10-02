@@ -78,9 +78,22 @@ pub(super) fn emit_rule_or_claim(
             ensures,
             attributes,
         } => (body, requires, ensures, attributes),
-        _ => unreachable!("only rules and claims are emitted"),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => unreachable!("only rules and claims are emitted"),
     };
     let body_sort = injector.term_sort(body, None)?;
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     let (left, right) = match body.unannotated() {
         Term::Rewrite { left, right } => (left.as_ref(), right.as_ref()),
         _ if claim => (body, body),
@@ -591,6 +604,10 @@ fn emit_owise_equation(
         else {
             unreachable!("indexed competitors are injected rules")
         };
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is not a sentence kind; only the listed variants are special here"
+        )]
         let competitor_left = match body.unannotated() {
             Term::Rewrite { left, .. } => left.as_ref(),
             _ => body,
@@ -623,6 +640,10 @@ fn emit_owise_equation(
             .into_values()
             .collect::<Vec<_>>();
         quantified.sort_by(|left, right| {
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "Term is not a sentence kind; only the listed variants are special here"
+            )]
             let key = |term: &Term| match term.unannotated() {
                 Term::Variable { name, sort } => (sort.clone(), name.clone()),
                 _ => unreachable!("variable_terms returns variables"),
@@ -758,6 +779,10 @@ impl OwiseCompetitors {
             let Sentence::Rule { body, .. } = &injected else {
                 continue;
             };
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "Term is not a sentence kind; only the listed variants are special here"
+            )]
             let competitor_left = match body.unannotated() {
                 Term::Rewrite { left, .. } => left.as_ref(),
                 _ => body,
@@ -975,7 +1000,10 @@ pub(super) fn check_variable_sorts(
 ) -> Result<(), ModuleToKoreError> {
     let pattern = match sentence {
         KoreSentence::Axiom { pattern, .. } | KoreSentence::Claim { pattern, .. } => pattern,
-        _ => return Ok(()),
+        KoreSentence::Import { .. }
+        | KoreSentence::SortDeclaration { .. }
+        | KoreSentence::SymbolDeclaration { .. }
+        | KoreSentence::AliasDeclaration { .. } => return Ok(()),
     };
     let mut by_name = BTreeMap::<String, BTreeSet<KoreSort>>::new();
     visit_pattern_variables(pattern, &mut |variable| {
@@ -1146,6 +1174,7 @@ fn existential_names(right: &Term, ensures: &Term) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use indoc::indoc;
     use serde_json::json;

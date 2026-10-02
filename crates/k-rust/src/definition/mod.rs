@@ -6,6 +6,8 @@
 //!
 //! K definition syntax and KAST JSON interchange.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 pub mod ast;
 pub(crate) mod attribute_keys;
 pub mod catalog;

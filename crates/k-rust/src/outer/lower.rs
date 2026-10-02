@@ -17,6 +17,8 @@
 //! Complexity: O(S + I) over sentences and production items.
 //! It visits each syntax node once; no dedicated counter.
 //!
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::{Value, json};

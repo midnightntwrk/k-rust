@@ -20,6 +20,8 @@
 //! pipeline. Cost is O(grammar construction + bubble parse work); rule bubbles use
 //! `Counter::KompileRuleBubblesParsed`, while configuration work is visible in parse counters.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::fmt;
 
 use crate::definition::AttributeKey;
@@ -162,6 +164,10 @@ fn bubble_error(
     contents: Option<&str>,
     error: ParseError,
 ) -> ConfigError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ParseError is not a sentence kind; only the listed variants are special here"
+    )]
     let span = match &error {
         ParseError::NoParse {
             span: Some(span), ..
@@ -343,7 +349,18 @@ pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&At
             Sentence::Production { attributes, .. } if attributes.has(AttributeKey::Bracket) => {
                 Some(attributes)
             }
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
 }
 

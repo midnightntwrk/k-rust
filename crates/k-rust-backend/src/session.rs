@@ -1,5 +1,7 @@
 //! Stateful KORE module addition and definition selection.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -115,7 +117,11 @@ impl BackendSession {
             .iter()
             .filter_map(|sentence| match sentence {
                 kore::Sentence::SortDeclaration { name, .. } => Some(name.clone()),
-                _ => None,
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SymbolDeclaration { .. }
+                | kore::Sentence::AliasDeclaration { .. }
+                | kore::Sentence::Axiom { .. }
+                | kore::Sentence::Claim { .. } => None,
             })
             .collect::<Vec<_>>();
         if !sorts.is_empty() {
@@ -126,7 +132,11 @@ impl BackendSession {
             .iter()
             .filter_map(|sentence| match sentence {
                 kore::Sentence::SymbolDeclaration { symbol, .. } => Some(symbol.name.clone()),
-                _ => None,
+                kore::Sentence::Import { .. }
+                | kore::Sentence::SortDeclaration { .. }
+                | kore::Sentence::AliasDeclaration { .. }
+                | kore::Sentence::Axiom { .. }
+                | kore::Sentence::Claim { .. } => None,
             })
             .collect::<Vec<_>>();
         if !symbols.is_empty() {

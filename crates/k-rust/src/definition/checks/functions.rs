@@ -54,7 +54,16 @@ pub(crate) fn check_functions_with_internal_labels(
                 body, attributes, ..
             } if !attributes.has(AttributeKey::Simplification) => body,
             Sentence::Context { body, .. } | Sentence::ContextAlias { body, .. } => body,
-            _ => continue,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => continue,
         };
         let mut at_top = true;
         visit_term(

@@ -65,7 +65,16 @@ pub fn check_holes(sentences: &[&Sentence]) -> Vec<Diagnostic> {
                     ));
                 }
             }),
-            _ => {}
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     diagnostics

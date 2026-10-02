@@ -866,7 +866,18 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         _ => None,
                     }
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             });
         let (recursive_label, list_first) = recursive.next()?;
         if recursive.next().is_some() {
@@ -893,7 +904,18 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 {
                     Some(label.clone())
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             });
         let terminator = terminators.next()?;
         if terminators.next().is_some() {
@@ -973,6 +995,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             else {
                 unreachable!()
             };
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+            )]
             let key_sort = items.iter().find_map(|item| match item {
                 crate::definition::ProductionItem::NonTerminal { sort, .. } => Some(sort),
                 _ => None,
@@ -1002,6 +1028,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         Ok(None)
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     fn visit_children(
         &self,
         term: &Term,
@@ -1118,6 +1148,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         else {
             unreachable!()
         };
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+        )]
         let argument_sorts = items
             .iter()
             .filter_map(|item| match item {
@@ -1927,6 +1961,10 @@ fn has_rewrite(term: &Term) -> bool {
 /// that the projection exposes composed into one when `subsorts`, the module's semantic order,
 /// justifies the composed pair.
 // Invariant: each call projects one node of `term` and recurses only into its direct subterms, so the finite `term` bounds the calls; `right` selects the side kept at every rewrite.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 pub(crate) fn rewrite_projection(term: &Term, right: bool, subsorts: &PartialOrder<Sort>) -> Term {
     match term.unannotated() {
         Term::Rewrite {
@@ -2012,6 +2050,10 @@ fn compact_injections(term: Term, subsorts: &PartialOrder<Sort>) -> Term {
     composed.apply(inner_argument.clone())
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn with_variable_sort(term: &Term, sort: &Sort) -> Term {
     match term.unannotated() {
         Term::Variable { name, .. } => copy_metadata(

@@ -404,14 +404,36 @@ impl Generator<'_, '_> {
                 {
                     Some(production)
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .collect::<Vec<_>>();
         productions.extend(self.generated.iter().filter(|sentence| match sentence {
             Sentence::Production {
                 label: Some(label), ..
             } => label.name == init_label,
-            _ => false,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => false,
         }));
         let unique = dedup_by_equivalence(productions);
         let (initializer, initializer_takes_map) = match unique.as_slice() {
@@ -982,6 +1004,10 @@ impl Generator<'_, '_> {
 }
 
 // Invariant: `output` holds the properties of every cell-property-list node already consumed, and each recursive call receives `arguments[1]`, a strict subterm of `term`, so the length of the property list bounds the calls.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn parse_property_list(term: &Term, output: &mut Attributes) -> Result<(), String> {
     match term.unannotated() {
         Term::Apply { label, arguments }
@@ -1030,6 +1056,10 @@ fn parse_property(term: &Term) -> Result<(String, String), String> {
     Ok((key.to_owned(), value))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn expect_cell_name(term: &Term) -> Option<&str> {
     match term.unannotated() {
         Term::Token { token, sort } if sort.is_frontend(FrontendSort::CellName) => Some(token),
@@ -1038,6 +1068,10 @@ fn expect_cell_name(term: &Term) -> Option<&str> {
 }
 
 // Invariant: `output` holds, in order, the non-`Cells` terms of every entry of `terms` already consumed, and each recursive call receives the `arguments` of a nested `Cells` application, so the size of `terms` bounds the calls.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     for term in terms {
         match term.unannotated() {
@@ -1049,6 +1083,10 @@ fn flatten_cells<'a>(terms: &'a [Term], output: &mut Vec<&'a Term>) {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn has_configuration_or_regular_variable(term: &Term) -> bool {
     let mut found = false;
     term.visit_preorder(&mut |term| match term {
@@ -1082,6 +1120,10 @@ fn leaf_initializer(term: &Term) -> Result<Term, UnprojectableConfigurationVaria
             term.unannotated(),
             Term::Token { sort, .. } if sort.name == BuiltinSort::KConfigVar.k_name()
         );
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Term is not a sentence kind; only the listed variants are special here"
+        )]
         let transformed = match term.unannotated() {
             Term::Token {
                 token,
@@ -1324,6 +1366,7 @@ fn sort_value(sort: &Sort) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use indoc::indoc;
 

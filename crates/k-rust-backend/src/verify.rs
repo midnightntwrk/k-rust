@@ -561,6 +561,7 @@ pub(crate) fn verify_definition(
     Ok(())
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn verify_declaration(
     module: &kore::Module,
     sentence: &kore::Sentence,
@@ -627,7 +628,10 @@ fn verify_declaration(
                 Ok(())
             }
         }
-        _ => Ok(()),
+        kore::Sentence::Import { .. }
+        | kore::Sentence::AliasDeclaration { .. }
+        | kore::Sentence::Axiom { .. }
+        | kore::Sentence::Claim { .. } => Ok(()),
     }
 }
 
@@ -667,6 +671,7 @@ pub(crate) fn verify_standalone(
     Ok(())
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn verify_unique_names(modules: &[kore::Module]) -> Result<(), DefinitionError> {
     let mut names = BTreeMap::<String, String>::new();
     for module in modules {
@@ -675,7 +680,9 @@ fn verify_unique_names(modules: &[kore::Module]) -> Result<(), DefinitionError> 
                 kore::Sentence::SortDeclaration { name, .. } => Some(name),
                 kore::Sentence::SymbolDeclaration { symbol, .. }
                 | kore::Sentence::AliasDeclaration { alias: symbol, .. } => Some(&symbol.name),
-                _ => None,
+                kore::Sentence::Import { .. }
+                | kore::Sentence::Axiom { .. }
+                | kore::Sentence::Claim { .. } => None,
             };
             if let Some(name) = name
                 && let Some(first_module) = names.insert(name.clone(), module.name.clone())

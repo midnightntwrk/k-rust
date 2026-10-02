@@ -36,6 +36,8 @@
 //! A completed flagged production reports the text span and the unary production path that
 //! returns from its child sort to its result sort.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::sync::{Arc, OnceLock};
 
@@ -146,7 +148,17 @@ impl Grammar {
             .iter()
             .filter_map(|sentence| match sentence {
                 Sentence::SyntaxLexical { name, regex, .. } => Some((name, regex)),
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .map(|(name, regex)| {
                 parse_regex(regex)
@@ -161,7 +173,16 @@ impl Grammar {
             Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. } => {
                 sort.is_frontend(FrontendSort::Layout)
             }
-            _ => false,
+            Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => false,
         });
         let layout_sources = sentences
             .iter()
@@ -171,7 +192,18 @@ impl Grammar {
                 {
                     Some(items)
                 }
-                _ => None,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => None,
             })
             .map(|items| match items.as_slice() {
                 [
@@ -597,6 +629,10 @@ impl Grammar {
         result: Sort,
         predicate: impl Fn(&str) -> bool,
     ) -> Result<(), ParseError> {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "Item is not a sentence kind; only the listed variants are special here"
+        )]
         let terminals = self
             .productions
             .iter()
@@ -760,6 +796,10 @@ impl Grammar {
     /// is only recognized at (`Production::item_sort_ids`) are not read: they describe what the
     /// recognizer accepts, not what a term is.
     #[cfg(feature = "z3-inference")]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Item is not a sentence kind; only the listed variants are special here"
+    )]
     pub(super) fn parametric_values(&self) -> BTreeSet<&Sort> {
         self.productions
             .iter()
@@ -1004,7 +1044,18 @@ pub(in crate::inner) fn named_projection_productions<'a>(
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.as_str()),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<HashSet<_>>();
     let mut generated = Vec::new();
@@ -1124,6 +1175,10 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
     // Production text is built for every production of every grammar; the shared origin receipt
     // is printed from its cached text, so its JSON tree is neither kept on the definition for
     // the rest of the compile nor rebuilt per production.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "TransientWireValue and serde_json::Value are not sentence kinds; only the listed variants are special here"
+    )]
     let attributes = attributes
         .transient_wire_entries()
         .filter(|(key, _)| {
@@ -1282,6 +1337,7 @@ fn unary_reachable(start: &Sort, target: &Sort, edges: &BTreeSet<(Sort, Sort)>) 
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_enum_match_arm)]
 mod tests {
     use super::super::{PARSE_ATTEMPTS, ParseContext, ParseProvenance, ParsedTerm, PredictionMode};
     use super::*;

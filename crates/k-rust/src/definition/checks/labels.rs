@@ -71,7 +71,18 @@ pub fn check_klabels(
             Sentence::Production {
                 label: Some(label), ..
             } => Some(LabelHead::from(label)),
-            _ => None,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
     let internal = internal_labels(productions, sorts);
@@ -79,6 +90,10 @@ pub fn check_klabels(
     for sentence in sentences {
         for (_, term) in sentence.terms() {
             term.visit_preorder(&mut |term| {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "Term is not a sentence kind; only the listed variants are special here"
+                )]
                 let label = match term {
                     Term::Apply { label, .. } | Term::InjectedLabel(label) => label,
                     _ => return,
@@ -192,7 +207,11 @@ pub(super) fn check_unused_symbols_with_views(
     {
         for sentence in &definition.module(*module).local_sentences {
             for (_, term) in sentence.terms() {
-                term.visit_preorder(&mut |term| match term {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "Term is not a sentence kind; only the listed variants are special here"
+                )]
+                let () = term.visit_preorder(&mut |term| match term {
                     Term::Apply { label, .. } | Term::InjectedLabel(label) => {
                         used.insert(label.name.clone());
                     }

@@ -1172,6 +1172,10 @@ fn term_child_mut(term: &mut Term, child: u32) -> Option<&mut Term> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn unannotated_mut(mut term: &mut Term) -> &mut Term {
     loop {
         match term {

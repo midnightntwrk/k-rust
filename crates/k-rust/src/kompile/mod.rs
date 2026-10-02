@@ -4,6 +4,8 @@
 //!
 //! Pure compilation passes and KORE emission.
 
+#![deny(clippy::wildcard_enum_match_arm)]
+
 mod compile;
 mod fresh_names;
 pub mod initial_configuration;

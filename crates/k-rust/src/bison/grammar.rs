@@ -551,6 +551,10 @@ fn prepare_user_lists(sentences: &[Sentence]) -> Result<Vec<GrammarProduction>, 
 
         let nonempty_sort =
             Sort::with_parameters(format!("Ne#{}", sort.name), sort.parameters.clone());
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+        )]
         let recursive_grammar_items = recursive_items
             .iter()
             .map(|item| match item {
@@ -659,6 +663,10 @@ fn restricted_sort(sort: &Sort, ordinal: usize) -> Sort {
     Sort::with_parameters(format!("{}#{ordinal}", sort.name), sort.parameters.clone())
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+)]
 fn reachable_sorts(productions: &[GrammarProduction], start: &Sort) -> BTreeSet<Sort> {
     let mut reachable = BTreeSet::new();
     let mut pending = vec![start.clone()];
@@ -695,7 +703,11 @@ fn write_production(
     let mut nonterminals = Vec::new();
     let mut rhs_position = 0usize;
     for item in &production.items {
-        match item {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+        )]
+        let () = match item {
             ProductionItem::NonTerminal { sort, .. } => {
                 rhs_position += 1;
                 write!(output, "{} ", encode_bison_sort(sort))
@@ -710,7 +722,7 @@ fn write_production(
                     .map_err(|error| GrammarError::Scanner(error.to_string()))?;
                 write!(output, "TOK_{kind} ").expect("writing to a string cannot fail");
             }
-        }
+        };
     }
 
     let Sentence::Production {
@@ -1008,7 +1020,16 @@ fn module_subsorts(
             Sentence::SyntaxSort { sort, .. } => {
                 sorts.insert(sort.clone());
             }
-            _ => {}
+            Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     sorts
@@ -1118,7 +1139,17 @@ fn sort_attributes<'a>(catalog: &'a SortCatalog<'_>, sort: &Sort) -> &'a Attribu
 fn production_label(sentence: &Sentence) -> Option<&Label> {
     match sentence {
         Sentence::Production { label, .. } => label.as_ref(),
-        _ => None,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
 }
 
@@ -1143,6 +1174,10 @@ fn nonterminal_name(items: &[ProductionItem]) -> Option<&str> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "ProductionItem is not a sentence kind; only the listed variants are special here"
+)]
 fn nonterminal_sorts(items: &[ProductionItem]) -> Vec<&Sort> {
     items
         .iter()

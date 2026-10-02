@@ -69,7 +69,14 @@ pub fn check_rhs_variables(
             Sentence::ContextAlias { body, requires, .. } => {
                 check_context_variables(sentence, body, requires, true, &mut diagnostics)
             }
-            _ => {}
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     diagnostics
@@ -138,7 +145,14 @@ pub(crate) fn right_hand_side_binding(
         Sentence::ContextAlias { body, requires, .. } => {
             Some(context_binding(body, requires, true))
         }
-        _ => None,
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => None,
     }
 }
 
@@ -565,6 +579,10 @@ fn is_free(
 // free at its position (`is_free`) in the scope enclosing it, a local function's own scope
 // included, and each recursive call receives a strict subterm of `term`, so the size of `term`
 // bounds the calls.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn visit_free<'t>(
     term: &'t Term,
     position: TermPosition,

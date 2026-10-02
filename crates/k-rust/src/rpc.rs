@@ -1213,6 +1213,7 @@ fn verification_detail(error: &DefinitionError, pattern: &KorePattern) -> ErrorD
     }
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn module_verification_detail(
     error: &DefinitionError,
     module: &k_rust::kore::ast::Module,
@@ -1221,7 +1222,9 @@ fn module_verification_detail(
         k_rust::kore::ast::Sentence::AliasDeclaration { right, .. }
         | k_rust::kore::ast::Sentence::Axiom { pattern: right, .. }
         | k_rust::kore::ast::Sentence::Claim { pattern: right, .. } => Some(right.as_ref()),
-        _ => None,
+        k_rust::kore::ast::Sentence::Import { .. }
+        | k_rust::kore::ast::Sentence::SortDeclaration { .. }
+        | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
     });
     match (error, pattern) {
         (DefinitionError::Verification(verification), Some(pattern))

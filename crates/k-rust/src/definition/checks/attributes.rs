@@ -76,7 +76,16 @@ pub(super) fn check_attribute_semantics_with_overloads(
             Sentence::Production { .. } => {
                 check_production(sentence, productions, sorts, overloads, &mut diagnostics)
             }
-            _ => {}
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     diagnostics

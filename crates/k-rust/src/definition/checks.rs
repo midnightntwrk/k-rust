@@ -243,7 +243,16 @@ pub fn check_rewrites(sentences: &[&Sentence]) -> Vec<Diagnostic> {
         let (body, requires, is_claim) = match sentence {
             Sentence::Rule { body, requires, .. } => (body, requires, false),
             Sentence::Claim { body, requires, .. } => (body, requires, true),
-            _ => continue,
+            Sentence::SyntaxSort { .. }
+            | Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::Production { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => continue,
         };
         let mut state = RewriteState::default();
         visit_rewrite_term(requires, &mut state, &mut diagnostics, sentence);
@@ -432,7 +441,16 @@ pub fn check_sort_top_uniqueness(
     for sentence in sentences {
         let sort = match sentence {
             Sentence::Production { sort, .. } | Sentence::SyntaxSort { sort, .. } => sort,
-            _ => continue,
+            Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => continue,
         };
         if sort != &cell && subsorts.less_than(sort, &k_list) && subsorts.less_than(sort, &bag) {
             diagnostics.push(Diagnostic::error(
@@ -514,6 +532,10 @@ fn check_domain_value_tokens(sentences: &[&Sentence], sorts: &SortCatalog<'_>) -
     diagnostics
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is not a sentence kind; only the listed variants are special here"
+)]
 fn valid_as_alias(alias: &Term) -> bool {
     match alias.unannotated() {
         Term::Variable { .. } => true,

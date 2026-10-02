@@ -560,6 +560,10 @@ fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String
 pub fn configuration_variables(
     definition: &ResolvedDefinition,
 ) -> Result<BTreeMap<String, Sort>, String> {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is not a sentence kind; only the listed variants are special here"
+    )]
     fn unwrap_singleton(mut term: &Term) -> &Term {
         loop {
             term = term.unannotated();
