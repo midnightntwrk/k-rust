@@ -324,3 +324,230 @@ fn conflicting_sort_hooks_are_removed_by_attribute_merge() {
     );
     assert!(!catalog.hooks().contains_key("Conflict"));
 }
+
+fn assert_declaring_sentence_indexes(
+    parameters: Vec<Sort>,
+    sort: Sort,
+    heads: BTreeSet<SortHead>,
+    instances: BTreeMap<SortHead, BTreeSet<Sort>>,
+    all_sorts: BTreeSet<Sort>,
+) {
+    let declaration = syntax_sort(parameters.clone(), sort.clone(), Attributes::default());
+    let result = production(sort, parameters, Vec::new(), Attributes::default());
+    let declared = SortCatalog::from_visible([&declaration]);
+    let produced = SortCatalog::from_visible([&result]);
+
+    assert_eq!(declared.defined_heads(), produced.defined_heads());
+    assert_eq!(declared.instantiations(), produced.instantiations());
+    assert_eq!(declared.all_sorts(), produced.all_sorts());
+    for catalog in [declared, produced] {
+        assert_eq!(catalog.defined_heads(), &heads);
+        assert_eq!(catalog.instantiations(), &instances);
+        assert_eq!(catalog.all_sorts(), &all_sorts);
+    }
+}
+
+#[test]
+fn fu19_schematic_declarations_and_results_register_only_their_head() {
+    let w = Sort::new("W");
+    assert_declaring_sentence_indexes(
+        vec![w.clone(), Sort::new("Unused")],
+        Sort::with_parameters("MInt", vec![w]),
+        BTreeSet::from([SortHead::new("MInt", 1)]),
+        BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::new())]),
+        BTreeSet::new(),
+    );
+}
+
+#[test]
+fn fu19_unused_binders_preserve_ground_declarations_and_results() {
+    let mint8 = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+    assert_declaring_sentence_indexes(
+        vec![Sort::new("W")],
+        mint8.clone(),
+        BTreeSet::from([SortHead::new("MInt", 1), SortHead::nullary("8")]),
+        BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::from([mint8.clone()]))]),
+        BTreeSet::from([mint8, Sort::new("8")]),
+    );
+}
+
+#[test]
+fn fu19_unused_binders_preserve_nullary_declarations_and_results() {
+    assert_declaring_sentence_indexes(
+        vec![Sort::new("W")],
+        Sort::new("Foo"),
+        BTreeSet::from([SortHead::nullary("Foo")]),
+        BTreeMap::new(),
+        BTreeSet::from([Sort::new("Foo")]),
+    );
+}
+
+#[test]
+fn fu19_bare_bound_declarations_and_results_register_nothing() {
+    let s = Sort::new("S");
+    assert_declaring_sentence_indexes(
+        vec![s.clone()],
+        s,
+        BTreeSet::new(),
+        BTreeMap::new(),
+        BTreeSet::new(),
+    );
+}
+
+#[test]
+fn fu19_nested_unchecked_declarations_and_results_are_not_ground_instances() {
+    let w = Sort::new("W");
+    assert_declaring_sentence_indexes(
+        vec![w.clone()],
+        Sort::with_parameters("MInt", vec![Sort::with_parameters("MInt", vec![w])]),
+        BTreeSet::from([SortHead::new("MInt", 1)]),
+        BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::new())]),
+        BTreeSet::new(),
+    );
+}
+
+#[test]
+fn fu19_mixed_declarations_are_order_independent_and_deduplicate_instances() {
+    let w = Sort::new("W");
+    let schematic = Sort::with_parameters("MInt", vec![w.clone()]);
+    let ground = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+    let declaration = syntax_sort(vec![w.clone()], schematic.clone(), Attributes::default());
+    let concrete = syntax_sort(vec![w.clone()], ground.clone(), Attributes::default());
+    let result = production(
+        schematic,
+        vec![w.clone()],
+        Vec::new(),
+        Attributes::default(),
+    );
+    let ground_result = production(ground.clone(), vec![w], Vec::new(), Attributes::default());
+    let sentences = [
+        &declaration,
+        &concrete,
+        &concrete,
+        &ground_result,
+        &declaration,
+        &result,
+    ];
+    let forward = SortCatalog::from_visible(sentences);
+    let reverse = SortCatalog::from_visible(sentences.into_iter().rev());
+
+    for catalog in [forward, reverse] {
+        assert_eq!(
+            catalog.sorted_defined_heads().cloned().collect::<Vec<_>>(),
+            vec![SortHead::nullary("8"), SortHead::new("MInt", 1)]
+        );
+        assert_eq!(
+            catalog.instantiations(),
+            &BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::from([ground.clone()]))])
+        );
+        assert_eq!(
+            catalog.sorted_all_sorts().cloned().collect::<Vec<_>>(),
+            vec![Sort::new("8"), ground.clone()]
+        );
+    }
+}
+
+#[test]
+fn fu19_schematic_heads_preserve_merged_attributes_without_instances() {
+    let w = Sort::new("W");
+    let sort = Sort::with_parameters("MInt", vec![w.clone()]);
+    let hooked = syntax_sort(
+        vec![w.clone()],
+        sort.clone(),
+        attrs(&[("hook", json!("MINT.MInt"))]),
+    );
+    let annotated = syntax_sort(vec![w], sort, attrs(&[("documentation", json!("width"))]));
+    let catalog = SortCatalog::from_visible([&hooked, &annotated]);
+    let head = SortHead::new("MInt", 1);
+
+    assert_eq!(catalog.defined_heads(), &BTreeSet::from([head.clone()]));
+    assert_eq!(catalog.instantiations().get(&head), Some(&BTreeSet::new()));
+    assert!(catalog.all_sorts().is_empty());
+    assert_eq!(catalog.declarations_for(&head), [&hooked, &annotated]);
+    let attributes = catalog.attributes_for(&head).unwrap();
+    assert_eq!(attributes.get("hook"), Some(&json!("MINT.MInt")));
+    assert_eq!(attributes.get("documentation"), Some(&json!("width")));
+    assert_eq!(catalog.hooks().get("MInt"), Some(&"MINT.MInt".into()));
+}
+
+#[test]
+fn fu19_imported_ground_sorts_and_local_unused_binder_sorts_keep_membership() {
+    let w = Sort::new("W");
+    let ground = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+    let resolved = ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            FlatModule {
+                name: "BASE".into(),
+                imports: Vec::new(),
+                local_sentences: vec![Arc::new(syntax_sort(
+                    vec![w.clone()],
+                    ground.clone(),
+                    Attributes::default(),
+                ))],
+                attributes: Attributes::default(),
+            },
+            FlatModule {
+                name: "MAIN".into(),
+                imports: vec![FlatImport {
+                    name: "BASE".into(),
+                    public: true,
+                }],
+                local_sentences: vec![
+                    Arc::new(syntax_sort(
+                        vec![w.clone()],
+                        Sort::with_parameters("MInt", vec![w.clone()]),
+                        Attributes::default(),
+                    )),
+                    Arc::new(syntax_sort(
+                        vec![w],
+                        Sort::new("Foo"),
+                        Attributes::default(),
+                    )),
+                ],
+                attributes: Attributes::default(),
+            },
+        ],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    let catalog = resolved.sort_catalog(resolved.main_module_id());
+
+    assert_eq!(
+        catalog.all_sorts(),
+        &BTreeSet::from([ground.clone(), Sort::new("8"), Sort::new("Foo")])
+    );
+    assert_eq!(catalog.local_sorts(), &BTreeSet::from([Sort::new("Foo")]));
+    assert_eq!(
+        catalog.instantiations(),
+        &BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::from([ground]))])
+    );
+}
+
+#[test]
+fn fu19_a_separate_global_declaration_can_share_a_binders_spelling() {
+    let w = Sort::new("W");
+    let bound = syntax_sort(vec![w.clone()], w.clone(), Attributes::default());
+    let schematic = syntax_sort(
+        vec![w.clone()],
+        Sort::with_parameters("MInt", vec![w.clone()]),
+        Attributes::default(),
+    );
+    let global = syntax_sort(Vec::new(), w.clone(), Attributes::default());
+    let sentences = [&bound, &schematic, &global];
+
+    for catalog in [
+        SortCatalog::from_visible(sentences),
+        SortCatalog::from_visible(sentences.into_iter().rev()),
+    ] {
+        assert_eq!(
+            catalog.defined_heads(),
+            &BTreeSet::from([SortHead::new("MInt", 1), SortHead::nullary("W")])
+        );
+        assert_eq!(
+            catalog.instantiations(),
+            &BTreeMap::from([(SortHead::new("MInt", 1), BTreeSet::new())])
+        );
+        assert_eq!(catalog.all_sorts(), &BTreeSet::from([w.clone()]));
+    }
+}

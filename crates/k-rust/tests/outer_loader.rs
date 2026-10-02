@@ -1106,6 +1106,105 @@ fn source_checks_precede_import_resolution() {
 }
 
 #[test]
+fn fu19_standalone_schematic_declaration_supplies_an_operand_head() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {W} MInt{W}
+          syntax {W} Foo ::= f(MInt{W}) [symbol(f)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+}
+
+#[test]
+fn fu19_standalone_ground_declaration_with_an_unused_binder_supplies_an_operand_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {W} MInt{8}
+          syntax Foo ::= f(MInt{8}) [symbol(f)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+}
+
+#[test]
+fn fu19_standalone_nullary_declaration_with_an_unused_binder_supplies_an_operand_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {W} Foo
+          syntax Bar ::= f(Foo) [symbol(f)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+}
+
+#[test]
+fn fu19_standalone_registration_preserves_undefined_and_unsupported_sort_diagnostics() {
+    for (source, code, line, message) in [
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax {W} MInt{W}
+                  syntax Foo ::= f(MInt{8}) [symbol(f)]
+                endmodule
+            "#},
+            DiagnosticCode::UndefinedSort,
+            3,
+            "Could not find sorts: [MInt{8}]",
+        ),
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax Foo ::= f(Unknown) [symbol(f)]
+                endmodule
+            "#},
+            DiagnosticCode::UndefinedSort,
+            2,
+            "Could not find sorts: [Unknown]",
+        ),
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax {S} Box{S}
+                endmodule
+            "#},
+            DiagnosticCode::UnsupportedParametricSort,
+            2,
+            "User-defined parametric sorts are currently unsupported: Box{S}",
+        ),
+        (
+            indoc! {r#"
+                module MAIN
+                  syntax {W} MInt{MInt{W}}
+                endmodule
+            "#},
+            DiagnosticCode::UnsupportedParametricSort,
+            2,
+            "Nested parametric sorts are currently unsupported: MInt{MInt{W}}",
+        ),
+    ] {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        let error = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap_err();
+        let LoadError::SourceDiagnostics(diagnostics) = error else {
+            panic!("expected source diagnostics, got {error:?}");
+        };
+        let errors = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+        let diagnostic = errors[0];
+        assert_eq!(diagnostic.code, code, "{diagnostics:#?}");
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(diagnostic.source.as_deref(), Some("main.k"));
+        assert_eq!(diagnostic.location.unwrap().start_line, line);
+    }
+}
+
+#[test]
 fn reference_load_rejects_undefined_sorts_and_duplicate_user_lists() {
     let cases = [
         (

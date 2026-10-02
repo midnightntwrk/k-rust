@@ -70,8 +70,7 @@ impl<'a> SortCatalog<'a> {
                 .push(declaration);
         }
 
-        let instantiations = compute_instantiations(&sentences, &declarations);
-        let defined_heads = compute_defined_heads(&sentences, &declarations, &instantiations);
+        let (defined_heads, instantiations) = compute_declared_sorts(&sentences);
         let all_sorts = defined_heads
             .iter()
             .filter(|head| !instantiations.contains_key(*head))
@@ -420,81 +419,46 @@ impl<'s> SortShape<'s> {
     }
 }
 
-fn compute_instantiations(
+#[deny(clippy::wildcard_enum_match_arm)]
+fn compute_declared_sorts(
     sentences: &[&Sentence],
-    declarations: &[&Sentence],
-) -> BTreeMap<SortHead, BTreeSet<Sort>> {
-    let mut nonempty = BTreeMap::<SortHead, BTreeSet<Sort>>::new();
-    let mut heads = BTreeSet::new();
-    // Invariant: `heads` holds the head of every parametric production sort among the entries of `sentences` before `sentence`, and `nonempty` maps each such head to those sorts that mention none of their production's `parameters` at any depth; each iteration consumes one sentence.
-    for sentence in sentences {
-        let Sentence::Production {
-            parameters, sort, ..
-        } = sentence
-        else {
-            continue;
-        };
-        if !sort.parameters.is_empty() {
-            let head = SortHead::from(sort);
-            heads.insert(head.clone());
-            // A sort with a parameter at any depth (`MInt{MInt{W}}`) names a family of sorts, not
-            // one declared instance.
-            if !mentions_parameter(sort, parameters) {
-                nonempty.entry(head).or_default().insert(sort.clone());
-            }
-        }
-    }
-    for declaration in declarations {
-        let Sentence::SyntaxSort {
-            parameters, sort, ..
-        } = declaration
-        else {
-            unreachable!()
-        };
-        if !sort.parameters.is_empty() {
-            let head = SortHead::from(sort);
-            heads.insert(head.clone());
-            if parameters.is_empty() {
-                nonempty.entry(head).or_default().insert(sort.clone());
-            }
-        }
-    }
-    heads
-        .into_iter()
-        .map(|head| {
-            let instances = nonempty.remove(&head).unwrap_or_default();
-            (head, instances)
-        })
-        .collect()
-}
-
-fn compute_defined_heads(
-    sentences: &[&Sentence],
-    declarations: &[&Sentence],
-    instantiations: &BTreeMap<SortHead, BTreeSet<Sort>>,
-) -> BTreeSet<SortHead> {
+) -> (BTreeSet<SortHead>, BTreeMap<SortHead, BTreeSet<Sort>>) {
     let mut defined = BTreeSet::new();
-    // Invariant: `defined` holds the head of every production sort among the entries of `sentences` before `sentence` that is not one of its production's `parameters`; each iteration consumes one sentence.
+    let mut instantiations = BTreeMap::<SortHead, BTreeSet<Sort>>::new();
+    // Invariant: the consumed declarations and production results contribute every head except
+    // exact bound sorts; each nonnullary head has an entry containing exactly those sorts that
+    // mention none of their sentence's formal parameters at any depth. Each iteration consumes
+    // one visible sentence.
     for sentence in sentences {
-        let Sentence::Production {
-            parameters, sort, ..
-        } = sentence
-        else {
-            continue;
-        };
-        if !parameters.contains(sort) {
-            defined.insert(SortHead::from(sort));
-        }
-    }
-    for declaration in declarations {
-        let Sentence::SyntaxSort {
-            parameters, sort, ..
-        } = declaration
-        else {
-            unreachable!()
-        };
-        if parameters.is_empty() {
-            defined.insert(SortHead::from(sort));
+        match sentence {
+            Sentence::Production {
+                parameters, sort, ..
+            }
+            | Sentence::SyntaxSort {
+                parameters, sort, ..
+            } => {
+                if parameters.contains(sort) {
+                    continue;
+                }
+                let head = SortHead::from(sort);
+                defined.insert(head.clone());
+                if !sort.parameters.is_empty() {
+                    let instances = instantiations.entry(head).or_default();
+                    if !mentions_parameter(sort, parameters) {
+                        instances.insert(sort.clone());
+                    }
+                }
+            }
+            Sentence::SortSynonym { .. }
+            | Sentence::SyntaxLexical { .. }
+            | Sentence::SyntaxAssociativity { .. }
+            | Sentence::SyntaxPriority { .. }
+            | Sentence::ContextAlias { .. }
+            | Sentence::Context { .. }
+            | Sentence::Rule { .. }
+            | Sentence::Claim { .. }
+            | Sentence::Configuration { .. }
+            | Sentence::Bubble { .. } => {}
         }
     }
     defined.extend(
@@ -505,5 +469,5 @@ fn compute_defined_heads(
             .filter(|sort| sort.parameters.is_empty() && sort.role() == SortRole::Nat)
             .map(SortHead::from),
     );
-    defined
+    (defined, instantiations)
 }
