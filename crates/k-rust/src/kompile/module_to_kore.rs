@@ -264,8 +264,20 @@ pub enum DeclarationError {
     MissingModule(String),
     Relations(RelationError),
     CircularPriority(Vec<String>),
-    InvalidCollectionSort { sort: String, message: String },
-    InvalidCollectionLabel { label: String, productions: usize },
+    InvalidCollectionSort {
+        sort: String,
+        message: String,
+    },
+    InvalidCollectionLabel {
+        label: String,
+        productions: usize,
+    },
+    /// Two sort heads that differ only in arity would be declared under one KORE sort name.
+    DuplicateSortName {
+        name: String,
+        first: String,
+        second: String,
+    },
 }
 
 /// A failure while extending KORE declarations with semantic rules or claims.
@@ -446,6 +458,14 @@ impl fmt::Display for DeclarationError {
             Self::InvalidCollectionLabel { label, productions } => write!(
                 formatter,
                 "Expected to find exactly one production for KLabel: {label} found: {productions}"
+            ),
+            Self::DuplicateSortName {
+                name,
+                first,
+                second,
+            } => write!(
+                formatter,
+                "cannot emit sort declarations: the sorts {first} and {second} are both named {name} in KORE"
             ),
         }
     }
@@ -1273,12 +1293,22 @@ fn sort_declarations(
     valued: &BTreeSet<String>,
 ) -> Result<Vec<KoreSentence>, DeclarationError> {
     let mut declarations = Vec::new();
-    // Invariant: `declarations` holds one sort declaration for every head of `sorts.sorted_defined_heads()` before `head` other than `K` and `KItem`; a collection-hooked head also scans `productions` once in `collection_attribute_overrides`.
+    let mut declared_names: BTreeMap<String, &SortHead> = BTreeMap::new();
+    // Invariant: `declarations` holds one sort declaration for every head of `sorts.sorted_defined_heads()` before `head` other than `K` and `KItem`, and the declared names are pairwise distinct; a collection-hooked head also scans `productions` once in `collection_attribute_overrides`.
     for head in sorts.sorted_defined_heads() {
         if head.as_str() == BuiltinSort::K.k_name() || head.as_str() == BuiltinSort::KItem.k_name()
         {
             continue;
         }
+        let name = identifier::encode_sort_name(head.as_str());
+        if let Some(previous) = declared_names.get(&name) {
+            return Err(DeclarationError::DuplicateSortName {
+                name,
+                first: previous.to_string(),
+                second: head.to_string(),
+            });
+        }
+        declared_names.insert(name.clone(), head);
         let source_attributes = sorts.attributes_for(head).cloned().unwrap_or_default();
         let mut entries = source_attributes.semantic_entries().clone();
         // The definition checks and term conversion admit a domain value by
@@ -1306,7 +1336,7 @@ fn sort_declarations(
         }
         declarations.push(KoreSentence::SortDeclaration {
             hooked: source_attributes.has(AttributeKey::Hook),
-            name: identifier::encode_sort_name(head.as_str()),
+            name,
             parameters: (0..head.parameters())
                 .map(|parameter| format!("SortS{parameter}"))
                 .collect(),

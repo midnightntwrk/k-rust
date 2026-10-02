@@ -344,6 +344,28 @@ fn unit_attribute_naming_no_production_is_an_error() {
 }
 
 #[test]
+fn sort_heads_sharing_a_kore_name_are_an_error() {
+    let error = declaration_modules(
+        &lowered(
+            "module MAIN\n  syntax MInt{8}\n  syntax MInt\nendmodule\n",
+            "MAIN",
+        ),
+        "MAIN",
+    )
+    .expect_err("distinct sort heads must have distinct KORE names");
+    assert_eq!(
+        error.to_string(),
+        "cannot emit sort declarations: the sorts MInt and MInt{S0} are both named SortMInt in KORE"
+    );
+
+    declaration_modules(
+        &lowered("module MAIN\n  syntax MInt{8}\nendmodule\n", "MAIN"),
+        "MAIN",
+    )
+    .expect("a single sort head should emit successfully");
+}
+
+#[test]
 fn bracket_declarations_accept_klabel_objects_and_legacy_strings() {
     let source = indoc! {r#"
         module MAIN
