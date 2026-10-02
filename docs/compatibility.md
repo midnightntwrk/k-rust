@@ -167,13 +167,12 @@ The emitted theory embeds a sort in `KItem` only for each declared sort, and a b
 A `context` written for one instance (`context pick(HOLE:MInt{8}, _)`) is instantiated by the parser and compiles to closed heat and cool rules.
 
 Every other construct that reads a term through the projection into a sort without one (`KConfigVar` included) is rejected where that term would be built, with the location of the construct that asks for it.
-A configuration variable cast to such a sort (`syntax KConfigVar`, `syntax Bag ::= KConfigVar`, then `configuration <k> $PGM:Bag </k>`) is rejected at configuration expansion, at the configuration: the declaration makes the token sort available, and the subsort lets the written variable occupy `Bag` in the grammar, but its initial value is read through that projection, and no value of a sort without K terms can be supplied.
+A configuration variable cast to such a sort is rejected at configuration expansion, at the configuration: its initial value is read through that sort's projection, and no value of a sort without K terms can be supplied.
 A definition's own production labelled `#OuterCast` whose result is such a sort (`syntax #Foo ::= "{" K "}" "asFoo" [symbol(#OuterCast)]`) is a parse error at its use; with a result that has a projection it lowers to that projection like `{T}:>S`.
 A semantic cast that is a downcast to such a sort (a K sequence cast to `KConfigVar` where `KItem ::= KConfigVar`, which only structured input can write) is rejected by sort injection, and by `sentence_typing` alike, as `DowncastWithoutProjection`.
 In a search pattern (`krun --search --pattern`), each semantic cast, including the one the inner parser puts around every variable at its inferred sort, adds the sort predicate of its sort to the pattern's condition when that sort has one.
 A cast to `Bag` adds the cell-fragment test `isBag`, which cell concretization expands into the sort predicates of the fragment's cells.
-A cast to any other sort (`KLabel`, `KList`, `KString`, `Cell`, a numeral) adds nothing: no compiled K term has such a sort, and the cast's sort is already the operand's sort in the compiled pattern, where a variable matches only terms of its sort and sort injection checks any other operand against the cast.
-With a bare `syntax 8` declaration, `X:8` still parses in a search pattern; FU-18-T2 removes numeral casts from the grammars.
+A cast to any other sort (`KLabel`, `KList`, `KString`, `Cell`) adds nothing: no compiled K term has such a sort, and the cast's sort is already the operand's sort in the compiled pattern, where a variable matches only terms of its sort and sort injection checks any other operand against the cast.
 The positive `isS(X:S) => true` sort-predicate rule exists only when `S` is placeable at the predicate's `K` argument in its module's subsort order.
 A sort with a predicate that is unplaceable (`KConfigVar` without `syntax KItem ::= KConfigVar`) keeps its predicate production and the `owise` rule `isS(K) => false`; `K` keeps its single positive rule.
 The standalone `generate_sort_predicate_rules` API returns `Result` because resolving that order can fail.
