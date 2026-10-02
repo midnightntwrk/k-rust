@@ -165,6 +165,7 @@ mod sentence_variables {
                             parameter: formal,
                             variable: variable.clone(),
                             phantom,
+                            ground_predicate: false,
                         };
                         if label.is(WellKnownSymbol::Inj) {
                             injection.get_or_insert(offender);
@@ -193,6 +194,7 @@ mod sentence_variables {
                             parameter: None,
                             variable: variable.clone(),
                             phantom: false,
+                            ground_predicate: false,
                         });
                     }
                 }
@@ -349,6 +351,8 @@ pub struct UndeterminedInstance {
     pub parameter: Option<Sort>,
     pub variable: Sort,
     pub phantom: bool,
+    /// A whole predicate sort rejected because the ground term has no sentence binder.
+    pub ground_predicate: bool,
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -519,11 +523,19 @@ impl fmt::Display for SortInjectionError {
                             instance.term
                         )?;
                     }
-                    write!(
-                        formatter,
-                        "it contains the sentence sort variable {}, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
-                        instance.variable
-                    )
+                    if instance.ground_predicate {
+                        write!(
+                            formatter,
+                            "it contains the sentence sort variable {}; a ground term has no sentence binder, so even a predicate sort must be determined; add a sort cast that fixes it",
+                            instance.variable
+                        )
+                    } else {
+                        write!(
+                            formatter,
+                            "it contains the sentence sort variable {}, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                            instance.variable
+                        )
+                    }
                 }
             }
             Self::AmbiguousInstance(ambiguity) => {
@@ -644,6 +656,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     parameter: None,
                     variable: variable.clone(),
                     phantom: false,
+                    ground_predicate: true,
                 });
             }
         });
@@ -652,9 +665,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         )))
     }
 
-    /// Instantiate a parsed value at its read sort and reject any remaining sentence variable.
+    /// Instantiate a parsed value at its supplied position and reject any remaining sentence variable.
     /// The position decides only parameters nothing else fixes: `solve_parameters` accepts
-    /// the instance fixed by the arguments whenever it fits, and a parsed value fits its read sort.
+    /// the instance fixed by the arguments whenever it fits the position.
     pub(crate) fn inject_ground(
         &self,
         term: &Term,
@@ -2380,6 +2393,19 @@ mod tests {
         assert!(!variables.is_empty());
 
         let error = injector.require_ground(&predicate).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("a ground term has no sentence binder"),
+            "{message}"
+        );
+        assert!(
+            message.contains("even a predicate sort must be determined"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("only the sort of a predicate may stay"),
+            "{message}"
+        );
         let SortInjectionError::UndeterminedInstance(instance) = error else {
             panic!("{error:?}")
         };

@@ -213,8 +213,9 @@ impl From<TermConversionError> for ConfigurationError {
 /// - A `K`-sorted variable is parsed at `KItem`: the configuration map holds `KItem` values, so
 ///   the value is one item, never a sequence.
 /// - Every parsed term is macro-expanded in the main module and instantiated at its parsed
-///   sort. Its closed sort before the injections below its top is the source sort of the
-///   entry's `inj{_, KItem}`.
+///   sort, except a program parsed at `K`, whose position is `KItem` because the configuration
+///   map holds items. Its closed sort before the injections below its top is the source sort
+///   of the entry's `inj{_, KItem}`.
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
 ///
@@ -274,8 +275,15 @@ impl<'g> ConfigurationAssembler<'g> {
         // The program is instantiated independently of the configuration values; no sentence
         // sort variable may survive in either kind of ground value.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
+        // The configuration map holds KItem values, so a program read at K must be
+        // instantiated as an item, just like a K-sorted configuration variable.
+        let position = if start_sort.name == BuiltinSort::K.k_name() {
+            KastSort::builtin(BuiltinSort::KItem)
+        } else {
+            start_sort.clone()
+        };
         let (value, sort) =
-            self.to_kore(&injector, &self.syntax_module, &program, start_sort, "$PGM")?;
+            self.to_kore(&injector, &self.syntax_module, &program, &position, "$PGM")?;
         self.program = Some(ConfigurationBinding {
             name: "$PGM".to_owned(),
             value,

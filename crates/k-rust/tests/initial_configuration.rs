@@ -477,6 +477,29 @@ endmodule
     assert!(!rendered.contains("SortParam"), "{rendered}");
 }
 
+#[test]
+fn a_program_read_at_k_is_instantiated_at_kitem() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= undef() [function, total, symbol(undef)]
+  configuration <k> $PGM:K </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("K"), "undef()").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    assert!(
+        rendered.contains(&entry("PGM", "Lblundef{SortKItem{}}()")),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("SortK{}, SortKItem{}"), "{rendered}");
+    assert!(!rendered.contains("SortParam"), "{rendered}");
+}
+
 const PHANTOM_CONFIGURATION: &str = r#"
 requires "domains.md"
 module MAIN
