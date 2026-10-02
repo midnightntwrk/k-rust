@@ -14,7 +14,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{Definition, PartialOrder, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
-    kast::{Label, Sort, Term},
+    kast::{Label, Sort, SortRole, Term, sort_role::KernelSort},
     provenance::GeneratingPass,
 };
 
@@ -140,6 +140,9 @@ pub fn resolve_semantic_casts_in_sentence(
 
 /// Resolve semantic casts and add their sort predicates to the sentence condition.
 ///
+/// A cast adds `isS` of its operand only when `cast_condition` gives it a condition: a sort
+/// with a sort predicate, or `Bag`; a cast to any other sort adds nothing.
+///
 /// This is Java's `ResolveSemanticCasts(false)` mode used for standalone patterns. Macro and
 /// alias sentences suppress predicates because their casts describe matching syntax rather than
 /// runtime side conditions. `subsorts` is the visible order of the sentence's module.
@@ -149,6 +152,47 @@ pub fn resolve_semantic_casts_with_predicates_in_sentence(
 ) -> Result<Sentence, ResolveSemanticCastsError> {
     resolve_semantic_casts_in_sentence_mut(&mut sentence, true, subsorts)?;
     Ok(sentence)
+}
+
+/// What a semantic cast to a sort adds to the condition of a search pattern (predicate mode).
+enum CastCondition {
+    /// `isS(operand)`: compilation declares the sort predicate of `S`.
+    SortPredicate,
+    /// `isBag(operand)`: the cell-fragment membership test that cell concretization replaces by
+    /// the sort predicates of the fragment's cells (`concretize_cells`).
+    CellFragment,
+    /// Nothing: the cast only fixes the operand's sort.
+    Static,
+}
+
+/// The condition a semantic cast to a sort of `role` adds to a search pattern.
+///
+/// A sort with a sort predicate ([`SortRole::has_sort_predicate`]) gets `isS` of the operand,
+/// which tests at run time that the matched K term is a term of `S`.
+///
+/// `Bag` has no K terms of its own, but `isBag(R)` over a cell-fragment variable `R` is the
+/// fragment-membership test that cell concretization rewrites into the sort predicates of the
+/// fragment's generated cell sorts, so it is kept.
+///
+/// Every other sort (`KBott`, `KLabel`, `KList`, `KString`, `Cell`, a numeral, a rigid
+/// variable, scaffolding) adds nothing. No compiled K term has such a sort, so its `isS` would
+/// be declared nowhere and would be false on every argument. The cast still has its static
+/// meaning: its sort is the sort of the operand in the compiled pattern, where a variable is
+/// emitted with that sort and matches only terms of it, and sort injection checks a non-variable
+/// operand against the cast (an upcast, a downcast through a projection, or an incomparable
+/// cast), so leaving out the conjunct admits no ill-sorted pattern.
+const fn cast_condition(role: SortRole) -> CastCondition {
+    use KernelSort as S;
+    match role {
+        SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::Bool) | SortRole::Defined => {
+            CastCondition::SortPredicate
+        }
+        SortRole::Kernel(S::Bag) => CastCondition::CellFragment,
+        SortRole::Kernel(S::KBott | S::KLabel | S::KList | S::KString | S::Cell)
+        | SortRole::RigidVariable
+        | SortRole::Scaffolding
+        | SortRole::Nat => CastCondition::Static,
+    }
 }
 
 fn resolve_semantic_casts_in_sentence_mut(
@@ -206,22 +250,26 @@ fn resolve_semantic_casts_in_sentence_mut(
         return Ok(());
     }
 
-    let predicate = casts
-        .iter()
-        .map(|cast| {
-            let Term::Apply { label, .. } = cast else {
-                unreachable!("only semantic-cast applications were collected")
-            };
-            let sort = label
-                .semantic_cast_sort()
-                .expect("the cast set contains semantic-cast applications");
-            Term::Apply {
+    let conjuncts = casts.iter().filter_map(|cast| {
+        let Term::Apply { label, .. } = cast else {
+            unreachable!("only semantic-cast applications were collected")
+        };
+        let sort = label
+            .semantic_cast_sort()
+            .expect("the cast set contains semantic-cast applications");
+        match cast_condition(sort.role()) {
+            CastCondition::SortPredicate | CastCondition::CellFragment => Some(Term::Apply {
                 label: Label::sort_predicate(&sort),
                 arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
-            }
-        })
-        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
-        .expect("at least one semantic cast was collected");
+            }),
+            CastCondition::Static => None,
+        }
+    });
+    let Some(predicate) =
+        conjuncts.reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+    else {
+        return Ok(());
+    };
 
     let requires = match sentence {
         Sentence::Rule { requires, .. }
@@ -501,6 +549,41 @@ fn attach_sort(term: Term, sort: Sort) -> Term {
             let mut metadata = metadata.unwrap_or_default();
             metadata.sort = Some(sort);
             term.with_metadata(metadata)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CastCondition, cast_condition};
+    use crate::kast::{SortRole, sort_role::KernelSort};
+
+    fn every_role() -> Vec<SortRole> {
+        KernelSort::ALL
+            .into_iter()
+            .map(SortRole::Kernel)
+            .chain([
+                SortRole::RigidVariable,
+                SortRole::Scaffolding,
+                SortRole::Nat,
+                SortRole::Defined,
+            ])
+            .collect()
+    }
+
+    #[test]
+    fn a_cast_adds_a_sort_predicate_exactly_for_a_sort_that_has_one() {
+        for role in every_role() {
+            assert_eq!(
+                matches!(cast_condition(role), CastCondition::SortPredicate),
+                role.has_sort_predicate(),
+                "{role:?}"
+            );
+            assert_eq!(
+                matches!(cast_condition(role), CastCondition::CellFragment),
+                role == SortRole::Kernel(KernelSort::Bag),
+                "{role:?}"
+            );
         }
     }
 }

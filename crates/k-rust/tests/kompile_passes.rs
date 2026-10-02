@@ -8158,6 +8158,123 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
     );
 }
 
+fn predicate_labels(term: &Term) -> Vec<String> {
+    let mut labels = Vec::new();
+    term.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } = term.unannotated()
+            && label.name.starts_with("is")
+        {
+            labels.push(label.name.clone());
+        }
+    });
+    labels.sort();
+    labels
+}
+
+#[test]
+fn semantic_cast_predicates_cover_only_sorts_with_a_predicate_and_bag() {
+    let sentence = Sentence::Rule {
+        body: application(
+            "body",
+            vec![
+                application("#SemanticCastTo8", vec![Term::variable("X")]),
+                application("#SemanticCastToBag", vec![Term::variable("R")]),
+            ],
+        ),
+        requires: application(
+            "existing",
+            vec![application("#SemanticCastToFoo", vec![Term::variable("Y")])],
+        ),
+        ensures: application(
+            "ensures",
+            vec![application("#SemanticCastTo8", vec![Term::variable("X")])],
+        ),
+        attributes: Attributes::default(),
+    };
+
+    let subsorts = semantic_cast_sentence_subsorts();
+    let transformed =
+        resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
+    let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = transformed
+    else {
+        unreachable!()
+    };
+
+    for root in [&body, &requires, &ensures] {
+        root.visit_preorder(&mut |term| {
+            if let Term::Apply { label, .. } = term.unannotated() {
+                assert!(!label.name.starts_with("#SemanticCastTo"), "{term}");
+            }
+            if let Term::Variable { name, sort } = term.unannotated() {
+                let expected = match name.as_str() {
+                    "X" => Some(Sort::new("8")),
+                    "Y" => Some(Sort::new("Foo")),
+                    "R" => Some(Sort::new("Bag")),
+                    _ => return,
+                };
+                assert_eq!(sort, &expected, "{term}");
+            }
+        });
+    }
+
+    let Term::Apply { label, arguments } = requires.unannotated() else {
+        panic!("expected predicate conjunction: {requires}")
+    };
+    assert_eq!(label.name, "_andBool_");
+    let [predicates, existing] = arguments.as_slice() else {
+        panic!("expected predicates and prior requires: {requires}")
+    };
+    assert!(matches!(
+        existing.unannotated(),
+        Term::Apply { label, .. } if label.name == "existing"
+    ));
+    assert_eq!(predicate_labels(predicates), ["isBag", "isFoo"]);
+    assert_eq!(predicate_labels(&requires), ["isBag", "isFoo"]);
+}
+
+#[test]
+fn semantic_cast_to_a_sort_without_a_predicate_keeps_the_requires_as_written() {
+    let written = application("existing", vec![Term::variable("X")]);
+    let sentence = Sentence::Rule {
+        body: application(
+            "body",
+            vec![application("#SemanticCastTo8", vec![Term::variable("X")])],
+        ),
+        requires: written.clone(),
+        ensures: application("ensures", Vec::new()),
+        attributes: Attributes::default(),
+    };
+
+    let subsorts = semantic_cast_sentence_subsorts();
+    let transformed =
+        resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
+    let Sentence::Rule { body, requires, .. } = transformed else {
+        unreachable!()
+    };
+
+    let expected_requires = application(
+        "existing",
+        vec![Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("8")),
+        }],
+    );
+    assert_eq!(requires, expected_requires);
+    assert!(predicate_labels(&requires).is_empty(), "{requires}");
+    let Term::Apply { arguments, .. } = body.unannotated() else {
+        panic!("expected the body application: {body}")
+    };
+    assert!(matches!(
+        arguments.as_slice(),
+        [Term::Variable { name, sort: Some(sort) }] if name == "X" && *sort == Sort::new("8")
+    ));
+}
+
 #[test]
 fn semantic_cast_predicates_are_suppressed_for_macro_and_alias_rules() {
     for attribute in ["macro", "macro-rec", "alias", "alias-rec"] {

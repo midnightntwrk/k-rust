@@ -35,6 +35,7 @@ const REFERENCE_EXPLICIT_GEN_BINDER: &str =
     include_str!("fixtures/search-pattern/reference-explicit-gen-binder.kore");
 const EXPLICIT_GEN_BINDER: &str =
     include_str!("fixtures/search-pattern/explicit-gen-binder.pattern");
+const SEARCH8: &str = include_str!("fixtures/search-pattern/search8.k");
 const PATTERN_SOURCE: &str = "<command line>";
 const PATTERN_LOCATION: Location = Location {
     start_line: 7,
@@ -49,39 +50,48 @@ struct Context {
     definition_kore: String,
 }
 
+fn load_context(path: &str, source: &str, main_module: &str) -> Context {
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new(path, source),
+        main_module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("search-pattern fixture should load");
+    let parsing = definition_with_named_projections(loaded.definition());
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("search-pattern fixture should compile");
+    Context {
+        parsing,
+        execution: artifacts.execution_definition,
+        definition_kore: artifacts.definition_kore,
+    }
+}
+
 fn context() -> &'static Context {
     static CONTEXT: OnceLock<Context> = OnceLock::new();
-    CONTEXT.get_or_init(|| {
-        let prelude = embedded("prelude.md").expect("embedded prelude should exist");
-        let mut resolver = |_: &str, required: &str| {
-            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
-        };
-        let loaded = load_with_options(
-            ResolvedSource::new("search-pattern/pattern.k", DEFINITION),
-            "MAIN",
-            &mut resolver,
-            &LoadOptions {
-                implicit_sources: vec![prelude],
-                excluded_module_attributes: vec![
-                    CompilationBackend::Rust.excluded_module_attribute().into(),
-                ],
-                ..LoadOptions::default()
-            },
-        )
-        .expect("search-pattern fixture should load");
-        let parsing = definition_with_named_projections(loaded.definition());
-        let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
-            .expect("search-pattern fixture should compile");
-        Context {
-            parsing,
-            execution: artifacts.execution_definition,
-            definition_kore: artifacts.definition_kore,
-        }
-    })
+    CONTEXT.get_or_init(|| load_context("search-pattern/pattern.k", DEFINITION, "MAIN"))
 }
 
 fn compile(contents: &str) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
-    let context = context();
+    compile_in(context(), "MAIN", contents)
+}
+
+fn compile_in(
+    context: &Context,
+    module: &str,
+    contents: &str,
+) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
     let parsing = ResolvedDefinition::resolve(&context.parsing).unwrap();
     let execution = ResolvedDefinition::resolve(&context.execution).unwrap();
     let mut attributes = Attributes::default();
@@ -91,7 +101,7 @@ fn compile(contents: &str) -> Result<CompiledSearchPattern, CompileSearchPattern
     attributes.insert("contentStartOffset", serde_json::json!(101));
     attributes.insert("contentStartLine", serde_json::json!(7));
     attributes.insert("contentStartColumn", serde_json::json!(3));
-    compile_search_pattern(&parsing, &execution, "MAIN", contents.trim(), attributes)
+    compile_search_pattern(&parsing, &execution, module, contents.trim(), attributes)
 }
 
 fn walk(pattern: &Pattern, visit: &mut impl FnMut(&Pattern)) {
@@ -484,4 +494,46 @@ endmodule
             actual: k_rust::kast::Sort::new("TopCell"),
         }
     );
+}
+
+fn search8_context() -> &'static Context {
+    static CONTEXT: OnceLock<Context> = OnceLock::new();
+    CONTEXT.get_or_init(|| load_context("search-pattern/search8.k", SEARCH8, "SEARCH8"))
+}
+
+fn variable_sorts(pattern: &Pattern, name: &str) -> BTreeSet<String> {
+    let mut sorts = BTreeSet::new();
+    walk(pattern, &mut |pattern| {
+        if let Pattern::Variable(variable) = pattern
+            && variable.name == name
+        {
+            sorts.insert(variable.sort.to_string());
+        }
+    });
+    sorts
+}
+
+#[test]
+fn search_pattern_compilation_binds_a_numeral_sorted_variable_without_a_sort_predicate() {
+    for contents in ["<k> foo(X) </k>", "<k> foo(X:8) </k>"] {
+        let compiled = compile_in(search8_context(), "SEARCH8", contents)
+            .unwrap_or_else(|error| panic!("{contents}: {error:?}"));
+        let rendered = compiled.pattern.to_string();
+        assert_eq!(
+            variable_sorts(&compiled.pattern, "VarX"),
+            BTreeSet::from(["Sort8{}".to_owned()]),
+            "{contents}: {rendered}"
+        );
+        assert!(rendered.contains("Lblfoo"), "{contents}: {rendered}");
+        assert!(!rendered.contains("Lblis8"), "{contents}: {rendered}");
+    }
+
+    let control = compile_in(search8_context(), "SEARCH8", "<k> X:Foo </k>").unwrap();
+    let rendered = control.pattern.to_string();
+    assert_eq!(
+        variable_sorts(&control.pattern, "VarX"),
+        BTreeSet::from(["SortFoo{}".to_owned()]),
+        "{rendered}"
+    );
+    assert!(rendered.contains("LblisFoo"), "{rendered}");
 }
