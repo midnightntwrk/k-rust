@@ -821,7 +821,9 @@ fn standalone_term(value: Term<dyn Expr>) -> Term<dyn Expr> {
 }
 
 fn main() {
-    let mut descriptors = language_host::host_descriptors().collect::<Vec<_>>();
+    let mut descriptors = language_host::host_descriptors()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
     descriptors.sort_by(|left, right| left.id.cmp(&right.id));
     for descriptor in &descriptors {
         println!(
@@ -966,7 +968,7 @@ mod tests {
             .collect::<Vec<_>>();
         let missing_configuration = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            implicit_head_rules.clone(),
+            implicit_head_rules.clone().into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap_err();
@@ -999,7 +1001,7 @@ mod tests {
         );
         let ambiguous_configuration = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            ambiguous_descriptors,
+            ambiguous_descriptors.into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap_err();
@@ -1044,7 +1046,8 @@ mod tests {
             implicit_head_rules
                 .iter()
                 .cloned()
-                .chain([local_configuration.clone(), unrelated_configuration]),
+                .chain([local_configuration.clone(), unrelated_configuration])
+                .map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap_err();
@@ -1072,7 +1075,7 @@ mod tests {
             .collect::<Vec<_>>();
         let explicitly_owned_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            explicitly_owned_descriptors,
+            explicitly_owned_descriptors.into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .expect("configuration-owned rules ignore unrelated fixed configurations");
@@ -1131,7 +1134,8 @@ mod tests {
                 .iter()
                 .cloned()
                 .chain(implicit_head_rules.iter().cloned())
-                .chain(std::iter::once(no_computation)),
+                .chain(std::iter::once(no_computation))
+                .map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap_err();
@@ -1154,7 +1158,8 @@ mod tests {
                 .iter()
                 .cloned()
                 .chain(implicit_head_rules.iter().cloned())
-                .chain(std::iter::once(two_computations)),
+                .chain(std::iter::once(two_computations))
+                .map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap_err();
@@ -1182,7 +1187,7 @@ mod tests {
             .collect::<Vec<_>>();
         let bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            non_head_descriptors.clone(),
+            non_head_descriptors.clone().into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap();
@@ -1190,7 +1195,7 @@ mod tests {
         reversed_descriptors.reverse();
         let reversed_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            reversed_descriptors,
+            reversed_descriptors.into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap();
@@ -1339,7 +1344,7 @@ mod tests {
             .collect::<Vec<_>>();
         let readable_bundle = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            readable_descriptors,
+            readable_descriptors.into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap();
@@ -2448,7 +2453,9 @@ mod tests {
     }
 
     fn sorted_descriptors() -> Vec<language_host::HostDescriptor> {
-        let mut descriptors = language_host::host_descriptors().collect::<Vec<_>>();
+        let mut descriptors = language_host::host_descriptors()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
         descriptors.sort_by(|left, right| left.id.cmp(&right.id));
         descriptors
     }
@@ -2490,7 +2497,7 @@ mod tests {
                     !matches!(descriptor.payload, HostDescriptorPayload::HeadRule(_))
                 })
                 .cloned()
-                .collect::<Vec<_>>(),
+                .map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap()
@@ -2516,7 +2523,7 @@ mod tests {
             .collect::<Vec<_>>();
         krs_collector::collect_host_descriptors_with_builtins(
             [package_context()],
-            readable_descriptors,
+            readable_descriptors.into_iter().map(Ok),
             &language_host::builtin_registry(),
         )
         .unwrap()

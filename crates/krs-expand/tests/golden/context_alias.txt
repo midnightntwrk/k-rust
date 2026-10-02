@@ -12,8 +12,11 @@ fn __krs_context_alias_configuration_2fc29f1120842568() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Machine>()
 }
 #[doc(hidden)]
-fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_context_alias_2fc29f1120842568() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -194,7 +197,7 @@ fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_context_alias_2fc29f1120842568);

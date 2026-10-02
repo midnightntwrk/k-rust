@@ -31,9 +31,12 @@ fn __krs_configuration_type_1f42c47f927d9bc1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<NestedMachine>()
 }
 #[doc(hidden)]
-fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
-    let (initializer, initializer_slots, initializer_provenance) = NestedMachine::__krs_initializer_payload();
-    ::k::HostDescriptor {
+fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    let (initializer, initializer_slots, initializer_provenance) = NestedMachine::__krs_initializer_payload()?;
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -149,9 +152,9 @@ fn __krs_configuration_descriptor_1f42c47f927d9bc1() -> ::k::HostDescriptor {
                         },
                     ),
                 ],
-            )
+            )?
             .merge(initializer_provenance)
             .expect("configuration and initializer provenance keys are disjoint"),
-    }
+    })
 }
 ::k::__register_host_descriptor!(__krs_configuration_descriptor_1f42c47f927d9bc1);

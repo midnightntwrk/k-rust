@@ -8,7 +8,7 @@ use krs_ir::measure::{
     COLLECTOR_DIAGNOSTIC_ENV, COLLECTOR_MEASURE_ENV, COLLECTOR_MEASURE_SCHEMA,
     COLLECTOR_READ_SET_ENV, CollectorMeasureDocument, Counters, Timings, unix_seconds,
 };
-use krs_ir::{HostBuiltinRegistry, HostDescriptor};
+use krs_ir::{HostBuiltinRegistry, HostDescriptor, HostProvenanceError};
 
 use crate::CollectionError;
 use krs_diagnostic::{
@@ -18,8 +18,7 @@ use krs_diagnostic::{
 
 use super::{PackageContext, collect_host_descriptors_with_builtins_timed, source};
 
-/// Collect the host descriptors of `contexts` and write compact canonical
-/// descriptor bundle JSON to stdout.
+/// Collect the host descriptor factory results of `contexts` and write compact canonical descriptor bundle JSON to stdout.
 ///
 /// Generated collectors call this once from `main`. When `krs` sets
 /// [`COLLECTOR_MEASURE_ENV`] to a path, the collector also records its phases
@@ -37,7 +36,7 @@ pub fn run_collector<I>(
     builtins: impl FnOnce() -> HostBuiltinRegistry,
 ) -> Result<(), Box<dyn Error>>
 where
-    I: IntoIterator<Item = HostDescriptor>,
+    I: IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
 {
     let read_set = std::env::var_os(COLLECTOR_READ_SET_ENV).map(PathBuf::from);
     if read_set.is_some() {
@@ -156,7 +155,7 @@ fn collect_and_write<I>(
     counters: &mut Counters,
 ) -> Result<(), RunError>
 where
-    I: IntoIterator<Item = HostDescriptor>,
+    I: IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
 {
     let descriptors = timings.span("collector.factories", |_| {
         descriptors().into_iter().collect::<Vec<_>>()

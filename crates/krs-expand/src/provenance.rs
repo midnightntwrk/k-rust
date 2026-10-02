@@ -85,7 +85,7 @@ fn host_provenance_impl(
             &[#(#files),*],
             #invocation_tokens,
             #authored_tokens,
-        )
+        )?
     }
 }
 

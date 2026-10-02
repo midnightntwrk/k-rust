@@ -98,7 +98,7 @@ fn main() {
         package_root.join("Cargo.toml"),
     )
     .expect("fixture package context");
-    let error = collect_host_descriptors([context], [host])
+    let error = collect_host_descriptors([context], [Ok(host)])
         .expect_err("negative anchor case must fail collection");
     println!(
         "{}",

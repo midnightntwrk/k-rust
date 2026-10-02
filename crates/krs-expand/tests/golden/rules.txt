@@ -20,8 +20,11 @@ fn __krs_rule_application_7087aad6655bc41e_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Object>()
 }
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -185,7 +188,7 @@ fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_7087aad6655bc41e);

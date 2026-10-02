@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 
 use k::{
-    AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
-    HostItemId, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, SchemaVersion,
-    ProvenanceKey, ProvenanceRole,
+    AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostItemId,
+    HostProvenance, HostProvenanceError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    ItemKind, ProvenanceKey, ProvenanceRole, SchemaVersion,
 };
 
 /// An ordinary public symbol which a generated collector explicitly calls.
@@ -14,16 +14,18 @@ use k::{
 /// registrations in the final collector binary.
 #[inline(never)]
 pub fn retain_for_krs_collector() {
-    std::hint::black_box(dependency_descriptor as fn() -> HostDescriptor);
+    std::hint::black_box(
+        dependency_descriptor as fn() -> Result<HostDescriptor, HostProvenanceError>,
+    );
 }
 
-fn dependency_descriptor() -> HostDescriptor {
+fn dependency_descriptor() -> Result<HostDescriptor, HostProvenanceError> {
     descriptor(module_path!(), "DependencySort")
 }
 
 k::__register_host_descriptor!(dependency_descriptor);
 
-fn descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
+fn descriptor(rust_module_path: &str, item: &str) -> Result<HostDescriptor, HostProvenanceError> {
     let position = |column| HostSourcePosition::new(1, column).expect("valid position");
     let anchor = HostSourceAnchor::new(
         "src/lib.rs",
@@ -38,10 +40,9 @@ fn descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
             ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
             anchor,
         )],
-    )
-    .expect("valid provenance");
+    )?;
 
-    HostDescriptor {
+    Ok(HostDescriptor {
         protocol_version: SchemaVersion::CURRENT,
         id: HostItemId::from_macro_context(
             env!("CARGO_PKG_NAME"),
@@ -57,7 +58,7 @@ fn descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
         payload: HostDescriptorPayload::Sort(HostSortDescriptor::default()),
         cfg: BTreeMap::new(),
         provenance,
-    }
+    })
 }
 
 #[cfg(test)]

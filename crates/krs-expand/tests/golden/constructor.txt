@@ -28,8 +28,11 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Pa
     }
 }
 #[doc(hidden)]
-fn __krs_constructor_descriptor_4ea6542dee396e65() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_constructor_descriptor_4ea6542dee396e65() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -126,8 +129,8 @@ fn __krs_constructor_descriptor_4ea6542dee396e65() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_constructor_descriptor_4ea6542dee396e65);
 #[doc(hidden)]
@@ -135,8 +138,11 @@ fn __krs_strictness_result_4ea6542dee396e65() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<dyn KResult>()
 }
 #[doc(hidden)]
-fn __krs_constructor_grammar_4ea6542dee396e65() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_constructor_grammar_4ea6542dee396e65() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -443,7 +449,7 @@ fn __krs_constructor_grammar_4ea6542dee396e65() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_constructor_grammar_4ea6542dee396e65);

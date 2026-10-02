@@ -54,7 +54,7 @@ impl DisplayPath {
 }
 
 /// A rejected display path spelling.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DisplayPathError {
     /// The spelling is empty.
     Empty(String),

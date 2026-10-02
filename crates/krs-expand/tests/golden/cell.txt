@@ -21,8 +21,11 @@ fn __krs_cell_type_221054d221a44a51() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Store>()
 }
 #[doc(hidden)]
-fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -110,7 +113,7 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_cell_descriptor_221054d221a44a51);

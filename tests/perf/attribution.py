@@ -200,7 +200,7 @@ def expanded_constructs(text: str, crate: str) -> dict[str, Any]:
     constructs: dict[str, dict[str, Any]] = {}
     chunks = []
     for first, chunk in top_level_chunks(text):
-        header = first.strip()
+        header = chunk[chunk.index(first):].partition("{")[0].strip()
         if header.startswith("const _"):
             info = {"prefix": "registration", "nonce": None, "variant": None, "authored": None}
         else:

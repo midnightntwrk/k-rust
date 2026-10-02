@@ -12,8 +12,11 @@ fn __krs_sort_parent_b0e7cc828be62a92_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<dyn KResult>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -87,7 +90,7 @@ fn __krs_sort_descriptor_b0e7cc828be62a92() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_b0e7cc828be62a92);

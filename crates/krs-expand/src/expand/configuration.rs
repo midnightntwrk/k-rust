@@ -89,7 +89,7 @@ pub(crate) fn configuration(
             .merge(initializer_provenance)
             .expect("configuration and initializer provenance keys are disjoint")
         },
-        prelude: quote!(let (initializer, initializer_slots, initializer_provenance) = #declared::__krs_initializer_payload();),
+        prelude: quote!(let (initializer, initializer_slots, initializer_provenance) = #declared::__krs_initializer_payload()?;),
     }
     .render();
 

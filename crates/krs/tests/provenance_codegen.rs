@@ -37,7 +37,8 @@ fn compact_provenance_preserves_files_order_and_precision() {
             (ProvenanceRole::SortParent, 1, fallback),
             (ProvenanceRole::ConstructorDeclaration, 0, absolute),
         ],
-    );
+    )
+    .unwrap();
     assert_eq!(provenance.invocation().display_file(), "src/lib.rs");
     let anchors = provenance.authored();
     assert_eq!(anchors[0].anchor().display_file(), "src/other.rs");
@@ -55,16 +56,86 @@ fn compact_provenance_preserves_files_order_and_precision() {
 }
 
 #[test]
-#[should_panic(expected = "rustc's absolute display path must remain inside the Cargo package")]
 fn compact_provenance_rejects_outside_manifest() {
-    let _ = __krs_host_provenance(
+    for display_file in [
+        "/target/debug/build/package/out/generated.rs",
+        "/elsewhere/lib.rs",
+    ] {
+        let error = __krs_host_provenance(
+            "/package",
+            &[display_file],
+            __KrsRawAnchor {
+                absolute: true,
+                start: (3, 7),
+                end: (3, 8),
+                ..raw(0)
+            },
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            HostProvenanceError::SourceOutsidePackage {
+                invocation_file: display_file.to_owned(),
+                invocation_start: HostSourcePosition::new(3, 7).unwrap(),
+                display_file: display_file.to_owned(),
+                manifest_dir: "/package".to_owned(),
+                path_error: None,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "display file `{display_file}` is outside Cargo package `/package` (invocation at {display_file}:3:7)"
+            )
+        );
+    }
+}
+
+#[test]
+fn compact_provenance_reports_outside_authored_file_and_containing_invocation() {
+    let error = __krs_host_provenance(
         "/package",
-        &["/elsewhere/lib.rs"],
+        &["src/lib.rs", "/target/out/generated.rs"],
+        raw(0),
+        &[(
+            ProvenanceRole::SortDeclaration,
+            0,
+            __KrsRawAnchor {
+                absolute: true,
+                ..raw(1)
+            },
+        )],
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "display file `/target/out/generated.rs` is outside Cargo package `/package` (invocation at src/lib.rs:1:1)"
+    );
+}
+
+#[test]
+fn compact_provenance_rejects_non_normalized_package_relative_path() {
+    let error = __krs_host_provenance(
+        "/package",
+        &["/package/src/../lib.rs"],
         __KrsRawAnchor {
             absolute: true,
             ..raw(0)
         },
         &[],
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        HostProvenanceError::SourceOutsidePackage {
+            path_error: Some(ref error),
+            ..
+        } if **error == krs_ir::DisplayPathError::NotNormalized("src/../lib.rs".to_owned())
+    ));
+    assert_eq!(
+        error.to_string(),
+        "display file `/package/src/../lib.rs` is not a normalized path inside Cargo package `/package` (invocation at /package/src/../lib.rs:1:1): display path `src/../lib.rs` is not normalized"
     );
 }
 

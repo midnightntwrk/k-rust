@@ -4,23 +4,23 @@ use std::collections::BTreeMap;
 
 use k::{
     AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
-    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, PackageId, SchemaVersion,
-    ProvenanceKey, ProvenanceRole, StableItemId,
+    HostProvenanceError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind,
+    PackageId, SchemaVersion, ProvenanceKey, ProvenanceRole, StableItemId,
 };
 
 mod nested {
-    use super::{HostDescriptor, descriptor};
+    use super::{HostDescriptor, HostProvenanceError, descriptor};
 
-    fn nested_descriptor() -> HostDescriptor {
+    fn nested_descriptor() -> Result<HostDescriptor, HostProvenanceError> {
         descriptor(&["nested"], "NestedSort")
     }
 
     k::__register_host_descriptor!(nested_descriptor);
 
     mod deeper {
-        use super::{HostDescriptor, descriptor};
+        use super::{HostDescriptor, HostProvenanceError, descriptor};
 
-        fn deeper_descriptor() -> HostDescriptor {
+        fn deeper_descriptor() -> Result<HostDescriptor, HostProvenanceError> {
             descriptor(&["nested", "deeper"], "DeeperSort")
         }
 
@@ -28,7 +28,7 @@ mod nested {
     }
 }
 
-fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
+fn descriptor(module: &[&str], item: &str) -> Result<HostDescriptor, HostProvenanceError> {
     let position = |column| HostSourcePosition::new(1, column).expect("valid position");
     let anchor = HostSourceAnchor::new(
         "src/lib.rs",
@@ -43,10 +43,9 @@ fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
             ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
             anchor,
         )],
-    )
-    .expect("valid provenance");
+    )?;
 
-    HostDescriptor {
+    Ok(HostDescriptor {
         protocol_version: SchemaVersion::CURRENT,
         id: StableItemId::new(
             PackageId::new("ORG-COLLECTOR", "registration-collector", "0.0.0", "workspace")
@@ -61,7 +60,7 @@ fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
         payload: HostDescriptorPayload::Sort(HostSortDescriptor::default()),
         cfg: BTreeMap::new(),
         provenance,
-    }
+    })
 }
 
 /// Enumerates descriptors after explicitly retaining selected dependencies.
@@ -71,7 +70,7 @@ fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
 #[must_use]
 pub fn collect_selected_host_descriptors() -> Vec<HostDescriptor> {
     semantics_dependency::retain_for_krs_collector();
-    k::host_descriptors().collect()
+    k::host_descriptors().map(Result::unwrap).collect()
 }
 
 #[cfg(test)]

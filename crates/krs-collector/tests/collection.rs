@@ -6,18 +6,27 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_collector::{CollectionErrorKind, PackageContext, collect_host_descriptors};
+use krs_collector::{
+    CollectionError, CollectionErrorKind, PackageContext, collect_host_descriptors,
+};
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance,
-    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
-    ItemKind, Position, ProvenanceRole, RustVisibility, SchemaVersion,
+    HostProvenanceError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey,
+    HostTypeReference, ItemKind, Position, ProvenanceRole, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
 use krs_syntax::{ConstructorDeclaration, ProvenanceAnchor, SortDeclaration};
 use krs_test_support::{TempDir, temp_dir};
 use syn::{Item, Meta};
+
+fn collect_descriptors(
+    contexts: impl IntoIterator<Item = PackageContext>,
+    descriptors: impl IntoIterator<Item = HostDescriptor>,
+) -> Result<krs_ir::DescriptorBundle, CollectionError> {
+    collect_host_descriptors(contexts, descriptors.into_iter().map(Ok))
+}
 
 fn is_symbol_attribute(attribute: &syn::Attribute) -> bool {
     surface::resolve(attribute.path(), "k")
@@ -74,9 +83,9 @@ pub struct Foo { pub value: Term<dyn Expr> }
     ];
 
     let first =
-        collect_host_descriptors([package.context("ORG-SEMANTICS")], descriptors.clone()).unwrap();
+        collect_descriptors([package.context("ORG-SEMANTICS")], descriptors.clone()).unwrap();
     assert_canonical_contract(&first);
-    let second = collect_host_descriptors(
+    let second = collect_descriptors(
         [package.context("ORG-SEMANTICS")],
         descriptors.into_iter().rev(),
     )
@@ -102,13 +111,12 @@ fn intake_reports_the_same_first_error_in_either_registration_order() {
     let mut beta = package.sort("Beta", foo_type, vec![]);
     beta.protocol_version = SchemaVersion(200);
 
-    let forward = collect_host_descriptors(
+    let forward = collect_descriptors(
         [package.context("ORG-INTAKE")],
         [alpha.clone(), beta.clone()],
     )
     .unwrap_err();
-    let reverse =
-        collect_host_descriptors([package.context("ORG-INTAKE")], [beta, alpha]).unwrap_err();
+    let reverse = collect_descriptors([package.context("ORG-INTAKE")], [beta, alpha]).unwrap_err();
 
     assert_eq!(forward, reverse);
     assert_eq!(
@@ -116,6 +124,38 @@ fn intake_reports_the_same_first_error_in_either_registration_order() {
         CollectionErrorKind::UnsupportedSchemaVersion
     );
     assert!(forward.detail().contains("schema 100"), "{forward}");
+}
+
+#[test]
+fn factory_failures_report_the_same_unlocated_error_in_either_registration_order() {
+    let first = HostProvenanceError::SourceOutsidePackage {
+        invocation_file: "src/lib.rs".to_owned(),
+        invocation_start: HostSourcePosition::new(3, 7).unwrap(),
+        display_file: "/target/build/semantics/out/generated.rs".to_owned(),
+        manifest_dir: "/workspace/semantics".to_owned(),
+        path_error: None,
+    };
+    let second = HostProvenanceError::SourceOutsidePackage {
+        invocation_file: "src/lib.rs".to_owned(),
+        invocation_start: HostSourcePosition::new(5, 1).unwrap(),
+        display_file: "/target/build/semantics/out/another.rs".to_owned(),
+        manifest_dir: "/workspace/semantics".to_owned(),
+        path_error: None,
+    };
+    let forward =
+        collect_host_descriptors([], [Err(first.clone()), Err(second.clone())]).unwrap_err();
+    let reverse = collect_host_descriptors([], [Err(second), Err(first.clone())]).unwrap_err();
+
+    assert_eq!(forward, reverse);
+    assert_eq!(forward.kind(), CollectionErrorKind::SourceOutsidePackage);
+    assert_eq!(forward.detail(), first.to_string());
+    assert!(
+        forward
+            .detail()
+            .contains("/target/build/semantics/out/generated.rs")
+    );
+    assert!(forward.detail().contains("src/lib.rs:3:7"));
+    assert!(forward.source_range().is_none());
 }
 
 #[test]
@@ -131,7 +171,7 @@ pub trait Expr {}
 pub struct PublicValue;
 "#,
     );
-    let bundle = collect_host_descriptors(
+    let bundle = collect_descriptors(
         [package.context("ORG-STABLE-API")],
         [
             package.sort("Expr", expr_type, vec![]),
@@ -170,7 +210,7 @@ fn unicode_scalar_anchors_materialize_exact_utf8_byte_ranges() {
         "unicode_semantics",
         "const 日本: () = ();\n#[k::sort]\npub trait Expr {}\n",
     );
-    let bundle = collect_host_descriptors(
+    let bundle = collect_descriptors(
         [package.context("ORG-UNICODE")],
         [package.sort("Expr", expr_type, vec![])],
     )
@@ -204,7 +244,7 @@ fn canonical_manifest_matching_accepts_a_symlink_hint() {
         "",
     )
     .unwrap();
-    let result = collect_host_descriptors([package.context("ORG-LINK")], [descriptor]);
+    let result = collect_descriptors([package.context("ORG-LINK")], [descriptor]);
     fs::remove_file(&link).unwrap();
     assert!(result.is_ok());
 }
@@ -227,13 +267,13 @@ pub mod right {
         first.sort_in_module("Value", 1, "right", other_type),
         second.sort("Value", kitem_type, vec![]),
     ];
-    let bundle = collect_host_descriptors(
+    let bundle = collect_descriptors(
         [first.context("ORG-FIRST"), second.context("ORG-SECOND")],
         descriptors.clone(),
     )
     .unwrap();
     assert_canonical_contract(&bundle);
-    let reordered = collect_host_descriptors(
+    let reordered = collect_descriptors(
         [second.context("ORG-SECOND"), first.context("ORG-FIRST")],
         descriptors.into_iter().rev(),
     )
@@ -259,7 +299,7 @@ pub struct Foo { pub left: Term<dyn KItem>, pub right: Term<dyn Absent> }
     let package = TestPackage::new("reference_ranges", source);
     let located = |descriptors: Vec<HostDescriptor>| {
         let error =
-            collect_host_descriptors([package.context("ORG-REFERENCES")], descriptors).unwrap_err();
+            collect_descriptors([package.context("ORG-REFERENCES")], descriptors).unwrap_err();
         assert_eq!(
             error.kind(),
             CollectionErrorKind::UnresolvedTypeReference,
@@ -301,8 +341,7 @@ fn changed_semantic_source_is_rejected_as_stale() {
         "#[k::sort]\npub trait Changed {}\n",
     )
     .unwrap();
-    let error =
-        collect_host_descriptors([package.context("ORG-CHANGED")], [descriptor]).unwrap_err();
+    let error = collect_descriptors([package.context("ORG-CHANGED")], [descriptor]).unwrap_err();
     assert_eq!(error.kind(), CollectionErrorKind::StaleAnchor);
     let range = error.source_range().expect("located stale anchor");
     assert_eq!(range.file.package().k_namespace(), "ORG-CHANGED");
@@ -324,7 +363,7 @@ fn foreign_attributes_named_like_krs_entries_are_rejected() {
         ),
     ] {
         let package = TestPackage::new(name, source);
-        let error = collect_host_descriptors(
+        let error = collect_descriptors(
             [package.context("ORG-FOREIGN")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -344,7 +383,7 @@ fn foreign_attributes_named_like_krs_entries_are_rejected() {
 fn attributes_resolve_under_the_renamed_facade_only() {
     let source = "#[language_host::sort]\npub trait Expr {}\n";
     let package = TestPackage::with_facade("renamed_facade", "", "language-host", source);
-    let bundle = collect_host_descriptors(
+    let bundle = collect_descriptors(
         [package.context("ORG-RENAMED")],
         [package.sort("Expr", expr_type, vec![])],
     )
@@ -358,7 +397,7 @@ fn attributes_resolve_under_the_renamed_facade_only() {
         "language-host",
         "#[k::sort]\npub trait Expr {}\n",
     );
-    let error = collect_host_descriptors(
+    let error = collect_descriptors(
         [package.context("ORG-DEFAULT-ALIAS")],
         [package.sort("Expr", expr_type, vec![])],
     )
@@ -383,7 +422,7 @@ fn variant_helpers_require_a_facade_path() {
             "#[k::sort]\npub trait Expr {{}}\nuse k::syntax;\n#[k::constructors]\npub enum Values {{\n    {helper}\n    Value,\n}}\n"
         );
         let package = TestPackage::new(name, &source);
-        let error = collect_host_descriptors(
+        let error = collect_descriptors(
             [package.context("ORG-HELPERS")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -412,7 +451,7 @@ fn nested_attribute_positions_reject_foreign_entry_names() {
     ] {
         let source = format!("#[k::sort]\npub trait Expr {{}}\n{item}\n");
         let package = TestPackage::new(name, &source);
-        let error = collect_host_descriptors(
+        let error = collect_descriptors(
             [package.context("ORG-NESTED-ATTRS")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -433,7 +472,7 @@ fn item_macros_require_a_facade_path() {
     ] {
         let source = format!("#[k::sort]\npub trait Expr {{}}\n{invocation}\n");
         let package = TestPackage::new(name, &source);
-        let error = collect_host_descriptors(
+        let error = collect_descriptors(
             [package.context("ORG-MACROS")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -468,7 +507,7 @@ fn item_macros_resolve_raw_and_renamed_facade_paths() {
     ] {
         let source = format!("#[{facade}::sort]\npub trait Expr {{}}\n{invocation}\n");
         let package = TestPackage::with_facade(name, "", facade, &source);
-        let bundle = collect_host_descriptors(
+        let bundle = collect_descriptors(
             [package.context("ORG-MACRO-PATHS")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -486,7 +525,7 @@ fn symbol_diagnostics_use_the_resolved_facade_name() {
         "lang",
         "#[lang::symbol(\"x\")]\npub trait Expr {}\n",
     );
-    let error = collect_host_descriptors(
+    let error = collect_descriptors(
         [package.context("ORG-SYMBOL")],
         [package.sort("Expr", expr_type, vec![])],
     )
@@ -508,7 +547,7 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     let mut old = package.sort("Expr", expr_type, vec![]);
     old.protocol_version = SchemaVersion(2);
     assert_kind(
-        collect_host_descriptors([package.context("ORG-NEG")], [old]),
+        collect_descriptors([package.context("ORG-NEG")], [old]),
         CollectionErrorKind::UnsupportedSchemaVersion,
     );
 
@@ -522,13 +561,13 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     )
     .unwrap();
     assert_kind(
-        collect_host_descriptors([package.context("ORG-NEG")], [wrong_root]),
+        collect_descriptors([package.context("ORG-NEG")], [wrong_root]),
         CollectionErrorKind::CrateRootMismatch,
     );
 
     let duplicate = package.sort("Expr", expr_type, vec![]);
     assert_kind(
-        collect_host_descriptors([package.context("ORG-NEG")], [duplicate.clone(), duplicate]),
+        collect_descriptors([package.context("ORG-NEG")], [duplicate.clone(), duplicate]),
         CollectionErrorKind::DuplicateItemId,
     );
 
@@ -542,7 +581,7 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     )
     .unwrap();
     assert_kind(
-        collect_host_descriptors(
+        collect_descriptors(
             [package.context("ORG-NEG")],
             [package.sort("Expr", expr_type, vec![]), second],
         ),
@@ -554,7 +593,7 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
 fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
     let package = TestPackage::new("contexts", "#[k::sort]\npub trait Expr {}\n");
     assert_kind(
-        collect_host_descriptors(
+        collect_descriptors(
             [package.context("ORG-ONE"), package.context("ORG-TWO")],
             [package.sort("Expr", expr_type, vec![])],
         ),
@@ -563,7 +602,7 @@ fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
 
     let other = TestPackage::new("other_context", "#[k::sort]\npub trait Expr {}\n");
     assert_kind(
-        collect_host_descriptors(
+        collect_descriptors(
             [package.context("ORG-SAME"), other.context("ORG-SAME")],
             std::iter::empty(),
         ),
@@ -573,7 +612,7 @@ fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
     let mut missing_type = package.sort("Expr", expr_type, vec![]);
     missing_type.declared_type = None;
     assert_kind(
-        collect_host_descriptors([package.context("ORG-MISSING")], [missing_type]),
+        collect_descriptors([package.context("ORG-MISSING")], [missing_type]),
         CollectionErrorKind::MissingTypeDeclaration,
     );
 }
@@ -584,7 +623,7 @@ fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
     let mut wrong_file = package.sort("Expr", expr_type, vec![]);
     wrong_file.provenance = replace_display(&wrong_file.provenance, "src/missing.rs");
     assert_kind(
-        collect_host_descriptors([package.context("ORG-ANCHOR")], [wrong_file]),
+        collect_descriptors([package.context("ORG-ANCHOR")], [wrong_file]),
         CollectionErrorKind::HostIo,
     );
 
@@ -600,7 +639,7 @@ fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
         .unwrap(),
     );
     assert_kind(
-        collect_host_descriptors([package.context("ORG-ANCHOR")], [out_of_bounds]),
+        collect_descriptors([package.context("ORG-ANCHOR")], [out_of_bounds]),
         CollectionErrorKind::SourcePositionOutOfBounds,
     );
 
@@ -615,7 +654,7 @@ fn rejects_wrong_display_out_of_bounds_and_imprecise_anchors() {
     .unwrap();
     imprecise.provenance = replace_first_anchor(&imprecise.provenance, &fallback);
     assert_kind(
-        collect_host_descriptors([package.context("ORG-ANCHOR")], [imprecise]),
+        collect_descriptors([package.context("ORG-ANCHOR")], [imprecise]),
         CollectionErrorKind::ImpreciseAuthoredAnchor,
     );
 }
@@ -631,7 +670,7 @@ fn source_symlinks_cannot_escape_the_canonical_package_directory() {
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, "src/escape.rs");
     assert_kind(
-        collect_host_descriptors([package.context("ORG-ESCAPE")], [descriptor]),
+        collect_descriptors([package.context("ORG-ESCAPE")], [descriptor]),
         CollectionErrorKind::SourceOutsidePackage,
     );
 }
@@ -644,7 +683,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
         "#[k::sort]\npub trait Expr {}\n",
     );
     let package_descriptor = package.sort("Expr", expr_type, vec![]);
-    let package_bundle = collect_host_descriptors(
+    let package_bundle = collect_descriptors(
         [package.context("ORG-WORKSPACE-HINT")],
         [package_descriptor.clone()],
     )
@@ -660,7 +699,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
     let mut workspace_descriptor = package_descriptor;
     workspace_descriptor.provenance =
         replace_display(&workspace_descriptor.provenance, &workspace_hint);
-    let workspace_bundle = collect_host_descriptors(
+    let workspace_bundle = collect_descriptors(
         [package.context("ORG-WORKSPACE-HINT")],
         [workspace_descriptor],
     )
@@ -689,7 +728,7 @@ fn canonical_source_candidates_are_deduplicated_across_symlinks() {
     let display_hint = format!("{package_component}/src/lib.rs");
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, &display_hint);
-    let bundle = collect_host_descriptors([package.context("ORG-ALIAS")], [descriptor]).unwrap();
+    let bundle = collect_descriptors([package.context("ORG-ALIAS")], [descriptor]).unwrap();
     assert_canonical_contract(&bundle);
     let krs_ir::OriginFrame::Ranged { range, .. } = &bundle.descriptors[0].origin().frames()[0]
     else {
@@ -709,7 +748,7 @@ fn multiple_distinct_in_package_source_candidates_are_rejected() {
     let mut descriptor = package.sort("Expr", expr_type, vec![]);
     descriptor.provenance = replace_display(&descriptor.provenance, &display_hint);
     assert_kind(
-        collect_host_descriptors([package.context("ORG-SOURCE-AMBIGUITY")], [descriptor]),
+        collect_descriptors([package.context("ORG-SOURCE-AMBIGUITY")], [descriptor]),
         CollectionErrorKind::AmbiguousSourcePath,
     );
 }
@@ -718,7 +757,7 @@ fn multiple_distinct_in_package_source_candidates_are_rejected() {
 fn duplicate_reparsed_invocations_are_rejected_as_ambiguous() {
     let package = TestPackage::new("ambiguous", "#[k::sort]\n#[k::sort]\npub trait Expr {}\n");
     assert_kind(
-        collect_host_descriptors(
+        collect_descriptors(
             [package.context("ORG-AMBIGUOUS")],
             [package.sort("Expr", expr_type, vec![])],
         ),
@@ -764,7 +803,7 @@ fn fixture() {
     ];
     for (name, source, diagnostic_macro) in cases {
         let package = TestPackage::new(name, source);
-        let error = collect_host_descriptors(
+        let error = collect_descriptors(
             [package.context("KRS-F7-COLLECTOR")],
             [package.sort("Expr", expr_type, vec![])],
         )
@@ -811,13 +850,13 @@ fn fixture() {
 ";
     let baseline = TestPackage::new("dsl_line_comments", baseline_source);
     let commented = TestPackage::new("dsl_line_comments", commented_source);
-    let baseline_bundle = collect_host_descriptors(
+    let baseline_bundle = collect_descriptors(
         [baseline.context("KRS-F7-COLLECTOR")],
         [baseline.sort("Expr", expr_type, vec![])],
     )
     .unwrap();
     assert_canonical_contract(&baseline_bundle);
-    let commented_bundle = collect_host_descriptors(
+    let commented_bundle = collect_descriptors(
         [commented.context("KRS-F7-COLLECTOR")],
         [commented.sort("Expr", expr_type, vec![])],
     )

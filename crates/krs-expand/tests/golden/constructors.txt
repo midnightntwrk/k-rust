@@ -65,8 +65,11 @@ impl ::k::__KrsRuleApplication<1603655411640082298u64> for Object {
     }
 }
 #[doc(hidden)]
-fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -184,13 +187,16 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_enum_constructor_b069f7e9deaef2f1_0);
 #[doc(hidden)]
-fn __krs_enum_grammar_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_enum_grammar_b069f7e9deaef2f1_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -308,13 +314,16 @@ fn __krs_enum_grammar_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_enum_grammar_b069f7e9deaef2f1_0);
 #[doc(hidden)]
-fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -432,13 +441,16 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_enum_constructor_b069f7e9deaef2f1_1);
 #[doc(hidden)]
-fn __krs_enum_grammar_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_enum_grammar_b069f7e9deaef2f1_1() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -556,7 +568,7 @@ fn __krs_enum_grammar_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_enum_grammar_b069f7e9deaef2f1_1);

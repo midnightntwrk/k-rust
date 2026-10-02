@@ -149,18 +149,18 @@ pub(crate) fn init(
         #(#key_functions)*
 
         #[doc(hidden)]
-        pub(crate) fn __krs_initializer_payload() -> (
+        pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
             &'static str,
             #facade::__KrsSlots<'static>,
             #facade::HostProvenance,
-        ) {
+        ), #facade::HostProvenanceError> {
             let _krs_path_check = || {
                 #(#island_import_checks)*
             };
             fn __krs_type_key<T: ?Sized + 'static>() -> ::core::any::TypeId {
                 ::core::any::TypeId::of::<T>()
             }
-            (#wire, #slots, #provenance)
+            ::core::result::Result::Ok((#wire, #slots, #provenance))
         }
     })
 }

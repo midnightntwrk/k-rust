@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::transport::detail::{StateCellContentReason, TransportField, TransportItemKind};
 use crate::{
-    DisplayPath, HostDeclarationIdentity, HostHeadRule, ItemKind, ProvenanceRole, SchemaVersion,
-    StateTransportError,
+    DisplayPath, DisplayPathError, HostDeclarationIdentity, HostHeadRule, ItemKind, ProvenanceRole,
+    SchemaVersion, StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -547,7 +547,7 @@ impl HostProvenance {
 }
 
 /// Invalid pre-materialization provenance data.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum HostProvenanceError {
     /// Stable span line was zero instead of one-based.
     ZeroLine,
@@ -557,6 +557,19 @@ pub enum HostProvenanceError {
     EmptyDisplayFile,
     /// A local absolute path was presented as a display filename.
     AbsoluteDisplayFile(String),
+    /// A display filename could not be validated relative to its Cargo package.
+    SourceOutsidePackage {
+        /// Display filename of the containing macro invocation.
+        invocation_file: String,
+        /// One-based start position of the containing macro invocation.
+        invocation_start: HostSourcePosition,
+        /// Display filename that could not be resolved within the package.
+        display_file: String,
+        /// Cargo manifest directory captured by the generated factory.
+        manifest_dir: String,
+        /// Validation failure after resolving the package-relative spelling.
+        path_error: Option<Box<DisplayPathError>>,
+    },
     /// Start and end referred to the same position.
     EmptyEndpointRange,
     /// The endpoint preceded the start point.
@@ -583,6 +596,27 @@ impl fmt::Display for HostProvenanceError {
                     formatter,
                     "display filename `{file}` must not be an absolute path"
                 )
+            }
+            Self::SourceOutsidePackage {
+                invocation_file,
+                invocation_start,
+                display_file,
+                manifest_dir,
+                path_error,
+            } => {
+                let location = if path_error.is_some() {
+                    "not a normalized path inside"
+                } else {
+                    "outside"
+                };
+                write!(
+                    formatter,
+                    "display file `{display_file}` is {location} Cargo package `{manifest_dir}` (invocation at {invocation_file}:{invocation_start})"
+                )?;
+                if let Some(error) = path_error {
+                    write!(formatter, ": {error}")?;
+                }
+                Ok(())
             }
             Self::EmptyEndpointRange => formatter.write_str("host source anchor must not be empty"),
             Self::ReversedEndpoints { start, end } => {

@@ -270,6 +270,83 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     );
 }
 
+#[test]
+fn generated_source_outside_package_reports_collection_failure_and_removes_scratch_files() {
+    let temporary = temp_dir();
+    let source = format!("{FOO_BAR}\ninclude!(concat!(env!(\"OUT_DIR\"), \"/generated.rs\"));\n");
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let package = manifest.parent().unwrap();
+    let generated_source = "#[krs::constructor(sort = Obj, syntax = \"baz\")] pub struct Baz;\n";
+    fs::write(
+        package.join("build.rs"),
+        format!(
+            "fn main() {{\n    let output = std::path::PathBuf::from(std::env::var_os(\"OUT_DIR\").unwrap());\n    std::fs::write(output.join(\"generated.rs\"), {generated_source:?}).unwrap();\n}}\n"
+        ),
+    )
+    .unwrap();
+    let target = fixture_target(&manifest, Some(temporary.path()));
+    let scratch = temporary.path().join("scratch");
+    fs::create_dir(&scratch).unwrap();
+    let timings_path = temporary.path().join("timings.json");
+    let mut process = krs_command!();
+    let output = process
+        .args(["check", "--message-format=json", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+            "--timings",
+        ])
+        .arg(&timings_path)
+        .env("CARGO_TARGET_DIR", &target)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("RUSTUP_TOOLCHAIN", "stable")
+        .env("TMPDIR", &scratch)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert!(output.stdout.is_empty());
+    let prefix =
+        "krs: collector execution failed with status 1: KRS collector failed: display file `";
+    let generated_file = stderr
+        .strip_prefix(prefix)
+        .and_then(|detail| detail.split('`').next())
+        .unwrap_or_else(|| panic!("unexpected collector failure: {stderr}"));
+    let generated_path = Path::new(generated_file);
+    assert!(generated_path.starts_with(&target), "{stderr}");
+    assert!(generated_path.ends_with("out/generated.rs"), "{stderr}");
+    assert!(!generated_path.starts_with(package), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(generated_path).unwrap(),
+        generated_source
+    );
+    assert_eq!(
+        stderr,
+        format!(
+            "{prefix}{generated_file}` is outside Cargo package `{}` (invocation at {generated_file}:1:1)\n",
+            package.display()
+        )
+    );
+    assert_eq!(read_json(&timings_path)["failed_span"], "collector.run");
+    let leftovers = fs::read_dir(&scratch)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            name.starts_with("krs-collector-read-set-")
+                || name.starts_with("krs-collector-measure-")
+                || name.starts_with("krs-collector-diagnostics-")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "collector scratch files remain: {leftovers:?}"
+    );
+}
+
 /// `check --timings --counters` reports the whole pipeline and stable counters.
 fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, stdout: &[u8]) {
     let timings_path = temporary.join("check-timings.json");

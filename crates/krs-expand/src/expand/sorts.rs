@@ -297,7 +297,7 @@ pub(crate) fn framework_sorts(
         #expansion
 
         #[doc(hidden)]
-        pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> #facade::HostDescriptor] =
+        pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> ::core::result::Result<#facade::HostDescriptor, #facade::HostProvenanceError>] =
             &[#(#factories),*];
     })
 }

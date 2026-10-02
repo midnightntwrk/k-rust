@@ -16,8 +16,11 @@ fn __krs_rule_application_ce6c51ec778beca5_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<PriorityChoice>()
 }
 #[doc(hidden)]
-fn __krs_rule_descriptor_ce6c51ec778beca5() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_rule_descriptor_ce6c51ec778beca5() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -175,7 +178,7 @@ fn __krs_rule_descriptor_ce6c51ec778beca5() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_rule_descriptor_ce6c51ec778beca5);

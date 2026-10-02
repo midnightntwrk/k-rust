@@ -39,9 +39,9 @@ impl DescriptorFactory<'_> {
         quote! {
             #attributes
             #[doc(hidden)]
-            fn #factory() -> #facade::HostDescriptor {
+            fn #factory() -> ::core::result::Result<#facade::HostDescriptor, #facade::HostProvenanceError> {
                 #prelude
-                #facade::HostDescriptor {
+                ::core::result::Result::Ok(#facade::HostDescriptor {
                     protocol_version: #facade::SchemaVersion::CURRENT,
                     id: #facade::HostItemId::from_macro_context(
                         env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
@@ -52,7 +52,7 @@ impl DescriptorFactory<'_> {
                     payload: #payload,
                     cfg: #cfg,
                     provenance: #provenance,
-                }
+                })
             }
 
             #attributes

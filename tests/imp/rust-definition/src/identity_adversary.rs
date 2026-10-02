@@ -246,6 +246,7 @@ fn identities(module: &str) -> Vec<Identity> {
     // `(kind, item_name, disambiguator)` identity. The existing stable-name
     // move fixtures separately freeze module-path sensitivity and pinning.
     let mut identities = k::host_descriptors()
+        .map(Result::unwrap)
         .filter(|descriptor| {
             descriptor
                 .id
@@ -269,6 +270,7 @@ fn identities(module: &str) -> Vec<Identity> {
 
 fn baseline_descriptor(name: &str) -> k::HostDescriptor {
     k::host_descriptors()
+        .map(Result::unwrap)
         .find(|descriptor| {
             descriptor
                 .id

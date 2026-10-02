@@ -1,9 +1,10 @@
 //! Decodes literal source coordinates emitted by KRS macros.
 
 use crate::{
-    AnchorPrecision, HostAuthoredAnchor, HostProvenance, HostSourceAnchor, HostSourcePosition,
-    ProvenanceKey, ProvenanceRole,
+    AnchorPrecision, HostAuthoredAnchor, HostProvenance, HostProvenanceError, HostSourceAnchor,
+    HostSourcePosition, ProvenanceKey, ProvenanceRole,
 };
+use krs_ir::DisplayPath;
 
 /// Literal source coordinates emitted by KRS macros.
 #[doc(hidden)]
@@ -17,31 +18,47 @@ pub struct __KrsRawAnchor {
 }
 
 /// Builds the validated provenance for one generated descriptor factory.
+///
+/// # Errors
+///
+/// Returns [`HostProvenanceError::SourceOutsidePackage`] when a display filename cannot be validated relative to the Cargo manifest directory.
 #[doc(hidden)]
 #[inline(never)]
 #[track_caller]
-#[must_use]
 pub fn __krs_host_provenance(
     manifest_dir: &str,
     files: &[&str],
     invocation: __KrsRawAnchor,
     authored: &[(ProvenanceRole, u32, __KrsRawAnchor)],
-) -> HostProvenance {
+) -> Result<HostProvenance, HostProvenanceError> {
+    let invocation_file = files[invocation.file];
+    let invocation_start = HostSourcePosition::new(invocation.start.0, invocation.start.1)
+        .expect("stable proc-macro positions are one-based");
     let mut resolved: Vec<Option<String>> = vec![None; files.len()];
     macro_rules! source_anchor {
         ($raw:expr) => {{
             let raw: __KrsRawAnchor = $raw;
+            let outside_package = |path_error| HostProvenanceError::SourceOutsidePackage {
+                invocation_file: invocation_file.to_owned(),
+                invocation_start,
+                display_file: files[raw.file].to_owned(),
+                manifest_dir: manifest_dir.to_owned(),
+                path_error,
+            };
             let file = if raw.absolute {
                 match &resolved[raw.file] {
                     Some(file) => file.clone(),
                     None => {
                         let source = std::path::Path::new(files[raw.file]);
                         let manifest = std::path::Path::new(manifest_dir);
-                        let file = source
+                        let relative = source
                             .strip_prefix(manifest)
-                            .expect("rustc's absolute display path must remain inside the Cargo package")
-                            .to_string_lossy()
-                            .replace('\\', "/");
+                            .map_err(|_| outside_package(None))?
+                            .to_string_lossy();
+                        let file = DisplayPath::new(relative.as_ref())
+                            .map_err(|error| outside_package(Some(Box::new(error))))?
+                            .as_str()
+                            .to_owned();
                         resolved[raw.file] = Some(file.clone());
                         file
                     }
@@ -72,6 +89,6 @@ pub fn __krs_host_provenance(
             source_anchor!(raw),
         ));
     }
-    HostProvenance::new(invocation, decoded_authored)
-        .expect("KRS shared parsers emit nonempty, uniquely keyed provenance")
+    Ok(HostProvenance::new(invocation, decoded_authored)
+        .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"))
 }

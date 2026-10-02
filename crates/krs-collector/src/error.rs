@@ -44,7 +44,7 @@ pub enum CollectionErrorKind {
     InvalidConfiguration,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,
-    /// A resolved source escaped its canonical package directory.
+    /// A display or resolved source file escaped its Cargo package directory.
     SourceOutsidePackage,
     /// A display hint resolved to multiple distinct files in the package.
     AmbiguousSourcePath,

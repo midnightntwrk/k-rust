@@ -8,8 +8,11 @@ fn __krs_sort_type_565187d54f4138cb() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<ReadableExpr>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_565187d54f4138cb() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_565187d54f4138cb() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -58,13 +61,16 @@ fn __krs_sort_descriptor_565187d54f4138cb() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_565187d54f4138cb);
 #[doc(hidden)]
-fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -164,8 +170,8 @@ fn __krs_bracket_descriptor_565187d54f4138cb_0() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_bracket_descriptor_565187d54f4138cb_0);
 #[doc(hidden)]
@@ -177,8 +183,11 @@ fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d7
     ::core::any::TypeId::of::<Id>()
 }
 #[doc(hidden)]
-fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -252,8 +261,8 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a49643b7375706572736f72743d72656c61746976653a5265616461626c654578707229
@@ -275,8 +284,11 @@ fn __krs_sort_parent_055e4df68589a682_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<k::KResult>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_055e4df68589a682() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -350,8 +362,8 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_055e4df68589a682);
 #[doc(hidden)]
@@ -363,8 +375,11 @@ fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d7
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -438,8 +453,8 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529
@@ -453,8 +468,11 @@ fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d7
     ::core::any::TypeId::of::<Bool>()
 }
 #[doc(hidden)]
-fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -528,8 +546,8 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a426f6f6c3b7375706572736f72743d72656c61746976653a5265616461626c6556616c756529
@@ -543,8 +561,11 @@ fn __krs_sort_type_a39f6dc1d44893ad() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<DiamondTop>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -593,8 +614,8 @@ fn __krs_sort_descriptor_a39f6dc1d44893ad() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_a39f6dc1d44893ad);
 #[doc = concat!("Membership marker generated for the `", "DiamondLeft", "` K sort.")]
@@ -610,8 +631,11 @@ fn __krs_sort_parent_3d2b6e3da09d4920_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<DiamondTop>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -671,8 +695,8 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_3d2b6e3da09d4920);
 #[doc = concat!("Membership marker generated for the `", "DiamondRight", "` K sort.")]
@@ -688,8 +712,11 @@ fn __krs_sort_parent_6a7ca0e7c3857a9a_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<DiamondTop>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -749,8 +776,8 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_6a7ca0e7c3857a9a);
 #[doc = concat!("Membership marker generated for the `", "Diamond", "` K sort.")]
@@ -770,8 +797,11 @@ fn __krs_sort_parent_736b00612848daf9_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<DiamondRight>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_736b00612848daf9() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -845,8 +875,8 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_736b00612848daf9);
 #[doc(hidden)]
@@ -858,8 +888,11 @@ fn __krs_subsort_sub_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d7
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -933,8 +966,8 @@ fn __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d62
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(
     __krs_subsort_descriptor_5f5f6b72735f6772616d6d61725f737562736f7274286d656d6265723d72656c61746976653a496e743b7375706572736f72743d72656c61746976653a4469616d6f6e6429

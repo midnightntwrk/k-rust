@@ -17,8 +17,11 @@ fn __krs_rule_application_e51d7eb561f143b4_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::sub>()
 }
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_e51d7eb561f143b4() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_e51d7eb561f143b4() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -247,8 +250,8 @@ fn __krs_head_rule_descriptor_e51d7eb561f143b4() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_e51d7eb561f143b4);
 pub fn eval_not(__krs_symbolic_subject: Expr) -> Expr {
@@ -269,8 +272,11 @@ fn __krs_rule_application_c84c8a448ba7aa30_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<bool::not>()
 }
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_c84c8a448ba7aa30() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_c84c8a448ba7aa30() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -499,8 +505,8 @@ fn __krs_head_rule_descriptor_c84c8a448ba7aa30() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_c84c8a448ba7aa30);
 pub fn eval_bool_eq(__krs_symbolic_subject: Expr) -> Expr {
@@ -534,8 +540,11 @@ fn __krs_rule_application_6a376551c93fda1a_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<bool::eq>()
 }
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_6a376551c93fda1a() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_6a376551c93fda1a() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -834,8 +843,8 @@ fn __krs_head_rule_descriptor_6a376551c93fda1a() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_6a376551c93fda1a);
 pub fn and_false(__krs_symbolic_subject: Expr) -> Expr {
@@ -848,8 +857,11 @@ fn __krs_head_rule_sort_2883af4a4b250df7() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Expr>()
 }
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_2883af4a4b250df7() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_2883af4a4b250df7() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -1020,7 +1032,7 @@ fn __krs_head_rule_descriptor_2883af4a4b250df7() -> ::k::HostDescriptor {
                 ];
                 __KRS_AUTHORED
             },
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_head_rule_descriptor_2883af4a4b250df7);

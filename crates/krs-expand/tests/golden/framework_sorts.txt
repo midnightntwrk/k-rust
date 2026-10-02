@@ -8,8 +8,11 @@ fn __krs_sort_type_01e0b0fa3b2b0c81() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<KItem>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -58,8 +61,8 @@ fn __krs_sort_descriptor_01e0b0fa3b2b0c81() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_01e0b0fa3b2b0c81);
 #[doc = concat!("Membership marker generated for the `", "KResult", "` K sort.")]
@@ -75,8 +78,11 @@ fn __krs_sort_parent_0e2453058f695f49_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<KItem>()
 }
 #[doc(hidden)]
-fn __krs_sort_descriptor_0e2453058f695f49() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_sort_descriptor_0e2453058f695f49() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -136,12 +142,12 @@ fn __krs_sort_descriptor_0e2453058f695f49() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_sort_descriptor_0e2453058f695f49);
 #[doc(hidden)]
-pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> ::k::HostDescriptor] = &[
-    __krs_sort_descriptor_01e0b0fa3b2b0c81,
-    __krs_sort_descriptor_0e2453058f695f49,
-];
+pub(crate) const FRAMEWORK_FACTORIES: &[fn() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+>] = &[__krs_sort_descriptor_01e0b0fa3b2b0c81, __krs_sort_descriptor_0e2453058f695f49];

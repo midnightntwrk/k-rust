@@ -944,44 +944,44 @@ pub struct Term<S: ?Sized> {
     marker: PhantomData<fn(&S)>,
 }
 
-/// Returns all host descriptors linked into this collector process.
+/// Returns all host descriptor factory results linked into this collector process.
 ///
-/// Each yielded value is freshly constructed by a registered function, so
-/// owned strings and vectors are legal descriptor data. The iterator follows
-/// the registration mechanism's unspecified enumeration order. Collectors
-/// must resolve and deterministically order descriptors by stable identity
-/// before producing compiler input.
+/// Each registered function constructs a fresh descriptor or returns a provenance error.
+/// Owned strings and vectors are legal descriptor data.
+/// The iterator follows the registration mechanism's unspecified enumeration order.
+/// Collectors must deterministically select factory errors and order descriptors by stable identity before producing compiler input.
 ///
-/// This entry point requires the default `inventory` feature. Collectors
-/// built without it enumerate generated tables through
-/// [`host_descriptors_from`].
+/// This entry point requires the default `inventory` feature.
+/// Collectors built without it enumerate generated tables through [`host_descriptors_from`].
 #[cfg(feature = "inventory")]
-pub fn host_descriptors() -> impl Iterator<Item = HostDescriptor> {
+pub fn host_descriptors() -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
     let framework_requested = inventory::iter::<__private::FrameworkSortRequest>
         .into_iter()
         .any(|request| request.manifest_dir() != env!("CARGO_MANIFEST_DIR"));
     inventory::iter::<__private::HostRegistration>
         .into_iter()
         .map(__private::HostRegistration::make)
-        .filter(|descriptor| framework_requested || !is_framework_sort_descriptor(descriptor))
+        .filter(|descriptor| {
+            framework_requested
+                || match descriptor {
+                    Ok(descriptor) => !is_framework_sort_descriptor(descriptor),
+                    Err(_) => true,
+                }
+        })
         .collect::<Vec<_>>()
         .into_iter()
 }
 
-/// Returns the host descriptors listed by explicit registration tables.
+/// Returns the host descriptor factory results listed by explicit registration tables.
 ///
-/// Each table belongs to one semantics crate and is written by a whole-crate
-/// step, because a procedural macro invocation cannot enumerate its sibling
-/// invocations. The framework `KItem`/`KResult` descriptors are included when
-/// some table from a crate other than `krs` requests them, matching
-/// [`host_descriptors`]. As with that entry point, the enumeration order has
-/// no semantic meaning; collectors order descriptors by stable identity.
+/// Each table belongs to one semantics crate and is written by a whole-crate step, because a procedural macro invocation cannot enumerate its sibling invocations.
+/// The framework `KItem`/`KResult` descriptor results are included when some table from a crate other than `krs` requests them, matching [`host_descriptors`].
+/// Collectors must deterministically select factory errors and order descriptors by stable identity.
 ///
-/// This entry point needs no linker-section support and is available whether
-/// or not the `inventory` feature is enabled.
+/// This entry point needs no linker-section support and is available whether or not the `inventory` feature is enabled.
 pub fn host_descriptors_from(
     tables: &[&__private::RegistrationTable],
-) -> impl Iterator<Item = HostDescriptor> {
+) -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
     let framework_requested = tables
         .iter()
         .any(|table| table.requests_framework && table.manifest_dir != env!("CARGO_MANIFEST_DIR"));
@@ -1047,7 +1047,9 @@ macro_rules! __register_host_descriptor {
 #[macro_export]
 macro_rules! __register_host_descriptor {
     ($factory:path $(,)?) => {
-        const _: fn() -> $crate::HostDescriptor = $factory;
+        const _: fn()
+            -> ::core::result::Result<$crate::HostDescriptor, $crate::HostProvenanceError> =
+            $factory;
     };
 }
 
@@ -1085,7 +1087,7 @@ macro_rules! __request_framework_sorts {
 /// because a macro expanded in a downstream crate must be able to name it.
 #[doc(hidden)]
 pub mod __private {
-    use super::HostDescriptor;
+    use super::{HostDescriptor, HostProvenanceError};
 
     #[cfg(feature = "inventory")]
     #[doc(hidden)]
@@ -1110,17 +1112,19 @@ pub mod __private {
     #[doc(hidden)]
     #[derive(Default)]
     pub struct Registrar {
-        factories: Vec<fn() -> HostDescriptor>,
+        factories: Vec<fn() -> Result<HostDescriptor, HostProvenanceError>>,
     }
 
     impl Registrar {
         /// Records one descriptor factory.
         #[doc(hidden)]
-        pub fn factory(&mut self, factory: fn() -> HostDescriptor) {
+        pub fn factory(&mut self, factory: fn() -> Result<HostDescriptor, HostProvenanceError>) {
             self.factories.push(factory);
         }
 
-        pub(crate) fn into_factories(self) -> Vec<fn() -> HostDescriptor> {
+        pub(crate) fn into_factories(
+            self,
+        ) -> Vec<fn() -> Result<HostDescriptor, HostProvenanceError>> {
             self.factories
         }
     }
@@ -1129,7 +1133,7 @@ pub mod __private {
     #[cfg(feature = "inventory")]
     #[doc(hidden)]
     pub struct HostRegistration {
-        factory: fn() -> HostDescriptor,
+        factory: fn() -> Result<HostDescriptor, HostProvenanceError>,
         path: &'static str,
         manifest_dir: &'static str,
     }
@@ -1142,7 +1146,7 @@ pub mod __private {
         #[doc(hidden)]
         #[must_use]
         pub const fn new(
-            factory: fn() -> HostDescriptor,
+            factory: fn() -> Result<HostDescriptor, HostProvenanceError>,
             path: &'static str,
             manifest_dir: &'static str,
         ) -> Self {
@@ -1153,7 +1157,7 @@ pub mod __private {
             }
         }
 
-        pub(crate) fn make(&self) -> HostDescriptor {
+        pub(crate) fn make(&self) -> Result<HostDescriptor, HostProvenanceError> {
             (self.factory)()
         }
     }
@@ -1247,7 +1251,7 @@ mod tests {
     mod nested {
         use super::*;
 
-        pub(super) fn descriptor() -> HostDescriptor {
+        pub(super) fn descriptor() -> Result<HostDescriptor, HostProvenanceError> {
             test_descriptor(module_path!(), "NestedSort")
         }
 
@@ -1260,7 +1264,10 @@ mod tests {
         TypeId::of::<dyn ParentSort>()
     }
 
-    fn test_descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
+    fn test_descriptor(
+        rust_module_path: &str,
+        item: &str,
+    ) -> Result<HostDescriptor, HostProvenanceError> {
         let position = |column| HostSourcePosition::new(1, column).expect("valid position");
         let anchor = HostSourceAnchor::new(
             "src/lib.rs",
@@ -1275,10 +1282,9 @@ mod tests {
                 ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0),
                 anchor,
             )],
-        )
-        .expect("valid provenance");
+        )?;
 
-        HostDescriptor {
+        Ok(HostDescriptor {
             protocol_version: SchemaVersion::CURRENT,
             id: HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -1299,7 +1305,7 @@ mod tests {
             }),
             cfg: BTreeMap::new(),
             provenance,
-        }
+        })
     }
 
     #[test]
@@ -1644,17 +1650,21 @@ mod tests {
     }
 
     #[cfg(feature = "inventory")]
-    fn item_ids(descriptors: impl Iterator<Item = HostDescriptor>) -> Vec<HostItemId> {
+    fn item_ids(
+        descriptors: impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>>,
+    ) -> Vec<HostItemId> {
         let mut ids = descriptors
-            .map(|descriptor| descriptor.id)
+            .map(|descriptor| descriptor.unwrap().id)
             .collect::<Vec<_>>();
         ids.sort();
         ids
     }
 
-    fn item_names(descriptors: impl Iterator<Item = HostDescriptor>) -> Vec<String> {
+    fn item_names(
+        descriptors: impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>>,
+    ) -> Vec<String> {
         let mut names = descriptors
-            .map(|descriptor| descriptor.id.item_name().to_owned())
+            .map(|descriptor| descriptor.unwrap().id.item_name().to_owned())
             .collect::<Vec<_>>();
         names.sort();
         names
@@ -1679,6 +1689,7 @@ mod tests {
             ["KItem", "KResult", "NestedSort", "NestedSort"]
         );
         let framework = host_descriptors_from(&[&downstream])
+            .map(Result::unwrap)
             .filter(|descriptor| descriptor.id.item_name() != "NestedSort")
             .collect::<Vec<_>>();
         assert_eq!(framework.len(), FRAMEWORK_FACTORIES.len());
@@ -1708,7 +1719,7 @@ mod tests {
             inventory::iter::<__private::HostRegistration>
                 .into_iter()
                 .map(__private::HostRegistration::make)
-                .filter(is_framework_sort_descriptor),
+                .filter(|descriptor| is_framework_sort_descriptor(descriptor.as_ref().unwrap())),
         );
         let from_table = item_ids(FRAMEWORK_FACTORIES.iter().map(|factory| factory()));
         assert_eq!(from_inventory.len(), 2);
@@ -1743,6 +1754,7 @@ mod tests {
     #[test]
     fn enumeration_invokes_factories_for_fresh_owned_values() {
         let mut first = host_descriptors()
+            .map(Result::unwrap)
             .find(|descriptor| descriptor.id.item_name() == "NestedSort")
             .expect("nested registration is linked");
         first
@@ -1754,6 +1766,7 @@ mod tests {
         sort.parents.clear();
 
         let second = host_descriptors()
+            .map(Result::unwrap)
             .find(|descriptor| descriptor.id.item_name() == "NestedSort")
             .expect("nested registration remains linked");
         assert!(!second.cfg.contains_key("mutated"));

@@ -1,6 +1,9 @@
 #[doc(hidden)]
-fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::core::result::Result<
+    ::k::HostDescriptor,
+    ::k::HostProvenanceError,
+> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
@@ -74,7 +77,7 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
                     },
                 ),
             ],
-        ),
-    }
+        )?,
+    })
 }
 ::k::__register_host_descriptor!(__krs_precedence_descriptor_e2bc532c95be9144);

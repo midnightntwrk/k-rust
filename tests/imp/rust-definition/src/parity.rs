@@ -451,6 +451,7 @@ fn context() -> PackageContext {
 
 fn collect_route(explicit: bool) -> krs_ir::DescriptorBundle {
     let descriptors = k::host_descriptors()
+        .map(Result::unwrap)
         .filter(|descriptor| {
             if explicit {
                 !is_readable_imp_rule(descriptor)
@@ -459,8 +460,12 @@ fn collect_route(explicit: bool) -> krs_ir::DescriptorBundle {
             }
         })
         .collect::<Vec<_>>();
-    collect_host_descriptors_with_builtins([context()], descriptors, &k::builtin_registry())
-        .unwrap()
+    collect_host_descriptors_with_builtins(
+        [context()],
+        descriptors.into_iter().map(Ok),
+        &k::builtin_registry(),
+    )
+    .unwrap()
 }
 
 fn readable_structured_route(object: &serde_json::Map<String, Json>) -> Option<MigratedRuleRoute> {

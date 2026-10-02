@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use krs_ir::measure::Timings;
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
-    HostDescriptorPayload, HostItemId, ItemKind, PackageId, SchemaVersion, StableItemId,
+    HostDescriptorPayload, HostItemId, HostProvenanceError, ItemKind, PackageId, SchemaVersion,
+    StableItemId,
 };
 
 use crate::facade::FacadeAliases;
@@ -123,29 +124,25 @@ struct PendingDescriptor {
     context_index: usize,
 }
 
-/// Resolves unordered current-protocol host descriptors into one stable bundle.
+/// Resolves unordered current-protocol host descriptor factory results into one stable bundle.
 ///
-/// This is the only API which accepts build-local `TypeId` producers or host
-/// paths. It validates all inputs, reparses authored nodes with `krs-syntax`,
-/// resolves references, and returns deterministically ordered, path-free data.
+/// Collection validates build-local `TypeId` producers and host paths, reparses authored nodes with `krs-syntax`, resolves references, and returns deterministically ordered, path-free data.
 ///
 /// # Errors
 ///
-/// Returns a typed error for invalid package selection, protocol/identity
-/// disagreement, unresolved or wrongly-kinded Rust references, or source
-/// provenance that cannot be reproduced exactly.
+/// Returns a typed error for invalid package selection, protocol/identity disagreement, unresolved or wrongly-kinded Rust references, or source provenance that cannot be reproduced exactly.
+/// Factory failures must be reported in their total error order, independently of registration order.
 pub fn collect_host_descriptors(
     contexts: impl IntoIterator<Item = PackageContext>,
-    descriptors: impl IntoIterator<Item = HostDescriptor>,
+    descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
 ) -> Result<DescriptorBundle, CollectionError> {
     collect_host_descriptors_impl(contexts, descriptors, None, &mut Timings::disabled())
 }
 
-/// Resolves host descriptors with the complete compiler-provided builtin catalog.
+/// Resolves host descriptor factory results with the complete compiler-provided builtin catalog.
 ///
-/// Unlike [`collect_host_descriptors`], this entry point admits typed-grammar
-/// references to builtin sort and operation marker types. The registry is
-/// validated for exact completeness before any descriptor is inspected.
+/// Unlike [`collect_host_descriptors`], this entry point admits typed-grammar references to builtin sort and operation marker types.
+/// The registry must be validated for exact completeness before any descriptor is inspected.
 ///
 /// # Errors
 ///
@@ -154,7 +151,7 @@ pub fn collect_host_descriptors(
 /// documented by [`collect_host_descriptors`].
 pub fn collect_host_descriptors_with_builtins(
     contexts: impl IntoIterator<Item = PackageContext>,
-    descriptors: impl IntoIterator<Item = HostDescriptor>,
+    descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
     builtins: &HostBuiltinRegistry,
 ) -> Result<DescriptorBundle, CollectionError> {
     collect_host_descriptors_with_builtins_timed(
@@ -173,7 +170,7 @@ pub fn collect_host_descriptors_with_builtins(
 /// Fails exactly when [`collect_host_descriptors_with_builtins`] fails.
 pub fn collect_host_descriptors_with_builtins_timed(
     contexts: impl IntoIterator<Item = PackageContext>,
-    descriptors: impl IntoIterator<Item = HostDescriptor>,
+    descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
     builtins: &HostBuiltinRegistry,
     timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
@@ -190,12 +187,23 @@ pub fn collect_host_descriptors_with_builtins_timed(
 
 fn collect_host_descriptors_impl(
     contexts: impl IntoIterator<Item = PackageContext>,
-    descriptors: impl IntoIterator<Item = HostDescriptor>,
+    descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
     builtins: Option<&HostBuiltinRegistry>,
     timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
     let (contexts, pending) = timings.try_span("collector.resolve.intake", |_| {
-        let mut descriptors = descriptors.into_iter().collect::<Vec<_>>();
+        let results = descriptors.into_iter().collect::<Vec<_>>();
+        if let Some(error) = results
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .min()
+        {
+            return Err(CollectionError::new(
+                CollectionErrorKind::SourceOutsidePackage,
+                error.to_string(),
+            ));
+        }
+        let mut descriptors = results.into_iter().flatten().collect::<Vec<_>>();
         descriptors.sort_by(|left, right| left.id.cmp(&right.id));
         let mut contexts = contexts.into_iter().collect::<Vec<_>>();
         select_framework_context(&mut contexts, &descriptors)?;

@@ -173,8 +173,9 @@ class AttributionTests(unittest.TestCase):
     def test_expanded_constructs_with_compact_anchors(self):
         compact = '''\
 #[doc(hidden)]
-fn __krs_head_rule_descriptor_0123456789abcdef() -> ::k::HostDescriptor {
-    ::k::HostDescriptor {
+fn __krs_head_rule_descriptor_0123456789abcdef()
+    -> ::core::result::Result<::k::HostDescriptor, ::k::HostProvenanceError> {
+    ::core::result::Result::Ok(::k::HostDescriptor {
         id: ::k::HostItemId::from_macro_context("krs-x", "0.1.0",
                 "/scratch/x", "krs_x", "lookup", ::k::ItemKind::Rule,
                 "").expect("valid"),
@@ -182,8 +183,8 @@ fn __krs_head_rule_descriptor_0123456789abcdef() -> ::k::HostDescriptor {
             &["src/lib.rs"], ::k::__KrsRawAnchor {
                 file: 0usize, absolute: false, start: (12u32, 1u32),
                 end: (14u32, 2u32), exact: true
-            }, &[]),
-    }
+            }, &[])?,
+    })
 }
 '''
         expanded = attribution.expanded_constructs(compact, "krs_x")
