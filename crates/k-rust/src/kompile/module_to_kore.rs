@@ -1370,7 +1370,7 @@ fn sort_declarations(
             collection_attribute_overrides(head, productions, &mut overrides)?;
         }
         declarations.push(KoreSentence::SortDeclaration {
-            hooked: source_attributes.has(AttributeKey::Hook),
+            hooked: sorts.declares_hooked_sort(head),
             name,
             parameters: (0..head.parameters())
                 .map(|parameter| format!("SortS{parameter}"))

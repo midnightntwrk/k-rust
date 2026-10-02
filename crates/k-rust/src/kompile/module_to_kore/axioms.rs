@@ -17,7 +17,7 @@
 use super::equations::substitute_equation_sort;
 use super::*;
 use crate::definition::production_kind::{
-    ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, mentions_parameter,
+    ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, ResultSorts, mentions_parameter,
 };
 use crate::kompile::passes::{Injectable, has_subsort_axiom};
 
@@ -118,6 +118,11 @@ pub(super) fn generated_axioms(
 
 /// The injectivity axiom of the no-confusion symbol `id` and its disjointness from every other
 /// no-confusion symbol of its sort ([`SymbolClaims::no_confusion`]).
+///
+/// A schema's disjointness from each instance sort's constructors is its `constructor`
+/// attribute's claim. No sort-generic disjointness axiom is emitted: pairing by a parameter's
+/// spelling binds nothing.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn no_confusion_axioms(
     id: ProductionId,
     productions: &ProductionCatalog<'_>,
@@ -161,20 +166,7 @@ fn no_confusion_axioms(
         });
     }
 
-    let result_head = match production {
-        Sentence::Production { sort, .. } => SortHead::from(sort),
-        Sentence::SyntaxSort { .. }
-        | Sentence::SortSynonym { .. }
-        | Sentence::SyntaxLexical { .. }
-        | Sentence::SyntaxAssociativity { .. }
-        | Sentence::SyntaxPriority { .. }
-        | Sentence::ContextAlias { .. }
-        | Sentence::Context { .. }
-        | Sentence::Rule { .. }
-        | Sentence::Claim { .. }
-        | Sentence::Configuration { .. }
-        | Sentence::Bubble { .. } => unreachable!("production catalogs contain productions"),
-    };
+    let result_sorts = ResultSorts::of(production);
     // Invariant: `emitted_pairs` holds both orderings of every no-confusion pair that already has a
     // disjointness axiom, so each unordered pair is emitted once; this scan of
     // `productions.productions()` runs once per no-confusion `id`, O(n^2) in the catalog size.
@@ -185,14 +177,12 @@ fn no_confusion_axioms(
         {
             continue;
         }
-        let Sentence::Production {
-            sort: other_sort, ..
-        } = other_production
-        else {
-            unreachable!("production catalogs contain productions")
-        };
-        if SortHead::from(other_sort) != result_head {
-            continue;
+        match (&result_sorts, ResultSorts::of(other_production)) {
+            (ResultSorts::Head(a), ResultSorts::Head(b)) if *a == b => {}
+            (ResultSorts::Head(_), ResultSorts::Head(_))
+            | (ResultSorts::Head(_), ResultSorts::Every)
+            | (ResultSorts::Every, ResultSorts::Head(_))
+            | (ResultSorts::Every, ResultSorts::Every) => continue,
         }
         let Some(other) = generated_production(other_production) else {
             continue;

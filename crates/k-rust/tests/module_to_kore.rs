@@ -1189,6 +1189,63 @@ fn no_junk_axioms_of(source: &str, sort: &str) -> Vec<String> {
 }
 
 #[test]
+fn a_sort_polymorphic_generator_is_listed_after_the_sorts_own_generators() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "g" [symbol(g)]
+          syntax {S} S ::= wrap(S) [symbol(wrap)]
+        endmodule
+    "#};
+    let axioms = no_junk_axioms_of(source, "SortFoo{}")
+        .into_iter()
+        .map(|axiom| axiom.split_whitespace().collect::<String>())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        axioms,
+        vec![concat!(
+            r"axiom{}\or{SortFoo{}}(Lblg{}(),",
+            r"\exists{SortFoo{}}(X0:SortFoo{},Lblwrap{SortFoo{}}(X0:SortFoo{})),",
+            r"\bottom{SortFoo{}}())[constructor{}()]",
+        )]
+    );
+}
+
+#[test]
+fn a_polymorphic_result_parameter_named_like_a_sort_has_no_disjointness_pairing() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Foo ::= "g" [symbol(g)]
+          syntax {Foo} Foo ::= w(Foo) [symbol(w)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let printer = Printer::compact();
+    let disjoint_pairs = modules
+        .semantics
+        .sentences
+        .iter()
+        .filter(|sentence| matches!(sentence, Sentence::Axiom { .. }))
+        .map(|sentence| printer.print_sentence(sentence))
+        .filter(|axiom| {
+            axiom.contains(r"\not") && axiom.contains("Lblg{") && axiom.contains("Lblw{")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(disjoint_pairs, Vec::<String>::new());
+    let axioms = no_junk_axioms_of(source, "SortFoo{}")
+        .into_iter()
+        .map(|axiom| axiom.split_whitespace().collect::<String>())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        axioms,
+        vec![concat!(
+            r"axiom{}\or{SortFoo{}}(Lblg{}(),",
+            r"\exists{SortFoo{}}(X0:SortFoo{},Lblw{SortFoo{}}(X0:SortFoo{})),",
+            r"\bottom{SortFoo{}}())[constructor{}()]",
+        )]
+    );
+}
+
+#[test]
 fn token_productions_contribute_only_top_to_no_junk_in_any_order() {
     // Property: a token production parses to domain values, which no symbol generates, so no
     // no-junk axiom lists a token production's symbol, and the axiom of a sort does not depend

@@ -3757,6 +3757,40 @@ fn generates_generic_and_named_field_projections() {
 }
 
 #[test]
+fn a_named_field_projection_is_not_total_with_a_sort_polymorphic_generator() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bar ::= mk(x: Int) [symbol(mk)]
+          syntax {S} S ::= wrap(S) [symbol(wrap)]
+        endmodule
+    "#};
+    let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let transformed = generate_sort_projections(&definition).unwrap();
+    let projections = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name == "project:mk:x" => Some((
+                label.name.as_str(),
+                attributes.get("function").is_some(),
+                attributes.get("total").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // `wrap{Bar}(mk(1))` is also a value of Bar, and the field rule only projects from `mk`.
+    assert_eq!(projections, vec![("project:mk:x", true, false)]);
+    assert_has_generated_by(&transformed, GeneratingPass::GenerateSortProjections);
+}
+
+#[test]
 fn generated_sort_projections_are_idempotent() {
     let definition = Definition {
         main_module: "MAIN".into(),

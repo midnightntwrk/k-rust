@@ -318,6 +318,16 @@ impl<'a> SortCatalog<'a> {
                 .any(|(declared, formals)| formals.contains(declared))
     }
 
+    /// Whether `sort_declarations` emits `hooked-sort` for this head: it carries `hook` and is
+    /// neither `K` nor `KItem`, which the KORE prelude declares as ordinary sorts.
+    pub(crate) fn declares_hooked_sort(&self, head: &SortHead) -> bool {
+        head.as_str() != BuiltinSort::K.k_name()
+            && head.as_str() != BuiltinSort::KItem.k_name()
+            && self
+                .attributes_for(head)
+                .is_some_and(|attributes| attributes.has(AttributeKey::Hook))
+    }
+
     pub fn list_sorts(&self) -> &BTreeSet<Sort> {
         &self.list_sorts
     }

@@ -10,9 +10,11 @@
 //! emitted theory from whether a production is a subsort, a matching-logic builtin, a bracket, a
 //! function, a macro production or a token reads that decision from the kind, so no two claims
 //! about one production can rest on two different readings of its attributes.
-//! [`NoJunkAxiom`] derives what a sort's no-junk axiom can state from the kinds of its
-//! productions: the alternatives ([`SortGenerators`]), or nothing when a generator's sort
-//! parameters are not all bound at the sort.
+//! [`ResultSorts`] reads the result sort under the production's own binder, so a result that
+//! is a formal parameter contributes at every sort, rather than a head with that spelling.
+//! [`NoJunkAxiom`] derives a sort's alternatives ([`SortGenerators`]) from those classifications:
+//! schemas extend existing axioms at free sorts, and a generator with unbound parameters makes
+//! an existing axiom unstatable.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -24,6 +26,35 @@ use super::{
 };
 use crate::kast::{InternalLabel, Label, Sort};
 use crate::kompile::Injectable;
+
+/// The concrete sorts whose values a production's applications are, read from its result sort
+/// and its own binder.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ResultSorts {
+    /// The sorts with this head: the result is closed (`Foo`) or applies a head to arguments
+    /// that may mention parameters (`Box{W}`, `MInt{W}`), so every instance keeps the head.
+    Head(SortHead),
+    /// Every sort: the result is one of the production's own parameters
+    /// (`syntax {S} S ::= wrap(S)`, `amb`, `#location`), so instantiating it at σ gives a
+    /// production of σ.
+    Every,
+}
+
+impl ResultSorts {
+    pub(crate) fn of(production: &Sentence) -> Self {
+        let Sentence::Production {
+            parameters, sort, ..
+        } = production
+        else {
+            unreachable!("result sorts classify productions")
+        };
+        if parameters.contains(sort) {
+            Self::Every
+        } else {
+            Self::Head(SortHead::from(sort))
+        }
+    }
+}
 
 /// Whether each application of a function production denotes exactly one value, as its
 /// declaration states.
@@ -467,6 +498,10 @@ enum Alternative {
 
 /// What the no-junk axiom of one concrete sort can state.
 ///
+/// A schema whose result is its own parameter contributes at every free sort that already has
+/// an own alternative, injection or token-sort `\top`; it never creates an axiom on its own.
+/// Hooked and domain-value sorts have fixed values, so no schema generator is listed there.
+///
 /// A no-junk axiom is one sentence `axiom{} \or{S}(..)` with no sort parameters, so each
 /// alternative must be a pattern over closed sorts. A generator whose result sort, matched against
 /// the sort, binds every one of its sort parameters contributes one such pattern. A generator with
@@ -493,7 +528,8 @@ impl NoJunkAxiom {
     ///
     /// A parametric production generates `sort` when its result sort matches `sort` by
     /// instantiating its sort parameters ([`match_sort_parameters`]); when that match leaves an
-    /// element of its `parameters` unbound, the axiom is [`NoJunkAxiom::Unstatable`].
+    /// element of its `parameters` unbound, an existing axiom is [`NoJunkAxiom::Unstatable`].
+    /// A sort-polymorphic generator contributes only at free sorts with an existing axiom.
     pub(crate) fn of(
         productions: &ProductionCatalog<'_>,
         sorts: &SortCatalog<'_>,
@@ -513,6 +549,8 @@ impl NoJunkAxiom {
 /// The productions of the sort contribute their [`ProductionKind::no_junk`] alternatives in
 /// catalog order, with a single `\top` at the position of the first token production however many
 /// token productions the sort has, since each of them contributes the same alternative. The
+/// closed schema instances follow in catalog order at free sorts, with a schema `\top` only
+/// when the sort has none of its own. Schemas never create an axiom. The
 /// injections of the strict subsorts along subsort axioms follow ([`injected_subsorts`]), and a
 /// sort whose own declaration carries `token` but
 /// that has no token production ends with `\top`. Only [`NoJunkAxiom::of`] builds one, so a sort
@@ -525,8 +563,8 @@ pub(crate) struct SortGenerators {
 }
 
 impl SortGenerators {
-    /// The no-junk alternatives of the concrete sort `sort`, or `Err` with the first generator in
-    /// catalog order whose sort parameters matching its result sort against `sort` leaves unbound.
+    /// The no-junk alternatives of the concrete sort `sort`, or `Err` with a generator whose
+    /// sort parameters matching its result sort against `sort` leaves unbound.
     fn of(
         productions: &ProductionCatalog<'_>,
         sorts: &SortCatalog<'_>,
@@ -534,12 +572,14 @@ impl SortGenerators {
         sort: &Sort,
     ) -> Result<Self, ProductionId> {
         let head = SortHead::from(sort);
+        let closed = sorts.declares_hooked_sort(&head) || sorts.head_admits_domain_values(&head);
         let mut alternatives = Vec::new();
-        // Invariant: `alternatives` holds, in catalog order, a closed instance of every production
-        // of `head` before this one whose kind is a generator and whose result sort instantiates
-        // to `sort`, each binding every sort parameter of its production, plus one domain-values
-        // alternative at the position of the first earlier production whose kind contributes
-        // domain values; this scan runs once per sort, O(|productions|).
+        let mut schemas = Vec::new();
+        let mut schema_unstatable = None;
+        // Invariant: the own and schema lists each keep catalog order and only closed instances,
+        // with at most one domain-values alternative each. `schema_unstatable` records the first
+        // schema with an unbound parameter; it matters only if an own alternative, injection or
+        // token-sort top states an axiom. This scan runs once per sort, O(|productions|).
         for (id, production) in productions.productions() {
             let Sentence::Production {
                 parameters,
@@ -549,16 +589,26 @@ impl SortGenerators {
             else {
                 unreachable!("production catalogs contain productions")
             };
-            if SortHead::from(production_sort) != head {
-                continue;
-            }
+            let schema = match ResultSorts::of(production) {
+                ResultSorts::Head(h) if h != head => continue,
+                ResultSorts::Head(_) => false,
+                ResultSorts::Every => true,
+            };
+            let destination = if schema {
+                &mut schemas
+            } else {
+                &mut alternatives
+            };
             match ProductionKind::of(production).no_junk() {
                 NoJunk::DomainValues => {
-                    if !alternatives.contains(&Alternative::DomainValues) {
-                        alternatives.push(Alternative::DomainValues);
+                    if !destination.contains(&Alternative::DomainValues) {
+                        destination.push(Alternative::DomainValues);
                     }
                 }
                 NoJunk::Generator => {
+                    if schema && closed {
+                        continue;
+                    }
                     let mut substitution = BTreeMap::new();
                     if match_sort_parameters(production_sort, sort, parameters, &mut substitution)
                         .is_none()
@@ -571,9 +621,13 @@ impl SortGenerators {
                         .iter()
                         .all(|parameter| substitution.contains_key(parameter))
                     {
+                        if schema {
+                            schema_unstatable.get_or_insert(id);
+                            continue;
+                        }
                         return Err(id);
                     }
-                    alternatives.push(Alternative::Generator(ClosedInstance {
+                    destination.push(Alternative::Generator(ClosedInstance {
                         production: id,
                         substitution,
                     }));
@@ -585,9 +639,26 @@ impl SortGenerators {
             && sorts
                 .attributes_for(&head)
                 .is_some_and(|attributes| attributes.has(AttributeKey::Token));
+        let injections = injected_subsorts(sorts, subsorts, sort);
+        if alternatives.is_empty() && injections.is_empty() && !token_sort {
+            return Ok(Self {
+                alternatives,
+                injections,
+                token_sort,
+            });
+        }
+        if let Some(generator) = schema_unstatable {
+            return Err(generator);
+        }
+        let own_domain_values = token_sort || alternatives.contains(&Alternative::DomainValues);
+        alternatives.extend(
+            schemas.into_iter().filter(|alternative| {
+                !own_domain_values || *alternative != Alternative::DomainValues
+            }),
+        );
         Ok(Self {
             alternatives,
-            injections: injected_subsorts(sorts, subsorts, sort),
+            injections,
             token_sort,
         })
     }
@@ -747,6 +818,246 @@ mod tests {
                 .map(|sort| ProductionItem::NonTerminal { sort, name: None })
                 .collect(),
             attributes: Attributes::default(),
+        }
+    }
+
+    fn schema_token(label: &str, regex: &str) -> Sentence {
+        let mut schema = token(label, regex);
+        let Sentence::Production {
+            parameters, sort, ..
+        } = &mut schema
+        else {
+            unreachable!()
+        };
+        *parameters = vec![Sort::new("S")];
+        *sort = Sort::new("S");
+        schema
+    }
+
+    #[test]
+    fn result_sorts_are_classified_under_the_productions_own_binder() {
+        let formal = Sort::new("S");
+        let wrap = parametric_production("wrap", &["S"], formal.clone(), vec![formal]);
+        assert_eq!(ResultSorts::of(&wrap), ResultSorts::Every);
+        let boxed = Sort::with_parameters("Box", vec![Sort::new("W")]);
+        let r#box = parametric_production("box", &["W"], boxed.clone(), vec![Sort::new("W")]);
+        assert_eq!(
+            ResultSorts::of(&r#box),
+            ResultSorts::Head(SortHead::from(&boxed))
+        );
+
+        let foo = Sort::new("Foo");
+        let declared = declaration(&[], foo.clone());
+        let sorts = SortCatalog::from_visible([&declared]);
+        assert!(sorts.attributes_for(&SortHead::from(&foo)).is_some());
+        let w = parametric_production("w", &["Foo"], foo.clone(), vec![foo.clone()]);
+        assert_eq!(ResultSorts::of(&w), ResultSorts::Every);
+        let g = parametric_production("g", &[], foo.clone(), Vec::new());
+        assert_eq!(ResultSorts::of(&g), ResultSorts::Head(SortHead::from(&foo)));
+    }
+
+    #[test]
+    fn polymorphic_generators_extend_free_sorts_with_closed_instances() {
+        let foo = Sort::new("Foo");
+        let declared = declaration(&[], foo.clone());
+        let sorts = SortCatalog::from_visible([&declared]);
+        let g = parametric_production("g", &[], foo.clone(), Vec::new());
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        for (order, own_id, schema_id) in [([&g, &wrap], 0, 1), ([&wrap, &g], 1, 0)] {
+            let generated = generators(&order, &sorts, &foo);
+            assert_eq!(
+                named(&generated),
+                [
+                    Named::Generator(ProductionId(own_id)),
+                    Named::Generator(ProductionId(schema_id))
+                ]
+            );
+            let instances = generated
+                .alternatives()
+                .map(|alternative| match alternative {
+                    NoJunkAlternative::Generator(instance) => instance.substitution().clone(),
+                    NoJunkAlternative::DomainValues | NoJunkAlternative::Injection(_) => {
+                        panic!("expected a generator")
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                instances,
+                [
+                    BTreeMap::new(),
+                    BTreeMap::from([(Sort::new("S"), foo.clone())])
+                ]
+            );
+            assert_eq!(generated.sole_generator(), None);
+        }
+    }
+
+    #[test]
+    fn schemas_do_not_create_an_axiom_for_a_sort_without_own_alternatives() {
+        let foo = Sort::new("Foo");
+        let baz = Sort::new("Baz");
+        let declarations = [declaration(&[], foo.clone()), declaration(&[], baz.clone())];
+        let sorts = SortCatalog::from_visible(declarations.iter());
+        let g = parametric_production("g", &[], foo, Vec::new());
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        let generated = generators(&[&g, &wrap], &sorts, &baz);
+        assert!(generated.is_empty());
+        assert_eq!(named(&generated), []);
+    }
+
+    #[test]
+    fn schema_generators_are_absent_at_sorts_with_fixed_values() {
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        for keys in [
+            vec![AttributeKey::Hook],
+            vec![AttributeKey::Hook, AttributeKey::Token],
+            vec![AttributeKey::Token],
+        ] {
+            let id = Sort::new("Id");
+            let mut declared = declaration(&[], id.clone());
+            let Sentence::SyntaxSort { attributes, .. } = &mut declared else {
+                unreachable!()
+            };
+            for key in keys {
+                attributes.mark(key);
+            }
+            let lexed = token("idLit", "[a-z]+");
+            let sorts = SortCatalog::from_visible([&declared, &lexed, &wrap]);
+            assert_eq!(
+                named(&generators(&[&lexed, &wrap], &sorts, &id)),
+                [Named::DomainValues]
+            );
+        }
+        // A hook can fix values without defining a literal domain.
+        let mut declared = declaration(&[], Sort::new("Map"));
+        let Sentence::SyntaxSort { attributes, .. } = &mut declared else {
+            unreachable!()
+        };
+        attributes.mark(AttributeKey::Hook);
+        let g = parametric_production("g", &[], Sort::new("Map"), Vec::new());
+        let sorts = SortCatalog::from_visible([&declared, &g, &wrap]);
+        assert!(sorts.declares_hooked_sort(&SortHead::from(&Sort::new("Map"))));
+        assert_eq!(
+            named(&generators(&[&g, &wrap], &sorts, &Sort::new("Map"))),
+            [Named::Generator(ProductionId(0))]
+        );
+    }
+
+    #[test]
+    fn an_open_schema_makes_only_an_existing_free_sort_axiom_unstatable() {
+        let foo = Sort::new("Foo");
+        let baz = Sort::new("Baz");
+        let declarations = [declaration(&[], foo.clone()), declaration(&[], baz.clone())];
+        let sorts = SortCatalog::from_visible(declarations.iter());
+        let g = parametric_production("g", &[], foo.clone(), Vec::new());
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        let conv = parametric_production("conv", &["S", "T"], Sort::new("S"), vec![Sort::new("T")]);
+        for (order, position) in [([&g, &wrap, &conv], 2), ([&conv, &wrap, &g], 0)] {
+            let NoJunkAxiom::Unstatable { generator } = no_junk_axiom(&order, &sorts, &foo) else {
+                panic!("conv leaves T free at Foo")
+            };
+            assert_eq!(generator, ProductionId(position));
+            assert!(generators(&order, &sorts, &baz).is_empty());
+        }
+    }
+
+    #[test]
+    fn schema_tokens_keep_the_own_token_productions_position() {
+        let id = Sort::new("Id");
+        let declared = declaration(&[], id.clone());
+        let first = production(Some("first"), "Id", Vec::new(), &[]);
+        let own_token = token("own", "[a-z]+");
+        let last = production(Some("last"), "Id", Vec::new(), &[]);
+        let schema = schema_token("all", "[A-Z]+");
+        let sorts = SortCatalog::from_visible([&declared, &first, &own_token, &last, &schema]);
+        assert_eq!(
+            named(&generators(
+                &[&schema, &first, &own_token, &last],
+                &sorts,
+                &id
+            )),
+            [
+                Named::Generator(ProductionId(1)),
+                Named::DomainValues,
+                Named::Generator(ProductionId(3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn schema_tokens_keep_the_declarations_domain_values_last() {
+        let id = Sort::new("Id");
+        let mut declared = declaration(&[], id.clone());
+        declared.attributes_mut().mark(AttributeKey::Token);
+        let g = production(Some("g"), "Id", Vec::new(), &[]);
+        let schema = schema_token("all", "[a-z]+");
+        let sorts = SortCatalog::from_visible([&declared, &g, &schema]);
+        assert_eq!(
+            named(&generators(&[&schema, &g], &sorts, &id)),
+            [Named::Generator(ProductionId(1)), Named::DomainValues]
+        );
+    }
+
+    #[test]
+    fn schema_tokens_follow_own_generators_with_one_domain_values_alternative() {
+        let id = Sort::new("Id");
+        let declared = declaration(&[], id.clone());
+        let first = production(Some("first"), "Id", Vec::new(), &[]);
+        let last = production(Some("last"), "Id", Vec::new(), &[]);
+        let lower = schema_token("allLower", "[a-z]+");
+        let upper = schema_token("allUpper", "[A-Z]+");
+        let sorts = SortCatalog::from_visible([&declared, &first, &last, &lower, &upper]);
+        assert_eq!(
+            named(&generators(&[&lower, &first, &upper, &last], &sorts, &id)),
+            [
+                Named::Generator(ProductionId(1)),
+                Named::Generator(ProductionId(3)),
+                Named::DomainValues,
+            ]
+        );
+    }
+
+    #[test]
+    fn schemas_extend_an_injection_only_axiom_before_its_injections() {
+        let foo = Sort::new("Foo");
+        let bar = Sort::new("Bar");
+        let declarations = [declaration(&[], foo.clone()), declaration(&[], bar.clone())];
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        let sorts = SortCatalog::from_visible(declarations.iter().chain([&wrap]));
+        let subsorts = PartialOrder::new([(bar, foo.clone())]).expect("one strict subsort");
+        for (productions, expected) in [
+            (Vec::new(), vec![Named::Injection]),
+            (
+                vec![&wrap],
+                vec![Named::Generator(ProductionId(0)), Named::Injection],
+            ),
+        ] {
+            let catalog = ProductionCatalog::from_visible(productions);
+            let NoJunkAxiom::Stated(generated) = NoJunkAxiom::of(&catalog, &sorts, &subsorts, &foo)
+            else {
+                panic!("wrap binds S at Foo")
+            };
+            assert_eq!(named(&generated), expected);
+        }
+    }
+
+    #[test]
+    fn hooked_k_and_kitem_declarations_still_admit_schema_generators() {
+        let wrap = parametric_production("wrap", &["S"], Sort::new("S"), vec![Sort::new("S")]);
+        for name in ["K", "KItem"] {
+            let sort = Sort::new(name);
+            let mut declared = declaration(&[], sort.clone());
+            declared.attributes_mut().mark(AttributeKey::Hook);
+            let g = production(Some("g"), name, Vec::new(), &[]);
+            let sorts = SortCatalog::from_visible([&declared, &g, &wrap]);
+            assert!(!sorts.declares_hooked_sort(&SortHead::from(&sort)));
+            assert_eq!(
+                named(&generators(&[&g, &wrap], &sorts, &sort)),
+                [
+                    Named::Generator(ProductionId(0)),
+                    Named::Generator(ProductionId(1))
+                ]
+            );
         }
     }
 
