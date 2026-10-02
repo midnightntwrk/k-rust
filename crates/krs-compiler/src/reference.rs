@@ -9,6 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use krs_collector::{CollectionError, FacadeAliases};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
     DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument, ListOperation,
@@ -22,8 +23,6 @@ use quote::{ToTokens, format_ident, quote};
 use sha2::{Digest, Sha256};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
-
-use krs_collector::{CollectionError, FacadeAliases};
 
 /// Expands the one authored Rust module that defines a package's
 /// descriptors.
