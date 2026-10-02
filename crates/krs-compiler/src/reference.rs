@@ -1402,37 +1402,9 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
 }
 
 fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
-    let (module, name) = match operation {
-        BuiltinOperation::IntAdd => (format_ident!("int"), format_ident!("add")),
-        BuiltinOperation::IntSub => (format_ident!("int"), format_ident!("sub")),
-        BuiltinOperation::IntMul => (format_ident!("int"), format_ident!("mul")),
-        BuiltinOperation::IntTDiv => (format_ident!("int"), format_ident!("div")),
-        BuiltinOperation::IntMod => (format_ident!("int"), format_ident!("modulo")),
-        BuiltinOperation::IntPowMod => (format_ident!("int"), format_ident!("pow_mod")),
-        BuiltinOperation::IntLog2 => (format_ident!("int"), format_ident!("log2")),
-        BuiltinOperation::IntShiftRight => (format_ident!("int"), format_ident!("shift_right")),
-        BuiltinOperation::IntShiftLeft => (format_ident!("int"), format_ident!("shift_left")),
-        BuiltinOperation::IntBitAnd => (format_ident!("int"), format_ident!("bit_and")),
-        BuiltinOperation::IntBitXor => (format_ident!("int"), format_ident!("bit_xor")),
-        BuiltinOperation::IntBitOr => (format_ident!("int"), format_ident!("bit_or")),
-        BuiltinOperation::IntGreaterEqual => (format_ident!("int"), format_ident!("ge")),
-        BuiltinOperation::IntGreater => (format_ident!("int"), format_ident!("gt")),
-        BuiltinOperation::IntLessEqual => (format_ident!("int"), format_ident!("le")),
-        BuiltinOperation::IntLess => (format_ident!("int"), format_ident!("lt")),
-        BuiltinOperation::IntEqual => (format_ident!("int"), format_ident!("eq")),
-        BuiltinOperation::IntNotEqual => (format_ident!("int"), format_ident!("ne")),
-        BuiltinOperation::BoolNot => (format_ident!("bool"), format_ident!("not")),
-        BuiltinOperation::BoolEqual => (format_ident!("bool"), format_ident!("eq")),
-        BuiltinOperation::BoolNotEqual => (format_ident!("bool"), format_ident!("ne")),
-        BuiltinOperation::BoolAnd => (format_ident!("bool"), format_ident!("and")),
-        BuiltinOperation::BoolOr => (format_ident!("bool"), format_ident!("or")),
-        BuiltinOperation::BytesLength => (format_ident!("bytes"), format_ident!("length")),
-        BuiltinOperation::BytesGet => (format_ident!("bytes"), format_ident!("get")),
-        BuiltinOperation::BytesEmpty => (format_ident!("bytes"), format_ident!("empty")),
-        BuiltinOperation::BytesUpdate => (format_ident!("bytes"), format_ident!("update")),
-        BuiltinOperation::BytesPadRight => (format_ident!("bytes"), format_ident!("pad_right")),
-        BuiltinOperation::BytesSubstring => (format_ident!("bytes"), format_ident!("substr")),
-    };
+    let spec = operation.spec();
+    let module = format_ident!("{}", spec.rust_module);
+    let name = format_ident!("{}", spec.rust_name);
     quote!(k::builtin::#module::#name)
 }
 

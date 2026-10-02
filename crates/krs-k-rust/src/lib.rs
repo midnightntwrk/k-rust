@@ -2971,37 +2971,7 @@ fn anonymous_name(variable: &SemanticId) -> Option<&str> {
 }
 
 const fn builtin_label(operation: BuiltinOperation) -> &'static str {
-    match operation {
-        BuiltinOperation::IntAdd => "_+Int_",
-        BuiltinOperation::IntSub => "_-Int_",
-        BuiltinOperation::IntMul => "_*Int_",
-        BuiltinOperation::IntTDiv => "_/Int_",
-        BuiltinOperation::IntMod => "_modInt_",
-        BuiltinOperation::IntPowMod => "_^%Int__",
-        BuiltinOperation::IntLog2 => "log2Int(_)_INT-COMMON_Int_Int",
-        BuiltinOperation::IntShiftRight => "_>>Int_",
-        BuiltinOperation::IntShiftLeft => "_<<Int_",
-        BuiltinOperation::IntBitAnd => "_&Int_",
-        BuiltinOperation::IntBitXor => "_xorInt_",
-        BuiltinOperation::IntBitOr => "_|Int_",
-        BuiltinOperation::IntGreaterEqual => "_>=Int_",
-        BuiltinOperation::IntGreater => "_>Int_",
-        BuiltinOperation::IntLessEqual => "_<=Int_",
-        BuiltinOperation::IntLess => "_<Int_",
-        BuiltinOperation::IntEqual => "_==Int_",
-        BuiltinOperation::IntNotEqual => "_=/=Int_",
-        BuiltinOperation::BoolNot => "notBool_",
-        BuiltinOperation::BoolEqual => "_==Bool_",
-        BuiltinOperation::BoolNotEqual => "_=/=Bool_",
-        BuiltinOperation::BoolAnd => "_andBool_",
-        BuiltinOperation::BoolOr => "_orBool_",
-        BuiltinOperation::BytesLength => "lengthBytes(_)_BYTES-HOOKED_Int_Bytes",
-        BuiltinOperation::BytesGet => "_[_]_BYTES-HOOKED_Int_Bytes_Int",
-        BuiltinOperation::BytesEmpty => ".Bytes_BYTES-HOOKED_Bytes",
-        BuiltinOperation::BytesUpdate => "_[_<-_]_BYTES-HOOKED_Bytes_Bytes_Int_Int",
-        BuiltinOperation::BytesPadRight => "padRightBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
-        BuiltinOperation::BytesSubstring => "substrBytes(_,_,_)_BYTES-HOOKED_Bytes_Bytes_Int_Int",
-    }
+    operation.spec().k_label
 }
 
 fn native_rule_label(module: &str, emitted_name: &str) -> String {

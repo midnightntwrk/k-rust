@@ -347,15 +347,6 @@ pub struct HostBuiltinSortRegistration {
     pub target: HostTypeKey,
 }
 
-/// One builtin operation marker registered by the author-facing facade.
-#[derive(Clone, Copy, Debug)]
-pub struct HostBuiltinOperationRegistration {
-    /// Target-neutral builtin identity.
-    pub operation: BuiltinOperation,
-    /// Function producing the marker type's build-local identity.
-    pub target: HostTypeKey,
-}
-
 /// One ordinary Map operation marker registered by the author-facing facade.
 #[derive(Clone, Copy, Debug)]
 pub struct HostMapOperationRegistration {
@@ -391,8 +382,8 @@ pub struct HostSetOperationRegistration {
 pub struct HostBuiltinRegistry {
     /// Registered sort markers.
     pub sorts: Vec<HostBuiltinSortRegistration>,
-    /// Registered operation markers.
-    pub operations: Vec<HostBuiltinOperationRegistration>,
+    /// Registered operation markers in [`BuiltinOperation::ALL`] order.
+    pub operations: [HostTypeKey; BuiltinOperation::ALL.len()],
     /// Registered ordinary Map operation markers.
     pub map_operations: Vec<HostMapOperationRegistration>,
     /// Registered ordinary List operation markers.
@@ -402,16 +393,14 @@ pub struct HostBuiltinRegistry {
 }
 
 impl HostBuiltinRegistry {
-    /// Validates completeness, uniqueness, and separation of the two catalogs.
+    /// Validates completeness of dynamic catalogs and uniqueness of Rust marker types.
     ///
     /// # Errors
     ///
-    /// Returns an error for a missing/duplicate identity or any reused Rust
-    /// marker `TypeId`. Alias paths remain valid because aliases preserve the
-    /// same `TypeId`; no authored spelling participates in this check.
+    /// Returns an error for a missing or duplicate dynamic catalog identity or any reused Rust marker `TypeId`.
+    /// Alias paths remain valid because aliases preserve the same `TypeId`; no authored spelling participates in this check.
     pub fn validate(&self) -> Result<(), HostBuiltinRegistryError> {
         let mut sort_ids = BTreeSet::new();
-        let mut operation_ids = BTreeSet::new();
         let mut map_operation_ids = BTreeSet::new();
         let mut list_operation_ids = BTreeSet::new();
         let mut set_operation_ids = BTreeSet::new();
@@ -424,13 +413,8 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
-        for registration in &self.operations {
-            if !operation_ids.insert(registration.operation) {
-                return Err(HostBuiltinRegistryError::DuplicateOperation(
-                    registration.operation,
-                ));
-            }
-            if !rust_ids.insert(registration.target.resolve()) {
+        for target in &self.operations {
+            if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
@@ -484,11 +468,6 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::MissingSort(sort));
             }
         }
-        for operation in BuiltinOperation::ALL {
-            if !operation_ids.contains(&operation) {
-                return Err(HostBuiltinRegistryError::MissingOperation(operation));
-            }
-        }
         for operation in MapOperation::TERM_APPLICATIONS {
             if !map_operation_ids.contains(&operation) {
                 return Err(HostBuiltinRegistryError::MissingMapOperation(operation));
@@ -519,10 +498,11 @@ impl HostBuiltinRegistry {
     /// Resolves one build-local type as a builtin operation.
     #[must_use]
     pub fn resolve_operation(&self, target: TypeId) -> Option<BuiltinOperation> {
-        self.operations
-            .iter()
-            .find(|registration| registration.target.resolve() == target)
-            .map(|registration| registration.operation)
+        BuiltinOperation::ALL
+            .into_iter()
+            .zip(&self.operations)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operation, _)| operation)
     }
 
     /// Resolves one build-local type as an ordinary Map operation.
@@ -558,12 +538,8 @@ impl HostBuiltinRegistry {
 pub enum HostBuiltinRegistryError {
     /// A builtin sort identity occurred more than once.
     DuplicateSort(BuiltinSort),
-    /// A builtin operation identity occurred more than once.
-    DuplicateOperation(BuiltinOperation),
     /// A required builtin sort was absent.
     MissingSort(BuiltinSort),
-    /// A required builtin operation was absent.
-    MissingOperation(BuiltinOperation),
     /// A Map operation identity occurred more than once.
     DuplicateMapOperation(MapOperation),
     /// A required ordinary Map operation was absent.
@@ -590,13 +566,7 @@ impl fmt::Display for HostBuiltinRegistryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateSort(sort) => write!(formatter, "duplicate builtin sort {sort}"),
-            Self::DuplicateOperation(operation) => {
-                write!(formatter, "duplicate builtin operation {operation}")
-            }
             Self::MissingSort(sort) => write!(formatter, "missing builtin sort {sort}"),
-            Self::MissingOperation(operation) => {
-                write!(formatter, "missing builtin operation {operation}")
-            }
             Self::DuplicateMapOperation(operation) => {
                 write!(formatter, "duplicate {operation}")
             }

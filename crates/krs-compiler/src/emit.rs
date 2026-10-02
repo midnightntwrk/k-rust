@@ -4,15 +4,15 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, ByteRange, CellAttribute, CellContentFrame,
-    CellPost, ClaimModality, ConfigurationRoot, ContextAliasSentence, DefinitionClaimBinder,
-    DefinitionIr, DefinitionModule, DefinitionRuleBody, DefinitionSentence, DefinitionSortRef,
-    DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent, FixedCellPattern,
-    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
-    FormatFragment, GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ListOperation,
-    MapOperation, ProductionAttribute, ProductionGroupId, ProductionSentence, RuleSentence,
-    SemanticId, SentenceKind, SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId,
-    SymbolIdentity,
+    ApplicationRef, BuiltinOperation, BuiltinOperationNotation, BuiltinSort, ByteRange,
+    CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
+    ContextAliasSentence, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
+    DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
+    GroupAssociativity, LabelIdentity, ListOperation, MapOperation, ProductionAttribute,
+    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation,
+    SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -1790,7 +1790,6 @@ fn production_group(production: &ProductionSentence) -> Option<&ProductionGroupI
         })
 }
 
-#[allow(clippy::too_many_lines)] // Exhaustively renders the closed builtin-operation catalog.
 fn render_builtin_application(
     operation: BuiltinOperation,
     arguments: &[DefinitionTerm],
@@ -1798,227 +1797,37 @@ fn render_builtin_application(
     existentials: &[DefinitionClaimBinder],
     output: &mut Rendered,
 ) -> Result<(), EmitError> {
-    if operation == BuiltinOperation::BytesEmpty {
-        if !arguments.is_empty() {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.push(".Bytes");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::BytesLength {
-        if arguments.len() != 1 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.push("lengthBytes(");
-        output.append(render_term_with_binders(
-            &arguments[0],
-            context,
-            false,
-            existentials,
-        )?);
-        output.push(")");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::BytesGet {
-        if arguments.len() != 2 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.append(render_builtin_argument(
-            &arguments[0],
-            context,
-            existentials,
-        )?);
-        output.push(" [ ");
-        output.append(render_builtin_argument(
-            &arguments[1],
-            context,
-            existentials,
-        )?);
-        output.push(" ]");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::BytesUpdate {
-        if arguments.len() != 3 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.append(render_builtin_argument(
-            &arguments[0],
-            context,
-            existentials,
-        )?);
-        output.push(" [ ");
-        output.append(render_builtin_argument(
-            &arguments[1],
-            context,
-            existentials,
-        )?);
-        output.push(" <- ");
-        output.append(render_builtin_argument(
-            &arguments[2],
-            context,
-            existentials,
-        )?);
-        output.push(" ]");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::BytesPadRight {
-        if arguments.len() != 3 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.push("padRightBytes(");
-        for (index, argument) in arguments.iter().enumerate() {
-            if index > 0 {
-                output.push(", ");
-            }
-            output.append(render_term_with_binders(
-                argument,
-                context,
-                false,
-                existentials,
-            )?);
-        }
-        output.push(")");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::BytesSubstring {
-        if arguments.len() != 3 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.push("substrBytes(");
-        for (index, argument) in arguments.iter().enumerate() {
-            if index > 0 {
-                output.push(", ");
-            }
-            output.append(render_term_with_binders(
-                argument,
-                context,
-                false,
-                existentials,
-            )?);
-        }
-        output.push(")");
-        return Ok(());
-    }
-    if operation == BuiltinOperation::IntPowMod {
-        if arguments.len() != 3 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.append(render_builtin_argument(
-            &arguments[0],
-            context,
-            existentials,
-        )?);
-        output.push(" ^%Int ");
-        output.append(render_builtin_argument(
-            &arguments[1],
-            context,
-            existentials,
-        )?);
-        output.push(" ");
-        output.append(render_builtin_argument(
-            &arguments[2],
-            context,
-            existentials,
-        )?);
-        return Ok(());
-    }
-    if operation == BuiltinOperation::IntLog2 {
-        if arguments.len() != 1 {
-            return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation} has invalid arity {}",
-                arguments.len()
-            )));
-        }
-        output.push("log2Int(");
-        output.append(render_term_with_binders(
-            &arguments[0],
-            context,
-            false,
-            existentials,
-        )?);
-        output.push(")");
-        return Ok(());
-    }
-    let (prefix, infix, expected) = match operation {
-        BuiltinOperation::IntAdd => (None, Some("+Int"), 2),
-        BuiltinOperation::IntSub => (None, Some("-Int"), 2),
-        BuiltinOperation::IntMul => (None, Some("*Int"), 2),
-        BuiltinOperation::IntTDiv => (None, Some("/Int"), 2),
-        BuiltinOperation::IntMod => (None, Some("modInt"), 2),
-        BuiltinOperation::IntPowMod => unreachable!("modular power is rendered above"),
-        BuiltinOperation::IntLog2 => unreachable!("integer logarithm is rendered above"),
-        BuiltinOperation::IntShiftRight => (None, Some(">>Int"), 2),
-        BuiltinOperation::IntShiftLeft => (None, Some("<<Int"), 2),
-        BuiltinOperation::IntBitAnd => (None, Some("&Int"), 2),
-        BuiltinOperation::IntBitXor => (None, Some("xorInt"), 2),
-        BuiltinOperation::IntBitOr => (None, Some("|Int"), 2),
-        BuiltinOperation::IntGreaterEqual => (None, Some(">=Int"), 2),
-        BuiltinOperation::IntGreater => (None, Some(">Int"), 2),
-        BuiltinOperation::IntLessEqual => (None, Some("<=Int"), 2),
-        BuiltinOperation::IntLess => (None, Some("<Int"), 2),
-        BuiltinOperation::IntEqual => (None, Some("==Int"), 2),
-        BuiltinOperation::IntNotEqual => (None, Some("=/=Int"), 2),
-        BuiltinOperation::BoolNot => (Some("notBool"), None, 1),
-        BuiltinOperation::BoolEqual => (None, Some("==Bool"), 2),
-        BuiltinOperation::BoolNotEqual => (None, Some("=/=Bool"), 2),
-        BuiltinOperation::BoolAnd => (None, Some("andBool"), 2),
-        BuiltinOperation::BoolOr => (None, Some("orBool"), 2),
-        BuiltinOperation::BytesLength => unreachable!("Bytes length is rendered above"),
-        BuiltinOperation::BytesGet => unreachable!("byte lookup is rendered above"),
-        BuiltinOperation::BytesEmpty => unreachable!("empty Bytes is rendered above"),
-        BuiltinOperation::BytesUpdate => unreachable!("byte update is rendered above"),
-        BuiltinOperation::BytesPadRight => unreachable!("Bytes padding is rendered above"),
-        BuiltinOperation::BytesSubstring => unreachable!("Bytes substring is rendered above"),
-    };
-    if arguments.len() != expected {
+    let spec = operation.spec();
+    if arguments.len() != spec.argument_sorts.len() {
         return Err(EmitError::InvalidReference(format!(
             "builtin operation {operation} has invalid arity {}",
             arguments.len()
         )));
     }
-    if let Some(prefix) = prefix {
-        output.push(prefix);
-        output.push(" ");
-        output.append(render_builtin_argument(
-            &arguments[0],
-            context,
-            existentials,
-        )?);
-    } else if let Some(infix) = infix {
-        output.append(render_builtin_argument(
-            &arguments[0],
-            context,
-            existentials,
-        )?);
-        output.push(" ");
-        output.push(infix);
-        output.push(" ");
-        output.append(render_builtin_argument(
-            &arguments[1],
-            context,
-            existentials,
-        )?);
+    match spec.k_notation {
+        BuiltinOperationNotation::Mixfix { pieces } => {
+            output.push(pieces[0]);
+            for (argument, piece) in arguments.iter().zip(&pieces[1..]) {
+                output.append(render_builtin_argument(argument, context, existentials)?);
+                output.push(piece);
+            }
+        }
+        BuiltinOperationNotation::Call { name } => {
+            output.push(name);
+            output.push("(");
+            for (index, argument) in arguments.iter().enumerate() {
+                if index > 0 {
+                    output.push(", ");
+                }
+                output.append(render_term_with_binders(
+                    argument,
+                    context,
+                    false,
+                    existentials,
+                )?);
+            }
+            output.push(")");
+        }
     }
     Ok(())
 }

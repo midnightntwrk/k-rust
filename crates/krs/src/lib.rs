@@ -35,9 +35,9 @@ pub use provenance::{__KrsRawAnchor, __krs_host_provenance};
 
 pub use krs_ir::{
     AnchorPrecision, BuiltinOperation, BuiltinSort, HookOperation, HostAuthoredAnchor,
-    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostConstructorDescriptor, HostConstructorFieldDescriptor,
-    HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId,
+    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
+    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostDeclarationIdentity,
+    HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId,
     HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
     HostProvenanceError, HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor,
     HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation,
@@ -626,47 +626,22 @@ fn set_builtin_key() -> TypeId {
     TypeId::of::<builtin::Set>()
 }
 
-macro_rules! builtin_operation_keys {
-    ($(($function:ident, $marker:path)),+ $(,)?) => {
-        $(
-            fn $function() -> TypeId {
-                TypeId::of::<$marker>()
-            }
-        )+
+macro_rules! builtin_operation_registry {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident {
+            rust_module: $module:ident,
+            rust_name: $name:ident,
+            $($fact:tt)*
+        }
+    )*) => {
+        fn builtin_operation_registry() -> [HostTypeKey; BuiltinOperation::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
+        }
     };
 }
 
-builtin_operation_keys! {
-    (int_add_builtin_key, builtin::int::add),
-    (int_sub_builtin_key, builtin::int::sub),
-    (int_mul_builtin_key, builtin::int::mul),
-    (int_tdiv_builtin_key, builtin::int::div),
-    (int_mod_builtin_key, builtin::int::modulo),
-    (int_pow_mod_builtin_key, builtin::int::pow_mod),
-    (int_log2_builtin_key, builtin::int::log2),
-    (int_shift_right_builtin_key, builtin::int::shift_right),
-    (int_shift_left_builtin_key, builtin::int::shift_left),
-    (int_bit_and_builtin_key, builtin::int::bit_and),
-    (int_bit_xor_builtin_key, builtin::int::bit_xor),
-    (int_bit_or_builtin_key, builtin::int::bit_or),
-    (int_ge_builtin_key, builtin::int::ge),
-    (int_gt_builtin_key, builtin::int::gt),
-    (int_le_builtin_key, builtin::int::le),
-    (int_lt_builtin_key, builtin::int::lt),
-    (int_eq_builtin_key, builtin::int::eq),
-    (int_ne_builtin_key, builtin::int::ne),
-    (bool_not_builtin_key, builtin::bool::not),
-    (bool_eq_builtin_key, builtin::bool::eq),
-    (bool_ne_builtin_key, builtin::bool::ne),
-    (bool_and_builtin_key, builtin::bool::and),
-    (bool_or_builtin_key, builtin::bool::or),
-    (bytes_length_builtin_key, builtin::bytes::length),
-    (bytes_get_builtin_key, builtin::bytes::get),
-    (bytes_empty_builtin_key, builtin::bytes::empty),
-    (bytes_update_builtin_key, builtin::bytes::update),
-    (bytes_pad_right_builtin_key, builtin::bytes::pad_right),
-    (bytes_substr_builtin_key, builtin::bytes::substr),
-}
+krs_ir::__krs_builtin_operation_catalog!(builtin_operation_registry);
 
 fn map_update_builtin_key() -> TypeId {
     TypeId::of::<builtin::map::update>()
@@ -743,46 +718,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
     })
     .collect();
 
-    let operations = [
-        (
-            BuiltinOperation::IntAdd,
-            int_add_builtin_key as fn() -> TypeId,
-        ),
-        (BuiltinOperation::IntSub, int_sub_builtin_key),
-        (BuiltinOperation::IntMul, int_mul_builtin_key),
-        (BuiltinOperation::IntTDiv, int_tdiv_builtin_key),
-        (BuiltinOperation::IntMod, int_mod_builtin_key),
-        (BuiltinOperation::IntPowMod, int_pow_mod_builtin_key),
-        (BuiltinOperation::IntLog2, int_log2_builtin_key),
-        (BuiltinOperation::IntShiftRight, int_shift_right_builtin_key),
-        (BuiltinOperation::IntShiftLeft, int_shift_left_builtin_key),
-        (BuiltinOperation::IntBitAnd, int_bit_and_builtin_key),
-        (BuiltinOperation::IntBitXor, int_bit_xor_builtin_key),
-        (BuiltinOperation::IntBitOr, int_bit_or_builtin_key),
-        (BuiltinOperation::IntGreaterEqual, int_ge_builtin_key),
-        (BuiltinOperation::IntGreater, int_gt_builtin_key),
-        (BuiltinOperation::IntLessEqual, int_le_builtin_key),
-        (BuiltinOperation::IntLess, int_lt_builtin_key),
-        (BuiltinOperation::IntEqual, int_eq_builtin_key),
-        (BuiltinOperation::IntNotEqual, int_ne_builtin_key),
-        (BuiltinOperation::BoolNot, bool_not_builtin_key),
-        (BuiltinOperation::BoolEqual, bool_eq_builtin_key),
-        (BuiltinOperation::BoolNotEqual, bool_ne_builtin_key),
-        (BuiltinOperation::BoolAnd, bool_and_builtin_key),
-        (BuiltinOperation::BoolOr, bool_or_builtin_key),
-        (BuiltinOperation::BytesLength, bytes_length_builtin_key),
-        (BuiltinOperation::BytesGet, bytes_get_builtin_key),
-        (BuiltinOperation::BytesEmpty, bytes_empty_builtin_key),
-        (BuiltinOperation::BytesUpdate, bytes_update_builtin_key),
-        (BuiltinOperation::BytesPadRight, bytes_pad_right_builtin_key),
-        (BuiltinOperation::BytesSubstring, bytes_substr_builtin_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostBuiltinOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
+    let operations = builtin_operation_registry();
 
     let map_operations = [
         (
@@ -1378,8 +1314,12 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)] // Exhaustively verifies every facade registry identity.
+    #[allow(clippy::too_many_lines)] // Checks facade catalog identities and alias resolution.
     fn builtin_registry_is_complete_and_exact() {
+        type AddAlias = builtin::int::add;
+        type NotAlias = builtin::bool::not;
+        type SubstringAlias = builtin::bytes::substr;
+
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
         registry
@@ -1387,7 +1327,6 @@ mod tests {
             .expect("facade builtin catalog is valid");
 
         assert_eq!(registry.sorts.len(), BuiltinSort::ALL.len());
-        assert_eq!(registry.operations.len(), BuiltinOperation::ALL.len());
         assert_eq!(
             registry.map_operations.len(),
             MapOperation::TERM_APPLICATIONS.len()
@@ -1404,15 +1343,6 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BuiltinSort::ALL.into_iter().collect()
         );
-        assert_eq!(
-            registry
-                .operations
-                .iter()
-                .map(|registration| registration.operation)
-                .collect::<BTreeSet<_>>(),
-            BuiltinOperation::ALL.into_iter().collect()
-        );
-
         let exact_sorts = [
             (TypeId::of::<builtin::KSequence>(), BuiltinSort::KSequence),
             (TypeId::of::<builtin::int::Int>(), BuiltinSort::Int),
@@ -1429,104 +1359,15 @@ mod tests {
             assert_eq!(registry.resolve_operation(marker), None);
         }
 
-        let exact_operations = [
-            (TypeId::of::<builtin::int::add>(), BuiltinOperation::IntAdd),
-            (TypeId::of::<builtin::int::sub>(), BuiltinOperation::IntSub),
-            (TypeId::of::<builtin::int::mul>(), BuiltinOperation::IntMul),
-            (TypeId::of::<builtin::int::div>(), BuiltinOperation::IntTDiv),
+        let operation_aliases = [
+            (TypeId::of::<AddAlias>(), BuiltinOperation::IntAdd),
+            (TypeId::of::<NotAlias>(), BuiltinOperation::BoolNot),
             (
-                TypeId::of::<builtin::int::modulo>(),
-                BuiltinOperation::IntMod,
-            ),
-            (
-                TypeId::of::<builtin::int::pow_mod>(),
-                BuiltinOperation::IntPowMod,
-            ),
-            (
-                TypeId::of::<builtin::int::log2>(),
-                BuiltinOperation::IntLog2,
-            ),
-            (
-                TypeId::of::<builtin::int::shift_right>(),
-                BuiltinOperation::IntShiftRight,
-            ),
-            (
-                TypeId::of::<builtin::int::shift_left>(),
-                BuiltinOperation::IntShiftLeft,
-            ),
-            (
-                TypeId::of::<builtin::int::bit_and>(),
-                BuiltinOperation::IntBitAnd,
-            ),
-            (
-                TypeId::of::<builtin::int::bit_xor>(),
-                BuiltinOperation::IntBitXor,
-            ),
-            (
-                TypeId::of::<builtin::int::bit_or>(),
-                BuiltinOperation::IntBitOr,
-            ),
-            (
-                TypeId::of::<builtin::int::ge>(),
-                BuiltinOperation::IntGreaterEqual,
-            ),
-            (
-                TypeId::of::<builtin::int::gt>(),
-                BuiltinOperation::IntGreater,
-            ),
-            (
-                TypeId::of::<builtin::int::le>(),
-                BuiltinOperation::IntLessEqual,
-            ),
-            (TypeId::of::<builtin::int::lt>(), BuiltinOperation::IntLess),
-            (TypeId::of::<builtin::int::eq>(), BuiltinOperation::IntEqual),
-            (
-                TypeId::of::<builtin::int::ne>(),
-                BuiltinOperation::IntNotEqual,
-            ),
-            (
-                TypeId::of::<builtin::bool::not>(),
-                BuiltinOperation::BoolNot,
-            ),
-            (
-                TypeId::of::<builtin::bool::eq>(),
-                BuiltinOperation::BoolEqual,
-            ),
-            (
-                TypeId::of::<builtin::bool::ne>(),
-                BuiltinOperation::BoolNotEqual,
-            ),
-            (
-                TypeId::of::<builtin::bool::and>(),
-                BuiltinOperation::BoolAnd,
-            ),
-            (TypeId::of::<builtin::bool::or>(), BuiltinOperation::BoolOr),
-            (
-                TypeId::of::<builtin::bytes::length>(),
-                BuiltinOperation::BytesLength,
-            ),
-            (
-                TypeId::of::<builtin::bytes::get>(),
-                BuiltinOperation::BytesGet,
-            ),
-            (
-                TypeId::of::<builtin::bytes::empty>(),
-                BuiltinOperation::BytesEmpty,
-            ),
-            (
-                TypeId::of::<builtin::bytes::update>(),
-                BuiltinOperation::BytesUpdate,
-            ),
-            (
-                TypeId::of::<builtin::bytes::pad_right>(),
-                BuiltinOperation::BytesPadRight,
-            ),
-            (
-                TypeId::of::<builtin::bytes::substr>(),
+                TypeId::of::<SubstringAlias>(),
                 BuiltinOperation::BytesSubstring,
             ),
         ];
-        for (marker, expected) in exact_operations {
+        for (marker, expected) in operation_aliases {
             assert_eq!(registry.resolve_operation(marker), Some(expected));
             assert_eq!(registry.resolve_sort(marker), None);
         }

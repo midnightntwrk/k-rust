@@ -13,6 +13,7 @@
 
 pub mod bundle;
 pub mod bytes_token;
+mod catalog;
 pub mod coordinates;
 pub mod definition;
 mod detail_macros;
@@ -48,6 +49,7 @@ pub use bundle::{
     DescriptorPayload, DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind,
     SortDescriptor, SortPayload,
 };
+pub use catalog::{BuiltinOperationNotation, BuiltinOperationSpec};
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
 };
@@ -138,17 +140,16 @@ pub use transport::grammar::{
     DescriptorSimplificationPriority, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
     DescriptorTermArgument, ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GrammarDescriptor,
     GrammarTransportError, HostApplicationIdentity, HostApplicationReference,
-    HostApplicationTarget, HostBuiltinOperationRegistration, HostBuiltinRegistry,
-    HostBuiltinRegistryError, HostBuiltinSortRegistration, HostCellTermField,
-    HostContextAliasReference, HostDeclarationIdentity, HostEnumVariantKey,
-    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor,
-    HostListOperationRegistration, HostMapOperationRegistration, HostProduction,
-    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
-    HostSetOperationRegistration, HostSortReference, HostStructuredRuleDescriptor, HostTerm,
-    HostTermArgument, Production, ProductionAttribute as TransportProductionAttribute,
-    ProductionItem as TransportProductionItem, ProductionOwner, RuleCondition,
-    StageGrammarDescriptor, StructuredRule, StructuredRuleDescriptor, Term, TermArgument,
-    enum_variant_disambiguator,
+    HostApplicationTarget, HostBuiltinRegistry, HostBuiltinRegistryError,
+    HostBuiltinSortRegistration, HostCellTermField, HostContextAliasReference,
+    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
+    HostEnumVariantReferenceError, HostGrammarDescriptor, HostListOperationRegistration,
+    HostMapOperationRegistration, HostProduction, HostProductionAttribute, HostProductionItem,
+    HostProductionOwner, HostRuleCondition, HostSetOperationRegistration, HostSortReference,
+    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, Production,
+    ProductionAttribute as TransportProductionAttribute, ProductionItem as TransportProductionItem,
+    ProductionOwner, RuleCondition, StageGrammarDescriptor, StructuredRule,
+    StructuredRuleDescriptor, Term, TermArgument, enum_variant_disambiguator,
 };
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,

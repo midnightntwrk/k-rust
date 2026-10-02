@@ -95,37 +95,7 @@ impl fmt::Display for SymbolKind {
 
 impl fmt::Display for BuiltinOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::IntAdd => "integer addition",
-            Self::IntSub => "integer subtraction",
-            Self::IntMul => "integer multiplication",
-            Self::IntTDiv => "integer truncating division",
-            Self::IntMod => "integer modulus",
-            Self::IntPowMod => "integer modular exponentiation",
-            Self::IntLog2 => "integer base-two logarithm",
-            Self::IntShiftRight => "integer right shift",
-            Self::IntShiftLeft => "integer left shift",
-            Self::IntBitAnd => "integer bitwise conjunction",
-            Self::IntBitXor => "integer bitwise exclusive disjunction",
-            Self::IntBitOr => "integer bitwise inclusive disjunction",
-            Self::IntGreaterEqual => "integer greater-than-or-equal comparison",
-            Self::IntGreater => "integer greater-than comparison",
-            Self::IntLessEqual => "integer less-than-or-equal comparison",
-            Self::IntLess => "integer less-than comparison",
-            Self::IntEqual => "integer equality",
-            Self::IntNotEqual => "integer inequality",
-            Self::BoolNot => "Boolean negation",
-            Self::BoolEqual => "Boolean equality",
-            Self::BoolNotEqual => "Boolean inequality",
-            Self::BoolAnd => "Boolean conjunction",
-            Self::BoolOr => "Boolean disjunction",
-            Self::BytesLength => "byte-string length",
-            Self::BytesGet => "byte lookup",
-            Self::BytesEmpty => "empty byte string",
-            Self::BytesUpdate => "byte update",
-            Self::BytesPadRight => "byte-string right padding",
-            Self::BytesSubstring => "byte substring",
-        })
+        formatter.write_str(self.spec().description)
     }
 }
 

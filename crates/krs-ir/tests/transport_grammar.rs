@@ -17,13 +17,13 @@ use krs_ir::{
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
     DescriptorTerm, DescriptorTermArgument, FormatFragment, GrammarDescriptor,
     GrammarTransportError, GroupAssociativity, HostApplicationIdentity, HostApplicationTarget,
-    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostDeclarationIdentity, HostEnumVariantKey,
-    HostEnumVariantReference, HostEnumVariantReferenceError, HostListOperationRegistration,
-    HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
-    ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
-    ProductionGroupId, ProvenanceKey, ProvenanceRole, SentenceKind, SetOperation, StableItemId,
-    StrictnessKind, StructuredRuleDescriptor, enum_variant_disambiguator,
+    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
+    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
+    HostEnumVariantReferenceError, HostListOperationRegistration, HostMapOperationRegistration,
+    HostSetOperationRegistration, HostTypeKey, HostTypeReference, ItemKind, ListOperation,
+    MapOperation, OriginStack, PackageId, ProductionFieldId, ProductionGroupId, ProvenanceKey,
+    ProvenanceRole, SentenceKind, SetOperation, StableItemId, StrictnessKind,
+    StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -1211,42 +1211,36 @@ fn registry() -> HostBuiltinRegistry {
     })
     .collect();
     let operations = [
-        (BuiltinOperation::IntAdd, int_add_key as fn() -> TypeId),
-        (BuiltinOperation::IntSub, int_sub_key),
-        (BuiltinOperation::IntMul, int_mul_key),
-        (BuiltinOperation::IntTDiv, int_tdiv_key),
-        (BuiltinOperation::IntMod, int_mod_key),
-        (BuiltinOperation::IntPowMod, int_pow_mod_key),
-        (BuiltinOperation::IntLog2, int_log2_key),
-        (BuiltinOperation::IntShiftRight, int_shift_right_key),
-        (BuiltinOperation::IntShiftLeft, int_shift_left_key),
-        (BuiltinOperation::IntBitAnd, int_bit_and_key),
-        (BuiltinOperation::IntBitXor, int_bit_xor_key),
-        (BuiltinOperation::IntBitOr, int_bit_or_key),
-        (BuiltinOperation::IntGreaterEqual, int_ge_key),
-        (BuiltinOperation::IntGreater, int_gt_key),
-        (BuiltinOperation::IntLessEqual, int_le_key),
-        (BuiltinOperation::IntLess, int_lt_key),
-        (BuiltinOperation::IntEqual, int_eq_key),
-        (BuiltinOperation::IntNotEqual, int_ne_key),
-        (BuiltinOperation::BoolNot, bool_not_key),
-        (BuiltinOperation::BoolEqual, bool_eq_key),
-        (BuiltinOperation::BoolNotEqual, bool_ne_key),
-        (BuiltinOperation::BoolAnd, bool_and_key),
-        (BuiltinOperation::BoolOr, bool_or_key),
-        (BuiltinOperation::BytesLength, bytes_length_key),
-        (BuiltinOperation::BytesGet, bytes_get_key),
-        (BuiltinOperation::BytesEmpty, bytes_empty_key),
-        (BuiltinOperation::BytesUpdate, bytes_update_key),
-        (BuiltinOperation::BytesPadRight, bytes_pad_right_key),
-        (BuiltinOperation::BytesSubstring, bytes_substring_key),
-    ]
-    .into_iter()
-    .map(|(operation, key)| HostBuiltinOperationRegistration {
-        operation,
-        target: HostTypeKey(key),
-    })
-    .collect();
+        HostTypeKey(int_add_key),
+        HostTypeKey(int_sub_key),
+        HostTypeKey(int_mul_key),
+        HostTypeKey(int_tdiv_key),
+        HostTypeKey(int_mod_key),
+        HostTypeKey(int_pow_mod_key),
+        HostTypeKey(int_log2_key),
+        HostTypeKey(int_shift_right_key),
+        HostTypeKey(int_shift_left_key),
+        HostTypeKey(int_bit_and_key),
+        HostTypeKey(int_bit_xor_key),
+        HostTypeKey(int_bit_or_key),
+        HostTypeKey(int_ge_key),
+        HostTypeKey(int_gt_key),
+        HostTypeKey(int_le_key),
+        HostTypeKey(int_lt_key),
+        HostTypeKey(int_eq_key),
+        HostTypeKey(int_ne_key),
+        HostTypeKey(bool_not_key),
+        HostTypeKey(bool_eq_key),
+        HostTypeKey(bool_ne_key),
+        HostTypeKey(bool_and_key),
+        HostTypeKey(bool_or_key),
+        HostTypeKey(bytes_length_key),
+        HostTypeKey(bytes_get_key),
+        HostTypeKey(bytes_empty_key),
+        HostTypeKey(bytes_update_key),
+        HostTypeKey(bytes_pad_right_key),
+        HostTypeKey(bytes_substring_key),
+    ];
     let map_operations = [
         (MapOperation::Update, map_update_key as fn() -> TypeId),
         (MapOperation::Get, map_get_key),
@@ -1351,14 +1345,6 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         Some(ListOperation::UpdateAll)
     );
 
-    let mut incomplete = registry.clone();
-    incomplete.operations.pop();
-    assert_eq!(
-        incomplete.validate(),
-        Err(HostBuiltinRegistryError::MissingOperation(
-            BuiltinOperation::BytesSubstring
-        ))
-    );
     let mut missing_map = registry.clone();
     missing_map.map_operations.clear();
     assert_eq!(
@@ -1384,7 +1370,7 @@ fn builtin_registry_is_complete_exact_and_alias_safe() {
         ))
     );
     let mut collision = registry.clone();
-    collision.operations[0].target = HostTypeKey(int_key);
+    collision.operations[0] = HostTypeKey(int_key);
     assert_eq!(
         collision.validate(),
         Err(HostBuiltinRegistryError::ReusedRustType)
