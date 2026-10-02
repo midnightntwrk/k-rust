@@ -18,7 +18,7 @@ use crate::{
     rule::{Concreteness, ConstraintKind, Predicate, RewriteRule},
     substitution::{Substitution, substitute},
     term::{
-        Sort, Term, TermKind, Variable,
+        Term, TermKind, Variable,
         names::{VariableProvenance, split_marker},
     },
 };
@@ -167,7 +167,7 @@ pub(crate) fn check_concreteness(
                                 &[VariableProvenance::Rule, VariableProvenance::Equation],
                             ),
                             (Some(_), rest) if rest == name.as_ref()
-                        ) && sort_name(&variable.sort) == Some(sort.as_ref())
+                        ) && variable.sort == *sort
                     })
                     .cloned()
                     .map(|variable| (variable, *kind))
@@ -185,13 +185,6 @@ pub(crate) fn check_concreteness(
         };
         (!satisfied).then_some(variable)
     })
-}
-
-fn sort_name(sort: &Sort) -> Option<&str> {
-    match sort {
-        Sort::Application { name, .. } => Some(name.as_ref()),
-        Sort::Variable(_) => None,
-    }
 }
 
 pub(super) fn pattern_variable_names(pattern: &Pattern) -> BTreeSet<crate::term::Name> {
@@ -460,6 +453,7 @@ fn or_truth(left: Truth, right: Truth) -> Truth {
 
 #[cfg(test)]
 mod tests {
+    use crate::term::Sort;
 
     use super::*;
 

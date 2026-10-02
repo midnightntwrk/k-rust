@@ -2051,6 +2051,72 @@ fn skips_equations_with_violated_concreteness_constraints() {
 }
 
 #[test]
+fn concreteness_constraints_distinguish_parametric_sort_instances() {
+    let source = r#"[]
+        module MAIN
+            sort SortS{} [hasDomainValues{}()]
+            sort SortA{} []
+            sort SortB{} []
+            sort SortM{W} []
+            symbol c{}() : SortM{SortA{}} [constructor{}(), functional{}(), injective{}()]
+            symbol f{}(SortM{SortA{}}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortM{SortA{}}),
+                    \and{SortS{}}(\dv{SortS{}}("concrete"), \top{SortS{}}())
+                )
+            ) [label{}("concrete-only"), concrete{}(X:SortM{SortA{}}), simplification{}("10")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortM{SortA{}}),
+                    \and{SortS{}}(\dv{SortS{}}("fallback"), \top{SortS{}}())
+                )
+            ) [label{}("fallback"), simplification{}("50")]
+        endmodule []"#;
+    let syntax = parse_definition(source).expect("definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("a closed parametric concreteness constraint should internalize");
+
+    for (input, expected, applied) in [
+        ("f{}(Y:SortM{SortA{}})", "fallback", "fallback"),
+        ("f{}(c{}())", "concrete", "concrete-only"),
+    ] {
+        let result = simplify(
+            &definition,
+            &term(&definition, input),
+            SimplificationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result.term,
+            term(&definition, &format!(r#"\dv{{SortS{{}}}}("{expected}")"#))
+        );
+        assert_eq!(result.applied_rules, [applied]);
+    }
+
+    let source = source.replace(
+        "concrete{}(X:SortM{SortA{}})",
+        "concrete{}(X:SortM{SortB{}})",
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("a constraint naming no equation variable should internalize");
+    let result = simplify(
+        &definition,
+        &term(&definition, "f{}(Y:SortM{SortA{}})"),
+        SimplificationOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, r#"\dv{SortS{}}("concrete")"#)
+    );
+    assert_eq!(result.applied_rules, ["concrete-only"]);
+}
+
+#[test]
 fn applies_concrete_symbolic_canonicalization_equations() {
     let syntax = parse_definition(
         r#"[]

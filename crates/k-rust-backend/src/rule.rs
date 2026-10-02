@@ -67,7 +67,7 @@ use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Name, Term, TermKind, Variable,
+        HeadRole, Name, Sort, Term, TermKind, Variable,
         head::{
             CertifiedOrScanned, FixedRoot, Head, PatternReading, Shape, classify_pattern,
             classify_value,
@@ -429,7 +429,8 @@ pub enum ConstraintKind {
 pub enum Concreteness {
     Unconstrained,
     All(ConstraintKind),
-    Some(BTreeMap<(Name, Name), ConstraintKind>),
+    /// Constraints keyed by the variable's name without its provenance marker and its full sort.
+    Some(BTreeMap<(Name, Sort), ConstraintKind>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1087,7 +1088,7 @@ impl<'a> VariableRenaming<'a> {
 fn live_constraints<'c>(
     concreteness: &'c Concreteness,
     pattern_names: &BTreeMap<&str, &str>,
-) -> BTreeMap<&'c (Name, Name), &'c ConstraintKind> {
+) -> BTreeMap<&'c (Name, Sort), &'c ConstraintKind> {
     match concreteness {
         Concreteness::Some(constrained) => constrained
             .iter()
@@ -2767,7 +2768,7 @@ fn collect_binders(predicate: &Predicate, variables: &mut BTreeSet<Variable>) {
 
 /// `attributes` with each `concrete`/`symbolic` constraint that names a renamed variable naming
 /// its new name. A constraint names a rule variable by its name without the `Rule#`/`Eq#`
-/// marker and by its sort name, as `check_concreteness` reads it.
+/// marker and by its full sort, as `check_concreteness` reads it.
 fn rename_concreteness(
     attributes: &RuleAttributes,
     renaming: &BTreeMap<Variable, Variable>,
@@ -2786,12 +2787,9 @@ fn rename_concreteness(
     };
     let mut renamed = BTreeMap::new();
     for (variable, fresh) in renaming {
-        let crate::term::Sort::Application { name: sort, .. } = &variable.sort else {
-            continue;
-        };
-        let key = (Name::from(unmarked(variable)), sort.clone());
+        let key = (Name::from(unmarked(variable)), variable.sort.clone());
         if let Some(kind) = constrained.remove(&key) {
-            renamed.insert((Name::from(unmarked(fresh)), sort.clone()), kind);
+            renamed.insert((Name::from(unmarked(fresh)), fresh.sort.clone()), kind);
         }
     }
     constrained.extend(renamed);
@@ -2965,8 +2963,8 @@ fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, Axi
         (concrete, symbolic) => {
             let concrete = concrete.unwrap_or_default();
             let symbolic = symbolic.unwrap_or_default();
-            let concrete = parse_constrained_variables(concrete, ConstraintKind::Concrete)?;
-            let symbolic = parse_constrained_variables(symbolic, ConstraintKind::Symbolic)?;
+            let concrete = parse_constrained_variables(concrete, ConstraintKind::Concrete);
+            let symbolic = parse_constrained_variables(symbolic, ConstraintKind::Symbolic);
             let overlap = concrete
                 .keys()
                 .collect::<BTreeSet<_>>()
@@ -2974,7 +2972,10 @@ fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, Axi
                 .next()
                 .cloned();
             if let Some((name, sort)) = overlap {
-                return Err(AxiomError::ConcretenessOverlap(format!("{name}:{sort}")));
+                return Err(AxiomError::ConcretenessOverlap(format!(
+                    "{name}:{}",
+                    crate::externalize::sort(sort)
+                )));
             }
             Ok(Concreteness::Some(
                 concrete.into_iter().chain(symbolic).collect(),
@@ -2986,49 +2987,64 @@ fn parse_concreteness(attributes: &kore::Attributes) -> Result<Concreteness, Axi
 fn attribute_constrained_variables(
     attributes: &kore::Attributes,
     attribute: KoreAttribute,
-) -> Result<Option<Vec<String>>, AxiomError> {
+) -> Result<Option<Vec<(Name, Sort)>>, AxiomError> {
     let Some(arguments) = attributes.arguments(attribute) else {
         return Ok(None);
     };
     arguments
         .iter()
         .map(|argument| match argument {
-            kore::Pattern::Variable(variable) => {
-                let kore::Sort::Application {
-                    name: sort,
-                    arguments,
-                } = &variable.sort
-                else {
-                    return Err(AxiomError::MalformedAttribute(attribute.as_str().into()));
-                };
-                if !arguments.is_empty() {
-                    return Err(AxiomError::MalformedAttribute(attribute.as_str().into()));
-                }
-                Ok(format!("{}:{sort}", variable.name))
-            }
+            kore::Pattern::Variable(variable) => Ok((
+                Name::from(variable.name.as_str()),
+                attribute_sort(&variable.sort)
+                    .ok_or_else(|| AxiomError::MalformedAttribute(attribute.as_str().into()))?,
+            )),
             // Older generated definitions encoded the same pair as a string.
-            kore::Pattern::String(value) => value
-                .as_utf8()
-                .map(str::to_owned)
-                .map_err(|_| AxiomError::MalformedAttribute(attribute.as_str().into())),
+            kore::Pattern::String(value) => {
+                let text = value
+                    .as_utf8()
+                    .map_err(|_| AxiomError::MalformedAttribute(attribute.as_str().into()))?;
+                let invalid = || AxiomError::InvalidConcreteness(text.to_owned());
+                let (name, sort) = text.split_once(':').ok_or_else(invalid)?;
+                let sort = if sort.contains('{') {
+                    let kore::Pattern::Top { ref sort } =
+                        k_rust_kore::kore::parser::parse_pattern(&format!("\\top{{{sort}}}()"))
+                            .map_err(|_| invalid())?
+                    else {
+                        return Err(invalid());
+                    };
+                    attribute_sort(sort).ok_or_else(invalid)?
+                } else {
+                    Sort::simple(sort)
+                };
+                Ok((Name::from(name), sort))
+            }
             _ => Err(AxiomError::MalformedAttribute(attribute.as_str().into())),
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Some)
 }
 
+fn attribute_sort(sort: &kore::Sort) -> Option<Sort> {
+    match sort {
+        kore::Sort::Application { name, arguments } => Some(Sort::application(
+            name.as_str(),
+            arguments
+                .iter()
+                .map(attribute_sort)
+                .collect::<Option<_>>()?,
+        )),
+        kore::Sort::Variable(_) => None,
+    }
+}
+
 fn parse_constrained_variables(
-    variables: Vec<String>,
+    variables: Vec<(Name, Sort)>,
     kind: ConstraintKind,
-) -> Result<BTreeMap<(Name, Name), ConstraintKind>, AxiomError> {
+) -> BTreeMap<(Name, Sort), ConstraintKind> {
     variables
         .into_iter()
-        .map(|variable| {
-            let Some((name, sort)) = variable.split_once(':') else {
-                return Err(AxiomError::InvalidConcreteness(variable));
-            };
-            Ok(((Name::from(name), Name::from(sort)), kind))
-        })
+        .map(|variable| (variable, kind))
         .collect()
 }
 
@@ -3256,9 +3272,118 @@ mod tests {
         assert_eq!(
             attributes.concreteness,
             Concreteness::Some(BTreeMap::from([(
-                (Name::from("X"), Name::from("S")),
+                (Name::from("X"), Sort::simple("S")),
                 ConstraintKind::Concrete,
             )]))
+        );
+    }
+
+    #[test]
+    fn classifies_concreteness_constraints_with_full_sorts() {
+        let classified = classify_parametric_concreteness("concrete{}(X:SortM{SortA{}})")
+            .expect("a closed parametric constraint should classify");
+        let ClassifiedAxiom::Simplification { attributes, .. } = classified else {
+            panic!("expected simplification equation");
+        };
+        assert_eq!(
+            attributes.concreteness,
+            Concreteness::Some(BTreeMap::from([(
+                (
+                    Name::from("X"),
+                    Sort::application("SortM", vec![Sort::simple("SortA")]),
+                ),
+                ConstraintKind::Concrete,
+            )]))
+        );
+    }
+
+    fn classify_parametric_concreteness(attribute: &str) -> Result<ClassifiedAxiom, AxiomError> {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortM{{W}} []
+                sort SortA{{}} []
+                sort SortS{{}} []
+                symbol f{{}}(SortM{{SortA{{}}}}) : SortS{{}} [function{{}}()]
+                symbol a{{}}() : SortS{{}} [constructor{{}}()]
+                axiom{{R, S}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        f{{}}(X:SortM{{SortA{{}}}}),
+                        \and{{SortS{{}}}}(a{{}}(), \top{{SortS{{}}}}())
+                    )
+                ) [simplification{{}}(), {attribute}]
+            endmodule []"#
+        );
+        let definition = parse_definition(&source).expect("definition should parse");
+        let kore::Sentence::Axiom {
+            parameters,
+            pattern,
+            attributes,
+        } = definition.modules[0].sentences.last().unwrap()
+        else {
+            panic!("expected axiom");
+        };
+        classify_axiom(
+            "MAIN".into(),
+            parameters.iter().cloned().map(Into::into).collect(),
+            pattern,
+            attributes,
+        )
+        .map(|classified| classified.expect("axiom should be executable"))
+    }
+
+    #[test]
+    fn legacy_concreteness_strings_keep_full_sorts() {
+        for (attribute, sort) in [
+            (
+                r#"concrete{}("X:SortM{SortA{}}")"#,
+                Sort::application("SortM", vec![Sort::simple("SortA")]),
+            ),
+            (r#"concrete{}("X:SortS")"#, Sort::simple("SortS")),
+        ] {
+            let ClassifiedAxiom::Simplification { attributes, .. } =
+                classify_parametric_concreteness(attribute).expect("legacy entry should classify")
+            else {
+                panic!("expected simplification equation");
+            };
+            assert_eq!(
+                attributes.concreteness,
+                Concreteness::Some(BTreeMap::from([(
+                    (Name::from("X"), sort),
+                    ConstraintKind::Concrete,
+                )]))
+            );
+        }
+    }
+
+    #[test]
+    fn concreteness_constraints_reject_sort_variables() {
+        assert_eq!(
+            classify_parametric_concreteness("symbolic{}(X:SortM{S})").unwrap_err(),
+            AxiomError::MalformedAttribute("symbolic".into())
+        );
+    }
+
+    #[test]
+    fn malformed_legacy_concreteness_strings_are_rejected() {
+        for text in ["X", "X:SortM{SortA{}", "X:SortM{S}"] {
+            assert_eq!(
+                classify_parametric_concreteness(&format!(r#"concrete{{}}("{text}")"#))
+                    .unwrap_err(),
+                AxiomError::InvalidConcreteness(text.into())
+            );
+        }
+    }
+
+    #[test]
+    fn concreteness_overlap_reports_the_full_sort() {
+        assert_eq!(
+            classify_parametric_concreteness(
+                "concrete{}(X:SortM{SortA{}}), symbolic{}(X:SortM{SortA{}})"
+            )
+            .unwrap_err(),
+            AxiomError::ConcretenessOverlap("X:SortM{SortA{}}".into())
         );
     }
 
@@ -3725,7 +3850,10 @@ mod tests {
         assert_eq!(
             renamed.attributes.concreteness,
             Concreteness::Some(BTreeMap::from([(
-                (Name::from(&fresh.name["Eq#".len()..]), Name::from("SortS")),
+                (
+                    Name::from(&fresh.name["Eq#".len()..]),
+                    Sort::simple("SortS")
+                ),
                 ConstraintKind::Concrete
             )]))
         );
