@@ -13,14 +13,12 @@ pub fn is_punct(tree: Option<&TokenTree>, character: char) -> bool {
 }
 
 /// Whether a tree is a colon joined to the following tree.
-#[must_use]
-pub fn is_joint_colon(tree: Option<&TokenTree>) -> bool {
+fn is_joint_colon(tree: Option<&TokenTree>) -> bool {
     matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == ':' && punct.spacing() == Spacing::Joint)
 }
 
 /// Whether two trees at `index` form a path separator.
-#[must_use]
-pub fn is_path_separator(trees: &[TokenTree], index: usize) -> bool {
+fn is_path_separator(trees: &[TokenTree], index: usize) -> bool {
     is_joint_colon(trees.get(index)) && is_punct(trees.get(index + 1), ':')
 }
 
@@ -146,8 +144,6 @@ pub struct TokenCall {
     pub span: Span,
     /// The invocation's raw token-tree form.
     pub kind: TokenCallKind,
-    /// Whether an unresolved macro's body encloses this call within the scanned stream.
-    pub in_non_krs_macro: bool,
 }
 
 /// Finds resolved KRS calls recursively in raw token trees.
@@ -159,7 +155,6 @@ pub fn token_calls(tokens: &TokenStream, resolve: &dyn Resolve) -> Vec<TokenCall
         resolve: &dyn Resolve,
         position: &mut Vec<usize>,
         calls: &mut Vec<TokenCall>,
-        in_non_krs_macro: bool,
     ) {
         let trees: Vec<_> = tokens.clone().into_iter().collect();
         let mut index = 0;
@@ -190,17 +185,16 @@ pub fn token_calls(tokens: &TokenStream, resolve: &dyn Resolve) -> Vec<TokenCall
                     entry,
                     span: trees[index].span(),
                     kind,
-                    in_non_krs_macro,
                 });
                 index += len;
             } else if let Some(call) = macro_call(&trees, index) {
                 position.pop();
                 position.push(index + call.len - 1);
-                scan(&call.group.stream(), resolve, position, calls, true);
+                scan(&call.group.stream(), resolve, position, calls);
                 index += call.len;
             } else {
                 if let TokenTree::Group(group) = &trees[index] {
-                    scan(&group.stream(), resolve, position, calls, in_non_krs_macro);
+                    scan(&group.stream(), resolve, position, calls);
                 }
                 index += 1;
             }
@@ -208,7 +202,7 @@ pub fn token_calls(tokens: &TokenStream, resolve: &dyn Resolve) -> Vec<TokenCall
         }
     }
     let mut calls = Vec::new();
-    scan(tokens, resolve, &mut Vec::new(), &mut calls, false);
+    scan(tokens, resolve, &mut Vec::new(), &mut calls);
     calls
 }
 

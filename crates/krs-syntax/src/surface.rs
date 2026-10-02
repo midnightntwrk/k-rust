@@ -33,8 +33,8 @@ pub use discovery::{
 };
 pub use resolver::{AuthoredResolver, FacadeScope, GeneratedResolver, Resolve};
 pub use tokens::{
-    AttributeCall, MacroCall, TokenCall, TokenCallKind, attribute_call, is_joint_colon,
-    is_path_separator, is_punct, macro_call, path_at, token_calls,
+    AttributeCall, MacroCall, TokenCall, TokenCallKind, attribute_call, is_punct, macro_call,
+    path_at, token_calls,
 };
 
 pub use crate::path::path_text;

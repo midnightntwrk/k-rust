@@ -80,8 +80,6 @@ pub struct Invocation<'ast> {
     pub scope: Scope,
     /// The enclosing invocation's index in the returned vector.
     pub parent: Option<usize>,
-    /// Whether a non-KRS macro's opaque input encloses this invocation.
-    pub raw_tokens: bool,
 }
 
 impl<'ast> Invocation<'ast> {
@@ -131,9 +129,8 @@ impl<'ast> Discovery<'ast> {
         index
     }
 
-    fn scan_tokens(&mut self, tokens: &TokenStream, raw_tokens: bool) {
+    fn scan_tokens(&mut self, tokens: &TokenStream) {
         for call in token_calls(tokens, self.resolve.as_ref()) {
-            let raw_tokens = raw_tokens || call.in_non_krs_macro;
             let call_site = match &call.kind {
                 TokenCallKind::Function(group) => call.span.join(group.span()),
                 TokenCallKind::Attribute(attribute) => call.span.join(attribute.group.span()),
@@ -156,11 +153,10 @@ impl<'ast> Discovery<'ast> {
                 node: InvocationNode::Tokens(call.clone()),
                 scope: Scope::Nested,
                 parent: self.parent,
-                raw_tokens,
             });
             if let TokenCallKind::Function(group) = call.kind {
                 let saved = self.parent.replace(index);
-                self.scan_tokens(&group.stream(), raw_tokens);
+                self.scan_tokens(&group.stream());
                 self.parent = saved;
             }
         }
@@ -177,7 +173,7 @@ impl<'ast> Discovery<'ast> {
     ) {
         let Some(Entry::Function(entry)) = self.resolve.resolve(&mac.path) else {
             self.visit_authored_attributes(attrs);
-            self.scan_tokens(&mac.tokens, true);
+            self.scan_tokens(&mac.tokens);
             return;
         };
         let index = self.record(Invocation {
@@ -191,11 +187,10 @@ impl<'ast> Discovery<'ast> {
             node,
             scope: self.scope.clone(),
             parent: self.parent,
-            raw_tokens: false,
         });
         let saved = self.parent.replace(index);
         self.visit_authored_attributes(attrs);
-        self.scan_tokens(&mac.tokens, false);
+        self.scan_tokens(&mac.tokens);
         self.parent = saved;
     }
 
@@ -231,7 +226,6 @@ impl<'ast> Discovery<'ast> {
             node,
             scope: self.scope.clone(),
             parent: self.parent,
-            raw_tokens: false,
         });
         Some(index)
     }
@@ -261,7 +255,7 @@ impl<'ast> Discovery<'ast> {
             if let InvocationKind::Attribute(attribute) = &self.found[index].kind
                 && let Meta::List(list) = &attrs[attribute.facade_index].meta
             {
-                self.scan_tokens(&list.tokens, false);
+                self.scan_tokens(&list.tokens);
             }
         }
         visit(self);
@@ -425,10 +419,6 @@ mod tests {
             calls.iter().map(|call| call.parent).collect::<Vec<_>>(),
             [None, Some(0), None, Some(2), None, Some(4)]
         );
-        assert_eq!(
-            calls.iter().map(|call| call.raw_tokens).collect::<Vec<_>>(),
-            [false, false, true, true, false, false]
-        );
         assert_eq!(calls[0].scope, Scope::Module(vec!["language".to_owned()]));
         assert_eq!(calls[4].scope, calls[0].scope);
         for index in [1, 2, 3, 5] {
@@ -533,10 +523,8 @@ mod tests {
         for index in [1, 3, 5, 6] {
             assert!(matches!(calls[index].node, InvocationNode::Macro(_)));
             assert_eq!(calls[index].scope, Scope::Nested);
-            assert!(!calls[index].raw_tokens);
         }
         assert!(matches!(calls[7].node, InvocationNode::Tokens(_)));
-        assert!(calls[7].raw_tokens);
     }
 
     #[test]
@@ -583,7 +571,6 @@ mod tests {
         );
         assert!(matches!(calls[1].node, InvocationNode::Macro(_)));
         assert!(matches!(calls[2].node, InvocationNode::Tokens(_)));
-        assert!(calls[2].raw_tokens);
         assert!(matches!(calls[4].node, InvocationNode::Macro(_)));
     }
 
@@ -666,9 +653,9 @@ mod tests {
         };
         let calls = invocations(&file, &AuthoredResolver::new("k"));
         assert_eq!(calls.len(), 4);
-        assert!(calls[1].raw_tokens);
+        assert!(matches!(calls[1].node, InvocationNode::Tokens(_)));
         assert_eq!(calls[1].parent, Some(0));
-        assert!(!calls[3].raw_tokens);
+        assert!(matches!(calls[3].node, InvocationNode::Tokens(_)));
         assert_eq!(calls[3].parent, Some(2));
     }
 }
