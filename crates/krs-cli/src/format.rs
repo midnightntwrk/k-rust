@@ -209,12 +209,12 @@ fn explicit_settings(
     Ok(Some((edition, aliases.of(package)?)))
 }
 
-/// The facade aliases of `package` under the collector's manifest rule.
 /// The facade aliases of each package, read from its manifest at most once.
 #[derive(Default)]
 struct FacadeAliasCache(BTreeMap<String, BTreeSet<String>>);
 
 impl FacadeAliasCache {
+    /// The facade aliases of `package` under the collector's manifest rule.
     fn of(&mut self, package: &MetadataPackage) -> Result<BTreeSet<String>, String> {
         if let Some(aliases) = self.0.get(&package.manifest_path) {
             return Ok(aliases.clone());
