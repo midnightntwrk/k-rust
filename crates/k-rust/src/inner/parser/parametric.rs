@@ -18,6 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::definition::production_kind::mentions_parameter;
 use crate::definition::regex::Regex as KRegex;
 use crate::definition::{
     AttributeKey, Attributes, ProductionCatalog, ProductionItem, Sentence, SortCatalog, SortHead,
@@ -121,29 +122,63 @@ pub(crate) fn concretize_parametric_productions<'a>(
                 })
                 .collect::<Vec<_>>()
         } else if !sort.parameters.is_empty() {
-            // Case 2: `syntax {W, X} MInt{W} ::= MInt{W} "+" MInt{X}`.
-            let head = SortHead::from(sort);
-            catalog
-                .instantiations()
-                .get(&head)
-                .into_iter()
-                .flatten()
-                .map(|concrete| {
-                    let result_parameter = &sort.parameters[0];
-                    parameters
-                        .iter()
-                        .cloned()
-                        .map(|parameter| {
-                            let replacement = if &parameter == result_parameter {
-                                concrete.parameters[0].clone()
-                            } else {
-                                Sort::new("K")
+            match sort.parameters.as_slice() {
+                [argument] if parameters.contains(argument) => {
+                    // Case 2: `syntax {W, X} MInt{W} ::= MInt{W} "+" MInt{X}`. The result names
+                    // one sort per value of its one argument `W`, so the production has one
+                    // instance per declared instance of the result's head, mapping `W` to that
+                    // instance's argument and every other parameter to `K`.
+                    let head = SortHead::from(sort);
+                    catalog
+                        .instantiations()
+                        .get(&head)
+                        .into_iter()
+                        .flatten()
+                        .map(|concrete| {
+                            let [value] = concrete.parameters.as_slice() else {
+                                unreachable!(
+                                    "a declared instance of an arity-one head has one argument"
+                                )
                             };
-                            (parameter, replacement)
+                            parameters
+                                .iter()
+                                .cloned()
+                                .map(|parameter| {
+                                    let replacement = if &parameter == argument {
+                                        value.clone()
+                                    } else {
+                                        Sort::new("K")
+                                    };
+                                    (parameter, replacement)
+                                })
+                                .collect()
                         })
                         .collect()
-                })
-                .collect()
+                }
+                _ if !mentions_parameter(sort, parameters) => {
+                    // A ground parametric result (`syntax {W} MInt{8} ::= foo(MInt{W})`) is one
+                    // sort whatever the parameters, so the production has the one instance whose
+                    // parameters, which occur only in arguments, become `K` (case 4's
+                    // substitution).
+                    vec![
+                        parameters
+                            .iter()
+                            .cloned()
+                            .map(|parameter| (parameter, Sort::new("K")))
+                            .collect(),
+                    ]
+                }
+                _ => {
+                    // A formal parameter nested in an argument (`MInt{MInt{W}}`) or inside a head
+                    // of another arity (`MInt{A, B}`) has no value a declared instance supplies,
+                    // so the production contributes no instance.
+                    debug_assert!(
+                        false,
+                        "parametric production {sentence:?}: result {sort} is outside the shapes check_sorts admits (a formal parameter nested in an argument, or a head of another arity)"
+                    );
+                    Vec::new()
+                }
+            }
         } else if is_syntactic_subsort(label, items) {
             // Case 3: `syntax {S} KItem ::= S`.
             all_sorts
@@ -765,6 +800,94 @@ mod tests {
             case4(k)
         "#
         );
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "outside the shapes check_sorts admits")]
+    fn a_result_with_a_nested_formal_parameter_is_not_concretized() {
+        // `MInt{MInt{W}}` names one sort per `W`, but no declared instance of `MInt` supplies a
+        // value for a `W` one level down.
+        let w = Sort::new("W");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let sentences = [
+            syntax_sort(vec![w.clone()], mint(w.clone())),
+            syntax_sort(Vec::new(), mint(Sort::new("8"))),
+            production(vec![w.clone()], mint(mint(w)), "mkn", Vec::new()),
+        ];
+        concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "outside the shapes check_sorts admits")]
+    fn a_result_of_another_arity_is_not_concretized() {
+        // `MInt{A, B}` has two formal parameters, so no one argument of a declared instance
+        // fixes the result.
+        let a = Sort::new("A");
+        let b = Sort::new("B");
+        let mint_ab = Sort::with_parameters("MInt", vec![a.clone(), b.clone()]);
+        let sentences = [
+            syntax_sort(vec![a.clone(), b.clone()], mint_ab.clone()),
+            syntax_sort(
+                Vec::new(),
+                Sort::with_parameters("MInt", vec![Sort::new("8"), Sort::new("16")]),
+            ),
+            production(
+                vec![a, b],
+                mint_ab,
+                "mk",
+                vec![nonterminal(Sort::new("Int"))],
+            ),
+        ];
+        concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_ground_parametric_result_is_concretized_once() {
+        // `MInt{8}` is one sort whatever `W` is, so `foo` has one instance, with `W` (which
+        // occurs only in an argument) at `K`, however many instances `MInt` has.
+        let w = Sort::new("W");
+        let k = Sort::new("K");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let sentences = [
+            syntax_sort(vec![w.clone()], mint(w.clone())),
+            syntax_sort(Vec::new(), mint(Sort::new("8"))),
+            syntax_sort(Vec::new(), mint(Sort::new("16"))),
+            production(
+                vec![w.clone()],
+                mint(Sort::new("8")),
+                "foo",
+                vec![nonterminal(mint(w.clone()))],
+            ),
+        ];
+        let plan = concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+
+        let [family] = plan.families.as_slice() else {
+            panic!(
+                "one formal production gives one family: {:?}",
+                plan.families
+            )
+        };
+        let [instance] = family.instances.as_slice() else {
+            panic!("`foo` has {} instances", family.instances.len())
+        };
+        assert_eq!(
+            instance.origin.substitution,
+            BTreeMap::from([(w, k.clone())])
+        );
+        let Sentence::Production { sort, items, .. } = &instance.sentence else {
+            unreachable!("an instance is a production")
+        };
+        assert_eq!(sort, &mint(Sort::new("8")));
+        let slots = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(slots, vec![mint(k)]);
     }
 
     #[cfg(not(feature = "z3-inference"))]

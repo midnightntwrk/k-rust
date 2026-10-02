@@ -11,6 +11,7 @@ use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
 };
 use crate::definition::AttributeKey;
+use crate::definition::production_kind::mentions_parameter;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, Sort, SortRole};
@@ -70,11 +71,11 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                         let missing_head = !parameters.contains(sort)
                             && !sorts.defined_heads().contains(&head)
                             && !sorts.synonym_map().contains_key(sort);
+                        // An operand that mentions no formal parameter at any depth names one
+                        // sort, so it must be a declared instance; one that mentions a parameter
+                        // names a family and is instantiated with the production.
                         let missing_instantiation = !sort.parameters.is_empty()
-                            && sort
-                                .parameters
-                                .iter()
-                                .all(|parameter| !parameters.contains(parameter))
+                            && !mentions_parameter(sort, parameters)
                             && !sorts
                                 .instantiations()
                                 .get(&head)

@@ -203,6 +203,28 @@ fn a_production_sort_with_a_nested_sort_parameter_is_no_instance() {
 }
 
 #[test]
+fn a_result_with_a_nested_parameter_is_not_a_declared_instance() {
+    // Property: a production result is a declared instance iff no formal parameter of the
+    // production occurs in it at any depth, so beside the ground declaration `MInt{8}` the
+    // result `MInt{MInt{W}}` adds nothing to the instances of `MInt`.
+    let w = Sort::new("W");
+    let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+    let nest = production(
+        mint(mint(w.clone())),
+        vec![w],
+        Vec::new(),
+        Attributes::default(),
+    );
+    let declaration = syntax_sort(Vec::new(), mint(Sort::new("8")), Attributes::default());
+    let catalog = SortCatalog::from_visible([&nest, &declaration]);
+
+    assert_eq!(
+        catalog.instantiations()[&SortHead::new("MInt", 1)],
+        BTreeSet::from([mint(Sort::new("8"))])
+    );
+}
+
+#[test]
 fn derives_synonym_hook_token_and_list_views() {
     let resolved = fixture();
     let catalog = resolved.sort_catalog(resolved.main_module_id());

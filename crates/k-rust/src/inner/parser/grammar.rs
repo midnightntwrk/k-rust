@@ -1208,9 +1208,12 @@ pub(super) fn render_parsing_production(production: &Production) -> String {
 /// (`Grammar::placeholder_sort`) and the concretization plan's bridges.
 ///
 /// The spelling has one `K` whatever the arity of `H`, so heads that share a name share the
-/// placeholder. `MInt` is the only parametric head the sort checks admit and only its arity-one
-/// head carries the hook; which placeholder a head of another arity should have belongs with the
-/// concretization cases that also assume one parameter (case 2 reads `parameters[0]`).
+/// placeholder. The sort checks admit `MInt` with one argument only, so for a loaded definition
+/// the one-`K` spelling is the placeholder of the only parametric head. A construction that
+/// bypasses the checks may bring a head of another arity: a slot of that head whose parameters
+/// have no parse-time value is written with one `K` per argument, which is not this spelling, so
+/// it is recognized at no placeholder, and the generated-grammar sort check (G1) reports such a
+/// slot of a generated production in debug builds.
 pub(super) fn placeholder_of(head: &SortHead) -> Sort {
     Sort::with_parameters(head.as_str(), vec![Sort::new(BuiltinSort::K.k_name())])
 }
