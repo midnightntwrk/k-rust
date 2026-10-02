@@ -1021,13 +1021,13 @@ trait RuleValidationStage: ValidationStage {
     type RuleCellIdentity: Ord;
     /// Configuration provenance is stored beside either a stable identity or a host reference.
     fn configuration_key(configuration: &Self::Configuration) -> &ProvenanceKey;
-    /// Descriptor configuration identities must have configuration kind; host references defer this check.
+    /// Host configuration references have no stable kind; `DescriptorStage::validate_configuration` must check the resolved Configuration kind.
     fn validate_configuration(
         configuration: &Self::Configuration,
     ) -> Result<(), StateTransportError>;
     /// Descriptor configurations compare stable identities; host configurations compare resolved type identities.
     fn same_configuration(left: &Self::Configuration, right: &Self::Configuration) -> bool;
-    /// Descriptor selected cells validate identity and ownership; host selected cells defer both checks.
+    /// Host selected cells have no stable owner kind; `DescriptorStage::validate_rule_cell` must check the resolved identity and Configuration or nominal Cell ownership.
     fn validate_rule_cell(
         cell: &Self::Cell,
         owner: &Self::Configuration,
@@ -1036,7 +1036,7 @@ trait RuleValidationStage: ValidationStage {
     fn rule_cell_identity(cell: &Self::Cell) -> Self::RuleCellIdentity;
     /// Cell provenance accompanies either a stable identity or a host identity.
     fn rule_cell_key(cell: &Self::Cell) -> &ProvenanceKey;
-    /// Descriptor binding sorts check declared item kind only; host binding sorts defer that check.
+    /// Host binding sorts have no stable kind; `DescriptorStage::validate_binding_sort` must check the resolved declared Sort kind.
     fn validate_binding_sort(sort: &Self::Sort) -> Result<(), StateTransportError>;
     /// Descriptor labels enter the rule key set; host labels are validated in an isolated set.
     fn insert_rule_label(
@@ -1046,11 +1046,13 @@ trait RuleValidationStage: ValidationStage {
     ) -> Result<(), StateTransportError>;
     /// Descriptor rules synthesize their declaration key; host rules do not collect it.
     fn insert_rule_declaration(keys: &mut BTreeSet<ProvenanceKey>, kind: SentenceKind);
-    /// Descriptor aliases reject duplicate bindings before HERE validation; host aliases defer to frame validation.
+    /// Descriptor aliases must retain their duplicate-binding error before HERE validation.
+    /// Host aliases must retain HERE-binding errors before the duplicate catalog error from frame validation.
+    /// These orders preserve each stage's existing first error for aliases with multiple faults.
     fn validate_alias_duplicates(
         bindings: &[ProtocolContextAliasBinding<Self::Sort>],
     ) -> Result<(), StateTransportError>;
-    /// Descriptor aliases count HERE occurrences in terms; host aliases defer occurrence validation.
+    /// Host alias validation must retain its binding/frame-only acceptance contract; `DescriptorStage::validate_alias_here` must count exactly one HERE content occurrence after resolution and before collector output.
     fn validate_alias_here(
         cells: &ProtocolRuleCells<Self::Cell, Term<Self>>,
         here: &str,

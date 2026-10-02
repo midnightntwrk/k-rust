@@ -868,11 +868,11 @@ trait ConfigurationValidationStage: ValidationStage {
     type CellIdentity: Ord;
     type FieldIdentity: Ord;
 
-    /// Descriptor configurations require the configuration kind; host owners have no stable kind.
+    /// Host owners have no stable kind; `DescriptorStage::validate_configuration_owner` must check the resolved Configuration kind.
     fn validate_configuration_owner(
         owner: &Self::InitializerOwner,
     ) -> Result<(), StateTransportError>;
-    /// Descriptor owners must name configurations or cells; host owners have no stable kind.
+    /// Host owners have no stable kind; `DescriptorStage::validate_declaration_owner` must check the resolved Configuration or Cell kind.
     fn validate_declaration_owner(
         owner: &Self::InitializerOwner,
     ) -> Result<(), StateTransportError>;
@@ -880,7 +880,7 @@ trait ConfigurationValidationStage: ValidationStage {
     fn owners_match(left: &Self::InitializerOwner, right: &Self::InitializerOwner) -> bool;
     /// Both stages retain the occurrence key on their different cell reference representations.
     fn cell_key(reference: &Self::Cell) -> &ProvenanceKey;
-    /// Descriptor cell identities validate owner kinds and field text; host identities need no text validation.
+    /// Host cell identities have no stable kind or field text; `DescriptorStage::validate_cell` must validate both after resolution.
     fn validate_cell(reference: &Self::Cell) -> Result<(), StateTransportError>;
     /// Descriptor cell owners compare stable identities; host cell owners compare resolved Rust types.
     fn cell_owned_by(reference: &Self::Cell, owner: &Self::InitializerOwner) -> bool;
@@ -888,31 +888,31 @@ trait ConfigurationValidationStage: ValidationStage {
     fn cell_identity(reference: &Self::Cell) -> Self::CellIdentity;
     /// Descriptor sibling fields compare text; host sibling fields compare resolved marker types.
     fn field_identity(reference: &Self::Cell) -> Self::FieldIdentity;
-    /// Descriptor field text must agree with the Rust spelling; host marker identities do not encode spelling.
+    /// Host marker identities do not encode spelling; `DescriptorStage::validate_field_spelling` must check the resolved field against its Rust spelling.
     fn validate_field_spelling(
         reference: &Self::Cell,
         spelling: &str,
     ) -> Result<(), StateTransportError>;
-    /// Descriptor initializer joins also check field spelling; host joins compare owner and marker types.
+    /// Host initializer joins compare owner and marker types; `DescriptorStage::initializer_field_matches` must also check the resolved field spelling.
     fn initializer_field_matches(
         reference: &Self::Cell,
         declaration: &StageCellField<Self>,
         owner: &Self::InitializerOwner,
     ) -> bool;
-    /// Descriptor leaf sorts validate their kinds and `KCell` content; host leaf sorts defer these checks.
+    /// Host leaf sorts have no stable kind; `DescriptorStage::validate_leaf_sort` must check the resolved kind and `KCell` content sort.
     fn validate_leaf_sort(
         wrapper: CellWrapper,
         sort: &Self::Sort,
     ) -> Result<(), StateTransportError>;
-    /// Descriptor arguments validate sort kinds; host arguments require a nonblank diagnostic path.
+    /// Host arguments require a nonblank diagnostic path; `DescriptorStage::validate_sort_argument` must check the resolved sort kind.
     fn validate_sort_argument(sort: &Self::Sort) -> Result<(), StateTransportError>;
     /// Both stages retain the occurrence key on their different nested declaration representations.
     fn declaration_key(declaration: &Self::CellDeclaration) -> &ProvenanceKey;
-    /// Descriptor nested declarations validate cell kinds; host declarations require a nonblank diagnostic path.
+    /// Host declarations require a nonblank diagnostic path; `DescriptorStage::validate_nested_declaration` must check the resolved Cell kind.
     fn validate_nested_declaration(
         declaration: &Self::CellDeclaration,
     ) -> Result<(), StateTransportError>;
-    /// Descriptor nested initializers validate cell kinds; host initializers defer validation of the target.
+    /// Host initializer targets have no stable kind; `DescriptorStage::validate_nested_initializer` must check the resolved Cell kind.
     fn validate_nested_initializer(
         declaration: &Self::CellDeclaration,
     ) -> Result<(), StateTransportError>;

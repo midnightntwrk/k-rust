@@ -8,9 +8,9 @@ use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
-    GrammarProductionItemKind, HookOperation, HookSignature, HookSortConstraint, ListOperation,
-    MapOperation, PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId,
-    SemanticId, SentenceKind, SetOperation, SourceMapKey,
+    GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
+    HookSortConstraint, ListOperation, MapOperation, PrecedenceRelation, ProductionAttribute,
+    ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind, SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -80,12 +80,16 @@ pub(crate) trait Validation: IrLevel {
         signatures: &Signatures<Self>,
         id: &Self::Declaration,
     ) -> Result<Signature<Self>, Self::Error>;
-    /// Definition cell terms require declared cell symbols; Semantic cell identities are unchecked here.
+    /// Definition cell references must retain their check before content validation.
+    /// Semantic references must be checked in the final reference pass after existing theory checks succeed.
+    const CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION: bool;
+    /// Cell references must name a registered fixed cell at the current level.
     fn require_cell(
         declarations: &Declarations<Self>,
+        cell_ids: &BTreeSet<Self::Cell>,
         cell: &Self::Cell,
     ) -> Result<(), Self::Error>;
-    /// Maps shared failures to the existing public variants, including Semantic boxed identities.
+    /// Maps shared failures to the level-specific public variants, including Semantic boxed identities.
     fn error(error: ValidationError<Self>) -> Self::Error;
 }
 
@@ -95,6 +99,9 @@ pub(crate) enum ValidationError<L: Validation> {
     BuiltinApplicationSignature(BuiltinOperation),
     CellFrameBindingMismatch(SemanticId),
     CellFrameSortMismatch,
+    ContextAliasFrameSortMismatch,
+    ContextAliasFrameBindingMismatch(SemanticId),
+    ContextAliasVariableClosure,
     ClaimBodyNotConfiguration(L::RuleId),
     ConfigurationRuleTargetMismatch(L::RuleId),
     ConfigurationRuleWithoutFixedConfiguration(L::RuleId),
@@ -117,6 +124,12 @@ pub(crate) enum ValidationError<L: Validation> {
     InvalidFormat,
     InvalidFunctionProduction,
     InvalidHookSignature(HookOperation),
+    InvalidBn128PointConstructor {
+        hook: HookOperation,
+        sort: String,
+        expected_signature: crate::Bn128PointSignature,
+        matching_constructors: usize,
+    },
     InvalidRulePriority(L::RuleId),
     InvalidSimplificationMetadata(L::RuleId),
     InvalidSimplificationRoot(L::RuleId),
@@ -184,6 +197,7 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
     declarations: &Declarations<L>,
     signatures: &Signatures<L>,
     sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let mut scope = BTreeMap::new();
@@ -218,6 +232,7 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
         declarations,
         signatures,
         sort_parents,
+        cell_ids,
         nodes,
     )?;
     let mut used = BTreeSet::new();
@@ -242,6 +257,10 @@ pub(crate) fn collect_initializer_variables<L: Validation>(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
+)]
 pub(crate) fn validate_initializer_forest<L: Validation>(
     cells: &[FixedCell<L::Sort, L::Cell>],
     initializer: &[FixedInitializerCell<L::Cell, IrTerm<L>>],
@@ -249,6 +268,7 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
     declarations: &Declarations<L>,
     signatures: &Signatures<L>,
     sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     if cells.len() != initializer.len() {
@@ -261,7 +281,15 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
         match (cell.content(), initialized.content()) {
             (FixedCellContent::Term { sort }, FixedInitializerContent::Term { term }) => {
                 require_sort::<L>(declarations, sort)?;
-                validate_term::<L>(term, scope, declarations, signatures, sort_parents, nodes)?;
+                validate_term::<L>(
+                    term,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
                 if term.sort() != sort {
                     return Err(L::error(ValidationError::InitializerLeafSortMismatch));
                 }
@@ -278,6 +306,7 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
                 declarations,
                 signatures,
                 sort_parents,
+                cell_ids,
                 nodes,
             )?,
             _ => return Err(L::error(ValidationError::InitializerTreeMismatch)),
@@ -286,15 +315,9 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
     Ok(())
 }
 
-pub(crate) fn validate_configuration_rewrite<L: Validation>(
-    rewrite: &FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
-    configuration: &FixedConfiguration<L::Sort, L::Cell, IrTerm<L>>,
-    scope: &BTreeMap<SemanticId, L::Sort>,
-    declarations: &Declarations<L>,
-    signatures: &Signatures<L>,
-    sort_parents: &SortParents<L>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), L::Error> {
+fn configuration_leaf_sorts<L: Validation>(
+    configuration: &Configuration<L>,
+) -> Result<BTreeMap<L::Cell, L::Sort>, L::Error> {
     fn leaves<L: Validation>(
         cells: &[FixedCell<L::Sort, L::Cell>],
         output: &mut BTreeMap<L::Cell, L::Sort>,
@@ -313,6 +336,24 @@ pub(crate) fn validate_configuration_rewrite<L: Validation>(
     }
     let mut leaf_sorts = BTreeMap::new();
     leaves::<L>(configuration.cells(), &mut leaf_sorts)?;
+    Ok(leaf_sorts)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
+)]
+pub(crate) fn validate_configuration_rewrite<L: Validation>(
+    rewrite: &FixedConfigurationRewrite<L::Cell, IrTerm<L>>,
+    configuration: &FixedConfiguration<L::Sort, L::Cell, IrTerm<L>>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let leaf_sorts = configuration_leaf_sorts::<L>(configuration)?;
     let mentioned = rewrite
         .clauses()
         .iter()
@@ -343,18 +384,111 @@ pub(crate) fn validate_configuration_rewrite<L: Validation>(
             declarations,
             signatures,
             sort_parents,
+            cell_ids,
             nodes,
         )?;
         if clause.before().sort() != sort {
             return Err(L::error(ValidationError::CellFrameSortMismatch));
         }
         if let CellPost::Replace { term } = clause.after() {
-            validate_term::<L>(term, scope, declarations, signatures, sort_parents, nodes)?;
+            validate_term::<L>(
+                term,
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
             if term.sort() != sort {
                 return Err(L::error(ValidationError::CellFrameSortMismatch));
             }
         }
         validate_cell_frame::<L>(clause, sort, scope, nodes)?;
+    }
+    Ok(())
+}
+
+/// Both levels must validate alias names, scopes, cell references, terms, and provenance with the same contracts.
+pub(crate) fn validate_context_alias<L: Validation>(
+    alias: &crate::IrContextAlias<L>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    if alias.name().trim().is_empty()
+        || !alias
+            .variables()
+            .iter()
+            .any(|variable| variable.id() == alias.here())
+    {
+        return Err(L::error(ValidationError::EmptyText(
+            crate::IrField::ContextAliasNameHere,
+        )));
+    }
+    let scope = variable_scope::<L>(alias.variables(), declarations)?;
+    for cell in alias.body().cells() {
+        L::require_cell(declarations, cell_ids, cell.cell())?;
+        insert_node::<L>(nodes, cell.origin().key())?;
+        validate_term::<L>(
+            cell.pattern(),
+            &scope,
+            declarations,
+            signatures,
+            sort_parents,
+            cell_ids,
+            nodes,
+        )?;
+        if let CellContentFrame::KSequenceTail { origin, .. }
+        | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
+        {
+            insert_node::<L>(nodes, origin.key())?;
+        }
+    }
+    Ok(())
+}
+
+/// Frame and closure checks must run after existing theory checks so existing errors retain precedence.
+/// HERE must retain its authored term sort; named K/Map frame bindings must count as uses.
+/// Lowering erases configuration-remainder bindings from the alias scope.
+pub(crate) fn validate_context_alias_frames<L: Validation>(
+    alias: &crate::IrContextAlias<L>,
+    configuration: Option<&Configuration<L>>,
+    declarations: &Declarations<L>,
+) -> Result<(), L::Error> {
+    let scope = variable_scope::<L>(alias.variables(), declarations)?;
+    let leaf_sorts = configuration
+        .map(configuration_leaf_sorts::<L>)
+        .transpose()?
+        .unwrap_or_default();
+    let mut used = BTreeSet::new();
+    for cell in alias.body().cells() {
+        collect_term_variables::<L>(cell.pattern(), &mut used);
+        let (binding, required_sort) = match cell.frame() {
+            CellContentFrame::Exact => continue,
+            CellContentFrame::KSequenceTail { binding, .. } => {
+                (binding, L::builtin_sort(BuiltinSort::KSequence))
+            }
+            CellContentFrame::MapRemainder { binding, .. } => {
+                (binding, L::builtin_sort(BuiltinSort::Map))
+            }
+        };
+        if leaf_sorts.get(cell.cell()) != Some(&required_sort) {
+            return Err(L::error(ValidationError::ContextAliasFrameSortMismatch));
+        }
+        if let Some(binding) = binding {
+            if scope.get(binding) != Some(&required_sort) {
+                return Err(L::error(ValidationError::ContextAliasFrameBindingMismatch(
+                    binding.clone(),
+                )));
+            }
+            used.insert(binding.clone());
+        }
+    }
+    if used != scope.keys().cloned().collect() {
+        return Err(L::error(ValidationError::ContextAliasVariableClosure));
     }
     Ok(())
 }
@@ -401,6 +535,7 @@ pub(crate) fn validate_rule<L: Validation>(
     functional_productions: &BTreeSet<L::Declaration>,
     alias_productions: &BTreeSet<L::Declaration>,
     sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let rule = L::rule_view(sentence);
@@ -438,6 +573,7 @@ pub(crate) fn validate_rule<L: Validation>(
                 declarations,
                 signatures,
                 sort_parents,
+                cell_ids,
                 nodes,
             )?;
             validate_term::<L>(
@@ -446,6 +582,7 @@ pub(crate) fn validate_rule<L: Validation>(
                 declarations,
                 signatures,
                 sort_parents,
+                cell_ids,
                 nodes,
             )?;
             if !is_subsort::<L>(body.from().sort(), body.sort(), sort_parents)
@@ -518,6 +655,7 @@ pub(crate) fn validate_rule<L: Validation>(
                 declarations,
                 signatures,
                 sort_parents,
+                cell_ids,
                 nodes,
             )?;
         }
@@ -556,6 +694,7 @@ pub(crate) fn validate_rule<L: Validation>(
             declarations,
             signatures,
             sort_parents,
+            cell_ids,
             nodes,
         )?;
         if condition.term().sort() != &L::builtin_sort(BuiltinSort::Bool) {
@@ -570,6 +709,7 @@ pub(crate) fn validate_rule<L: Validation>(
             declarations,
             signatures,
             sort_parents,
+            cell_ids,
             nodes,
         )?;
     }
@@ -609,6 +749,10 @@ pub(crate) fn validate_rule<L: Validation>(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validation carries the cell registry alongside declaration, sort, scope, and provenance contexts."
+)]
 pub(crate) fn validate_claim<L: Validation>(
     sentence: &L::Rule,
     claim: &IrClaim<L>,
@@ -616,6 +760,7 @@ pub(crate) fn validate_claim<L: Validation>(
     declarations: &Declarations<L>,
     signatures: &Signatures<L>,
     sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     let rule = L::rule_view(sentence);
@@ -671,6 +816,7 @@ pub(crate) fn validate_claim<L: Validation>(
             declarations,
             signatures,
             sort_parents,
+            cell_ids,
             nodes,
         )?;
         if ensures.term().sort() != &L::builtin_sort(BuiltinSort::Bool) {
@@ -689,6 +835,81 @@ pub(crate) fn validate_claim<L: Validation>(
                 binder.id().clone(),
             )));
         }
+    }
+    Ok(())
+}
+
+/// Semantic cell membership must be checked after existing term and sentence checks succeed.
+pub(crate) fn validate_term_cell_references<L: Validation>(
+    term: &IrTerm<L>,
+    declarations: &Declarations<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+) -> Result<(), L::Error> {
+    let children = match term.kind() {
+        IrTermKind::Cell { cell, children } => {
+            L::require_cell(declarations, cell_ids, cell)?;
+            children
+        }
+        IrTermKind::Application { arguments, .. }
+        | IrTermKind::Map { arguments, .. }
+        | IrTermKind::List { arguments, .. }
+        | IrTermKind::Set { arguments, .. } => arguments,
+        IrTermKind::KSequence { items, .. } => items,
+        IrTermKind::Rewrite { from, to } => {
+            validate_term_cell_references::<L>(from, declarations, cell_ids)?;
+            return validate_term_cell_references::<L>(to, declarations, cell_ids);
+        }
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => return Ok(()),
+    };
+    for child in children {
+        validate_term_cell_references::<L>(child, declarations, cell_ids)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_initializer_cell_references<L: Validation>(
+    initializer: &[FixedInitializerCell<L::Cell, IrTerm<L>>],
+    declarations: &Declarations<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+) -> Result<(), L::Error> {
+    for cell in initializer {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => {
+                validate_term_cell_references::<L>(term, declarations, cell_ids)?;
+            }
+            FixedInitializerContent::Children { children } => {
+                validate_initializer_cell_references::<L>(children, declarations, cell_ids)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_rule_cell_references<L: Validation>(
+    sentence: &L::Rule,
+    declarations: &Declarations<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+) -> Result<(), L::Error> {
+    let rule = L::rule_view(sentence);
+    match rule.body {
+        RuleBodyRef::Term(body) => {
+            validate_term_cell_references::<L>(body.from(), declarations, cell_ids)?;
+            validate_term_cell_references::<L>(body.to(), declarations, cell_ids)?;
+        }
+        RuleBodyRef::Configuration { body, .. } => {
+            for clause in body.clauses() {
+                validate_term_cell_references::<L>(clause.before(), declarations, cell_ids)?;
+                if let CellPost::Replace { term } = clause.after() {
+                    validate_term_cell_references::<L>(term, declarations, cell_ids)?;
+                }
+            }
+        }
+    }
+    if let Some(condition) = rule.requires {
+        validate_term_cell_references::<L>(condition.term(), declarations, cell_ids)?;
+    }
+    if let Some(ensures) = rule.claim.and_then(IrClaim::ensures) {
+        validate_term_cell_references::<L>(ensures.term(), declarations, cell_ids)?;
     }
     Ok(())
 }
@@ -737,6 +958,7 @@ pub(crate) fn validate_term<L: Validation>(
     declarations: &Declarations<L>,
     signatures: &Signatures<L>,
     sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
     insert_node::<L>(nodes, term.origin().key())?;
@@ -789,6 +1011,7 @@ pub(crate) fn validate_term<L: Validation>(
                     declarations,
                     signatures,
                     sort_parents,
+                    cell_ids,
                     nodes,
                 )?;
             }
@@ -806,7 +1029,15 @@ pub(crate) fn validate_term<L: Validation>(
                 return Err(L::error(ValidationError::SequenceSortMismatch));
             }
             for item in items {
-                validate_term::<L>(item, scope, declarations, signatures, sort_parents, nodes)?;
+                validate_term::<L>(
+                    item,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
                 if !is_subsort::<L>(item.sort(), item_sort, sort_parents) {
                     return Err(L::error(ValidationError::SequenceItemSortMismatch));
                 }
@@ -847,6 +1078,7 @@ pub(crate) fn validate_term<L: Validation>(
                     declarations,
                     signatures,
                     sort_parents,
+                    cell_ids,
                     nodes,
                 )?;
             }
@@ -915,6 +1147,7 @@ pub(crate) fn validate_term<L: Validation>(
                     declarations,
                     signatures,
                     sort_parents,
+                    cell_ids,
                     nodes,
                 )?;
             }
@@ -951,22 +1184,49 @@ pub(crate) fn validate_term<L: Validation>(
                     declarations,
                     signatures,
                     sort_parents,
+                    cell_ids,
                     nodes,
                 )?;
             }
         }
         IrTermKind::Cell { cell, children } => {
-            L::require_cell(declarations, cell)?;
+            if L::CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION {
+                L::require_cell(declarations, cell_ids, cell)?;
+            }
             if children.is_empty() {
                 return Err(L::error(ValidationError::InvalidCellFraming));
             }
             for child in children {
-                validate_term::<L>(child, scope, declarations, signatures, sort_parents, nodes)?;
+                validate_term::<L>(
+                    child,
+                    scope,
+                    declarations,
+                    signatures,
+                    sort_parents,
+                    cell_ids,
+                    nodes,
+                )?;
             }
         }
         IrTermKind::Rewrite { from, to } => {
-            validate_term::<L>(from, scope, declarations, signatures, sort_parents, nodes)?;
-            validate_term::<L>(to, scope, declarations, signatures, sort_parents, nodes)?;
+            validate_term::<L>(
+                from,
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
+            validate_term::<L>(
+                to,
+                scope,
+                declarations,
+                signatures,
+                sort_parents,
+                cell_ids,
+                nodes,
+            )?;
             if !is_subsort::<L>(from.sort(), term.sort(), sort_parents)
                 || !is_subsort::<L>(to.sort(), term.sort(), sort_parents)
             {
@@ -1294,4 +1554,98 @@ pub(crate) fn collect_configuration_nodes<L: Validation>(
     }
     cells::<L>(configuration.cells(), registration, nodes)?;
     initializer::<L>(configuration.initializer(), nodes)
+}
+
+pub(crate) struct ProductionView<'a, L: Validation> {
+    pub result_sort: &'a L::Sort,
+    pub items: &'a [GrammarProductionItem<L::Sort>],
+    pub attributes: &'a [ProductionAttribute<L::Sort>],
+}
+
+/// BN128 hooks must use the backend's named point sorts and unique integer-field constructors.
+/// Semantic sort names must use the explicit symbol's final component, or the authored item name, as in Definition lowering.
+pub(crate) fn validate_hook_point_constructors<'a, L: Validation>(
+    sorts: &BTreeMap<&'a L::Declaration, &'a str>,
+    productions: impl Iterator<Item = ProductionView<'a, L>>,
+) -> Result<(), L::Error>
+where
+    L::Sort: 'a,
+    L::Declaration: 'a,
+{
+    let productions = productions.collect::<Vec<_>>();
+    let check =
+        |hook, expected_signature: crate::Bn128PointSignature, used_sort: Option<&L::Sort>| {
+            let expected_sort = expected_signature.sort_name();
+            let arity = expected_signature.arity();
+            let sort = if let Some(used_sort) = used_sort {
+                L::declared_sort(used_sort)
+            } else {
+                sorts
+                    .iter()
+                    .find(|(_, name)| **name == expected_sort)
+                    .map(|(id, _)| *id)
+            };
+            let sort_name = sort
+                .and_then(|id| sorts.get(id).copied())
+                .unwrap_or(expected_sort);
+            let matching_constructors = productions
+                .iter()
+                .filter(|production| {
+                    L::declared_sort(production.result_sort).is_some_and(|id| Some(id) == sort)
+                        && !production.attributes.iter().any(|attribute| {
+                            matches!(
+                                attribute,
+                                ProductionAttribute::Function { .. }
+                                    | ProductionAttribute::Alias { .. }
+                                    | ProductionAttribute::Token { .. }
+                                    | ProductionAttribute::Bracket { .. }
+                            )
+                        })
+                        && production
+                            .items
+                            .iter()
+                            .filter_map(|item| match item.kind() {
+                                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            == vec![&L::builtin_sort(BuiltinSort::Int); arity]
+                })
+                .count();
+            if sort_name == expected_sort && matching_constructors == 1 {
+                Ok(())
+            } else {
+                Err(L::error(ValidationError::InvalidBn128PointConstructor {
+                    hook,
+                    sort: sort_name.to_owned(),
+                    expected_signature,
+                    matching_constructors,
+                }))
+            }
+        };
+    for production in &productions {
+        let Some(hook) = production
+            .attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                ProductionAttribute::Hook { operation, .. } => Some(*operation),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        let first_argument = production.items.iter().find_map(|item| match item.kind() {
+            GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+            _ => None,
+        });
+        for constraint in hook.spec().signature.point_constructors() {
+            let used_sort = match constraint.source {
+                HookPointSortSource::FirstArgument => first_argument,
+                HookPointSortSource::Result => Some(production.result_sort),
+                HookPointSortSource::Named => None,
+            };
+            check(hook, constraint.signature, used_sort)?;
+        }
+    }
+    Ok(())
 }

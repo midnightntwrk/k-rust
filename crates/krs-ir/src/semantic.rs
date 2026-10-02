@@ -13,9 +13,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::SemanticLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_node, require_kind, require_sort,
-    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_subsort_order,
+    collect_configuration_nodes, insert_node, require_kind, require_sort, validate_context_alias,
+    validate_context_alias_frames, validate_fixed_configuration,
+    validate_initializer_cell_references, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_rule_cell_references, validate_subsort_order,
+    validate_term_cell_references,
 };
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
@@ -186,6 +188,7 @@ impl SemanticTheory {
         let mut sort_parents: BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> = BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut semantic_ids = BTreeSet::new();
+        let mut cell_ids = BTreeSet::new();
         let mut configurations = 0_usize;
 
         for module in &self.modules {
@@ -312,7 +315,7 @@ impl SemanticTheory {
                 )?;
                 collect_configuration_nodes::<SemanticLevel>(
                     configuration,
-                    &mut &mut semantic_ids,
+                    &mut (&mut semantic_ids, &mut cell_ids),
                     &mut node_keys,
                 )?;
             }
@@ -383,6 +386,7 @@ impl SemanticTheory {
                     &declarations,
                     &production_signatures,
                     &sort_parents,
+                    &cell_ids,
                     &mut node_keys,
                 )?;
             }
@@ -395,12 +399,72 @@ impl SemanticTheory {
                     &functional_productions,
                     &alias_productions,
                     &sort_parents,
+                    &cell_ids,
                     &mut node_keys,
                 )?;
             }
         }
         validate_precedence_order::<SemanticLevel>(&self.modules)?;
         validate_subsort_order::<SemanticLevel>(&sort_parents)?;
+        for module in &self.modules {
+            if let Some(configuration) = &module.configuration {
+                validate_initializer_cell_references::<SemanticLevel>(
+                    configuration.initializer(),
+                    &declarations,
+                    &cell_ids,
+                )?;
+            }
+            for rule in &module.rules {
+                validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)?;
+            }
+            for alias in &module.context_aliases {
+                validate_context_alias::<SemanticLevel>(
+                    alias,
+                    &declarations,
+                    &production_signatures,
+                    &sort_parents,
+                    &cell_ids,
+                    &mut node_keys,
+                )?;
+                for cell in alias.body().cells() {
+                    validate_term_cell_references::<SemanticLevel>(
+                        cell.pattern(),
+                        &declarations,
+                        &cell_ids,
+                    )?;
+                }
+                validate_context_alias_frames::<SemanticLevel>(
+                    alias,
+                    fixed_configuration,
+                    &declarations,
+                )?;
+            }
+        }
+        let sorts = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sorts)
+            .map(|sort| {
+                let name = sort.explicit_symbol.as_ref().map_or_else(
+                    || sort.id.item_name(),
+                    crate::ExplicitSymbol::final_component,
+                );
+                (&sort.id, name)
+            })
+            .collect();
+        let productions = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.productions)
+            .map(|production| crate::ir_validation::ProductionView {
+                result_sort: &production.result_sort,
+                items: &production.items,
+                attributes: &production.attributes,
+            });
+        crate::ir_validation::validate_hook_point_constructors::<SemanticLevel>(
+            &sorts,
+            productions,
+        )?;
         Ok(())
     }
 }
@@ -1125,6 +1189,8 @@ pub enum SemanticValidationError {
     DanglingModule(ModuleId),
     /// An item reference names no declaration.
     DanglingItem(Box<StableItemId>),
+    /// A cell reference names no registered fixed cell.
+    DanglingCell(SemanticId),
     /// An item is used in a namespace other than its declaration kind.
     WrongItemKind {
         /// Referenced item.
@@ -1152,6 +1218,17 @@ pub enum SemanticValidationError {
     InvalidFunctionProduction,
     /// A typed hook's declared result or argument sorts did not match its catalog signature.
     InvalidHookSignature(HookOperation),
+    /// A BN128 hook lacks a unique constructor for its required point sort.
+    InvalidBn128PointConstructor {
+        /// The hook requiring the point.
+        hook: HookOperation,
+        /// The declared sort used by the hook, if any.
+        sort: String,
+        /// The point signature required by the backend.
+        expected_signature: crate::Bn128PointSignature,
+        /// Constructors matching that signature in the theory.
+        matching_constructors: usize,
+    },
     /// Alias and function metadata occurred on the same production.
     InvalidAliasProduction,
     /// A precedence or associativity sentence referenced no production group.
@@ -1232,6 +1309,12 @@ pub enum SemanticValidationError {
     InvalidCellFraming,
     /// A cell-content frame is incompatible with its leaf sort.
     CellFrameSortMismatch,
+    /// A context-alias frame is incompatible with its leaf-cell sort.
+    ContextAliasFrameSortMismatch,
+    /// A context-alias frame binding is absent or has the wrong sort.
+    ContextAliasFrameBindingMismatch(SemanticId),
+    /// Context-alias declarations differ from term and frame uses.
+    ContextAliasVariableClosure,
     /// A named sequence/map frame binding is absent or has the wrong sort.
     CellFrameBindingMismatch(SemanticId),
 }
@@ -1248,6 +1331,10 @@ impl fmt::Display for SemanticValidationError {
                 write!(formatter, "dangling module reference {id}")
             }
             Self::DanglingItem(id) => write!(formatter, "dangling item reference {id}"),
+            Self::DanglingCell(id) => write!(
+                formatter,
+                "cell reference `{id}` has no fixed-cell declaration"
+            ),
             Self::WrongItemKind {
                 id,
                 expected,
@@ -1387,6 +1474,15 @@ impl fmt::Display for SemanticValidationError {
                     "hook has invalid production signature {operation}"
                 )
             }
+            Self::InvalidBn128PointConstructor {
+                hook,
+                sort,
+                expected_signature,
+                matching_constructors,
+            } => write!(
+                formatter,
+                "hook {hook} requires a unique {expected_signature} constructor; sort {sort} has {matching_constructors} matching constructors"
+            ),
             Self::InvalidAliasProduction => {
                 formatter.write_str("alias metadata cannot be combined with function metadata")
             }
@@ -1420,6 +1516,16 @@ impl fmt::Display for SemanticValidationError {
             Self::InvalidCellFraming => formatter.write_str(
                 "configuration rewrite must mention or explicitly omit every fixed leaf cell",
             ),
+            Self::ContextAliasFrameSortMismatch => {
+                formatter.write_str("context-alias frame is incompatible with its leaf-cell sort")
+            }
+            Self::ContextAliasFrameBindingMismatch(id) => write!(
+                formatter,
+                "context-alias frame binding `{id}` is absent or has the wrong sort"
+            ),
+            Self::ContextAliasVariableClosure => {
+                formatter.write_str("context-alias declarations differ from term and frame uses")
+            }
             Self::CellFrameSortMismatch => {
                 formatter.write_str("cell-content frame is incompatible with cell sort")
             }
@@ -1659,6 +1765,7 @@ mod tests {
             &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &BTreeSet::new(),
             &mut BTreeSet::new(),
         )
     }
@@ -1749,6 +1856,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::InvalidClaimMetadata(_))
@@ -1768,6 +1876,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::InvalidClaimMetadata(_))
@@ -1787,6 +1896,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::ClaimLabelRequired(_))
@@ -1817,6 +1927,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::ClaimBodyNotConfiguration(_))
@@ -1836,6 +1947,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(SemanticValidationError::InvalidClaimMetadata(_))

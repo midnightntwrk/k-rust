@@ -23,6 +23,13 @@ macro_rules! validation_error {
             }
             ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
             ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
+            ValidationError::ContextAliasFrameSortMismatch => {
+                $public::ContextAliasFrameSortMismatch
+            }
+            ValidationError::ContextAliasFrameBindingMismatch(id) => {
+                $public::ContextAliasFrameBindingMismatch(id)
+            }
+            ValidationError::ContextAliasVariableClosure => $public::ContextAliasVariableClosure,
             ValidationError::ClaimBodyNotConfiguration(id) => {
                 $public::ClaimBodyNotConfiguration($identity(id))
             }
@@ -56,6 +63,17 @@ macro_rules! validation_error {
             ValidationError::InvalidEquationRoot(id) => $public::InvalidEquationRoot($identity(id)),
             ValidationError::InvalidFormat => $public::InvalidFormat,
             ValidationError::InvalidFunctionProduction => $public::InvalidFunctionProduction,
+            ValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort,
+                expected_signature,
+                matching_constructors,
+            } => $public::InvalidBn128PointConstructor {
+                hook,
+                sort,
+                expected_signature,
+                matching_constructors,
+            },
             ValidationError::InvalidHookSignature(operation) => {
                 $public::InvalidHookSignature(operation)
             }
@@ -92,6 +110,7 @@ macro_rules! validation_error {
 }
 
 impl Validation for SemanticLevel {
+    const CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION: bool = false;
     type Kind = ItemKind;
     type Rule = SemanticRule;
     type RuleId = StableItemId;
@@ -100,7 +119,7 @@ impl Validation for SemanticLevel {
     fn precedences(module: &Self::Module) -> impl Iterator<Item = &PrecedenceRelation> {
         module.precedences().iter()
     }
-    type Registration<'a> = &'a mut BTreeSet<SemanticId>;
+    type Registration<'a> = (&'a mut BTreeSet<SemanticId>, &'a mut BTreeSet<SemanticId>);
 
     fn rule_view(rule: &Self::Rule) -> RuleView<'_, Self> {
         RuleView {
@@ -177,15 +196,24 @@ impl Validation for SemanticLevel {
             .ok_or_else(|| SemanticValidationError::DanglingProduction(Box::new(id.clone())))
     }
 
-    fn require_cell(_: &Declarations<Self>, _: &Self::Cell) -> Result<(), Self::Error> {
-        Ok(())
+    fn require_cell(
+        _: &Declarations<Self>,
+        cell_ids: &BTreeSet<Self::Cell>,
+        cell: &Self::Cell,
+    ) -> Result<(), Self::Error> {
+        if cell_ids.contains(cell) {
+            Ok(())
+        } else {
+            Err(SemanticValidationError::DanglingCell(cell.clone()))
+        }
     }
 
     fn register_cell(
         registration: &mut Self::Registration<'_>,
         cell: &FixedCell<Self::Sort, Self::Cell>,
     ) -> Result<(), Self::Error> {
-        if registration.insert(cell.id().clone()) {
+        if registration.0.insert(cell.id().clone()) {
+            registration.1.insert(cell.id().clone());
             Ok(())
         } else {
             Err(SemanticValidationError::DuplicateId {
@@ -201,6 +229,7 @@ impl Validation for SemanticLevel {
 }
 
 impl Validation for DefinitionLevel {
+    const CHECK_CELL_REFERENCES_DURING_TERM_VALIDATION: bool = true;
     type Kind = SymbolKind;
     type Rule = RuleSentence;
     type RuleId = LabelId;
@@ -285,6 +314,7 @@ impl Validation for DefinitionLevel {
 
     fn require_cell(
         declarations: &Declarations<Self>,
+        _: &BTreeSet<Self::Cell>,
         cell: &Self::Cell,
     ) -> Result<(), Self::Error> {
         require_kind::<Self>(declarations, cell, SymbolKind::Cell)

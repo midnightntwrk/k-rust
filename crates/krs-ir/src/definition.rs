@@ -13,19 +13,19 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::ir::validated_id;
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_node, require_kind, require_sort,
-    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_subsort_order, validate_term, variable_scope,
+    collect_configuration_nodes, insert_node, require_kind, require_sort, validate_context_alias,
+    validate_context_alias_frames, validate_fixed_configuration, validate_precedence_order,
+    validate_production_shape, validate_rule, validate_subsort_order,
 };
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, GrammarProductionItem,
-    GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, HookPointSortSource,
-    IrIdentityError, ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin,
-    PrecedenceRelation, ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId,
-    SentenceKind, SetOperation, SourceMapKey, StableItemId,
+    GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
+    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
+    ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
+    SourceMapKey, StableItemId,
 };
-use crate::{CellContentFrame, FixedConfiguration, FixedConfigurationRewrite};
+use crate::{FixedConfiguration, FixedConfigurationRewrite};
 
 impl SortKey for DefinitionModule {
     type Key = ModuleId;
@@ -562,16 +562,20 @@ impl DefinitionIr {
                             &symbols,
                             &production_signatures,
                             &subsort_parents,
+                            &BTreeSet::new(),
                             &mut nodes,
                         )?;
                     }
-                    DefinitionSentence::ContextAlias(sentence) => validate_context_alias(
-                        sentence,
-                        &symbols,
-                        &production_signatures,
-                        &subsort_parents,
-                        &mut nodes,
-                    )?,
+                    DefinitionSentence::ContextAlias(sentence) => {
+                        validate_context_alias::<DefinitionLevel>(
+                            sentence,
+                            &symbols,
+                            &production_signatures,
+                            &subsort_parents,
+                            &BTreeSet::new(),
+                            &mut nodes,
+                        )?;
+                    }
                     DefinitionSentence::Rule(sentence) => {
                         validate_rule::<DefinitionLevel>(
                             sentence,
@@ -581,6 +585,7 @@ impl DefinitionIr {
                             &functional_productions,
                             &alias_productions,
                             &subsort_parents,
+                            &BTreeSet::new(),
                             &mut nodes,
                         )?;
                     }
@@ -590,6 +595,17 @@ impl DefinitionIr {
         validate_hook_point_constructors(&self.modules)?;
         validate_precedence_order::<DefinitionLevel>(&self.modules)?;
         validate_subsort_order::<DefinitionLevel>(&subsort_parents)?;
+        for module in &self.modules {
+            for sentence in &module.sentences {
+                if let DefinitionSentence::ContextAlias(alias) = sentence {
+                    validate_context_alias_frames::<DefinitionLevel>(
+                        alias,
+                        fixed_configuration,
+                        &symbols,
+                    )?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -1291,6 +1307,12 @@ pub enum DefinitionValidationError {
     InvalidCellFraming,
     /// A cell-content frame is incompatible with its leaf sort.
     CellFrameSortMismatch,
+    /// A context-alias frame is incompatible with its leaf-cell sort.
+    ContextAliasFrameSortMismatch,
+    /// A context-alias frame binding is absent or has the wrong sort.
+    ContextAliasFrameBindingMismatch(SemanticId),
+    /// Context-alias declarations differ from term and frame uses.
+    ContextAliasVariableClosure,
     /// A named sequence/map frame binding is absent or has the wrong sort.
     CellFrameBindingMismatch(SemanticId),
 }
@@ -1484,6 +1506,16 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidCellFraming => formatter.write_str(
                 "configuration rewrite must mention or explicitly omit every fixed leaf cell",
             ),
+            Self::ContextAliasFrameSortMismatch => {
+                formatter.write_str("context-alias frame is incompatible with its leaf-cell sort")
+            }
+            Self::ContextAliasFrameBindingMismatch(id) => write!(
+                formatter,
+                "context-alias frame binding `{id}` is absent or has the wrong sort"
+            ),
+            Self::ContextAliasVariableClosure => {
+                formatter.write_str("context-alias declarations differ from term and frame uses")
+            }
             Self::CellFrameSortMismatch => {
                 formatter.write_str("cell-content frame is incompatible with cell sort")
             }
@@ -1605,44 +1637,6 @@ fn validate_production(
     Ok(())
 }
 
-fn validate_context_alias(
-    sentence: &ContextAliasSentence,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    if sentence.name.trim().is_empty()
-        || !sentence
-            .variables
-            .iter()
-            .any(|variable| variable.id() == &sentence.here)
-    {
-        return Err(DefinitionValidationError::EmptyText(
-            crate::IrField::ContextAliasNameHere,
-        ));
-    }
-    let scope = variable_scope::<DefinitionLevel>(&sentence.variables, symbols)?;
-    for cell in sentence.body.cells() {
-        require_kind::<DefinitionLevel>(symbols, cell.cell(), SymbolKind::Cell)?;
-        insert_node::<DefinitionLevel>(nodes, cell.origin().key())?;
-        validate_term::<DefinitionLevel>(
-            cell.pattern(),
-            &scope,
-            symbols,
-            signatures,
-            subsort_parents,
-            nodes,
-        )?;
-        if let CellContentFrame::KSequenceTail { origin, .. }
-        | CellContentFrame::MapRemainder { origin, .. } = cell.frame()
-        {
-            insert_node::<DefinitionLevel>(nodes, origin.key())?;
-        }
-    }
-    Ok(())
-}
-
 fn require_definition_group(
     groups: &BTreeSet<ProductionGroupId>,
     group: &ProductionGroupId,
@@ -1668,100 +1662,29 @@ fn validate_hook_point_constructors(
             }
             _ => None,
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect();
     let productions = modules
         .iter()
         .flat_map(|module| &module.sentences)
         .filter_map(|sentence| match sentence {
-            DefinitionSentence::Production(production) => Some(production),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let check = |hook,
-                 expected_signature: crate::Bn128PointSignature,
-                 used_sort: Option<&DefinitionSortRef>| {
-        let expected_sort = expected_signature.sort_name();
-        let arity = expected_signature.arity();
-        let sort = if let Some(used_sort) = used_sort {
-            match used_sort {
-                DefinitionSortRef::Declared(id) => Some(id),
-                DefinitionSortRef::Builtin(_) => None,
+            DefinitionSentence::Production(production) => {
+                Some(crate::ir_validation::ProductionView {
+                    result_sort: production.result_sort(),
+                    items: production.items(),
+                    attributes: production.attributes(),
+                })
             }
-        } else {
-            sorts
-                .iter()
-                .find(|(_, name)| **name == expected_sort)
-                .map(|(id, _)| *id)
-        };
-        let sort_name = sort
-            .and_then(|id| sorts.get(id).copied())
-            .unwrap_or(expected_sort);
-        let matching_constructors = productions
-            .iter()
-            .filter(|production| {
-                matches!(production.result_sort(), DefinitionSortRef::Declared(id) if Some(id) == sort)
-                    && !production.attributes().iter().any(|attribute| {
-                        matches!(attribute, ProductionAttribute::Function { .. }
-                            | ProductionAttribute::Alias { .. }
-                            | ProductionAttribute::Token { .. }
-                            | ProductionAttribute::Bracket { .. })
-                    })
-                    && production
-                        .items()
-                        .iter()
-                        .filter_map(|item| match item.kind() {
-                            GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>() == vec![&DefinitionSortRef::int(); arity]
-            })
-            .count();
-        if sort_name == expected_sort && matching_constructors == 1 {
-            Ok(())
-        } else {
-            Err(DefinitionValidationError::InvalidBn128PointConstructor {
-                hook,
-                sort: sort_name.to_owned(),
-                expected_signature,
-                matching_constructors,
-            })
-        }
-    };
-    for production in &productions {
-        let Some(hook) = production
-            .attributes()
-            .iter()
-            .find_map(|attribute| match attribute {
-                ProductionAttribute::Hook { operation, .. } => Some(*operation),
-                _ => None,
-            })
-        else {
-            continue;
-        };
-        let first_argument = production
-            .items()
-            .iter()
-            .find_map(|item| match item.kind() {
-                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
-                _ => None,
-            });
-        for constraint in hook.spec().signature.point_constructors() {
-            let used_sort = match constraint.source {
-                HookPointSortSource::FirstArgument => first_argument,
-                HookPointSortSource::Result => Some(production.result_sort()),
-                HookPointSortSource::Named => None,
-            };
-            check(hook, constraint.signature, used_sort)?;
-        }
-    }
-    Ok(())
+            _ => None,
+        });
+    crate::ir_validation::validate_hook_point_constructors::<DefinitionLevel>(&sorts, productions)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CellContentFrame;
     use crate::ClaimModality;
-    use crate::ir_validation::validate_claim;
+    use crate::ir_validation::{validate_claim, variable_scope};
     use crate::{CellPost, FixedCellClause};
 
     #[test]
@@ -1918,6 +1841,7 @@ mod tests {
             &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &BTreeSet::new(),
             &mut BTreeSet::new(),
         )
     }
@@ -1987,6 +1911,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(DefinitionValidationError::InvalidClaimMetadata(_))
@@ -2006,6 +1931,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(DefinitionValidationError::InvalidClaimMetadata(_))
@@ -2036,6 +1962,7 @@ mod tests {
                 &BTreeSet::new(),
                 &BTreeSet::new(),
                 &BTreeMap::new(),
+                &BTreeSet::new(),
                 &mut BTreeSet::new(),
             ),
             Err(DefinitionValidationError::ClaimBodyNotConfiguration(_))

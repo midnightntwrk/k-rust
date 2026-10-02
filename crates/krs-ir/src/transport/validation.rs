@@ -12,16 +12,18 @@ use super::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorLiteral, GrammarTransportError, Term,
 };
 
+/// Host references carry Rust type keys without stable item kinds or field text.
+/// Collector output must pass `Descriptor::new` after resolution, which runs the descriptor-stage contracts.
 pub(crate) trait ValidationStage: Stage {
     /// Reads sort provenance from an unresolved host occurrence or a resolved descriptor occurrence.
     fn sort_key(sort: &Self::Sort) -> &ProvenanceKey;
     /// Reads application provenance from an unresolved host occurrence or a resolved descriptor occurrence.
     fn application_key(application: &Self::Application) -> &ProvenanceKey;
-    /// Validates resolved descriptor sort kinds; host sort kinds remain unchecked until resolution.
+    /// Host sort kinds must be checked by `DescriptorStage::validate_sort` after resolution.
     fn validate_sort(sort: &Self::Sort) -> Result<(), GrammarTransportError>;
-    /// Validates resolved descriptor application kinds and catalogs; host targets remain unchecked until resolution.
+    /// Host application kinds and catalogs must be checked by `DescriptorStage::validate_application` after resolution.
     fn validate_application(application: &Self::Application) -> Result<(), GrammarTransportError>;
-    /// Requires a descriptor Cell identity and children; host fragments require children with a distinct error message.
+    /// Host fragments require children with their host error; `DescriptorStage::validate_fragment` must also check the resolved Cell kind.
     fn validate_fragment(
         declaration: &Self::Nominal,
         empty: bool,

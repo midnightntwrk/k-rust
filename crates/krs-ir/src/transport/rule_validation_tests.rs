@@ -589,6 +589,20 @@ fn ordinary_alias_duplicates_preserve_distinct_stage_errors() {
             TransportField::ContextAliasBindings
         )),
     );
+    descriptor.bindings.remove(0);
+    host.bindings.remove(0);
+    assert_eq!(
+        descriptor.validate(ItemKind::ContextAlias),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::DuplicateAliasBinding
+        )),
+    );
+    assert_eq!(
+        host.validate(ItemKind::ContextAlias),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::AliasHereBindingCount
+        )),
+    );
 }
 
 fn empty_rule<S: RuleValidationStage>(
