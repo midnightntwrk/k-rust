@@ -41,21 +41,20 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::{BuiltinResult, evaluate_hook},
+    condition::MatchSolution,
     definition::BackendDefinition,
-    rule::Predicate,
-    substitution::{Substitution, compose, substitute},
+    substitution::{Substitution, substitute},
     term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
-    unification::{UnificationResult, unify_term_pairs},
+    unification::{MatchUnification, unify_from},
 };
 
 use super::{MatchFailed, MatchMode, MatchResult, match_terms_with_context};
 /// One solution for a set of deferred collection pairs.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CollectionSolution {
-    /// Rule-variable bindings plus any subject variables narrowed by the solution.
-    pub substitution: Substitution,
-    /// Irreducible equalities discovered while pairing collection elements.
-    pub constraints: Vec<Predicate>,
+    /// Rule-variable and narrowed subject-frame bindings, with the irreducible element
+    /// equalities stated under those bindings.
+    pub matched: MatchSolution,
     /// Fresh collection remainders introduced while narrowing a subject frame.
     pub fresh: BTreeSet<Variable>,
 }
@@ -88,15 +87,13 @@ pub(crate) fn solve_collection_pairs_in_definition(
 ) -> Option<Vec<CollectionSolution>> {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingCollections);
     let initial = CollectionSolution {
-        substitution: initial,
-        constraints: Vec::new(),
+        matched: MatchSolution::new(initial),
         fresh: BTreeSet::new(),
     };
     let mut solutions =
         solve_collection_pairs_from_solution(mode, definition, initial, pairs, &mut narrowing, 0)?;
     for solution in &mut solutions {
-        solution.constraints.sort();
-        solution.constraints.dedup();
+        solution.matched.sort_conditions();
     }
     solutions.sort();
     solutions.dedup();
@@ -159,8 +156,8 @@ fn solve_collection_pair(
     narrowing: &mut Option<&mut Narrowing<'_>>,
     depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
-    let pattern = substitute(pattern, &solution.substitution);
-    let subject = substitute(subject, &solution.substitution);
+    let pattern = substitute(pattern, solution.matched.substitution());
+    let subject = substitute(subject, solution.matched.substitution());
     match (pattern.kind(), subject.kind()) {
         (TermKind::Map { .. }, TermKind::Map { .. }) => solve_map_pair(
             mode, definition, &pattern, &subject, solution, narrowing, depth,
@@ -195,14 +192,14 @@ fn solve_collection_pair(
 fn solve_term_pair(
     mode: MatchMode,
     definition: &BackendDefinition,
-    solution: CollectionSolution,
+    mut solution: CollectionSolution,
     pattern: &Term,
     subject: &Term,
     narrowing: &mut Option<&mut Narrowing<'_>>,
     depth: usize,
 ) -> PairSolution {
-    let pattern = substitute(pattern, &solution.substitution);
-    let subject = substitute(subject, &solution.substitution);
+    let pattern = substitute(pattern, solution.matched.substitution());
+    let subject = substitute(subject, solution.matched.substitution());
     match match_terms_with_context(
         mode,
         &definition.sort_graph,
@@ -212,19 +209,19 @@ fn solve_term_pair(
         // A collection element is never the root an equation is tried on.
         false,
     ) {
-        MatchResult::Success(found) => PairSolution::Solved(vec![CollectionSolution {
-            substitution: compose(&found, &solution.substitution),
-            ..solution
-        }]),
+        MatchResult::Success(found) => {
+            solution.matched.bind(&found);
+            PairSolution::Solved(vec![solution])
+        }
         MatchResult::Failed(_) => PairSolution::NoSolution,
         MatchResult::Indeterminate {
             substitution,
             remainder,
         } if narrowing.is_some() => {
-            let mut substitution = compose(&substitution, &solution.substitution);
+            solution.matched.bind(&substitution);
             let remainder = if mode == MatchMode::Rewrite {
                 let Some(recovered) =
-                    recover_rewrite_candidate(definition, &mut substitution, remainder)
+                    recover_rewrite_candidate(definition, &mut solution.matched, remainder)
                 else {
                     return PairSolution::NoSolution;
                 };
@@ -233,20 +230,14 @@ fn solve_term_pair(
                 remainder
             };
             if remainder.is_empty() {
-                return PairSolution::Solved(vec![CollectionSolution {
-                    substitution,
-                    ..solution
-                }]);
+                return PairSolution::Solved(vec![solution]);
             }
             let (collection_pairs, remainder): (Vec<_>, Vec<_>) =
                 remainder.into_iter().partition(|(pattern, subject)| {
                     is_collection_term(pattern) && is_collection_term(subject)
                 });
             let mut solutions = if collection_pairs.is_empty() {
-                vec![CollectionSolution {
-                    substitution,
-                    ..solution
-                }]
+                vec![solution]
             } else {
                 if depth >= MAX_NESTED_COLLECTION_DEPTH {
                     return PairSolution::Indeterminate;
@@ -254,10 +245,7 @@ fn solve_term_pair(
                 let Some(solutions) = solve_collection_pairs_from_solution(
                     mode,
                     definition,
-                    CollectionSolution {
-                        substitution,
-                        ..solution
-                    },
+                    solution,
                     &collection_pairs,
                     narrowing,
                     depth + 1,
@@ -276,19 +264,15 @@ fn solve_term_pair(
 
             let mut unified_solutions = Vec::new();
             for solution in solutions.drain(..) {
-                match unify_term_pairs(definition, solution.substitution.clone(), remainder.clone())
-                {
-                    UnificationResult::Unified(unified) => {
-                        let mut constraints = solution.constraints;
-                        constraints.extend(unified.constraints);
+                match unify_from(definition, solution.matched.clone(), remainder.clone()) {
+                    MatchUnification::Unified(matched) => {
                         unified_solutions.push(CollectionSolution {
-                            substitution: unified.substitution,
-                            constraints,
+                            matched,
                             fresh: solution.fresh,
                         });
                     }
-                    UnificationResult::Bottom(_) => {}
-                    UnificationResult::Unsupported { .. } => return PairSolution::Indeterminate,
+                    MatchUnification::Bottom(_) => {}
+                    MatchUnification::Unsupported { .. } => return PairSolution::Indeterminate,
                 }
             }
             if unified_solutions.is_empty() {
@@ -309,13 +293,13 @@ fn solve_term_pair(
 /// candidate rather than becoming an opaque equality through symbolic unification.
 fn recover_rewrite_candidate(
     definition: &BackendDefinition,
-    substitution: &mut Substitution,
+    matched: &mut MatchSolution,
     remainder: Vec<(Term, Term)>,
 ) -> Option<Vec<(Term, Term)>> {
     let mut unresolved = Vec::new();
     for (pattern, subject) in remainder {
-        let pattern = substitute(&pattern, substitution);
-        let subject = substitute(&subject, substitution);
+        let pattern = substitute(&pattern, matched.substitution());
+        let subject = substitute(&subject, matched.substitution());
         match match_terms_with_context(
             MatchMode::Rewrite,
             &definition.sort_graph,
@@ -326,14 +310,14 @@ fn recover_rewrite_candidate(
             false,
         ) {
             MatchResult::Success(found) => {
-                *substitution = compose(&found, substitution);
+                matched.bind(&found);
             }
             MatchResult::Failed(_) => return None,
             MatchResult::Indeterminate {
                 substitution: found,
                 remainder,
             } => {
-                *substitution = compose(&found, substitution);
+                matched.bind(&found);
                 unresolved.extend(remainder);
             }
         }
@@ -361,7 +345,7 @@ fn solve_list_pair(
         false,
     ) {
         MatchResult::Success(found) => {
-            solution.substitution = compose(&found, &solution.substitution);
+            solution.matched.bind(&found);
             return Some(vec![solution]);
         }
         MatchResult::Failed(_) => return Some(Vec::new()),
@@ -370,12 +354,12 @@ fn solve_list_pair(
             substitution,
             remainder: _,
         } => {
-            solution.substitution = compose(&substitution, &solution.substitution);
+            solution.matched.bind(&substitution);
         }
     }
 
-    let pattern = substitute(pattern, &solution.substitution);
-    let subject = substitute(subject, &solution.substitution);
+    let pattern = substitute(pattern, solution.matched.substitution());
+    let subject = substitute(subject, solution.matched.substitution());
     let (
         TermKind::List {
             definition: pattern_definition,
@@ -887,8 +871,8 @@ impl MapCollectionProblem<'_> {
                         .into_iter()
                         .map(|(key, value)| {
                             (
-                                substitute(&key, &solution.substitution),
-                                substitute(&value, &solution.substitution),
+                                substitute(&key, solution.matched.substitution()),
+                                substitute(&value, solution.matched.substitution()),
                             )
                         })
                         .collect(),
@@ -924,8 +908,8 @@ impl MapCollectionProblem<'_> {
                 .into_iter()
                 .map(|(key, value)| {
                     (
-                        substitute(&key, &solution.substitution),
-                        substitute(&value, &solution.substitution),
+                        substitute(&key, solution.matched.substitution()),
+                        substitute(&value, solution.matched.substitution()),
                     )
                 })
                 .collect(),
@@ -1248,7 +1232,7 @@ impl SetCollectionProblem<'_> {
                     self.definition.clone(),
                     frame_elements
                         .into_iter()
-                        .map(|element| substitute(&element, &solution.substitution))
+                        .map(|element| substitute(&element, solution.matched.substitution()))
                         .collect(),
                     None,
                 );
@@ -1280,7 +1264,7 @@ impl SetCollectionProblem<'_> {
             self.definition.clone(),
             frame_elements
                 .into_iter()
-                .map(|element| substitute(&element, &solution.substitution))
+                .map(|element| substitute(&element, solution.matched.substitution()))
                 .collect(),
             Some(fresh_term.clone()),
         );
@@ -1349,7 +1333,14 @@ pub(crate) fn match_collection_remainders_all_in_definition(
         Some(solutions) => CollectionMatches::Solutions(
             solutions
                 .into_iter()
-                .map(|solution| solution.substitution)
+                .map(|solution| {
+                    let (substitution, conditions) = solution.matched.into_parts();
+                    debug_assert!(
+                        conditions.is_empty(),
+                        "without narrowing the solver keeps no equation"
+                    );
+                    substitution
+                })
                 .collect(),
         ),
     }

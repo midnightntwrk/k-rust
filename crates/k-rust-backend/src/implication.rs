@@ -2067,7 +2067,8 @@ fn solve_collection_remainder_pairs(
         return (substitution, remainder, Vec::new());
     };
     let binds_only_existentials = solution
-        .substitution
+        .matched
+        .substitution()
         .keys()
         .filter(|variable| !substitution.contains_key(*variable))
         .all(|variable| existentials.contains(variable));
@@ -2079,9 +2080,9 @@ fn solve_collection_remainder_pairs(
         .filter(|pair| !collections.contains(pair))
         .collect();
     (
-        solution.substitution.clone(),
+        solution.matched.substitution().clone(),
         remainder,
-        solution.constraints.clone(),
+        solution.matched.conditions().to_vec(),
     )
 }
 

@@ -34,6 +34,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 use k_rust_kore::names::BuiltinSort;
 
 use crate::{
+    condition::MatchSolution,
     definedness::ceil_term,
     definition::BackendDefinition,
     fresh::fresh_variable,
@@ -51,17 +52,24 @@ use crate::{
         HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker},
     },
-    unification::{UnificationFailure, UnificationResult, unify_term_pairs},
+    unification::{
+        MatchUnification, UnificationFailure, UnificationResult, unify_from, unify_term_pairs,
+    },
 };
 
 use super::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, Pattern, Truth,
-    extend_unique, pattern_variable_names, predicates_truth, substitute_predicates,
+    extend_unique, pattern_variable_names, predicates_truth,
 };
 
-pub(crate) struct RecoveredMatch {
-    pub(crate) result: MatchResult,
-    pub(crate) conditions: Vec<Predicate>,
+/// A failed match or its bindings and normalized conditions, with any pairs still unresolved.
+/// An empty remainder means the match is complete.
+pub(crate) enum RecoveredMatch {
+    Failed(FailReason),
+    Matched {
+        solution: MatchSolution,
+        remainder: Vec<(Term, Term)>,
+    },
 }
 
 /// Conservatively recover matches that Booster delegates to Kore.
@@ -97,28 +105,28 @@ pub(crate) fn recover_indeterminate_match(
 
 fn recover_by_simplifying_pairs(
     definition: &BackendDefinition,
-    mut substitution: Substitution,
+    substitution: Substitution,
     remainder: Vec<(Term, Term)>,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<RecoveredMatch, Unwind<SimplificationError>> {
     let mut unresolved = Vec::new();
-    let mut conditions = Vec::new();
+    let mut matched = MatchSolution::new(substitution);
     for (pattern, subject) in remainder {
-        let pattern = substitute(&pattern, &substitution);
-        let subject = substitute(&subject, &substitution);
+        let pattern = substitute(&pattern, matched.substitution());
+        let subject = substitute(&subject, matched.substitution());
         let mut knowledge = known_predicates.to_vec();
-        extend_unique(&mut knowledge, conditions.iter().cloned());
+        extend_unique(&mut knowledge, matched.conditions().iter().cloned());
         let simplified_pattern =
             simplify_with_solver(definition, &pattern, &knowledge, options, solver)??.into_parts();
-        extend_unique(&mut conditions, simplified_pattern.conditions);
+        matched.conjoin(simplified_pattern.conditions);
         let simplified_pattern = simplified_pattern.term;
         let mut knowledge = known_predicates.to_vec();
-        extend_unique(&mut knowledge, conditions.iter().cloned());
+        extend_unique(&mut knowledge, matched.conditions().iter().cloned());
         let simplified_subject =
             simplify_with_solver(definition, &subject, &knowledge, options, solver)??.into_parts();
-        extend_unique(&mut conditions, simplified_subject.conditions);
+        matched.conjoin(simplified_subject.conditions);
         let simplified_subject = simplified_subject.term;
 
         if !simplified_pattern
@@ -126,17 +134,16 @@ fn recover_by_simplifying_pairs(
             .variables
             .is_disjoint(&simplified_subject.attributes().variables)
         {
-            match unify_term_pairs(
+            match unify_from(
                 definition,
-                substitution.clone(),
+                matched.clone(),
                 [(simplified_pattern.clone(), simplified_subject.clone())],
             ) {
-                UnificationResult::Unified(unified) => {
-                    substitution = unified.substitution;
-                    extend_unique(&mut conditions, unified.constraints);
+                MatchUnification::Unified(solution) => {
+                    matched = solution;
                     continue;
                 }
-                UnificationResult::Bottom(failure) => {
+                MatchUnification::Bottom(failure) => {
                     let reason = match failure {
                         UnificationFailure::VariableRecursion(cycle) => {
                             FailReason::VariableRecursion(cycle)
@@ -154,12 +161,9 @@ fn recover_by_simplifying_pairs(
                             FailReason::ArgumentLengthsDiffer(left, right)
                         }
                     };
-                    return Ok(RecoveredMatch {
-                        result: MatchResult::Failed(reason),
-                        conditions,
-                    });
+                    return Ok(RecoveredMatch::Failed(reason));
                 }
-                UnificationResult::Unsupported { .. } => {}
+                MatchUnification::Unsupported { .. } => {}
             }
         }
 
@@ -170,20 +174,17 @@ fn recover_by_simplifying_pairs(
             &simplified_subject,
         ) {
             MatchResult::Success(found) => {
-                substitution = compose(&found, &substitution);
+                matched.bind(&found);
                 continue;
             }
             MatchResult::Failed(reason) => {
-                return Ok(RecoveredMatch {
-                    result: MatchResult::Failed(reason),
-                    conditions,
-                });
+                return Ok(RecoveredMatch::Failed(reason));
             }
             MatchResult::Indeterminate {
                 substitution: found,
                 remainder,
             } => {
-                substitution = compose(&found, &substitution);
+                matched.bind(&found);
                 remainder
             }
         };
@@ -203,7 +204,8 @@ fn recover_by_simplifying_pairs(
             .variables
             .iter()
             .filter(|variable| {
-                !substitution.contains_key(*variable) && variable.sort == simplified_subject.sort()
+                !matched.substitution().contains_key(*variable)
+                    && variable.sort == simplified_subject.sort()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -212,10 +214,10 @@ fn recover_by_simplifying_pairs(
             continue;
         };
         let witness = Substitution::from([(candidate.clone(), simplified_subject.clone())]);
-        let candidate_substitution = compose(&witness, &substitution);
+        let candidate_substitution = compose(&witness, matched.substitution());
         let candidate_pattern = substitute(&pattern, &candidate_substitution);
         let mut witness_knowledge = known_predicates.to_vec();
-        extend_unique(&mut witness_knowledge, conditions.iter().cloned());
+        extend_unique(&mut witness_knowledge, matched.conditions().iter().cloned());
         let candidate_pattern = simplify_with_solver(
             definition,
             &candidate_pattern,
@@ -224,7 +226,7 @@ fn recover_by_simplifying_pairs(
             solver,
         )??
         .into_parts();
-        extend_unique(&mut conditions, candidate_pattern.conditions);
+        matched.conjoin(candidate_pattern.conditions);
         match match_terms_in_definition(
             MatchMode::Rewrite,
             definition,
@@ -232,7 +234,8 @@ fn recover_by_simplifying_pairs(
             &simplified_subject,
         ) {
             MatchResult::Success(found) => {
-                substitution = compose(&found, &candidate_substitution);
+                matched.bind(&witness);
+                matched.bind(&found);
                 continue;
             }
             MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => {}
@@ -240,20 +243,10 @@ fn recover_by_simplifying_pairs(
         unresolved.extend(pair_remainder);
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "simplification constraints of the recovered match under its own substitution; phase P9 of apply_rule states the definedness of every non-variable binding"
-    )]
-    let conditions = substitute_predicates(&conditions, &substitution);
-    let result = if unresolved.is_empty() {
-        MatchResult::Success(substitution)
-    } else {
-        MatchResult::Indeterminate {
-            substitution,
-            remainder: unresolved,
-        }
-    };
-    Ok(RecoveredMatch { result, conditions })
+    Ok(RecoveredMatch::Matched {
+        solution: matched,
+        remainder: unresolved,
+    })
 }
 
 pub(super) enum GeneralUnificationRecovery {
@@ -334,8 +327,7 @@ pub(super) fn recover_general_unification(
                 rule,
                 pattern,
                 vec![CollectionSolution {
-                    substitution: unified.substitution,
-                    constraints: Vec::new(),
+                    matched: MatchSolution::new(unified.substitution),
                     fresh: BTreeSet::new(),
                 }],
                 &unified.constraints,
@@ -358,17 +350,12 @@ fn finalize_general_unification(
     solutions
         .into_iter()
         .map(|solution| {
+            let (substitution, conditions) = solution.matched.into_parts();
             let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
-            let mut all_constraints = constraints.to_vec();
-            extend_unique(&mut all_constraints, solution.constraints);
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "unifier constraints; \
-                          collection_unification_definedness of the same substitution is \
-                          conjoined next"
-            )]
-            let mut constraints = substitute_predicates(&all_constraints, &substitution);
+                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+            let mut matched = MatchSolution::from_parts(substitution, constraints.to_vec());
+            matched.conjoin(conditions);
+            let (substitution, mut constraints) = matched.into_parts();
             extend_unique(
                 &mut constraints,
                 collection_unification_definedness(definition, collection_pairs, &substitution),

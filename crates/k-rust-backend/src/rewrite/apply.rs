@@ -63,12 +63,13 @@ use crate::{
 };
 
 use super::{
-    AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, TrivialApplication,
-    Truth, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
-    extend_unique, freshen_unbound_rule_variables, pattern_variable_names, predicates_truth,
-    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
-    recover_functional_symbolic_match, recover_general_unification, recover_indeterminate_match,
-    recover_ite_matches, recover_map_not_in_keys_matches, recover_overload_symbolic_match,
+    AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, RecoveredMatch,
+    TrivialApplication, Truth, collection_unification_definedness,
+    conjunctively_contains_alpha_equivalent, extend_unique, freshen_unbound_rule_variables,
+    pattern_variable_names, predicates_truth, recover_boolean_matches, recover_equality_matches,
+    recover_function_equality_match, recover_functional_symbolic_match,
+    recover_general_unification, recover_indeterminate_match, recover_ite_matches,
+    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
     recover_symbolic_map_key_matches,
     roles::{Applicability, CarriedCondition, DefinedSubcase, Remainder},
     solve_collection_remainders_with_narrowing, substitute_predicates,
@@ -666,9 +667,25 @@ fn recover_by_simplification(
             return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
-    extend_unique(inherited_conditions, recovered.conditions.iter().cloned());
-    extend_unique(inherited_knowledge, recovered.conditions);
-    Ok(recovered.result)
+    match recovered {
+        RecoveredMatch::Failed(reason) => Ok(MatchResult::Failed(reason)),
+        RecoveredMatch::Matched {
+            solution,
+            remainder,
+        } => {
+            let (substitution, conditions) = solution.into_parts();
+            extend_unique(inherited_conditions, conditions.iter().cloned());
+            extend_unique(inherited_knowledge, conditions);
+            Ok(if remainder.is_empty() {
+                MatchResult::Success(substitution)
+            } else {
+                MatchResult::Indeterminate {
+                    substitution,
+                    remainder,
+                }
+            })
+        }
+    }
 }
 
 /// P5: the six splitting strategies (boolean, symbolic map key, map-not-in-keys, equality,
@@ -759,19 +776,13 @@ fn recover_by_split(
             return Some(Ok(RuleAttempt::NotApplicable));
         }
         return Some(combine_rule_attempts(matches.into_iter().map(|solution| {
+            let (substitution, solution_conditions) = solution.matched.into_parts();
             let (substitution, _) =
-                freshen_unbound_rule_variables(rule, pattern, solution.substitution, fresh_counter);
+                freshen_unbound_rule_variables(rule, pattern, substitution, fresh_counter);
+            let (substitution, solution_conditions) =
+                MatchSolution::from_parts(substitution, solution_conditions).into_parts();
             let mut conditions = inherited_conditions.to_vec();
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "unifier constraints; \
-                          collection_unification_definedness of the same substitution is \
-                          conjoined next"
-            )]
-            extend_unique(
-                &mut conditions,
-                substitute_predicates(&solution.constraints, &substitution),
-            );
+            extend_unique(&mut conditions, solution_conditions);
             extend_unique(
                 &mut conditions,
                 collection_unification_definedness(definition, remainder, &substitution),

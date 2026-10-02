@@ -40,6 +40,7 @@ use std::collections::VecDeque;
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
+    condition::MatchSolution,
     definition::BackendDefinition,
     matching::{InjectionEquality, match_injection_equality},
     rule::Predicate,
@@ -75,6 +76,46 @@ pub enum UnificationResult {
         constraints: Vec<Predicate>,
         remainder: Vec<(Term, Term)>,
     },
+}
+
+/// Unification of a match, keeping its conditions under the resulting bindings.
+pub(crate) enum MatchUnification {
+    Unified(MatchSolution),
+    Bottom(UnificationFailure),
+    Unsupported {
+        solution: MatchSolution,
+        remainder: Vec<(Term, Term)>,
+    },
+}
+
+/// Unify `pairs` from `initial`. Its conditions and the equations the unifier keeps leave
+/// under the unifier's final substitution, including bindings found after an equation was kept.
+pub(crate) fn unify_from(
+    definition: &BackendDefinition,
+    initial: MatchSolution,
+    pairs: impl IntoIterator<Item = (Term, Term)>,
+) -> MatchUnification {
+    let (substitution, conditions) = initial.into_parts();
+    match unify_term_pairs(definition, substitution, pairs) {
+        UnificationResult::Unified(unified) => {
+            let mut solution = MatchSolution::from_parts(unified.substitution, conditions);
+            solution.conjoin(unified.constraints);
+            MatchUnification::Unified(solution)
+        }
+        UnificationResult::Bottom(failure) => MatchUnification::Bottom(failure),
+        UnificationResult::Unsupported {
+            substitution,
+            constraints,
+            remainder,
+        } => {
+            let mut solution = MatchSolution::from_parts(substitution, conditions);
+            solution.conjoin(constraints);
+            MatchUnification::Unsupported {
+                solution,
+                remainder,
+            }
+        }
+    }
 }
 
 /// Why two terms have no common instance.

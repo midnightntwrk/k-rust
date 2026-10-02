@@ -34,7 +34,7 @@ use crate::{
     rule::{Predicate, rename_predicates},
     simplify::{RuleCondition, SimplificationError, hook_argument_definedness},
     stop::Stoppable,
-    substitution::Substitution,
+    substitution::{Substitution, compose},
     term::{Term, TermKind, Variable, VariableKind},
 };
 
@@ -322,25 +322,73 @@ pub(crate) struct MatchSolution {
 }
 
 impl MatchSolution {
+    /// A match substitution with no conditions.
+    pub(crate) fn new(substitution: Substitution) -> Self {
+        Self {
+            substitution,
+            conditions: Vec::new(),
+        }
+    }
+
     /// `conditions` under `substitution`, in their order. Only a condition that mentions a variable
     /// `substitution` binds is rewritten; without one, nothing is allocated.
     pub(crate) fn from_parts(substitution: Substitution, conditions: Vec<Predicate>) -> Self {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "match conditions under the substitution they leave with: for an element variable x, x = t and phi(x) is x = t and phi(t), and the binding stays in the substitution"
-        )]
-        let conditions = if conditions
-            .iter()
-            .any(|condition| mentions_bound_variable(condition, &substitution))
-        {
-            substitute_predicates(&conditions, &substitution)
-        } else {
-            conditions
-        };
+        let conditions = Self::normalized(&substitution, conditions);
         Self {
             substitution,
             conditions,
         }
+    }
+
+    fn normalized(substitution: &Substitution, conditions: Vec<Predicate>) -> Vec<Predicate> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "match conditions under the substitution they leave with: for an element variable x, x = t and phi(x) is x = t and phi(t), and the binding stays in the substitution"
+        )]
+        if conditions
+            .iter()
+            .any(|condition| mentions_bound_variable(condition, substitution))
+        {
+            substitute_predicates(&conditions, substitution)
+        } else {
+            conditions
+        }
+    }
+
+    /// The bindings of this match, read-only so an extension cannot leave conditions stale.
+    pub(crate) fn substitution(&self) -> &Substitution {
+        &self.substitution
+    }
+
+    /// The conditions stated under this match's current substitution.
+    pub(crate) fn conditions(&self) -> &[Predicate] {
+        &self.conditions
+    }
+
+    /// Conjoin each condition under the current substitution, retaining the first occurrence.
+    pub(crate) fn conjoin(&mut self, conditions: impl IntoIterator<Item = Predicate>) {
+        for condition in Self::normalized(&self.substitution, conditions.into_iter().collect()) {
+            if !self.conditions.contains(&condition) {
+                self.conditions.push(condition);
+            }
+        }
+    }
+
+    /// Extend the bindings and restate earlier conditions under the composed substitution.
+    /// The bindings stay in the match, so this preserves its conjunction without dropping
+    /// any binding's definedness.
+    pub(crate) fn bind(&mut self, bindings: &Substitution) {
+        if !bindings.is_empty() {
+            self.substitution = compose(bindings, &self.substitution);
+            self.conditions =
+                Self::normalized(&self.substitution, std::mem::take(&mut self.conditions));
+        }
+    }
+
+    /// Put the conjuncts in canonical order and remove repetitions.
+    pub(crate) fn sort_conditions(&mut self) {
+        self.conditions.sort();
+        self.conditions.dedup();
     }
 
     /// The substitution and its conditions. In debug builds this checks N; a condition that still
@@ -832,6 +880,28 @@ mod tests {
         .into_parts();
         assert_eq!(kept, substitution);
         assert_eq!(conditions, [Predicate::Equals(b, a), atom("Free")]);
+    }
+
+    #[test]
+    fn binding_a_match_solution_restates_an_earlier_condition() {
+        let sort = Sort::simple("SortInt");
+        let x = Variable::new("X", sort.clone());
+        let y = Variable::new("Y", sort.clone());
+        let a = Term::variable(Variable::new("A", sort));
+        let mut matched =
+            MatchSolution::new(Substitution::from([(y.clone(), Term::variable(x.clone()))]));
+        matched.conjoin([Predicate::Equals(Term::variable(y.clone()), a.clone())]);
+        assert_eq!(
+            matched.conditions(),
+            [Predicate::Equals(Term::variable(x.clone()), a.clone())]
+        );
+        matched.bind(&Substitution::from([(x.clone(), a.clone())]));
+        let (substitution, conditions) = matched.into_parts();
+        assert_eq!(
+            substitution,
+            Substitution::from([(x, a.clone()), (y, a.clone())])
+        );
+        assert_eq!(conditions, [Predicate::Equals(a.clone(), a)]);
     }
 
     #[test]

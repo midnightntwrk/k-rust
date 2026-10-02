@@ -6,6 +6,7 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use super::matching_oracle::{match_map_terms_all, match_set_terms_all};
 use crate::{
+    condition::MatchSolution,
     definition::BackendDefinition,
     matching::*,
     substitution::Substitution,
@@ -109,6 +110,57 @@ fn solve_with_test_frames(
 }
 
 #[test]
+fn a_collection_solution_states_an_element_equation_under_a_later_element_binding() {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+            sort SortElement{} [hasDomainValues{}()]
+            sort SortWrapped{} []
+            hooked-sort SortSet{}
+                [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+            hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+            hooked-symbol setItem{}(SortWrapped{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
+            hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), idem{}()]
+            symbol p{}(SortElement{}) : SortWrapped{} [constructor{}(), injective{}()]
+            symbol q{}(SortElement{}) : SortWrapped{} [constructor{}(), injective{}()]
+            symbol g{}(SortElement{}) : SortElement{} [function{}()]
+        endmodule []"#,
+    )
+    .expect("collection definition should parse");
+    let definition = BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("collection definition should internalize");
+    let pattern = internal_term(
+        &definition,
+        "setConcat{}(setItem{}(p{}(g{}(X:SortElement{}))), setItem{}(q{}(X:SortElement{})))",
+    );
+    let subject = internal_term(
+        &definition,
+        r#"setConcat{}(setItem{}(p{}(\dv{SortElement{}}("e1"))), setItem{}(q{}(\dv{SortElement{}}("e2"))))"#,
+    );
+    let TermKind::Set { elements, .. } = pattern.kind() else {
+        panic!("the pattern should internalize as a set");
+    };
+    assert_eq!(
+        elements[0],
+        internal_term(&definition, "p{}(g{}(X:SortElement{}))"),
+        "the kept element equation must precede the binding of X",
+    );
+
+    let solutions = solve_with_test_frames(&definition, &[(pattern, subject)])
+        .expect("both constructor elements should solve with narrowing");
+    let [solution] = solutions.as_slice() else {
+        panic!("distinct constructor heads should give exactly one solution");
+    };
+    assert_eq!(
+        solution.matched.conditions(),
+        vec![crate::rule::Predicate::Equals(
+            internal_term(&definition, r#"g{}(\dv{SortElement{}}("e2"))"#),
+            internal_term(&definition, r#"\dv{SortElement{}}("e1")"#),
+        )],
+    );
+}
+
+#[test]
 fn symmetrically_unifies_a_closed_list_with_an_open_list() {
     let definition = collection_definition();
     let first = r#"\dv{SortElement{}}("first")"#;
@@ -126,7 +178,7 @@ fn symmetrically_unifies_a_closed_list_with_an_open_list() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(closed, open)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (
                     Variable::new("ELEMENT", Sort::simple("SortElement")),
                     internal_term(&definition, first),
@@ -135,8 +187,7 @@ fn symmetrically_unifies_a_closed_list_with_an_open_list() {
                     Variable::new("REST", Sort::simple("SortList")),
                     expected_rest,
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -159,25 +210,23 @@ fn symmetrically_enumerates_set_selections_from_a_closed_set() {
     let rest = Variable::new("REST", Sort::simple("SortSet"));
     let mut expected = vec![
         CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (element.clone(), internal_term(&definition, first)),
                 (
                     rest.clone(),
                     internal_term(&definition, &format!("setItem{{}}({second})")),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         },
         CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (element, internal_term(&definition, second)),
                 (
                     rest,
                     internal_term(&definition, &format!("setItem{{}}({first})")),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         },
     ];
@@ -211,7 +260,7 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
     let rest = Variable::new("REST", Sort::simple("SortMap"));
     let mut expected = vec![
         CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (key.clone(), internal_term(&definition, first_key)),
                 (value.clone(), internal_term(&definition, first_value)),
                 (
@@ -221,12 +270,11 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
                         &format!("mapItem{{}}({second_key}, {second_value})"),
                     ),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         },
         CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (key, internal_term(&definition, second_key)),
                 (value, internal_term(&definition, second_value)),
                 (
@@ -236,8 +284,7 @@ fn symmetrically_enumerates_map_selections_from_a_closed_map() {
                         &format!("mapItem{{}}({first_key}, {first_value})"),
                     ),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         },
     ];
@@ -325,7 +372,7 @@ fn cancels_common_opaque_set_chunks_before_solving_the_residual_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(left, right)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (
                     Variable::new("T", Sort::simple("SortSet")),
                     internal_term(&definition, "setUnit{}()"),
@@ -334,8 +381,7 @@ fn cancels_common_opaque_set_chunks_before_solving_the_residual_frame() {
                     Variable::new("X", Sort::simple("SortElement")),
                     internal_term(&definition, "Y:SortElement{}"),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -356,7 +402,7 @@ fn cancels_common_opaque_map_chunks_before_solving_the_residual_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(left, right)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([
+            matched: MatchSolution::new(Substitution::from([
                 (
                     Variable::new("K1", Sort::simple("SortKey")),
                     internal_term(&definition, "K2:SortKey{}"),
@@ -369,8 +415,7 @@ fn cancels_common_opaque_map_chunks_before_solving_the_residual_frame() {
                     Variable::new("V1", Sort::simple("SortValue")),
                     internal_term(&definition, "V2:SortValue{}"),
                 ),
-            ]),
-            constraints: Vec::new(),
+            ])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -408,7 +453,7 @@ fn carries_an_open_map_subject_frame_through_every_selection() {
     assert_eq!(
         explicit
             .iter()
-            .map(|solution| solution.substitution[&key].clone())
+            .map(|solution| solution.matched.substitution()[&key].clone())
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             internal_term(&definition, first_key),
@@ -416,7 +461,7 @@ fn carries_an_open_map_subject_frame_through_every_selection() {
         ])
     );
     assert!(explicit.iter().all(|solution| {
-        solution.substitution[&rest]
+        solution.matched.substitution()[&rest]
             .attributes()
             .variables
             .contains(&subject_rest)
@@ -454,9 +499,9 @@ fn solves_the_frame_branch_for_a_symbolic_map_key() {
         .find(|solution| !solution.fresh.is_empty())
         .expect("one solution should assign the symbolic entry to the subject frame");
     assert_eq!(frame_solution.fresh, BTreeSet::from([fresh.clone()]));
-    assert!(frame_solution.constraints.is_empty());
+    assert!(frame_solution.matched.conditions().is_empty());
     assert_eq!(
-        frame_solution.substitution,
+        frame_solution.matched.substitution().clone(),
         Substitution::from([
             (
                 Variable::new("REST", Sort::simple("SortMap")),
@@ -520,9 +565,9 @@ fn solves_the_frame_branch_for_a_symbolic_set_element() {
         .find(|solution| !solution.fresh.is_empty())
         .expect("one solution should assign the symbolic element to the subject frame");
     assert_eq!(frame_solution.fresh, BTreeSet::from([fresh.clone()]));
-    assert!(frame_solution.constraints.is_empty());
+    assert!(frame_solution.matched.conditions().is_empty());
     assert_eq!(
-        frame_solution.substitution,
+        frame_solution.matched.substitution().clone(),
         Substitution::from([
             (
                 Variable::new("REST", Sort::simple("SortSet")),
@@ -601,13 +646,15 @@ fn narrows_a_symbolic_subject_key_against_a_concrete_pattern_key_with_a_frame() 
         .iter()
         .find(|solution| {
             solution
-                .substitution
+                .matched
+                .substitution()
                 .contains_key(&Variable::new("SUBJECTKEY", Sort::simple("SortKey")))
         })
         .expect("one branch should select the explicit symbolic subject key");
     assert_eq!(
         explicit_solution
-            .substitution
+            .matched
+            .substitution()
             .get(&Variable::new("SUBJECTKEY", Sort::simple("SortKey"))),
         Some(&internal_term(&definition, r#"\dv{SortKey{}}("wanted")"#,))
     );
@@ -655,11 +702,10 @@ fn solves_a_closed_map_pattern_into_a_variable_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(closed_entry.clone(), matching_open)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([(
+            matched: MatchSolution::new(Substitution::from([(
                 Variable::new("FRAME", Sort::simple("SortMap")),
                 internal_term(&definition, "mapUnit{}()"),
-            )]),
-            constraints: Vec::new(),
+            )])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -669,11 +715,10 @@ fn solves_a_closed_map_pattern_into_a_variable_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(symbolic_entry.clone(), bare_frame)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([(
+            matched: MatchSolution::new(Substitution::from([(
                 Variable::new("FRAME", Sort::simple("SortMap")),
                 symbolic_entry,
-            )]),
-            constraints: Vec::new(),
+            )])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -704,11 +749,10 @@ fn solves_a_closed_list_pattern_into_a_variable_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(closed_one.clone(), open_one)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([(
+            matched: MatchSolution::new(Substitution::from([(
                 Variable::new("FRAME", Sort::simple("SortList")),
                 internal_term(&definition, "listUnit{}()"),
-            )]),
-            constraints: Vec::new(),
+            )])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -728,11 +772,10 @@ fn solves_a_closed_list_pattern_into_a_variable_frame() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(closed_three, open_ends)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([(
+            matched: MatchSolution::new(Substitution::from([(
                 Variable::new("FRAME", Sort::simple("SortList")),
                 internal_term(&definition, &format!("listItem{{}}({second})")),
-            )]),
-            constraints: Vec::new(),
+            )])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -776,14 +819,13 @@ fn solves_one_sided_residuals_between_variable_list_frames() {
     assert_eq!(
         solve_with_test_frames(&definition, &[(longer_pattern, shorter_subject)]),
         Some(vec![CollectionSolution {
-            substitution: Substitution::from([(
+            matched: MatchSolution::new(Substitution::from([(
                 Variable::new("SUBJECT", Sort::simple("SortList")),
                 internal_term(
                     &definition,
                     &format!("listConcat{{}}(listItem{{}}({second}), PATTERN:SortList{{}})"),
                 ),
-            )]),
-            constraints: Vec::new(),
+            )])),
             fresh: BTreeSet::new(),
         }])
     );
@@ -886,7 +928,7 @@ fn carries_an_open_set_subject_frame_through_every_selection() {
     assert_eq!(
         explicit
             .iter()
-            .map(|solution| solution.substitution[&element].clone())
+            .map(|solution| solution.matched.substitution()[&element].clone())
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             internal_term(&definition, first),
@@ -894,7 +936,7 @@ fn carries_an_open_set_subject_frame_through_every_selection() {
         ])
     );
     assert!(explicit.iter().all(|solution| {
-        solution.substitution[&rest]
+        solution.matched.substitution()[&rest]
             .attributes()
             .variables
             .contains(&subject_rest)

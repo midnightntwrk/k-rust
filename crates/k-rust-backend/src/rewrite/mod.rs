@@ -35,7 +35,9 @@ use recover::{
     recover_map_not_in_keys_matches, recover_overload_symbolic_match,
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
 };
-pub(crate) use recover::{collection_unification_definedness, recover_indeterminate_match};
+pub(crate) use recover::{
+    RecoveredMatch, collection_unification_definedness, recover_indeterminate_match,
+};
 use roles::{Applicability, Remainder};
 #[cfg(test)]
 pub(crate) use step::rewrite_step_all_first_group_for_tests;

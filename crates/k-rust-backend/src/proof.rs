@@ -57,8 +57,8 @@ use crate::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{
-        IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind,
-        TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
+        IndeterminateReason, Pattern, RecoveredMatch, RemainderBranch, RewriteResult, TraceEntry,
+        TraceKind, TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
         conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
         recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
         rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
@@ -74,7 +74,7 @@ use crate::{
     term::names::FreshMarker,
     term::{HeadRole, Term, TermKind},
     timeout::{StepTimeoutController, StepTimeoutOptions, StepTimer},
-    unification::{UnificationResult, unify_term_pairs},
+    unification::{MatchUnification, unify_from},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1280,8 +1280,8 @@ fn apply_claim(
         &claim.lhs.term,
         &subject.term,
     );
-    let (substitution, match_conditions) = match matched {
-        MatchResult::Success(substitution) => (substitution, Vec::new()),
+    let matched = match matched {
+        MatchResult::Success(substitution) => MatchSolution::new(substitution),
         MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
         MatchResult::Indeterminate {
             substitution,
@@ -1305,26 +1305,24 @@ fn apply_claim(
                     ));
                 }
             };
-            match recovered.result {
-                MatchResult::Success(substitution) => (substitution, recovered.conditions),
-                MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
-                MatchResult::Indeterminate {
-                    substitution,
+            match recovered {
+                RecoveredMatch::Failed(_) => return Ok(ClaimApplication::NotApplicable),
+                RecoveredMatch::Matched {
+                    solution,
+                    remainder,
+                } if remainder.is_empty() => solution,
+                RecoveredMatch::Matched {
+                    solution,
                     remainder,
                 } => {
                     // A symbolic subject can still be covered by the claim on the sub-case
                     // where the unresolved pairs unify. Those equalities become the match
                     // condition; their complement is the remainder the claim leaves behind.
-                    match unify_term_pairs(definition, substitution, remainder.iter().cloned()) {
-                        UnificationResult::Unified(unified) => {
-                            let mut conditions = recovered.conditions;
-                            extend_unique(&mut conditions, unified.constraints);
-                            (unified.substitution, conditions)
-                        }
-                        UnificationResult::Bottom(_) => return Ok(ClaimApplication::NotApplicable),
-                        UnificationResult::Unsupported {
-                            substitution,
-                            constraints,
+                    match unify_from(definition, solution, remainder) {
+                        MatchUnification::Unified(matched) => matched,
+                        MatchUnification::Bottom(_) => return Ok(ClaimApplication::NotApplicable),
+                        MatchUnification::Unsupported {
+                            solution,
                             remainder,
                         } => {
                             // Collection pairs are beyond the syntactic unifier; solve them as
@@ -1333,30 +1331,30 @@ fn apply_claim(
                             let solutions = solve_collection_pairs_in_definition(
                                 MatchMode::Rewrite,
                                 definition,
-                                substitution.clone(),
+                                solution.substitution().clone(),
                                 &remainder,
                                 None,
                             );
                             match solutions.as_deref() {
                                 Some([]) => return Ok(ClaimApplication::NotApplicable),
-                                Some([solution]) => {
-                                    let mut conditions = recovered.conditions;
-                                    extend_unique(&mut conditions, constraints);
-                                    extend_unique(&mut conditions, solution.constraints.clone());
-                                    extend_unique(
-                                        &mut conditions,
-                                        collection_unification_definedness(
-                                            definition,
-                                            &remainder,
-                                            &solution.substitution,
-                                        ),
+                                Some([collection]) => {
+                                    let mut matched = MatchSolution::from_parts(
+                                        collection.matched.substitution().clone(),
+                                        solution.into_parts().1,
                                     );
-                                    (solution.substitution.clone(), conditions)
+                                    matched
+                                        .conjoin(collection.matched.conditions().iter().cloned());
+                                    matched.conjoin(collection_unification_definedness(
+                                        definition,
+                                        &remainder,
+                                        matched.substitution(),
+                                    ));
+                                    matched
                                 }
                                 _ => {
                                     return Ok(ClaimApplication::Indeterminate(
                                         ClaimIndeterminateReason::Match {
-                                            substitution,
+                                            substitution: solution.substitution().clone(),
                                             remainder,
                                         },
                                     ));
@@ -1369,7 +1367,7 @@ fn apply_claim(
         }
     };
     let (mut substitution, match_conditions) =
-        bind_subject_variables(definition, &claim, substitution, match_conditions).into_parts();
+        bind_subject_variables(definition, &claim, matched).into_parts();
     let simplification = SimplificationOptions {
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
@@ -1620,9 +1618,9 @@ fn remainder_is_unsatisfiable(
 fn bind_subject_variables(
     definition: &BackendDefinition,
     claim: &ReachabilityClaim,
-    mut substitution: Substitution,
-    mut conditions: Vec<crate::rule::Predicate>,
+    matched: MatchSolution,
 ) -> MatchSolution {
+    let (mut substitution, mut conditions) = matched.into_parts();
     let claim_variables = variables_of_claim(claim);
     let bound = substitution
         .iter()
