@@ -1374,6 +1374,33 @@ fn a_contradiction_declared_in_an_import_is_reported_once_on_its_declaration() {
 }
 
 #[test]
+fn a_contradiction_declared_in_an_import_is_not_repeated_by_importers_that_extend_its_sort() {
+    let source = indoc! {r#"
+        module A
+          imports BASIC-K
+          syntax Exp ::= "a" | "b"
+          syntax Exp ::= K
+        endmodule
+
+        module B
+          imports A
+          syntax Aaa ::= Exp
+        endmodule
+
+        module C
+          imports A
+          syntax Abb ::= Exp
+        endmodule
+
+        module MAIN
+          imports B
+          imports C
+        endmodule
+    "#};
+    kernel_sort_position_error(source, "MAIN", 4, "KItem < K < Exp < KItem");
+}
+
+#[test]
 fn a_contradiction_through_an_intermediate_declared_sort_is_rejected_at_load() {
     let source = indoc! {r#"
         module MAIN

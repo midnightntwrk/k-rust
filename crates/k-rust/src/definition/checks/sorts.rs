@@ -227,13 +227,13 @@ fn kernel_completion(sorts: &BTreeSet<Sort>) -> BTreeMap<(Sort, Sort), String> {
 /// `#KVariable` or `KConfigVar`, which no order of K terms can have.
 ///
 /// A cycle of `D` alone is the definition's circular subsort error and is left to the checks that
-/// report it. A contradiction whose declared pairs are already in `reported` was reported for an
-/// earlier module of the dependency order, whose view the current one includes, so it is reported
-/// once, at the first view that has it, on the first step of its cycle that is declared and not a
-/// kernel position.
+/// report it.
+/// The declared steps of every contradiction already reported, at an earlier module of the dependency order, are left out of the search.
+/// A view that only repeats an earlier contradiction therefore finds no cycle, and a cycle still found is a contradiction independent of those already reported.
+/// It is reported once, on the first step of its cycle that is declared and not a kernel position.
 fn check_kernel_sort_positions(
     visible: &[&Sentence],
-    reported: &mut BTreeSet<BTreeSet<(Sort, Sort)>>,
+    reported: &mut BTreeSet<(Sort, Sort)>,
 ) -> Option<Diagnostic> {
     let declared = disambiguation_subsort_pairs(visible);
     if first_cycle(declared.iter().cloned()).is_some() {
@@ -260,7 +260,13 @@ fn check_kernel_sort_positions(
         }
     }
     let completion = kernel_completion(&sorts);
-    let cycle = first_cycle(declared.iter().chain(completion.keys()).cloned())?;
+    let cycle = first_cycle(
+        declared
+            .iter()
+            .filter(|pair| !reported.contains(*pair))
+            .chain(completion.keys())
+            .cloned(),
+    )?;
 
     let steps = cycle
         .path
@@ -288,9 +294,7 @@ fn check_kernel_sort_positions(
             .expect("every declared pair is stated by a visible sentence")
     };
     let sentence = stating(first_lesser, first_greater);
-    if !reported.insert(declared_steps.clone()) {
-        return None;
-    }
+    reported.extend(declared_steps.iter().cloned());
 
     let explanation = steps
         .iter()
@@ -337,7 +341,7 @@ fn declared_step_text(sentence: &Sentence, lesser: &Sort, greater: &Sort) -> Str
 
 /// Run the outer-module checks over every module in dependency order: the sorts and user lists
 /// each module declares, and the kernel sort positions of each module view's declared subsorts,
-/// reported once at the first module whose view contradicts them.
+/// leaving declared steps of previously reported kernel-position contradictions out of later searches.
 pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut reported_kernel_contradictions = BTreeSet::new();
