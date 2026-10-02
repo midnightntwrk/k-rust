@@ -126,6 +126,10 @@ struct EncodingBase {
     /// unknown or an instantiated position may take; an empty vector when the module declares
     /// none.
     parametric_values: BTreeMap<usize, Vec<Datatype>>,
+    /// `Grammar::parametric_values` as sorts, which `Encoding::assert_sort_of_module` checks
+    /// every decoded model value and every instantiated position against.
+    #[cfg(debug_assertions)]
+    parametric_sorts: BTreeSet<Sort>,
 }
 
 /// One subsort order over the real ground sort values (`EncodingBase::order_relation`), with the
@@ -351,7 +355,15 @@ mod domain {
             }
             // A value with a parametric head is one of the module's parametric sorts with that
             // head; a head with none is excluded outright.
-            for (index, values) in &self.parametric_values {
+            #[cfg(test)]
+            let parametric_values = if super::OMIT_INSTANCE_DOMAIN.with(std::cell::Cell::get) {
+                &BTreeMap::new()
+            } else {
+                &self.parametric_values
+            };
+            #[cfg(not(test))]
+            let parametric_values = &self.parametric_values;
+            for (index, values) in parametric_values {
                 let tester = &self.datatype.variants[*index].tester;
                 for value in self.variables.values() {
                     let has_head = tester
@@ -385,6 +397,12 @@ thread_local! {
     /// Test switch: `less_than_eq` writes every order constraint over the whole relation.
     #[cfg(test)]
     static FORCE_FULL_DISJUNCTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Test switch: `Encoding::issue` asserts no parametric domain and
+    /// `Encoding::instantiation_constraint` constrains no instantiated position, so the encoder
+    /// lets an unknown or an instantiated position take a parametric sort the module does not
+    /// have, for the checks of `Encoding::assert_sort_of_module` to catch.
+    #[cfg(test)]
+    static OMIT_INSTANCE_DOMAIN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Test recorder: when `Some`, `record_inference_problem` appends each problem
     /// `Grammar::infer_sorts` is given.
     #[cfg(test)]
@@ -754,6 +772,8 @@ impl Grammar {
                 &mut BTreeMap::new(),
             ) {
                 Ok(candidate) => {
+                    #[cfg(debug_assertions)]
+                    encoding.assert_packed_candidate_of_module(&candidate);
                     candidates.insert(candidate);
                 }
                 Err(error) => {
@@ -950,6 +970,8 @@ impl Grammar {
         for model in models.into_iter().flatten() {
             match encoding.apply_model(term.clone(), top_sort, root_context, "root", &model) {
                 Ok(candidate) => {
+                    #[cfg(debug_assertions)]
+                    encoding.assert_candidate_of_module(&candidate);
                     candidates.insert(candidate);
                 }
                 Err(error) => {
@@ -1057,6 +1079,8 @@ impl EncodingBase {
             semantic_relation: OrderRelation::new(Vec::new()),
             declared_nat_sorts,
             parametric_values: BTreeMap::new(),
+            #[cfg(debug_assertions)]
+            parametric_sorts: BTreeSet::new(),
         };
         for sort in &base.ground_sorts {
             base.sort_value(sort, &BTreeMap::new())?;
@@ -1079,6 +1103,8 @@ impl EncodingBase {
             })?;
             let value = base.sort_value(sort, &BTreeMap::new())?;
             base.parametric_values.entry(index).or_default().push(value);
+            #[cfg(debug_assertions)]
+            base.parametric_sorts.insert(sort.clone());
         }
         Ok(base)
     }
@@ -2020,6 +2046,10 @@ impl<'a> Encoding<'a> {
         descriptor: &Production,
         parameters: &BTreeMap<Sort, Datatype>,
     ) -> Result<Option<Bool>, ParseError> {
+        #[cfg(test)]
+        if OMIT_INSTANCE_DOMAIN.with(Cell::get) {
+            return Ok(None);
+        }
         let Some(origin) = &descriptor.parametric_origin else {
             return Ok(None);
         };
@@ -2761,9 +2791,143 @@ impl<'a> Encoding<'a> {
                 let value = model
                     .eval(variable, true)
                     .ok_or_else(|| z3_error(format!("Z3 omitted a value for {name}")))?;
-                self.decode_sort(&value).map(|sort| (name.clone(), sort))
+                let sort = self.decode_sort(&value)?;
+                #[cfg(debug_assertions)]
+                self.assert_sort_of_module(
+                    &sort,
+                    self.parameters.contains(name),
+                    format_args!("the inference unknown {name}"),
+                );
+                Ok((name.clone(), sort))
             })
             .collect()
+    }
+
+    /// I-D: `sort`, the value of an inference unknown or of an instantiated parametric
+    /// position in a model, is a sort of the module: a nullary sort whose role is in the
+    /// inference domain (in the parameter domain when `parameter`), or one of
+    /// `Grammar::parametric_values`. A sentence can mention only the module's sorts, so a model
+    /// outside them describes no sentence of the module; the domain of `DomainSolver` and
+    /// `Encoding::instantiation_constraint` exclude such a model, and this check names one that
+    /// gets through where it is read, instead of at a later cast lookup that some positions skip.
+    #[cfg(debug_assertions)]
+    fn assert_sort_of_module(&self, sort: &Sort, parameter: bool, subject: impl std::fmt::Display) {
+        let nullary_in_domain = sort.parameters.is_empty() && {
+            let role = sort.role();
+            if parameter {
+                role.in_inference_domain() && role.in_parameter_domain()
+            } else {
+                role.in_inference_domain()
+            }
+        };
+        assert!(
+            nullary_in_domain || self.parametric_sorts.contains(sort),
+            "I-D: {subject} has the sort {sort}, which is not a sort of the module"
+        );
+    }
+
+    /// Check only a surviving candidate, after model application has pruned dead alternatives.
+    #[cfg(debug_assertions)]
+    fn assert_candidate_of_module(&self, term: &ParsedTerm) {
+        match term {
+            ParsedTerm::Ambiguity(alternatives) => {
+                for alternative in alternatives {
+                    self.assert_candidate_of_module(alternative);
+                }
+            }
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                ..
+            } => {
+                self.assert_label_instance_of_module(*production, parameters);
+                for child in children {
+                    self.assert_candidate_of_module(child);
+                }
+            }
+            ParsedTerm::Production { children, .. } => {
+                for child in children {
+                    self.assert_candidate_of_module(child);
+                }
+            }
+            ParsedTerm::Term(_) => {}
+        }
+    }
+
+    /// The packed survivor check preserves sharing and visits each candidate node once.
+    #[cfg(debug_assertions)]
+    fn assert_packed_candidate_of_module(&self, term: &Rc<PackedTerm>) {
+        let mut pending = vec![term];
+        let mut visited = HashSet::new();
+        while let Some(term) = pending.pop() {
+            if !visited.insert(Rc::as_ptr(term)) {
+                continue;
+            }
+            match &term.node {
+                PackedNode::Ambiguity(alternatives) => pending.extend(alternatives),
+                PackedNode::InstantiatedProduction {
+                    production,
+                    parameters,
+                    children,
+                    ..
+                } => {
+                    self.assert_label_instance_of_module(*production, parameters);
+                    pending.extend(children);
+                }
+                PackedNode::Production { children, .. } => pending.extend(children),
+                PackedNode::Term(_) => {}
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn assert_label_instance_of_module(&self, production: usize, parameters: &[Sort]) {
+        let descriptor = &self.grammar.productions[production];
+        let origin = descriptor
+            .parametric_origin
+            .as_ref()
+            .expect("an instantiated production has a parametric origin");
+        let parameter_values = origin
+            .parameters
+            .iter()
+            .cloned()
+            .zip(parameters.iter().cloned())
+            .collect();
+        self.assert_instantiation_of_module(descriptor, &parameter_values);
+    }
+
+    /// I-D for the instantiated positions of `descriptor` under `parameter_values`: the result
+    /// and every nonterminal item sort of its parametric origin that has parameters and is not
+    /// itself a formal parameter (a bare formal is an unknown, which `read_model` checks).
+    #[cfg(debug_assertions)]
+    fn assert_instantiation_of_module(
+        &self,
+        descriptor: &Production,
+        parameter_values: &BTreeMap<Sort, Sort>,
+    ) {
+        let Some(origin) = &descriptor.parametric_origin else {
+            return;
+        };
+        let formals = std::iter::once(&origin.result).chain(origin.items.iter().filter_map(
+            |item| match item {
+                crate::definition::ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            },
+        ));
+        for formal in formals {
+            if formal.parameters.is_empty() || origin.parameters.contains(formal) {
+                continue;
+            }
+            self.assert_sort_of_module(
+                &substitute_sort(formal, parameter_values),
+                false,
+                format_args!(
+                    "the instantiated position {formal} of production {}",
+                    production_text(descriptor)
+                ),
+            );
+        }
     }
 
     fn apply_model_packed(
@@ -5236,6 +5400,182 @@ mod tests {
                 .iter()
                 .find_map(|alternative| variable_key(alternative, name)),
         }
+    }
+
+    /// Parses `content` as a rule of module `TEST` of `source`, loaded with the embedded
+    /// prelude, with `OMIT_INSTANCE_DOMAIN` set to `omit` for the parse.
+    fn parse_rule_over_module(
+        source: &str,
+        content: &str,
+        omit: bool,
+    ) -> Result<(), crate::inner::rules::RuleError> {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                OMIT_INSTANCE_DOMAIN.with(|switch| switch.set(self.0));
+            }
+        }
+        let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
+        let mut resolver = |_: &str, required: &str| {
+            crate::builtin::embedded(required)
+                .ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = crate::outer::load_with_options(
+            crate::outer::ResolvedSource::new("test.k", source.to_owned()),
+            "TEST",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("TEST loads: {error}"));
+        let _restore = Restore(OMIT_INSTANCE_DOMAIN.with(|switch| switch.replace(omit)));
+        crate::inner::rules::parse_rule_content(
+            loaded.resolved(),
+            "TEST",
+            content,
+            crate::definition::Attributes::default(),
+        )
+        .map(drop)
+    }
+
+    /// A constructed token pins `foo`'s formal width without an inference unknown whose
+    /// value is `MInt{W}`. With the instance domain omitted, model application succeeds;
+    /// only the check of the surviving label instance rejects the undeclared operand sort.
+    fn infer_constructed_instance(omit: bool, packed: bool) -> Result<ParsedTerm, ParseError> {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                OMIT_INSTANCE_DOMAIN.with(|switch| switch.set(self.0));
+            }
+        }
+        let width = Sort::new("W");
+        let declared_width = Sort::new("8");
+        let declared = Sort::with_parameters("MInt", vec![declared_width.clone()]);
+        let formal = Sort::with_parameters("MInt", vec![width.clone()]);
+        let result = Sort::new("Foo");
+        let mut grammar = Grammar::default();
+        grammar
+            .add(
+                result.clone(),
+                vec![ProductionItem::NonTerminal {
+                    sort: declared,
+                    name: None,
+                }],
+                Some(Label::new("foo")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.productions[0].parametric_origin = Some(ParametricOrigin {
+            label: Some(Label::new("foo")),
+            parameters: vec![width.clone()],
+            result: result.clone(),
+            items: vec![ProductionItem::NonTerminal {
+                sort: formal,
+                name: None,
+            }],
+            attributes: Default::default(),
+            substitution: BTreeMap::from([(width, declared_width.clone())]),
+        });
+        grammar
+            .add(
+                result.clone(),
+                vec![nonterminal("Foo")],
+                Some(Label::semantic_cast(&result)),
+                false,
+                false,
+            )
+            .unwrap();
+        let term = ParsedTerm::Production {
+            production: 0,
+            children: vec![ParsedTerm::Term(Term::Token {
+                sort: Sort::with_parameters(
+                    "MInt",
+                    vec![if omit { Sort::new("K") } else { declared_width }],
+                ),
+                token: "constructed".into(),
+            })],
+            metadata: Default::default(),
+        };
+        // The existing semantic cast suppresses inferred-sort cast lookup on `foo`.
+        let term = ParsedTerm::Production {
+            production: 1,
+            children: vec![term],
+            metadata: Default::default(),
+        };
+        let _restore = Restore(OMIT_INSTANCE_DOMAIN.with(|switch| switch.replace(omit)));
+        if packed {
+            grammar.infer_packed_sorts_z3(PackedTerm::from_parsed(&term), &result, false)
+        } else {
+            grammar.infer_sorts_z3(term, &result, false)
+        }
+    }
+
+    /// `W` is bound by `foo`'s production alone, and nothing in `foo(X) => g` fixes it.
+    const FREE_OPERAND_WIDTH: &str = r#"
+module TEST
+  imports INT
+  imports BOOL
+  imports MINT-SYNTAX
+  syntax MInt{8}
+  syntax {W} Foo ::= foo(MInt{W}) [symbol(foo)]
+  syntax Foo ::= "g"
+endmodule
+"#;
+    const FREE_OPERAND_WIDTH_RULE: &str = "foo(X) => g";
+
+    /// The invalid operand survives model application and is caught in the packed candidate.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "I-D: the instantiated position MInt{W}")]
+    fn an_instantiated_position_outside_the_module_sorts_is_caught_in_a_surviving_candidate() {
+        infer_constructed_instance(true, true).expect("the candidate survives model application");
+    }
+
+    /// The unpacked oracle checks the same surviving label instance.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "I-D: the instantiated position MInt{W}")]
+    fn an_instantiated_position_outside_the_module_sorts_is_caught_in_an_unpacked_survivor() {
+        infer_constructed_instance(true, false).expect("the candidate survives model application");
+    }
+
+    /// I-D at an unknown: without the parametric domain an unknown typed `MInt{W}` can take a
+    /// parametric sort that is not one of the module's, such as `MInt{K}` or `MInt{Bag}`, and
+    /// the enumeration of maximal typings reaches one; `read_model` names it.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "is not a sort of the module")]
+    fn an_unknown_outside_the_module_sorts_is_caught_where_the_model_is_read() {
+        let _ = parse_rule_over_module(FREE_OPERAND_WIDTH, FREE_OPERAND_WIDTH_RULE, true);
+    }
+
+    /// The control of the instantiated-position tests: both engines return the declared
+    /// operand instance at `MInt{8}`, and no check fires.
+    #[test]
+    fn a_constructed_instance_over_the_module_sorts_passes_the_checks() {
+        for packed in [true, false] {
+            let candidate = infer_constructed_instance(false, packed)
+                .expect("the declared operand instance survives model application");
+            let ParsedTerm::Production { children, .. } = candidate else {
+                panic!("the candidate retains its semantic cast");
+            };
+            assert!(matches!(
+                &children[0],
+                ParsedTerm::InstantiatedProduction { parameters, .. }
+                    if parameters == &vec![Sort::new("8")]
+            ));
+        }
+    }
+
+    /// The control of the unknown test: over the module's sorts the rule has the one reading at
+    /// `MInt{8}`, and no check fires.
+    #[test]
+    fn a_free_operand_width_over_the_module_sorts_passes_the_checks() {
+        parse_rule_over_module(FREE_OPERAND_WIDTH, FREE_OPERAND_WIDTH_RULE, false)
+            .expect("the free operand width takes MInt{8}");
     }
 
     /// 80fd52d8: in `rule foo(_X) => #Exists Y . { ?_I #Equals Y }` the bound variable `Y` and
