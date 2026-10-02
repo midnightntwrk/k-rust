@@ -5616,3 +5616,44 @@ fn an_overload_whose_parametric_alternative_has_no_instance_keeps_the_other() {
     };
     assert!(body.contains("fooInt"), "{body}");
 }
+
+#[test]
+fn named_fields_of_parametric_productions_build_checked_grammars() {
+    let outcomes = [
+        (
+            "result-parameter",
+            "module TEST\n  imports BOOL-SYNTAX\n  syntax {W} MInt{W}\n  syntax A ::= \"a\"\n  syntax MInt{A} ::= ka() [function]\n  syntax {T} T ::= inner(x: MInt{T}) [function]\nendmodule\n",
+        ),
+        (
+            "result-instance",
+            "module TEST\n  imports INT\n  imports MINT-SYNTAX\n  syntax MInt{8}\n  syntax {S} MInt{S} ::= wrap(x: S) [function]\nendmodule\n",
+        ),
+        (
+            "two-fields",
+            "module TEST\n  imports INT\n  imports MINT-SYNTAX\n  syntax MInt{8}\n  syntax {S} S ::= pick(x: MInt{S}, y: Int) [function]\nendmodule\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, source)| {
+        std::panic::catch_unwind(|| load_with_prelude(source, name, "TEST").unwrap())
+    })
+    .collect::<Vec<_>>();
+    assert!(outcomes.into_iter().all(|outcome| outcome.is_ok()));
+}
+
+#[test]
+#[cfg(feature = "z3-inference")]
+fn a_named_result_parameter_production_is_typed_at_the_declared_instance() {
+    let source = indoc! {r#"
+        module TEST
+          imports BOOL-SYNTAX
+          syntax {W} MInt{W}
+          syntax A ::= "a"
+          syntax MInt{A} ::= ka() [function]
+          syntax {T} T ::= inner(x: MInt{T}) [function]
+          syntax Foo ::= "g" | f(A) [function] | h() [function]
+          rule h() => f(inner(ka()))
+        endmodule
+    "#};
+    load_with_prelude(source, "named-result-parameter", "TEST").unwrap();
+}

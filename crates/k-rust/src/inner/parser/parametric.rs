@@ -11,10 +11,11 @@
 //! bound = "O(S x P + T)"
 //! ```
 //!
-//! Scala-compatible concretization of parametric productions for Earley parsing.
+//! Concretization of parametric productions for Earley parsing.
 //!
-//! Construction is O(concrete sorts * formal productions), including the four K-specific
-//! instantiation cases; substitution is linear in the traversed sort tree.
+//! Construction is O(concrete sorts * formal productions), choosing among five formal shapes
+//! and closing every candidate over the grammar domain or recognition placeholders.
+//! Substitution is linear in the traversed sort tree.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,8 +32,128 @@ use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_pr
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParametricInstance {
-    pub(crate) sentence: Sentence,
-    pub(crate) origin: ParametricOrigin,
+    sentence: Sentence,
+    origin: ParametricOrigin,
+}
+
+impl ParametricInstance {
+    /// Mint an instance only when every parameter is bound and every parameter-dependent slot
+    /// is a sort of the domain or its formal head's recognition placeholder.
+    fn close(
+        label: &Option<Label>,
+        parameters: &[Sort],
+        sort: &Sort,
+        items: &[ProductionItem],
+        attributes: &Attributes,
+        mut substitution: BTreeMap<Sort, Sort>,
+        domain: &BTreeSet<Sort>,
+    ) -> Option<Self> {
+        for parameter in parameters {
+            substitution
+                .entry(parameter.clone())
+                .or_insert_with(|| Sort::new("K"));
+        }
+        for formal in std::iter::once(sort).chain(items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+        })) {
+            if mentions_parameter(formal, parameters) {
+                let written = substitute_sort(formal, &substitution);
+                if !domain.contains(&written)
+                    && (formal.parameters.is_empty()
+                        || written != placeholder_of(&SortHead::from(formal)))
+                {
+                    return None;
+                }
+            }
+        }
+        Some(Self {
+            sentence: Sentence::Production {
+                label: label.as_ref().map(|label| Label::new(label.name.clone())),
+                parameters: Vec::new(),
+                sort: substitute_sort(sort, &substitution),
+                items: items
+                    .iter()
+                    .map(|item| substitute_item(item, &substitution))
+                    .collect(),
+                attributes: attributes.clone(),
+            },
+            origin: ParametricOrigin {
+                label: label.clone(),
+                parameters: parameters.to_vec(),
+                result: sort.clone(),
+                items: items.to_vec(),
+                attributes: attributes.clone(),
+                substitution,
+            },
+        })
+    }
+
+    pub(crate) fn sentence(&self) -> &Sentence {
+        &self.sentence
+    }
+
+    pub(crate) fn origin(&self) -> &ParametricOrigin {
+        &self.origin
+    }
+
+    #[cfg(feature = "cli")]
+    pub(crate) fn into_sentence(self) -> Sentence {
+        self.sentence
+    }
+}
+
+/// How a formal production's result and items determine its candidate substitutions.
+enum InstanceChoice<'s> {
+    /// A result parameter can be any sort of the domain: one candidate `P = C` per sort `C`.
+    ResultParameter { parameter: &'s Sort },
+    /// A result `H{P}` can be each declared instance `H{a}`: one candidate `P = a` per instance.
+    ResultInstance { head: SortHead, parameter: &'s Sort },
+    /// A ground-result inclusion enumerates the sorts its item can be. A parameter item uses
+    /// the domain except `K`, `KItem` and the result (at or above it); `H{P}` uses declared
+    /// instances of `H`; a ground item needs one candidate.
+    SubsortItem { item: &'s Sort },
+    /// Any other ground result needs one candidate; parameters left unbound become `K`.
+    Ground,
+    /// A shape outside those admitted by sort checks contributes no candidate.
+    Unsupported,
+}
+
+impl<'s> InstanceChoice<'s> {
+    fn of(
+        parameters: &[Sort],
+        sort: &'s Sort,
+        label: &Option<Label>,
+        items: &'s [ProductionItem],
+    ) -> Self {
+        if parameters.contains(sort) {
+            return Self::ResultParameter { parameter: sort };
+        }
+        if let [argument] = sort.parameters.as_slice()
+            && parameters.contains(argument)
+        {
+            return Self::ResultInstance {
+                head: SortHead::from(sort),
+                parameter: argument,
+            };
+        }
+        if mentions_parameter(sort, parameters) {
+            return Self::Unsupported;
+        }
+        if is_syntactic_subsort(label, items) {
+            let [ProductionItem::NonTerminal { sort: item, .. }] = items else {
+                unreachable!("a subsort declaration has one nonterminal")
+            };
+            if parameters.contains(item)
+                || !mentions_parameter(item, parameters)
+                || matches!(item.parameters.as_slice(), [argument] if parameters.contains(argument))
+            {
+                return Self::SubsortItem { item };
+            }
+            return Self::Unsupported;
+        }
+        Self::Ground
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,23 +183,21 @@ pub(crate) struct ParametricConcretization<'a> {
 /// Enumerate the concrete parsing productions derived from formal productions.
 ///
 /// The in-process parser and generated parsers share this pure plan so they cannot drift in the
-/// four K concretization cases or in the placeholder subsorts added for parametric sort heads.
+/// five shape choices, the closure gate, or the placeholder subsorts added for parametric heads.
+/// Every kept candidate binds all parameters and writes only domain sorts or placeholders at
+/// parameter-dependent slots; a candidate writing an unrecognizable sort contributes no parse.
+#[deny(clippy::wildcard_enum_match_arm)]
 pub(crate) fn concretize_parametric_productions<'a>(
     sentences: &[&'a Sentence],
 ) -> ParametricConcretization<'a> {
     let catalog = SortCatalog::from_visible(sentences.iter().copied());
-    let mut all_sorts = catalog
+    let mut domain = catalog
         .all_sorts()
         .iter()
         .filter(|sort| sort.role().is_k_term_sort())
         .cloned()
-        .collect::<Vec<_>>();
-    for builtin in [Sort::new("K"), Sort::new("KItem")] {
-        if !all_sorts.contains(&builtin) {
-            all_sorts.push(builtin);
-        }
-    }
-    all_sorts.sort();
+        .collect::<BTreeSet<_>>();
+    domain.extend([Sort::new("K"), Sort::new("KItem")]);
 
     let formal_sources = sentences
         .iter()
@@ -102,36 +221,40 @@ pub(crate) fn concretize_parametric_productions<'a>(
             unreachable!()
         };
 
-        let substitutions = if parameters.contains(sort) {
-            // Case 1: `syntax {P, R} P ::= P "+" R`.
-            all_sorts
+        let candidates = match InstanceChoice::of(parameters, sort, label, items) {
+            InstanceChoice::ResultParameter { parameter } => domain
                 .iter()
+                .map(|concrete| BTreeMap::from([(parameter.clone(), concrete.clone())]))
+                .collect::<Vec<_>>(),
+            InstanceChoice::ResultInstance { head, parameter } => catalog
+                .instantiations()
+                .get(&head)
+                .into_iter()
+                .flatten()
                 .map(|concrete| {
-                    parameters
-                        .iter()
-                        .cloned()
-                        .map(|parameter| {
-                            let replacement = if &parameter == sort {
-                                concrete.clone()
-                            } else {
-                                Sort::new("K")
-                            };
-                            (parameter, replacement)
-                        })
-                        .collect()
+                    let [value] = concrete.parameters.as_slice() else {
+                        unreachable!("a declared instance of an arity-one head has one argument")
+                    };
+                    BTreeMap::from([(parameter.clone(), value.clone())])
                 })
-                .collect::<Vec<_>>()
-        } else if !sort.parameters.is_empty() {
-            match sort.parameters.as_slice() {
-                [argument] if parameters.contains(argument) => {
-                    // Case 2: `syntax {W, X} MInt{W} ::= MInt{W} "+" MInt{X}`. The result names
-                    // one sort per value of its one argument `W`, so the production has one
-                    // instance per declared instance of the result's head, mapping `W` to that
-                    // instance's argument and every other parameter to `K`.
-                    let head = SortHead::from(sort);
+                .collect(),
+            InstanceChoice::SubsortItem { item } => {
+                if parameters.contains(item) {
+                    domain
+                        .iter()
+                        .filter(|concrete| {
+                            concrete.name != BuiltinSort::K.k_name()
+                                && concrete.name != BuiltinSort::KItem.k_name()
+                                && *concrete != sort
+                        })
+                        .map(|concrete| BTreeMap::from([(item.clone(), concrete.clone())]))
+                        .collect()
+                } else if let [parameter] = item.parameters.as_slice()
+                    && parameters.contains(parameter)
+                {
                     catalog
                         .instantiations()
-                        .get(&head)
+                        .get(&SortHead::from(item))
                         .into_iter()
                         .flatten()
                         .map(|concrete| {
@@ -140,93 +263,38 @@ pub(crate) fn concretize_parametric_productions<'a>(
                                     "a declared instance of an arity-one head has one argument"
                                 )
                             };
-                            parameters
-                                .iter()
-                                .cloned()
-                                .map(|parameter| {
-                                    let replacement = if &parameter == argument {
-                                        value.clone()
-                                    } else {
-                                        Sort::new("K")
-                                    };
-                                    (parameter, replacement)
-                                })
-                                .collect()
+                            BTreeMap::from([(parameter.clone(), value.clone())])
                         })
                         .collect()
-                }
-                _ if !mentions_parameter(sort, parameters) => {
-                    // A ground parametric result (`syntax {W} MInt{8} ::= foo(MInt{W})`) is one
-                    // sort whatever the parameters, so the production has the one instance whose
-                    // parameters, which occur only in arguments, become `K` (case 4's
-                    // substitution).
-                    vec![
-                        parameters
-                            .iter()
-                            .cloned()
-                            .map(|parameter| (parameter, Sort::new("K")))
-                            .collect(),
-                    ]
-                }
-                _ => {
-                    // A formal parameter nested in an argument (`MInt{MInt{W}}`) or inside a head
-                    // of another arity (`MInt{A, B}`) has no value a declared instance supplies,
-                    // so the production contributes no instance.
-                    debug_assert!(
-                        false,
-                        "parametric production {sentence:?}: result {sort} is outside the shapes check_sorts admits (a formal parameter nested in an argument, or a head of another arity)"
-                    );
-                    Vec::new()
+                } else {
+                    vec![BTreeMap::new()]
                 }
             }
-        } else if is_syntactic_subsort(label, items) {
-            // Case 3: `syntax {S} KItem ::= S`.
-            all_sorts
-                .iter()
-                .filter(|concrete| {
-                    parameters.contains(sort)
-                        || (concrete.name != BuiltinSort::K.k_name()
-                            && concrete.name != BuiltinSort::KItem.k_name())
-                })
-                .map(|concrete| BTreeMap::from([(parameters[0].clone(), concrete.clone())]))
-                .collect()
-        } else {
-            // Case 4: parameters which occur only in arguments become `K`.
-            vec![
-                parameters
-                    .iter()
-                    .cloned()
-                    .map(|parameter| (parameter, Sort::new("K")))
-                    .collect(),
-            ]
+            InstanceChoice::Ground => vec![BTreeMap::new()],
+            InstanceChoice::Unsupported => {
+                debug_assert!(
+                    false,
+                    "parametric production {sentence:?}: result {sort} is outside the shapes check_sorts admits (a formal parameter nested in an argument, or a head of another arity)"
+                );
+                Vec::new()
+            }
         };
 
-        for substitution in &substitutions {
-            placeholder_heads.extend(placeholders_written(sort, items, substitution));
-        }
-        let instances = substitutions
+        let instances = candidates
             .into_iter()
-            .map(|substitution| ParametricInstance {
-                sentence: Sentence::Production {
-                    label: label.as_ref().map(|label| Label::new(label.name.clone())),
-                    parameters: Vec::new(),
-                    sort: substitute_sort(sort, &substitution),
-                    items: items
-                        .iter()
-                        .map(|item| substitute_item(item, &substitution))
-                        .collect(),
-                    attributes: attributes.clone(),
-                },
-                origin: ParametricOrigin {
-                    label: label.clone(),
-                    parameters: parameters.clone(),
-                    result: sort.clone(),
-                    items: items.clone(),
-                    attributes: attributes.clone(),
-                    substitution,
-                },
+            .filter_map(|candidate| {
+                ParametricInstance::close(
+                    label, parameters, sort, items, attributes, candidate, &domain,
+                )
             })
-            .collect();
+            .collect::<Vec<_>>();
+        for instance in &instances {
+            placeholder_heads.extend(placeholders_written(
+                sort,
+                items,
+                &instance.origin().substitution,
+            ));
+        }
         families.push(ParametricFamily {
             formal_source: sentence,
             instances,
@@ -328,10 +396,9 @@ impl Grammar {
     ) -> Result<(), ParseError> {
         for family in concretization.families {
             let sentence = family.formal_source;
-            // All temporary concrete variants of this source production become the same original
-            // production reference in Java's Earley forest. The first variant is our canonical
-            // descriptor; its `ParametricOrigin` carries the actual source signature used by
-            // inference, so its concrete parse-time result is not semantically observable.
+            // The forest identifies all instances of this source as one term production. The
+            // first instance is its canonical descriptor; its origin supplies the formal
+            // signature for inference, so its concrete parse-time result does not type the term.
             let term_production = self.productions.len();
             let source_production = catalog_production(source_catalog, sentence);
             for instance in family.instances {
@@ -364,7 +431,7 @@ impl Grammar {
             items,
             attributes,
             ..
-        } = instance.sentence
+        } = instance.sentence()
         else {
             unreachable!()
         };
@@ -373,19 +440,19 @@ impl Grammar {
             .and_then(|production| self.source_production_texts.get(&production))
             .cloned();
         self.add_production_with_lexical(
-            sort,
-            &items,
-            label,
+            sort.clone(),
+            items,
+            label.clone(),
             ProductionOptions {
                 source_production,
                 source_production_text: source_production_text.as_ref(),
                 source: attributes.source(),
                 location: attributes.location(),
-                ..production_options(&attributes)
+                ..production_options(attributes)
             },
             lexical,
         )?;
-        self.productions[index].parametric_origin = Some(instance.origin);
+        self.productions[index].parametric_origin = Some(instance.origin().clone());
         self.productions[index].term_production = Some(term_production);
         Ok(())
     }
@@ -888,6 +955,154 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(slots, vec![mint(k)]);
+    }
+
+    #[test]
+    fn a_result_parameter_is_instantiated_only_where_its_slots_are_sorts_of_the_grammar() {
+        let t = Sort::new("T");
+        let w = Sort::new("W");
+        let a = Sort::new("A");
+        let k = Sort::new("K");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let sentences = [
+            syntax_sort(Vec::new(), Sort::new("Int")),
+            syntax_sort(Vec::new(), a.clone()),
+            syntax_sort(vec![w.clone()], mint(w)),
+            syntax_sort(Vec::new(), mint(a.clone())),
+            syntax_sort(Vec::new(), mint(Sort::new("8"))),
+            production(
+                vec![t.clone()],
+                t.clone(),
+                "inner",
+                vec![ProductionItem::NonTerminal {
+                    sort: mint(t),
+                    name: Some("x".into()),
+                }],
+            ),
+        ];
+        let plan = concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+        let [family] = plan.families.as_slice() else {
+            panic!("one formal production gives one family")
+        };
+        let instances = family
+            .instances
+            .iter()
+            .map(|instance| {
+                let Sentence::Production { sort, items, .. } = &instance.sentence else {
+                    unreachable!("an instance is a production")
+                };
+                (sort.clone(), items.clone())
+            })
+            .collect::<Vec<_>>();
+        let named = |sort| ProductionItem::NonTerminal {
+            sort,
+            name: Some("x".into()),
+        };
+        let expected = [a, k].map(|sort| {
+            let Sentence::Production { items, .. } = production(
+                Vec::new(),
+                sort.clone(),
+                "inner",
+                vec![named(mint(sort.clone()))],
+            ) else {
+                unreachable!("the helper builds a production")
+            };
+            (sort, items)
+        });
+        assert_eq!(instances, expected);
+        assert_eq!(
+            plan.placeholder_heads,
+            BTreeSet::from([SortHead::from(&mint(Sort::new("K")))])
+        );
+    }
+
+    #[test]
+    fn a_bare_slot_is_not_instantiated_at_a_numeral_argument() {
+        let w = Sort::new("W");
+        let s = Sort::new("S");
+        let a = Sort::new("A");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let sentences = [
+            syntax_sort(vec![w.clone()], mint(w)),
+            syntax_sort(Vec::new(), a.clone()),
+            syntax_sort(Vec::new(), mint(a.clone())),
+            syntax_sort(Vec::new(), mint(Sort::new("8"))),
+            production(
+                vec![s.clone()],
+                mint(s.clone()),
+                "wrap",
+                vec![nonterminal(s)],
+            ),
+        ];
+        let plan = concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+        let [family] = plan.families.as_slice() else {
+            panic!("one formal production gives one family")
+        };
+        assert_eq!(
+            family
+                .instances
+                .iter()
+                .map(|instance| instance.sentence.clone())
+                .collect::<Vec<_>>(),
+            vec![production(
+                Vec::new(),
+                mint(a.clone()),
+                "wrap",
+                vec![nonterminal(a)]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_subsort_declaration_is_instantiated_at_the_sorts_its_item_can_be() {
+        let s = Sort::new("S");
+        let w = Sort::new("W");
+        let a = Sort::new("A");
+        let k = Sort::new("K");
+        let foo = Sort::new("Foo");
+        let eight = Sort::new("8");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let subsort = |parameters, item| Sentence::Production {
+            label: None,
+            parameters,
+            sort: foo.clone(),
+            items: vec![nonterminal(item)],
+            attributes: Attributes::default(),
+        };
+        let sentences = [
+            syntax_sort(vec![w.clone()], mint(w.clone())),
+            syntax_sort(Vec::new(), mint(eight.clone())),
+            syntax_sort(Vec::new(), foo.clone()),
+            subsort(vec![s.clone(), w.clone()], mint(w.clone())),
+            subsort(vec![a.clone(), s.clone()], s.clone()),
+        ];
+        let plan = concretize_parametric_productions(&sentences.iter().collect::<Vec<_>>());
+        let [instance_family, parameter_family] = plan.families.as_slice() else {
+            panic!("two formal productions give two families")
+        };
+        assert_eq!(
+            instance_family
+                .instances
+                .iter()
+                .map(|instance| (&instance.sentence, &instance.origin.substitution))
+                .collect::<Vec<_>>(),
+            vec![(
+                &subsort(Vec::new(), mint(eight.clone())),
+                &BTreeMap::from([(s.clone(), k.clone()), (w, eight.clone())])
+            )]
+        );
+        // The domain is {Foo, K, KItem, MInt{8}}; only MInt{8} can be included below Foo.
+        assert_eq!(
+            parameter_family
+                .instances
+                .iter()
+                .map(|instance| (&instance.sentence, &instance.origin.substitution))
+                .collect::<Vec<_>>(),
+            vec![(
+                &subsort(Vec::new(), mint(eight.clone())),
+                &BTreeMap::from([(a, k), (s, mint(eight))])
+            )]
+        );
     }
 
     #[cfg(not(feature = "z3-inference"))]

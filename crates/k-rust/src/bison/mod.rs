@@ -160,7 +160,7 @@ fn concrete_program_sentences(sentences: Vec<Sentence>) -> Vec<Sentence> {
             .families
             .into_iter()
             .flat_map(|family| family.instances)
-            .map(|instance| instance.sentence),
+            .map(|instance| instance.into_sentence()),
     );
     output.extend(
         concretization
