@@ -12,7 +12,8 @@
 //!
 //! The check reads the grammar's semantic subsort relation, in which scaffolding sorts do stand:
 //! `KBott ::= #KVariable` makes a variable a bottom term, and `#Rule<S> ::= S` makes every `S` a
-//! rule pattern of sort `S`. Those pairs are exactly what G2 and G3 read.
+//! rule pattern of sort `S`. Those pairs are exactly what G2 and G3 read, through the order of the
+//! relation; G0 asserts first that the relation is acyclic, so that order always exists.
 
 use std::iter;
 
@@ -29,8 +30,11 @@ use super::{Grammar, Production};
 
 impl Grammar {
     /// Panic, naming the rule, the production and the sort, when a production this grammar
-    /// generated (one without a source production) violates the sort-role invariant:
+    /// generated (one without a source production) violates the sort-role invariant, or when the
+    /// grammar's semantic subsort relation is cyclic:
     ///
+    /// - G0 acyclic: the semantic subsort relation has no cycle. The panic names each step of the
+    ///   cycle and whether a generated unary production or the definition states it.
     /// - G1 classified: every sort of its result and of its nonterminal items, declared or
     ///   recognized, is a member or synonym alias of `universe`, a kernel sort, a scaffolding
     ///   sort, or a registered placeholder.
@@ -49,17 +53,26 @@ impl Grammar {
     /// body, the injected `<generatedCounter>` cell) are universe members because every unbound
     /// operand sort of a visible production is one.
     ///
-    /// G2 and G3 read the order of the semantic subsort relation. A cyclic relation has no order;
-    /// inference reports the cycle when it first needs the order, so the check then reads G1
-    /// alone.
+    /// G2 and G3 read the order of the semantic subsort relation, which G0 guarantees. Every
+    /// cycle a definition can cause is ruled out before this point: the load rejects a definition
+    /// whose declared subsorts contradict the positions K fixes for its kernel sorts, the grammar
+    /// constructor rejects a cycle among the definition's own productions, and the per-member
+    /// generators state only the kernel positions a sort's role grants, by const assertion. A
+    /// cycle here therefore needs a generated pair outside those rules, which is a compiler
+    /// defect, so every labeled generated production is checked against G2 and G3.
     pub(in crate::inner) fn assert_generated_sort_roles(&self, universe: &SortUniverse) {
         // The check's own order, built outside the grammar's cache and uncounted: the check is
         // not work of the grammar, so it neither changes the work counters nor builds the order
         // inference would otherwise build (and count) on its first parse.
-        let order = measure::without_counting(|| {
-            PartialOrder::new(self.subsort_relations.iter().cloned()).ok()
-        });
-        let order = order.as_ref();
+        let order = match measure::without_counting(|| {
+            PartialOrder::new(self.subsort_relations.iter().cloned())
+        }) {
+            Ok(order) => order,
+            Err(cycle) => panic!(
+                "G0: the semantic subsort relation is cyclic: {}",
+                self.render_cycle_steps(&cycle.path),
+            ),
+        };
         let bottom = KernelSort::KBott.sort();
         for production in self
             .productions
@@ -86,9 +99,6 @@ impl Grammar {
             if production.label.is_none() {
                 continue;
             }
-            let Some(order) = order else {
-                continue;
-            };
             for operand in declared_operands(production) {
                 assert!(
                     !order.less_than_eq(operand, &bottom),
@@ -97,7 +107,7 @@ impl Grammar {
                     render_parsing_production(production),
                 );
                 if production.result.role() == SortRole::Defined
-                    && let Some(term_sort) = term_sort_below_wrapper(order, operand)
+                    && let Some(term_sort) = term_sort_below_wrapper(&order, operand)
                 {
                     panic!(
                         "G3: the generated labeled production `{}` of the defined sort `{}` \
@@ -109,6 +119,37 @@ impl Grammar {
                 }
             }
         }
+    }
+
+    /// G0: the steps `A < B` of `path`, a cycle whose last sort is its first, each marked
+    /// `(generated)` when a generated unlabeled production `B ::= A` states it and `(declared)`
+    /// otherwise.
+    fn render_cycle_steps(&self, path: &[Sort]) -> String {
+        path.iter()
+            .zip(path.iter().skip(1))
+            .map(|(lesser, greater)| {
+                let provenance = if self.generates_subsort(lesser, greater) {
+                    "generated"
+                } else {
+                    "declared"
+                };
+                format!("{lesser} < {greater} ({provenance})")
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    /// G0: whether a generated unlabeled production `greater ::= lesser` states the pair.
+    fn generates_subsort(&self, lesser: &Sort, greater: &Sort) -> bool {
+        self.productions.iter().any(|production| {
+            production.source_production.is_none()
+                && production.label.is_none()
+                && production.result == *greater
+                && matches!(
+                    production.items.as_slice(),
+                    [Item::NonTerminal(child)] if child == lesser
+                )
+        })
     }
 
     /// G1: whether `sort` has a role a generated production may give it.
@@ -358,6 +399,72 @@ mod tests {
                 false,
             )
             .expect("the cell is added");
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    /// G0: two generated pairs that close a cycle are a compiler defect, reported with each step
+    /// of the cycle marked as generated.
+    #[test]
+    #[should_panic(
+        expected = "G0: the semantic subsort relation is cyclic: Exp < KItem (generated); \
+                    KItem < Exp (generated)"
+    )]
+    fn a_generated_pair_that_closes_a_cycle_fails_g0() {
+        let (mut grammar, universe) = grammar_and_universe();
+        add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Exp"));
+        add_subsort(&mut grammar, Sort::new("Exp"), Sort::new("KItem"));
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    /// G0 names a step that a definition production states as declared, so a cycle through one
+    /// generated and one declared pair shows which side is which.
+    #[test]
+    #[should_panic(
+        expected = "G0: the semantic subsort relation is cyclic: Exp < KItem (generated); \
+                    KItem < Exp (declared)"
+    )]
+    fn a_cycle_through_a_declared_pair_marks_it_declared() {
+        let mut sentences = module();
+        sentences.push(production(
+            Vec::new(),
+            Sort::new("Exp"),
+            vec![nonterminal(Sort::new("KItem"))],
+        ));
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible);
+        let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())
+            .expect("the module's grammar builds");
+        add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Exp"));
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    /// The G2 violation of `an_alias_declared_at_kvariable_fails_g2`, in a grammar whose
+    /// generated pairs also close a cycle: the check reports the cycle instead of passing the
+    /// violation silently.
+    #[test]
+    #[should_panic(expected = "G0")]
+    fn a_cycle_does_not_hide_a_g2_violation() {
+        let (mut grammar, universe) = grammar_and_universe();
+        add_subsort(&mut grammar, Sort::new("KBott"), Sort::new("#KVariable"));
+        add_subsort(&mut grammar, Sort::new("#RuleExp"), Sort::new("Exp"));
+        grammar
+            .add(
+                Sort::new("#RuleExp"),
+                vec![
+                    nonterminal(Sort::new("Exp")),
+                    terminal("#as"),
+                    nonterminal(Sort::new("#KVariable")),
+                ],
+                Some(Label::new("#KAs")),
+                false,
+                false,
+            )
+            .expect("the alias is added");
+        add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Exp"));
+        add_subsort(&mut grammar, Sort::new("Exp"), Sort::new("KItem"));
 
         grammar.assert_generated_sort_roles(&universe);
     }

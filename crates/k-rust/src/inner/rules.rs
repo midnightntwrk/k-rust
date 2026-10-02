@@ -1722,6 +1722,16 @@ endmodule
         }
     }
 
+    /// A view that imports KAST and declares nothing else loads in a debug build. Its main
+    /// module's global rule grammar is built as the scanner seed and never parses, so only the
+    /// sort-role checker reads it, and its semantic relation is acyclic (G0).
+    #[test]
+    fn a_view_that_only_imports_kast_loads() {
+        if let Err(error) = try_load_with_prelude("module MAIN\n  imports KAST\nendmodule\n") {
+            panic!("a view that only imports KAST loads: {error}");
+        }
+    }
+
     /// The projection cast `{T}:>S` lowers to `project:S`, which compilation declares exactly for
     /// the sorts with a sort projection, so the rule grammar offers it for those sorts and their
     /// synonyms only. The syntactic and semantic casts lower to no compiled symbol and stay for
