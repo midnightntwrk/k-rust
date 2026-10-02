@@ -27,7 +27,8 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, Location, ModuleId, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, kernel_position_cycle, push_if_inequivalent,
+    ResolveError, ResolvedDefinition, Sentence, SortSynonyms, kernel_position_cycle,
+    push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
@@ -256,7 +257,17 @@ fn configuration_grammar(
     // position whether or not that sort's declaration is visible here (a private import hides
     // it), and a configuration variable standing at that position needs the sort's variable
     // subsorts, so an operand sort is a member even when no visible sentence declares it.
-    let universe = SortUniverse::new(&visible);
+    // Casts exist only for aliases this grammar's view declares, so the module's full view is read
+    // only when the view declares one; without one, the universe consults no denotation.
+    let synonyms = if visible
+        .iter()
+        .any(|sentence| matches!(sentence, Sentence::SortSynonym { .. }))
+    {
+        SortSynonyms::of_module(resolved, module)
+    } else {
+        SortSynonyms::default()
+    };
+    let universe = SortUniverse::new(&visible, &synonyms);
 
     add_config_cells(&mut grammar)?;
     grammar.add_matching_terminal_tokens(Sort::new("#CellName"), is_cell_name)?;

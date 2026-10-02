@@ -920,8 +920,11 @@ mod tests {
         let mut grammar = Grammar::from_sentences(&sentences).unwrap();
         // `box(...)` completes the `Int` field through a cast; `Int` is a sort the test sentences
         // give a position, so its casts come from its universe member.
-        let universe =
-            crate::inner::sort_universe::SortUniverse::new(&sentences.iter().collect::<Vec<_>>());
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = crate::inner::sort_universe::SortUniverse::new(
+            &visible,
+            &crate::definition::SortSynonyms::of(visible.iter().copied()),
+        );
         let int = universe
             .member(&Sort::new("Int"))
             .expect("Int is a sort of the test sentences");

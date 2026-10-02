@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::definition::{ProductionItem, Sentence, SortCatalog};
+use crate::definition::{ProductionItem, Sentence, SortCatalog, SortSynonyms, Spelling};
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{Sort, SortRole};
 
@@ -41,18 +41,25 @@ use crate::kast::{Sort, SortRole};
 ///
 /// Membership is independent of the role: kernel, scaffolding and numeral sorts are members when
 /// the sentences declare or position them, and the plan tables decide what each role receives.
+///
+/// The grammar's view decides which synonym aliases may be written. Their denotations come from
+/// the module's full view ([`crate::definition::ResolvedDefinition::sentences`], private imports
+/// included), the same view used by synonym application, so a cast and a production written with
+/// one alias in a module mean the same sort. An alias with no unique denotation (on a cycle,
+/// ambiguous, or behind such an alias) has no casts;
+/// `check_sort_synonyms` rejects its declarations at load.
 pub(in crate::inner) struct SortUniverse {
     members: BTreeMap<Sort, SortRole>,
-    /// `(alias, target)` of every visible sort synonym whose target is a sort of the grammar (a
-    /// member or a nullary kernel sort), in visible order. A synonym is another spelling of its
-    /// target, not a sort of its own, so it is not a member; its casts are generated from here.
-    /// A synonym whose target is not a sort of the grammar (declared nowhere visible and given no
-    /// position, or a shape with a free parameter) names no sort of it and is left out.
+    /// `(alias, denotation)` once per visible alias whose denotation is a sort of the grammar (a
+    /// member or a nullary kernel sort), in first-visible order. A synonym spells the end of its
+    /// chain in the module's full view, not a sort of its own; its casts are generated from here.
+    /// A synonym whose denotation is not a sort of the grammar (declared nowhere visible and
+    /// given no position, or a shape with a free parameter) names no sort of it and is left out.
     synonyms: Vec<(Sort, Sort)>,
 }
 
 impl SortUniverse {
-    pub(in crate::inner) fn new(visible: &[&Sentence]) -> Self {
+    pub(in crate::inner) fn new(visible: &[&Sentence], synonyms: &SortSynonyms<'_>) -> Self {
         let catalog = SortCatalog::from_visible(visible.iter().copied());
         let instances = catalog
             .instantiations()
@@ -65,9 +72,23 @@ impl SortUniverse {
             .filter(|sort| sort.parameters.is_empty() || instances.contains(sort))
             .map(|sort| (sort.clone(), sort.role()))
             .collect();
+        let mut seen = BTreeSet::new();
         let synonyms = visible
             .iter()
-            .filter_map(|sentence| synonym(sentence))
+            .filter_map(|sentence| synonym_alias(sentence))
+            .filter_map(|alias| match synonyms.spelling(alias) {
+                Spelling::Synonym { denotes } => seen
+                    .insert(alias)
+                    .then(|| (alias.clone(), denotes.clone())),
+                Spelling::Undenoted => None,
+                Spelling::Sort => {
+                    debug_assert!(
+                        false,
+                        "SortUniverse::new requires synonyms covering its view, but {alias} is not an alias there"
+                    );
+                    None
+                }
+            })
             .filter(|(_, target)| is_grammar_sort(&members, target))
             .collect();
         Self { members, synonyms }
@@ -91,16 +112,16 @@ impl SortUniverse {
             })
     }
 
-    /// The casts of every visible synonym whose target is a sort of the grammar, in visible order:
-    /// written with the alias, typed by the target. A synonym whose target is not a sort of the
-    /// grammar has no casts: they would be typed by a sort no production derives or accepts.
+    /// One cast family per visible alias, in first-visible order: written with the alias and typed
+    /// by the end of its chain in the module's full view. An undenoted alias has no casts, nor does
+    /// one whose denotation is not a sort of the grammar: no production derives or accepts it.
     pub(in crate::inner) fn synonym_casts(&self) -> impl Iterator<Item = CastTarget> + '_ {
         self.synonyms
             .iter()
             .map(|(alias, target)| CastTarget::new(alias.clone(), target.clone()))
     }
 
-    /// Whether `sort` is a member or the alias of a synonym whose target is a sort of the grammar:
+    /// Whether `sort` is a member or a visible alias whose denotation is a sort of the grammar:
     /// a sort a generated production may mention. Read by the grammar sort-role check, which
     /// exists in builds with debug assertions.
     #[cfg(debug_assertions)]
@@ -159,12 +180,10 @@ fn is_grammar_sort(members: &BTreeMap<Sort, SortRole>, sort: &Sort) -> bool {
     }
 }
 
-/// `(alias, target)` of a sort synonym.
-fn synonym(sentence: &Sentence) -> Option<(Sort, Sort)> {
+/// The spelling a synonym declaration makes available to the grammar.
+fn synonym_alias(sentence: &Sentence) -> Option<&Sort> {
     match sentence {
-        Sentence::SortSynonym {
-            new_sort, old_sort, ..
-        } => Some((new_sort.clone(), old_sort.clone())),
+        Sentence::SortSynonym { new_sort, .. } => Some(new_sort),
         Sentence::SyntaxSort { .. }
         | Sentence::SyntaxLexical { .. }
         | Sentence::Production { .. }
@@ -673,7 +692,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let member = universe
             .member(&mint("8"))
@@ -723,7 +742,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         for numeral in ["8", "16"] {
             let member = universe
@@ -769,7 +788,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         assert!(universe.member(&x).is_none());
         assert!(universe.member(&Sort::new("Foo")).is_some());
@@ -789,7 +808,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let casts = universe.synonym_casts().collect::<Vec<_>>();
         assert_eq!(casts.len(), 1);
@@ -823,7 +842,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         assert_eq!(universe.synonym_casts().count(), 0);
         #[cfg(debug_assertions)]
@@ -842,7 +861,7 @@ mod tests {
         }];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let casts = universe.synonym_casts().collect::<Vec<_>>();
         assert_eq!(casts.len(), 1);
@@ -850,6 +869,88 @@ mod tests {
         assert_eq!(casts[0].label(), &KernelSort::KItem.sort());
         #[cfg(debug_assertions)]
         assert!(universe.admits(&Sort::new("Item")));
+    }
+
+    #[test]
+    fn a_synonym_cast_is_typed_by_the_end_of_its_chain() {
+        let sentences = [
+            syntax_sort(Sort::new("Rat")),
+            synonym_declaration("C", "B"),
+            synonym_declaration("B", "A"),
+            synonym_declaration("A", "Rat"),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
+
+        let casts = universe.synonym_casts().collect::<Vec<_>>();
+        assert_eq!(casts.len(), 3);
+        for (cast, alias) in casts.iter().zip(["C", "B", "A"]) {
+            assert_eq!(cast.cast(), &Sort::new(alias));
+            assert_eq!(cast.label(), &Sort::new("Rat"));
+            #[cfg(debug_assertions)]
+            assert!(universe.admits(&Sort::new(alias)));
+        }
+    }
+
+    #[test]
+    fn an_undenoted_synonym_has_no_casts() {
+        let sentences = [
+            syntax_sort(Sort::new("Foo")),
+            synonym_declaration("A", "B"),
+            synonym_declaration("B", "A"),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
+
+        assert_eq!(universe.synonym_casts().count(), 0);
+        #[cfg(debug_assertions)]
+        assert!(!universe.admits(&Sort::new("A")));
+    }
+
+    #[test]
+    fn casts_are_typed_by_the_given_module_view() {
+        let sentences = [syntax_sort(Sort::new("Rat")), synonym_declaration("A", "B")];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let module_view = [
+            synonym_declaration("A", "B"),
+            synonym_declaration("B", "Rat"),
+        ];
+        let synonyms = SortSynonyms::of(&module_view);
+        let universe = SortUniverse::new(&visible, &synonyms);
+
+        let casts = universe.synonym_casts().collect::<Vec<_>>();
+        assert_eq!(casts.len(), 1);
+        assert_eq!(casts[0].cast(), &Sort::new("A"));
+        assert_eq!(casts[0].label(), &Sort::new("Rat"));
+        #[cfg(debug_assertions)]
+        assert!(!universe.admits(&Sort::new("B")));
+    }
+
+    #[test]
+    fn an_alias_declared_twice_has_one_cast_family() {
+        let sentences = [
+            syntax_sort(Sort::new("Rat")),
+            synonym_declaration("A", "B"),
+            synonym_declaration("B", "Rat"),
+            synonym_declaration("A", "Rat"),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
+
+        let casts = universe.synonym_casts().collect::<Vec<_>>();
+        assert_eq!(casts.len(), 2);
+        for (cast, alias) in casts.iter().zip(["A", "B"]) {
+            assert_eq!(cast.cast(), &Sort::new(alias));
+            assert_eq!(cast.label(), &Sort::new("Rat"));
+        }
+    }
+
+    fn synonym_declaration(alias: &str, target: &str) -> Sentence {
+        Sentence::SortSynonym {
+            new_sort: Sort::new(alias),
+            old_sort: Sort::new(target),
+            attributes: Attributes::default(),
+        }
     }
 
     /// The projection cast `{K}:>S` lowers to `project:S`, which compilation declares for `K`,
@@ -891,7 +992,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let projection_operand = |sort: &Sort| {
             let member = universe
@@ -927,7 +1028,7 @@ mod tests {
         ];
         let visible = sentences.iter().collect::<Vec<_>>();
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let casts = universe.synonym_casts().collect::<Vec<_>>();
         assert_eq!(casts.len(), 2);

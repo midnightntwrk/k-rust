@@ -438,6 +438,124 @@ fn rule_synonym_casts_use_the_target_sort_in_production_arguments() {
     }
 }
 
+#[test]
+fn rule_casts_through_a_synonym_chain_use_the_end_of_the_chain() {
+    for (cast, accepted) in [
+        ("Rat", true),
+        ("Other", false),
+        ("Ray", true),
+        ("Wad", true),
+    ] {
+        let source = format!(
+            r#"
+            module MAIN
+              syntax Rat ::= r"[0-9]+" [token]
+              syntax Ray = Rat
+              syntax Wad = Ray
+              syntax Other ::= "other" [symbol(other)]
+              syntax Wad ::= "f(" Ray ")" [symbol(f)]
+              rule f(0:{cast}) => 0
+            endmodule
+            "#
+        );
+        let definition = k_rust::definition::apply_sort_synonyms(&lowered(&source)).unwrap();
+        let result = resolve_rule_bubbles(&definition);
+        if !accepted {
+            assert!(
+                matches!(result, Err(RuleError::Parse(ref error))
+                    if matches!(error.error, ParseError::NoParse { .. })),
+                "{cast}: {result:?}"
+            );
+            continue;
+        }
+        let resolved = result.unwrap_or_else(|error| panic!("{cast}: {error}"));
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            body.to_string(),
+            "f(#SemanticCastToRat(#token(\"0\",\"Rat\")))=>#token(\"0\",\"Rat\")",
+            "{cast}"
+        );
+    }
+
+    let source = indoc! {r#"
+        module MAIN
+          syntax Rat ::= r"[0-9]+" [token]
+          syntax Ray = Rat
+          syntax Wad = Ray
+          syntax Wad ::= "h(" K ")" [symbol(h), function]
+          rule h(X) => {X}:>Wad
+        endmodule
+    "#};
+    let definition = k_rust::definition::apply_sort_synonyms(&lowered(source)).unwrap();
+    let projection_result = resolve_rule_bubbles(&definition);
+
+    let resolved = projection_result.unwrap();
+    let body = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    assert!(body.to_string().contains("project:Rat"), "{body}");
+}
+
+#[test]
+fn a_cast_through_a_privately_imported_synonym_uses_its_denotation() {
+    for (cast, accepted) in [("B", false), ("A", true)] {
+        let source = format!(
+            r#"
+            module M0
+              syntax Rat ::= r"[0-9]+" [token]
+              syntax B = Rat
+            endmodule
+            module M1
+              imports private M0
+              syntax A = B
+            endmodule
+            module MAIN
+              imports M1
+              syntax Foo ::= "f(" A ")" [symbol(f)] | "g(" A ")" [symbol(g)]
+              rule f(X:{cast}) => g(X)
+            endmodule
+            "#
+        );
+        let definition = k_rust::definition::apply_sort_synonyms(&lowered(&source)).unwrap();
+        let result = resolve_rule_bubbles(&definition);
+        if !accepted {
+            assert!(
+                result.is_err(),
+                "the private alias {cast} parsed: {result:?}"
+            );
+            continue;
+        }
+        let resolved = result.unwrap_or_else(|error| panic!("{cast}: {error}"));
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        assert!(body.to_string().contains("#SemanticCastToRat"), "{body}");
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn prunes_nested_rewrites_while_parsing_a_long_recursive_chain() {

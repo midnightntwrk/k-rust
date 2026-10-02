@@ -37,7 +37,7 @@ use crate::definition::relations::SubsortDeclaration;
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
     Attributes, Definition, Location, ModuleId, ProductionItem, ResolveError, ResolvedDefinition,
-    Sentence,
+    Sentence, SortSynonyms,
 };
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
@@ -609,8 +609,18 @@ fn rule_grammar(
         RuleGrammarScope::GlobalScanner => None,
         RuleGrammarScope::Module { scanner_seed } => scanner_seed,
     };
+    // Casts exist only for aliases this grammar's view declares, so the module's full view is read
+    // only when the view declares one; without one, the universe consults no denotation.
+    let synonyms = if visible
+        .iter()
+        .any(|sentence| matches!(sentence, Sentence::SortSynonym { .. }))
+    {
+        SortSynonyms::of_module(resolved, module)
+    } else {
+        SortSynonyms::default()
+    };
     // Built after the RULE-CELLS injection, so the injected cells' body sorts are members.
-    let universe = SortUniverse::new(&visible);
+    let universe = SortUniverse::new(&visible, &synonyms);
     let has_generated_top_sort = visible.iter().any(|sentence| {
         matches!(
             SubsortDeclaration::of(sentence),
@@ -1509,7 +1519,10 @@ mod tests {
         let declared = SortCatalog::from_visible(visible.iter().copied())
             .all_sorts()
             .clone();
-        (SortUniverse::new(&visible), declared)
+        (
+            SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
+            declared,
+        )
     }
 
     /// 86a21b90: the parameters `Sort`, `Sort1` and `Sort2` of the ML productions are bound by
@@ -1536,7 +1549,7 @@ endmodule
             "the ML productions binding Sort1 are visible"
         );
 
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         // The heads of every member, whatever its arity: no member is a parameter.
         let names = universe

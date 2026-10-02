@@ -225,6 +225,39 @@ fn configuration_synonym_casts_use_the_target_sort() {
 }
 
 #[test]
+fn configuration_casts_through_a_synonym_chain_use_the_end_of_the_chain() {
+    let source = r#"
+        module ALIASES
+          syntax Ray = Rat
+          syntax Wad = Ray
+        endmodule
+        module MAIN
+          imports ALIASES
+          syntax Rat ::= r"[0-9]+" [token]
+          configuration <r> 0:Wad </r>
+        endmodule
+        "#;
+    let parsed = k_rust::outer::parse("synonym-chain.k", source).unwrap();
+    let lowered = k_rust::outer::lower(&parsed, "MAIN").unwrap();
+    let applied = k_rust::definition::apply_sort_synonyms(&lowered).unwrap();
+    let transformed = resolve_configuration_bubbles(&applied).unwrap();
+    let body = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Configuration { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        body.to_string(),
+        "#configCell(#token(\"r\",\"#CellName\"),#cellPropertyListTerminator(.KList),#SemanticCastToRat(#token(\"0\",\"Rat\")),#token(\"r\",\"#CellName\"))"
+    );
+}
+
+#[test]
 fn configuration_synonym_casts_reject_incompatible_values_and_hidden_aliases() {
     for (contents, imported) in [
         ("other:Rat", true),

@@ -254,7 +254,7 @@ fn term_sort_below_wrapper<'o>(order: &'o PartialOrder<Sort>, sort: &Sort) -> Op
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::definition::{Attributes, ProductionItem, Sentence};
+    use crate::definition::{Attributes, ProductionItem, Sentence, SortSynonyms};
     use crate::inner::sort_universe::SortUniverse;
     use crate::kast::{Label, Sort};
 
@@ -311,7 +311,10 @@ mod tests {
         let visible = sentences.iter().collect::<Vec<_>>();
         let grammar = Grammar::from_configuration_sentences(visible.iter().copied())
             .expect("the module's grammar builds");
-        (grammar, SortUniverse::new(&visible))
+        (
+            grammar,
+            SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
+        )
     }
 
     /// Add the generated unary production `result ::= child`.
@@ -368,7 +371,10 @@ mod tests {
         let visible = sentences.iter().collect::<Vec<_>>();
         let grammar = Grammar::from_configuration_sentences(visible.iter().copied())
             .expect("the module's grammar builds");
-        (grammar, SortUniverse::new(&visible))
+        (
+            grammar,
+            SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied())),
+        )
     }
 
     #[test]
@@ -503,7 +509,7 @@ mod tests {
     fn an_unregistered_placeholder_bridge_fails_g1() {
         let sentences = module();
         let visible = sentences.iter().collect::<Vec<_>>();
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
         let mut grammar = Grammar::from_configuration_sentences(
             visible
                 .iter()
@@ -605,7 +611,7 @@ mod tests {
             vec![nonterminal(Sort::new("KItem"))],
         ));
         let visible = sentences.iter().collect::<Vec<_>>();
-        let universe = SortUniverse::new(&visible);
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
         let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())
             .expect("the module's grammar builds");
         add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Exp"));
