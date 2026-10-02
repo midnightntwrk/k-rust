@@ -64,7 +64,7 @@ class RouteWiringTests(unittest.TestCase):
         session.load.assert_called_once_with(
                 Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
             )
-        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term", {"behavior": [case]})
+        checked.assert_called_once_with(session, case, "term", {"behavior": [case]})
         self.assertEqual(
             run.call_args.args[0],
             ["krun", "--definition", Path("definition"), "-cPGM=program", "-cSTACK=.ValStack", "--output", "kore"],
@@ -109,7 +109,7 @@ class RouteWiringTests(unittest.TestCase):
                 Path("artifacts/definition-ir.json"), verifier.PORT.module, definition_kore_sha256="digest",
             )
         session.configure.assert_called_once_with(verifier.native.configuration_variables(case))
-        checked.assert_called_once_with(session, case, verifier.native.SPEC, "term", {"behavior": [case]})
+        checked.assert_called_once_with(session, case, "term", {"behavior": [case]})
         arguments = run.call_args.args[0]
         self.assertIn("-cPGM=run", arguments)
         self.assertIn("-cPROGRAM=kore-PROGRAM", arguments)

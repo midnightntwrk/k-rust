@@ -6,7 +6,7 @@ the external checkout and the corpus, the ordinary Rust checks, repeated
 expansion and emission with their output pins, native k-rust compilation and
 execution, and the kompiled reference definition behind `--java-reference`.
 Each corpus declares structural state expectations and report fields.
-Each verifier supplies surface configuration, optional outcome refinement, and report wording.
+Each verifier supplies surface configuration and report wording.
 
 `--artifacts-only` stops after the native definition: it checks every emitted
 artifact against its pin and skips the behavior and proof comparisons, which
@@ -99,14 +99,13 @@ class Port:
 
 @dataclass(frozen=True)
 class Hooks:
-    """The port-specific configuration, outcome refinement, and report wording."""
+    """The port-specific configuration and report wording."""
 
     description: str
     label: str
     java_help: str
     claim_count: int
-    configuration_variables: Callable[[Mapping[str, Any]], dict[str, str]]
-    spec: behavior_module.Specification
+    configuration_variables: behavior_module.Variables
     kore_configuration: bool = False
     summary: Callable[[Port, int, int, bool], str] | None = None
     definition_checks: Callable[[Path, Path, Mapping[str, str]], None] | None = None
@@ -510,7 +509,7 @@ def java_reference_gate(
                 ],
                 timeout=120,
             ).stdout
-            outcomes.append(behavior_module.java_case(session, case, hooks.spec, result, corpus))
+            outcomes.append(behavior_module.java_case(session, case, result, corpus))
 
     compare_routes(port.label, native_outcomes, outcomes, skipped)
     reference_proof(port, definition, spec, k["kprove"])

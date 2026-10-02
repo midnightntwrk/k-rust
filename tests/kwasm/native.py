@@ -20,18 +20,6 @@ def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
     return {"PGM": str(case["program"]), "STACK": ".ValStack"}
 
 
-def outcome(case: Mapping[str, Any], record: dict[str, Any]) -> dict[str, Any]:
-    """Add the corpus value or trap report fields."""
-
-    record["outcome"] = str(case.get("expected_outcome", "value"))
-    if record["outcome"] == "value":
-        record.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
-    return record
-
-
-SPEC = behavior.Specification(configuration_variables, outcome)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("krs_gate", type=Path)
@@ -46,7 +34,7 @@ def main() -> int:
     if not isinstance(cases, list) or not cases:
         raise GateError("behavior corpus is empty")
     outcomes = behavior.native_corpus(
-        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC, corpus,
+        arguments.krs_gate, arguments.definition, arguments.module, cases, configuration_variables, corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)

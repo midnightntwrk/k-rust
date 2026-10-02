@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import re
 import sys
 from typing import Any, Mapping
 
@@ -35,28 +34,6 @@ def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def normalize_term(value: str) -> str:
-    """Keep the established whitespace normalization of outcome strings."""
-
-    value = re.sub(r"\s+", " ", value.strip())
-    value = re.sub(r"\s*([(),;:])\s*", r"\1", value)
-    return re.sub(r"\.\s+", ".", value)
-
-
-def outcome(case: Mapping[str, Any], record: dict[str, Any]) -> dict[str, Any]:
-    """Normalize reported strings and add the program and error fields."""
-
-    for field in ("locals", "return"):
-        record[field] = normalize_term(str(record[field]))
-    record["program"] = normalize_term(str(case["program"]))
-    if "expected_error" in case:
-        record["error"] = normalize_term(str(case["expected_error"]))
-    return record
-
-
-SPEC = behavior.Specification(configuration_variables, outcome)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("krs_gate", type=Path)
@@ -78,7 +55,7 @@ def main() -> int:
         if missing:
             raise GateError(f"unknown behavior case ids: {sorted(missing)}")
     outcomes = behavior.native_corpus(
-        arguments.krs_gate, arguments.definition, arguments.module, cases, SPEC, corpus,
+        arguments.krs_gate, arguments.definition, arguments.module, cases, configuration_variables, corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
     )
     digest = json_sha256(outcomes)

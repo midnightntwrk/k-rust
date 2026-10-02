@@ -67,9 +67,6 @@ def configuration_variables(case: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-SPEC = behavior.Specification(configuration_variables)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -108,7 +105,7 @@ def main() -> int:
         arguments.definition,
         arguments.module,
         cases,
-        SPEC,
+        configuration_variables,
         corpus,
         definition_kore_sha256=arguments.definition_kore_sha256,
         jobs=arguments.jobs,

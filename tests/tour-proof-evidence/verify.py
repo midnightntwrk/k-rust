@@ -107,7 +107,7 @@ def verify_authored_trap() -> None:
     traps = {
         case.get("id"): case.get("program")
         for case in corpus.get("behavior", [])
-        if case.get("expected_outcome") == "trap"
+        if case.get("expect", {}).get("instrs") == "trap ~> .Instrs"
     }
     expected = {
         "i32-div-u-zero": "i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs",

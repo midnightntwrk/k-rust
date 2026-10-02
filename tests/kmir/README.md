@@ -6,9 +6,8 @@ This route does not require the Java K toolchain.
 
 Each case declares what it observes and expects as data, in the format `tests/support/behavior.py` describes.
 KMIR cases check `locals`, `retVal`, `currentBody`, `stack`, and `k`; the stack defaults to size zero and the computation defaults to `.K`.
-Error cases use a head expectation for `k` and retain `expected_error` for reporting.
-Top-level `[report]` names the outcome field of each reported cell.
-The `native.py` outcome hook normalizes the reported locals and return strings and adds the program and optional error fields.
+Error cases declare the error through a head expectation for `k`.
+Top-level `[report]` names the outcome field of each reported cell; the pinned outcome of a case is its expected text or size for those cells.
 
 Run `python3 tests/kmir/verify.py --java-reference` to add the upstream K reference route.
 The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and passes the resulting KORE states to the `kore.read` session operation and checks them with the same structural expectations and outcome builder as the native route.

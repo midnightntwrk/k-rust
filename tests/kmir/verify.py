@@ -78,7 +78,6 @@ HOOKS = semantics.Hooks(
     java_help="also run the pinned K toolchain behavior comparison and proof",
     claim_count=1,
     configuration_variables=native.configuration_variables,
-    spec=native.SPEC,
     definition_checks=definition_checks,
 )
 

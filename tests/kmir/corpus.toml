@@ -839,7 +839,6 @@ program = "ListItem(basicBlock(assign(place(local(1), .ProjectionElems), rvalueC
 locals = "ListItem(newLocal(ty(0), mutabilityMut)) ListItem(newLocal(ty(1), mutabilityNot)) ListItem(typedValue(Integer(255, 8, false), ty(2), mutabilityNot)) ListItem(typedValue(Integer(1, 8, false), ty(3), mutabilityNot)) .List"
 expect.locals = "ListItem(newLocal(ty(0), mutabilityMut)) ListItem(typedValue(Aggregate(variantIdx(0), ListItem(Integer(0, 8, false)) ListItem(Moved) .List), ty(1), mutabilityNot)) ListItem(typedValue(Integer(255, 8, false), ty(2), mutabilityNot)) ListItem(typedValue(Integer(1, 8, false), ty(3), mutabilityNot)) .List"
 expect.retVal = "noReturn"
-expected_error = "AssertError(assertMessageOverflow(binOpAdd, copy(place(local(2), .ProjectionElems)), copy(place(local(3), .ProjectionElems))))"
 expect.k = { head = "#ProgramError(AssertError(assertMessageOverflow(binOpAdd, copy(place(local(2), .ProjectionElems)), copy(place(local(3), .ProjectionElems)))))" }
 expect.currentBody = { size = 2 }
 
@@ -897,7 +896,6 @@ program = "ListItem(basicBlock(.Statements, terminatorKindUnreachable)) .List"
 locals = "ListItem(newLocal(ty(0), mutabilityMut)) .List"
 expect.locals = "ListItem(newLocal(ty(0), mutabilityMut)) .List"
 expect.retVal = "noReturn"
-expected_error = "ReachedUnreachable"
 expect.k = { head = "#ProgramError(ReachedUnreachable)" }
 expect.currentBody = { size = 1 }
 

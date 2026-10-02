@@ -8,8 +8,8 @@ and every checked cell must have a case or default expectation.
 A string expectation is surface text compared structurally;
 `{ size = N }` checks a collection size and `{ head = "text" }` the head of a K sequence.
 Top-level `reason`, when present, is the required stop reason of the single execution leaf.
-Top-level `[report]` maps a checked cell to the field that reports its expected value in the pinned outcome;
-a port's outcome hook may refine that record.
+Top-level `[report]` maps a checked cell to the field that reports its expected value in the pinned outcome,
+which holds the case id and these fields only.
 A native case with `search = true` must execute to exactly one leaf at a depth of at least one,
 and final-state search from the same configuration then checks the search bounds against that execution:
 unbounded, bounded to one result, and bounded to the leaf's depth, search must find exactly the leaf's state;
@@ -27,6 +27,9 @@ from typing import Any, Callable, Mapping
 
 from support import GateError, krs_gate
 
+Variables = Callable[[Mapping[str, Any]], dict[str, str]]
+"""A port's surface configuration variables for one case."""
+
 
 @dataclass(frozen=True)
 class Expectation:
@@ -36,14 +39,6 @@ class Expectation:
     text: str | None = None
     size: int | None = None
     head: str | None = None
-
-
-@dataclass(frozen=True)
-class Specification:
-    """Port configuration and optional outcome refinement."""
-
-    variables: Callable[[Mapping[str, Any]], dict[str, str]]
-    outcome: Callable[[Mapping[str, Any], dict[str, Any]], dict[str, Any]] | None = None
 
 
 def _expectation(case: Mapping[str, Any], cell: str, value: Any) -> Expectation:
@@ -83,10 +78,8 @@ def expectations(corpus: Mapping[str, Any], case: Mapping[str, Any]) -> list[Exp
     return resolved
 
 
-def outcome_record(
-    corpus: Mapping[str, Any], case: Mapping[str, Any], spec: Specification,
-) -> dict[str, Any]:
-    """Report declared expectation values and apply the port's optional hook."""
+def outcome_record(corpus: Mapping[str, Any], case: Mapping[str, Any]) -> dict[str, Any]:
+    """Report the declared expectation values that `[report]` names."""
 
     report = corpus.get("report", {})
     if not isinstance(report, Mapping) or any(not isinstance(field, str) for field in report.values()):
@@ -95,7 +88,7 @@ def outcome_record(
     for item in expectations(corpus, case):
         if item.cell in report:
             record[report[item.cell]] = next(value for value in (item.text, item.size, item.head) if value is not None)
-    return record if spec.outcome is None else spec.outcome(case, record)
+    return record
 
 
 def searched(case: Mapping[str, Any]) -> bool:
@@ -108,8 +101,7 @@ def searched(case: Mapping[str, Any]) -> bool:
 
 
 def check_case(
-    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
-    state: str = "case",
+    session: krs_gate.Session, case: Mapping[str, Any], corpus: Mapping[str, Any], state: str = "case",
 ) -> dict[str, Any]:
     """Check a retained state and return the port's pinned outcome shape."""
 
@@ -118,25 +110,25 @@ def check_case(
             session.expect(state, item.cell, text=item.text, size=item.size, head=item.head)
         except GateError as error:
             raise GateError(f"{case['id']}: {error}") from error
-    return outcome_record(corpus, case, spec)
+    return outcome_record(corpus, case)
 
 
 def native_case(
-    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
+    session: krs_gate.Session, case: Mapping[str, Any], variables: Variables, corpus: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Configure, execute, retain, and check one native case."""
 
     search = searched(case)
-    pattern = session.configure(spec.variables(case))["pattern"]
+    pattern = session.configure(variables(case))["pattern"]
     result = session.execute(pattern, keep="case")
     reason = corpus.get("reason")
     if reason is not None:
         leaves = result.get("leaves")
         if not isinstance(leaves, list) or len(leaves) != 1 or leaves[0].get("reason") != reason:
             raise GateError(f"{case['id']}: expected execution reason {reason}, got {leaves}")
-    outcome = check_case(session, case, spec, corpus)
+    outcome = check_case(session, case, corpus)
     if search:
-        search_case(session, case, spec, corpus, pattern)
+        search_case(session, case, corpus, pattern)
     return outcome
 
 
@@ -148,8 +140,7 @@ def _leaf(session: krs_gate.Session, case: Mapping[str, Any], pattern: str, **op
 
 
 def search_case(
-    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
-    pattern: str,
+    session: krs_gate.Session, case: Mapping[str, Any], corpus: Mapping[str, Any], pattern: str,
 ) -> None:
     """Check the search bounds against execution and the expectations against the state search retains."""
 
@@ -171,12 +162,12 @@ def search_case(
             )
     if session.search(pattern, keep="search")["states"] != 1:
         raise GateError(f"{case['id']}: search with keep did not retain one state")
-    check_case(session, case, spec, corpus, "search")
+    check_case(session, case, corpus, "search")
 
 
 def native_corpus(
     gate: Path, definition_ir: Path, module: str,
-    cases: list[Mapping[str, Any]], spec: Specification, corpus: Mapping[str, Any], *,
+    cases: list[Mapping[str, Any]], variables: Variables, corpus: Mapping[str, Any], *,
     definition_kore_sha256: str, jobs: int = 1,
 ) -> list[dict[str, Any]]:
     """Run selected native cases with one loaded session per worker."""
@@ -187,7 +178,7 @@ def native_corpus(
     def run_batch(batch: list[tuple[int, Mapping[str, Any]]]) -> list[tuple[int, dict[str, Any]]]:
         with krs_gate.Session(gate) as session:
             session.load(definition_ir, module, definition_kore_sha256=definition_kore_sha256)
-            return [(index, native_case(session, case, spec, corpus)) for index, case in batch]
+            return [(index, native_case(session, case, variables, corpus)) for index, case in batch]
 
     indexed = list(enumerate(cases))
     batches = [indexed[offset::jobs] for offset in range(min(jobs, len(indexed)))]
@@ -200,11 +191,10 @@ def native_corpus(
 
 
 def java_case(
-    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, kore: str,
-    corpus: Mapping[str, Any],
+    session: krs_gate.Session, case: Mapping[str, Any], kore: str, corpus: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Retain Java KORE and run the same expectations and outcome builder."""
 
     searched(case)
     session.read(kore, "case")
-    return check_case(session, case, spec, corpus)
+    return check_case(session, case, corpus)

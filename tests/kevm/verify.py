@@ -131,7 +131,6 @@ HOOKS = semantics.Hooks(
     configuration_variables=native.configuration_variables,
     # kparse exhausts its heap on the block-hash List, so krun receives configured KORE values through cat for every variable except PGM.
     kore_configuration=True,
-    spec=native.SPEC,
     summary=summary,
     definition_checks=definition_checks,
     java_skips=HASKELL_BACKEND_GAPS,
