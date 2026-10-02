@@ -26,10 +26,10 @@ use krs_ir::{
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, HookOperation, ItemKind, LabelId, LabelIdentity, ListOperation,
     MapOperation, ModuleId, NodeOrigin, PrecedenceRelation, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionItem as IrProductionItem,
-    ProductionResultSort, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation,
-    SourceMapKey, StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity,
-    SymbolKind, SyntaxSortSentence,
+    ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
+    ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
+    SemanticId, SentenceKind, SetOperation, SourceMapKey, StableItemId, StrictnessKind,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 use super::{
@@ -1006,13 +1006,30 @@ fn pinned_native_prelude_evaluates_set_union() {
 #[allow(clippy::too_many_lines)]
 fn grammar_items_attributes_and_group_sentences_map_structurally() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
     let application_group = ProductionGroupId::new("group.application").unwrap();
     let atom_group = ProductionGroupId::new("group.atom").unwrap();
-    adapter
-        .groups
-        .insert(application_group.clone(), "application".to_owned());
-    adapter.groups.insert(atom_group.clone(), "atom".to_owned());
+    let main = &definition.modules()[0];
+    let main = DefinitionModule::new(
+        main.origin().clone(),
+        main.id().clone(),
+        main.imports().iter().cloned().collect(),
+        [
+            (application_group.clone(), "application"),
+            (atom_group.clone(), "atom"),
+        ]
+        .into_iter()
+        .map(|(id, name)| {
+            ProductionGroupIdentity::new(node(&format!("schema9.group.{name}")), id, name).unwrap()
+        })
+        .collect(),
+        main.sentences().to_vec(),
+    );
+    let definition = DefinitionIr::new(
+        definition.main_module().clone(),
+        vec![main, definition.modules()[1].clone()],
+    )
+    .unwrap();
+    let mut adapter = Adapter::new(&definition, true);
     let left = ProductionFieldId::new("left").unwrap();
     let right = ProductionFieldId::new("right").unwrap();
     let production = ProductionSentence::new(
@@ -1243,6 +1260,75 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
     }));
 }
 
+fn nested_cell_definition(parent: &SymbolId, left: &SymbolId, right: &SymbolId) -> DefinitionIr {
+    let children = [(left.clone(), "left", "1"), (right.clone(), "right", "2")];
+    let configuration = FixedConfiguration::new(
+        node("schema26.configuration"),
+        semantic_id("schema26.configuration"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::nested(
+                node("schema26.cell.parent.declaration"),
+                parent.clone(),
+                "parent",
+                Vec::new(),
+                children
+                    .iter()
+                    .map(|(id, name, _)| {
+                        FixedCell::leaf(
+                            node(&format!("schema26.cell.{name}.declaration")),
+                            id.clone(),
+                            *name,
+                            Vec::new(),
+                            DefinitionSortRef::int(),
+                        )
+                        .unwrap()
+                    })
+                    .collect(),
+            )
+            .unwrap(),
+        ],
+        node("schema26.initializer"),
+        semantic_id("schema26.initializer"),
+        Vec::new(),
+        vec![
+            FixedInitializerCell::children(
+                node("schema26.cell.parent.initializer"),
+                parent.clone(),
+                children
+                    .iter()
+                    .map(|(id, name, value)| {
+                        FixedInitializerCell::term(
+                            node(&format!("schema26.cell.{name}.initializer")),
+                            id.clone(),
+                            DefinitionTerm::token(
+                                node(&format!("schema26.cell.{name}.initializer.body")),
+                                DefinitionSortRef::int(),
+                                *value,
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let module_id = ModuleId::new(MODULE).unwrap();
+    DefinitionIr::new(
+        module_id.clone(),
+        vec![DefinitionModule::new(
+            node("schema26.module"),
+            module_id,
+            Vec::new(),
+            Vec::new(),
+            vec![DefinitionSentence::Configuration(configuration)],
+        )],
+    )
+    .unwrap()
+}
+
 #[test]
 fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
     fn cell_body<'a>(term: &'a Term, expected_label: &str) -> &'a Term {
@@ -1256,16 +1342,11 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
         body
     }
 
-    let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition, true);
     let parent = SymbolId::new("schema26.cell.parent").unwrap();
     let left = SymbolId::new("schema26.cell.left").unwrap();
     let right = SymbolId::new("schema26.cell.right").unwrap();
-    adapter.cells.extend([
-        (parent.clone(), "parent".to_owned()),
-        (left.clone(), "left".to_owned()),
-        (right.clone(), "right".to_owned()),
-    ]);
+    let definition = nested_cell_definition(&parent, &left, &right);
+    let mut adapter = Adapter::new(&definition, true);
     let leaf = |key: &str, cell: SymbolId, value: &str| {
         DefinitionTerm::cell(
             node(key),

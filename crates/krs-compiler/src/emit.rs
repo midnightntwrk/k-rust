@@ -1,4 +1,5 @@
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
+use krs_ir::k_surface::{DefinitionIndex, variable_name};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -12,7 +13,7 @@ use krs_ir::{
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
     GroupAssociativity, LabelIdentity, ListOperation, MapOperation, ProductionAttribute,
     ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind, SentenceKind,
-    SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
+    SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -214,77 +215,40 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
 }
 
 struct EmitContext<'a> {
-    sorts: BTreeMap<SymbolId, &'a SymbolIdentity>,
-    productions: BTreeMap<SymbolId, &'a ProductionSentence>,
-    groups: BTreeMap<ProductionGroupId, &'a str>,
+    index: DefinitionIndex<'a>,
     non_associative_groups: BTreeSet<ProductionGroupId>,
-    cells: BTreeMap<SymbolId, &'a str>,
     repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
-    context_aliases: BTreeMap<krs_ir::StableItemId, String>,
 }
 
 impl<'a> EmitContext<'a> {
     fn new(definition: &'a DefinitionIr) -> Self {
-        let mut sorts = BTreeMap::new();
-        let mut productions = BTreeMap::new();
-        let mut groups = BTreeMap::new();
+        let index = DefinitionIndex::new(definition);
         let mut non_associative_groups = BTreeSet::new();
-        let mut cells = BTreeMap::new();
         let mut repeated_ancestors = BTreeMap::new();
-        let mut context_aliases = BTreeMap::new();
-        for module in definition.modules() {
-            for group in module.production_groups() {
-                groups.insert(group.id().clone(), group.emitted_name());
-            }
-            for sentence in module.sentences() {
-                if let DefinitionSentence::Associativity(associativity) = sentence
-                    && associativity.associativity() == GroupAssociativity::NonAssociative
-                {
-                    non_associative_groups.extend(associativity.groups().iter().cloned());
-                }
-                if let DefinitionSentence::Configuration(configuration) = sentence {
-                    collect_emit_cells(
-                        configuration.cells(),
-                        &mut cells,
-                        &mut repeated_ancestors,
-                        None,
-                    );
-                }
-                if let DefinitionSentence::ContextAlias(alias) = sentence {
-                    context_aliases.insert(alias.id().clone(), k_label_name(alias.name()));
-                }
-            }
-        }
         for sentence in definition
             .modules()
             .iter()
             .flat_map(DefinitionModule::sentences)
         {
-            match sentence {
-                DefinitionSentence::SyntaxSort(sentence) => {
-                    sorts.insert(sentence.symbol().id().clone(), sentence.symbol());
-                }
-                DefinitionSentence::Production(sentence) => {
-                    productions.insert(sentence.symbol().id().clone(), sentence);
-                }
-                _ => {}
+            if let DefinitionSentence::Associativity(associativity) = sentence
+                && associativity.associativity() == GroupAssociativity::NonAssociative
+            {
+                non_associative_groups.extend(associativity.groups().iter().cloned());
+            }
+            if let DefinitionSentence::Configuration(configuration) = sentence {
+                collect_repeated_ancestors(configuration.cells(), &mut repeated_ancestors, None);
             }
         }
         Self {
-            sorts,
-            productions,
-            groups,
+            index,
             non_associative_groups,
-            cells,
             repeated_ancestors,
-            context_aliases,
         }
     }
 
     fn sort_name(&self, id: &SymbolId) -> Result<&str, EmitError> {
-        self.sorts
-            .get(id)
-            .map(|symbol| symbol.emitted_name())
+        self.index
+            .sort_name(id)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing source sort {id}")))
     }
 
@@ -296,23 +260,20 @@ impl<'a> EmitContext<'a> {
     }
 
     fn production(&self, id: &SymbolId) -> Result<&ProductionSentence, EmitError> {
-        self.productions
-            .get(id)
-            .copied()
+        self.index
+            .production(id)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing source production {id}")))
     }
 
     fn group_name(&self, id: &ProductionGroupId) -> Result<&str, EmitError> {
-        self.groups
-            .get(id)
-            .copied()
+        self.index
+            .group_name(id)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing production group {id}")))
     }
 
     fn cell_name(&self, id: &SymbolId) -> Result<&str, EmitError> {
-        self.cells
-            .get(id)
-            .copied()
+        self.index
+            .cell_name(id)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing fixed cell {id}")))
     }
 
@@ -321,9 +282,8 @@ impl<'a> EmitContext<'a> {
     }
 
     fn context_alias_name(&self, id: &krs_ir::StableItemId) -> Result<&str, EmitError> {
-        self.context_aliases
-            .get(id)
-            .map(String::as_str)
+        self.index
+            .context_alias_name(id)
             .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id}")))
     }
 
@@ -332,14 +292,12 @@ impl<'a> EmitContext<'a> {
     }
 }
 
-fn collect_emit_cells<'a>(
-    cells: &'a [FixedCell<DefinitionSortRef, SymbolId>],
-    output: &mut BTreeMap<SymbolId, &'a str>,
+fn collect_repeated_ancestors(
+    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     repeated_ancestors: &mut BTreeMap<SymbolId, SymbolId>,
     repeated_ancestor: Option<&SymbolId>,
 ) {
     for cell in cells {
-        output.insert(cell.id().clone(), cell.name());
         let repeated_ancestor = if cell
             .attributes()
             .iter()
@@ -350,7 +308,7 @@ fn collect_emit_cells<'a>(
             repeated_ancestor
         };
         if let FixedCellContent::Children { children } = cell.content() {
-            collect_emit_cells(children, output, repeated_ancestors, repeated_ancestor);
+            collect_repeated_ancestors(children, repeated_ancestors, repeated_ancestor);
         } else if let Some(ancestor) = repeated_ancestor {
             repeated_ancestors.insert(cell.id().clone(), ancestor.clone());
         }
@@ -842,7 +800,7 @@ fn emit_production_attribute(
                 writer.push("(");
                 if let Some(using) = using {
                     let using_start = writer.source.len();
-                    writer.push(context.context_alias_name(using.alias())?);
+                    writer.push(&k_label_name(context.context_alias_name(using.alias())?));
                     writer.record(using.origin().key(), using_start, writer.source.len())?;
                     if !fields.is_empty() {
                         writer.push("; ");
@@ -2107,15 +2065,6 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
     }
 }
 
-fn variable_name(variable: &SemanticId) -> String {
-    let mut result = String::from("V");
-    for byte in variable.as_str().as_bytes() {
-        use std::fmt::Write as _;
-        write!(result, "{byte:02X}").expect("writing to String cannot fail");
-    }
-    result
-}
-
 fn quoted(value: &str) -> String {
     let mut result = String::from("\"");
     for character in value.chars() {
@@ -2161,13 +2110,9 @@ mod tests {
 
     fn context() -> EmitContext<'static> {
         EmitContext {
-            sorts: BTreeMap::new(),
-            productions: BTreeMap::new(),
-            groups: BTreeMap::new(),
+            index: krs_ir::k_surface::DefinitionIndex::default(),
             non_associative_groups: BTreeSet::new(),
-            cells: BTreeMap::new(),
             repeated_ancestors: BTreeMap::new(),
-            context_aliases: BTreeMap::new(),
         }
     }
 

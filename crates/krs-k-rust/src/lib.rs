@@ -45,6 +45,7 @@ pub use k_rust::kompile::EmittedSentenceProvenance;
 pub use k_rust::outer::LoadedDefinition;
 pub use k_rust::provenance::{GeneratingPass, InputAddress, InputSentenceKind, InputSpace};
 pub use k_rust::timings::PhaseTimings as NativePhaseTimings;
+use krs_ir::k_surface::{DefinitionIndex, variable_name};
 use krs_ir::measure::Timings;
 
 /// Metadata for the source and builtin revisions forming the native frontend.
@@ -1352,11 +1353,8 @@ pub fn compile_loaded_definition_timed(
     ))
 }
 
-struct Adapter {
-    symbols: BTreeMap<SymbolId, String>,
-    groups: BTreeMap<ProductionGroupId, String>,
-    context_aliases: BTreeMap<StableItemId, String>,
-    cells: BTreeMap<SymbolId, String>,
+struct Adapter<'a> {
+    index: DefinitionIndex<'a>,
     initializer_variables: BTreeMap<SemanticId, String>,
     context_here: Option<SemanticId>,
     origins: Vec<OriginMapping>,
@@ -1371,48 +1369,10 @@ enum TermContext {
     ContextAlias,
 }
 
-impl Adapter {
-    fn new(ir: &DefinitionIr, keep_claims: bool) -> Self {
-        let mut symbols = BTreeMap::new();
-        let mut groups = BTreeMap::new();
-        let mut context_aliases = BTreeMap::new();
-        let mut cells = BTreeMap::new();
-        for module in ir.modules() {
-            for group in module.production_groups() {
-                groups.insert(group.id().clone(), group.emitted_name().to_owned());
-            }
-            for sentence in module.sentences() {
-                match sentence {
-                    DefinitionSentence::SyntaxSort(sentence) => {
-                        symbols.insert(
-                            sentence.symbol().id().clone(),
-                            sentence.symbol().emitted_name().to_owned(),
-                        );
-                    }
-                    DefinitionSentence::Production(sentence) => {
-                        symbols.insert(
-                            sentence.symbol().id().clone(),
-                            sentence.symbol().emitted_name().to_owned(),
-                        );
-                    }
-                    DefinitionSentence::Configuration(configuration) => {
-                        collect_fixed_cells(configuration.cells(), &mut cells);
-                    }
-                    DefinitionSentence::ContextAlias(sentence) => {
-                        context_aliases.insert(sentence.id().clone(), sentence.name().to_owned());
-                    }
-                    DefinitionSentence::Subsort(_)
-                    | DefinitionSentence::Precedence(_)
-                    | DefinitionSentence::Associativity(_)
-                    | DefinitionSentence::Rule(_) => {}
-                }
-            }
-        }
+impl<'a> Adapter<'a> {
+    fn new(ir: &'a DefinitionIr, keep_claims: bool) -> Self {
         Self {
-            symbols,
-            groups,
-            context_aliases,
-            cells,
+            index: DefinitionIndex::new(ir),
             initializer_variables: BTreeMap::new(),
             context_here: None,
             origins: Vec::new(),
@@ -2517,9 +2477,9 @@ impl Adapter {
         group: &ProductionGroupId,
         origin: &NodeOrigin,
     ) -> Result<String, AdapterError> {
-        self.groups
-            .get(group)
-            .cloned()
+        self.index
+            .group_name(group)
+            .map(str::to_owned)
             .ok_or_else(|| AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "production group",
@@ -2532,9 +2492,9 @@ impl Adapter {
         alias: &StableItemId,
         origin: &NodeOrigin,
     ) -> Result<String, AdapterError> {
-        self.context_aliases
-            .get(alias)
-            .cloned()
+        self.index
+            .context_alias_name(alias)
+            .map(str::to_owned)
             .ok_or_else(|| AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "context alias",
@@ -2542,14 +2502,9 @@ impl Adapter {
             })
     }
 
-    fn cell_name<'a>(
-        &'a self,
-        cell: &SymbolId,
-        origin: &NodeOrigin,
-    ) -> Result<&'a str, AdapterError> {
-        self.cells
-            .get(cell)
-            .map(String::as_str)
+    fn cell_name(&self, cell: &SymbolId, origin: &NodeOrigin) -> Result<&str, AdapterError> {
+        self.index
+            .cell_name(cell)
             .ok_or_else(|| AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "configuration cell",
@@ -2557,14 +2512,9 @@ impl Adapter {
             })
     }
 
-    fn symbol_name<'a>(
-        &'a self,
-        symbol: &SymbolId,
-        origin: &NodeOrigin,
-    ) -> Result<&'a str, AdapterError> {
-        self.symbols
-            .get(symbol)
-            .map(String::as_str)
+    fn symbol_name(&self, symbol: &SymbolId, origin: &NodeOrigin) -> Result<&str, AdapterError> {
+        self.index
+            .symbol_name(symbol)
             .ok_or_else(|| AdapterError::MissingSymbol {
                 key: origin.key().clone(),
                 symbol: symbol.clone(),
@@ -2588,18 +2538,6 @@ impl Adapter {
         role: SentenceNodeRole,
     ) {
         self.map_origin(origin, module, NativeNodePlace::Sentence { index, role });
-    }
-}
-
-fn collect_fixed_cells(
-    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
-    output: &mut BTreeMap<SymbolId, String>,
-) {
-    for cell in cells {
-        output.insert(cell.id().clone(), cell.name().to_owned());
-        if let FixedCellContent::Children { children } = cell.content() {
-            collect_fixed_cells(children, output);
-        }
     }
 }
 
@@ -2917,16 +2855,6 @@ fn native_variable(
         variable_name(variable)
     };
     NativeTerm::Variable { name, sort }
-}
-
-fn variable_name(variable: &SemanticId) -> String {
-    use std::fmt::Write as _;
-
-    let mut output = String::from("V");
-    for byte in variable.as_str().as_bytes() {
-        write!(output, "{byte:02X}").expect("writing to String cannot fail");
-    }
-    output
 }
 
 const fn builtin_label(operation: BuiltinOperation) -> &'static str {

@@ -27,6 +27,7 @@ pub mod ir;
 pub mod ir_level;
 mod ir_validation;
 pub mod json;
+pub mod k_surface;
 pub mod measure;
 pub mod provenance;
 pub mod provenance_role;
