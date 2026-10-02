@@ -86,9 +86,21 @@ pub(crate) fn constant_fold_pass(
             .expect("resolved definition contains every source module");
         let folder = Folder::new(&views, module_id);
         for sentence in &mut module.local_sentences {
-            // Only rules change; taking a mutable sentence copies a shared one.
-            if !matches!(&**sentence, Sentence::Rule { .. }) {
-                continue;
+            // Only rules change. The kind is decided before taking a mutable sentence, which
+            // copies a shared one, so every other kind stays shared.
+            match &**sentence {
+                Sentence::Rule { .. } => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
@@ -99,7 +111,7 @@ pub(crate) fn constant_fold_pass(
                 ..
             } = sentence
             else {
-                continue;
+                unreachable!("copy-on-write keeps the kind decided above");
             };
             *body = folder.fold(body.clone(), Position::Both, attributes, &mut diagnostics);
             *requires = folder.fold(

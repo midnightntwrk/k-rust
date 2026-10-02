@@ -125,39 +125,53 @@ pub(crate) fn expand_macros_pass(
         let mut internal_labels = None;
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
-            if matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has_any(&AttributeKey::MACRO_LIKE))
-            {
-                continue;
-            }
-            if matches!(
-                sentence,
-                Sentence::Rule { .. } | Sentence::Claim { .. } | Sentence::Context { .. }
-            ) {
-                let original = sentence.clone();
-                match expander.expand_sentence(original) {
-                    Ok(expanded) => {
-                        *sentence = expanded;
-                        let internal_labels = internal_labels.get_or_insert_with(|| {
-                            checks::internal_labels(expander.productions, expander.sorts)
-                        });
-                        diagnostics.extend(check_functions_with_internal_labels(
-                            &[sentence],
-                            expander.productions,
-                            internal_labels,
-                        ));
-                        diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
-                        if matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })
-                            && contains_macro_symbol(sentence, expander.productions)
-                        {
-                            diagnostics.push(Diagnostic::error(
-                                DiagnosticCode::InvalidMacroExpansion,
-                                "Rule contains macro symbol that was not expanded",
-                                sentence,
-                            ));
-                        }
-                    }
-                    Err(diagnostic) => diagnostics.push(located_at(diagnostic, sentence)),
+            // Rules that are not macro-like, claims and contexts are expanded; a macro-like rule
+            // defines an abbreviation and is not expanded itself. The decision also says whether
+            // a macro symbol left after expansion is reported: for rules and claims, not for
+            // contexts.
+            let reports_unexpanded_macros = match sentence {
+                Sentence::Rule { attributes, .. }
+                    if !attributes.has_any(&AttributeKey::MACRO_LIKE) =>
+                {
+                    true
                 }
+                Sentence::Claim { .. } => true,
+                Sentence::Context { .. } => false,
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
+            };
+            let original = sentence.clone();
+            match expander.expand_sentence(original) {
+                Ok(expanded) => {
+                    *sentence = expanded;
+                    let internal_labels = internal_labels.get_or_insert_with(|| {
+                        checks::internal_labels(expander.productions, expander.sorts)
+                    });
+                    diagnostics.extend(check_functions_with_internal_labels(
+                        &[sentence],
+                        expander.productions,
+                        internal_labels,
+                    ));
+                    diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
+                    if reports_unexpanded_macros
+                        && contains_macro_symbol(sentence, expander.productions)
+                    {
+                        diagnostics.push(Diagnostic::error(
+                            DiagnosticCode::InvalidMacroExpansion,
+                            "Rule contains macro symbol that was not expanded",
+                            sentence,
+                        ));
+                    }
+                }
+                Err(diagnostic) => diagnostics.push(located_at(diagnostic, sentence)),
             }
         }
     }

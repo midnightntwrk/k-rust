@@ -55,9 +55,21 @@ pub(crate) fn remove_unit_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
-            // Only rules change; taking a mutable sentence copies a shared one.
-            if !matches!(&**sentence, Sentence::Rule { .. }) {
-                continue;
+            // Only rules change. The kind is decided before taking a mutable sentence, which
+            // copies a shared one, so every other kind stays shared.
+            match &**sentence {
+                Sentence::Rule { .. } => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
@@ -67,7 +79,7 @@ pub(crate) fn remove_unit_pass(
                 ..
             } = sentence
             else {
-                continue;
+                unreachable!("copy-on-write keeps the kind decided above");
             };
             *body = transform(body, productions).map_err(|diagnostic| RemoveUnitError {
                 diagnostics: vec![diagnostic],

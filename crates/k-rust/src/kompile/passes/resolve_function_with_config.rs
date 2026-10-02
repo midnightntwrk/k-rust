@@ -245,9 +245,20 @@ pub(crate) fn resolve_config_var_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            // Only rules and claims change; taking a mutable sentence copies a shared one.
-            if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
-                continue;
+            // Only rules and claims change. The kind is decided before taking a mutable sentence,
+            // which copies a shared one, so every other kind stays shared.
+            match &**sentence {
+                Sentence::Rule { .. } | Sentence::Claim { .. } => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let sentence = crate::definition::sentence_mut(sentence);
             let (body, requires, ensures) = match sentence {
@@ -272,7 +283,9 @@ pub(crate) fn resolve_config_var_pass(
                 | Sentence::ContextAlias { .. }
                 | Sentence::Context { .. }
                 | Sentence::Configuration { .. }
-                | Sentence::Bubble { .. } => continue,
+                | Sentence::Bubble { .. } => {
+                    unreachable!("copy-on-write keeps the kind decided above")
+                }
             };
             if contains_rewrite(body)
                 && [body as &Term, requires as &Term, ensures as &Term]

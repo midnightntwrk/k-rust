@@ -50,12 +50,27 @@ pub(crate) fn number_sentences_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            // Only rules and claims without an identifier change; taking a mutable sentence
-            // copies a shared one.
-            if matches!(&**sentence, Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. }
-                if !attributes.has(AttributeKey::UniqueId))
-            {
-                number_sentence(crate::definition::sentence_mut(sentence));
+            // Only rules and claims without an identifier change. The kind is decided before
+            // taking a mutable sentence, which copies a shared one, so every other sentence stays
+            // shared.
+            match &**sentence {
+                Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. }
+                    if !attributes.has(AttributeKey::UniqueId) =>
+                {
+                    number_sentence(crate::definition::sentence_mut(sentence));
+                }
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => {}
             }
         }
     }

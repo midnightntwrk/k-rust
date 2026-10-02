@@ -67,7 +67,9 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
         let sorts = views.sort_catalog(module_id);
         // Invariant: every heat or cool rule or context of `module.local_sentences` before `sentence` has its `requires` conjoined with its result predicate on `HOLE` (negated for heat), and `diagnostics` holds one error for each such sentence whose predicate is missing; each iteration consumes one sentence.
         for sentence in &mut module.local_sentences {
-            // Only heat and cool sentences change; taking a mutable sentence copies a shared one.
+            // Only heat and cool sentences change. Their attributes are checked before taking a
+            // mutable sentence, which copies a shared one, so every other sentence stays shared;
+            // the kind is decided below.
             if !sentence.attributes().has(AttributeKey::Heat)
                 && !sentence.attributes().has(AttributeKey::Cool)
             {
@@ -80,12 +82,21 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             if !heat && !cool {
                 continue;
             }
-            // Heat/cool lowering is defined only for rules and contexts. The
-            // reference leaves all other sentence kinds unchanged before it
-            // resolves the result predicate, so an unrelated production or
-            // claim must not fail for a missing predicate.
-            if !matches!(sentence, Sentence::Rule { .. } | Sentence::Context { .. }) {
-                continue;
+            // Heat/cool lowering is defined only for rules and contexts, the sentences that state
+            // evaluation steps. Every other kind is left unchanged before the result predicate is
+            // resolved, so an unrelated production or claim never fails for a missing predicate.
+            match sentence {
+                Sentence::Rule { .. } | Sentence::Context { .. } => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let result_sort = attributes
                 .string(AttributeKey::Result)
@@ -115,7 +126,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 | Sentence::ContextAlias { .. }
                 | Sentence::Claim { .. }
                 | Sentence::Configuration { .. }
-                | Sentence::Bubble { .. } => continue,
+                | Sentence::Bubble { .. } => unreachable!("the kind is decided above"),
             };
             let predicate = Term::apply(predicate_label, vec![Term::variable("HOLE")]);
             let condition = if heat {

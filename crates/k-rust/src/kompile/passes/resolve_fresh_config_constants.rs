@@ -60,22 +60,30 @@ pub(crate) fn resolve_fresh_config_constants_pass(
     let mut diagnostics = Vec::new();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            // Only initializer rules change; taking a mutable sentence copies a shared one.
-            if !matches!(&**sentence, Sentence::Rule { attributes, .. }
-                if attributes.has(AttributeKey::Initializer))
-            {
-                continue;
+            // Only initializer rules change. The kind is decided before taking a mutable
+            // sentence, which copies a shared one, so every other sentence stays shared.
+            match &**sentence {
+                Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Initializer) => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body, attributes, ..
             } = sentence
             else {
-                continue;
+                unreachable!("copy-on-write keeps the sentence decided above");
             };
-            if !attributes.has(AttributeKey::Initializer) {
-                continue;
-            }
             let taken = std::mem::replace(body, Term::Sequence(Vec::new()));
             *body = transform(
                 taken,

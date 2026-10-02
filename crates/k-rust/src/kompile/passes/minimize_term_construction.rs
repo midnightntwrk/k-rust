@@ -65,25 +65,34 @@ pub(crate) fn minimize_term_construction_pass(
         let productions = views.production_catalog(module_id);
         let converter = TermConverter::with_views(&views, module_id)?;
         for sentence in &mut module.local_sentences {
-            // Only non-simplification rules change; taking a mutable sentence copies a shared one.
-            if !matches!(&**sentence, Sentence::Rule { attributes, .. }
-                if !attributes.has(AttributeKey::Simplification))
-            {
-                continue;
+            // Only non-simplification rules change. The kind is decided before taking a mutable
+            // sentence, which copies a shared one, so every other sentence stays shared.
+            match &**sentence {
+                Sentence::Rule { attributes, .. }
+                    if !attributes.has(AttributeKey::Simplification) => {}
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Context { .. }
+                | Sentence::Rule { .. }
+                | Sentence::Claim { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => continue,
             }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,
                 requires,
                 ensures,
-                attributes,
+                ..
             } = sentence
             else {
-                continue;
+                unreachable!("copy-on-write keeps the sentence decided above");
             };
-            if attributes.has(AttributeKey::Simplification) {
-                continue;
-            }
             let fresh = FreshNames::for_terms([&*body, &*requires, &*ensures]);
             let mut minimizer = Minimizer::new(
                 productions,

@@ -109,30 +109,15 @@ pub(crate) fn add_implicit_computation_cell_pass(
         let productions = views.production_catalog(module_id);
 
         for sentence in &mut module.local_sentences {
-            // Skipped sentences and other kinds than rules, claims and contexts never change;
-            // taking a mutable sentence copies a shared one.
-            if skip_sentence(sentence)
-                || !matches!(
-                    &**sentence,
-                    Sentence::Rule { .. } | Sentence::Claim { .. } | Sentence::Context { .. }
-                )
-            {
-                continue;
-            }
-            let sentence = crate::definition::sentence_mut(sentence);
+            // Only rules, claims and contexts that are not skipped change. The kind is decided
+            // before taking a mutable sentence, which copies a shared one, so every other
+            // sentence stays shared.
             if skip_sentence(sentence) {
                 continue;
             }
-            let (body, is_claim, attributes) = match sentence {
-                Sentence::Rule {
-                    body, attributes, ..
-                } => (body, false, attributes),
-                Sentence::Claim {
-                    body, attributes, ..
-                } => (body, true, attributes),
-                Sentence::Context {
-                    body, attributes, ..
-                } => (body, false, attributes),
+            let is_claim = match &**sentence {
+                Sentence::Rule { .. } | Sentence::Context { .. } => false,
+                Sentence::Claim { .. } => true,
                 Sentence::SyntaxSort { .. }
                 | Sentence::SortSynonym { .. }
                 | Sentence::SyntaxLexical { .. }
@@ -142,6 +127,29 @@ pub(crate) fn add_implicit_computation_cell_pass(
                 | Sentence::ContextAlias { .. }
                 | Sentence::Configuration { .. }
                 | Sentence::Bubble { .. } => continue,
+            };
+            let sentence = crate::definition::sentence_mut(sentence);
+            let (body, attributes) = match sentence {
+                Sentence::Rule {
+                    body, attributes, ..
+                }
+                | Sentence::Claim {
+                    body, attributes, ..
+                }
+                | Sentence::Context {
+                    body, attributes, ..
+                } => (body, attributes),
+                Sentence::SyntaxSort { .. }
+                | Sentence::SortSynonym { .. }
+                | Sentence::SyntaxLexical { .. }
+                | Sentence::Production { .. }
+                | Sentence::SyntaxAssociativity { .. }
+                | Sentence::SyntaxPriority { .. }
+                | Sentence::ContextAlias { .. }
+                | Sentence::Configuration { .. }
+                | Sentence::Bubble { .. } => {
+                    unreachable!("copy-on-write keeps the kind decided above")
+                }
             };
             if is_function(body, productions) {
                 continue;

@@ -2,6 +2,11 @@
 //! Cost is the pass traversal plus resolution, measured by the kompile counters and named timing phase.
 //!
 //! Ordered frontend compilation passes that transform flat definitions.
+//!
+//! A pass decides which sentence kinds it rewrites in one exhaustive `match` that names every
+//! [`Sentence`] variant, so a new variant forces a decision in every pass. `matches!`, `if let`
+//! and `let … else` over `Sentence` only select the single kind a pass is about, or project a
+//! kind already decided, because clippy's `wildcard_enum_match_arm` cannot see them.
 
 use std::{fmt, sync::Arc};
 
