@@ -31,14 +31,11 @@ class Package:
     manifest: str
     gate: str
     kind: str
-    rustfmt: bool = True
 
 
 PACKAGES = (
     Package("tests/imp/rust-definition/Cargo.toml", "imp", "authored"),
-    # The source is the reviewed expansion golden, which the IMP gate compares
-    # byte for byte; rustfmt would rewrite its parameter-attribute layout.
-    Package("tests/imp/expanded-definition/Cargo.toml", "imp", "authored", rustfmt=False),
+    Package("tests/imp/expanded-definition/Cargo.toml", "imp", "authored"),
     Package("tests/imp/oracle/artifact-probe/Cargo.toml", "imp", "authored"),
     Package("tests/imp-state/rust-definition/Cargo.toml", "imp-state", "authored"),
     Package("tests/precedence-associativity/rust-definition/Cargo.toml", "precedence-associativity", "authored"),
@@ -69,12 +66,11 @@ def check_packages(gate: str, *, env: Mapping[str, str], target_dir: Path) -> No
         if package.kind != "authored":
             continue
         manifest = ROOT / package.manifest
-        if package.rustfmt:
-            command = ["cargo", "+stable", "fmt", "--check", "--manifest-path", os.fspath(manifest)]
-            if "package" not in load_toml(manifest):
-                # A virtual manifest has no package of its own to format.
-                command.insert(3, "--all")
-            run(command, timeout=300, environment=environment)
+        command = ["cargo", "+stable", "fmt", "--check", "--manifest-path", os.fspath(manifest)]
+        if "package" not in load_toml(manifest):
+            # A virtual manifest has no package of its own to format.
+            command.insert(3, "--all")
+        run(command, timeout=300, environment=environment)
         run(
             [
                 "cargo", "+stable", "clippy", "--manifest-path", os.fspath(manifest),
