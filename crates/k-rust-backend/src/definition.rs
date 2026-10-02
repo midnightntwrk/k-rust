@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -376,7 +376,7 @@ pub struct BackendDefinition {
     simplification_theory: Theory,
     predicate_simplification_theory: PredicateTheory,
     pub ceil_theory: Theory,
-    finite_sort_constructors: BTreeMap<Sort, BTreeSet<ConstructorHead>>,
+    finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
@@ -406,6 +406,134 @@ pub(crate) enum ConstructorHead {
         source: Sort,
         target: Sort,
     },
+}
+
+/// I5: every value of the sort is an alternative of its no-junk axiom.
+/// Minted only by `complete`, which checks that every fixed-root symbol instance is listed.
+/// An `EquationHead` can have a normal form with its own root, so constructor heads alone
+/// cannot cover a sort that such a symbol can build.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FiniteConstructorDomain {
+    heads: BTreeSet<ConstructorHead>,
+}
+
+impl FiniteConstructorDomain {
+    fn complete(
+        index: &FixedRootSymbols<'_>,
+        sort: &Sort,
+        listed: BTreeSet<ConstructorHead>,
+    ) -> Option<Self> {
+        let bucket = match sort {
+            Sort::Application { name, .. } => index.by_result_head.get(name),
+            Sort::Variable(_) => None,
+        };
+        for symbol in bucket.into_iter().flatten().chain(&index.schemas) {
+            let mut bindings = BTreeMap::new();
+            if !match_declaration_sort(
+                &symbol.result_sort,
+                sort,
+                &symbol.sort_variables,
+                &mut bindings,
+            ) {
+                continue;
+            }
+            if symbol.attributes.head_role() == HeadRole::EquationHead {
+                return None;
+            }
+            let sort_arguments = symbol
+                .sort_variables
+                .iter()
+                .map(|variable| bindings.get(variable).cloned())
+                .collect::<Option<Vec<_>>>()?;
+            if !listed.contains(&ConstructorHead::Symbol {
+                name: symbol.name.clone(),
+                sort_arguments,
+            }) {
+                return None;
+            }
+        }
+        Some(Self { heads: listed })
+    }
+
+    pub(crate) fn contains(&self, head: &ConstructorHead) -> bool {
+        self.heads.contains(head)
+    }
+
+    pub(crate) fn is_covered_by(&self, excluded: &BTreeSet<ConstructorHead>) -> bool {
+        self.heads.is_subset(excluded)
+    }
+}
+
+struct FixedRootSymbols<'a> {
+    by_result_head: BTreeMap<Name, Vec<&'a Symbol>>,
+    schemas: Vec<&'a Symbol>,
+}
+
+impl<'a> FixedRootSymbols<'a> {
+    fn of(definition: &'a BackendDefinition) -> Self {
+        let mut index = Self {
+            by_result_head: BTreeMap::new(),
+            schemas: Vec::new(),
+        };
+        for symbol in definition.symbols.values() {
+            if symbol.is(WellKnownSymbol::Inj)
+                || !matches!(
+                    symbol.attributes.head_role(),
+                    HeadRole::FreeConstructor | HeadRole::EquationHead
+                )
+            {
+                continue;
+            }
+            match &symbol.result_sort {
+                Sort::Application { name, .. } => index
+                    .by_result_head
+                    .entry(name.clone())
+                    .or_default()
+                    .push(symbol),
+                Sort::Variable(name) if symbol.sort_variables.contains(name) => {
+                    index.schemas.push(symbol);
+                }
+                Sort::Variable(_) => {}
+            }
+        }
+        index
+    }
+}
+
+/// Match a symbol's result sort, binding only variables declared by that symbol.
+fn match_declaration_sort(
+    declaration: &Sort,
+    instance: &Sort,
+    variables: &[Name],
+    bindings: &mut BTreeMap<Name, Sort>,
+) -> bool {
+    match (declaration, instance) {
+        (Sort::Variable(name), _) if variables.contains(name) => {
+            if let Some(bound) = bindings.get(name) {
+                bound == instance
+            } else {
+                bindings.insert(name.clone(), instance.clone());
+                true
+            }
+        }
+        (
+            Sort::Application { name, arguments },
+            Sort::Application {
+                name: instance_name,
+                arguments: instance_arguments,
+            },
+        ) => {
+            name == instance_name
+                && arguments.len() == instance_arguments.len()
+                && arguments
+                    .iter()
+                    .zip(instance_arguments)
+                    .all(|(left, right)| match_declaration_sort(left, right, variables, bindings))
+        }
+        (Sort::Variable(_), Sort::Variable(_)) => declaration == instance,
+        (Sort::Variable(_), Sort::Application { .. })
+        | (Sort::Application { .. }, Sort::Variable(_)) => false,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1093,10 +1221,10 @@ impl BackendDefinition {
                 .contains(name)
     }
 
-    pub(crate) fn finite_constructor_heads(
-        &self,
-        sort: &Sort,
-    ) -> Option<&BTreeSet<ConstructorHead>> {
+    /// I5: every value of `sort` is covered by an alternative of a complete no-junk axiom.
+    /// Returns no domain if an `EquationHead` can build the sort: its normal form may keep
+    /// that root, which no listed constructor head covers.
+    pub(crate) fn finite_constructor_heads(&self, sort: &Sort) -> Option<&FiniteConstructorDomain> {
         self.finite_sort_constructors.get(sort)
     }
 
@@ -1783,7 +1911,8 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
 
 fn collect_finite_sort_constructors(
     definition: &BackendDefinition,
-) -> BTreeMap<Sort, BTreeSet<ConstructorHead>> {
+) -> BTreeMap<Sort, FiniteConstructorDomain> {
+    let index = FixedRootSymbols::of(definition);
     let mut domains = BTreeMap::new();
     for axiom in &definition.axioms {
         if !axiom.attributes.has(KoreAttribute::Constructor) {
@@ -1859,10 +1988,10 @@ fn collect_finite_sort_constructors(
             }
         }
         if valid && has_bottom && !constructors.is_empty() {
-            domains.insert(
-                domain_sort.expect("a nonempty domain has a sort"),
-                constructors,
-            );
+            let sort = domain_sort.expect("a nonempty domain has a sort");
+            if let Some(domain) = FiniteConstructorDomain::complete(&index, &sort, constructors) {
+                domains.insert(sort, domain);
+            }
         }
     }
     domains

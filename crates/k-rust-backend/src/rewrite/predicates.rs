@@ -311,7 +311,7 @@ pub(crate) fn violates_finite_constructor_domain(
     exclusions.into_iter().any(|(subject, excluded)| {
         definition
             .finite_constructor_heads(&subject.sort())
-            .is_some_and(|constructors| constructors.is_subset(&excluded))
+            .is_some_and(|constructors| constructors.is_covered_by(&excluded))
     })
 }
 

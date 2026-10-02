@@ -3,7 +3,7 @@
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
-    definition::BackendDefinition,
+    definition::{BackendDefinition, constructor_head},
     rewrite::*,
     rule::Predicate,
     simplify::SimplificationOptions,
@@ -139,6 +139,169 @@ fn rejects_exclusions_covering_a_finite_constructor_sort() {
         &excluded[..2]
     ));
     assert!(violates_finite_constructor_domain(&definition, &excluded));
+}
+
+#[test]
+fn omitted_constructor_prevents_a_finite_constructor_domain() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                axiom{} \or{SortS{}}(a{}(), \bottom{SortS{}}()) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let variable = Term::variable(Variable::new("X", Sort::simple("SortS")));
+    let excluded = Predicate::Not(Box::new(Predicate::Equals(
+        variable,
+        internal_term(&definition, "a{}()"),
+    )));
+
+    assert!(
+        definition
+            .finite_constructor_heads(&Sort::simple("SortS"))
+            .is_none()
+    );
+    assert!(!violates_finite_constructor_domain(
+        &definition,
+        &[excluded]
+    ));
+}
+
+#[test]
+fn polymorphic_equation_head_prevents_a_finite_constructor_domain() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortFoo{} []
+                symbol g{}() : SortFoo{} [constructor{}()]
+                symbol wrap{S}(S) : S [anywhere{}(), functional{}()]
+                axiom{} \or{SortFoo{}}(g{}(), \bottom{SortFoo{}}()) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+
+    assert!(
+        definition
+            .finite_constructor_heads(&Sort::simple("SortFoo"))
+            .is_none()
+    );
+}
+
+#[test]
+fn complete_parameterized_result_has_its_instance_constructor_head() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortBox{W} []
+                sort SortA{} []
+                symbol a{}() : SortA{} [constructor{}()]
+                symbol box{W}(W) : SortBox{W} [constructor{}()]
+                axiom{} \or{SortBox{SortA{}}}(
+                    \exists{SortBox{SortA{}}}(X0:SortA{}, box{SortA{}}(X0:SortA{})),
+                    \bottom{SortBox{SortA{}}}()
+                ) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let instance = internal_term(&definition, "box{SortA{}}(a{}())");
+    let domain = definition
+        .finite_constructor_heads(&instance.sort())
+        .expect("the axiom lists every constructor instance of SortBox{SortA{}}");
+
+    assert!(domain.contains(&constructor_head(&instance).unwrap()));
+}
+
+#[test]
+fn omitted_parameterized_constructor_prevents_a_finite_constructor_domain() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortBox{W} []
+                sort SortA{} []
+                symbol a{}() : SortA{} [constructor{}()]
+                symbol box{W}(W) : SortBox{W} [constructor{}()]
+                symbol other{}() : SortBox{SortA{}} [constructor{}()]
+                axiom{} \or{SortBox{SortA{}}}(
+                    other{}(), \bottom{SortBox{SortA{}}}()
+                ) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let other = internal_term(&definition, "other{}()");
+
+    assert!(definition.finite_constructor_heads(&other.sort()).is_none());
+}
+
+#[test]
+fn repeated_result_parameters_must_match_consistently_for_finite_domains() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortPair{L, R} []
+                sort SortA{} []
+                sort SortB{} []
+                symbol repeated{W}(W) : SortPair{W, W} [constructor{}()]
+                symbol unequal{}() : SortPair{SortA{}, SortB{}} [constructor{}()]
+                symbol equal{}() : SortPair{SortA{}, SortA{}} [constructor{}()]
+                axiom{} \or{SortPair{SortA{}, SortB{}}}(
+                    unequal{}(), \bottom{SortPair{SortA{}, SortB{}}}()
+                ) [constructor{}()]
+                axiom{} \or{SortPair{SortA{}, SortA{}}}(
+                    equal{}(), \bottom{SortPair{SortA{}, SortA{}}}()
+                ) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let unequal = internal_term(&definition, "unequal{}()");
+    let equal = internal_term(&definition, "equal{}()");
+
+    assert!(
+        definition
+            .finite_constructor_heads(&unequal.sort())
+            .is_some()
+    );
+    assert!(definition.finite_constructor_heads(&equal.sort()).is_none());
+}
+
+#[test]
+fn unbound_constructor_parameter_prevents_a_finite_constructor_domain() {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortBox{W} []
+                sort SortA{} []
+                symbol open{W, V}(W) : SortBox{W} [constructor{}()]
+                axiom{} \or{SortBox{SortA{}}}(
+                    \exists{SortBox{SortA{}}}(
+                        X0:SortA{}, open{SortA{}, SortA{}}(X0:SortA{})
+                    ),
+                    \bottom{SortBox{SortA{}}}()
+                ) [constructor{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let instance = internal_term(&definition, "open{SortA{}, SortA{}}(X0:SortA{})");
+
+    assert!(
+        definition
+            .finite_constructor_heads(&instance.sort())
+            .is_none()
+    );
 }
 
 #[test]
