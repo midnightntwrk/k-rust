@@ -132,6 +132,50 @@ impl SortRole {
         }
     }
 
+    /// Every term of the sort is a K item and the sort is neither `K` nor `KItem`, so both inner
+    /// grammars place it strictly below `KItem`: a per-member `KItem ::= S` production may be
+    /// generated only for a sort with this role.
+    ///
+    /// A numeral member is included because both inner grammars give it `KItem ::= 8`, while
+    /// compilation does not ([`SortRole::has_implicit_kitem_subsort`] is false for it); this is a
+    /// known discrepancy, left unchanged here. `KLabel`, `KList` and `KString` are sorts of the
+    /// term syntax itself (a label, an argument sequence, the spelling inside `#token`), not sorts
+    /// of K items, so no grammar places them below `KItem`. `KBott` and `KConfigVar` lie below
+    /// `KItem` only through the fixed kernel syntax, a rigid variable stands for every sort at once
+    /// and a scaffolding sort is parser structure.
+    pub(crate) const fn lies_below_kitem(self) -> bool {
+        use KernelSort as S;
+        match self {
+            Self::Kernel(S::Bool | S::Bag | S::Cell) | Self::Nat | Self::Defined => true,
+            Self::Kernel(
+                S::K | S::KItem | S::KConfigVar | S::KBott | S::KLabel | S::KList | S::KString,
+            )
+            | Self::RigidVariable
+            | Self::Scaffolding => false,
+        }
+    }
+
+    /// A variable or a configuration variable may stand at a position of the sort, so `KBott`,
+    /// `#KVariable` and `KConfigVar` lie below it: a per-member subsort from `KBott`, `KConfigVar`
+    /// or `#KVariable` may be generated only for a sort with this role.
+    ///
+    /// `KBott` and `KConfigVar` are themselves those bottom sorts, below which nothing but the
+    /// variable tokens lies; a rigid variable stands for every sort at once and a scaffolding sort
+    /// is parser structure, so no variable stands at either.
+    pub(crate) const fn admits_variables(self) -> bool {
+        use KernelSort as S;
+        match self {
+            Self::Kernel(
+                S::K | S::KItem | S::KLabel | S::KList | S::KString | S::Bag | S::Cell | S::Bool,
+            )
+            | Self::Nat
+            | Self::Defined => true,
+            Self::Kernel(S::KBott | S::KConfigVar) | Self::RigidVariable | Self::Scaffolding => {
+                false
+            }
+        }
+    }
+
     /// A sort of the K term algebra: `K`, `KItem`, or a sort below `KItem`.
     pub(crate) const fn is_k_term_sort(self) -> bool {
         use KernelSort as S;
@@ -511,6 +555,50 @@ mod tests {
             assert!(
                 !role.has_sort_projection() || role.has_sort_predicate(),
                 "{role:?} has a projection without a predicate"
+            );
+        }
+    }
+
+    /// The kernel positions of every role: `[lies_below_kitem, admits_variables]`. A sort strictly
+    /// below `KItem` is a sort of K items, so it is also a sort a variable stands at; `K` and
+    /// `KItem` are above every such sort, and the bottom sorts `KBott` and `KConfigVar` are below
+    /// every sort a variable stands at.
+    #[test]
+    fn kernel_position_rows_are_pinned() {
+        use KernelSort as S;
+        let rows = [
+            (SortRole::Kernel(S::K), [false, true]),
+            (SortRole::Kernel(S::KItem), [false, true]),
+            (SortRole::Kernel(S::KConfigVar), [false, false]),
+            (SortRole::Kernel(S::KBott), [false, false]),
+            (SortRole::Kernel(S::KLabel), [false, true]),
+            (SortRole::Kernel(S::KList), [false, true]),
+            (SortRole::Kernel(S::KString), [false, true]),
+            (SortRole::Kernel(S::Bag), [true, true]),
+            (SortRole::Kernel(S::Cell), [true, true]),
+            (SortRole::Kernel(S::Bool), [true, true]),
+            (SortRole::RigidVariable, [false, false]),
+            (SortRole::Scaffolding, [false, false]),
+            (SortRole::Nat, [true, true]),
+            (SortRole::Defined, [true, true]),
+        ];
+        for kernel in KernelSort::ALL {
+            assert!(
+                rows.iter()
+                    .any(|(role, _)| *role == SortRole::Kernel(kernel)),
+                "{} has a row",
+                kernel.name()
+            );
+        }
+        for (role, expected) in rows {
+            assert_eq!(
+                [role.lies_below_kitem(), role.admits_variables()],
+                expected,
+                "{role:?}"
+            );
+            assert!(
+                !role.lies_below_kitem() || role.admits_variables(),
+                "{role:?} lies below KItem but admits no variable"
             );
         }
     }

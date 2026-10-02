@@ -861,6 +861,42 @@ endmodule
         assert_eq!(grammar.sort_id(&Sort::new("MInt")), None);
     }
 
+    /// A view that sees KAST declares `KLabel`, `KList` and `KString`, but a label, an argument
+    /// sequence and a token spelling are not K items: the configuration grammar gives none of the
+    /// three a `KItem` subsort, which for `KList` would close the cycle `KItem < K < KList < KItem`
+    /// with the declared `KList ::= K` and `K ::= KItem`. A variable and a configuration variable
+    /// still stand at each of them, and a defined sort keeps its `KItem` subsort.
+    ///
+    /// The module has no configuration, so the loader parses nothing with this grammar and the
+    /// test reads the productions themselves; that a configuration of such a view parses is
+    /// `a_configuration_of_a_view_that_sees_kast_parses` in `inner::rules`.
+    #[test]
+    fn the_configuration_grammar_places_no_kast_sort_below_kitem() {
+        let grammar = main_configuration_grammar(
+            r#"
+module MAIN
+  imports KAST
+  syntax Foo ::= "foo"
+endmodule
+"#,
+        );
+        let kitem = Sort::new("KItem");
+
+        for kast in ["KList", "KLabel", "KString"] {
+            assert!(
+                !grammar.has_equivalent_production(&kitem, &unary(kast), false),
+                "KItem ::= {kast}"
+            );
+        }
+        for child in ["KConfigVar", "#KVariable"] {
+            assert!(
+                grammar.has_equivalent_production(&Sort::new("KList"), &unary(child), false),
+                "KList ::= {child}"
+            );
+        }
+        assert!(grammar.has_equivalent_production(&kitem, &unary("Foo"), false));
+    }
+
     /// A definition whose operand sort no module declares is rejected by the sort check, which
     /// runs on every module before any configuration is parsed; the configuration grammar is
     /// never built for it.

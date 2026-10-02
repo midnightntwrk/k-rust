@@ -1683,4 +1683,39 @@ endmodule
         };
         assert!(error.contains("could not parse rule"), "{error}");
     }
+
+    /// KAST declares `KList ::= K` and BASIC-K `K ::= KItem`; a label, an argument sequence and a
+    /// token spelling are not K items, so the rule grammar of a view without a generated top sort
+    /// adds no `KItem ::= KList` (nor the `KLabel` and `KString` subsorts), and no cycle
+    /// `KItem < K < KList < KItem` keeps the view's rules from parsing.
+    #[test]
+    fn a_rule_of_a_view_that_sees_kast_parses() {
+        let source = r#"
+module MAIN
+  imports BASIC-K
+  imports KAST
+  syntax Exp ::= "a" | "b" | f(Exp) [function]
+  rule f(X) => X
+endmodule
+"#;
+        if let Err(error) = try_load_with_prelude(source) {
+            panic!("a rule of a view that sees KAST loads: {error}");
+        }
+    }
+
+    /// The configuration grammar of a view that sees KAST through KSEQ adds no `KItem ::= KList`
+    /// either, so its configuration parses.
+    #[test]
+    fn a_configuration_of_a_view_that_sees_kast_parses() {
+        let source = r#"
+module MAIN
+  imports KSEQ
+  syntax Exp ::= "a" | "b"
+  configuration <k> $PGM:K </k>
+endmodule
+"#;
+        if let Err(error) = try_load_with_prelude(source) {
+            panic!("a configuration of a view that sees KAST loads: {error}");
+        }
+    }
 }

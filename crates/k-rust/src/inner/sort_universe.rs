@@ -306,25 +306,37 @@ pub(in crate::inner) struct RuleMemberProductions {
 /// receives what a defined sort receives. `Bool` is a sort of `K` terms, but its `KItem` subsort,
 /// its variable subsorts and its casts belong to the fixed kernel syntax both grammars share, so
 /// the member loop adds only its scaffolding and bracket. `KLabel`, `KList` and `KString` receive
-/// every production when the module declares them. `K`, `KItem`, `Bag`, `Cell`, `KBott` and
-/// `KConfigVar` receive their other productions from the kernel syntax and the kernel seeds, not
-/// from the member loop. A rigid variable and a scaffolding sort denote no set of terms a rule
-/// could mention, so they receive nothing.
+/// every production except `KItem ::= S` when the module declares them: a variable, a cast or a
+/// bracket may stand at a label, an argument sequence or a token spelling, but none of the three
+/// is a sort of K items ([`SortRole::lies_below_kitem`]), and with the declared `KList ::= K` and
+/// `K ::= KItem`, `KItem ::= KList` would close the cycle `KItem < K < KList < KItem`, under which
+/// no term can be given a sort. `K`, `KItem`, `Bag`, `Cell`, `KBott` and `KConfigVar` receive
+/// their other productions from the kernel syntax and the kernel seeds, not from the member loop.
+/// A rigid variable and a scaffolding sort denote no set of terms a rule could mention, so they
+/// receive nothing.
 pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMemberProductions {
     use KernelSort as S;
     match role {
-        SortRole::Defined | SortRole::Nat | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
-            RuleMemberProductions {
-                predicate: role.has_sort_predicate(),
-                projection: role.has_sort_projection(),
-                #[cfg(not(feature = "z3-inference"))]
-                rule_scaffold: true,
-                kitem_subsort: true,
-                bottom_subsort: true,
-                casts: true,
-                bracket: true,
-            }
-        }
+        SortRole::Defined | SortRole::Nat => RuleMemberProductions {
+            predicate: role.has_sort_predicate(),
+            projection: role.has_sort_projection(),
+            #[cfg(not(feature = "z3-inference"))]
+            rule_scaffold: true,
+            kitem_subsort: true,
+            bottom_subsort: true,
+            casts: true,
+            bracket: true,
+        },
+        SortRole::Kernel(S::KLabel | S::KList | S::KString) => RuleMemberProductions {
+            predicate: role.has_sort_predicate(),
+            projection: role.has_sort_projection(),
+            #[cfg(not(feature = "z3-inference"))]
+            rule_scaffold: true,
+            kitem_subsort: false,
+            bottom_subsort: true,
+            casts: true,
+            bracket: true,
+        },
         SortRole::Kernel(S::Bool) => RuleMemberProductions {
             predicate: role.has_sort_predicate(),
             projection: role.has_sort_projection(),
@@ -508,25 +520,31 @@ pub(in crate::inner) mod configuration {
 
     /// The configuration grammar's per-member table: a defined sort, a numeral member (a sort a
     /// sentence declares or positions, as in the rule grammar) and every kernel sort receive a
-    /// bracket; a defined sort, a numeral member, `KLabel`, `KList` and `KString` receive their
-    /// subsorts and casts here, the other kernel sorts from the fixed kernel syntax; a rigid
-    /// variable and a scaffolding sort denote no set of terms a configuration could mention and
-    /// receive nothing.
+    /// bracket; a defined sort and a numeral member receive their subsorts and casts here;
+    /// `KLabel`, `KList` and `KString` receive every production except `KItem ::= S`, because a
+    /// label, an argument sequence and a token spelling are not K items
+    /// ([`SortRole::lies_below_kitem`]) and `KItem ::= KList` would close the cycle
+    /// `KItem < K < KList < KItem` with the declared `KList ::= K` and `K ::= KItem`; the other
+    /// kernel sorts receive their subsorts and casts from the fixed kernel syntax; a rigid variable
+    /// and a scaffolding sort denote no set of terms a configuration could mention and receive
+    /// nothing.
     pub(in crate::inner) const fn configuration_member_productions(
         role: SortRole,
     ) -> ConfigurationMemberProductions {
         use KernelSort as S;
         match role {
-            SortRole::Defined
-            | SortRole::Nat
-            | SortRole::Kernel(S::KLabel | S::KList | S::KString) => {
-                ConfigurationMemberProductions {
-                    bracket: true,
-                    kitem_subsort: true,
-                    variable_subsorts: true,
-                    casts: true,
-                }
-            }
+            SortRole::Defined | SortRole::Nat => ConfigurationMemberProductions {
+                bracket: true,
+                kitem_subsort: true,
+                variable_subsorts: true,
+                casts: true,
+            },
+            SortRole::Kernel(S::KLabel | S::KList | S::KString) => ConfigurationMemberProductions {
+                bracket: true,
+                kitem_subsort: false,
+                variable_subsorts: true,
+                casts: true,
+            },
             SortRole::Kernel(
                 S::Bool | S::K | S::KItem | S::Bag | S::Cell | S::KBott | S::KConfigVar,
             ) => ConfigurationMemberProductions {
@@ -581,6 +599,50 @@ pub(in crate::inner) mod configuration {
         K, KItem, Bag, KConfigVar, KBott, KLabel, KList, KString, Cell, Bool,
     ]);
 }
+
+/// Whether the per-member subsort columns of both member tables state, for `role`, only kernel
+/// positions the role grants: `KItem ::= S` only for a sort strictly below `KItem`
+/// ([`SortRole::lies_below_kitem`]), and `S ::= KBott`, `S ::= KConfigVar` and `S ::= #KVariable`
+/// only for a sort a variable stands at ([`SortRole::admits_variables`]).
+///
+/// A generated subsort is an inclusion the grammar's sort order relies on. One that the role
+/// denies places a sort where it cannot lie, and together with the definition's own subsorts it
+/// can close a cycle, in which no term can be given a sort.
+const fn member_subsorts_are_granted(role: SortRole) -> bool {
+    let rule = rule_member_productions(role);
+    let configuration = configuration::configuration_member_productions(role);
+    (!rule.kitem_subsort || role.lies_below_kitem())
+        && (!configuration.kitem_subsort || role.lies_below_kitem())
+        && (!rule.bottom_subsort || role.admits_variables())
+        && (!configuration.variable_subsorts || role.admits_variables())
+}
+
+/// Every role's rows of both member tables state only granted kernel positions: a row that states
+/// another does not compile.
+const _: () = {
+    let mut index = 0;
+    while index < KernelSort::ALL.len() {
+        assert!(
+            member_subsorts_are_granted(SortRole::Kernel(KernelSort::ALL[index])),
+            "a member table states a kernel position that a kernel sort's role denies"
+        );
+        index += 1;
+    }
+    let others = [
+        SortRole::Defined,
+        SortRole::Nat,
+        SortRole::RigidVariable,
+        SortRole::Scaffolding,
+    ];
+    let mut index = 0;
+    while index < others.len() {
+        assert!(
+            member_subsorts_are_granted(others[index]),
+            "a member table states a kernel position that a non-kernel role denies"
+        );
+        index += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {
@@ -879,33 +941,35 @@ mod tests {
                 expected_helpers,
                 "{role:?}"
             );
-            let every_rule_production = match role {
-                SortRole::Defined
-                | SortRole::Nat
-                | SortRole::Kernel(S::KLabel | S::KList | S::KString) => true,
-                SortRole::Kernel(
-                    S::Bool | S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell,
-                )
-                | SortRole::RigidVariable
-                | SortRole::Scaffolding => false,
-            };
-            let expected_rule = if role == SortRole::Kernel(S::Bool) {
-                vec![
+            let every_rule_production = vec![true; rule_member(role).len()];
+            let no_rule_production = vec![false; rule_member(role).len()];
+            let expected_rule = match role {
+                SortRole::Defined | SortRole::Nat => every_rule_production,
+                SortRole::Kernel(S::Bool) => vec![
                     #[cfg(not(feature = "z3-inference"))]
                     true,
                     false,
                     false,
                     false,
                     true,
-                ]
-            } else {
-                vec![every_rule_production; rule_member(role).len()]
+                ],
+                // Every production except `KItem ::= S`.
+                SortRole::Kernel(S::KLabel | S::KList | S::KString) => vec![
+                    #[cfg(not(feature = "z3-inference"))]
+                    true,
+                    false,
+                    true,
+                    true,
+                    true,
+                ],
+                SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell)
+                | SortRole::RigidVariable
+                | SortRole::Scaffolding => no_rule_production,
             };
             assert_eq!(rule_member(role).to_vec(), expected_rule, "{role:?}");
             let expected_configuration = match role {
-                SortRole::Defined
-                | SortRole::Nat
-                | SortRole::Kernel(S::KLabel | S::KList | S::KString) => [true, true, true, true],
+                SortRole::Defined | SortRole::Nat => [true, true, true, true],
+                SortRole::Kernel(S::KLabel | S::KList | S::KString) => [true, false, true, true],
                 SortRole::Kernel(
                     S::Bool | S::K | S::KItem | S::Bag | S::Cell | S::KBott | S::KConfigVar,
                 ) => [true, false, false, false],
@@ -958,6 +1022,37 @@ mod tests {
             [GrammarPlan {
                 synonym_casts: true
             }; 2]
+        );
+    }
+
+    /// The runtime twin of the `const` assertion over [`member_subsorts_are_granted`]: no row of
+    /// either member table states a kernel position the sort's role denies. A label, an argument
+    /// sequence and a token spelling are not K items, so `KLabel`, `KList` and `KString` receive
+    /// no `KItem ::= S`.
+    #[test]
+    fn member_subsort_columns_state_only_granted_kernel_positions() {
+        let mut denied = Vec::new();
+        for role in every_role() {
+            let rule = rule_member_productions(role);
+            let configuration = configuration_member_productions(role);
+            if rule.kitem_subsort && !role.lies_below_kitem() {
+                denied.push(format!("rule KItem ::= {role:?}"));
+            }
+            if configuration.kitem_subsort && !role.lies_below_kitem() {
+                denied.push(format!("configuration KItem ::= {role:?}"));
+            }
+            if rule.bottom_subsort && !role.admits_variables() {
+                denied.push(format!("rule {role:?} ::= KBott"));
+            }
+            if configuration.variable_subsorts && !role.admits_variables() {
+                denied.push(format!(
+                    "configuration {role:?} ::= KConfigVar | #KVariable"
+                ));
+            }
+        }
+        assert!(
+            denied.is_empty(),
+            "member tables state kernel positions the roles deny: {denied:#?}"
         );
     }
 
