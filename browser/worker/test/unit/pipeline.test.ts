@@ -43,7 +43,7 @@ const lesson: LessonManifest = {
   rustc_lint_flags: ["-D", "warnings"],
 };
 
-const CRATES_TREE = "199c07cfc38861110966d0ce99805035602b0a91";
+const CRATES_TREE = "5580b24548c206188323f6c3ab0e7b0ffca21f10";
 const manifestSource = () => Bun.TOML.parse(fixture("pack-manifest.toml")) as unknown as SourcePackManifest;
 const moduleAsset = (path: string) => ({ path, sha256: "1".repeat(64), bytes: 1 });
 
@@ -95,12 +95,12 @@ test("worker rejects an unresolved lesson dependency as a protocol error", async
 describe("pack adapter (pack manifest, schema_version 2)", () => {
   test("maps roles to mounts, externs, and [direct_rustc]", async () => {
     const pack = await adaptedPack();
-    expect(pack.pack_id).toBe("sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117");
-    expect(pack.artifacts.length).toBe(28);
-    expect(pack.externs.facade).toBe("/pack/deps/libkrs-add96ba03f57c1b6.rlib");
-    expect(pack.externs.collector_runtime).toBe("/pack/deps/libkrs_compiler-cb1260d0465cc762.rlib");
+    expect(pack.pack_id).toBe("sha256:a2e035d851f1f0d058f80b568ceb715420ee1470995dcaceccd73c0e158c9456");
+    expect(pack.artifacts.length).toBe(35);
+    expect(pack.externs.facade).toBe("/pack/deps/libkrs-62ff703d4fb9f261.rlib");
+    expect(pack.externs.collector_runtime).toBe("/pack/deps/libkrs_collector-c81b7f2f4dc448e7.rlib");
     expect(pack.artifacts.filter((a) => a.role === "proc-macro-metadata").map((a) => a.mount)).toEqual([
-      "/pack/proc-macro-meta/libkrs_macros-e5fa7b53b7bfa6e3.rmeta",
+      "/pack/proc-macro-meta/libkrs_macros-3cbb98b6d31b688e.rmeta",
       "/pack/proc-macro-meta/libserde_derive-34455017fa8b0d0c.rmeta",
     ]);
     expect(pack.framework_sources.map((s) => [s.path, s.mount])).toEqual([
