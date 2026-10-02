@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use k_rust_kore::json_tree::{self, Node};
 
 use super::ast::{Label, Sort, Term};
+use super::sort_role::{NumeralSpelling, numeral_spelling};
 
 pub const FORMAT: &str = "KAST";
 pub const VERSION: u32 = 4;
@@ -157,7 +158,13 @@ fn sort_head(node: Node) -> Result<(String, Vec<Node>), Error> {
             "unknown variant `{node}`, expected `KSort`"
         )));
     }
-    Ok((fields.string("name")?, fields.array("params")?))
+    let name = fields.string("name")?;
+    if let NumeralSpelling::NonCanonical { canonical } = numeral_spelling(&name) {
+        return Err(Error::Shape(format!(
+            "numeral sort {name} is written with a leading zero; a width is spelled {canonical}"
+        )));
+    }
+    Ok((name, fields.array("params")?))
 }
 
 fn build_sort(root: Node) -> Result<Sort, Error> {

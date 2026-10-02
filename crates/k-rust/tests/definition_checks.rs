@@ -2594,6 +2594,122 @@ fn syntax_sort(sort: Sort) -> Sentence {
 }
 
 #[test]
+fn check_sorts_rejects_leading_zero_widths_without_undefined_sort_errors() {
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(mint(Sort::new("08"))),
+                production(Some("eight"), "08", &[], Attributes::default()),
+            ],
+        )],
+    );
+    let (module_id, module) = definition.modules().next().unwrap();
+    let diagnostics = k_rust::definition::check_sorts(module, &definition.sort_catalog(module_id));
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    for diagnostic in diagnostics {
+        assert_eq!(diagnostic.code, DiagnosticCode::InvalidNumeralSort);
+        assert_eq!(diagnostic.severity, Severity::Error);
+        assert_eq!(
+            diagnostic.message,
+            "Sort 08 is a numeral written with a leading zero; a width is spelled 8."
+        );
+    }
+}
+
+#[test]
+fn leading_zero_sort_diagnostics_cover_every_sentence_sort_depth_and_deduplicate() {
+    let bad = Sort::new("08");
+    let nested = mint(mint(bad.clone()));
+    let operand = |sort| ProductionItem::NonTerminal { sort, name: None };
+    let sentences = vec![
+        Sentence::Production {
+            label: Some(Label::new("repeated")),
+            parameters: vec![bad.clone(), nested.clone()],
+            sort: nested.clone(),
+            items: vec![operand(bad.clone()), operand(nested.clone())],
+            attributes: Attributes::default(),
+        },
+        Sentence::Production {
+            label: Some(Label::new("result")),
+            parameters: vec![],
+            sort: nested.clone(),
+            items: vec![ProductionItem::Terminal("result".into())],
+            attributes: Attributes::default(),
+        },
+        Sentence::Production {
+            label: Some(Label::new("operand")),
+            parameters: vec![],
+            sort: Sort::new("Foo"),
+            items: vec![operand(nested.clone())],
+            attributes: Attributes::default(),
+        },
+        Sentence::Production {
+            label: Some(Label::new("parameter")),
+            parameters: vec![nested.clone()],
+            sort: Sort::new("Foo"),
+            items: vec![ProductionItem::Terminal("parameter".into())],
+            attributes: Attributes::default(),
+        },
+        syntax_sort(nested.clone()),
+        Sentence::SyntaxSort {
+            parameters: vec![nested.clone()],
+            sort: Sort::new("Foo"),
+            attributes: Attributes::default(),
+        },
+        Sentence::SortSynonym {
+            new_sort: nested.clone(),
+            old_sort: Sort::new("Foo"),
+            attributes: Attributes::default(),
+        },
+        Sentence::SortSynonym {
+            new_sort: Sort::new("Alias"),
+            old_sort: nested.clone(),
+            attributes: Attributes::default(),
+        },
+        Sentence::SortSynonym {
+            new_sort: nested,
+            old_sort: mint(Sort::new("0010")),
+            attributes: Attributes::default(),
+        },
+    ];
+    for (index, sentence) in sentences.into_iter().enumerate() {
+        let definition = resolved_definition(
+            "MAIN",
+            vec![outer_check_module("MAIN", &[], vec![sentence])],
+        );
+        let (module_id, module) = definition.modules().next().unwrap();
+        let diagnostics =
+            k_rust::definition::check_sorts(module, &definition.sort_catalog(module_id));
+        let numeral = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidNumeralSort)
+            .collect::<Vec<_>>();
+        let mut actual = numeral
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        actual.sort();
+        let mut expected =
+            vec!["Sort 08 is a numeral written with a leading zero; a width is spelled 8."];
+        if index == 8 {
+            expected
+                .push("Sort 0010 is a numeral written with a leading zero; a width is spelled 10.");
+        }
+        expected.sort();
+        assert_eq!(actual, expected, "case {index}: {diagnostics:#?}");
+        assert!(
+            numeral
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Severity::Error),
+            "case {index}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
 fn check_sorts_rejects_undefined_nonterminals_in_every_module() {
     let main_production = Sentence::Production {
         label: None,

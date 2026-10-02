@@ -4,6 +4,7 @@ use std::fmt::{self, Display, Formatter};
 
 use super::ast::{Label, Sort, Term};
 use super::names::InternalLabel;
+use super::sort_role::{NumeralSpelling, numeral_spelling};
 use super::string;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -174,6 +175,11 @@ impl Parser<'_> {
             return Err(self.error("expected sort"));
         }
         let name = self.input[start..self.cursor].to_owned();
+        if let NumeralSpelling::NonCanonical { canonical } = numeral_spelling(&name) {
+            return Err(self.error(format!(
+                "numeral sort {name} is written with a leading zero; a width is spelled {canonical}"
+            )));
+        }
         let parameters = self.sort_parameters()?;
         Ok(Sort { name, parameters })
     }

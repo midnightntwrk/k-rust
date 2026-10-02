@@ -54,6 +54,43 @@ fn syntax_sort(sort: &str) -> Sentence {
 }
 
 #[test]
+fn mint_literal_leading_zero_width_is_canonical_and_keeps_token_text() {
+    let mint_eight = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+    let sentences = vec![
+        Sentence::SyntaxSort {
+            parameters: vec![],
+            sort: mint_eight.clone(),
+            attributes: Attributes::default(),
+        },
+        Sentence::Production {
+            label: None,
+            parameters: vec![],
+            sort: mint_eight.clone(),
+            items: vec![ProductionItem::regex("[0-9]+[pP][0-9]+")],
+            attributes: Attributes::new(
+                [
+                    ("token".into(), serde_json::json!("")),
+                    ("hook".into(), serde_json::json!("MINT.literal")),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        },
+    ];
+    let grammar = Grammar::from_sentences(&sentences).unwrap();
+    for text in ["0p08", "0P008", "0p8"] {
+        let term = grammar.parse(&mint_eight, text).unwrap();
+        assert_eq!(
+            term.unannotated(),
+            &Term::Token {
+                token: text.into(),
+                sort: mint_eight.clone(),
+            }
+        );
+    }
+}
+
+#[test]
 fn parses_recursive_grammars_tokens_subsorts_and_layout() {
     let mut token_attributes = Attributes::default();
     token_attributes.insert("token", serde_json::json!(""));

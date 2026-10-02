@@ -12,21 +12,44 @@ use crate::names::BuiltinSort;
 
 use super::{FrontendSort, Sort};
 
-/// A numeral sort is spelled with one or more ASCII decimal digits, of any length.
-/// A width is a natural number that the frontend never computes with.
-pub(crate) const fn is_numeral_spelling(name: &str) -> bool {
+/// How a name spells a natural-number width, in ASCII decimal without leading zeros.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NumeralSpelling<'a> {
+    Canonical,
+    /// Another spelling of the same number; `canonical` borrows its decimal spelling.
+    NonCanonical {
+        canonical: &'a str,
+    },
+    NotNumeral,
+}
+
+pub(crate) const fn numeral_spelling(name: &str) -> NumeralSpelling<'_> {
     let bytes = name.as_bytes();
     if bytes.is_empty() {
-        return false;
+        return NumeralSpelling::NotNumeral;
     }
     let mut i = 0;
     while i < bytes.len() {
         if !bytes[i].is_ascii_digit() {
-            return false;
+            return NumeralSpelling::NotNumeral;
         }
         i += 1;
     }
-    true
+    if bytes.len() == 1 || bytes[0] != b'0' {
+        return NumeralSpelling::Canonical;
+    }
+    let mut first = 0;
+    while first + 1 < bytes.len() && bytes[first] == b'0' {
+        first += 1;
+    }
+    NumeralSpelling::NonCanonical {
+        canonical: name.split_at(first).1,
+    }
+}
+
+/// Canonical numerals only, of any length: `08` is not a width spelling.
+pub(crate) const fn is_numeral_spelling(name: &str) -> bool {
+    matches!(numeral_spelling(name), NumeralSpelling::Canonical)
 }
 
 /// A sort whose meaning K fixes, whatever the definition declares.
@@ -93,7 +116,7 @@ pub(crate) enum SortRole {
     RigidVariable,
     /// Any other `#`-prefixed head: parser scaffolding, which denotes no set of terms.
     Scaffolding,
-    /// A decimal numeral: a width, the argument of a parametric sort such as `MInt{8}`.
+    /// A canonical decimal numeral: a width, the argument of a parametric sort such as `MInt{8}`.
     /// It has no terms ([`SortRole::has_terms`]).
     Nat,
     /// Any other head: its meaning comes from the definition.
@@ -102,7 +125,7 @@ pub(crate) enum SortRole {
 
 impl Sort {
     /// The role of this sort's head: a kernel spelling, then `#SortParam`, then any other leading
-    /// `#`, then a decimal numeral of any length, else a defined sort.
+    /// `#`, then a canonical decimal numeral of any length, else a defined sort.
     ///
     /// Parameters are ignored: the role of `MInt{8}` is the role of `MInt`.
     pub(crate) fn role(&self) -> SortRole {
@@ -360,18 +383,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn numeral_spellings_are_every_digit_string() {
+    fn numeral_spellings_are_canonical_digit_strings() {
         for name in [
             "99999999999999999999999",
             "8",
-            "08",
+            "0",
             "4294967296",
             "18446744073709551616",
         ] {
             assert_eq!(Sort::new(name).role(), SortRole::Nat, "{name}");
         }
-        for name in ["+8", "-8", "8a", ""] {
+        for name in ["08", "00", "+8", "-8", "8a", ""] {
             assert_ne!(Sort::new(name).role(), SortRole::Nat, "{name}");
+        }
+    }
+
+    #[test]
+    fn numeral_spelling_classifies_and_borrows_the_canonical_width() {
+        use NumeralSpelling::{Canonical, NonCanonical, NotNumeral};
+        for (name, expected) in [
+            ("0", Canonical),
+            ("8", Canonical),
+            ("64", Canonical),
+            ("08", NonCanonical { canonical: "8" }),
+            ("000", NonCanonical { canonical: "0" }),
+            ("0010", NonCanonical { canonical: "10" }),
+            ("8a", NotNumeral),
+            ("", NotNumeral),
+            ("+8", NotNumeral),
+        ] {
+            assert_eq!(numeral_spelling(name), expected, "{name}");
         }
     }
 

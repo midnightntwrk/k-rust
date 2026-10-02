@@ -23,7 +23,7 @@ use regex::Regex;
 use crate::definition::AttributeKey;
 use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
-use crate::kast::sort_role::is_numeral_spelling;
+use crate::kast::sort_role::{NumeralSpelling, is_numeral_spelling, numeral_spelling};
 
 use super::*;
 
@@ -650,6 +650,9 @@ impl<'a> Parser<'a> {
     }
 
     fn finish_sort(&mut self, start: usize, name: String) -> Result<Sort, ParseError> {
+        if let NumeralSpelling::NonCanonical { canonical } = numeral_spelling(&name) {
+            return Err(self.error_at(start, format!("numeral sort {name} is written with a leading zero; a width is spelled {canonical}")));
+        }
         if !is_sort_name(&name) {
             return Err(self.error_at(start, "invalid sort name"));
         }

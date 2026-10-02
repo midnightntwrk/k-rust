@@ -16,7 +16,7 @@ use super::super::{
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::sort_role::KernelSort;
+use crate::kast::sort_role::{KernelSort, NumeralSpelling, numeral_spelling};
 use crate::kast::{FrontendSort, Sort, SortRole};
 
 /// Check declared sort shapes and nonterminal denotations in the module's view.
@@ -151,11 +151,59 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
 /// nor `hook`, and synonym aliases and sentence sort parameters are not numerals.
 /// A compiled numeral declaration names a natural-number width so a parametric sort such as
 /// `MInt{8}` is well formed; it does not name a set of terms that a sentence can produce or accept.
+/// Every written numeral, including arguments at any depth, must use that width's one spelling.
 fn numeral_sort_diagnostics(
     sentence: &Sentence,
     sorts: &SortCatalog<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let mut written = Vec::new();
+    match sentence {
+        Sentence::Production {
+            parameters,
+            sort,
+            items,
+            ..
+        } => {
+            written.extend(parameters);
+            written.push(sort);
+            written.extend(items.iter().filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+            }));
+        }
+        Sentence::SyntaxSort {
+            parameters, sort, ..
+        } => {
+            written.extend(parameters);
+            written.push(sort);
+        }
+        Sentence::SortSynonym {
+            new_sort, old_sort, ..
+        } => written.extend([new_sort, old_sort]),
+        Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => {}
+    }
+    let mut noncanonical = BTreeSet::new();
+    while let Some(sort) = written.pop() {
+        if let NumeralSpelling::NonCanonical { canonical } = numeral_spelling(&sort.name)
+            && noncanonical.insert(&sort.name)
+        {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidNumeralSort,
+                format!("Sort {} is a numeral written with a leading zero; a width is spelled {canonical}.", sort.name),
+                sentence,
+            ));
+        }
+        written.extend(&sort.parameters);
+    }
     let mut reported = BTreeSet::new();
     let mut check = |sort: &Sort, place| {
         if !sort.role().has_terms() && reported.insert((place, sort.clone())) {
@@ -235,29 +283,37 @@ fn check_declared_sort(
     match SortShape::of(sort, parameters) {
         SortShape::UnsupportedHead => diagnostics.push(unsupported_head(sort, sentence)),
         SortShape::NestedArgument => diagnostics.push(nested_argument(sort, sentence)),
-        SortShape::Instance { argument } => match sorts.sort_synonyms().spelling(argument) {
-            Spelling::Sort => {
-                if argument.role() != SortRole::Nat
-                    && !sorts.defined_heads().contains(&SortHead::from(argument))
-                {
-                    diagnostics.push(Diagnostic::error(
-                        DiagnosticCode::UndefinedSort,
-                        format!("Could not find sorts: [{argument}]"),
-                        sentence,
-                    ));
-                }
+        SortShape::Instance { argument } => {
+            if matches!(
+                numeral_spelling(&argument.name),
+                NumeralSpelling::NonCanonical { .. }
+            ) {
+                return;
             }
-            Spelling::Synonym { denotes } => {
-                diagnostics.push(Diagnostic::error(
+            match sorts.sort_synonyms().spelling(argument) {
+                Spelling::Sort => {
+                    if argument.role() != SortRole::Nat
+                        && !sorts.defined_heads().contains(&SortHead::from(argument))
+                    {
+                        diagnostics.push(Diagnostic::error(
+                            DiagnosticCode::UndefinedSort,
+                            format!("Could not find sorts: [{argument}]"),
+                            sentence,
+                        ));
+                    }
+                }
+                Spelling::Synonym { denotes } => {
+                    diagnostics.push(Diagnostic::error(
                     DiagnosticCode::UndefinedSort,
                     format!(
                         "Could not find sorts: [{argument}] ({argument} is a sort synonym of {denotes}, and synonyms are not applied inside the arguments of {sort})"
                     ),
                     sentence,
                 ));
+                }
+                Spelling::Undenoted => {}
             }
-            Spelling::Undenoted => {}
-        },
+        }
         SortShape::Parameter | SortShape::Nullary | SortShape::Schematic { .. } => {}
     }
 }

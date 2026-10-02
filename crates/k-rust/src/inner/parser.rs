@@ -125,6 +125,7 @@ use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes, PartialOrder, PartialOrderCycle,
     ProductionItem, Regex as KRegex, RegexBody,
 };
+use crate::kast::sort_role::{NumeralSpelling, numeral_spelling};
 use crate::kast::{
     FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan,
 };
@@ -1749,12 +1750,19 @@ pub(super) fn expand_regex_body(
     })
 }
 
-/// `EarleyParser.java:347-358`: the width of a machine-integer literal is the text after its
-/// first `p`/`P`; a token without one keeps the scanning instantiation's sort.
+/// A machine-integer literal's width is the number its digits after the first `p`/`P` spell,
+/// in canonical decimal spelling; a token without one keeps the scanning instantiation's sort.
 fn mint_literal_sort(result: &Sort, token: &str) -> Sort {
     token.find(['p', 'P']).map_or_else(
         || result.clone(),
-        |index| Sort::with_parameters(result.name.clone(), vec![Sort::new(&token[index + 1..])]),
+        |index| {
+            let width = &token[index + 1..];
+            let width = match numeral_spelling(width) {
+                NumeralSpelling::NonCanonical { canonical } => canonical,
+                NumeralSpelling::Canonical | NumeralSpelling::NotNumeral => width,
+            };
+            Sort::with_parameters(result.name.clone(), vec![Sort::new(width)])
+        },
     )
 }
 

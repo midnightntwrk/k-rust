@@ -9,6 +9,27 @@ use k_rust::outer::{
 };
 use proptest::prelude::*;
 
+#[test]
+fn rejects_leading_zero_numeral_sorts_at_every_outer_sort_position() {
+    for syntax in [
+        "syntax MInt{08}",
+        "syntax 08",
+        "syntax Foo ::= MInt{08}",
+        "syntax {08} MInt{08}",
+        "syntax Alias = MInt{08}",
+        "syntax MInt{08} = Foo",
+    ] {
+        let source = format!("module MAIN\n  {syntax}\nendmodule\n");
+        let error = parse("leading-zero.k", &source).unwrap_err();
+        assert_eq!(
+            error.message, "numeral sort 08 is written with a leading zero; a width is spelled 8",
+            "{syntax}"
+        );
+        assert_eq!(error.position.offset, source.find("08").unwrap());
+        assert_eq!(error.position.line, 2);
+    }
+}
+
 macro_rules! assert_outer_value_snapshot {
     ($source:expr, $value:expr) => {{
         let source = $source;

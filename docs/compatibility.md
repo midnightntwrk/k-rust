@@ -155,6 +155,7 @@ A numeral, a `#`-prefixed parser sort (including a `#Layout` token sort a defini
 A rule that writes such a helper does not parse. The projection cast `{T}:>S` lowers to `project:S`, so it exists exactly for the sorts with a projection: `{T}:>Bag`, `{T}:>Cell`, `{T}:>KList`, `{T}:>KLabel`, and a projection cast to a synonym of such a sort, do not parse in a rule, a configuration or a search pattern. The syntactic cast `T::S` and the semantic cast `T:S` lower to no helper. A strict `result` or `hybrid` sort without a predicate is rejected at the strictness stage, and a declared `isS` for such a sort is an ordinary function of the definition that conflicts with no generated predicate.
 
 A numeral sort (`8` in `MInt{8}`) names a width, a natural number, and no term has it as its sort.
+A width is written without leading zeros (`MInt{08}` is rejected), while the literal `0p08` has width 8 and keeps its text; the pinned K frontend instead declares `Sort08` beside `Sort8`.
 It is spelled with one or more ASCII decimal digits, of any length.
 The compiled definition declares it (`sort Sort8{} [nat{}("8")]`) only so that `MInt{8}` is well formed: a width is not a set of terms.
 A definition may declare one (`syntax 8`) and use it as a sort argument, as a synonym target or in an attribute.

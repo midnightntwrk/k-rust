@@ -2,6 +2,27 @@ use k_rust::kast::{ProductionIdentity, Sort, Term, TermMetadata, TermSpan, json}
 use serde::Deserialize;
 use serde_json::Value;
 
+#[test]
+fn rejects_leading_zero_numeral_sorts_in_kast_json() {
+    for sort in [
+        serde_json::json!({"node": "KSort", "name": "08", "params": []}),
+        serde_json::json!({"node": "KSort", "name": "MInt", "params": [
+            {"node": "KSort", "name": "08", "params": []}
+        ]}),
+    ] {
+        let source = serde_json::json!({
+            "format": "KAST", "version": 4,
+            "term": {"node": "KToken", "token": "0p08", "sort": sort}
+        });
+        let error = json::from_str(&source.to_string()).unwrap_err();
+        assert!(matches!(&error, json::Error::Shape(_)), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            "numeral sort 08 is written with a leading zero; a width is spelled 8"
+        );
+    }
+}
+
 const DEEP_APPLY_LEVELS: usize = 200_000;
 
 fn on_stack<T: Send + 'static>(bytes: usize, work: impl FnOnce() -> T + Send + 'static) -> T {
