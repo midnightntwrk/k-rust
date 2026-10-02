@@ -12,14 +12,19 @@ use k_rust_kore::names::BuiltinSort;
 
 use super::{
     BuiltinError, BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity,
-    expect_sort, int_term,
+    expect_sort, int_term, values_differ,
 };
 use crate::{
     builtin::{list::k_item_definition as k_item_list_definition, set::k_item_set_definition},
+    matching::SortGraph,
     term::{CollectionSymbols, MapDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
+pub(super) fn evaluate(
+    hook: &str,
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal map that binds a key
     // twice, with the same value or not, is `\bottom` (`Term::map`). A `ceil_free` map has
     // pairwise distinct keys, so only other maps are scanned.
@@ -32,19 +37,19 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
     let result = match hook {
         "MAP.element" => element(arguments),
         "MAP.unit" => unit(arguments),
-        "MAP.update" => update(arguments),
+        "MAP.update" => update(arguments, sorts),
         "MAP.updateAll" => update_all(arguments),
-        "MAP.remove" => remove(arguments),
+        "MAP.remove" => remove(arguments, sorts),
         "MAP.removeAll" => remove_all(arguments),
         "MAP.size" => size(arguments),
-        "MAP.lookupOrDefault" => lookup_or_default(arguments),
-        "MAP.in_keys" => in_keys(arguments),
+        "MAP.lookupOrDefault" => lookup_or_default(arguments, sorts),
+        "MAP.in_keys" => in_keys(arguments, sorts),
         "MAP.keys" => keys(arguments),
         "MAP.keys_list" => keys_list(arguments),
         "MAP.values" => values(arguments),
         "MAP.inclusion" => inclusion(arguments),
         "MAP.concat" => return concat(arguments),
-        "MAP.lookup" => return lookup(arguments),
+        "MAP.lookup" => return lookup(arguments, sorts),
         _ => {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::NotImplemented,
@@ -120,7 +125,21 @@ fn concat(arguments: &[Term]) -> HookResult<BuiltinResult> {
     )))
 }
 
-fn update(arguments: &[Term]) -> HookResult<Option<Term>> {
+// Without a rest, every possible key is among the entries. Strict operands make
+// apartness a difference of values, so a key different from each entry is absent.
+fn absent(
+    sorts: Option<&SortGraph>,
+    key: &Term,
+    entries: &[(Term, Term)],
+    rest: &Option<Term>,
+) -> bool {
+    rest.is_none()
+        && entries
+            .iter()
+            .all(|(existing, _)| values_differ(sorts, key, existing))
+}
+
+fn update(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("MAP.update", arguments, 3)?;
     let [map, key, new_value] = arguments else {
         unreachable!()
@@ -141,12 +160,7 @@ fn update(arguments: &[Term]) -> HookResult<Option<Term>> {
         updated[index] = (key.clone(), new_value.clone());
         return Ok(Some(Term::map(definition.clone(), updated, rest.clone())));
     }
-    if rest.is_some()
-        || entries
-            .iter()
-            .any(|(key, _)| !key.attributes().constructor_like)
-        || !key.attributes().constructor_like
-    {
+    if !absent(sorts, key, entries, rest) {
         return Ok(None);
     }
     let mut updated = vec![(key.clone(), new_value.clone())];
@@ -252,7 +266,7 @@ fn update_all(arguments: &[Term]) -> HookResult<Option<Term>> {
     )))
 }
 
-fn remove(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn remove(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("MAP.remove", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
@@ -273,12 +287,7 @@ fn remove(arguments: &[Term]) -> HookResult<Option<Term>> {
         updated.remove(index);
         return Ok(Some(Term::map(definition.clone(), updated, rest.clone())));
     }
-    if rest.is_some()
-        || entries
-            .iter()
-            .any(|(key, _)| !key.attributes().constructor_like)
-        || !key.attributes().constructor_like
-    {
+    if !absent(sorts, key, entries, rest) {
         Ok(None)
     } else {
         Ok(Some(map.clone()))
@@ -339,7 +348,7 @@ fn size(arguments: &[Term]) -> HookResult<Option<Term>> {
     Ok(Some(int_term(BigInt::from(entries.len()))))
 }
 
-fn lookup(arguments: &[Term]) -> HookResult<BuiltinResult> {
+fn lookup(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<BuiltinResult> {
     expect_arity("MAP.lookup", arguments, 2)?;
     let [map, key] = arguments else {
         unreachable!()
@@ -354,20 +363,14 @@ fn lookup(arguments: &[Term]) -> HookResult<BuiltinResult> {
     {
         return Ok(BuiltinResult::Value(value));
     }
-    if rest.is_none()
-        && (entries.is_empty()
-            || (key.attributes().constructor_like
-                && entries
-                    .iter()
-                    .all(|(key, _)| key.attributes().constructor_like)))
-    {
+    if rest.is_none() && (entries.is_empty() || absent(sorts, key, entries, rest)) {
         Ok(BuiltinResult::Bottom)
     } else {
         Ok(BuiltinResult::NotApplicable)
     }
 }
 
-fn lookup_or_default(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn lookup_or_default(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("MAP.lookupOrDefault", arguments, 3)?;
     let [map, key, default] = arguments else {
         unreachable!()
@@ -378,19 +381,14 @@ fn lookup_or_default(arguments: &[Term]) -> HookResult<Option<Term>> {
     if let Some((_, value)) = entries.iter().find(|(existing_key, _)| existing_key == key) {
         return Ok(Some(value.clone()));
     }
-    if rest.is_some()
-        || entries
-            .iter()
-            .any(|(key, _)| !key.attributes().constructor_like)
-        || !key.attributes().constructor_like
-    {
+    if !absent(sorts, key, entries, rest) {
         Ok(None)
     } else {
         Ok(Some(default.clone()))
     }
 }
 
-fn in_keys(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn in_keys(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("MAP.in_keys", arguments, 2)?;
     let [key, map] = arguments else {
         unreachable!()
@@ -401,12 +399,7 @@ fn in_keys(arguments: &[Term]) -> HookResult<Option<Term>> {
     if entries.iter().any(|(existing_key, _)| existing_key == key) {
         return Ok(Some(bool_term(true)));
     }
-    if rest.is_none()
-        && key.attributes().constructor_like
-        && entries
-            .iter()
-            .all(|(key, _)| key.attributes().constructor_like)
-    {
+    if absent(sorts, key, entries, rest) {
         Ok(Some(bool_term(false)))
     } else {
         Ok(None)
@@ -594,6 +587,134 @@ mod tests {
         Term::domain_value(Sort::simple("SortValue"), value)
     }
 
+    fn fu17_map_keys() -> (Term, Term, Term) {
+        let int = Sort::simple("SortInt");
+        let key_sort = Sort::simple("SortKey");
+        let application = |name, variable| {
+            Term::application(
+                Arc::new(crate::term::Symbol::constructor(
+                    name,
+                    vec![int.clone()],
+                    key_sort.clone(),
+                )),
+                Vec::new(),
+                vec![Term::variable(Variable::new(variable, int.clone()))],
+            )
+        };
+        let a = application("a", "A");
+        let b = application("b", "B");
+        let map = Term::map(definition("SortMap"), vec![(a.clone(), value("1"))], None);
+        (map, a, b)
+    }
+
+    #[test]
+    fn fu17_in_keys_separates_symbolic_keys() {
+        let (map, a, b) = fu17_map_keys();
+        assert_eq!(
+            super::super::evaluate_hook("MAP.in_keys", &[b, map.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(false))
+        );
+        assert_eq!(
+            super::super::evaluate_hook("MAP.in_keys", &[a, map.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(true))
+        );
+        let variable = Term::variable(Variable::new("C", Sort::simple("SortKey")));
+        assert_eq!(
+            super::super::evaluate_hook("MAP.in_keys", &[variable, map])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
+
+    #[test]
+    fn fu17_lookup_separates_symbolic_keys() {
+        let (map, a, b) = fu17_map_keys();
+        assert_eq!(
+            super::super::evaluate_hook("MAP.lookup", &[map.clone(), b])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Bottom
+        );
+        assert_eq!(
+            super::super::evaluate_hook("MAP.lookup", &[map, a])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(value("1"))
+        );
+    }
+
+    #[test]
+    fn fu17_lookup_or_default_separates_symbolic_keys() {
+        let (map, _, b) = fu17_map_keys();
+        assert_eq!(
+            super::super::evaluate_hook("MAP.lookupOrDefault", &[map, b, value("default")])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(value("default"))
+        );
+    }
+
+    #[test]
+    fn fu17_update_separates_symbolic_keys() {
+        let (map, a, b) = fu17_map_keys();
+        let expected = Term::map(
+            definition("SortMap"),
+            vec![(a, value("1")), (b.clone(), value("2"))],
+            None,
+        );
+        assert_eq!(
+            super::super::evaluate_hook("MAP.update", &[map, b, value("2")])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(expected)
+        );
+    }
+
+    #[test]
+    fn fu17_remove_separates_symbolic_keys() {
+        let (map, _, b) = fu17_map_keys();
+        assert_eq!(
+            super::super::evaluate_hook("MAP.remove", &[map.clone(), b])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(map)
+        );
+    }
+
+    #[test]
+    fn fu17_map_rest_prevents_absence() {
+        let (_, a, b) = fu17_map_keys();
+        let map = Term::map(
+            definition("SortMap"),
+            vec![(a, value("1"))],
+            Some(Term::variable(Variable::new(
+                "REST",
+                Sort::simple("SortMap"),
+            ))),
+        );
+        for (hook, args) in [
+            ("MAP.in_keys", vec![b.clone(), map.clone()]),
+            ("MAP.lookup", vec![map.clone(), b.clone()]),
+            (
+                "MAP.lookupOrDefault",
+                vec![map.clone(), b.clone(), value("default")],
+            ),
+            ("MAP.update", vec![map.clone(), b.clone(), value("2")]),
+            ("MAP.remove", vec![map, b]),
+        ] {
+            assert_eq!(
+                super::super::evaluate_hook(hook, &args).unwrap().unwrap(),
+                BuiltinResult::NotApplicable,
+                "{hook}"
+            );
+        }
+    }
+
     #[test]
     fn update_replaces_known_keys_and_adds_certainly_absent_keys() {
         let definition = definition("SortMap");
@@ -606,10 +727,13 @@ mod tests {
         );
 
         assert_eq!(
-            update(&[map.clone(), key("a"), value("new")]),
+            update(&[map.clone(), key("a"), value("new")], None),
             Ok(Some(replaced))
         );
-        assert_eq!(update(&[map, key("b"), value("new")]), Ok(Some(added)));
+        assert_eq!(
+            update(&[map, key("b"), value("new")], None),
+            Ok(Some(added))
+        );
     }
 
     #[test]
@@ -620,8 +744,8 @@ mod tests {
         let rest = Term::variable(Variable::new("REST", Sort::simple("SortMap")));
         let opaque = Term::map(definition, vec![(key("a"), value("old"))], Some(rest));
 
-        assert_eq!(update(&[symbolic, key("b"), value("new")]), Ok(None));
-        assert_eq!(update(&[opaque, key("b"), value("new")]), Ok(None));
+        assert_eq!(update(&[symbolic, key("b"), value("new")], None), Ok(None));
+        assert_eq!(update(&[opaque, key("b"), value("new")], None), Ok(None));
     }
 
     #[test]
@@ -752,23 +876,26 @@ mod tests {
         let removed = Term::map(definition, vec![(key("b"), value("two"))], None);
 
         assert_eq!(
-            lookup(&[map.clone(), key("a")]),
+            lookup(&[map.clone(), key("a")], None),
             Ok(BuiltinResult::Value(value("one")))
         );
         assert_eq!(
-            lookup_or_default(&[map.clone(), key("missing"), value("default")]),
+            lookup_or_default(&[map.clone(), key("missing"), value("default")], None),
             Ok(Some(value("default")))
         );
-        assert_eq!(in_keys(&[key("a"), map.clone()]), Ok(Some(bool_term(true))));
         assert_eq!(
-            in_keys(&[key("missing"), map.clone()]),
+            in_keys(&[key("a"), map.clone()], None),
+            Ok(Some(bool_term(true)))
+        );
+        assert_eq!(
+            in_keys(&[key("missing"), map.clone()], None),
             Ok(Some(bool_term(false)))
         );
         assert_eq!(
             size(std::slice::from_ref(&map)),
             Ok(Some(int_term(BigInt::from(2))))
         );
-        assert_eq!(remove(&[map, key("a")]), Ok(Some(removed)));
+        assert_eq!(remove(&[map, key("a")], None), Ok(Some(removed)));
     }
 
     #[test]
@@ -778,7 +905,7 @@ mod tests {
         let right = Term::map(definition, vec![(key("a"), value("right"))], None);
 
         assert_eq!(
-            lookup(&[left.clone(), key("missing")]),
+            lookup(&[left.clone(), key("missing")], None),
             Ok(BuiltinResult::Bottom)
         );
         assert_eq!(concat(&[left, right]), Ok(BuiltinResult::Bottom));
@@ -800,17 +927,17 @@ mod tests {
         assert_eq!(same.repeated_map_key(), Some(&key("a")));
         for map in [same, different] {
             assert_eq!(
-                evaluate("MAP.size", std::slice::from_ref(&map)),
+                evaluate("MAP.size", std::slice::from_ref(&map), None),
                 Ok(BuiltinResult::Bottom)
             );
             assert_eq!(
-                evaluate("MAP.update", &[map, key("b"), value("three")]),
+                evaluate("MAP.update", &[map, key("b"), value("three")], None),
                 Ok(BuiltinResult::Bottom)
             );
         }
         let single = Term::map(definition, vec![(key("a"), value("one"))], None);
         assert_eq!(
-            evaluate("MAP.concat", &[single.clone(), single]),
+            evaluate("MAP.concat", &[single.clone(), single], None),
             Ok(BuiltinResult::Bottom)
         );
     }

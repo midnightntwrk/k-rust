@@ -307,9 +307,9 @@ fn evaluate_hook_with_context(
         }
         _ => {
             return match HookName::parse(hook).map(HookName::kind) {
-                Some(HookNamespace::List) => list::evaluate(hook, arguments),
-                Some(HookNamespace::Map) => map::evaluate(hook, arguments),
-                Some(HookNamespace::Set) => set::evaluate(hook, arguments),
+                Some(HookNamespace::List) => list::evaluate(hook, arguments, sort_graph),
+                Some(HookNamespace::Map) => map::evaluate(hook, arguments, sort_graph),
+                Some(HookNamespace::Set) => set::evaluate(hook, arguments, sort_graph),
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
                 Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),
@@ -920,11 +920,19 @@ fn kequal(
     Ok(evaluate_equality(left, right, sort_graph).map(|equal| bool_term(equal != negate)))
 }
 
+/// R-val: strict hook operands, defined wherever the result exists, denote different
+/// values when both are constructor-like and differ syntactically, or when they are apart.
+pub(super) fn values_differ(sorts: Option<&SortGraph>, left: &Term, right: &Term) -> bool {
+    (left.attributes().constructor_like && right.attributes().constructor_like && left != right)
+        || crate::definedness::terms_apart(sorts, left, right).is_some()
+}
+
 /// Whether two operands of `KEQUAL` denote equal values, or `None` when that is not decided.
 ///
 /// Two constructor-like terms (values built from free constructors, domain values, injections
-/// and collections) are equal exactly when they are the same term. Otherwise each operand is
-/// classified as the value it denotes, with no evidence for an equation head (`NoEvidence`), and
+/// and collections) are equal exactly when they are the same term. Apart operands differ
+/// wherever the strict hook has a result. Otherwise each operand is classified as the value
+/// it denotes, with no evidence for an equation head (`NoEvidence`), and
 /// the roots decide only when one of them is a free-constructor application and the other is a
 /// fixed root too: different roots are different values, and two applications of one free
 /// symbol are equal exactly when their arguments are.
@@ -932,6 +940,11 @@ fn kequal(
 fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
     if left.attributes().constructor_like && right.attributes().constructor_like {
         return Some(left == right);
+    }
+    // Strict hook operands have values. Separate every pair the predicate layer separates,
+    // so `a ==K b` is never less decided than `\equals(a, b)`.
+    if crate::definedness::terms_apart(sort_graph, left, right).is_some() {
+        return Some(false);
     }
     let fixed = |term| match classify_value(term, &mut NoEvidence) {
         Head::Fixed(fixed) => Some(fixed),
@@ -942,11 +955,15 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
             || right_root.root() == FixedRoot::FreeConstructor)
     {
         let arguments_equal = |pairs: &mut dyn Iterator<Item = (&Term, &Term)>| {
-            let mut equal = true;
+            let mut undecided = false;
             for (left, right) in pairs {
-                equal &= evaluate_equality(left, right, sort_graph)?;
+                match evaluate_equality(left, right, sort_graph) {
+                    Some(false) => return Some(false),
+                    None => undecided = true,
+                    Some(true) => {}
+                }
             }
-            Some(equal)
+            (!undecided).then_some(true)
         };
         return match compare_roots(left_root, right_root) {
             RootComparison::Distinct(_) | RootComparison::ArityMismatch => Some(false),
@@ -1143,6 +1160,31 @@ mod tests {
                 ),
             ],
         )
+    }
+
+    #[test]
+    fn fu17_equality_checks_every_constructor_argument() {
+        let int = Sort::simple("SortInt");
+        let p = Arc::new(Symbol::constructor(
+            "p",
+            vec![int.clone(), int.clone()],
+            Sort::simple("SortPair"),
+        ));
+        let pair = |name, value| {
+            Term::application(
+                p.clone(),
+                Vec::new(),
+                vec![
+                    Term::variable(Variable::new(name, int.clone())),
+                    int_term(BigInt::from(value)),
+                ],
+            )
+        };
+        let left = pair("A", 1);
+        assert_eq!(evaluate_equality(&left, &pair("B", 2), None), Some(false));
+        assert_eq!(evaluate_equality(&left, &pair("B", 1), None), None);
+        assert_eq!(evaluate_equality(&left, &left, None), Some(true));
+        assert_eq!(evaluate_equality(&pair("B", 2), &left, None), Some(false));
     }
 
     #[test]
@@ -1935,10 +1977,15 @@ mod tests {
         );
     }
 
-    /// `evaluate_equality` before it read the classifier, transcribed over the declared role:
-    /// the oracle of `equality_decides_the_pairs_it_decided_by_symbol_role`.
+    /// Equality expectations from declared roles, extended by R-val for certified roots.
+    /// Independent of the classifier and apartness implementation.
     fn role_equality(left: &Term, right: &Term) -> Option<bool> {
         let free = |symbol: &Symbol| symbol.attributes.head_role() == HeadRole::FreeConstructor;
+        let certified = |term: &Term| {
+            matches!(term.kind(), TermKind::Application { symbol, .. }
+                if symbol.attributes.head_role() == HeadRole::EquationHead
+                    && term.attributes().evaluated)
+        };
         let rigid_non_application = |kind: &TermKind| {
             matches!(
                 kind,
@@ -1953,6 +2000,31 @@ mod tests {
             return Some(left == right);
         }
         match (left.kind(), right.kind()) {
+            (
+                TermKind::Application {
+                    symbol: left_symbol,
+                    sort_arguments: left_sorts,
+                    ..
+                },
+                TermKind::Application {
+                    symbol: right_symbol,
+                    sort_arguments: right_sorts,
+                    ..
+                },
+            ) if ((free(left_symbol) && certified(right))
+                || (certified(left) && free(right_symbol)))
+                && (left_symbol.name != right_symbol.name || left_sorts != right_sorts) =>
+            {
+                // R-val: a free constructor and a certified equation head with different
+                // roots are apart, so strict hook operands denote different values.
+                Some(false)
+            }
+            (TermKind::Application { .. }, TermKind::Injection { .. }) if certified(left) => {
+                Some(false)
+            }
+            (TermKind::Injection { .. }, TermKind::Application { .. }) if certified(right) => {
+                Some(false)
+            }
             (
                 TermKind::Application {
                     symbol: left_symbol,
@@ -2001,12 +2073,12 @@ mod tests {
         }
     }
 
-    /// Builtin equality through the classifier answers exactly as it did by symbol role, on
+    /// Builtin equality preserves the role decisions and separates certified roots under R-val, on
     /// every ordered pair of a set of terms covering each root kind: domain values, free
     /// constructors over values and over function applications (which bypass the
     /// constructor-like shortcut), applications of one symbol with different arities, an
-    /// `assoc` constructor, equation heads with and without the certificate (which builtin
-    /// equality does not read), injections, a list, a function application, a macro, and those
+    /// `assoc` constructor, equation heads with and without the certificate, injections,
+    /// a list, a function application, a macro, and those
     /// terms under one free constructor.
     #[test]
     fn equality_decides_the_pairs_it_decided_by_symbol_role() {
@@ -2048,10 +2120,26 @@ mod tests {
             vec![f_one.clone()],
             None,
         );
+        let c_one = apply(&c, vec![one.clone()]);
+        let wrap_one = apply(&wrap, vec![one.clone()]);
+        let certified_wrap_one = wrap_one.with_evaluated_mark_for_test();
+        // `c` and certified `wrap` have different fixed roots: they are apart, so the
+        // defined operands of the strict equality hook differ. Without the certificate,
+        // `wrap` may reduce to a value rooted at `c`, and the comparison stays undecided.
+        assert_eq!(
+            evaluate_equality(&c_one, &certified_wrap_one, None),
+            Some(false)
+        );
+        assert_eq!(
+            evaluate_equality(&certified_wrap_one, &c_one, None),
+            Some(false)
+        );
+        assert_eq!(evaluate_equality(&c_one, &wrap_one, None), None);
+        assert_eq!(evaluate_equality(&wrap_one, &c_one, None), None);
         let base = vec![
             one.clone(),
             two.clone(),
-            apply(&c, vec![one.clone()]),
+            c_one,
             apply(&c, vec![f_one.clone()]),
             apply(&c, vec![f_two.clone()]),
             apply(&d, vec![f_one.clone()]),
@@ -2059,8 +2147,8 @@ mod tests {
             apply(&k, vec![f_one.clone(), f_two.clone()]),
             apply(&assoc, vec![f_one.clone(), one.clone()]),
             apply(&assoc, vec![f_one.clone(), two.clone()]),
-            apply(&wrap, vec![one.clone()]),
-            apply(&wrap, vec![one.clone()]).with_evaluated_mark_for_test(),
+            wrap_one,
+            certified_wrap_one,
             Term::injection(sub.clone(), sort.clone(), f_one.clone()),
             Term::injection(sub.clone(), sort.clone(), two.clone()),
             Term::injection(Sort::simple("SortOther"), sort.clone(), f_two.clone()),

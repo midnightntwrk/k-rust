@@ -8,13 +8,21 @@ use num_bigint::BigInt;
 
 use k_rust_kore::names::BuiltinSort;
 
-use super::{BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term};
+use super::{
+    BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, int_term,
+    values_differ,
+};
 use crate::{
     builtin::list::k_item_definition as k_item_list_definition,
+    matching::SortGraph,
     term::{CollectionSymbols, SetDefinition, Term, TermKind},
 };
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
+pub(super) fn evaluate(
+    hook: &str,
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+) -> HookResult<BuiltinResult> {
     // A hooked application is strict in its arguments, and an internal set that holds an
     // element twice is `\bottom`: set concatenation is nilpotent (`Term::set`). A `ceil_free`
     // set has pairwise distinct elements, so only other sets are scanned; the hooks below
@@ -28,7 +36,7 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResu
         "SET.concat" => return concat(arguments),
         "SET.element" => element(arguments),
         "SET.unit" => unit(arguments),
-        "SET.in" => contains(arguments),
+        "SET.in" => contains(arguments, sorts),
         "SET.difference" => difference(arguments),
         "SET.set2list" => to_list(arguments),
         "SET.size" => size(arguments),
@@ -119,18 +127,25 @@ fn unit(arguments: &[Term]) -> HookResult<Option<Term>> {
     Ok(Some(Term::set(k_item_set_definition(), Vec::new(), None)))
 }
 
-fn contains(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("SET.in", arguments, 2)?;
     let [element, set] = arguments else {
         unreachable!()
     };
-    if !element.attributes().constructor_like {
-        return Ok(None);
-    }
-    let Some((_, elements)) = concrete_set(set) else {
+    let TermKind::Set { elements, rest, .. } = set.kind() else {
         return Ok(None);
     };
-    Ok(Some(bool_term(elements.binary_search(element).is_ok())))
+    if elements.contains(element) {
+        Ok(Some(bool_term(true)))
+    } else if rest.is_none()
+        && elements
+            .iter()
+            .all(|existing| values_differ(sorts, element, existing))
+    {
+        Ok(Some(bool_term(false)))
+    } else {
+        Ok(None)
+    }
 }
 
 fn difference(arguments: &[Term]) -> HookResult<Option<Term>> {
@@ -277,6 +292,65 @@ mod tests {
     }
 
     #[test]
+    fn fu17_set_membership_separates_symbolic_elements() {
+        let int = Sort::simple("SortInt");
+        let element_sort = Sort::simple("SortKItem");
+        let application = |name, variable| {
+            Term::application(
+                Arc::new(crate::term::Symbol::constructor(
+                    name,
+                    vec![int.clone()],
+                    element_sort.clone(),
+                )),
+                Vec::new(),
+                vec![Term::variable(Variable::new(variable, int.clone()))],
+            )
+        };
+        let a = application("a", "A");
+        let b = application("b", "B");
+        let collection = Term::set(k_item_set_definition(), vec![a.clone()], None);
+        assert_eq!(
+            super::super::evaluate_hook("SET.in", &[b.clone(), collection.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(false))
+        );
+        assert_eq!(
+            super::super::evaluate_hook("SET.in", &[a.clone(), collection.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(true))
+        );
+        let open = Term::set(
+            k_item_set_definition(),
+            vec![a.clone()],
+            Some(Term::variable(Variable::new(
+                "REST",
+                Sort::simple("SortSet"),
+            ))),
+        );
+        assert_eq!(
+            super::super::evaluate_hook("SET.in", &[b, open.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::NotApplicable,
+        );
+        assert_eq!(
+            super::super::evaluate_hook("SET.in", &[a, open])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(true)),
+        );
+        let variable = Term::variable(Variable::new("C", element_sort));
+        assert_eq!(
+            super::super::evaluate_hook("SET.in", &[variable, collection])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
+
+    #[test]
     fn concrete_set_algebra_matches_kore() {
         let left = set(&["a", "b"]);
         let right = set(&["b", "c"]);
@@ -309,18 +383,18 @@ mod tests {
         );
 
         assert_eq!(
-            contains(&[item("a"), concrete.clone()]),
+            contains(&[item("a"), concrete.clone()], None),
             Ok(Some(bool_term(true)))
         );
         assert_eq!(
-            contains(&[item("c"), concrete.clone()]),
+            contains(&[item("c"), concrete.clone()], None),
             Ok(Some(bool_term(false)))
         );
         assert_eq!(
             size(std::slice::from_ref(&concrete)),
             Ok(Some(int_term(BigInt::from(2))))
         );
-        assert_eq!(contains(&[item("a"), symbolic]), Ok(None));
+        assert_eq!(contains(&[item("a"), symbolic], None), Ok(None));
     }
 
     #[test]
@@ -385,7 +459,7 @@ mod tests {
             ("SET.set2list", vec![repeated]),
         ] {
             assert_eq!(
-                evaluate(hook, &arguments),
+                evaluate(hook, &arguments, None),
                 Ok(BuiltinResult::Bottom),
                 "{hook}"
             );

@@ -10,15 +10,22 @@ use k_rust_kore::names::BuiltinSort;
 
 use super::{
     BuiltinResult, HookResult, UnsupportedHookReason, bool_term, expect_arity, expect_sort,
-    int_term, read_int,
+    int_term, read_int, values_differ,
 };
-use crate::term::{CollectionSymbols, ListDefinition, Sort, Term, TermKind};
+use crate::{
+    matching::SortGraph,
+    term::{CollectionSymbols, ListDefinition, Sort, Term, TermKind},
+};
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> HookResult<BuiltinResult> {
+pub(super) fn evaluate(
+    hook: &str,
+    arguments: &[Term],
+    sorts: Option<&SortGraph>,
+) -> HookResult<BuiltinResult> {
     let result = match hook {
         "LIST.concat" => concat(arguments),
         "LIST.element" => element(arguments),
-        "LIST.in" => contains(arguments),
+        "LIST.in" => contains(arguments, sorts),
         "LIST.size" => size(arguments),
         "LIST.unit" => unit(arguments),
         "LIST.get" => return get(arguments),
@@ -182,7 +189,7 @@ fn get(arguments: &[Term]) -> HookResult<BuiltinResult> {
         }))
 }
 
-fn contains(arguments: &[Term]) -> HookResult<Option<Term>> {
+fn contains(arguments: &[Term], sorts: Option<&SortGraph>) -> HookResult<Option<Term>> {
     expect_arity("LIST.in", arguments, 2)?;
     let [element, list] = arguments else {
         unreachable!()
@@ -192,9 +199,7 @@ fn contains(arguments: &[Term]) -> HookResult<Option<Term>> {
     };
     match rest {
         None if heads.contains(element) => Ok(Some(bool_term(true))),
-        None if element.attributes().constructor_like
-            && heads.iter().all(|head| head.attributes().constructor_like) =>
-        {
+        None if heads.iter().all(|head| values_differ(sorts, element, head)) => {
             Ok(Some(bool_term(false)))
         }
         Some((_, tails)) if tails.contains(element) => Ok(Some(bool_term(true))),
@@ -421,6 +426,59 @@ mod tests {
     }
 
     #[test]
+    fn fu17_list_membership_separates_symbolic_elements() {
+        let int = Sort::simple("SortInt");
+        let element_sort = Sort::simple("SortItem");
+        let application = |name, variable| {
+            Term::application(
+                Arc::new(crate::term::Symbol::constructor(
+                    name,
+                    vec![int.clone()],
+                    element_sort.clone(),
+                )),
+                Vec::new(),
+                vec![Term::variable(Variable::new(variable, int.clone()))],
+            )
+        };
+        let a = application("a", "A");
+        let b = application("b", "B");
+        let collection = Term::list(definition(), vec![a.clone()], None);
+        assert_eq!(
+            super::super::evaluate_hook("LIST.in", &[b.clone(), collection.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(false))
+        );
+        assert_eq!(
+            super::super::evaluate_hook("LIST.in", &[a.clone(), collection.clone()])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::Value(bool_term(true))
+        );
+        let open = Term::list(
+            definition(),
+            vec![a.clone()],
+            Some((
+                Term::variable(Variable::new("REST", Sort::simple("SortItems"))),
+                Vec::new(),
+            )),
+        );
+        assert_eq!(
+            super::super::evaluate_hook("LIST.in", &[b, open])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::NotApplicable,
+        );
+        let variable = Term::variable(Variable::new("C", element_sort));
+        assert_eq!(
+            super::super::evaluate_hook("LIST.in", &[variable, collection])
+                .unwrap()
+                .unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
+
+    #[test]
     fn get_indexes_complete_lists_from_both_ends() {
         let list = Term::list(definition(), vec![item("a"), item("b"), item("c")], None);
 
@@ -488,10 +546,10 @@ mod tests {
         let unknown = Term::variable(Variable::new("X", Sort::simple("SortItem")));
 
         assert_eq!(
-            contains(&[item("b"), concrete.clone()]),
+            contains(&[item("b"), concrete.clone()], None),
             Ok(Some(bool_term(false)))
         );
-        assert_eq!(contains(&[unknown, concrete]), Ok(None));
+        assert_eq!(contains(&[unknown, concrete], None), Ok(None));
     }
 
     #[test]
