@@ -9,7 +9,7 @@ use k_rust::{
     kast::Sort,
     kompile::{
         CompilationBackend, CompileOptions, ConfigurationAssembler, ConfigurationError,
-        ProgramGrammar, compile_loaded_definition, compile_search_pattern,
+        ProgramGrammar, SortInjectionError, compile_loaded_definition, compile_search_pattern,
     },
     kore::printer::Printer,
     outer::{LoadOptions, ResolvedSource, load_with_options},
@@ -409,8 +409,8 @@ fn one_grammar_serves_the_assembler_and_a_search_pattern() {
 
 #[test]
 fn a_reused_assembler_builds_what_a_fresh_one_builds() {
-    // A value of a sort-parametric production whose parameter no argument fixes is converted
-    // with fresh sort parameters; their numbering must not depend on earlier configurations.
+    // The parsed sort fixes this production's result parameter for every value. Reusing or
+    // clearing the assembler must preserve those instances.
     let compiled = compiled(
         r#"
 module MAIN
@@ -430,7 +430,16 @@ endmodule
     };
     let mut reused = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     let first = build(&mut reused);
-    assert!(first.contains("SortParam"), "{first}");
+    for (name, sort) in [("PGM", "Foo"), ("X", "Foo"), ("Y", "KItem")] {
+        let value = format!("Lblundef{{Sort{sort}{{}}}}()");
+        let value = if sort == "KItem" {
+            value
+        } else {
+            format!("inj{{Sort{sort}{{}}, SortKItem{{}}}}({value})")
+        };
+        assert!(first.contains(&entry(name, &value)), "{first}");
+    }
+    assert!(!first.contains("SortParam"), "{first}");
     assert_eq!(build(&mut reused), first);
     // A configuration abandoned half-way leaves nothing behind either.
     reused.bind("X", "undef").unwrap();
@@ -438,4 +447,81 @@ endmodule
     assert_eq!(build(&mut reused), first);
     let mut fresh = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     assert_eq!(build(&mut fresh), first);
+}
+
+#[test]
+fn a_program_result_parameter_is_fixed_by_its_read_sort() {
+    let compiled = compiled(
+        r#"
+requires "domains.md"
+module MAIN
+  imports INT
+  syntax {S} S ::= undef() [function, total, symbol(undef)]
+  rule undef() => 0
+  configuration <k> $PGM:Int </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assembler.program(&Sort::new("Int"), "undef()").unwrap();
+    let rendered = render(&assembler.finish().unwrap());
+    assert!(
+        rendered.contains(&entry(
+            "PGM",
+            "inj{SortInt{}, SortKItem{}}(Lblundef{SortInt{}}())"
+        )),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("SortParam"), "{rendered}");
+}
+
+const PHANTOM_CONFIGURATION: &str = r#"
+requires "domains.md"
+module MAIN
+  imports INT
+  syntax {S} Int ::= size() [function, total, symbol(size)]
+  configuration <k> $PGM:Int </k> <x> $X:Int </x>
+endmodule
+"#;
+
+fn assert_phantom_instance(error: ConfigurationError, expected_variable: &str) {
+    let ConfigurationError::UndeterminedInstance {
+        variable,
+        error: injection,
+    } = &error
+    else {
+        panic!("unexpected error {error:?}");
+    };
+    assert_eq!(variable, expected_variable);
+    let SortInjectionError::UndeterminedInstance(instance) = injection.as_ref() else {
+        panic!("unexpected injection error {injection:?}");
+    };
+    assert!(instance.phantom, "{instance:?}");
+    let message = error.to_string();
+    assert!(message.contains(expected_variable), "{message}");
+    assert!(message.contains("`size`"), "{message}");
+    assert!(
+        message.contains("occurs in neither its argument sorts nor its result sort"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_phantom_program_instance_names_the_program_variable() {
+    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let error = assembler.program(&Sort::new("Int"), "size()").unwrap_err();
+    assert_phantom_instance(error, "$PGM");
+}
+
+#[test]
+fn a_phantom_configuration_instance_names_the_bound_variable() {
+    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let error = assembler.bind("$X", "size()").unwrap_err();
+    assert_phantom_instance(error, "$X");
 }

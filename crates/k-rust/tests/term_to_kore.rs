@@ -461,3 +461,96 @@ fn stale_catalog_identity_uses_metadata_sort_to_disambiguate_a_label() {
         "\\rewrites{SortA{}}(Lblchoice{}(), VarX:SortA{})"
     );
 }
+
+#[test]
+fn rejects_an_unbound_sentence_sort_variable_in_a_term() {
+    let sort = Sort::with_parameters("#SortParam", vec![Sort::new("Q0")]);
+    let term = Term::Apply {
+        label: Label::with_parameters("#Top", vec![sort.clone()]),
+        arguments: Vec::new(),
+    };
+    let error = convert_handbuilt(&term).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "the sentence sort variable #SortParam{Q0} is not bound by the sentence being converted"
+    );
+}
+
+#[test]
+fn rejects_unbound_sentence_sort_variables_on_every_sort_conversion_path() {
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+    let variable = Sort::with_parameters("#SortParam", vec![Sort::new("Q0")]);
+    for sort in [
+        variable.clone(),
+        Sort::with_parameters("MInt", vec![variable.clone()]),
+    ] {
+        let expected = TermConversionError::UnboundSortVariable {
+            sort: variable.clone(),
+        };
+        assert_eq!(converter.convert_sort(&sort).unwrap_err(), expected);
+        assert_eq!(
+            converter
+                .convert_label(&Label::with_parameters("f", vec![sort.clone()]))
+                .unwrap_err(),
+            expected
+        );
+        let terms = [
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(sort.clone()),
+            },
+            Term::Apply {
+                label: Label::with_parameters("f", vec![sort.clone()]),
+                arguments: Vec::new(),
+            },
+            Term::Apply {
+                label: Label::with_parameters("#AG", vec![sort.clone()]),
+                arguments: Vec::new(),
+            },
+            Term::Apply {
+                label: Label::with_parameters("#Exists", vec![Sort::new("Int")]),
+                arguments: vec![
+                    Term::Variable {
+                        name: "X".into(),
+                        sort: Some(sort),
+                    },
+                    Term::apply("f", Vec::new()),
+                ],
+            },
+        ];
+        for term in terms {
+            assert_eq!(converter.convert(&term).unwrap_err(), expected, "{term}");
+        }
+    }
+}
+
+#[test]
+fn rejects_malformed_sentence_sort_variables() {
+    let definition = lowered("module MAIN\nendmodule");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+    for sort in [
+        Sort::new("#SortParam"),
+        Sort::with_parameters("#SortParam", vec![Sort::new("Q0"), Sort::new("Q1")]),
+        Sort::with_parameters(
+            "#SortParam",
+            vec![Sort::with_parameters("Q0", vec![Sort::new("Int")])],
+        ),
+    ] {
+        let term = Term::Variable {
+            name: "X".into(),
+            sort: Some(sort.clone()),
+        };
+        let expected = TermConversionError::UnboundSortVariable { sort: sort.clone() };
+        assert_eq!(converter.convert(&term).unwrap_err(), expected);
+        assert_eq!(converter.convert_sort(&sort).unwrap_err(), expected);
+        assert_eq!(
+            converter
+                .convert_label(&Label::with_parameters("f", vec![sort]))
+                .unwrap_err(),
+            expected
+        );
+    }
+}

@@ -116,6 +116,11 @@ pub enum ConfigurationError {
     ParserAttribute(String),
     Parser(ProgramError),
     MacroExpansion(String),
+    /// A ground value whose label instance the parsed sort and arguments do not determine.
+    UndeterminedInstance {
+        variable: String,
+        error: Box<SortInjectionError>,
+    },
     SortInjection(SortInjectionError),
     Conversion(TermConversionError),
     Definition(ResolveError),
@@ -163,6 +168,10 @@ impl fmt::Display for ConfigurationError {
             Self::Program(error) => error.fmt(f),
             Self::ParserAttribute(message) | Self::MacroExpansion(message) => f.write_str(message),
             Self::Parser(error) => error.fmt(f),
+            Self::UndeterminedInstance { variable, error } => write!(
+                f,
+                "configuration variable `{variable}` has an undetermined instance: {error}"
+            ),
             Self::SortInjection(error) => error.fmt(f),
             Self::Conversion(error) => error.fmt(f),
             Self::Definition(error) => error.fmt(f),
@@ -203,9 +212,9 @@ impl From<TermConversionError> for ConfigurationError {
 ///   literal and the `String` literal grammar is its parser when the cell declares none.
 /// - A `K`-sorted variable is parsed at `KItem`: the configuration map holds `KItem` values, so
 ///   the value is one item, never a sequence.
-/// - Every parsed term is macro-expanded in the main module, and its sort is taken before the
-///   injections below its top are added; that sort is the source sort of the entry's
-///   `inj{_, KItem}`.
+/// - Every parsed term is macro-expanded in the main module and instantiated at its parsed
+///   sort. Its closed sort before the injections below its top is the source sort of the
+///   entry's `inj{_, KItem}`.
 /// - Applications convert to KORE with the main module; tokens keep the lexical hooks of the
 ///   module that parsed them.
 ///
@@ -262,10 +271,11 @@ impl<'g> ConfigurationAssembler<'g> {
             .parse(start_sort, text)
             .map_err(ConfigurationError::Program)?;
         let program = self.expand(program)?;
-        // The program has its own injector: a fresh one numbers the sort parameters it
-        // introduces from zero, independently of the configuration values.
+        // The program is instantiated independently of the configuration values; no sentence
+        // sort variable may survive in either kind of ground value.
         let injector = SortInjector::new(self.grammar.resolved(), &self.main_module)?;
-        let (value, sort) = self.to_kore(&injector, &self.syntax_module, &program)?;
+        let (value, sort) =
+            self.to_kore(&injector, &self.syntax_module, &program, start_sort, "$PGM")?;
         self.program = Some(ConfigurationBinding {
             name: "$PGM".to_owned(),
             value,
@@ -341,7 +351,13 @@ impl<'g> ConfigurationAssembler<'g> {
             .injector
             .as_ref()
             .expect("the injector was created above");
-        let (value, sort) = self.to_kore(injector, &parser_module, &expanded)?;
+        let (value, sort) = self.to_kore(
+            injector,
+            &parser_module,
+            &expanded,
+            &parse_sort,
+            &format!("${name}"),
+        )?;
         self.bound.insert(name.to_owned());
         self.bindings.push(ConfigurationBinding {
             name: format!("${name}"),
@@ -401,8 +417,8 @@ impl<'g> ConfigurationAssembler<'g> {
         self.program = None;
         self.bound.clear();
         self.bindings.clear();
-        // The injector numbers the sort parameters it introduces across the values of one
-        // configuration; the next configuration starts from zero, as with a fresh assembler.
+        // Reset temporary inference variables between configurations, including after a failed
+        // binding. Successful ground values contain none of these variables.
         if let Some(injector) = &self.injector {
             injector.reset_sort_parameters();
         }
@@ -444,12 +460,22 @@ impl<'g> ConfigurationAssembler<'g> {
         injector: &SortInjector<'g, 'g>,
         token_module: &str,
         program: &ExpandedProgram,
+        position: &KastSort,
+        variable: &str,
     ) -> Result<(Pattern, Sort), ConfigurationError> {
         // Expansion rebases applications into the executable catalog. Tokens remain
         // self-describing, and conversion retains lexical hooks from the parser module.
         let term = program.term();
-        let sort = injector.term_sort(term, None)?;
-        let term = injector.inject_at_top(term)?;
+        let (term, sort) = injector.inject_ground(term, position).map_err(|error| {
+            if matches!(&error, SortInjectionError::UndeterminedInstance(_)) {
+                ConfigurationError::UndeterminedInstance {
+                    variable: variable.into(),
+                    error: Box::new(error),
+                }
+            } else {
+                ConfigurationError::SortInjection(error)
+            }
+        })?;
         let pattern = term_to_kore_from_resolved_with_token_module(
             self.grammar.resolved(),
             &self.main_module,

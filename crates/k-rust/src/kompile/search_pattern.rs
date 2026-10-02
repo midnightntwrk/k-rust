@@ -92,6 +92,10 @@ impl fmt::Display for CompileSearchPatternError {
                     "search-pattern macro expansion failed: {message}"
                 )
             }
+            Self::SortInjection(error @ SortInjectionError::UndeterminedInstance(_)) => write!(
+                formatter,
+                "search pattern has an undetermined instance: {error}"
+            ),
             Self::SortInjection(error) => error.fmt(formatter),
             Self::TermConversion(error) => error.fmt(formatter),
             Self::ExpectedGeneratedTopCell { actual } => write!(
@@ -191,16 +195,20 @@ pub fn compile_search_pattern(
         return Err(CompileSearchPatternError::ExpectedGeneratedTopCell { actual });
     }
     let body = injector.inject(&body, &top)?;
+    injector.require_ground(&body)?;
     let requires_is_true = is_true(&requires);
     let requires = (!requires_is_true)
         .then(|| injector.inject(&requires, &bool_sort))
         .transpose()?;
+    if let Some(requires) = &requires {
+        injector.require_ground(requires)?;
+    }
 
     let converter =
         TermConverter::new_with_generated_anonymous(execution_definition, module, &generated)?;
     let body = converter.convert(&body)?;
-    let top_kore = converter.convert_sort(&top);
-    let bool_kore = converter.convert_sort(&bool_sort);
+    let top_kore = converter.convert_sort(&top)?;
+    let bool_kore = converter.convert_sort(&bool_sort)?;
     let condition = if let Some(requires) = requires {
         Pattern::Equals {
             operand_sort: Box::new(bool_kore.clone()),

@@ -178,7 +178,7 @@ pub(super) fn emit_rule_or_claim(
             rule: body.to_string(),
         });
     }
-    let result_sort = converter.convert_sort(&body_sort);
+    let result_sort = converter.convert_sort(&body_sort)?;
     let left = converter.convert(left)?;
     let right = converter.convert(right)?;
     let requires = side_condition(requires, &result_sort, converter)?;
@@ -264,7 +264,7 @@ fn emit_macro_axiom(
         .chain(sort_variables.names())
         .map(str::to_owned)
         .collect();
-    let result_sort = converter.convert_sort(&injector.term_sort(left, None)?);
+    let result_sort = converter.convert_sort(&injector.term_sort(left, None)?)?;
     let pattern = Pattern::Equals {
         operand_sort: Box::new(result_sort),
         result_sort: KoreSort::Variable("R".into()),
@@ -466,7 +466,7 @@ fn emit_equation(
         .map(str::to_owned)
         .collect();
     let predicate_sort = KoreSort::Variable("R".into());
-    let result_sort = converter.convert_sort(&equation.result_sort);
+    let result_sort = converter.convert_sort(&equation.result_sort)?;
     let avoid_variables = variable_names([left, requires]);
     let requires = side_condition(requires, &predicate_sort, converter)?;
     let ensures = side_condition(ensures, &result_sort, converter)?;
@@ -507,14 +507,16 @@ fn emit_equation(
             .argument_sorts
             .iter()
             .enumerate()
-            .map(|(index, sort)| Variable {
-                kind: VariableKind::Element,
-                name: format!("X{index}"),
-                sort: converter.convert_sort(sort),
+            .map(|(index, sort)| {
+                Ok(Variable {
+                    kind: VariableKind::Element,
+                    name: format!("X{index}"),
+                    sort: converter.convert_sort(sort)?,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, TermConversionError>>()?;
         let application = Pattern::Application {
-            symbol: converter.convert_label(equation.label),
+            symbol: converter.convert_label(equation.label)?,
             arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
         };
         let mut matches = Pattern::Top {
@@ -531,7 +533,7 @@ fn emit_equation(
                 sort: predicate_sort.clone(),
                 arguments: vec![
                     Pattern::In {
-                        operand_sort: Box::new(converter.convert_sort(sort)),
+                        operand_sort: Box::new(converter.convert_sort(sort)?),
                         result_sort: predicate_sort.clone(),
                         left: Box::new(Pattern::Variable(variable.clone())),
                         right: Box::new(converter.convert(child)?),
@@ -608,8 +610,8 @@ fn emit_owise_equation(
     let converter = &converter;
     // O1: bind one fresh KORE variable per argument and match the equation's own children.
     let predicate_sort = KoreSort::Variable("R".into());
-    let result_sort = converter.convert_sort(&equation.result_sort);
-    let variables = equation_variables(&equation, converter);
+    let result_sort = converter.convert_sort(&equation.result_sort)?;
+    let variables = equation_variables(&equation, converter)?;
     let own_matches = equation_matches(
         &variables,
         equation.children,
@@ -726,7 +728,7 @@ fn emit_owise_equation(
         argument: Box::new(any_competitor),
     };
     let application = Pattern::Application {
-        symbol: converter.convert_label(equation.label),
+        symbol: converter.convert_label(equation.label)?,
         arguments: variables.iter().cloned().map(Pattern::Variable).collect(),
     };
     equation_sentence(
@@ -855,15 +857,17 @@ fn ignore_owise_competitor(sentence: &Sentence) -> bool {
 fn equation_variables(
     equation: &EquationInfo<'_>,
     converter: &TermConverter<'_, '_>,
-) -> Vec<Variable> {
+) -> Result<Vec<Variable>, TermConversionError> {
     equation
         .argument_sorts
         .iter()
         .enumerate()
-        .map(|(index, sort)| Variable {
-            kind: VariableKind::Element,
-            name: format!("X{index}"),
-            sort: converter.convert_sort(sort),
+        .map(|(index, sort)| {
+            Ok(Variable {
+                kind: VariableKind::Element,
+                name: format!("X{index}"),
+                sort: converter.convert_sort(sort)?,
+            })
         })
         .collect()
 }
@@ -884,7 +888,7 @@ fn equation_matches(
             sort: predicate_sort.clone(),
             arguments: vec![
                 Pattern::In {
-                    operand_sort: Box::new(converter.convert_sort(sort)),
+                    operand_sort: Box::new(converter.convert_sort(sort)?),
                     result_sort: predicate_sort.clone(),
                     left: Box::new(Pattern::Variable(variable.clone())),
                     right: Box::new(converter.convert(child)?),

@@ -51,6 +51,9 @@ pub enum TermConversionError {
     MissingModule(String),
     CircularSubsort(Vec<Sort>),
     UnsupportedInjectedLabel,
+    UnboundSortVariable {
+        sort: Sort,
+    },
     UnknownLabel(String),
     AmbiguousLabel {
         label: String,
@@ -99,6 +102,10 @@ impl fmt::Display for TermConversionError {
             Self::UnsupportedInjectedLabel => {
                 formatter.write_str("cannot translate an injected KLabel to KORE")
             }
+            Self::UnboundSortVariable { sort } => write!(
+                formatter,
+                "the sentence sort variable {sort} is not bound by the sentence being converted"
+            ),
             Self::UnknownLabel(label) => {
                 write!(formatter, "cannot determine the sort of KLabel {label:?}")
             }
@@ -243,18 +250,18 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         self.pattern(term)
     }
 
-    pub fn convert_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
+    pub fn convert_sort(&self, sort: &Sort) -> Result<crate::kore::ast::Sort, TermConversionError> {
         self.kore_sort(sort)
     }
 
-    pub fn convert_label(&self, label: &Label) -> Symbol {
+    pub fn convert_label(&self, label: &Label) -> Result<Symbol, TermConversionError> {
         let mut symbol = encode_kore_label(label);
         symbol.sort_parameters = label
             .parameters
             .iter()
             .map(|sort| self.kore_sort(sort))
-            .collect();
-        symbol
+            .collect::<Result<_, _>>()?;
+        Ok(symbol)
     }
 
     pub(crate) fn infer_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
@@ -267,7 +274,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             Term::Rewrite { left, right } => {
                 let sort = self.common_sort(&self.term_sort(left)?, &self.term_sort(right)?)?;
                 Ok(Pattern::Rewrites {
-                    sort: self.kore_sort(&sort),
+                    sort: self.kore_sort(&sort)?,
                     left: Box::new(self.pattern(left)?),
                     right: Box::new(self.pattern(right)?),
                 })
@@ -275,11 +282,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             Term::As { pattern, alias } => {
                 let sort = self.common_sort(&self.term_sort(pattern)?, &self.term_sort(alias)?)?;
                 Ok(Pattern::And {
-                    sort: self.kore_sort(&sort),
+                    sort: self.kore_sort(&sort)?,
                     arguments: vec![self.pattern(pattern)?, self.pattern(alias)?],
                 })
             }
-            Term::Variable { name, sort } => Ok(Pattern::Variable(self.variable(name, sort))),
+            Term::Variable { name, sort } => Ok(Pattern::Variable(self.variable(name, sort)?)),
             Term::Sequence(items) => self.sequence(items),
             Term::Apply { label, arguments } => self.application(label, arguments),
             Term::Token { token, sort } => {
@@ -295,7 +302,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                     });
                 }
                 Ok(Pattern::DomainValue {
-                    sort: self.kore_sort(sort),
+                    sort: self.kore_sort(sort)?,
                     value: self.token_value(token, sort)?,
                 })
             }
@@ -388,7 +395,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                         .parameters
                         .iter()
                         .map(|sort| self.kore_sort(sort))
-                        .collect(),
+                        .collect::<Result<_, _>>()?,
                 },
                 arguments: patterns()?,
             }),
@@ -400,13 +407,13 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                             .parameters
                             .iter()
                             .map(|sort| self.kore_sort(sort))
-                            .collect(),
+                            .collect::<Result<_, _>>()?,
                     },
                     arguments: patterns()?,
                 })
             }
             _ => Ok(Pattern::Application {
-                symbol: self.convert_label(label),
+                symbol: self.convert_label(label)?,
                 arguments: patterns()?,
             }),
         }
@@ -434,7 +441,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 body = self.bind_quantifier(
                     label,
                     result_sort.clone(),
-                    self.variable(&name, &sort),
+                    self.variable(&name, &sort)?,
                     body,
                 );
             }
@@ -443,7 +450,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             Ok(self.bind_quantifier(
                 label,
                 result_sort,
-                self.variable(name, sort),
+                self.variable(name, sort)?,
                 self.pattern(&arguments[1])?,
             ))
         }
@@ -553,11 +560,11 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         label
             .parameters
             .get(index)
-            .map(|sort| self.kore_sort(sort))
             .ok_or_else(|| TermConversionError::InvalidBuiltin {
                 label: label.name.clone(),
                 message: format!("missing sort parameter {}", index + 1),
             })
+            .and_then(|sort| self.kore_sort(sort))
     }
 
     fn require_arity(
@@ -602,35 +609,38 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         Ok(result)
     }
 
-    fn variable(&self, name: &str, sort: &Option<Sort>) -> Variable {
+    fn variable(&self, name: &str, sort: &Option<Sort>) -> Result<Variable, TermConversionError> {
         let (kind, name) = name
             .strip_prefix('@')
             .map_or((VariableKind::Element, name), |name| {
                 (VariableKind::Set, name)
             });
-        Variable {
+        Ok(Variable {
             kind,
             name: identifier::encode_variable(name, kind),
-            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::builtin(BuiltinSort::K))),
-        }
+            sort: self.kore_sort(sort.as_ref().unwrap_or(&Sort::builtin(BuiltinSort::K)))?,
+        })
     }
 
-    fn kore_sort(&self, sort: &Sort) -> crate::kore::ast::Sort {
-        if sort.is_rigid_variable()
-            && let [parameter] = sort.parameters.as_slice()
-            && parameter.parameters.is_empty()
-            && self.sort_variables.contains(&parameter.name)
-        {
-            crate::kore::ast::Sort::Variable(parameter.name.clone())
+    fn kore_sort(&self, sort: &Sort) -> Result<crate::kore::ast::Sort, TermConversionError> {
+        if sort.is_rigid_variable() {
+            if let [parameter] = sort.parameters.as_slice()
+                && parameter.parameters.is_empty()
+                && self.sort_variables.contains(&parameter.name)
+            {
+                Ok(crate::kore::ast::Sort::Variable(parameter.name.clone()))
+            } else {
+                Err(TermConversionError::UnboundSortVariable { sort: sort.clone() })
+            }
         } else {
-            crate::kore::ast::Sort::Application {
+            Ok(crate::kore::ast::Sort::Application {
                 name: identifier::encode_sort_name(&sort.name),
                 arguments: sort
                     .parameters
                     .iter()
                     .map(|parameter| self.kore_sort(parameter))
-                    .collect(),
-            }
+                    .collect::<Result<_, _>>()?,
+            })
         }
     }
 

@@ -11,7 +11,7 @@ use k_rust::definition::{
 use k_rust::inner::{RuleError, definition_with_named_projections};
 use k_rust::kompile::{
     CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-    KoreVariableIdentity, compile_loaded_definition, compile_search_pattern,
+    KoreVariableIdentity, SortInjectionError, compile_loaded_definition, compile_search_pattern,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust::kore::parser::{parse_definition, parse_pattern};
@@ -494,6 +494,35 @@ endmodule
             actual: k_rust::kast::Sort::new("TopCell"),
         }
     );
+}
+
+#[test]
+fn search_pattern_compilation_rejects_an_undetermined_ground_instance() {
+    let context = load_context(
+        "search-pattern/phantom.k",
+        r#"requires "domains.md"
+module MAIN
+  imports INT
+  syntax {S} Int ::= size() [function, total, symbol(size)]
+  configuration <k> $PGM:Int </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    for pattern in ["<k> size() ~> _ </k>", "<k> _ </k> requires size() ==Int 0"] {
+        let error = compile_in(&context, "MAIN", pattern)
+            .expect_err("a phantom label has no ground instance");
+        let CompileSearchPatternError::SortInjection(SortInjectionError::UndeterminedInstance(
+            instance,
+        )) = &error
+        else {
+            panic!("{pattern}: {error:?}")
+        };
+        assert_eq!(instance.label.as_deref(), Some("size"));
+        assert!(instance.phantom, "{error}");
+        assert!(error.to_string().contains("size"), "{error}");
+        assert!(error.to_string().contains("search pattern"), "{error}");
+    }
 }
 
 #[test]

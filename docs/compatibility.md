@@ -186,6 +186,11 @@ A sentence sort variable left by sort injection may occur only as a whole sort a
 The emitted rule, claim, equation or macro binds exactly those variables.
 Any other occurrence is rejected at `add sort injections` with a located `UndeterminedInstance` diagnostic naming the application whose instance neither its arguments nor its position determine; add a sort cast that fixes the instance.
 A phantom parameter occurs in neither an argument sort nor the result sort (`syntax {S} Int ::= size()`), so no cast fixes it: its production may be declared, but no rule may use it.
+
+A program or configuration value is instantiated at the sort it is parsed at; that position decides only parameters its arguments leave open.
+A program, configuration value or search pattern whose label instance nothing determines is rejected before KORE conversion, naming the configuration variable or search pattern and the label.
+These terms have no sentence binder, so no sentence sort variable may remain in them, even as the sort of a predicate.
+
 Rejection rather than honouring is deliberate: honouring a supplied parameter would let a caller write terms source text cannot, while silently re-solving it would compile a term other than the one supplied; rejection keeps structured input exactly as expressive as source text and never rewrites it.
 A rule's label instance is always the solver's; an undetermined instance cannot match a ground symbol instance, because backend matching compares symbol sort arguments by equality.
 Execution terms are unaffected: their KORE symbols carry every instance explicitly.

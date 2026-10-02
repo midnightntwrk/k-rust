@@ -341,7 +341,7 @@ pub struct AmbiguousInstance {
     pub candidates: Vec<Vec<Sort>>,
 }
 
-/// A sentence sort variable outside the whole sort argument of a matching-logic connective.
+/// A sentence sort variable outside a predicate sort, or anywhere in a ground term.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UndeterminedInstance {
     pub term: String,
@@ -619,6 +619,51 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     pub fn inject_at_top(&self, term: &Term) -> Result<Term, SortInjectionError> {
         let top = self.term_sort(term, None)?;
         self.inject_with_position(term, &top, false)
+    }
+
+    /// Require an injected ground term to contain no sentence sort variable, even at a
+    /// predicate sort: a ground term has no sentence binder.
+    pub(crate) fn require_ground(&self, term: &Term) -> Result<(), SortInjectionError> {
+        if self.sentence_sort_variables([term])?.is_empty() {
+            return Ok(());
+        }
+        // Classification has rejected every occurrence except whole predicate sorts.
+        // Report the first remaining occurrence on the connective that carries it.
+        let mut offender = None;
+        term.visit_preorder(&mut |term| {
+            if offender.is_none()
+                && let Term::Apply { label, .. } = term
+                && let Some(variable) = label
+                    .parameters
+                    .iter()
+                    .find(|sort| sort.is_rigid_variable())
+            {
+                offender = Some(UndeterminedInstance {
+                    term: render_term(term),
+                    label: Some(label.name.clone()),
+                    parameter: None,
+                    variable: variable.clone(),
+                    phantom: false,
+                });
+            }
+        });
+        Err(SortInjectionError::UndeterminedInstance(Box::new(
+            offender.expect("a nonempty sentence binder has a predicate-sort occurrence"),
+        )))
+    }
+
+    /// Instantiate a parsed value at its read sort and reject any remaining sentence variable.
+    /// The position decides only parameters nothing else fixes: `solve_parameters` accepts
+    /// the instance fixed by the arguments whenever it fits, and a parsed value fits its read sort.
+    pub(crate) fn inject_ground(
+        &self,
+        term: &Term,
+        position: &Sort,
+    ) -> Result<(Term, Sort), SortInjectionError> {
+        let sort = self.term_sort(term, Some(position))?;
+        let injected = self.inject_with_position(term, &sort, false)?;
+        self.require_ground(&injected)?;
+        Ok((injected, sort))
     }
 
     pub(crate) fn is_user_list_sort(&self, sort: &Sort) -> bool {
@@ -2333,6 +2378,18 @@ mod tests {
         let variables = injector.sentence_sort_variables([&predicate]).unwrap();
         assert_eq!(variables.names().collect::<Vec<_>>(), ["Q0"]);
         assert!(!variables.is_empty());
+
+        let error = injector.require_ground(&predicate).unwrap_err();
+        let SortInjectionError::UndeterminedInstance(instance) = error else {
+            panic!("{error:?}")
+        };
+        assert_eq!(instance.label.as_deref(), Some("#Equals"));
+        assert_eq!(instance.variable, q);
+        assert!(
+            injector
+                .require_ground(&equals(vec![Sort::new("Bool"), Sort::new("Int")]))
+                .is_ok()
+        );
 
         let nested = equals(vec![mint_q.clone(), Sort::new("Bool")]);
         let variable = Term::Variable {
