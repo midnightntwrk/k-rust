@@ -22,7 +22,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticConfiguration, DescriptorLoweringError> {
-    let configuration_id = generated_semantic_id("configuration", &descriptor.id, None)?;
+    let configuration_id = generated_semantic_id("configuration", descriptor.id(), None)?;
     let root = match &configuration.root {
         krs_ir::DescriptorConfigurationRoot::GeneratedTop => ConfigurationRoot::GeneratedTop,
         krs_ir::DescriptorConfigurationRoot::Named { key, name } => ConfigurationRoot::named(
@@ -235,7 +235,7 @@ fn lower_initializer_state(
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id.clone()),
+                    id: Box::new(descriptor.id().clone()),
                     detail: "K sequence initializes a non-KSequence cell".into(),
                 });
             }
@@ -259,7 +259,7 @@ fn lower_initializer_state(
         ProtocolInitializerStateTerm::Map(map) => {
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id.clone()),
+                    id: Box::new(descriptor.id().clone()),
                     detail: "map initializes a non-Map cell".into(),
                 });
             }

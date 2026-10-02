@@ -50,11 +50,10 @@ impl OpenSortAnalysis {
 ///
 /// # Errors
 ///
-/// Rejects duplicate declaration IDs, absent/wrongly-kinded sort references,
-/// and direct or indirect subsort cycles. Rules do not participate in this
-/// deliberately small analysis.
+/// Rejects absent or wrongly kinded sort references and direct or indirect subsort cycles.
+/// Rules do not participate in this analysis.
 pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis, AnalysisError> {
-    let kinds = descriptor_kinds(bundle)?;
+    let kinds = descriptor_kinds(bundle);
     let OpenSortEdges {
         direct_parents,
         mut constructors,
@@ -100,23 +99,12 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
     })
 }
 
-/// Maps every descriptor identity to its item kind, rejecting duplicates.
-fn descriptor_kinds(
-    bundle: &DescriptorBundle,
-) -> Result<BTreeMap<StableItemId, ItemKind>, AnalysisError> {
-    let mut kinds = BTreeMap::new();
-    for descriptor in &bundle.descriptors {
-        if kinds
-            .insert(descriptor.id.clone(), descriptor.id.item_kind())
-            .is_some()
-        {
-            return Err(AnalysisError::new(
-                AnalysisErrorKind::DuplicateItemId,
-                format!("duplicate stable item `{}`", descriptor.id),
-            ));
-        }
-    }
-    Ok(kinds)
+fn descriptor_kinds(bundle: &DescriptorBundle) -> BTreeMap<StableItemId, ItemKind> {
+    bundle
+        .descriptors()
+        .iter()
+        .map(|descriptor| (descriptor.id().clone(), descriptor.id().item_kind()))
+        .collect()
 }
 
 /// Direct subsort edges and `(constructor, declared sort)` memberships, before
@@ -132,23 +120,23 @@ fn open_sort_edges(
 ) -> Result<OpenSortEdges, AnalysisError> {
     let mut direct_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>> = BTreeMap::new();
     let mut constructors = Vec::new();
-    for descriptor in &bundle.descriptors {
-        match &descriptor.payload {
+    for descriptor in bundle.descriptors() {
+        match descriptor.payload() {
             DescriptorPayload::Sort(sort) => {
-                require_kind(&descriptor.id, ItemKind::Sort, kinds)?;
+                require_kind(descriptor.id(), ItemKind::Sort, kinds)?;
                 for parent in &sort.parents {
                     require_kind(parent, ItemKind::Sort, kinds)?;
                 }
                 direct_parents
-                    .entry(descriptor.id.clone())
+                    .entry(descriptor.id().clone())
                     .or_default()
                     .extend(sort.parents.iter().cloned());
             }
             DescriptorPayload::Constructor(constructor) => {
-                require_kind(&descriptor.id, ItemKind::Constructor, kinds)?;
+                require_kind(descriptor.id(), ItemKind::Constructor, kinds)?;
                 if let DescriptorSortRef::Declared(sort) = &constructor.sort {
                     require_kind(sort, ItemKind::Sort, kinds)?;
-                    constructors.push((descriptor.id.clone(), sort.clone()));
+                    constructors.push((descriptor.id().clone(), sort.clone()));
                 }
             }
             DescriptorPayload::StructuredRule(_)

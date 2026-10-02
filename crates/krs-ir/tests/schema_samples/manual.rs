@@ -91,7 +91,7 @@ impl Sample for DescriptorProvenance {
 
 impl Sample for DescriptorBundle {
     fn samples() -> Vec<Self> {
-        let mut descriptor = sample::<Descriptor>();
+        let mut descriptor = krs_ir::testing::DescriptorInputs::from(sample::<Descriptor>());
         let primary = descriptor.provenance.primary_key().clone();
         descriptor.provenance = DescriptorProvenance::new(
             primary.clone(),
@@ -109,7 +109,7 @@ impl Sample for DescriptorBundle {
             RustVisibility::Inherited,
             Some(sample::<ExplicitSymbol>()),
         );
-        vec![Self::with_declarations(vec![descriptor], vec![declaration]).unwrap()]
+        vec![Self::with_declarations(vec![descriptor.build().unwrap()], vec![declaration]).unwrap()]
     }
 }
 

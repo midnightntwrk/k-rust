@@ -19,7 +19,7 @@ pub enum LookupError {
         /// Requested identity.
         id: Box<StableItemId>,
     },
-    /// The descriptor identity or payload has a different kind.
+    /// The descriptor has a different identity kind or sentence representation.
     WrongKind {
         /// Requested identity.
         id: Box<StableItemId>,
@@ -64,12 +64,12 @@ macro_rules! typed_accessor {
         ///
         /// # Errors
         ///
-        /// Returns [`LookupError`] for a missing identity or a mismatched identity or payload kind.
+        /// Returns [`LookupError`] for a missing identity or a mismatched identity kind.
         pub fn $name(&self, id: &StableItemId) -> Result<&'a $ty, LookupError> {
-            let descriptor = self.require_kind(id, ItemKind::$kind)?;
-            match &descriptor.payload {
+            let descriptor = self.require(id)?;
+            match descriptor.payload() {
                 DescriptorPayload::$payload(payload) => Ok(payload),
-                other => Err(wrong_kind(id, ItemKind::$kind, payload_kind(other))),
+                _ => Err(wrong_kind(id, ItemKind::$kind, descriptor.id().item_kind())),
             }
         }
     };
@@ -81,7 +81,7 @@ macro_rules! sentence_accessor {
         ///
         /// # Errors
         ///
-        /// Returns [`LookupError`] for a missing identity or a mismatched identity or payload kind.
+        /// Returns [`LookupError`] for a missing identity, a mismatched identity kind, or another sentence representation.
         pub fn $name(&self, id: &StableItemId) -> Result<&'a $ty, LookupError> {
             let expected = match id.item_kind() {
                 kind @ (ItemKind::Rule
@@ -92,13 +92,9 @@ macro_rules! sentence_accessor {
                 _ => ItemKind::Rule,
             };
             let descriptor = self.require_kind(id, expected)?;
-            match &descriptor.payload {
-                DescriptorPayload::$payload(payload)
-                    if payload.sentence_kind.item_kind() == expected =>
-                {
-                    Ok(payload)
-                }
-                other => Err(wrong_kind(id, expected, payload_kind(other))),
+            match descriptor.payload() {
+                DescriptorPayload::$payload(payload) => Ok(payload),
+                _ => Err(wrong_kind(id, expected, descriptor.id().item_kind())),
             }
         }
     };
@@ -108,7 +104,7 @@ impl<'a> DescriptorIndex<'a> {
     /// Indexes a bundle without copying descriptors or identities.
     #[must_use]
     pub fn new(bundle: &'a DescriptorBundle) -> Self {
-        Self::from_descriptors(&bundle.descriptors)
+        Self::from_descriptors(bundle.descriptors())
     }
 
     /// Indexes descriptors while retaining their input order for typed iteration.
@@ -117,7 +113,7 @@ impl<'a> DescriptorIndex<'a> {
         let source_order = descriptors.into_iter().collect::<Vec<_>>();
         let by_id = source_order
             .iter()
-            .map(|descriptor| (&descriptor.id, *descriptor))
+            .map(|descriptor| (descriptor.id(), *descriptor))
             .collect();
         Self {
             by_id,
@@ -147,7 +143,7 @@ impl<'a> DescriptorIndex<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`LookupError`] for a missing identity or a mismatched identity or payload kind.
+    /// Returns [`LookupError`] for a missing identity or a mismatched identity kind.
     pub fn cell(&self, id: &StableItemId) -> Result<&'a DescriptorCellDeclaration, LookupError> {
         self.cell_descriptor(id).map(|(_, declaration)| declaration)
     }
@@ -156,15 +152,15 @@ impl<'a> DescriptorIndex<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`LookupError`] for a missing identity or a mismatched identity or payload kind.
+    /// Returns [`LookupError`] for a missing identity or a mismatched identity kind.
     pub fn cell_descriptor(
         &self,
         id: &StableItemId,
     ) -> Result<(&'a Descriptor, &'a DescriptorCellDeclaration), LookupError> {
-        let descriptor = self.require_kind(id, ItemKind::Cell)?;
-        match &descriptor.payload {
+        let descriptor = self.require(id)?;
+        match descriptor.payload() {
             DescriptorPayload::Cell(declaration) => Ok((descriptor, declaration)),
-            other => Err(wrong_kind(id, ItemKind::Cell, payload_kind(other))),
+            _ => Err(wrong_kind(id, ItemKind::Cell, descriptor.id().item_kind())),
         }
     }
 
@@ -232,10 +228,10 @@ impl<'a> DescriptorIndex<'a> {
         id: &StableItemId,
     ) -> Result<&'a DescriptorCellDeclaration, LookupError> {
         let descriptor = self.require(id)?;
-        match &descriptor.payload {
+        match descriptor.payload() {
             DescriptorPayload::FixedConfiguration(configuration) => Ok(&configuration.declaration),
             DescriptorPayload::Cell(declaration) => Ok(declaration),
-            _ => Err(wrong_kind(id, ItemKind::Cell, descriptor.id.item_kind())),
+            _ => Err(wrong_kind(id, ItemKind::Cell, descriptor.id().item_kind())),
         }
     }
 
@@ -244,7 +240,7 @@ impl<'a> DescriptorIndex<'a> {
         &self,
     ) -> impl Iterator<Item = (&'a Descriptor, &'a ConstructorDescriptor)> + '_ {
         self.source_order.iter().filter_map(|descriptor| {
-            if let DescriptorPayload::Constructor(constructor) = &descriptor.payload {
+            if let DescriptorPayload::Constructor(constructor) = descriptor.payload() {
                 Some((*descriptor, constructor))
             } else {
                 None
@@ -257,7 +253,7 @@ impl<'a> DescriptorIndex<'a> {
         &self,
     ) -> impl Iterator<Item = (&'a Descriptor, &'a DescriptorHeadRule)> + '_ {
         self.source_order.iter().filter_map(|descriptor| {
-            if let DescriptorPayload::HeadRule(rule) = &descriptor.payload {
+            if let DescriptorPayload::HeadRule(rule) = descriptor.payload() {
                 Some((*descriptor, rule.as_ref()))
             } else {
                 None
@@ -277,7 +273,7 @@ impl<'a> DescriptorIndex<'a> {
         expected: ItemKind,
     ) -> Result<&'a Descriptor, LookupError> {
         let descriptor = self.require(id)?;
-        let actual = descriptor.id.item_kind();
+        let actual = descriptor.id().item_kind();
         if actual != expected {
             return Err(wrong_kind(id, expected, actual));
         }
@@ -293,29 +289,18 @@ fn wrong_kind(id: &StableItemId, expected: ItemKind, actual: ItemKind) -> Lookup
     }
 }
 
-fn payload_kind(payload: &DescriptorPayload) -> ItemKind {
-    match payload {
-        DescriptorPayload::Sort(_) => ItemKind::Sort,
-        DescriptorPayload::Constructor(_) => ItemKind::Constructor,
-        DescriptorPayload::Grammar(_) => ItemKind::Grammar,
-        DescriptorPayload::StructuredRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
-        DescriptorPayload::Cell(_) => ItemKind::Cell,
-        DescriptorPayload::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::HeadRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::ContextAlias(_) => ItemKind::ContextAlias,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::{authored, item};
     use crate::{
-        ConstructorFieldDescriptor, DescriptorCellIdentity, DescriptorCellReference,
-        DescriptorConfigurationInitializer, DescriptorConfigurationRoot, DescriptorNodeOrigin,
-        DescriptorProvenance, DescriptorSortRef, DescriptorTerm, ProtocolHeadRuleResult,
-        ProvenanceKey, ProvenanceRole, SentenceKind,
+        BuiltinSort, CellWrapper, ConstructorFieldDescriptor, DescriptorCellField,
+        DescriptorCellIdentity, DescriptorCellReference, DescriptorConfigurationInitializer,
+        DescriptorConfigurationRoot, DescriptorInitializerCell, DescriptorNodeOrigin,
+        DescriptorProvenance, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+        ProtocolCellContent, ProtocolHeadRuleResult, ProtocolInitializerCellContent,
+        ProtocolInitializerStateTerm, ProtocolMap, ProtocolMapBody, ProvenanceKey, ProvenanceRole,
+        SentenceKind,
     };
 
     fn key() -> ProvenanceKey {
@@ -323,16 +308,28 @@ mod tests {
     }
 
     fn descriptor(name: &str, kind: ItemKind, payload: DescriptorPayload) -> Descriptor {
-        Descriptor {
-            id: item("lookup", name, kind),
-            cfg: BTreeMap::new(),
-            provenance: DescriptorProvenance::new(
+        let id = item("lookup", name, kind);
+        let keys = match &payload {
+            DescriptorPayload::FixedConfiguration(configuration) => {
+                configuration.expected_provenance_keys(&id).unwrap()
+            }
+            DescriptorPayload::Cell(declaration) => {
+                declaration.expected_provenance_keys(&id).unwrap()
+            }
+            _ => [key()].into(),
+        };
+        crate::testing::descriptor(
+            id,
+            BTreeMap::new(),
+            DescriptorProvenance::new(
                 key(),
-                vec![DescriptorNodeOrigin::new(key(), authored(0, 3))],
+                keys.into_iter()
+                    .map(|key| DescriptorNodeOrigin::new(key, authored(0, 3)))
+                    .collect(),
             )
             .unwrap(),
             payload,
-        }
+        )
     }
 
     fn constructor(name: &str) -> Descriptor {
@@ -389,15 +386,18 @@ mod tests {
     #[test]
     fn typed_lookup_borrows_the_payload() {
         let descriptor = constructor("Constructor");
-        let bundle = DescriptorBundle::new(vec![descriptor]);
+        let bundle = DescriptorBundle::new(vec![descriptor]).unwrap();
         let index = DescriptorIndex::new(&bundle);
-        let descriptor = &bundle.descriptors[0];
-        let DescriptorPayload::Constructor(payload) = &descriptor.payload else {
+        let descriptor = &bundle.descriptors()[0];
+        let DescriptorPayload::Constructor(payload) = descriptor.payload() else {
             panic!("fixture must be a constructor")
         };
-        assert!(std::ptr::eq(index.get(&descriptor.id).unwrap(), descriptor));
         assert!(std::ptr::eq(
-            index.constructor(&descriptor.id).unwrap(),
+            index.get(descriptor.id()).unwrap(),
+            descriptor
+        ));
+        assert!(std::ptr::eq(
+            index.constructor(descriptor.id()).unwrap(),
             payload
         ));
     }
@@ -414,24 +414,25 @@ mod tests {
             }
         );
         assert_eq!(
-            index.sort(&descriptor.id).unwrap_err(),
-            wrong_kind(&descriptor.id, ItemKind::Sort, ItemKind::Constructor)
+            index.sort(descriptor.id()).unwrap_err(),
+            wrong_kind(descriptor.id(), ItemKind::Sort, ItemKind::Constructor)
         );
     }
 
     #[test]
-    fn lookup_checks_identity_kind_before_payload_kind() {
-        let mut descriptor = constructor("Constructor");
-        descriptor.payload = DescriptorPayload::Sort(SortDescriptor::default());
-        let index = DescriptorIndex::from_descriptors([&descriptor]);
-        assert_eq!(
-            index.sort(&descriptor.id).unwrap_err(),
-            wrong_kind(&descriptor.id, ItemKind::Sort, ItemKind::Constructor)
-        );
-        assert_eq!(
-            index.constructor(&descriptor.id).unwrap_err(),
-            wrong_kind(&descriptor.id, ItemKind::Constructor, ItemKind::Sort)
-        );
+    fn constructor_and_deserialization_reject_payload_kind_mismatch() {
+        let descriptor = constructor("Constructor");
+        let mut inputs = crate::testing::DescriptorInputs::from(descriptor);
+        inputs.payload = DescriptorPayload::Sort(SortDescriptor::default());
+        let error = crate::DescriptorError::WrongKind {
+            id: Box::new(inputs.id.clone()),
+            expected: ItemKind::Sort,
+            actual: ItemKind::Constructor,
+        };
+        assert_eq!(inputs.build(), Err(error.clone()));
+        let wire = serde_json::to_value(&inputs).unwrap();
+        let decoded = serde_json::from_value::<Descriptor>(wire).unwrap_err();
+        assert!(decoded.to_string().contains(&error.to_string()));
     }
 
     #[test]
@@ -446,60 +447,111 @@ mod tests {
         assert_eq!(
             index
                 .values()
-                .map(|descriptor| descriptor.id.item_name())
+                .map(|descriptor| descriptor.id().item_name())
                 .collect::<Vec<_>>(),
             ["A", "B", "Y", "Z"]
         );
         assert_eq!(
             index
                 .constructors()
-                .map(|(descriptor, _)| descriptor.id.item_name())
+                .map(|(descriptor, _)| descriptor.id().item_name())
                 .collect::<Vec<_>>(),
             ["Z", "B"]
         );
         assert_eq!(
             index
                 .head_rules()
-                .map(|(descriptor, _)| descriptor.id.item_name())
+                .map(|(descriptor, _)| descriptor.id().item_name())
                 .collect::<Vec<_>>(),
             ["Y", "A"]
         );
     }
 
+    fn cell_declaration(owner: StableItemId) -> DescriptorCellDeclaration {
+        let role = |role| ProvenanceKey::new(role, 0);
+        DescriptorCellDeclaration {
+            key: key(),
+            fields: vec![DescriptorCellField {
+                reference: DescriptorCellReference {
+                    key: role(ProvenanceRole::ConfigurationField),
+                    cell: DescriptorCellIdentity {
+                        owner,
+                        field: "env".into(),
+                    },
+                },
+                rust_field: "env".into(),
+                emitted_name: None,
+                color: None,
+                multiplicity: None,
+                cell_type: None,
+                content: ProtocolCellContent::Leaf {
+                    wrapper_key: role(ProvenanceRole::ConfigurationCellWrapper),
+                    wrapper: CellWrapper::Cell,
+                    sort: DescriptorSortReference {
+                        key: role(ProvenanceRole::ConfigurationCellContent),
+                        sort: DescriptorSortRef::Builtin(BuiltinSort::Map),
+                    },
+                    arguments: Vec::new(),
+                },
+            }],
+        }
+    }
+
     #[test]
     fn cell_owner_accepts_both_owner_payloads_and_retains_mismatch_kind() {
-        let declaration = DescriptorCellDeclaration {
-            key: key(),
-            fields: Vec::new(),
-        };
+        let declaration = cell_declaration(item("lookup", "Cell", ItemKind::Cell));
         let cell = descriptor(
             "Cell",
             ItemKind::Cell,
             DescriptorPayload::Cell(Box::new(declaration.clone())),
         );
+        let configuration_declaration =
+            cell_declaration(item("lookup", "Configuration", ItemKind::Configuration));
         let configuration = descriptor(
             "Configuration",
             ItemKind::Configuration,
             DescriptorPayload::FixedConfiguration(Box::new(DescriptorFixedConfiguration {
                 root: DescriptorConfigurationRoot::GeneratedTop,
-                declaration: declaration.clone(),
+                declaration: configuration_declaration.clone(),
                 initializer: DescriptorConfigurationInitializer {
-                    key: key(),
-                    owner_key: key(),
+                    key: ProvenanceKey::new(ProvenanceRole::InitializerDeclaration, 0),
+                    owner_key: ProvenanceKey::new(ProvenanceRole::InitializerResultType, 0),
                     owner: item("lookup", "Configuration", ItemKind::Configuration),
                     variables: Vec::new(),
-                    body_key: key(),
-                    cells: Vec::new(),
+                    body_key: ProvenanceKey::new(ProvenanceRole::InitializerBody, 0),
+                    cells: vec![DescriptorInitializerCell {
+                        key: ProvenanceKey::new(ProvenanceRole::InitializerCell, 0),
+                        field: DescriptorCellReference {
+                            key: ProvenanceKey::new(ProvenanceRole::InitializerField, 0),
+                            cell: configuration_declaration.fields[0].reference.cell.clone(),
+                        },
+                        content: ProtocolInitializerCellContent::Leaf {
+                            constructor_key: ProvenanceKey::new(
+                                ProvenanceRole::InitializerCellConstructor,
+                                0,
+                            ),
+                            wrapper: CellWrapper::Cell,
+                            value: ProtocolInitializerStateTerm::Map(ProtocolMap {
+                                payload_key: None,
+                                body: ProtocolMapBody::Empty {
+                                    explicit_dot: false,
+                                },
+                            }),
+                        },
+                    }],
                 },
             })),
         );
         let other = constructor("Constructor");
         let index = DescriptorIndex::from_descriptors([&cell, &configuration, &other]);
-        assert_eq!(index.cell_owner(&cell.id).unwrap(), &declaration);
-        assert_eq!(index.cell_owner(&configuration.id).unwrap(), &declaration);
+        assert_eq!(index.cell_owner(cell.id()).unwrap(), &declaration);
         assert_eq!(
-            index.cell_owner(&other.id).unwrap_err(),
-            wrong_kind(&other.id, ItemKind::Cell, ItemKind::Constructor)
+            index.cell_owner(configuration.id()).unwrap(),
+            &configuration_declaration
+        );
+        assert_eq!(
+            index.cell_owner(other.id()).unwrap_err(),
+            wrong_kind(other.id(), ItemKind::Cell, ItemKind::Constructor)
         );
     }
 }

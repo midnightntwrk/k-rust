@@ -43,14 +43,15 @@ impl SortKey for DescriptorNodeOrigin {
 }
 
 /// Deterministic, serializable output of one host collector execution.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "DescriptorBundleWire")]
 pub struct DescriptorBundle {
     /// Schema and canonical-encoding version.
     protocol_version: SchemaVersion,
     /// Collected descriptors in their full derived order.
-    pub descriptors: SortedByKey<Descriptor>,
+    descriptors: SortedByKey<Descriptor>,
     /// Exact Rust API metadata for every collected descriptor.
-    pub declarations: SortedByKey<DescriptorDeclaration>,
+    declarations: SortedByKey<DescriptorDeclaration>,
 }
 
 #[derive(Deserialize)]
@@ -61,41 +62,21 @@ struct DescriptorBundleWire {
     declarations: Vec<DescriptorDeclaration>,
 }
 
-impl<'de> Deserialize<'de> for DescriptorBundle {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let wire = DescriptorBundleWire::deserialize(deserializer)?;
-        if wire.protocol_version != SchemaVersion::CURRENT {
-            return Err(serde::de::Error::custom(format_args!(
-                "unsupported descriptor bundle schema {}; expected {}",
-                wire.protocol_version.0,
-                SchemaVersion::CURRENT.0
-            )));
-        }
-        for descriptor in &wire.descriptors {
-            descriptor
-                .validate_grammar_contract()
-                .map_err(serde::de::Error::custom)?;
-            descriptor
-                .validate_state_contract()
-                .map_err(serde::de::Error::custom)?;
-        }
-        validate_declarations(&wire.descriptors, &wire.declarations)
-            .map_err(serde::de::Error::custom)?;
-        Ok(Self {
-            protocol_version: wire.protocol_version,
-            descriptors: SortedByKey::new(wire.descriptors),
-            declarations: SortedByKey::new(wire.declarations),
-        })
+impl TryFrom<DescriptorBundleWire> for DescriptorBundle {
+    type Error = DescriptorDeclarationError;
+
+    fn try_from(wire: DescriptorBundleWire) -> Result<Self, Self::Error> {
+        Self::validated(wire.protocol_version, wire.descriptors, wire.declarations)
     }
 }
 
 impl DescriptorBundle {
     /// Creates a bundle using the only protocol this crate can write.
-    #[must_use]
-    pub fn new(descriptors: Vec<Descriptor>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Rejects duplicate identities or invalid declaration metadata coverage.
+    pub fn new(descriptors: Vec<Descriptor>) -> Result<Self, DescriptorDeclarationError> {
         let declarations = descriptors
             .iter()
             .map(|descriptor| DescriptorDeclaration {
@@ -104,26 +85,44 @@ impl DescriptorBundle {
                 explicit_symbol: None,
             })
             .collect();
-        Self {
-            protocol_version: SchemaVersion::CURRENT,
-            descriptors: SortedByKey::new(descriptors),
-            declarations: SortedByKey::new(declarations),
-        }
+        Self::validated(SchemaVersion::CURRENT, descriptors, declarations)
     }
 
     /// Creates a bundle with parser-recovered exact declaration metadata.
     ///
     /// # Errors
     ///
-    /// Rejects missing, duplicate, or extra declaration metadata entries.
+    /// Rejects duplicate descriptor identities and missing, duplicate, or extra declaration metadata entries.
     pub fn with_declarations(
         descriptors: Vec<Descriptor>,
         declarations: Vec<DescriptorDeclaration>,
     ) -> Result<Self, DescriptorDeclarationError> {
+        Self::validated(SchemaVersion::CURRENT, descriptors, declarations)
+    }
+
+    fn validated(
+        protocol_version: SchemaVersion,
+        descriptors: Vec<Descriptor>,
+        declarations: Vec<DescriptorDeclaration>,
+    ) -> Result<Self, DescriptorDeclarationError> {
+        if protocol_version != SchemaVersion::CURRENT {
+            return Err(DescriptorDeclarationError::UnsupportedSchema(
+                protocol_version,
+            ));
+        }
+        let descriptors = SortedByKey::new(descriptors);
+        let mut ids = BTreeSet::new();
+        for descriptor in &descriptors {
+            if !ids.insert(descriptor.id()) {
+                return Err(DescriptorDeclarationError::DuplicateIdentity(Box::new(
+                    descriptor.id().clone(),
+                )));
+            }
+        }
         validate_declarations(&descriptors, &declarations)?;
         Ok(Self {
-            protocol_version: SchemaVersion::CURRENT,
-            descriptors: SortedByKey::new(descriptors),
+            protocol_version,
+            descriptors,
             declarations: SortedByKey::new(declarations),
         })
     }
@@ -152,13 +151,29 @@ impl DescriptorBundle {
     /// Creates an empty bundle using the current protocol.
     #[must_use]
     pub fn empty() -> Self {
-        Self::new(Vec::new())
+        Self {
+            protocol_version: SchemaVersion::CURRENT,
+            descriptors: SortedByKey::new(Vec::new()),
+            declarations: SortedByKey::new(Vec::new()),
+        }
     }
 
     /// Returns the canonical descriptor-bundle schema version.
     #[must_use]
     pub const fn protocol_version(&self) -> SchemaVersion {
         self.protocol_version
+    }
+
+    /// Returns the descriptors in canonical order.
+    #[must_use]
+    pub fn descriptors(&self) -> &[Descriptor] {
+        &self.descriptors
+    }
+
+    /// Returns exact declaration metadata in canonical order.
+    #[must_use]
+    pub fn declarations(&self) -> &[DescriptorDeclaration] {
+        &self.declarations
     }
 
     /// Returns exact declaration API metadata for one stable descriptor ID.
@@ -271,9 +286,13 @@ impl DescriptorDeclaration {
     }
 }
 
-/// Invalid bundle-wide declaration metadata coverage.
+/// Invalid bundle schema, descriptor identities, or declaration metadata coverage.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorDeclarationError {
+    /// The bundle uses an unsupported schema version.
+    UnsupportedSchema(SchemaVersion),
+    /// More than one descriptor has the same identity.
+    DuplicateIdentity(Box<StableItemId>),
     /// Metadata was missing for a descriptor.
     Missing(Box<StableItemId>),
     /// Metadata named an ID not present in the descriptor set.
@@ -289,6 +308,13 @@ pub enum DescriptorDeclarationError {
 impl fmt::Display for DescriptorDeclarationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnsupportedSchema(version) => write!(
+                formatter,
+                "unsupported descriptor bundle schema {}; expected {}",
+                version.0,
+                SchemaVersion::CURRENT.0
+            ),
+            Self::DuplicateIdentity(id) => write!(formatter, "duplicate stable descriptor {id}"),
             Self::Missing(id) => write!(formatter, "missing declaration metadata for {id}"),
             Self::Extra(id) => write!(formatter, "declaration metadata names unknown {id}"),
             Self::Duplicate(id) => write!(formatter, "duplicate declaration metadata for {id}"),
@@ -318,20 +344,19 @@ fn validate_declarations(
         .collect::<BTreeSet<_>>();
     let mut declaration_ids = BTreeSet::new();
     for declaration in declarations {
-        if !descriptor_ids.contains(declaration.id()) {
+        let Some(descriptor) = descriptors
+            .iter()
+            .find(|descriptor| descriptor.id() == declaration.id())
+        else {
             return Err(DescriptorDeclarationError::Extra(Box::new(
                 declaration.id().clone(),
             )));
-        }
+        };
         if !declaration_ids.insert(declaration.id().clone()) {
             return Err(DescriptorDeclarationError::Duplicate(Box::new(
                 declaration.id().clone(),
             )));
         }
-        let descriptor = descriptors
-            .iter()
-            .find(|descriptor| descriptor.id == *declaration.id())
-            .expect("metadata IDs were checked against the descriptor set");
         let has_symbol_origin = descriptor.provenance.origins().iter().any(|origin| {
             origin.key.role() == ProvenanceRole::StableSymbol && origin.key.ordinal() == 0
         });
@@ -355,21 +380,139 @@ fn validate_declarations(
 
 /// One stable declaration and its macro payload.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "DescriptorWire")]
 pub struct Descriptor {
     /// Stable identity resolved before serialization.
-    pub id: StableItemId,
+    id: StableItemId,
     /// Enabled cfg keys and their optional values.
-    pub cfg: BTreeMap<String, Option<String>>,
+    cfg: BTreeMap<String, Option<String>>,
     /// Every parser-keyed authored node, including the primary declaration.
-    pub provenance: DescriptorProvenance,
+    provenance: DescriptorProvenance,
     /// Declaration-specific data containing stable references only.
     #[serde(flatten)]
-    pub payload: DescriptorPayload,
+    payload: DescriptorPayload,
 }
 
+#[derive(Deserialize)]
+#[serde(rename = "Descriptor", deny_unknown_fields)]
+struct DescriptorWire {
+    id: StableItemId,
+    cfg: BTreeMap<String, Option<String>>,
+    provenance: DescriptorProvenance,
+    #[serde(flatten)]
+    payload: DescriptorPayload,
+}
+
+impl TryFrom<DescriptorWire> for Descriptor {
+    type Error = DescriptorError;
+
+    fn try_from(wire: DescriptorWire) -> Result<Self, Self::Error> {
+        Self::new(wire.id, wire.cfg, wire.provenance, wire.payload)
+    }
+}
+
+/// A context-free descriptor contract failure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DescriptorError {
+    /// The stable identity and payload have different declaration kinds.
+    WrongKind {
+        /// Descriptor identity.
+        id: Box<StableItemId>,
+        /// Kind required by the payload.
+        expected: ItemKind,
+        /// Kind stored in the identity.
+        actual: ItemKind,
+    },
+    /// Invalid grammar or structured-rule contract.
+    Grammar(GrammarTransportError),
+    /// Invalid configuration or state contract.
+    State(StateTransportError),
+}
+
+impl fmt::Display for DescriptorError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongKind {
+                id,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "descriptor reference {id} has kind {actual}, expected {expected}"
+            ),
+            Self::Grammar(error) => error.fmt(formatter),
+            Self::State(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for DescriptorError {}
+
 impl Descriptor {
+    /// Creates a descriptor with matching identity, payload, and provenance contracts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid grammar or state contracts and mismatched declaration kinds.
+    pub fn new(
+        id: StableItemId,
+        cfg: BTreeMap<String, Option<String>>,
+        provenance: DescriptorProvenance,
+        payload: DescriptorPayload,
+    ) -> Result<Self, DescriptorError> {
+        let descriptor = Self {
+            id,
+            cfg,
+            provenance,
+            payload,
+        };
+        descriptor
+            .validate_grammar_contract()
+            .map_err(DescriptorError::Grammar)?;
+        descriptor
+            .validate_state_contract()
+            .map_err(DescriptorError::State)?;
+        let expected = descriptor.payload.item_kind();
+        let actual = descriptor.id.item_kind();
+        if actual != expected {
+            return Err(DescriptorError::WrongKind {
+                id: Box::new(descriptor.id),
+                expected,
+                actual,
+            });
+        }
+        Ok(descriptor)
+    }
+
+    /// Returns the stable declaration identity.
+    #[must_use]
+    pub const fn id(&self) -> &StableItemId {
+        &self.id
+    }
+
+    /// Returns enabled configuration keys and their values.
+    #[must_use]
+    pub const fn cfg(&self) -> &BTreeMap<String, Option<String>> {
+        &self.cfg
+    }
+
+    /// Returns parser-keyed authored provenance.
+    #[must_use]
+    pub const fn provenance(&self) -> &DescriptorProvenance {
+        &self.provenance
+    }
+
+    /// Returns declaration-specific stable data.
+    #[must_use]
+    pub const fn payload(&self) -> &DescriptorPayload {
+        &self.payload
+    }
+
     /// Rebuilds the descriptor's set-like provenance and payload collections.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this validated descriptor cannot be rebuilt.
     #[cfg(feature = "test-support")]
     #[must_use]
     pub fn permute_sets(&self, seed: u64) -> Self {
@@ -377,11 +520,13 @@ impl Descriptor {
             DescriptorPayload::Sort(sort) => DescriptorPayload::Sort(sort.permute_sets(seed)),
             other => other.clone(),
         };
-        Self {
-            provenance: self.provenance.permute_sets(seed),
+        Self::new(
+            self.id.clone(),
+            self.cfg.clone(),
+            self.provenance.permute_sets(seed),
             payload,
-            ..self.clone()
-        }
+        )
+        .unwrap_or_else(|error| panic!("Descriptor seed {seed}: permuted rebuild failed: {error}"))
     }
 
     /// Returns the primary declaration's authored-to-descriptor provenance.
@@ -396,7 +541,7 @@ impl Descriptor {
     ///
     /// Returns [`GrammarTransportError`] for invalid ownership, shape,
     /// references, or parser keys absent from this descriptor's provenance.
-    pub fn validate_grammar_contract(&self) -> Result<(), GrammarTransportError> {
+    pub(crate) fn validate_grammar_contract(&self) -> Result<(), GrammarTransportError> {
         let contains = |key: &ProvenanceKey| self.provenance.origin_for(key).is_some();
         let (expected, expected_primary) = match &self.payload {
             DescriptorPayload::Grammar(grammar) => {
@@ -458,7 +603,7 @@ impl Descriptor {
     ///
     /// Returns [`StateTransportError`] for wrong ownership, invalid typed
     /// state, frame/binding errors, or missing/extra parser keys.
-    pub fn validate_state_contract(&self) -> Result<(), StateTransportError> {
+    pub(crate) fn validate_state_contract(&self) -> Result<(), StateTransportError> {
         let actual = self
             .provenance
             .origins()
@@ -740,6 +885,43 @@ stage_shape! {
 
 /// Stable payload with a collector-completed head rule.
 pub type DescriptorPayload = Payload<DescriptorStage, crate::DescriptorHeadRule>;
+
+/// Sentence meaning supplied by a head-rule transport shape.
+pub trait HeadRuleSentenceKind {
+    /// Returns the head rule's sentence meaning.
+    #[must_use]
+    fn sentence_kind(&self) -> SentenceKind;
+}
+
+impl<S: crate::Stage> HeadRuleSentenceKind for crate::transport::head_rule::HeadRule<S> {
+    fn sentence_kind(&self) -> SentenceKind {
+        self.sentence_kind
+    }
+}
+
+impl<S: crate::Stage> HeadRuleSentenceKind for crate::transport::head_rule::ResolvedHeadRule<S> {
+    fn sentence_kind(&self) -> SentenceKind {
+        self.sentence_kind
+    }
+}
+
+impl<S: crate::Stage, H: HeadRuleSentenceKind> Payload<S, H> {
+    /// Returns the stable declaration namespace required by this payload.
+    #[must_use]
+    pub fn item_kind(&self) -> ItemKind {
+        match self {
+            Self::Sort(_) => ItemKind::Sort,
+            Self::Constructor(_) => ItemKind::Constructor,
+            Self::Grammar(_) => ItemKind::Grammar,
+            Self::StructuredRule(rule) => rule.sentence_kind.item_kind(),
+            Self::FixedConfiguration(_) => ItemKind::Configuration,
+            Self::Cell(_) => ItemKind::Cell,
+            Self::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
+            Self::HeadRule(rule) => rule.sentence_kind().item_kind(),
+            Self::ContextAlias(_) => ItemKind::ContextAlias,
+        }
+    }
+}
 
 stage_shape! {
     /// Open-sort payload with direct parent references.

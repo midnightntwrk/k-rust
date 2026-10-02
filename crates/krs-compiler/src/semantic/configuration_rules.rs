@@ -83,7 +83,7 @@ impl StateRuleTerms<'_> {
             ProtocolRuleStateTerm::KSequence(sequence) => {
                 if *declared_sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id.clone()),
+                        id: Box::new(descriptor.id().clone()),
                         detail: "K sequence occurs in a non-KSequence rule cell".into(),
                     });
                 }
@@ -107,7 +107,7 @@ impl StateRuleTerms<'_> {
             ProtocolRuleStateTerm::Map(map) => {
                 if *declared_sort != SemanticSortRef::map() {
                     return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id.clone()),
+                        id: Box::new(descriptor.id().clone()),
                         detail: "map occurs in a non-Map rule cell".into(),
                     });
                 }
@@ -276,7 +276,7 @@ pub(super) fn lower_configuration_rule_descriptor(
             ),
             "configuration-rule",
         )?,
-        descriptor.id.clone(),
+        descriptor.id().clone(),
         rule.sentence_kind.into(),
         terms.variables,
         body,
@@ -537,7 +537,7 @@ pub(super) fn lower_context_alias_descriptor(
     )?;
     Ok(SemanticContextAlias::new(
         semantic_origin(descriptor, alias.declaration_key.clone(), "context-alias")?,
-        descriptor.id.clone(),
+        descriptor.id().clone(),
         semantic_origin(descriptor, alias.name_key.clone(), "context-alias-name")?,
         alias.name.clone(),
         semantic_origin(descriptor, alias.here_key.clone(), "context-alias-here")?,
@@ -730,7 +730,7 @@ fn validate_state_frame_pair(
             node,
             detail: format!(
                 "rule {} uses incompatible subject/result associative state families or frames",
-                descriptor.id
+                descriptor.id()
             ),
         })
     }
@@ -764,7 +764,7 @@ fn validate_frame_pair(
             node,
             detail: format!(
                 "rule {} uses incompatible subject/result frames",
-                descriptor.id
+                descriptor.id()
             ),
         })
     }

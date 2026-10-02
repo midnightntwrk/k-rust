@@ -50,8 +50,9 @@ pub mod wire;
 pub use bundle::{
     ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
     ConstructorFieldDescriptor, Descriptor, DescriptorBundle, DescriptorDeclaration,
-    DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance,
-    DescriptorProvenanceError, Payload, SentenceKind, SortDescriptor, SortPayload,
+    DescriptorDeclarationError, DescriptorError, DescriptorNodeOrigin, DescriptorPayload,
+    DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind, SortDescriptor,
+    SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,

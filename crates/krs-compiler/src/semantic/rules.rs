@@ -218,7 +218,7 @@ pub(super) fn lower_head_rule_descriptor(
             role_key(ProvenanceRole::RuleDeclaration, 0),
             "head-anchored-rule",
         )?,
-        descriptor.id.clone(),
+        descriptor.id().clone(),
         rule.sentence_kind,
         variables,
         body,
@@ -276,7 +276,7 @@ fn seed_head_rule_sorts(
         .collect::<BTreeSet<_>>();
     if binding_names.len() != rule.bindings.len() {
         return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id.clone()),
+            id: Box::new(descriptor.id().clone()),
             detail: "head-anchored rule has duplicate bindings".into(),
         });
     }
@@ -323,7 +323,7 @@ fn seed_head_rule_sorts(
             match binding_sorts.get(base_binding) {
                 Some(sort) if sort != cell_sort => {
                     return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id.clone()),
+                        id: Box::new(descriptor.id().clone()),
                         detail: format!(
                             "updated-cell binding {base_binding:?} has a refinement other than {cell_sort}"
                         ),
@@ -415,7 +415,7 @@ fn infer_head_rule(
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
             return Err(DescriptorLoweringError::InvalidTerm {
-                id: Box::new(builder.descriptor.id.clone()),
+                id: Box::new(builder.descriptor.id().clone()),
                 detail: format!("binding {:?} has no inferred semantic sort", binding.name),
             });
         }
@@ -535,7 +535,7 @@ fn lower_head_rule_map_read(
         .get(value_binding)
         .cloned()
         .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id.clone()),
+            id: Box::new(descriptor.id().clone()),
             detail: format!("map value binding {value_binding:?} has no inferred sort"),
         })?;
     let value = SemanticTerm::variable(
@@ -711,7 +711,7 @@ pub(super) fn lower_structured_rule_descriptor(
     for binding in &rule.bindings {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
             DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id.clone()),
+                id: Box::new(descriptor.id().clone()),
                 detail: format!("binding {binding:?} has no inferred subject sort"),
             }
         })?;
@@ -734,7 +734,7 @@ pub(super) fn lower_structured_rule_descriptor(
     };
     Ok(SemanticRule::new(
         semantic_origin(descriptor, role_key(rule_origin_role, 0), "rule")?,
-        descriptor.id.clone(),
+        descriptor.id().clone(),
         rule.sentence_kind,
         variables,
         rewrite,

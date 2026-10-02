@@ -838,7 +838,7 @@ impl StructuredTermBuilder<'_> {
         let mut matches = declarations
             .values()
             .flat_map(|descriptor| {
-                let declaration = match &descriptor.payload {
+                let declaration = match descriptor.payload() {
                     DescriptorPayload::Cell(value) => Some(value.as_ref()),
                     DescriptorPayload::FixedConfiguration(value) => Some(&value.declaration),
                     _ => None,
@@ -889,7 +889,7 @@ impl StructuredTermBuilder<'_> {
 
     fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::InvalidTerm {
-            id: Box::new(self.descriptor.id.clone()),
+            id: Box::new(self.descriptor.id().clone()),
             detail: detail.into(),
         }
     }

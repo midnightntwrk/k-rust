@@ -1,5 +1,7 @@
 //! Grammar and structured-rule transport contract tests.
 
+use krs_ir::testing::DescriptorInputs;
+
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,9 +10,9 @@ use krs_ir::transport::detail::{
     GrammarApplicationReason, GrammarProductionReason, GrammarTermReason,
 };
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationHeadClass,
-    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
-    DescriptorBundle, DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
+    BuiltinOperation, BuiltinSort, DescriptorApplicationHeadClass, DescriptorApplicationRef,
+    DescriptorApplicationReference, DescriptorAssociativitySentence, DescriptorBundle,
+    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
     DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
     DescriptorProductionItem, DescriptorProductionOwner, DescriptorProvenance,
@@ -121,7 +123,7 @@ fn declared_sort(role: ProvenanceRole, ordinal: u32, id: StableItemId) -> Descri
 }
 
 #[allow(clippy::too_many_lines)]
-fn expression_descriptors() -> Vec<Descriptor> {
+fn expression_descriptors() -> Vec<DescriptorInputs> {
     let expr = item("Expr", ItemKind::Sort);
     let value = item("Value", ItemKind::Sort);
     let add = item("Add", ItemKind::Constructor);
@@ -154,11 +156,11 @@ fn expression_descriptors() -> Vec<Descriptor> {
         key(ProvenanceRole::StrictnessFieldReference, 1),
         key(ProvenanceRole::StrictnessResultSort, 0),
     ];
-    let grammar = Descriptor {
-        id: grammar_id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(grammar_primary.clone(), &grammar_keys),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+    let grammar = DescriptorInputs::new(
+        grammar_id,
+        BTreeMap::new(),
+        provenance(grammar_primary.clone(), &grammar_keys),
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: grammar_primary.clone(),
                 template_key: Some(key(ProvenanceRole::ConstructorSyntax, 0)),
@@ -255,7 +257,7 @@ fn expression_descriptors() -> Vec<Descriptor> {
                 ],
             },
         ))),
-    };
+    );
 
     let rule_primary = key(ProvenanceRole::RuleDeclaration, 0);
     let rule_keys = [
@@ -278,11 +280,11 @@ fn expression_descriptors() -> Vec<Descriptor> {
         path_key: key(ProvenanceRole::RuleLeftPath, 1),
         name: "x".into(),
     };
-    let rule = Descriptor {
-        id: rule_id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(rule_primary, &rule_keys),
-        payload: DescriptorPayload::StructuredRule(Box::new(StructuredRuleDescriptor {
+    let rule = DescriptorInputs::new(
+        rule_id,
+        BTreeMap::new(),
+        provenance(rule_primary, &rule_keys),
+        DescriptorPayload::StructuredRule(Box::new(StructuredRuleDescriptor {
             sentence_kind: SentenceKind::Transition,
             label: None,
             requires: None,
@@ -323,7 +325,7 @@ fn expression_descriptors() -> Vec<Descriptor> {
                 name: "x".into(),
             },
         })),
-    };
+    );
     vec![grammar, rule]
 }
 
@@ -331,9 +333,9 @@ fn expression_descriptors() -> Vec<Descriptor> {
 fn expression_grammar_and_rule_round_trip_deterministically() {
     let descriptors = expression_descriptors();
     for descriptor in &descriptors {
-        descriptor.validate_grammar_contract().unwrap();
+        descriptor.build().unwrap();
     }
-    let bundle = DescriptorBundle::new(descriptors);
+    let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     testing::assert_canonical_contract(&bundle);
     let forward = bundle.to_canonical_json().unwrap();
     assert!(forward.contains(&format!(
@@ -367,7 +369,7 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
         name: "if-true".into(),
     });
 
-    descriptor.validate_grammar_contract().unwrap();
+    descriptor.build().unwrap();
     assert_eq!(
         descriptor.provenance.origin_for(&label_key),
         Some(&origin(77))
@@ -378,9 +380,9 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
     };
     rule.label.as_mut().unwrap().name = "if true".into();
     assert!(matches!(
-        descriptor.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidTerm(
-            GrammarTermReason::InvalidExplicitRuleLabel
+        descriptor.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidExplicitRuleLabel)
         ))
     ));
 }
@@ -445,7 +447,7 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
         },
     });
 
-    descriptor.validate_grammar_contract().unwrap();
+    descriptor.build().unwrap();
     for condition_key in condition_keys {
         assert!(descriptor.provenance.origin_for(&condition_key).is_some());
     }
@@ -460,8 +462,10 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     };
     *path_key = key(ProvenanceRole::RuleRequiresPath, 1);
     assert!(matches!(
-        wrong_path.validate_grammar_contract(),
-        Err(GrammarTransportError::UnexpectedProvenance { .. })
+        wrong_path.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::UnexpectedProvenance { .. }
+        ))
     ));
 
     let mut unbound = descriptor.clone();
@@ -481,8 +485,8 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     };
     *name = "post_only".into();
     assert!(matches!(
-        unbound.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidBinding(name)) if name == "post_only"
+        unbound.build(),
+        Err(krs_ir::DescriptorError::Grammar(GrammarTransportError::InvalidBinding(name))) if name == "post_only"
     ));
 
     let mut post_only = descriptor.clone();
@@ -506,12 +510,12 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     };
     *name = "post_only".into();
     assert!(matches!(
-        post_only.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidBinding(name)) if name == "post_only"
+        post_only.build(),
+        Err(krs_ir::DescriptorError::Grammar(GrammarTransportError::InvalidBinding(name))) if name == "post_only"
     ));
 }
 
-fn expression_production(descriptor: &mut Descriptor) -> &mut DescriptorProduction {
+fn expression_production(descriptor: &mut DescriptorInputs) -> &mut DescriptorProduction {
     let DescriptorPayload::Grammar(grammar) = &mut descriptor.payload else {
         panic!("expected grammar descriptor")
     };
@@ -558,7 +562,7 @@ fn crate_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
 fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separately() {
     let mut descriptors = expression_descriptors();
     reorder_expression_fields(expression_production(&mut descriptors[0]));
-    descriptors[0].validate_grammar_contract().unwrap();
+    descriptors[0].build().unwrap();
 
     let production = expression_production(&mut descriptors[0]);
     let DescriptorProductionItem::NonTerminal { field_key, .. } = &mut production.items[0] else {
@@ -566,8 +570,10 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     };
     *field_key = key(ProvenanceRole::ConstructorSyntaxFieldReference, 1);
     assert!(matches!(
-        descriptors[0].validate_grammar_contract(),
-        Err(GrammarTransportError::UnexpectedProvenance { .. })
+        descriptors[0].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::UnexpectedProvenance { .. }
+        ))
     ));
 
     let mut descriptors = expression_descriptors();
@@ -584,9 +590,11 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     *declaration_key = Some(key(ProvenanceRole::ConstructorFieldDeclaration, 1));
     sort.key = key(ProvenanceRole::ConstructorFieldSort, 1);
     assert!(matches!(
-        descriptors[0].validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::DuplicateConstructorFieldOrdinal
+        descriptors[0].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::DuplicateConstructorFieldOrdinal
+            )
         ))
     ));
 }
@@ -606,8 +614,8 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![].try_into().unwrap(),
     };
-    descriptors[1].validate_grammar_contract().unwrap();
-    let bundle = DescriptorBundle::new(descriptors);
+    descriptors[1].build().unwrap();
+    let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
     assert!(json.contains("\"head_class\": \"bare_reference\""));
@@ -633,9 +641,11 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         .unwrap(),
     };
     assert!(matches!(
-        descriptors[1].validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidApplication(
-            GrammarApplicationReason::BareConstructorArguments
+        descriptors[1].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidApplication(
+                GrammarApplicationReason::BareConstructorArguments
+            )
         ))
     ));
 }
@@ -877,13 +887,13 @@ fn grammar_descriptor(
     primary: ProvenanceKey,
     keys: &[ProvenanceKey],
     grammar: GrammarDescriptor,
-) -> Descriptor {
-    Descriptor {
+) -> DescriptorInputs {
+    DescriptorInputs::new(
         id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(primary, keys),
-        payload: DescriptorPayload::Grammar(Box::new(grammar)),
-    }
+        BTreeMap::new(),
+        provenance(primary, keys),
+        DescriptorPayload::Grammar(Box::new(grammar)),
+    )
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1065,9 +1075,11 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     };
     *precede_regex = Some("[a-z]".into());
     assert!(matches!(
-        guarded_token.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::NominalTokenRegexGuards
+        guarded_token.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::NominalTokenRegexGuards
+            )
         ))
     ));
 
@@ -1079,9 +1091,9 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
         follow_regex: None,
     };
     assert!(matches!(
-        regex_bracket.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::BracketRegexItem
+        regex_bracket.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(GrammarProductionReason::BracketRegexItem)
         ))
     ));
 
@@ -1093,9 +1105,9 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     };
     *field = ProductionFieldId::new("inner").unwrap();
     assert!(matches!(
-        wrong_field_bracket.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::BracketFieldName
+        wrong_field_bracket.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(GrammarProductionReason::BracketFieldName)
         ))
     ));
 
@@ -1104,21 +1116,23 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
         .result_sort
         .sort = DescriptorSortRef::Declared(item("OtherExpr", ItemKind::Sort));
     assert!(matches!(
-        wrong_sort_bracket.validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::BracketOwnerResultSortMismatch
+        wrong_sort_bracket.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::BracketOwnerResultSortMismatch
+            )
         ))
     ));
 
     let descriptors = vec![token, bracket, subsort, precedence, associativity];
     for descriptor in &descriptors {
-        descriptor.validate_grammar_contract().unwrap();
+        descriptor.build().unwrap();
     }
-    let bundle = DescriptorBundle::new(descriptors);
+    let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
-    assert_eq!(decoded.descriptors.len(), 5);
+    assert_eq!(decoded.descriptors().len(), 5);
     assert!(json.contains("\"sort_source\": \"builtin\""));
     assert!(json.contains("\"grammar_kind\": \"precedence\""));
     assert!(json.contains("\"grammar_kind\": \"associativity\""));
@@ -1129,9 +1143,11 @@ fn format_requires_explicit_constructor_syntax() {
     let mut descriptors = expression_descriptors();
     expression_production(&mut descriptors[0]).template_key = None;
     assert!(matches!(
-        descriptors[0].validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::FormatWithoutConstructorSyntax
+        descriptors[0].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::FormatWithoutConstructorSyntax
+            )
         ))
     ));
 }
@@ -1141,8 +1157,10 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
     let mut descriptors = expression_descriptors();
     descriptors[0].id = item("wrong", ItemKind::Rule);
     assert!(matches!(
-        descriptors[0].validate_grammar_contract(),
-        Err(GrammarTransportError::DescriptorItemKind { .. })
+        descriptors[0].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::DescriptorItemKind { .. }
+        ))
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1154,8 +1172,10 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
         literal: DescriptorLiteral::Int("1_000".into()),
     };
     assert!(matches!(
-        descriptors[1].validate_grammar_contract(),
-        Err(GrammarTransportError::MissingProvenance(_))
+        descriptors[1].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::MissingProvenance(_)
+        ))
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1166,8 +1186,10 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
         key: key(ProvenanceRole::RuleLeftWildcard, 0),
     };
     assert!(matches!(
-        descriptors[1].validate_grammar_contract(),
-        Err(GrammarTransportError::InvalidTerm(_))
+        descriptors[1].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidTerm(_)
+        ))
     ));
 }
 
@@ -1672,7 +1694,8 @@ fn first_object_with_key_mut<'a>(
 
 #[test]
 fn future_and_adapter_fields_are_rejected_at_every_protocol_boundary() {
-    let json = DescriptorBundle::new(expression_descriptors())
+    let json = krs_ir::testing::descriptor_bundle(expression_descriptors())
+        .unwrap()
         .to_canonical_json()
         .unwrap();
     let mut outer = serde_json::from_str::<serde_json::Value>(&json).unwrap();
@@ -1705,8 +1728,10 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
     };
     *variable_key = key(ProvenanceRole::RuleResultType, 0);
     assert!(matches!(
-        descriptors[1].validate_grammar_contract(),
-        Err(GrammarTransportError::UnexpectedProvenance { .. })
+        descriptors[1].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::UnexpectedProvenance { .. }
+        ))
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1718,8 +1743,10 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
     ));
     descriptors[0].provenance = DescriptorProvenance::new(primary, origins).unwrap();
     assert!(matches!(
-        descriptors[0].validate_grammar_contract(),
-        Err(GrammarTransportError::ExtraProvenance(_))
+        descriptors[0].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::ExtraProvenance(_)
+        ))
     ));
 }
 

@@ -1,5 +1,7 @@
 //! Stable configuration descriptors reach the existing semantic/Definition lane.
 
+use krs_ir::testing::{DescriptorBundleInputs, DescriptorInputs};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::lower_descriptor_bundle;
@@ -7,14 +9,13 @@ use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::testing;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
-    BuiltinSort, CellWrapper, Descriptor, DescriptorBundle, DescriptorCellField,
-    DescriptorCellIdentity, DescriptorCellReference, DescriptorConfigurationDeclaration,
-    DescriptorConfigurationInitializer, DescriptorConfigurationReference,
-    DescriptorConfigurationRoot, DescriptorConfigurationRule, DescriptorConfigurationVariable,
-    DescriptorFixedConfiguration, DescriptorInitializerCell, DescriptorNodeOrigin,
-    DescriptorPayload, DescriptorProvenance, DescriptorRuleBinding, DescriptorRuleCells,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, ItemKind, PackageId,
-    ProtocolCellContent, ProtocolConfigurationVariable, ProtocolInitializerCellContent,
+    BuiltinSort, CellWrapper, DescriptorCellField, DescriptorCellIdentity, DescriptorCellReference,
+    DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
+    DescriptorConfigurationReference, DescriptorConfigurationRoot, DescriptorConfigurationRule,
+    DescriptorConfigurationVariable, DescriptorFixedConfiguration, DescriptorInitializerCell,
+    DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance, DescriptorRuleBinding,
+    DescriptorRuleCells, DescriptorSortRef, DescriptorSortReference, DescriptorTerm, ItemKind,
+    PackageId, ProtocolCellContent, ProtocolConfigurationVariable, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
     ProtocolKSequenceItem, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
     ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
@@ -408,7 +409,7 @@ fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
     }
 }
 
-fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
+fn descriptor(id: StableItemId, payload: DescriptorPayload) -> DescriptorInputs {
     let keys = match &payload {
         DescriptorPayload::Sort(_) => vec![key(ProvenanceRole::SortDeclaration, 0)],
         DescriptorPayload::FixedConfiguration(configuration) => configuration
@@ -431,18 +432,13 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         DescriptorPayload::ConfigurationRule(_) => key(ProvenanceRole::RuleDeclaration, 0),
         _ => unreachable!(),
     };
-    Descriptor {
-        id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(primary, keys),
-        payload,
-    }
+    DescriptorInputs::new(id, BTreeMap::new(), provenance(primary, keys), payload)
 }
 
-fn bundle() -> DescriptorBundle {
+fn bundle() -> DescriptorBundleInputs {
     let (owner, configuration) = fixed_configuration();
     let rule = configuration_rule(&owner);
-    DescriptorBundle::new(vec![
+    DescriptorBundleInputs::new(vec![
         descriptor(
             framework_kitem(),
             DescriptorPayload::Sort(SortDescriptor {
@@ -466,7 +462,7 @@ fn bundle() -> DescriptorBundle {
     ])
 }
 
-fn refresh_rule_provenance(bundle: &mut DescriptorBundle) {
+fn refresh_rule_provenance(bundle: &mut DescriptorBundleInputs) {
     let expected = bundle
         .descriptors
         .iter()
@@ -477,20 +473,20 @@ fn refresh_rule_provenance(bundle: &mut DescriptorBundle) {
             _ => None,
         })
         .unwrap();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected);
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
 }
 
 #[test]
 fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically() {
     let bundle = bundle();
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     let module = semantic
         .modules()
         .iter()
@@ -517,7 +513,7 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
 #[test]
 fn exact_empty_map_can_rewrite_to_exact_map_items() {
     let mut bundle = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
@@ -555,10 +551,10 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     ));
     rule.bindings
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
     refresh_rule_provenance(&mut bundle);
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     let module = semantic
         .modules()
         .iter()
@@ -598,7 +594,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
 #[test]
 fn result_only_cell_is_rejected_before_configuration_lowering() {
     let mut bundle = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
@@ -617,11 +613,11 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
     let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    bundle.descriptors = descriptors;
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert!(
         error
             .to_string()
@@ -633,7 +629,7 @@ fn result_only_cell_is_rejected_before_configuration_lowering() {
 #[test]
 fn unknown_owner_qualified_cell_reference_fails_typed() {
     let mut bundle = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
@@ -642,15 +638,15 @@ fn unknown_owner_qualified_cell_reference_fails_typed() {
         })
         .unwrap();
     rule.subject.cells[0].field.cell.field = "missing".into();
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    bundle.descriptors = descriptors;
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert!(error.to_string().contains("no declared cell field"));
 }
 
 #[test]
 fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     let mut bundle = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let rule = descriptors
         .iter_mut()
         .find_map(|descriptor| match &mut descriptor.payload {
@@ -670,13 +666,13 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
     let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
         .unwrap();
     descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
 
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    bundle.descriptors = descriptors;
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let variables = semantic
         .modules()
@@ -717,7 +713,7 @@ fn descriptor_lookup_errors_preserve_kind_messages_and_missing_ids() {
                 parents: BTreeSet::from([reference.clone()]),
             }),
         ));
-        let error = lower_descriptor_bundle(&bundle).unwrap_err();
+        let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
         if reference.item_kind() == ItemKind::Sort {
             assert_eq!(
                 error,
@@ -762,8 +758,11 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
     );
     bundle.descriptors.push(referrer.clone());
     bundle.descriptors.push(referrer);
-    assert_eq!(
-        lower_descriptor_bundle(&bundle).unwrap_err(),
-        krs_compiler::DescriptorLoweringError::DuplicateItemId(Box::new(duplicate_id))
+    assert!(
+        bundle
+            .build()
+            .unwrap_err()
+            .to_string()
+            .contains(&format!("duplicate stable descriptor {duplicate_id}"))
     );
 }

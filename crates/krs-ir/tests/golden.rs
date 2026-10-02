@@ -33,16 +33,16 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
     };
     let primary_key = ProvenanceKey::new(role, 0);
-    Descriptor {
+    krs_ir::testing::descriptor(
         id,
-        cfg: BTreeMap::new(),
-        provenance: DescriptorProvenance::new(
+        BTreeMap::new(),
+        DescriptorProvenance::new(
             primary_key.clone(),
             vec![DescriptorNodeOrigin::new(primary_key, origin())],
         )
         .unwrap(),
         payload,
-    }
+    )
 }
 
 fn populated_bundle() -> DescriptorBundle {
@@ -75,7 +75,7 @@ fn populated_bundle() -> DescriptorBundle {
         }),
     );
 
-    let bundle = DescriptorBundle::new(vec![bar, sort, constructor]);
+    let bundle = DescriptorBundle::new(vec![bar, sort, constructor]).unwrap();
     assert_canonical_contract(&bundle);
     bundle
 }
@@ -131,7 +131,12 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
 
 #[test]
 fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
-    let mut descriptors = populated_bundle().descriptors.to_vec();
+    let mut descriptors = populated_bundle()
+        .descriptors()
+        .iter()
+        .cloned()
+        .map(krs_ir::testing::DescriptorInputs::from)
+        .collect::<Vec<_>>();
     let descriptor = &mut descriptors[0];
     let id = descriptor.id.clone();
     let mut stack = origin();
@@ -166,7 +171,7 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
     descriptor.provenance =
         DescriptorProvenance::new(key.clone(), vec![DescriptorNodeOrigin::new(key, stack)])
             .unwrap();
-    let bundle = DescriptorBundle::new(descriptors);
+    let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     assert_canonical_contract(&bundle);
     let bytes = bundle.to_collector_protocol_measured().unwrap().0;
     let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
@@ -220,14 +225,33 @@ fn canonical_json_ignores_insertion_order() {
 }
 
 #[test]
+fn collector_table_errors_precede_descriptor_contract_errors() {
+    let bytes = populated_bundle()
+        .to_collector_protocol_measured()
+        .unwrap()
+        .0;
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    wire["descriptors"][2]["provenance"]["origins"][0]["origin"][0][1] = serde_json::json!(99999);
+    let expected = DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert_eq!(expected, "invalid file index 99999");
+    wire["descriptors"][0]["id"]["item_kind"] = serde_json::json!("sort");
+    let actual = DescriptorBundle::from_collector_protocol(&serde_json::to_vec(&wire).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn declaration_metadata_requires_exact_descriptor_coverage() {
     let bundle = populated_bundle();
     let declarations = || {
         bundle
-            .descriptors
+            .descriptors()
             .iter()
             .map(|descriptor| {
-                DescriptorDeclaration::new(descriptor.id.clone(), RustVisibility::Inherited, None)
+                DescriptorDeclaration::new(descriptor.id().clone(), RustVisibility::Inherited, None)
             })
             .collect::<Vec<_>>()
     };
@@ -235,7 +259,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
     let mut missing = declarations();
     let missing_id = missing.pop().unwrap().id().clone();
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), missing),
+        DescriptorBundle::with_declarations(bundle.descriptors().to_vec(), missing),
         Err(DescriptorDeclarationError::Missing(Box::new(missing_id)))
     );
 
@@ -247,7 +271,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
         None,
     ));
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), extra),
+        DescriptorBundle::with_declarations(bundle.descriptors().to_vec(), extra),
         Err(DescriptorDeclarationError::Extra(Box::new(extra_id)))
     );
 
@@ -255,7 +279,7 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
     let duplicate_id = duplicate[0].id().clone();
     duplicate.push(duplicate[0].clone());
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), duplicate),
+        DescriptorBundle::with_declarations(bundle.descriptors().to_vec(), duplicate),
         Err(DescriptorDeclarationError::Duplicate(Box::new(
             duplicate_id
         )))
@@ -265,21 +289,26 @@ fn declaration_metadata_requires_exact_descriptor_coverage() {
 #[test]
 fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
     let bundle = populated_bundle();
-    let pinned_id = bundle.descriptors[0].id.clone();
-    let mut declarations = bundle.declarations.to_vec();
+    let pinned_id = bundle.descriptors()[0].id().clone();
+    let mut declarations = bundle.declarations().to_vec();
     declarations[0] = DescriptorDeclaration::new(
         pinned_id.clone(),
         RustVisibility::Inherited,
         Some(ExplicitSymbol::new("api::Pinned").unwrap()),
     );
     assert_eq!(
-        DescriptorBundle::with_declarations(bundle.descriptors.to_vec(), declarations),
+        DescriptorBundle::with_declarations(bundle.descriptors().to_vec(), declarations),
         Err(DescriptorDeclarationError::MissingSymbolOrigin(Box::new(
             pinned_id.clone(),
         )))
     );
 
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle
+        .descriptors()
+        .iter()
+        .cloned()
+        .map(krs_ir::testing::DescriptorInputs::from)
+        .collect::<Vec<_>>();
     let primary_key = descriptors[0].provenance.primary_key().clone();
     let mut origins = descriptors[0].provenance.origins().to_vec();
     origins.push(DescriptorNodeOrigin::new(
@@ -288,7 +317,13 @@ fn explicit_symbol_metadata_and_parser_provenance_must_agree() {
     ));
     descriptors[0].provenance = DescriptorProvenance::new(primary_key, origins).unwrap();
     assert_eq!(
-        DescriptorBundle::with_declarations(descriptors, bundle.declarations.to_vec()),
+        DescriptorBundle::with_declarations(
+            descriptors
+                .iter()
+                .map(|input| input.build().unwrap())
+                .collect(),
+            bundle.declarations().to_vec()
+        ),
         Err(DescriptorDeclarationError::UnexpectedSymbolOrigin(
             Box::new(pinned_id,)
         ))
@@ -345,32 +380,44 @@ fn restricted_visibility_wire_data_is_exact_and_validated() {
 }
 
 #[test]
-fn canonical_json_uses_payload_as_a_stable_tie_breaker() {
-    let mut forward = populated_bundle();
-    let mut alternate = forward.descriptors[0].clone();
+fn bundles_reject_duplicate_identities_even_when_payloads_differ() {
+    let bundle = populated_bundle();
+    let mut descriptors = bundle.descriptors().to_vec();
+    let mut alternate = krs_ir::testing::DescriptorInputs::from(descriptors[0].clone());
     if let DescriptorPayload::Constructor(constructor) = &mut alternate.payload {
         constructor.fields.push(ConstructorFieldDescriptor {
             name: "alternate".into(),
             sort: None,
         });
     }
-    forward.descriptors.push(alternate.clone());
-
-    let mut reversed = forward.descriptors.to_vec();
-    reversed.reverse();
-    let mut reverse = forward.clone();
-    reverse.descriptors = reversed.into();
+    descriptors.push(alternate.build().unwrap());
+    let expected =
+        DescriptorDeclarationError::DuplicateIdentity(Box::new(descriptors[0].id().clone()));
     assert_eq!(
-        forward.to_canonical_json().unwrap(),
-        reverse.to_canonical_json().unwrap()
+        DescriptorBundle::new(descriptors.clone()),
+        Err(expected.clone())
     );
+    let mut json = serde_json::to_value(&bundle).unwrap();
+    let duplicated = json["descriptors"][0].clone();
+    json["descriptors"].as_array_mut().unwrap().push(duplicated);
+    assert_rejects_with_message(
+        serde_json::from_value::<DescriptorBundle>(json),
+        expected.clone(),
+    );
+    descriptors.reverse();
+    assert_eq!(DescriptorBundle::new(descriptors), Err(expected));
 }
 
 #[test]
 fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     let primary_key = ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0);
     let nested_key = ProvenanceKey::new(ProvenanceRole::ConstructorFieldDeclaration, 0);
-    let mut descriptors = populated_bundle().descriptors.to_vec();
+    let mut descriptors = populated_bundle()
+        .descriptors()
+        .iter()
+        .cloned()
+        .map(krs_ir::testing::DescriptorInputs::from)
+        .collect::<Vec<_>>();
     let descriptor = descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
@@ -384,9 +431,14 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
     )
     .unwrap();
 
-    let forward = DescriptorBundle::new(descriptors);
+    let forward = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     assert_canonical_contract(&forward);
-    let mut ordered_descriptors = forward.descriptors.to_vec();
+    let mut ordered_descriptors = forward
+        .descriptors()
+        .iter()
+        .cloned()
+        .map(krs_ir::testing::DescriptorInputs::from)
+        .collect::<Vec<_>>();
     ordered_descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
@@ -399,30 +451,33 @@ fn canonical_json_orders_parser_keyed_origins_without_changing_primary() {
         ],
     )
     .unwrap();
-    let ordered = DescriptorBundle::new(ordered_descriptors);
+    let ordered = krs_ir::testing::descriptor_bundle(ordered_descriptors).unwrap();
     assert_canonical_contract(&ordered);
     assert_eq!(
         forward.to_canonical_json().unwrap(),
         ordered.to_canonical_json().unwrap()
     );
     let descriptor = forward
-        .descriptors
+        .descriptors()
         .iter()
-        .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id().item_kind() == ItemKind::Constructor)
         .unwrap();
-    assert_eq!(descriptor.provenance.primary_key(), &primary_key);
-    assert_eq!(descriptor.origin(), descriptor.provenance.primary_origin());
+    assert_eq!(descriptor.provenance().primary_key(), &primary_key);
+    assert_eq!(
+        descriptor.origin(),
+        descriptor.provenance().primary_origin()
+    );
 
     let round_trip: DescriptorBundle =
         serde_json::from_str(&forward.to_canonical_json().unwrap()).unwrap();
     let constructor = round_trip
-        .descriptors
+        .descriptors()
         .iter()
-        .find(|descriptor| descriptor.id.item_kind() == ItemKind::Constructor)
+        .find(|descriptor| descriptor.id().item_kind() == ItemKind::Constructor)
         .unwrap();
     assert!(
         constructor
-            .provenance
+            .provenance()
             .origin_for(&ProvenanceKey::new(
                 ProvenanceRole::ConstructorFieldDeclaration,
                 0

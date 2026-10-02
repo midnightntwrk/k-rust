@@ -392,7 +392,7 @@ fn check(prepared: &PreparedDefinition, backend: Backend) -> Result<CommandOutco
         warnings: crate::DiagnosticReports::default(),
         stdout: format!(
             "KRS check passed: {} descriptors, {} semantic modules\n",
-            prepared.bundle.descriptors.len(),
+            prepared.bundle.descriptors().len(),
             prepared.semantic.modules().len()
         )
         .into_bytes(),

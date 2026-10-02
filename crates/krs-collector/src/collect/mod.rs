@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use krs_ir::measure::Timings;
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
-    HostDescriptorPayload, HostItemId, HostProvenanceError, ItemKind, PackageId, SchemaVersion,
-    StableItemId,
+    HostItemId, HostProvenanceError, ItemKind, PackageId, SchemaVersion, StableItemId,
 };
 
 use crate::facade::FacadeAliases;
@@ -371,12 +370,7 @@ fn resolve_pending_descriptors(
             visibility,
             explicit_symbol,
         ));
-        resolved.push(Descriptor {
-            id: pending.id,
-            cfg: pending.host.cfg,
-            provenance,
-            payload,
-        });
+        resolved.push((pending.id, pending.host.cfg, provenance, payload));
     }
     timings.record("collector.resolve.provenance", provenance_seconds, 0);
     timings.record("collector.resolve.payload", payload_seconds, 0);
@@ -386,6 +380,12 @@ fn resolve_pending_descriptors(
     }
     timings.try_span("collector.resolve.bundle", |_| {
         resolved.sort();
+        let resolved = resolved
+            .into_iter()
+            .map(|(id, cfg, provenance, payload)| {
+                Descriptor::new(id, cfg, provenance, payload).map_err(descriptor_contract_error)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let bundle = DescriptorBundle::with_declarations(resolved, declaration_metadata).map_err(
             |error| {
                 CollectionError::new(
@@ -394,22 +394,26 @@ fn resolve_pending_descriptors(
                 )
             },
         )?;
-        for descriptor in &bundle.descriptors {
-            descriptor.validate_grammar_contract().map_err(|error| {
-                CollectionError::new(
-                    CollectionErrorKind::ProvenanceMismatch,
-                    format!("invalid stable grammar descriptor: {error}"),
-                )
-            })?;
-            descriptor.validate_state_contract().map_err(|error| {
-                CollectionError::new(
-                    CollectionErrorKind::ProvenanceMismatch,
-                    format!("invalid stable configuration descriptor: {error}"),
-                )
-            })?;
-        }
         Ok(bundle)
     })
+}
+
+fn descriptor_contract_error(error: krs_ir::DescriptorError) -> CollectionError {
+    let (kind, message) = match error {
+        krs_ir::DescriptorError::Grammar(error) => (
+            CollectionErrorKind::ProvenanceMismatch,
+            format!("invalid stable grammar descriptor: {error}"),
+        ),
+        krs_ir::DescriptorError::State(error) => (
+            CollectionErrorKind::ProvenanceMismatch,
+            format!("invalid stable configuration descriptor: {error}"),
+        ),
+        error @ krs_ir::DescriptorError::WrongKind { .. } => (
+            CollectionErrorKind::InvalidStableIdentity,
+            error.to_string(),
+        ),
+    };
+    CollectionError::new(kind, message)
 }
 
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {
@@ -517,17 +521,7 @@ fn stable_item_id(
 }
 
 fn validate_payload_item_kind(host: &HostDescriptor) -> Result<(), CollectionError> {
-    let expected = match &host.payload {
-        HostDescriptorPayload::Sort(_) => ItemKind::Sort,
-        HostDescriptorPayload::Constructor(_) => ItemKind::Constructor,
-        HostDescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
-        HostDescriptorPayload::Grammar(_) => ItemKind::Grammar,
-        HostDescriptorPayload::StructuredRule(rule) => rule.sentence_kind.item_kind(),
-        HostDescriptorPayload::Cell(_) => ItemKind::Cell,
-        HostDescriptorPayload::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
-        HostDescriptorPayload::HeadRule(rule) => rule.sentence_kind.item_kind(),
-        HostDescriptorPayload::ContextAlias(_) => ItemKind::ContextAlias,
-    };
+    let expected = host.payload.item_kind();
     if host.id.item_kind() != expected {
         return Err(CollectionError::new(
             CollectionErrorKind::ItemKindMismatch,

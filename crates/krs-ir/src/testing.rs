@@ -223,3 +223,146 @@ pub fn origin_in(
         authored_in(package, path, digest, start, end),
     )
 }
+
+/// Creates a descriptor fixture through its validating constructor.
+///
+/// # Panics
+///
+/// Panics if the fixture violates a descriptor contract.
+#[must_use]
+pub fn descriptor(
+    id: StableItemId,
+    cfg: std::collections::BTreeMap<String, Option<String>>,
+    provenance: crate::DescriptorProvenance,
+    payload: crate::DescriptorPayload,
+) -> crate::Descriptor {
+    crate::Descriptor::new(id, cfg, provenance, payload).expect("valid descriptor fixture")
+}
+
+/// Editable constructor inputs for descriptor boundary tests.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DescriptorInputs {
+    /// Stable identity to validate.
+    pub id: StableItemId,
+    /// Enabled configuration keys.
+    pub cfg: std::collections::BTreeMap<String, Option<String>>,
+    /// Parser-keyed provenance to validate.
+    pub provenance: crate::DescriptorProvenance,
+    /// Declaration payload to validate.
+    #[serde(flatten)]
+    pub payload: crate::DescriptorPayload,
+}
+
+impl DescriptorInputs {
+    /// Collects inputs without creating a descriptor.
+    #[must_use]
+    pub const fn new(
+        id: StableItemId,
+        cfg: std::collections::BTreeMap<String, Option<String>>,
+        provenance: crate::DescriptorProvenance,
+        payload: crate::DescriptorPayload,
+    ) -> Self {
+        Self {
+            id,
+            cfg,
+            provenance,
+            payload,
+        }
+    }
+
+    /// Validates these inputs through the descriptor constructor.
+    ///
+    /// # Errors
+    ///
+    /// Returns the violated descriptor contract.
+    pub fn build(&self) -> Result<crate::Descriptor, crate::DescriptorError> {
+        crate::Descriptor::new(
+            self.id.clone(),
+            self.cfg.clone(),
+            self.provenance.clone(),
+            self.payload.clone(),
+        )
+    }
+}
+
+impl From<crate::Descriptor> for DescriptorInputs {
+    fn from(descriptor: crate::Descriptor) -> Self {
+        Self::new(
+            descriptor.id().clone(),
+            descriptor.cfg().clone(),
+            descriptor.provenance().clone(),
+            descriptor.payload().clone(),
+        )
+    }
+}
+
+/// Builds descriptor inputs and their inherited declaration metadata.
+///
+/// # Errors
+///
+/// Rejects invalid descriptor or bundle contracts.
+pub fn descriptor_bundle(
+    inputs: Vec<DescriptorInputs>,
+) -> serde_json::Result<crate::DescriptorBundle> {
+    let descriptors = inputs
+        .into_iter()
+        .map(|input| crate::Descriptor::new(input.id, input.cfg, input.provenance, input.payload))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(serde::de::Error::custom)?;
+    crate::DescriptorBundle::new(descriptors).map_err(serde::de::Error::custom)
+}
+
+/// Editable bundle inputs for constructor and compiler boundary tests.
+#[derive(Clone, Debug)]
+pub struct DescriptorBundleInputs {
+    /// Descriptor constructor inputs in test order.
+    pub descriptors: Vec<DescriptorInputs>,
+    /// Exact metadata overrides for descriptor identities.
+    pub declarations: Vec<crate::DescriptorDeclaration>,
+}
+
+impl DescriptorBundleInputs {
+    /// Collects descriptor inputs with inherited declaration metadata.
+    #[must_use]
+    pub const fn new(descriptors: Vec<DescriptorInputs>) -> Self {
+        Self {
+            descriptors,
+            declarations: Vec::new(),
+        }
+    }
+
+    /// Builds the descriptors and validates bundle-wide contracts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid descriptor or bundle contracts.
+    pub fn build(&self) -> serde_json::Result<crate::DescriptorBundle> {
+        let descriptors = self
+            .descriptors
+            .iter()
+            .map(DescriptorInputs::build)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(serde::de::Error::custom)?;
+        let mut declarations = descriptors
+            .iter()
+            .map(|descriptor| {
+                (
+                    descriptor.id().clone(),
+                    crate::DescriptorDeclaration::new(
+                        descriptor.id().clone(),
+                        crate::RustVisibility::Inherited,
+                        None,
+                    ),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for declaration in &self.declarations {
+            declarations.insert(declaration.id().clone(), declaration.clone());
+        }
+        crate::DescriptorBundle::with_declarations(
+            descriptors,
+            declarations.into_values().collect(),
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}

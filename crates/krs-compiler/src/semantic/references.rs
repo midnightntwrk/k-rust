@@ -15,7 +15,7 @@ pub(super) fn validate_all_stable_references(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
-        match &descriptor.payload {
+        match descriptor.payload() {
             DescriptorPayload::Sort(sort) => {
                 for parent in &sort.parents {
                     declarations.sort(parent)?;
@@ -29,7 +29,8 @@ pub(super) fn validate_all_stable_references(
                             node: "constructor field",
                             detail: format!(
                                 "field {:?} on {} has no resolved sort",
-                                field.name, descriptor.id
+                                field.name,
+                                descriptor.id()
                             ),
                         }
                     })?;

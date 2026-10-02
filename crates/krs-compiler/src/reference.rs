@@ -64,12 +64,12 @@ fn read_package_source<'bundle>(
 ) -> Result<(String, &'bundle [String]), ReferenceSourceError> {
     let in_package = || {
         bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .filter(|descriptor| descriptor.id.package() == package)
+            .filter(|descriptor| descriptor.id().package() == package)
     };
     let head_rules = in_package()
-        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::HeadRule(_)))
+        .filter(|descriptor| matches!(descriptor.payload(), DescriptorPayload::HeadRule(_)))
         .collect::<Vec<_>>();
     let candidates = if head_rules.is_empty() {
         in_package().collect()
@@ -82,7 +82,7 @@ fn read_package_source<'bundle>(
             sources
                 .entry(file)
                 .or_default()
-                .insert(descriptor.id.module_path());
+                .insert(descriptor.id().module_path());
         }
     }
     let [(file, module_paths)] = sources.iter().collect::<Vec<_>>()[..] else {
@@ -222,9 +222,9 @@ pub fn expand_reference_source(
             let descriptors = descriptor_index
                 .head_rules()
                 .filter(|(descriptor, _)| {
-                    descriptor.id.package() == package
-                        && descriptor.id.module_path() == module_path
-                        && descriptor.id.item_name() == name
+                    descriptor.id().package() == package
+                        && descriptor.id().module_path() == module_path
+                        && descriptor.id().item_name() == name
                 })
                 .collect::<Vec<_>>();
             let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -234,8 +234,8 @@ pub fn expand_reference_source(
                 });
             };
             needs_map_macro |= !rule.extras.is_empty();
-            let semantic_rule = semantic_rules.get(&descriptor.id).ok_or_else(|| {
-                ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id.clone()))
+            let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+                ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
             })?;
             items.push(syn::Item::Fn(render_rule(
                 clause,
@@ -421,10 +421,10 @@ fn materialize_reference_variant_fields(
     let descriptors = descriptor_index
         .constructors()
         .filter(|(descriptor, _)| {
-            descriptor.id.package() == package
-                && descriptor.id.module_path() == module_path
-                && output.ident == descriptor.id.item_name()
-                && descriptor.id.disambiguator() == disambiguator
+            descriptor.id().package() == package
+                && descriptor.id().module_path() == module_path
+                && output.ident == descriptor.id().item_name()
+                && descriptor.id().disambiguator() == disambiguator
         })
         .collect::<Vec<_>>();
     let [(_, constructor)] = descriptors.as_slice() else {
@@ -543,8 +543,8 @@ fn render_reference_token_term_type(
 }
 
 fn is_token_sort(id: &StableItemId, bundle: &krs_ir::DescriptorBundle) -> bool {
-    bundle.descriptors.iter().any(|descriptor| {
-        let DescriptorPayload::Grammar(grammar) = &descriptor.payload else {
+    bundle.descriptors().iter().any(|descriptor| {
+        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
             return false;
         };
         let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
@@ -1236,11 +1236,11 @@ fn render_term(
                 return Err(ReferenceExpansionError::NamedBuiltinApplication);
             };
             let descriptor = bundle
-                .descriptors
+                .descriptors()
                 .iter()
-                .find(|descriptor| descriptor.id == *id)
+                .find(|descriptor| descriptor.id() == id)
                 .ok_or_else(|| ReferenceExpansionError::MissingDeclaration(Box::new(id.clone())))?;
-            let DescriptorPayload::Constructor(constructor) = &descriptor.payload else {
+            let DescriptorPayload::Constructor(constructor) = descriptor.payload() else {
                 return Err(ReferenceExpansionError::NamedNonConstructor(Box::new(
                     id.clone(),
                 )));
@@ -1903,7 +1903,7 @@ mod tests {
     fn package_without_authored_descriptors_has_no_source_to_expand() {
         let package = PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap();
         let error = read_package_source(
-            &DescriptorBundle::new(Vec::new()),
+            &DescriptorBundle::new(Vec::new()).unwrap(),
             &package,
             std::path::Path::new("Cargo.toml"),
         )
@@ -1922,9 +1922,14 @@ mod tests {
             sort: BuiltinSort::Bytes,
             value: r#"b"\x00\x41\xff""#.to_owned(),
         };
-        let rendered = render_term(&token, false, &package, &DescriptorBundle::new(Vec::new()))
-            .unwrap()
-            .to_string();
+        let rendered = render_term(
+            &token,
+            false,
+            &package,
+            &DescriptorBundle::new(Vec::new()).unwrap(),
+        )
+        .unwrap()
+        .to_string();
         assert_eq!(rendered, r#"k :: bytes ! (b"\0A\xFF")"#);
     }
 
@@ -1966,9 +1971,14 @@ mod tests {
                 Box::new(variable("index", 1)),
             ]),
         };
-        let rendered = render_term(&lookup, false, &package, &DescriptorBundle::new(Vec::new()))
-            .unwrap()
-            .to_string();
+        let rendered = render_term(
+            &lookup,
+            false,
+            &package,
+            &DescriptorBundle::new(Vec::new()).unwrap(),
+        )
+        .unwrap()
+        .to_string();
         assert_eq!(rendered, "k :: builtin :: list :: get (program , index)");
     }
 }

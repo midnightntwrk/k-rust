@@ -54,8 +54,8 @@ mod readable_imp_grammar {
         ReadableExpr as Expr, ReadableStmt as Stmt, ReadableValue as Value,
     };
     use language_host::KResult;
-    use language_host::builtin::{Bool, Id, Int, KSequence, Map, bool, int};
     use language_host::builtin::map::update as set;
+    use language_host::builtin::{Bool, Id, Int, KSequence, Map, bool, int};
     #[language_host::constructors(sort = Expr, result = KResult)]
     #[language_host::precedence(
         (Neg, Not)
@@ -237,8 +237,8 @@ mod readable_imp_grammar {
         where value: Value;
     }
 
-    use language_host::configuration::{Cell, KCell};
     use language_host::builtin::map::update as persistent_update;
+    use language_host::configuration::{Cell, KCell};
     use language_host::map;
 
     #[language_host::rule]
@@ -622,10 +622,7 @@ impl TwoComputationMachine {
 pub struct ExplicitEquivalentMachine {
     pub k: language_host::configuration::KCell<language_host::builtin::KSequence>,
     pub env: language_host::configuration::Cell<
-        language_host::builtin::Map<
-            language_host::builtin::Id,
-            readable_sorts::ReadableValue,
-        >,
+        language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
     >,
 }
 
@@ -650,18 +647,14 @@ pub struct ReadableEquivalentMachine {
     #[language_host::cell]
     pub k: language_host::builtin::KSequence,
     #[language_host::cell]
-    pub env:
-        language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
+    pub env: language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
 }
 
 impl ReadableEquivalentMachine {
     #[language_host::init]
     pub fn init(
         pgm: readable_sorts::ReadableStmt,
-        env: language_host::builtin::Map<
-            language_host::builtin::Id,
-            readable_sorts::ReadableValue,
-        >,
+        env: language_host::builtin::Map<language_host::builtin::Id, readable_sorts::ReadableValue>,
     ) -> Self {
         Self { k: k![pgm], env }
     }
@@ -900,13 +893,9 @@ mod tests {
                 .all(|descriptor| descriptor.protocol_version == SchemaVersion::CURRENT)
         );
         assert!(descriptors.iter().all(|descriptor| {
-            descriptor
-                .provenance
-                .authored()
-                .iter()
-                .all(|anchor| {
-                    !krs_ir::DisplayPath::is_absolute_spelling(anchor.anchor().display_file())
-                })
+            descriptor.provenance.authored().iter().all(|anchor| {
+                !krs_ir::DisplayPath::is_absolute_spelling(anchor.anchor().display_file())
+            })
         }));
         assert_eq!(RUNTIME_CELL_CONSTRUCTIONS.load(Ordering::SeqCst), 0);
     }
@@ -1081,13 +1070,13 @@ mod tests {
         .expect("configuration-owned rules ignore unrelated fixed configurations");
         assert!(
             explicitly_owned_bundle
-                .descriptors
+                .descriptors()
                 .iter()
                 .any(|descriptor| {
-                    descriptor.id.item_kind() == ItemKind::Rule
-                        && descriptor.id.item_name() == "assign"
+                    descriptor.id().item_kind() == ItemKind::Rule
+                        && descriptor.id().item_name() == "assign"
                         && descriptor
-                            .id
+                            .id()
                             .module_path()
                             .last()
                             .is_some_and(|module| module == "readable_imp_grammar")
@@ -1204,7 +1193,7 @@ mod tests {
             reversed_bundle.to_canonical_json().unwrap()
         );
         assert_eq!(
-            bundle.descriptors.len(),
+            bundle.descriptors().len(),
             descriptors.len() - head_rules.len()
         );
     }
@@ -1214,11 +1203,11 @@ mod tests {
         let descriptors = sorted_descriptors();
         let bundle = broad_bundle(&descriptors);
         let serialized_hook = bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Keccak256Raw")
+            .find(|descriptor| descriptor.id().item_name() == "__krs_grammar_Keccak256Raw")
             .expect("hooked grammar survives host collection");
-        let krs_ir::DescriptorPayload::Grammar(serialized_hook) = &serialized_hook.payload else {
+        let krs_ir::DescriptorPayload::Grammar(serialized_hook) = serialized_hook.payload() else {
             panic!("collected hooked descriptor must remain grammar")
         };
         let krs_ir::GrammarDescriptor::Production(serialized_hook) = serialized_hook.as_ref()
@@ -1233,12 +1222,12 @@ mod tests {
             }
         )));
         let serialized_sha256_hook = bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Sha256Raw")
+            .find(|descriptor| descriptor.id().item_name() == "__krs_grammar_Sha256Raw")
             .expect("SHA-256 hook survives host collection");
         let krs_ir::DescriptorPayload::Grammar(serialized_sha256_hook) =
-            &serialized_sha256_hook.payload
+            serialized_sha256_hook.payload()
         else {
             panic!("collected SHA-256 hook descriptor must remain grammar")
         };
@@ -1266,12 +1255,12 @@ mod tests {
         let descriptors = sorted_descriptors();
         let bundle = broad_bundle(&descriptors);
         let serialized_ripemd160_hook = bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_Ripemd160Raw")
+            .find(|descriptor| descriptor.id().item_name() == "__krs_grammar_Ripemd160Raw")
             .expect("RIPEMD-160 hook survives host collection");
         let krs_ir::DescriptorPayload::Grammar(serialized_ripemd160_hook) =
-            &serialized_ripemd160_hook.payload
+            serialized_ripemd160_hook.payload()
         else {
             panic!("collected RIPEMD-160 hook descriptor must remain grammar")
         };
@@ -1293,12 +1282,12 @@ mod tests {
                 ))
         );
         let serialized_ecdsa_recover_hook = bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .find(|descriptor| descriptor.id.item_name() == "__krs_grammar_EcdsaRecover")
+            .find(|descriptor| descriptor.id().item_name() == "__krs_grammar_EcdsaRecover")
             .expect("ECDSA recovery hook survives host collection");
         let krs_ir::DescriptorPayload::Grammar(serialized_ecdsa_recover_hook) =
-            &serialized_ecdsa_recover_hook.payload
+            serialized_ecdsa_recover_hook.payload()
         else {
             panic!("collected ECDSA recovery hook descriptor must remain grammar")
         };
@@ -1516,10 +1505,10 @@ mod tests {
         let analysis = krs_compiler::analyze_open_sorts(&bundle).unwrap();
         assert_semantic_configuration_equivalent(&bundle);
         let diamond_id = bundle
-            .descriptors
+            .descriptors()
             .iter()
-            .find(|descriptor| descriptor.id.item_name() == "Diamond")
-            .map(|descriptor| &descriptor.id)
+            .find(|descriptor| descriptor.id().item_name() == "Diamond")
+            .map(krs_ir::Descriptor::id)
             .expect("the readable diamond sort was collected");
         assert_eq!(analysis.direct_parents()[diamond_id].len(), 2);
         assert_eq!(analysis.transitive_parents()[diamond_id].len(), 3);
@@ -2719,22 +2708,24 @@ mod tests {
     fn assert_semantic_configuration_equivalent(bundle: &krs_ir::DescriptorBundle) {
         let lower = |configuration_name: &str| {
             let descriptors = bundle
-                .descriptors
+                .descriptors()
                 .iter()
                 .filter(|descriptor| {
-                    descriptor.id.item_kind() == ItemKind::Sort
-                        || (descriptor.id.item_kind() == ItemKind::Configuration
-                            && descriptor.id.item_name() == configuration_name)
+                    descriptor.id().item_kind() == ItemKind::Sort
+                        || (descriptor.id().item_kind() == ItemKind::Configuration
+                            && descriptor.id().item_name() == configuration_name)
                 })
                 .cloned()
                 .collect();
-            krs_compiler::lower_descriptor_bundle(&krs_ir::DescriptorBundle::new(descriptors))
-                .unwrap()
-                .modules()
-                .iter()
-                .find_map(krs_ir::SemanticModule::configuration)
-                .cloned()
-                .expect("the selected bundle has one semantic configuration")
+            krs_compiler::lower_descriptor_bundle(
+                &krs_ir::DescriptorBundle::new(descriptors).unwrap(),
+            )
+            .unwrap()
+            .modules()
+            .iter()
+            .find_map(krs_ir::SemanticModule::configuration)
+            .cloned()
+            .expect("the selected bundle has one semantic configuration")
         };
         let explicit = lower("ExplicitEquivalentMachine");
         let readable = lower("ReadableEquivalentMachine");

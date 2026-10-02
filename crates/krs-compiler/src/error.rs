@@ -7,8 +7,6 @@ use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum AnalysisErrorKind {
-    /// Two serialized declarations used the same stable identity.
-    DuplicateItemId,
     /// A sort or constructor referenced an absent declaration.
     UnresolvedReference,
     /// A sort or constructor referenced the wrong declaration namespace.
@@ -56,7 +54,6 @@ impl Error for AnalysisError {}
 impl ToDiagnostic for AnalysisError {
     fn to_diagnostic(&self) -> Diagnostic {
         let code = match self.kind {
-            AnalysisErrorKind::DuplicateItemId => codes::analysis::DUPLICATE_ITEM_ID,
             AnalysisErrorKind::UnresolvedReference => codes::analysis::UNRESOLVED_REFERENCE,
             AnalysisErrorKind::ReferenceKindMismatch => codes::analysis::REFERENCE_KIND_MISMATCH,
             AnalysisErrorKind::SortCycle => codes::analysis::SORT_CYCLE,

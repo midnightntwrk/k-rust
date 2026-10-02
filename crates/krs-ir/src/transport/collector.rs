@@ -115,10 +115,10 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
     let mut items = Vec::new();
     let mut file_indexes = BTreeMap::new();
     let mut item_indexes = BTreeMap::new();
-    let mut descriptors = Vec::with_capacity(bundle.descriptors.len());
-    for descriptor in &bundle.descriptors {
-        let mut origins = Vec::with_capacity(descriptor.provenance.origins().len());
-        for node in descriptor.provenance.origins() {
+    let mut descriptors = Vec::with_capacity(bundle.descriptors().len());
+    for descriptor in bundle.descriptors() {
+        let mut origins = Vec::with_capacity(descriptor.provenance().origins().len());
+        for node in descriptor.provenance().origins() {
             let mut frames = Vec::with_capacity(node.origin.frames().len());
             for frame in node.origin.frames() {
                 let encoded = match frame {
@@ -153,13 +153,13 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
             });
         }
         descriptors.push(DescriptorRef {
-            id: &descriptor.id,
-            cfg: &descriptor.cfg,
+            id: descriptor.id(),
+            cfg: descriptor.cfg(),
             provenance: ProvenanceRef {
-                primary_key: descriptor.provenance.primary_key(),
+                primary_key: descriptor.provenance().primary_key(),
                 origins,
             },
-            payload: &descriptor.payload,
+            payload: descriptor.payload(),
         });
     }
     CollectorRef {
@@ -168,7 +168,7 @@ fn encode(bundle: &DescriptorBundle) -> CollectorRef<'_> {
         files,
         items,
         descriptors,
-        declarations: &bundle.declarations,
+        declarations: bundle.declarations(),
     }
 }
 
@@ -356,16 +356,18 @@ pub(crate) fn decode(bytes: &[u8]) -> serde_json::Result<DescriptorBundle> {
         }
         let provenance = DescriptorProvenance::new(descriptor.provenance.primary_key, origins)
             .map_err(invalid)?;
-        descriptors.push(Descriptor {
-            id: descriptor.id,
-            cfg: descriptor.cfg,
+        descriptors.push((
+            descriptor.id,
+            descriptor.cfg,
             provenance,
-            payload: descriptor.payload,
-        });
+            descriptor.payload,
+        ));
     }
-    for descriptor in &descriptors {
-        descriptor.validate_grammar_contract().map_err(invalid)?;
-        descriptor.validate_state_contract().map_err(invalid)?;
-    }
+    let descriptors = descriptors
+        .into_iter()
+        .map(|(id, cfg, provenance, payload)| {
+            Descriptor::new(id, cfg, provenance, payload).map_err(invalid)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     DescriptorBundle::with_declarations(descriptors, wire.declarations).map_err(invalid)
 }

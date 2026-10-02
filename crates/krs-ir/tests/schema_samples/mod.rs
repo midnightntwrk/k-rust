@@ -1968,12 +1968,12 @@ impl Sample for WireTermArgument {
 }
 impl Sample for Descriptor {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            id: sample::<StableItemId>(),
-            cfg: sample::<BTreeMap<String, Option<String>>>(),
-            provenance: sample::<DescriptorProvenance>(),
-            payload: sample::<DescriptorPayload>(),
-        }]
+        vec![krs_ir::testing::descriptor(
+            sample::<StableItemId>(),
+            sample::<BTreeMap<String, Option<String>>>(),
+            sample::<DescriptorProvenance>(),
+            sample::<DescriptorPayload>(),
+        )]
     }
 }
 impl Sample for DefinitionRuleBody {

@@ -1071,12 +1071,12 @@ fn collector_descriptor(
             krs_ir::testing::authored(0, 3),
         ));
     }
-    Descriptor {
-        provenance: DescriptorProvenance::new(key, origins).unwrap(),
+    krs_ir::testing::descriptor(
         id,
-        cfg: BTreeMap::from([("feature".to_owned(), Some("enabled".to_owned()))]),
+        BTreeMap::from([("feature".to_owned(), Some("enabled".to_owned()))]),
+        DescriptorProvenance::new(key, origins).unwrap(),
         payload,
-    }
+    )
 }
 
 #[test]

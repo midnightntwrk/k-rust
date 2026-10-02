@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
-    DescriptorPayload, ItemKind, ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
+    DescriptorPayload, ModuleId, PackageId, ProvenanceRole, SemanticTheory, StableItemId,
 };
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
@@ -41,37 +41,21 @@ use references::validate_all_stable_references;
 pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
-    let mut descriptors = bundle.descriptors.iter().collect::<Vec<_>>();
-    descriptors.sort_by(|left, right| left.id.cmp(&right.id));
+    let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
+    descriptors.sort_by(|left, right| left.id().cmp(right.id()));
     let head_rule_ids = descriptors
         .iter()
-        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::HeadRule(_)))
-        .map(|descriptor| descriptor.id.clone())
+        .filter(|descriptor| matches!(descriptor.payload(), DescriptorPayload::HeadRule(_)))
+        .map(|descriptor| descriptor.id().clone())
         .collect::<BTreeSet<_>>();
-    let mut declaration_ids = BTreeSet::new();
-    for descriptor in &descriptors {
-        descriptor.validate_grammar_contract().map_err(|error| {
-            DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(descriptor.id.clone()),
-                detail: error.to_string(),
-            }
-        })?;
-        descriptor.validate_state_contract().map_err(|error| {
-            DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(descriptor.id.clone()),
-                detail: error.to_string(),
-            }
-        })?;
-        if !declaration_ids.insert(&descriptor.id) {
-            return Err(DescriptorLoweringError::DuplicateItemId(Box::new(
-                descriptor.id.clone(),
-            )));
-        }
-        require_payload_kind(descriptor)?;
-    }
     let configurations = descriptors
         .iter()
-        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::FixedConfiguration(_)))
+        .filter(|descriptor| {
+            matches!(
+                descriptor.payload(),
+                DescriptorPayload::FixedConfiguration(_)
+            )
+        })
         .count();
     if configurations != 1 {
         return Err(DescriptorLoweringError::ConfigurationCount(configurations));
@@ -82,17 +66,17 @@ pub fn lower_descriptor_bundle(
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
     let mut declaration_metadata = bundle
-        .declarations
+        .declarations()
         .iter()
         .cloned()
         .map(|declaration| (declaration.id().clone(), declaration))
         .collect::<BTreeMap<_, _>>();
     for descriptor in &descriptors {
         declaration_metadata
-            .entry(descriptor.id.clone())
+            .entry(descriptor.id().clone())
             .or_insert_with(|| {
                 DescriptorDeclaration::new(
-                    descriptor.id.clone(),
+                    descriptor.id().clone(),
                     krs_ir::RustVisibility::Inherited,
                     None,
                 )
@@ -104,7 +88,7 @@ pub fn lower_descriptor_bundle(
     let mut packages = BTreeMap::<PackageId, Vec<&Descriptor>>::new();
     for descriptor in descriptors {
         packages
-            .entry(descriptor.id.package().clone())
+            .entry(descriptor.id().package().clone())
             .or_default()
             .push(descriptor);
     }
@@ -142,7 +126,7 @@ pub fn lower_descriptor_bundle(
 
 fn exact_rule_head_range(descriptor: &Descriptor) -> Option<krs_ir::SourceRange> {
     descriptor
-        .provenance
+        .provenance()
         .origins()
         .iter()
         .find(|node| {
@@ -157,12 +141,12 @@ fn validate_builtin_sort_names(
     metadata: &BTreeMap<StableItemId, DescriptorDeclaration>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
-        if !matches!(descriptor.payload, DescriptorPayload::Sort(_)) {
+        if !matches!(descriptor.payload(), DescriptorPayload::Sort(_)) {
             continue;
         }
-        let declaration = &metadata[&descriptor.id];
+        let declaration = &metadata[descriptor.id()];
         let name = declaration.explicit_symbol.as_ref().map_or_else(
-            || descriptor.id.item_name(),
+            || descriptor.id().item_name(),
             krs_ir::ExplicitSymbol::final_component,
         );
         if let Some(builtin) = BuiltinSort::ALL
@@ -170,34 +154,10 @@ fn validate_builtin_sort_names(
             .find(|builtin| builtin.k_name() == name)
         {
             return Err(DescriptorLoweringError::BuiltinSortNameCollision {
-                id: Box::new(descriptor.id.clone()),
+                id: Box::new(descriptor.id().clone()),
                 builtin,
             });
         }
     }
     Ok(())
-}
-
-fn require_payload_kind(descriptor: &Descriptor) -> Result<(), DescriptorLoweringError> {
-    let expected = match &descriptor.payload {
-        DescriptorPayload::Sort(_) => ItemKind::Sort,
-        DescriptorPayload::Constructor(_) => ItemKind::Constructor,
-        DescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
-        DescriptorPayload::Grammar(_) => ItemKind::Grammar,
-        DescriptorPayload::StructuredRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::Cell(_) => ItemKind::Cell,
-        DescriptorPayload::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::HeadRule(rule) => rule.sentence_kind.item_kind(),
-        DescriptorPayload::ContextAlias(_) => ItemKind::ContextAlias,
-    };
-    let actual = descriptor.id.item_kind();
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(DescriptorLoweringError::WrongItemKind {
-            id: Box::new(descriptor.id.clone()),
-            expected,
-            actual,
-        })
-    }
 }

@@ -1,5 +1,7 @@
 //! Stable grammar and structured-rule descriptors lower without reparsing Rust spellings.
 
+use krs_ir::testing::{DescriptorBundleInputs, DescriptorInputs};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::testing::assert_lowering_contract;
@@ -11,16 +13,15 @@ use krs_ir::testing;
 use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, ConstructorDescriptor, ConstructorFieldDescriptor,
-    Descriptor, DescriptorApplicationHeadClass, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorBundle, DescriptorGroupReference, DescriptorLiteral,
-    DescriptorNodeOrigin, DescriptorPayload, DescriptorPrecedenceChain, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorProvenance, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef,
-    DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind,
-    GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId,
-    ProductionGroupId, ProvenanceKey, ProvenanceRole, SemanticSortRef, SemanticTerm,
-    SemanticTermKind, SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
-    generated_production_id,
+    DescriptorApplicationHeadClass, DescriptorApplicationRef, DescriptorApplicationReference,
+    DescriptorGroupReference, DescriptorLiteral, DescriptorNodeOrigin, DescriptorPayload,
+    DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
+    DescriptorProductionItem, DescriptorProductionOwner, DescriptorProvenance,
+    DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
+    DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind, GrammarDescriptor,
+    GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId, ProductionGroupId,
+    ProvenanceKey, ProvenanceRole, SemanticSortRef, SemanticTerm, SemanticTermKind, SentenceKind,
+    SortDescriptor, StableItemId, StructuredRuleDescriptor, generated_production_id,
 };
 
 fn package() -> PackageId {
@@ -81,18 +82,18 @@ fn declaration(
     id: StableItemId,
     payload: DescriptorPayload,
     primary: ProvenanceRole,
-) -> Descriptor {
+) -> DescriptorInputs {
     let extra = matches!(payload, DescriptorPayload::Constructor(_))
         .then(|| key(ProvenanceRole::ConstructorDeclaration, 0));
-    Descriptor {
+    DescriptorInputs::new(
         id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(key(primary, 0), extra),
+        BTreeMap::new(),
+        provenance(key(primary, 0), extra),
         payload,
-    }
+    )
 }
 
-fn machine_configuration(start: StableItemId) -> Descriptor {
+fn machine_configuration(start: StableItemId) -> DescriptorInputs {
     let owner = id("Machine", ItemKind::Configuration);
     let k = krs_ir::DescriptorCellIdentity {
         owner: owner.clone(),
@@ -165,16 +166,16 @@ fn machine_configuration(start: StableItemId) -> Descriptor {
         },
     };
     let keys = configuration.expected_provenance_keys(&owner).unwrap();
-    Descriptor {
-        id: owner,
-        cfg: BTreeMap::new(),
-        provenance: provenance(key(ProvenanceRole::ConfigurationDeclaration, 0), keys),
-        payload: DescriptorPayload::FixedConfiguration(Box::new(configuration)),
-    }
+    DescriptorInputs::new(
+        owner,
+        BTreeMap::new(),
+        provenance(key(ProvenanceRole::ConfigurationDeclaration, 0), keys),
+        DescriptorPayload::FixedConfiguration(Box::new(configuration)),
+    )
 }
 
 #[allow(clippy::too_many_lines)]
-fn bundle() -> (DescriptorBundle, StableItemId) {
+fn bundle() -> (DescriptorBundleInputs, StableItemId) {
     let expr = id("Expr", ItemKind::Sort);
     let add = id("Add", ItemKind::Constructor);
     let unit = id("Unit", ItemKind::Constructor);
@@ -238,10 +239,10 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
     ];
 
     let add_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: add_grammar_id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        add_grammar_id,
+        BTreeMap::new(),
+        provenance(
             add_primary.clone(),
             [
                 key(ProvenanceRole::ConstructorSort, 0),
@@ -258,7 +259,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 key(ProvenanceRole::ConstructorGroup, 0),
             ],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: add_primary.clone(),
                 template_key: Some(key(ProvenanceRole::ConstructorSyntax, 0)),
@@ -305,20 +306,20 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 }],
             },
         ))),
-    });
+    ));
 
     let unit_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: unit_grammar_id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        unit_grammar_id,
+        BTreeMap::new(),
+        provenance(
             unit_primary.clone(),
             [
                 key(ProvenanceRole::ConstructorSort, 0),
                 key(ProvenanceRole::ConstructorGroup, 0),
             ],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: unit_primary.clone(),
                 template_key: None,
@@ -341,17 +342,17 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 }],
             },
         ))),
-    });
+    ));
 
     let start_primary = key(ProvenanceRole::ConstructorDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: start_grammar_id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        start_grammar_id,
+        BTreeMap::new(),
+        provenance(
             start_primary.clone(),
             [key(ProvenanceRole::ConstructorSort, 0)],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: start_primary.clone(),
                 template_key: None,
@@ -369,13 +370,13 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 attributes: Vec::new(),
             },
         ))),
-    });
+    ));
 
     let bracket_primary = key(ProvenanceRole::BracketDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: bracket_grammar_id.clone(),
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        bracket_grammar_id.clone(),
+        BTreeMap::new(),
+        provenance(
             bracket_primary.clone(),
             [
                 key(ProvenanceRole::SortDeclaration, 0),
@@ -385,7 +386,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 key(ProvenanceRole::BracketValueReference, 0),
             ],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Production(
             DescriptorProduction {
                 key: bracket_primary.clone(),
                 template_key: None,
@@ -419,13 +420,13 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 }],
             },
         ))),
-    });
+    ));
 
     let precedence_primary = key(ProvenanceRole::PrecedenceDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: id("Precedence", ItemKind::Grammar),
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        id("Precedence", ItemKind::Grammar),
+        BTreeMap::new(),
+        provenance(
             precedence_primary.clone(),
             [
                 key(ProvenanceRole::PrecedenceChain, 0),
@@ -433,7 +434,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 key(ProvenanceRole::PrecedenceGroupReference, 1),
             ],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Precedence {
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Precedence {
             key: precedence_primary,
             chains: vec![DescriptorPrecedenceChain {
                 key: key(ProvenanceRole::PrecedenceChain, 0),
@@ -451,19 +452,19 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 .unwrap(),
             }],
         })),
-    });
+    ));
     let assoc_primary = key(ProvenanceRole::AssociativityDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: id("Associativity", ItemKind::Grammar),
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        id("Associativity", ItemKind::Grammar),
+        BTreeMap::new(),
+        provenance(
             assoc_primary.clone(),
             [
                 key(ProvenanceRole::AssociativitySentence, 0),
                 key(ProvenanceRole::AssociativityGroupReference, 0),
             ],
         ),
-        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Associativity {
+        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Associativity {
             key: assoc_primary,
             sentences: vec![krs_ir::DescriptorAssociativitySentence {
                 key: key(ProvenanceRole::AssociativitySentence, 0),
@@ -474,13 +475,13 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 }],
             }],
         })),
-    });
+    ));
 
     let rule_primary = key(ProvenanceRole::RuleDeclaration, 0);
-    descriptors.push(Descriptor {
-        id: id("add_wildcard", ItemKind::Rule),
-        cfg: BTreeMap::new(),
-        provenance: provenance(
+    descriptors.push(DescriptorInputs::new(
+        id("add_wildcard", ItemKind::Rule),
+        BTreeMap::new(),
+        provenance(
             rule_primary.clone(),
             [
                 key(ProvenanceRole::RulePattern, 0),
@@ -498,7 +499,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 key(ProvenanceRole::RuleRightReference, 0),
             ],
         ),
-        payload: DescriptorPayload::StructuredRule(Box::new(StructuredRuleDescriptor {
+        DescriptorPayload::StructuredRule(Box::new(StructuredRuleDescriptor {
             sentence_kind: SentenceKind::Transition,
             label: None,
             requires: None,
@@ -547,24 +548,24 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
                 arguments: vec![].try_into().unwrap(),
             },
         })),
-    });
+    ));
 
     descriptors.push(machine_configuration(start));
     (
-        DescriptorBundle::new(descriptors),
+        DescriptorBundleInputs::new(descriptors),
         generated_production_id(&bracket_grammar_id, GeneratedProductionKind::Bracket).unwrap(),
     )
 }
 
 /// Adds a descriptor with inherited declaration metadata, as [`bundle`] builds them.
-fn push_descriptor(bundle: &mut DescriptorBundle, descriptor: Descriptor) {
-    let mut descriptors = bundle.descriptors.to_vec();
+fn push_descriptor(bundle: &mut DescriptorBundleInputs, descriptor: DescriptorInputs) {
+    let mut descriptors = bundle.descriptors.clone();
     descriptors.push(descriptor);
-    *bundle = DescriptorBundle::new(descriptors);
+    *bundle = DescriptorBundleInputs::new(descriptors);
 }
 
 fn add_builtin_expr_subsort(
-    bundle: &mut DescriptorBundle,
+    bundle: &mut DescriptorBundleInputs,
     builtin: BuiltinSort,
     builtin_name: &str,
 ) {
@@ -572,23 +573,23 @@ fn add_builtin_expr_subsort(
     let value = id("Value", ItemKind::Sort);
     push_descriptor(
         bundle,
-        Descriptor {
-            id: value.clone(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+        DescriptorInputs::new(
+            value.clone(),
+            BTreeMap::new(),
+            provenance(
                 key(ProvenanceRole::SortDeclaration, 0),
                 [key(ProvenanceRole::SortParent, 0)],
             ),
-            payload: DescriptorPayload::Sort(SortDescriptor {
+            DescriptorPayload::Sort(SortDescriptor {
                 parents: [expr].into(),
             }),
-        },
+        ),
     );
     let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     push_descriptor(
         bundle,
-        Descriptor {
-            id: StableItemId::new(
+        DescriptorInputs::new(
+            StableItemId::new(
                 package(),
                 ["expr"],
                 format!("__subsort_{builtin_name}_Value"),
@@ -596,15 +597,15 @@ fn add_builtin_expr_subsort(
                 "subsort",
             )
             .unwrap(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+            BTreeMap::new(),
+            provenance(
                 primary.clone(),
                 [
                     key(ProvenanceRole::SubsortSubSort, 0),
                     key(ProvenanceRole::SubsortSuperSort, 0),
                 ],
             ),
-            payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+            DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
                 key: primary,
                 subsort: DescriptorSortReference {
                     key: key(ProvenanceRole::SubsortSubSort, 0),
@@ -612,19 +613,19 @@ fn add_builtin_expr_subsort(
                 },
                 supersort: declared_sort(ProvenanceRole::SubsortSuperSort, 0, value),
             })),
-        },
+        ),
     );
 }
 
 fn replace_rule_result_with_builtin(
-    bundle: &mut DescriptorBundle,
+    bundle: &mut DescriptorBundleInputs,
     operation: BuiltinOperation,
     second_argument: Option<DescriptorLiteral>,
 ) {
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let mut provenance_keys = vec![
         key(ProvenanceRole::RulePattern, 0),
@@ -674,31 +675,31 @@ fn replace_rule_result_with_builtin(
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: arguments.try_into().unwrap(),
     };
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
 }
 
-fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> StableItemId {
+fn add_bool_common_descendant(bundle: &mut DescriptorBundleInputs, name: &str) -> StableItemId {
     let expr = id("Expr", ItemKind::Sort);
     let descendant = id(name, ItemKind::Sort);
     push_descriptor(
         bundle,
-        Descriptor {
-            id: descendant.clone(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+        DescriptorInputs::new(
+            descendant.clone(),
+            BTreeMap::new(),
+            provenance(
                 key(ProvenanceRole::SortDeclaration, 0),
                 [key(ProvenanceRole::SortParent, 0)],
             ),
-            payload: DescriptorPayload::Sort(SortDescriptor {
+            DescriptorPayload::Sort(SortDescriptor {
                 parents: [expr].into(),
             }),
-        },
+        ),
     );
     let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     push_descriptor(
         bundle,
-        Descriptor {
-            id: StableItemId::new(
+        DescriptorInputs::new(
+            StableItemId::new(
                 package(),
                 ["expr"],
                 format!("__subsort_{name}_Bool"),
@@ -706,15 +707,15 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> Stab
                 "subsort",
             )
             .unwrap(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+            BTreeMap::new(),
+            provenance(
                 primary.clone(),
                 [
                     key(ProvenanceRole::SubsortSubSort, 0),
                     key(ProvenanceRole::SubsortSuperSort, 0),
                 ],
             ),
-            payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+            DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
                 key: primary,
                 subsort: declared_sort(ProvenanceRole::SubsortSubSort, 0, descendant.clone()),
                 supersort: DescriptorSortReference {
@@ -722,13 +723,13 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> Stab
                     sort: DescriptorSortRef::Builtin(BuiltinSort::Bool),
                 },
             })),
-        },
+        ),
     );
     descendant
 }
 
 fn add_builtin_member(
-    bundle: &mut DescriptorBundle,
+    bundle: &mut DescriptorBundleInputs,
     builtin: BuiltinSort,
     builtin_name: &str,
     parent: StableItemId,
@@ -736,8 +737,8 @@ fn add_builtin_member(
     let primary = key(ProvenanceRole::SubsortDeclaration, 0);
     push_descriptor(
         bundle,
-        Descriptor {
-            id: StableItemId::new(
+        DescriptorInputs::new(
+            StableItemId::new(
                 package(),
                 ["expr"],
                 format!("__subsort_{builtin_name}_{}", parent.item_name()),
@@ -745,15 +746,15 @@ fn add_builtin_member(
                 "subsort",
             )
             .unwrap(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+            BTreeMap::new(),
+            provenance(
                 primary.clone(),
                 [
                     key(ProvenanceRole::SubsortSubSort, 0),
                     key(ProvenanceRole::SubsortSuperSort, 0),
                 ],
             ),
-            payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+            DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
                 key: primary,
                 subsort: DescriptorSortReference {
                     key: key(ProvenanceRole::SubsortSubSort, 0),
@@ -761,15 +762,15 @@ fn add_builtin_member(
                 },
                 supersort: declared_sort(ProvenanceRole::SubsortSuperSort, 0, parent),
             })),
-        },
+        ),
     );
 }
 
-fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
-    let mut descriptors = bundle.descriptors.to_vec();
+fn add_bool_not_binding_condition(bundle: &mut DescriptorBundleInputs) {
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let condition_keys = [
         key(ProvenanceRole::RuleRequires, 0),
@@ -823,7 +824,7 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
             .unwrap(),
         },
     });
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
 }
 
 fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
@@ -857,11 +858,11 @@ fn variable_sorts(term: &SemanticTerm, output: &mut Vec<SemanticSortRef>) {
     }
 }
 
-fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
-    let mut descriptors = bundle.descriptors.to_vec();
+fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundleInputs) {
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
         key(ProvenanceRole::RuleDeclaration, 0),
@@ -940,14 +941,14 @@ fn replace_rule_result_with_nested_map_update(bundle: &mut DescriptorBundle) {
         .try_into()
         .unwrap(),
     };
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
 }
 
-fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
-    let mut descriptors = bundle.descriptors.to_vec();
+fn forge_non_map_update_base(bundle: &mut DescriptorBundleInputs) {
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
         key(ProvenanceRole::RuleDeclaration, 0),
@@ -1022,7 +1023,7 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
     };
     *reference_key = key(ProvenanceRole::RuleRightReference, 0);
     *path_key = key(ProvenanceRole::RuleRightPath, 2);
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
 }
 
 #[test]
@@ -1037,7 +1038,7 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
             }),
             ProvenanceRole::SortDeclaration,
         ));
-        let error = lower_descriptor_bundle(&descriptors)
+        let error = lower_descriptor_bundle(&descriptors.build().unwrap())
             .unwrap_err()
             .to_string();
         assert!(
@@ -1055,6 +1056,14 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
         }),
         ProvenanceRole::SortDeclaration,
     ));
+    let input = descriptors.descriptors.last_mut().unwrap();
+    let mut origins = input.provenance.origins().to_vec();
+    origins.push(DescriptorNodeOrigin::new(
+        key(ProvenanceRole::StableSymbol, 0),
+        testing::authored(0, 3),
+    ));
+    input.provenance =
+        DescriptorProvenance::new(input.provenance.primary_key().clone(), origins).unwrap();
     descriptors
         .declarations
         .push(krs_ir::DescriptorDeclaration::new(
@@ -1062,7 +1071,7 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
             krs_ir::RustVisibility::Public,
             Some(krs_ir::ExplicitSymbol::new("domain::String").unwrap()),
         ));
-    let error = lower_descriptor_bundle(&descriptors)
+    let error = lower_descriptor_bundle(&descriptors.build().unwrap())
         .unwrap_err()
         .to_string();
     assert!(
@@ -1087,7 +1096,7 @@ fn constructor_without_grammar_descriptor_is_rejected() {
         ProvenanceRole::ConstructorSort,
     ));
 
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail } = error else {
         panic!("unexpected error: {error:?}")
     };
@@ -1101,8 +1110,8 @@ fn constructor_without_grammar_descriptor_is_rejected() {
 #[test]
 fn named_record_wildcard_bare_constructor_and_generated_bracket_lower() {
     let (bundle, bracket_id) = bundle();
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     assert!(
         semantic.modules()[0]
@@ -1145,8 +1154,8 @@ fn nested_ordinary_map_update_survives_every_ir_and_emission_layer() {
     );
     replace_rule_result_with_nested_map_update(&mut bundle);
 
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let rule = &semantic.modules()[0].rules()[0];
     assert_eq!(rule.variables()[0].sort(), &SemanticSortRef::map());
@@ -1178,7 +1187,7 @@ fn ordinary_map_update_rejects_a_non_map_base_locally() {
     replace_rule_result_with_nested_map_update(&mut bundle);
     forge_non_map_update_base(&mut bundle);
 
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     let krs_compiler::DescriptorLoweringError::InvalidTerm { detail, .. } = error else {
         panic!("unexpected error: {error:?}")
     };
@@ -1188,10 +1197,10 @@ fn ordinary_map_update_rejects_a_non_map_base_locally() {
 #[test]
 fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
     let (mut bundle, _) = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let label_key = key(ProvenanceRole::RuleLabel, 0);
     let label_origin = testing::authored_in(
@@ -1216,9 +1225,9 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
         name: "if-true".into(),
     });
 
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    bundle.descriptors = descriptors;
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let (_lowered, emitted) = assert_lowering_contract(&semantic);
     assert!(emitted.source().contains("[label(if-true)]"));
@@ -1252,12 +1261,12 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
     let mut duplicate = collision
         .descriptors
         .iter()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap()
         .clone();
     duplicate.id = id("other_rule", ItemKind::Rule);
     collision.descriptors.push(duplicate);
-    let semantic = lower_descriptor_bundle(&collision).unwrap();
+    let semantic = lower_descriptor_bundle(&collision.build().unwrap()).unwrap();
     assert!(matches!(
         lower_semantic_theory(&semantic),
         Err(LoweringError::NameCollision {
@@ -1272,7 +1281,7 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
 fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     let (mut bundle, _) = bundle();
     let add = id("Add", ItemKind::Constructor);
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let constructor = descriptors
         .iter_mut()
         .find(|descriptor| descriptor.id == add)
@@ -1308,9 +1317,9 @@ fn grammar_owned_constructor_field_preserves_builtin_sort_through_lowering() {
     };
     sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Id);
 
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    bundle.descriptors = descriptors;
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let production = semantic.modules()[0]
         .productions()
@@ -1338,8 +1347,8 @@ fn structured_rule_bindings_refine_to_builtin_subsort_in_every_occurrence() {
         Some(DescriptorLiteral::Int("1".into())),
     );
 
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let rule = &semantic.modules()[0].rules()[0];
     assert_eq!(
@@ -1366,8 +1375,8 @@ fn structured_rule_bindings_infer_unique_common_descendant_from_all_occurrences(
     add_builtin_member(&mut bundle, BuiltinSort::Int, "Int", value.clone());
     add_bool_not_binding_condition(&mut bundle);
 
-    assert_canonical_contract(&bundle);
-    let semantic = lower_descriptor_bundle(&bundle).unwrap();
+    assert_canonical_contract(&bundle.build().unwrap());
+    let semantic = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap();
     assert_canonical_contract(&semantic);
     let rule = &semantic.modules()[0].rules()[0];
     let expected = SemanticSortRef::Declared(value);
@@ -1391,8 +1400,8 @@ fn structured_rule_bindings_reject_ambiguous_common_descendants_deterministicall
     add_bool_common_descendant(&mut bundle, "RightValue");
     add_bool_not_binding_condition(&mut bundle);
 
-    let first = lower_descriptor_bundle(&bundle).unwrap_err();
-    let second = lower_descriptor_bundle(&bundle).unwrap_err();
+    let first = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
+    let second = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert_eq!(first, second, "ambiguous inference must be deterministic");
     let krs_compiler::DescriptorLoweringError::InvalidTerm {
         id: offending_id,
@@ -1422,8 +1431,8 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     let bool_primary = key(ProvenanceRole::SubsortDeclaration, 0);
     push_descriptor(
         &mut bundle,
-        Descriptor {
-            id: StableItemId::new(
+        DescriptorInputs::new(
+            StableItemId::new(
                 package(),
                 ["expr"],
                 "__subsort_Bool_Value",
@@ -1431,15 +1440,15 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
                 "subsort",
             )
             .unwrap(),
-            cfg: BTreeMap::new(),
-            provenance: provenance(
+            BTreeMap::new(),
+            provenance(
                 bool_primary.clone(),
                 [
                     key(ProvenanceRole::SubsortSubSort, 0),
                     key(ProvenanceRole::SubsortSuperSort, 0),
                 ],
             ),
-            payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+            DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
                 key: bool_primary,
                 subsort: DescriptorSortReference {
                     key: key(ProvenanceRole::SubsortSubSort, 0),
@@ -1451,11 +1460,11 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
                     id("Value", ItemKind::Sort),
                 ),
             })),
-        },
+        ),
     );
 
     let add = id("Add", ItemKind::Constructor);
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let grammar = descriptors.iter_mut()
         .find(|descriptor| {
             descriptor.id.item_kind() == ItemKind::Grammar
@@ -1483,9 +1492,9 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     };
     sort.sort = DescriptorSortRef::Builtin(BuiltinSort::Int);
 
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
+    bundle.descriptors = descriptors;
     replace_rule_result_with_builtin(&mut bundle, BuiltinOperation::BoolNot, None);
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert!(
         error
             .to_string()
@@ -1497,10 +1506,10 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
 #[test]
 fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
     let (mut bundle, _) = bundle();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     descriptor.provenance = provenance(
         key(ProvenanceRole::RuleDeclaration, 0),
@@ -1509,8 +1518,8 @@ fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
             key(ProvenanceRole::StableSymbol, 0),
         ],
     );
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    bundle.descriptors = descriptors;
+    let error = bundle.build().unwrap_err();
     assert!(error.to_string().contains("provenance"));
 }
 
@@ -1519,7 +1528,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     let (mut bundle, _) = bundle();
 
     let add = id("Add", ItemKind::Constructor);
-    let mut descriptors = bundle.descriptors.to_vec();
+    let mut descriptors = bundle.descriptors.clone();
     let grammar = descriptors.iter_mut()
         .find(|descriptor| {
             matches!(
@@ -1548,7 +1557,7 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
 
     let descriptor = descriptors
         .iter_mut()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let condition_keys = [
         key(ProvenanceRole::RuleRequires, 0),
@@ -1612,8 +1621,8 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
         },
     });
 
-    bundle.descriptors = krs_ir::sorted::SortedByKey::new(descriptors);
-    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    bundle.descriptors = descriptors;
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert!(matches!(
         error,
         krs_compiler::DescriptorLoweringError::InvalidTerm { detail, .. }

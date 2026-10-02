@@ -795,8 +795,8 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             let mut rows = Vec::new();
             let mut kinds = BTreeMap::<String, usize>::new();
             let mut items = BTreeMap::<String, usize>::new();
-            for d in &bundle.descriptors {
-                let kind = match &d.payload {
+            for d in bundle.descriptors() {
+                let kind = match d.payload() {
                     DescriptorPayload::Sort(_) => "sort",
                     DescriptorPayload::Constructor(_) => "constructor",
                     DescriptorPayload::Grammar(_) => "grammar",
@@ -807,16 +807,16 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     DescriptorPayload::HeadRule(_) => "head_rule",
                     DescriptorPayload::ContextAlias(_) => "context_alias",
                 };
-                let item = enum_name(&d.id.item_kind());
+                let item = enum_name(&d.id().item_kind());
                 if accepts(descriptor_kind.as_deref(), kind) && accepts(item_kind.as_deref(), &item)
                 {
                     *kinds.entry(kind.to_owned()).or_default() += 1;
                     *items.entry(item.clone()).or_default() += 1;
                     rows.push(json!({
-                        "id": d.id,
+                        "id": d.id(),
                         "descriptor_kind": kind,
                         "item_kind": item,
-                        "cargo_name": d.id.package().cargo_name(),
+                        "cargo_name": d.id().package().cargo_name(),
                     }));
                 }
             }
@@ -1325,10 +1325,10 @@ mod tests {
             ),
             (krs_compiler::DESCRIPTOR_ARTIFACT, {
                 let key = krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::SortDeclaration, 0);
-                let descriptor = krs_ir::Descriptor {
-                    id: item("syntax", "Obj", ItemKind::Sort),
-                    cfg: BTreeMap::new(),
-                    provenance: krs_ir::DescriptorProvenance::new(
+                let descriptor = krs_ir::testing::descriptor(
+                    item("syntax", "Obj", ItemKind::Sort),
+                    BTreeMap::new(),
+                    krs_ir::DescriptorProvenance::new(
                         key.clone(),
                         vec![krs_ir::DescriptorNodeOrigin::new(
                             key,
@@ -1336,11 +1336,12 @@ mod tests {
                         )],
                     )
                     .unwrap(),
-                    payload: DescriptorPayload::Sort(krs_ir::SortDescriptor {
+                    DescriptorPayload::Sort(krs_ir::SortDescriptor {
                         parents: BTreeSet::new(),
                     }),
-                };
+                );
                 DescriptorBundle::new(vec![descriptor])
+                    .unwrap()
                     .to_canonical_json()
                     .unwrap()
             }),
@@ -1469,7 +1470,7 @@ mod tests {
             json!([])
         );
         let bundle: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
-        let mut descriptor = bundle.descriptors[0].clone();
+        let mut descriptor = testing::DescriptorInputs::from(bundle.descriptors()[0].clone());
         let mut origins = descriptor.provenance.origins().to_vec();
         origins.push(krs_ir::DescriptorNodeOrigin::new(
             krs_ir::ProvenanceKey::new(krs_ir::ProvenanceRole::StableSymbol, 0),
@@ -1483,8 +1484,11 @@ mod tests {
             krs_ir::RustVisibility::Public,
             Some(krs_ir::ExplicitSymbol::new("api::Obj").unwrap()),
         );
-        let bundle =
-            DescriptorBundle::with_declarations(vec![descriptor], vec![declaration]).unwrap();
+        let bundle = DescriptorBundle::with_declarations(
+            vec![descriptor.build().unwrap()],
+            vec![declaration],
+        )
+        .unwrap();
         fs::write(
             dir.path().join("descriptor-bundle.json"),
             bundle.to_canonical_json().unwrap(),
@@ -1595,7 +1599,7 @@ mod tests {
         {
             let bundle: DescriptorBundle =
                 read(directory.path(), krs_compiler::DESCRIPTOR_ARTIFACT).unwrap();
-            let mut descriptor = bundle.descriptors[0].clone();
+            let mut descriptor = testing::DescriptorInputs::from(bundle.descriptors()[0].clone());
             descriptor.id = testing::item_in(
                 testing::package("PACKAGE-NAMESPACE", cargo_name),
                 "syntax",
@@ -1604,7 +1608,8 @@ mod tests {
             );
             fs::write(
                 directory.path().join(krs_compiler::DESCRIPTOR_ARTIFACT),
-                DescriptorBundle::new(vec![descriptor])
+                DescriptorBundle::new(vec![descriptor.build().unwrap()])
+                    .unwrap()
                     .to_canonical_json()
                     .unwrap(),
             )
@@ -1666,10 +1671,10 @@ mod tests {
                         ProvenanceRole::SubsortSubSort,
                         ProvenanceRole::SubsortSuperSort,
                     ];
-                    krs_ir::Descriptor {
-                        id: item("syntax", &format!("{prefix}_{i}"), ItemKind::Grammar),
-                        cfg: BTreeMap::new(),
-                        provenance: krs_ir::DescriptorProvenance::new(
+                    krs_ir::testing::descriptor(
+                        item("syntax", &format!("{prefix}_{i}"), ItemKind::Grammar),
+                        BTreeMap::new(),
+                        krs_ir::DescriptorProvenance::new(
                             key(roles[0]),
                             roles
                                 .iter()
@@ -1688,7 +1693,7 @@ mod tests {
                                 .collect(),
                         )
                         .unwrap(),
-                        payload: DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
+                        DescriptorPayload::Grammar(Box::new(GrammarDescriptor::Subsort {
                             key: key(roles[0]),
                             subsort: DescriptorSortReference {
                                 key: key(roles[1]),
@@ -1707,16 +1712,15 @@ mod tests {
                                 )),
                             },
                         })),
-                    }
+                    )
                 })
                 .collect::<Vec<_>>()
         };
         for (dir, prefix) in [(&left, "generated_span"), (&right, "readable")] {
+            let bundle = DescriptorBundle::new(descriptors(prefix)).unwrap();
             fs::write(
                 dir.path().join("descriptor-bundle.json"),
-                DescriptorBundle::new(descriptors(prefix))
-                    .to_canonical_json()
-                    .unwrap(),
+                bundle.to_canonical_json().unwrap(),
             )
             .unwrap();
         }
@@ -1724,7 +1728,10 @@ mod tests {
         let result = query(right.path(), &request).unwrap();
         assert_eq!(result["subsort_count"], 2);
         assert_eq!(result["non_rule_counts"], json!({"grammar":2}));
-        let mut changed = descriptors("readable");
+        let mut changed = descriptors("readable")
+            .into_iter()
+            .map(testing::DescriptorInputs::from)
+            .collect::<Vec<_>>();
         let DescriptorPayload::Grammar(grammar) = &mut changed[0].payload else {
             unreachable!()
         };
@@ -1734,7 +1741,10 @@ mod tests {
         supersort.sort = DescriptorSortRef::Builtin(krs_ir::BuiltinSort::Int);
         fs::write(
             right.path().join("descriptor-bundle.json"),
-            DescriptorBundle::new(changed).to_canonical_json().unwrap(),
+            testing::descriptor_bundle(changed)
+                .unwrap()
+                .to_canonical_json()
+                .unwrap(),
         )
         .unwrap();
         assert!(
@@ -1883,7 +1893,7 @@ mod tests {
         };
         let dir = artifacts();
         let original: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
-        let mut descriptor = original.descriptors[0].clone();
+        let mut descriptor = testing::DescriptorInputs::from(original.descriptors()[0].clone());
         let key = |role| ProvenanceKey::new(role, 0);
         let var = |name: &str| DescriptorTerm::Variable {
             key: key(ProvenanceRole::RuleLeftReference),
@@ -1956,7 +1966,8 @@ mod tests {
         }));
         fs::write(
             dir.path().join("descriptor-bundle.json"),
-            DescriptorBundle::new(vec![descriptor])
+            DescriptorBundle::new(vec![descriptor.build().unwrap()])
+                .unwrap()
                 .to_canonical_json()
                 .unwrap(),
         )

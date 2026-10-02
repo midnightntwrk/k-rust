@@ -29,8 +29,8 @@ pub fn run(collector: &Path, descriptor_bundle: &Path) -> Result<Value, Box<dyn 
         return Err("decoded collector stdout differs from the emitted descriptor bundle".into());
     }
     let mut kinds = BTreeMap::<String, usize>::new();
-    for descriptor in &restored.descriptors {
-        let payload = serde_json::to_value(&descriptor.payload)?;
+    for descriptor in restored.descriptors() {
+        let payload = serde_json::to_value(descriptor.payload())?;
         let kind = payload["descriptor_kind"]
             .as_str()
             .ok_or("serialized descriptor payload lacks its canonical descriptor_kind")?;
@@ -38,7 +38,7 @@ pub fn run(collector: &Path, descriptor_bundle: &Path) -> Result<Value, Box<dyn 
     }
     Ok(json!({
         "protocol_version": krs_ir::transport::collector::VERSION,
-        "descriptors": restored.descriptors.len(),
+        "descriptors": restored.descriptors().len(),
         "descriptor_kinds": kinds,
     }))
 }
@@ -87,6 +87,7 @@ mod tests {
         fs::write(
             &pretty,
             DescriptorBundle::new(Vec::new())
+                .unwrap()
                 .to_canonical_json()
                 .unwrap(),
         )

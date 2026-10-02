@@ -27,10 +27,10 @@ pub(super) fn build_semantic_sort_parents(
 ) -> BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>> {
     let mut parents = BTreeMap::<SemanticSortRef, BTreeSet<SemanticSortRef>>::new();
     for descriptor in descriptors {
-        match &descriptor.payload {
+        match descriptor.payload() {
             DescriptorPayload::Sort(sort) => {
                 parents
-                    .entry(SemanticSortRef::Declared(descriptor.id.clone()))
+                    .entry(SemanticSortRef::Declared(descriptor.id().clone()))
                     .or_default()
                     .extend(sort.parents.iter().cloned().map(SemanticSortRef::Declared));
             }
@@ -86,7 +86,7 @@ pub(super) fn build_production_catalog(
 ) -> Result<BTreeMap<StableItemId, ProductionSignature>, DescriptorLoweringError> {
     let mut catalog = BTreeMap::new();
     for descriptor in descriptors {
-        let DescriptorPayload::Grammar(grammar) = &descriptor.payload else {
+        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
             continue;
         };
         let GrammarDescriptor::Production(production) = grammar.as_ref() else {
@@ -104,12 +104,12 @@ pub(super) fn build_production_catalog(
                 id.clone()
             }
             DescriptorProductionOwner::TokenSort { .. } => {
-                generated_production_id(&descriptor.id, GeneratedProductionKind::Token).map_err(
+                generated_production_id(descriptor.id(), GeneratedProductionKind::Token).map_err(
                     |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
                 )?
             }
             DescriptorProductionOwner::BracketSort { .. } => {
-                generated_production_id(&descriptor.id, GeneratedProductionKind::Bracket).map_err(
+                generated_production_id(descriptor.id(), GeneratedProductionKind::Bracket).map_err(
                     |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
                 )?
             }
@@ -142,12 +142,12 @@ pub(super) fn build_production_catalog(
         }
     }
     if let Some(descriptor) = descriptors.iter().find(|descriptor| {
-        matches!(descriptor.payload, DescriptorPayload::Constructor(_))
-            && !catalog.contains_key(&descriptor.id)
+        matches!(descriptor.payload(), DescriptorPayload::Constructor(_))
+            && !catalog.contains_key(descriptor.id())
     }) {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "constructor",
-            detail: format!("no grammar descriptor owns constructor {}", descriptor.id),
+            detail: format!("no grammar descriptor owns constructor {}", descriptor.id()),
         });
     }
     Ok(catalog)
@@ -182,7 +182,7 @@ pub(super) fn common_sequence_item_sort(
         .collect::<Vec<_>>();
     let [item_sort] = most_specific.as_slice() else {
         return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id.clone()),
+            id: Box::new(descriptor.id().clone()),
             detail: "K sequence items do not have one most-specific common sort".into(),
         });
     };

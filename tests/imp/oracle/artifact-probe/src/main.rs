@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "IMP artifacts: descriptors={}, modules={}, native_origins={}",
-        bundle.descriptors.len(),
+        bundle.descriptors().len(),
         semantic.modules().len(),
         native.origins().len(),
     );

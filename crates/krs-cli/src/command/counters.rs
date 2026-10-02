@@ -10,19 +10,19 @@ pub(super) fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, b
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
         counters.set("bundle.other_bytes", bytes.saturating_sub(provenance));
     }
-    counters.set("descriptors.total", bundle.descriptors.len());
-    counters.set("declarations.total", bundle.declarations.len());
+    counters.set("descriptors.total", bundle.descriptors().len());
+    counters.set("declarations.total", bundle.declarations().len());
     let mut anchors = 0;
     let mut frames = 0;
-    for descriptor in &bundle.descriptors {
+    for descriptor in bundle.descriptors() {
         counters.add(
             format!(
                 "descriptors.kind.{}",
-                descriptor.id.item_kind().stable_text()
+                descriptor.id().item_kind().stable_text()
             ),
             1u64,
         );
-        let origins = descriptor.provenance.origins();
+        let origins = descriptor.provenance().origins();
         anchors += origins.len();
         frames += origins
             .iter()

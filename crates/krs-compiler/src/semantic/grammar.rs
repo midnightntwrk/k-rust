@@ -128,12 +128,12 @@ fn production_owner_id(
             id.clone()
         }
         DescriptorProductionOwner::TokenSort { .. } => {
-            generated_production_id(&descriptor.id, GeneratedProductionKind::Token).map_err(
+            generated_production_id(descriptor.id(), GeneratedProductionKind::Token).map_err(
                 |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
             )?
         }
         DescriptorProductionOwner::BracketSort { .. } => {
-            generated_production_id(&descriptor.id, GeneratedProductionKind::Bracket).map_err(
+            generated_production_id(descriptor.id(), GeneratedProductionKind::Bracket).map_err(
                 |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
             )?
         }

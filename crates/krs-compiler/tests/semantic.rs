@@ -24,7 +24,8 @@ fn diamond_closure_and_constructor_membership_are_path_independent() {
         sort(kresult.clone(), vec![kitem.clone()]),
         sort(value.clone(), vec![expr.clone(), kresult.clone()]),
         constructor(integer.clone(), value.clone()),
-    ]);
+    ])
+    .unwrap();
 
     assert_canonical_contract(&bundle);
     let analysis = analyze_open_sorts(&bundle).unwrap();
@@ -52,7 +53,8 @@ fn modeled_blanket_impl_counterexample_still_has_one_compiler_owned_join() {
         sort(right.clone(), vec![top.clone()]),
         sort(bottom.clone(), vec![left, right]),
         constructor(item.clone(), bottom),
-    ]);
+    ])
+    .unwrap();
 
     assert_canonical_contract(&bundle);
     let analysis = analyze_open_sorts(&bundle).unwrap();
@@ -73,14 +75,15 @@ fn cycles_unresolved_edges_and_wrong_kinds_are_rejected() {
     let cycle = DescriptorBundle::new(vec![
         sort(a.clone(), vec![b.clone()]),
         sort(b.clone(), vec![a]),
-    ]);
+    ])
+    .unwrap();
     assert_eq!(
         analyze_open_sorts(&cycle).unwrap_err().kind(),
         AnalysisErrorKind::SortCycle
     );
 
     let missing = id("Missing", ItemKind::Sort);
-    let unresolved = DescriptorBundle::new(vec![sort(b.clone(), vec![missing])]);
+    let unresolved = DescriptorBundle::new(vec![sort(b.clone(), vec![missing])]).unwrap();
     assert_eq!(
         analyze_open_sorts(&unresolved).unwrap_err().kind(),
         AnalysisErrorKind::UnresolvedReference
@@ -90,7 +93,8 @@ fn cycles_unresolved_edges_and_wrong_kinds_are_rejected() {
     let wrong = DescriptorBundle::new(vec![
         sort(b, vec![constructor_id.clone()]),
         constructor(constructor_id, id("Sort", ItemKind::Sort)),
-    ]);
+    ])
+    .unwrap();
     assert_eq!(
         analyze_open_sorts(&wrong).unwrap_err().kind(),
         AnalysisErrorKind::ReferenceKindMismatch
@@ -100,11 +104,12 @@ fn cycles_unresolved_edges_and_wrong_kinds_are_rejected() {
 #[test]
 fn duplicate_serialized_ids_are_rejected_before_analysis() {
     let sort_id = id("Expr", ItemKind::Sort);
-    let descriptor = sort(sort_id, vec![]);
-    let bundle = DescriptorBundle::new(vec![descriptor.clone(), descriptor]);
+    let descriptor = sort(sort_id.clone(), vec![]);
     assert_eq!(
-        analyze_open_sorts(&bundle).unwrap_err().kind(),
-        AnalysisErrorKind::DuplicateItemId
+        DescriptorBundle::new(vec![descriptor.clone(), descriptor]),
+        Err(krs_ir::DescriptorDeclarationError::DuplicateIdentity(
+            Box::new(sort_id)
+        ))
     );
 }
 
@@ -127,26 +132,26 @@ fn origin() -> OriginStack {
 }
 
 fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {
-    Descriptor {
+    krs_ir::testing::descriptor(
         id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(ProvenanceRole::SortDeclaration),
-        payload: DescriptorPayload::Sort(SortDescriptor {
+        BTreeMap::new(),
+        provenance(ProvenanceRole::SortDeclaration),
+        DescriptorPayload::Sort(SortDescriptor {
             parents: parents.into_iter().collect(),
         }),
-    }
+    )
 }
 
 fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
-    Descriptor {
+    krs_ir::testing::descriptor(
         id,
-        cfg: BTreeMap::new(),
-        provenance: provenance(ProvenanceRole::ConstructorSort),
-        payload: DescriptorPayload::Constructor(ConstructorDescriptor {
+        BTreeMap::new(),
+        provenance(ProvenanceRole::ConstructorSort),
+        DescriptorPayload::Constructor(ConstructorDescriptor {
             sort: krs_ir::DescriptorSortRef::Declared(sort),
             fields: Vec::new(),
         }),
-    }
+    )
 }
 
 fn provenance(role: ProvenanceRole) -> DescriptorProvenance {

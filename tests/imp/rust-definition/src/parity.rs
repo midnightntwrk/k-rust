@@ -992,7 +992,7 @@ fn assert_emitted_k_mapping(readable: &str, prior: &str) {
 }
 
 fn prior_transport(descriptor: &krs_ir::Descriptor) -> Option<PriorTransport> {
-    match descriptor.payload {
+    match descriptor.payload() {
         krs_ir::DescriptorPayload::StructuredRule(_) => Some(PriorTransport::StructuredRule),
         krs_ir::DescriptorPayload::ConfigurationRule(_) => Some(PriorTransport::ConfigurationRule),
         _ => None,
@@ -1000,7 +1000,7 @@ fn prior_transport(descriptor: &krs_ir::Descriptor) -> Option<PriorTransport> {
 }
 
 fn rule_label(descriptor: &krs_ir::Descriptor) -> Option<&str> {
-    match &descriptor.payload {
+    match descriptor.payload() {
         krs_ir::DescriptorPayload::StructuredRule(rule) => rule.label.as_ref(),
         krs_ir::DescriptorPayload::ConfigurationRule(rule) => rule.label.as_ref(),
         krs_ir::DescriptorPayload::HeadRule(rule) => rule.label.as_ref(),
@@ -1014,12 +1014,12 @@ fn mapped_descriptors<'a>(
     module: &[&str],
 ) -> BTreeMap<&'a str, &'a krs_ir::Descriptor> {
     bundle
-        .descriptors
+        .descriptors()
         .iter()
         .filter(|descriptor| {
-            descriptor.id.item_kind() == ItemKind::Rule
+            descriptor.id().item_kind() == ItemKind::Rule
                 && descriptor
-                    .id
+                    .id()
                     .module_path()
                     .iter()
                     .map(String::as_str)
@@ -1031,10 +1031,10 @@ fn mapped_descriptors<'a>(
         .map(|descriptor| {
             (
                 descriptor
-                    .id
+                    .id()
                     .item_name()
                     .strip_prefix("r#")
-                    .unwrap_or_else(|| descriptor.id.item_name()),
+                    .unwrap_or_else(|| descriptor.id().item_name()),
                 descriptor,
             )
         })
@@ -1069,7 +1069,7 @@ fn assert_descriptor_transport_mapping(
         let readable = readable[route.item];
         let prior = prior[route.item];
         assert!(
-            matches!(readable.payload, krs_ir::DescriptorPayload::HeadRule(_)),
+            matches!(readable.payload(), krs_ir::DescriptorPayload::HeadRule(_)),
             "readable {} must use the HeadRule transport",
             route.item,
         );
@@ -1099,17 +1099,17 @@ fn assert_descriptor_transport_mapping(
             route.item,
         );
         assert_eq!(
-            readable.id.disambiguator(),
-            prior.id.disambiguator(),
+            readable.id().disambiguator(),
+            prior.id().disambiguator(),
             "{} stable disambiguator differs",
             route.item,
         );
         assert_eq!(
             readable_bundle
-                .declaration(&readable.id)
+                .declaration(readable.id())
                 .map(|value| &value.visibility),
             prior_bundle
-                .declaration(&prior.id)
+                .declaration(prior.id())
                 .map(|value| &value.visibility),
             "{} declaration visibility differs",
             route.item,
@@ -1218,27 +1218,33 @@ fn readable_and_prior_explicit_routes_are_semantically_identical() {
 fn readable_overlap_is_rejected_after_sort_inference() {
     let bundle = collect_route(false);
     let original = bundle
-        .descriptors
+        .descriptors()
         .iter()
         .find(|descriptor| {
-            descriptor.id.item_name() == "eval_neg"
-                && matches!(&descriptor.payload, DescriptorPayload::HeadRule(_))
+            descriptor.id().item_name() == "eval_neg"
+                && matches!(descriptor.payload(), DescriptorPayload::HeadRule(_))
         })
         .expect("readable eval_neg descriptor");
-    let mut duplicate = original.clone();
-    duplicate.id = StableItemId::new(
-        original.id.package().clone(),
-        original.id.module_path().iter().cloned(),
+    let duplicate_id = StableItemId::new(
+        original.id().package().clone(),
+        original.id().module_path().iter().cloned(),
         "eval_neg_overlap",
-        original.id.item_kind(),
-        original.id.disambiguator(),
+        original.id().item_kind(),
+        original.id().disambiguator(),
     )
     .unwrap();
-    let mut descriptors = bundle.descriptors.to_vec();
+    let duplicate = krs_ir::Descriptor::new(
+        duplicate_id,
+        original.cfg().clone(),
+        original.provenance().clone(),
+        original.payload().clone(),
+    )
+    .unwrap();
+    let mut descriptors = bundle.descriptors().to_vec();
     descriptors.push(duplicate.clone());
-    let mut declarations = bundle.declarations.to_vec();
+    let mut declarations = bundle.declarations().to_vec();
     declarations.push(DescriptorDeclaration::new(
-        duplicate.id,
+        duplicate.id().clone(),
         RustVisibility::Inherited,
         None,
     ));
@@ -1290,10 +1296,10 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
     let bundle = collect_route(false);
     let semantic = lower_descriptor_bundle(&bundle).unwrap();
     let package = bundle
-        .descriptors
+        .descriptors()
         .iter()
-        .find(|descriptor| matches!(descriptor.payload, krs_ir::DescriptorPayload::HeadRule(_)))
-        .map(|descriptor| descriptor.id.package().clone())
+        .find(|descriptor| matches!(descriptor.payload(), krs_ir::DescriptorPayload::HeadRule(_)))
+        .map(|descriptor| descriptor.id().package().clone())
         .expect("the readable route has head rules");
     let source = include_str!("imp.rs");
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");

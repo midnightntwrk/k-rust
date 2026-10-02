@@ -9,8 +9,6 @@ use krs_ir::{
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorLoweringError {
-    /// Two descriptors claim one stable identity.
-    DuplicateItemId(Box<StableItemId>),
     /// An authored sort would emit the name of a compiler builtin sort.
     BuiltinSortNameCollision {
         /// Offending authored sort.
@@ -20,15 +18,6 @@ pub enum DescriptorLoweringError {
     },
     /// Lowering requires exactly one selected configuration descriptor.
     ConfigurationCount(usize),
-    /// A descriptor payload and stable item kind disagree.
-    WrongItemKind {
-        /// Offending stable item.
-        id: Box<StableItemId>,
-        /// Kind required by the payload.
-        expected: ItemKind,
-        /// Kind present in the item identity.
-        actual: ItemKind,
-    },
     /// A stable reference names no selected descriptor.
     DanglingReference(Box<StableItemId>),
     /// A reference or term uses a declaration in the wrong namespace.
@@ -79,7 +68,6 @@ pub enum DescriptorLoweringError {
 impl fmt::Display for DescriptorLoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateItemId(id) => write!(formatter, "duplicate stable descriptor {id}"),
             Self::BuiltinSortNameCollision { id, builtin } => write!(
                 formatter,
                 "declared sort {id} has K name `{}`; use `k::builtin::{}` instead",
@@ -90,12 +78,7 @@ impl fmt::Display for DescriptorLoweringError {
                 formatter,
                 "descriptor bundle requires exactly one configuration, found {count}"
             ),
-            Self::WrongItemKind {
-                id,
-                expected,
-                actual,
-            }
-            | Self::ReferenceKindMismatch {
+            Self::ReferenceKindMismatch {
                 id,
                 expected,
                 actual,
@@ -129,10 +112,8 @@ impl fmt::Display for DescriptorLoweringError {
 impl ToDiagnostic for DescriptorLoweringError {
     fn to_diagnostic(&self) -> Diagnostic {
         let code = match self {
-            Self::DuplicateItemId(_) => codes::analysis::DUPLICATE_ITEM_ID,
             Self::BuiltinSortNameCollision { .. } => codes::analysis::BUILTIN_SORT_NAME_COLLISION,
             Self::ConfigurationCount(_) => codes::analysis::CONFIGURATION_COUNT,
-            Self::WrongItemKind { .. } => codes::analysis::WRONG_ITEM_KIND,
             Self::DanglingReference(_) => codes::analysis::DANGLING_REFERENCE,
             Self::ReferenceKindMismatch { .. } => codes::analysis::REFERENCE_KIND_MISMATCH,
             Self::ParserReferenceDisagreement { .. } => {

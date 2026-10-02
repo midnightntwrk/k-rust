@@ -67,14 +67,14 @@ pub(super) fn descriptor_details(
 ) -> QueryResult {
     let bundle: DescriptorBundle = read(directory, krs_compiler::DESCRIPTOR_ARTIFACT)?;
     let mut rows = Vec::new();
-    for descriptor in &bundle.descriptors {
+    for descriptor in bundle.descriptors() {
         let declaration = bundle
-            .declarations
+            .declarations()
             .iter()
-            .find(|d| d.id() == &descriptor.id)
+            .find(|d| d.id() == descriptor.id())
             .ok_or("descriptor lacks declaration metadata")?;
-        if module_path.is_some_and(|path| path != descriptor.id.module_path())
-            || !accepts(item_name, descriptor.id.item_name())
+        if module_path.is_some_and(|path| path != descriptor.id().module_path())
+            || !accepts(item_name, descriptor.id().item_name())
             || (public_only && declaration.visibility != RustVisibility::Public)
         {
             continue;
@@ -82,8 +82,8 @@ pub(super) fn descriptor_details(
         let mut normalized = encoded(descriptor);
         normalize(&mut normalized, &BTreeMap::new(), true, None);
         rows.push(json!({
-            "module_path":descriptor.id.module_path(), "item_name":descriptor.id.item_name(),
-            "item_kind":descriptor.id.item_kind(), "visibility":declaration.visibility,
+            "module_path":descriptor.id().module_path(), "item_name":descriptor.id().item_name(),
+            "item_kind":descriptor.id().item_kind(), "visibility":declaration.visibility,
             "explicit_symbol":declaration.explicit_symbol, "normalized":normalized,
         }));
     }
@@ -93,14 +93,14 @@ pub(super) fn descriptor_details(
 pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryResult {
     let bundle: DescriptorBundle = read(directory, krs_compiler::DESCRIPTOR_ARTIFACT)?;
     let mut matches = bundle
-        .descriptors
+        .descriptors()
         .iter()
-        .filter(|d| d.id.item_name() == item_name);
+        .filter(|d| d.id().item_name() == item_name);
     let descriptor = matches.next().ok_or("walkthrough descriptor is absent")?;
     if matches.next().is_some() {
         return Err("walkthrough descriptor is ambiguous".into());
     }
-    let DescriptorPayload::HeadRule(rule) = &descriptor.payload else {
+    let DescriptorPayload::HeadRule(rule) = descriptor.payload() else {
         return Err("walkthrough requires a head rule".into());
     };
     let DescriptorTerm::Application {
@@ -144,7 +144,7 @@ pub(super) fn head_rule_walkthrough(directory: &Path, item_name: &str) -> QueryR
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(json!({
-        "id":descriptor.id.item_name(), "kind":"head_rule", "sentence_kind":rule.sentence_kind,
+        "id":descriptor.id().item_name(), "kind":"head_rule", "sentence_kind":rule.sentence_kind,
         "label":rule.label.as_ref().ok_or("walkthrough requires a label")?.name,
         "configuration":rule.configuration.item_name(),
         "cell":rule.computation_cell.cell.field.as_str(),
@@ -253,14 +253,14 @@ fn non_rules(
     namespace: &str,
 ) -> QueryResult {
     let mut relations = Vec::new();
-    for d in &bundle.descriptors {
-        if d.id.module_path() == path
-            && let DescriptorPayload::Grammar(grammar) = &d.payload
+    for d in bundle.descriptors() {
+        if d.id().module_path() == path
+            && let DescriptorPayload::Grammar(grammar) = d.payload()
             && matches!(**grammar, GrammarDescriptor::Subsort { .. })
         {
             let mut relation = encoded(grammar)["grammar"].clone();
             normalize(&mut relation, &BTreeMap::new(), false, Some(namespace));
-            relations.push((relation.to_string(), d.id.item_name().to_owned()));
+            relations.push((relation.to_string(), d.id().item_name().to_owned()));
         }
     }
     relations.sort();
@@ -275,10 +275,10 @@ fn non_rules(
     let mut descriptors = Vec::new();
     let mut declarations = Vec::new();
     let mut counts = BTreeMap::<String, usize>::new();
-    for d in &bundle.descriptors {
-        if d.id.module_path() != path
+    for d in bundle.descriptors() {
+        if d.id().module_path() != path
             || matches!(
-                (&d.payload, head),
+                (d.payload(), head),
                 (DescriptorPayload::HeadRule(_), true)
                     | (DescriptorPayload::ConfigurationRule(_), false)
             )
@@ -293,9 +293,9 @@ fn non_rules(
             .or_default() += 1;
         descriptors.push(normalized);
         let declaration = bundle
-            .declarations
+            .declarations()
             .iter()
-            .find(|v| v.id() == &d.id)
+            .find(|v| v.id() == d.id())
             .ok_or("missing declaration metadata")?;
         let mut declaration = encoded(declaration);
         normalize(&mut declaration, &names, false, Some(namespace));
@@ -322,11 +322,11 @@ fn non_rules(
 
 fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> QueryResult {
     let mut rules = BTreeMap::new();
-    for d in &bundle.descriptors {
-        if d.id.module_path() != path {
+    for d in bundle.descriptors() {
+        if d.id().module_path() != path {
             continue;
         }
-        let (kind, label) = match (&d.payload, head) {
+        let (kind, label) = match (d.payload(), head) {
             (DescriptorPayload::HeadRule(r), true) => (r.sentence_kind, r.label.as_ref()),
             (DescriptorPayload::ConfigurationRule(r), false) => {
                 (r.sentence_kind.into(), r.label.as_ref())
@@ -337,10 +337,11 @@ fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> Que
             return Err("rule transport requires transitions".into());
         }
         let label = label.ok_or("rule transport requires labels")?;
-        let name =
-            d.id.item_name()
-                .strip_prefix("r#")
-                .unwrap_or(d.id.item_name());
+        let name = d
+            .id()
+            .item_name()
+            .strip_prefix("r#")
+            .unwrap_or(d.id().item_name());
         if rules.insert(name, &label.name).is_some() {
             return Err("duplicate rule transport identity".into());
         }

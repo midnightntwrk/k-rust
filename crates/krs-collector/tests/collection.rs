@@ -93,7 +93,7 @@ pub struct Foo { pub value: Term<dyn Expr> }
     assert_canonical_contract(&second);
 
     assert_eq!(first, second);
-    assert_eq!(first.descriptors.len(), 3);
+    assert_eq!(first.descriptors().len(), 3);
     let json = first.to_canonical_json().unwrap();
     assert!(!json.contains(package.root().to_str().unwrap()));
     assert!(json.contains("constructor_sort"));
@@ -181,14 +181,14 @@ pub struct PublicValue;
     .unwrap();
     assert_canonical_contract(&bundle);
     let expr = bundle
-        .declarations
+        .declarations()
         .iter()
         .find(|declaration| declaration.id().item_name() == "Expr")
         .unwrap();
     assert_eq!(expr.visibility, RustVisibility::Public);
     assert_eq!(expr.explicit_symbol.as_ref().unwrap().as_str(), "api::Expr");
     let value = bundle
-        .declarations
+        .declarations()
         .iter()
         .find(|declaration| declaration.id().item_name() == "PublicValue")
         .unwrap();
@@ -197,8 +197,8 @@ pub struct PublicValue;
         value.explicit_symbol.as_ref().unwrap().as_str(),
         "api::PublicValue"
     );
-    for descriptor in &bundle.descriptors {
-        assert!(descriptor.provenance.origins().iter().any(|origin| {
+    for descriptor in bundle.descriptors() {
+        assert!(descriptor.provenance().origins().iter().any(|origin| {
             origin.key.role() == ProvenanceRole::StableSymbol && origin.key.ordinal() == 0
         }));
     }
@@ -216,7 +216,7 @@ fn unicode_scalar_anchors_materialize_exact_utf8_byte_ranges() {
     )
     .unwrap();
     assert_canonical_contract(&bundle);
-    let authored = &bundle.descriptors[0].origin().frames()[0];
+    let authored = &bundle.descriptors()[0].origin().frames()[0];
     let krs_ir::OriginFrame::Ranged { range, .. } = authored else {
         panic!("first frame must be authored")
     };
@@ -280,9 +280,9 @@ pub mod right {
     .unwrap();
     assert_canonical_contract(&reordered);
     assert_eq!(bundle, reordered);
-    assert_eq!(bundle.descriptors.len(), 3);
-    assert_ne!(bundle.descriptors[0].id, bundle.descriptors[1].id);
-    assert_ne!(bundle.descriptors[1].id, bundle.descriptors[2].id);
+    assert_eq!(bundle.descriptors().len(), 3);
+    assert_ne!(bundle.descriptors()[0].id(), bundle.descriptors()[1].id());
+    assert_ne!(bundle.descriptors()[1].id(), bundle.descriptors()[2].id());
 }
 
 #[test]
@@ -389,7 +389,7 @@ fn attributes_resolve_under_the_renamed_facade_only() {
     )
     .unwrap();
     assert_canonical_contract(&bundle);
-    assert_eq!(bundle.descriptors.len(), 1);
+    assert_eq!(bundle.descriptors().len(), 1);
 
     let package = TestPackage::with_facade(
         "default_alias",
@@ -513,7 +513,7 @@ fn item_macros_resolve_raw_and_renamed_facade_paths() {
         )
         .unwrap();
         assert_canonical_contract(&bundle);
-        assert_eq!(bundle.descriptors.len(), 1);
+        assert_eq!(bundle.descriptors().len(), 1);
     }
 }
 
@@ -708,7 +708,7 @@ fn workspace_relative_display_hint_produces_the_package_relative_bundle() {
 
     assert_eq!(package_bundle, workspace_bundle);
     let krs_ir::OriginFrame::Ranged { range, .. } =
-        &workspace_bundle.descriptors[0].origin().frames()[0]
+        &workspace_bundle.descriptors()[0].origin().frames()[0]
     else {
         panic!("first frame must be authored")
     };
@@ -730,7 +730,7 @@ fn canonical_source_candidates_are_deduplicated_across_symlinks() {
     descriptor.provenance = replace_display(&descriptor.provenance, &display_hint);
     let bundle = collect_descriptors([package.context("ORG-ALIAS")], [descriptor]).unwrap();
     assert_canonical_contract(&bundle);
-    let krs_ir::OriginFrame::Ranged { range, .. } = &bundle.descriptors[0].origin().frames()[0]
+    let krs_ir::OriginFrame::Ranged { range, .. } = &bundle.descriptors()[0].origin().frames()[0]
     else {
         panic!("first frame must be authored")
     };
@@ -862,13 +862,16 @@ fn fixture() {
     )
     .unwrap();
     assert_canonical_contract(&commented_bundle);
-    let baseline_descriptor = &baseline_bundle.descriptors[0];
-    let commented_descriptor = &commented_bundle.descriptors[0];
-    assert_eq!(baseline_descriptor.id, commented_descriptor.id);
-    assert_eq!(baseline_descriptor.payload, commented_descriptor.payload);
+    let baseline_descriptor = &baseline_bundle.descriptors()[0];
+    let commented_descriptor = &commented_bundle.descriptors()[0];
+    assert_eq!(baseline_descriptor.id(), commented_descriptor.id());
+    assert_eq!(
+        baseline_descriptor.payload(),
+        commented_descriptor.payload()
+    );
     let topology = |descriptor: &krs_ir::Descriptor| {
         descriptor
-            .provenance
+            .provenance()
             .origins()
             .iter()
             .map(|origin| origin.key.clone())

@@ -37,9 +37,9 @@ pub(super) fn semantic_origin(
     key: ProvenanceKey,
     role: &str,
 ) -> Result<NodeOrigin, DescriptorLoweringError> {
-    let origin = descriptor.provenance.origin_for(&key).ok_or_else(|| {
+    let origin = descriptor.provenance().origin_for(&key).ok_or_else(|| {
         DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(descriptor.id.clone()),
+            id: Box::new(descriptor.id().clone()),
             detail: format!(
                 "missing parser origin `{}#{}` for semantic {role}",
                 key.role().as_str(),
@@ -56,9 +56,9 @@ pub(super) fn semantic_origin_from_primary(
 ) -> Result<NodeOrigin, DescriptorLoweringError> {
     semantic_origin_from_stack(
         descriptor,
-        descriptor.provenance.primary_origin(),
+        descriptor.provenance().primary_origin(),
         role,
-        Some(descriptor.provenance.primary_key()),
+        Some(descriptor.provenance().primary_key()),
     )
 }
 
@@ -68,7 +68,7 @@ fn semantic_origin_from_stack(
     role: &str,
     key: Option<&ProvenanceKey>,
 ) -> Result<NodeOrigin, DescriptorLoweringError> {
-    let mut seed = stable_item_text(&descriptor.id);
+    let mut seed = stable_item_text(descriptor.id());
     seed.push('\0');
     seed.push_str(role);
     if let Some(key) = key {
@@ -82,7 +82,7 @@ fn semantic_origin_from_stack(
     let mut origin = origin.clone();
     origin.push(OriginFrame::Transformation {
         kind: TransformationOriginKind::SemanticIr,
-        item: Some(descriptor.id.clone()),
+        item: Some(descriptor.id().clone()),
         label: Some(role.to_owned()),
     });
     Ok(NodeOrigin::new(source_key, origin))

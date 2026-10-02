@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_ir::testing;
 use krs_ir::transport::detail::{StateTermReason, TransportField};
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, CellWrapper, Descriptor, DescriptorApplicationHeadClass,
+    BuiltinOperation, BuiltinSort, CellWrapper, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
     DescriptorCellField, DescriptorCellIdentity, DescriptorCellReference,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
@@ -731,12 +731,13 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
             .collect(),
     )
     .unwrap();
-    let bundle = DescriptorBundle::new(vec![Descriptor {
-        id: rule_id,
-        cfg: BTreeMap::default(),
+    let bundle = DescriptorBundle::new(vec![krs_ir::testing::descriptor(
+        rule_id,
+        BTreeMap::default(),
         provenance,
-        payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
-    }]);
+        DescriptorPayload::ConfigurationRule(Box::new(rule)),
+    )])
+    .unwrap();
     testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
     assert!(json.contains(&format!(

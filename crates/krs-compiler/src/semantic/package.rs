@@ -124,13 +124,13 @@ fn lower_module_descriptor(
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sentences: &mut ModuleSentences,
 ) -> Result<(), DescriptorLoweringError> {
-    let declaration = declarations.metadata.get(&descriptor.id).ok_or_else(|| {
+    let declaration = declarations.metadata.get(descriptor.id()).ok_or_else(|| {
         DescriptorLoweringError::UnsupportedShape {
             node: "declaration metadata",
-            detail: format!("descriptor {} has no API metadata", descriptor.id),
+            detail: format!("descriptor {} has no API metadata", descriptor.id()),
         }
     })?;
-    match &descriptor.payload {
+    match descriptor.payload() {
         DescriptorPayload::Sort(sort) => {
             lower_sort_descriptor(descriptor, sort, declaration, sentences)?;
         }
@@ -204,7 +204,7 @@ fn lower_sort_descriptor(
             role_key(ProvenanceRole::SortDeclaration, 0),
             "sort",
         )?,
-        descriptor.id.clone(),
+        descriptor.id().clone(),
         declaration.visibility.clone(),
         declaration.explicit_symbol.clone(),
     ));
@@ -220,7 +220,7 @@ fn lower_sort_descriptor(
                 role_key(ProvenanceRole::SortParent, ordinal),
                 "subsort",
             )?,
-            SemanticSortRef::Declared(descriptor.id.clone()),
+            SemanticSortRef::Declared(descriptor.id().clone()),
             SemanticSortRef::Declared(parent.clone()),
         ));
     }
@@ -230,7 +230,7 @@ fn lower_sort_descriptor(
 fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
     let mut packages = BTreeSet::new();
     for descriptor in descriptors {
-        match &descriptor.payload {
+        match descriptor.payload() {
             DescriptorPayload::Sort(sort) => {
                 for parent in &sort.parents {
                     collect_item_package(parent, &mut packages);
