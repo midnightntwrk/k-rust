@@ -218,6 +218,10 @@ fn pattern_free_variables(pattern: &Pattern) -> BTreeSet<Variable> {
 }
 
 /// Apply a saturated substitution throughout a predicate collection.
+///
+/// This module holds the crate's one implementation of substitution into a predicate; outside
+/// it, this function is the only way to reach it, and the workspace `clippy.toml` lists it in
+/// `disallowed-methods` so that a condition is instantiated through `crate::condition`.
 pub fn substitute_predicates(
     predicates: &[Predicate],
     substitution: &Substitution,
@@ -228,6 +232,7 @@ pub fn substitute_predicates(
         .collect()
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn substitute_predicate(predicate: &Predicate, substitution: &Substitution) -> Predicate {
     match predicate {
         Predicate::True => Predicate::True,

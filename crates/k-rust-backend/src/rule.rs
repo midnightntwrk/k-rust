@@ -2406,6 +2406,7 @@ pub(crate) fn rename_predicates(
         .collect()
 }
 
+#[deny(clippy::wildcard_enum_match_arm)]
 fn rename_predicate(
     predicate: &Predicate,
     rename: impl Copy + Fn(&Variable) -> Variable,

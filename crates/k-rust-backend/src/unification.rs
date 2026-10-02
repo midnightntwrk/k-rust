@@ -57,6 +57,9 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Unification {
     pub substitution: Substitution,
+    /// The equations the unifier kept because their roots decide nothing, with `substitution` applied.
+    /// They hold exactly where the input pairs do, together with the bindings of `substitution`; a
+    /// caller that drops a binding of an element variable to a term states that term's definedness.
     pub constraints: Vec<Predicate>,
 }
 
@@ -66,6 +69,9 @@ pub enum UnificationResult {
     Bottom(UnificationFailure),
     Unsupported {
         substitution: Substitution,
+        /// The equations the unifier kept because their roots decide nothing, with `substitution` applied.
+        /// They hold exactly where the input pairs do, together with the bindings of `substitution`; a
+        /// caller that drops a binding of an element variable to a term states that term's definedness.
         constraints: Vec<Predicate>,
         remainder: Vec<(Term, Term)>,
     },
@@ -125,17 +131,24 @@ pub fn unify_term_pairs(
         definition,
         substitution: initial,
         pending: pairs.into_iter().collect(),
-        constraints: Vec::new(),
+        equations: Vec::new(),
         unsupported: Vec::new(),
     };
     measure::bump(Counter::UnificationProblems);
     if let Err(failure) = unifier.run() {
         return UnificationResult::Bottom(failure);
     }
+    // A residual equation recorded before a later binding mentions the bound variable; under the
+    // final substitution it states the same equation on the unifier's solutions.
     let constraints = unifier
-        .constraints
+        .equations
         .into_iter()
-        .map(|predicate| substitute_predicate(predicate, &unifier.substitution))
+        .map(|(left, right)| {
+            Predicate::Equals(
+                substitute(&left, &unifier.substitution),
+                substitute(&right, &unifier.substitution),
+            )
+        })
         .collect();
     if unifier.unsupported.is_empty() {
         UnificationResult::Unified(Unification {
@@ -164,7 +177,9 @@ struct Unifier<'a> {
     definition: &'a BackendDefinition,
     substitution: Substitution,
     pending: VecDeque<(Term, Term)>,
-    constraints: Vec<Predicate>,
+    /// The equations whose roots decide nothing, as `(left, right)`. Only equations are kept, so
+    /// the one substitution they undergo is the one of their two sides.
+    equations: Vec<(Term, Term)>,
     unsupported: Vec<(Term, Term)>,
 }
 
@@ -244,7 +259,7 @@ impl Unifier<'_> {
                         Err(UnificationFailure::DifferentSorts(left, right))
                     }
                     Some(InjectionEquality::Unknown) => {
-                        self.constraints.push(Predicate::Equals(left, right));
+                        self.equations.push((left, right));
                         Ok(())
                     }
                 }
@@ -268,7 +283,7 @@ impl Unifier<'_> {
                         Ok(())
                     }
                     UnifierStep::Keep => {
-                        self.constraints.push(Predicate::Equals(left, right));
+                        self.equations.push((left, right));
                         Ok(())
                     }
                 }
@@ -331,8 +346,7 @@ impl Unifier<'_> {
             if let Some(cycle) = rigid_occurrence(&variable, &term) {
                 return Err(UnificationFailure::VariableRecursion(cycle));
             }
-            self.constraints
-                .push(Predicate::Equals(Term::variable(variable), term));
+            self.equations.push((Term::variable(variable), term));
             return Ok(());
         }
         let binding = Substitution::from([(variable, term)]);
@@ -492,16 +506,6 @@ fn is_equation_head(head: Head<'_>) -> bool {
     }
 }
 
-fn substitute_predicate(predicate: Predicate, substitution: &Substitution) -> Predicate {
-    match predicate {
-        Predicate::Equals(left, right) => Predicate::Equals(
-            substitute(&left, substitution),
-            substitute(&right, substitution),
-        ),
-        predicate => predicate,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -607,6 +611,30 @@ mod tests {
         };
         assert!(result.substitution.is_empty(), "{result:?}");
         assert_eq!(result.constraints, [Predicate::Equals(var("X"), cycle)]);
+    }
+
+    /// An equation kept before a later pair binds one of its variables comes out under the final
+    /// substitution: `f(X) = a` is kept, `X = b` then binds `X`, and the result states `f(b) = a`.
+    #[test]
+    fn states_kept_equations_under_the_final_substitution() {
+        let a = constructor("a", Vec::new());
+        let b = constructor("b", Vec::new());
+        let result = unify_term_pairs(
+            &definition(),
+            Substitution::new(),
+            [
+                (function("f", vec![var("X")]), a.clone()),
+                (var("X"), b.clone()),
+            ],
+        );
+        let UnificationResult::Unified(result) = result else {
+            panic!("an opaque function equation and a binding should unify: {result:?}");
+        };
+        assert_eq!(result.substitution[&variable("X")], b);
+        assert_eq!(
+            result.constraints,
+            [Predicate::Equals(function("f", vec![b]), a)]
+        );
     }
 
     #[test]
@@ -1211,7 +1239,7 @@ mod tests {
             definition: &definition,
             substitution: Substitution::new(),
             pending: VecDeque::new(),
-            constraints: Vec::new(),
+            equations: Vec::new(),
             unsupported: Vec::new(),
         };
         let counts = RefCell::new(BTreeMap::<&'static str, usize>::new());
