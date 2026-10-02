@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::{HostDescriptorPayload, ProvenanceKey, RustVisibility, StableItemId};
 use krs_syntax::surface::{
-    AttributeMacro, FunctionMacro, Invocation, InvocationKind, Scope, path_text,
+    AttributeMacro, FunctionMacro, Invocation, InvocationKind, InvocationNode, item_owners,
+    path_text,
 };
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
@@ -15,7 +16,7 @@ use krs_syntax::{
 };
 use proc_macro2::TokenStream;
 use syn::spanned::Spanned;
-use syn::{Attribute, ImplItem, Item, Meta};
+use syn::{Attribute, ImplItem, Item, Meta, TraitItem};
 
 use super::provenance::{Coordinates, token_coordinates};
 use crate::facade::AttributeResolver;
@@ -52,16 +53,37 @@ pub(super) fn collect_invocations(
     resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let by_item = invocations
-        .iter()
-        .filter(|invocation| matches!(invocation.scope, Scope::Module(_)))
-        .filter_map(|invocation| {
-            invocation
-                .owned_item()
-                .map(|item| (std::ptr::from_ref(item), invocation))
-        })
-        .collect::<BTreeMap<_, _>>();
-    collect_module_items(&syntax.items, &by_item, resolver, output)
+    if let Some(error) = invocations.iter().find_map(facade_attribute_on_macro) {
+        return Err(error);
+    }
+    collect_module_items(&syntax.items, &item_owners(invocations), resolver, output)
+}
+
+/// Rejects a facade attribute on an item, impl-item, or trait-item macro,
+/// which rustc expands in place of the macro.
+fn facade_attribute_on_macro(invocation: &Invocation<'_>) -> Option<CollectionError> {
+    let InvocationKind::Attribute(attribute) = &invocation.kind else {
+        return None;
+    };
+    if !matches!(
+        invocation.node,
+        InvocationNode::Item(Item::Macro(_))
+            | InvocationNode::ImplItem(ImplItem::Macro(_))
+            | InvocationNode::TraitItem(TraitItem::Macro(_))
+    ) {
+        return None;
+    }
+    let attribute = &attribute.attributes[attribute.facade_index];
+    Some(
+        CollectionError::new(
+            CollectionErrorKind::FacadeAttributeOnMacro,
+            format!(
+                "facade attribute `{}` annotates a macro; rustc expands a facade attribute before the macro it annotates, so KRS attributes apply only to the items they name",
+                path_text(attribute.path()),
+            ),
+        )
+        .with_span(attribute.span()),
+    )
 }
 
 /// Walks module items in source order for per-item reparsing and checks.
@@ -1266,6 +1288,90 @@ mod tests {
             (23, 28)
         );
         assert!(collected.detail().contains("bytes 23..28"));
+    }
+
+    #[test]
+    fn facade_attributes_on_macros_have_located_collection_diagnostics() {
+        use krs_diagnostic::{Location, ToDiagnostic, codes};
+
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let file = krs_ir::SourceFileId::new(
+            krs_ir::PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        for (body, attribute) in [
+            ("#[k::sort] k::sorts! { A; }", "#[k::sort]"),
+            (
+                "mod nested { use super::k; #[k::sort] k::sorts! { A; } }",
+                "#[k::sort]",
+            ),
+            ("impl S { #[k::sort] k::anonymous!(); }", "#[k::sort]"),
+            ("trait T { #[k::sort] k::anonymous!(); }", "#[k::sort]"),
+            ("#[k::unknown] k::sorts! {}", "#[k::unknown]"),
+            ("#[derive(Clone)] #[k::sort] k::sorts! {}", "#[k::sort]"),
+            ("#[k::sort] other! {}", "#[k::sort]"),
+        ] {
+            let source = format!("use crate as k;\n{body}\n");
+            let syntax = syn::parse_file(&source).unwrap();
+            let discovered = krs_syntax::surface::invocations(&syntax, &facade.scope());
+            let error = collect_invocations(&syntax, &discovered, &resolver, &mut Vec::new())
+                .unwrap_err()
+                .with_source_file(&file);
+            assert_eq!(
+                error.kind(),
+                CollectionErrorKind::FacadeAttributeOnMacro,
+                "{body}"
+            );
+            let diagnostic = error.to_diagnostic();
+            assert_eq!(diagnostic.code, codes::collect::FACADE_ATTRIBUTE_ON_MACRO);
+            assert_eq!(
+                diagnostic.code.as_str(),
+                "krs::collect::facade-attribute-on-macro"
+            );
+            let Location::Source(range) = diagnostic.primary.location else {
+                panic!("missing attribute location: {body}")
+            };
+            let start = source.find(attribute).unwrap();
+            assert_eq!(range.file, file);
+            assert_eq!(
+                (range.start_byte, range.end_byte),
+                (
+                    u32::try_from(start).unwrap(),
+                    u32::try_from(start + attribute.len()).unwrap()
+                )
+            );
+            assert!(error.detail().contains(&attribute[2..attribute.len() - 1]));
+            assert!(
+                error
+                    .detail()
+                    .contains("rustc expands a facade attribute before the macro it annotates")
+            );
+            assert!(
+                error
+                    .detail()
+                    .contains("KRS attributes apply only to the items they name")
+            );
+        }
+    }
+
+    #[test]
+    fn non_facade_attributes_preserve_item_macro_collection() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        for attribute in ["#[doc = \"x\"]", "#[cfg(test)]"] {
+            let source = format!("use crate as k;\n{attribute} k::sorts! {{ A; }}");
+            let syntax = syn::parse_file(&source).unwrap();
+            let discovered = krs_syntax::surface::invocations(&syntax, &facade.scope());
+            let mut collected = Vec::new();
+            collect_invocations(&syntax, &discovered, &resolver, &mut collected).unwrap();
+            assert_eq!(collected.len(), 1);
+            assert_eq!(collected[0].item_name, "A");
+        }
     }
 
     #[test]

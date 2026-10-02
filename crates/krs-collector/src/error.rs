@@ -57,6 +57,8 @@ pub enum CollectionErrorKind {
     /// An authored attribute or item macro names a KRS entry point but does
     /// not invoke it under the package's facade alias.
     UnresolvedAttribute,
+    /// A facade attribute annotates a macro instead of the item it names.
+    FacadeAttributeOnMacro,
     /// A host anchor did not match the corresponding reparsed semantic node.
     StaleAnchor,
     /// More than one reparsed invocation matched a host descriptor.
@@ -198,6 +200,9 @@ impl ToDiagnostic for CollectionError {
             }
             CollectionErrorKind::SourceSyntax => codes::collect::SOURCE_SYNTAX,
             CollectionErrorKind::UnresolvedAttribute => codes::collect::UNRESOLVED_ATTRIBUTE,
+            CollectionErrorKind::FacadeAttributeOnMacro => {
+                codes::collect::FACADE_ATTRIBUTE_ON_MACRO
+            }
             CollectionErrorKind::StaleAnchor => codes::collect::STALE_ANCHOR,
             CollectionErrorKind::AmbiguousAnchor => codes::collect::AMBIGUOUS_ANCHOR,
             CollectionErrorKind::ProvenanceMismatch => codes::collect::PROVENANCE_MISMATCH,
@@ -331,6 +336,10 @@ mod tests {
             (
                 CollectionErrorKind::UnresolvedAttribute,
                 codes::collect::UNRESOLVED_ATTRIBUTE,
+            ),
+            (
+                CollectionErrorKind::FacadeAttributeOnMacro,
+                codes::collect::FACADE_ATTRIBUTE_ON_MACRO,
             ),
             (
                 CollectionErrorKind::StaleAnchor,

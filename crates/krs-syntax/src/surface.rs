@@ -30,6 +30,7 @@ mod tokens;
 
 pub use discovery::{
     AttributeInvocation, Invocation, InvocationKind, InvocationNode, Scope, invocations,
+    item_owners,
 };
 pub use resolver::{AuthoredResolver, FacadeScope, GeneratedResolver, Resolve};
 pub use tokens::{

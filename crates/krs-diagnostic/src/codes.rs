@@ -145,6 +145,7 @@ register_codes! {
         IMPRECISE_AUTHORED_ANCHOR: "krs::collect::imprecise-authored-anchor" => "A semantic node used an invocation-fallback rather than exact leaves.",
         SOURCE_SYNTAX: "krs::collect::source-syntax" => "The exact source no longer parses under the shared KRS parser.",
         UNRESOLVED_ATTRIBUTE: "krs::collect::unresolved-attribute" => "An authored attribute or item macro names a KRS entry point but does not invoke it under the package's facade alias.",
+        FACADE_ATTRIBUTE_ON_MACRO: "krs::collect::facade-attribute-on-macro" => "A facade attribute annotates a macro instead of the item it names.",
         STALE_ANCHOR: "krs::collect::stale-anchor" => "A host anchor did not match the corresponding reparsed semantic node.",
         AMBIGUOUS_ANCHOR: "krs::collect::ambiguous-anchor" => "More than one reparsed invocation matched a host descriptor.",
         PROVENANCE_MISMATCH: "krs::collect::provenance-mismatch" => "The macro and shared parser disagreed about the complete anchor set.",

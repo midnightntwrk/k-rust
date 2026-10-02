@@ -1,5 +1,7 @@
 //! Invocation discovery over Rust syntax and opaque macro inputs.
 
+use std::collections::BTreeMap;
+
 use proc_macro2::{Span, TokenStream};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
@@ -83,20 +85,37 @@ pub struct Invocation<'ast> {
 }
 
 impl<'ast> Invocation<'ast> {
-    /// The item whose own invocation this is:
-    /// the function-like call of an item macro, or the facade attribute of an item that is not a macro.
-    /// An item macro under a facade attribute is therefore classified by its own entry, not by the attribute.
-    #[must_use]
-    pub fn owned_item(&self) -> Option<&'ast Item> {
+    /// The item this invocation can own:
+    /// the facade attribute of any item, or the function-like call of an item macro.
+    /// [`item_owners`] resolves an item macro that has both.
+    fn owned_item(&self) -> Option<&'ast Item> {
         let InvocationNode::Item(item) = self.node else {
             return None;
         };
-        let owned = match item {
-            Item::Macro(_) => matches!(self.kind, InvocationKind::Function { .. }),
-            _ => matches!(self.kind, InvocationKind::Attribute(_)),
-        };
+        let owned = matches!(self.kind, InvocationKind::Attribute(_))
+            || matches!(
+                (item, &self.kind),
+                (Item::Macro(_), InvocationKind::Function { .. })
+            );
         owned.then_some(item)
     }
+}
+
+/// The one invocation that owns each item, keyed by the item's address.
+/// A facade attribute owns its item, including an item macro, because rustc expands the attribute before the macro;
+/// the function-like call of an item macro owns it only when the item carries no facade attribute.
+/// Discovery records an attribute before the macro it annotates, so the first recorded invocation is the owner.
+#[must_use]
+pub fn item_owners<'calls, 'ast>(
+    invocations: &'calls [Invocation<'ast>],
+) -> BTreeMap<*const Item, &'calls Invocation<'ast>> {
+    let mut owners = BTreeMap::new();
+    for invocation in invocations {
+        if let Some(item) = invocation.owned_item() {
+            owners.entry(std::ptr::from_ref(item)).or_insert(invocation);
+        }
+    }
+    owners
 }
 
 /// Finds every KRS invocation in `file`, resolving the file root and each inline module separately.
@@ -528,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn an_item_macro_owns_its_call_and_not_its_facade_attribute() {
+    fn a_facade_attribute_owns_an_item_macro_before_its_call() {
         let file: syn::File = syn::parse_quote! {
             #[k::sort]
             k::rules! {}
@@ -536,22 +555,33 @@ mod tests {
             other! {}
             #[k::sort]
             trait T {}
+            #[doc = "inert"]
+            k::sorts! { A; }
         };
         let calls = invocations(&file, &AuthoredResolver::new("k"));
-        assert_eq!(calls.len(), 4);
+        assert_eq!(calls.len(), 5);
         assert_eq!(
             calls
                 .iter()
                 .map(|call| call.owned_item().map(std::ptr::from_ref))
                 .collect::<Vec<_>>(),
             [
-                None,
                 Some(std::ptr::from_ref(&file.items[0])),
-                None,
+                Some(std::ptr::from_ref(&file.items[0])),
+                Some(std::ptr::from_ref(&file.items[1])),
                 Some(std::ptr::from_ref(&file.items[2])),
+                Some(std::ptr::from_ref(&file.items[3])),
             ],
         );
         assert_eq!(calls[1].parent, Some(0));
+        let owners = item_owners(&calls);
+        assert_eq!(owners.len(), file.items.len());
+        for (item, index) in file.items.iter().zip([0, 2, 3, 4]) {
+            assert!(std::ptr::eq(
+                owners[&std::ptr::from_ref(item)],
+                std::ptr::from_ref(&calls[index])
+            ));
+        }
     }
 
     #[test]
