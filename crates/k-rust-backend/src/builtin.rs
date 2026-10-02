@@ -935,8 +935,7 @@ pub(super) fn values_differ(sorts: Option<&SortGraph>, left: &Term, right: &Term
 /// it denotes, with no evidence for an equation head (`NoEvidence`), and
 /// the roots decide only when one of them is a free-constructor application and the other is a
 /// fixed root too: different roots are different values, and two applications of one free
-/// symbol are equal exactly when their arguments are.
-#[deny(clippy::wildcard_enum_match_arm)]
+/// symbol without associativity or idempotence are equal exactly when their arguments are.
 fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) -> Option<bool> {
     if left.attributes().constructor_like && right.attributes().constructor_like {
         return Some(left == right);
@@ -945,6 +944,21 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
     // so `a ==K b` is never less decided than `\equals(a, b)`.
     if crate::definedness::terms_apart(sort_graph, left, right).is_some() {
         return Some(false);
+    }
+    evaluate_equality_by_roots(left, right, sort_graph)
+}
+
+/// Compare operands after the shared apartness walk found no separation.
+/// That walk already visits free-constructor argument pairs and equivalent injection
+/// operands, so recursion through those pairs need not scan their subtrees again.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn evaluate_equality_by_roots(
+    left: &Term,
+    right: &Term,
+    sort_graph: Option<&SortGraph>,
+) -> Option<bool> {
+    if left.attributes().constructor_like && right.attributes().constructor_like {
+        return Some(left == right);
     }
     let fixed = |term| match classify_value(term, &mut NoEvidence) {
         Head::Fixed(fixed) => Some(fixed),
@@ -957,7 +971,7 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
         let arguments_equal = |pairs: &mut dyn Iterator<Item = (&Term, &Term)>| {
             let mut undecided = false;
             for (left, right) in pairs {
-                match evaluate_equality(left, right, sort_graph) {
+                match evaluate_equality_by_roots(left, right, sort_graph) {
                     Some(false) => return Some(false),
                     None => undecided = true,
                     Some(true) => {}
@@ -968,8 +982,8 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
         return match compare_roots(left_root, right_root) {
             RootComparison::Distinct(_) | RootComparison::ArityMismatch => Some(false),
             RootComparison::SameApplication(same) => arguments_equal(&mut same.pairs()),
-            // Open question Q6 of the classifier's design: a free-constructor symbol with `assoc`
-            // or `idem` axioms is compared argument by argument, as for a free symbol.
+            // Associativity and idempotence can regroup or collapse arguments, so a
+            // differing pair cannot decide equality while another pair is undecided.
             RootComparison::SameAlgebraicSymbol => {
                 let (
                     TermKind::Application {
@@ -984,7 +998,13 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
                 else {
                     unreachable!("two applications of one symbol are applications");
                 };
-                arguments_equal(&mut left_arguments.iter().zip(right_arguments))
+                let mut equal = true;
+                for (left, right) in left_arguments.iter().zip(right_arguments) {
+                    // Apartness does not descend through algebraic roots, so each
+                    // argument needs its own shared apartness check.
+                    equal &= evaluate_equality(left, right, sort_graph)?;
+                }
+                Some(equal)
             }
             RootComparison::DomainValues
             | RootComparison::Injections
@@ -997,7 +1017,7 @@ fn evaluate_equality(left: &Term, right: &Term, sort_graph: Option<&SortGraph>) 
         (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
             match match_injection_equality(sort_graph, left, right)? {
                 InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right) => {
-                    evaluate_equality(&left, &right, sort_graph)
+                    evaluate_equality_by_roots(&left, &right, sort_graph)
                 }
                 InjectionEquality::Distinct => Some(false),
                 InjectionEquality::Unknown => None,
@@ -1185,6 +1205,38 @@ mod tests {
         assert_eq!(evaluate_equality(&left, &pair("B", 1), None), None);
         assert_eq!(evaluate_equality(&left, &left, None), Some(true));
         assert_eq!(evaluate_equality(&pair("B", 2), &left, None), Some(false));
+    }
+
+    #[test]
+    fn fu17_equality_leaves_algebraic_argument_mismatches_undecided() {
+        let sort = Sort::simple("SortElem");
+        let c = Arc::new(Symbol::constructor(
+            "c",
+            vec![Sort::simple("SortInt")],
+            sort.clone(),
+        ));
+        let constant =
+            |value| Term::application(c.clone(), Vec::new(), vec![int_term(BigInt::from(value))]);
+        for (associative, idempotent) in [(true, false), (false, true)] {
+            let mut g = Symbol::constructor("g", vec![sort.clone(), sort.clone()], sort.clone());
+            g.attributes.associative = associative;
+            g.attributes.idempotent = idempotent;
+            let g = Arc::new(g);
+            let apply = |left, right| Term::application(g.clone(), Vec::new(), vec![left, right]);
+            let x = Term::variable(Variable::new("X", sort.clone()));
+            let y = Term::variable(Variable::new("Y", sort.clone()));
+            let left = apply(constant(1), x);
+            let right = apply(
+                apply(constant(1), constant(if associative { 2 } else { 1 })),
+                y,
+            );
+            // Associativity makes the sides equal at X = g(c(2), Y); idempotence
+            // makes them equal at X = Y, since g(c(1), c(1)) = c(1).
+            // Their differing first arguments therefore cannot refute equality.
+            assert_eq!(evaluate_equality(&left, &right, None), None);
+            assert_eq!(evaluate_equality(&right, &left, None), None);
+            assert_eq!(evaluate_equality(&left, &left, None), Some(true));
+        }
     }
 
     #[test]
