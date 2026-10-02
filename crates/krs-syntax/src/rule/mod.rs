@@ -9,6 +9,6 @@ pub use block::{
     parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
-pub use condition::{RuleCondition, RuleExtra};
+pub use condition::{RuleCondition, RuleExtra, RuleMapUpdate};
 pub use item::{RuleItem, RuleParameter};
 pub use pattern::RulePattern;

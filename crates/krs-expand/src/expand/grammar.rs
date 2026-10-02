@@ -67,8 +67,7 @@ pub(crate) fn precedence(
                 "too many precedence chains",
             )
         })?;
-        let mut groups = Vec::new();
-        for group in chain.groups() {
+        let groups = chain.groups().try_map_ref(|group| -> crate::Result<_> {
             let name = group.to_string();
             let ordinal = group_ordinal;
             group_ordinal = group_ordinal.checked_add(1).ok_or_else(|| {
@@ -78,22 +77,16 @@ pub(crate) fn precedence(
                     "too many precedence groups",
                 )
             })?;
-            groups.push(DescriptorGroupReference {
+            Ok(DescriptorGroupReference {
                 key: wire_key(precedence_group_reference_role, ordinal),
                 group: ProductionGroupId::new(name)
                     .expect("Rust identifiers are valid production groups"),
-            });
-        }
-        chains.push(
-            DescriptorPrecedenceChain::new(wire_key(precedence_chain_role, chain_ordinal), groups)
-                .map_err(|error| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        Span::call_site(),
-                        error.to_string(),
-                    )
-                })?,
-        );
+            })
+        })?;
+        chains.push(DescriptorPrecedenceChain {
+            key: wire_key(precedence_chain_role, chain_ordinal),
+            groups,
+        });
     }
     let grammar = WireGrammarDescriptor::Precedence {
         key: wire_key(precedence_declaration_role, 0),

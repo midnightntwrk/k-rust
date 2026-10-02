@@ -7,9 +7,10 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
 use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
-use crate::path::{is_plain_path, path_text};
+use crate::path::{path_text, plain_path_last, unqualified_path_ident};
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TokenRange,
+    ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
+    TokenRange,
 };
 
 /// Whether a compiler-owned state island occurs in pattern or expression position.
@@ -202,14 +203,68 @@ pub enum MapBody {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MapPatternBindings {
+    pub(crate) terms: Vec<Ident>,
+    pub(crate) frame: Option<Ident>,
+}
+
+impl MapPatternBindings {
+    fn from_items(items: &[MapItem], remainder: &StateMacroRemainder) -> Self {
+        let terms = items
+            .iter()
+            .flat_map(|item| [item.key(), item.value()])
+            .flat_map(TermExpression::nodes)
+            .filter_map(|node| match node {
+                TermNode::Reference(path) => unqualified_path_ident(path).cloned(),
+                _ => None,
+            })
+            .collect();
+        let frame = match remainder {
+            StateMacroRemainder::Bind { binding, .. } => Some(binding.clone()),
+            _ => None,
+        };
+        Self { terms, frame }
+    }
+}
+
 /// Parsed `map!` payload.
 #[derive(Clone, Debug)]
 pub struct MapExpression {
     tokens: TokenStream,
     body: MapBody,
+    pattern_bindings: Option<MapPatternBindings>,
 }
 
 impl MapExpression {
+    fn empty(tokens: TokenStream, explicit_dot: bool, context: StateMacroContext) -> Self {
+        Self {
+            tokens,
+            body: MapBody::Empty { explicit_dot },
+            pattern_bindings: (context == StateMacroContext::Pattern)
+                .then(MapPatternBindings::default),
+        }
+    }
+
+    fn items(
+        tokens: TokenStream,
+        items: Vec<MapItem>,
+        remainder: StateMacroRemainder,
+        context: StateMacroContext,
+    ) -> Self {
+        let pattern_bindings = (context == StateMacroContext::Pattern)
+            .then(|| MapPatternBindings::from_items(&items, &remainder));
+        Self {
+            tokens,
+            body: MapBody::Items { items, remainder },
+            pattern_bindings,
+        }
+    }
+
+    pub(crate) const fn pattern_bindings(&self) -> Option<&MapPatternBindings> {
+        self.pattern_bindings.as_ref()
+    }
+
     /// Returns the classified map operation.
     #[must_use]
     pub const fn body(&self) -> &MapBody {
@@ -652,6 +707,7 @@ fn parse_map(
         return Ok(MapExpression {
             tokens,
             body: MapBody::Update { base, key, value },
+            pattern_bindings: None,
         });
     }
     if let Some((base_tokens, update_tokens)) = split_once_punct(&tokens, ';') {
@@ -667,6 +723,7 @@ fn parse_map(
         return Ok(MapExpression {
             tokens,
             body: MapBody::Update { base, key, value },
+            pattern_bindings: None,
         });
     }
     let original = tokens.clone();
@@ -674,12 +731,7 @@ fn parse_map(
         tokens,
         move |input| {
             if input.is_empty() {
-                return Ok(MapExpression {
-                    tokens: original.clone(),
-                    body: MapBody::Empty {
-                        explicit_dot: false,
-                    },
-                });
+                return Ok(MapExpression::empty(original.clone(), false, context));
             }
             if input.peek(Token![.]) {
                 parse_dot_unit(input, "Map")?;
@@ -690,10 +742,7 @@ fn parse_map(
                         input.span(),
                     ));
                 }
-                return Ok(MapExpression {
-                    tokens: original.clone(),
-                    body: MapBody::Empty { explicit_dot: true },
-                });
+                return Ok(MapExpression::empty(original.clone(), true, context));
             }
 
             if starts_remainder(input) {
@@ -705,13 +754,12 @@ fn parse_map(
                         input.span(),
                     ));
                 }
-                return Ok(MapExpression {
-                    tokens: original.clone(),
-                    body: MapBody::Items {
-                        items: Vec::new(),
-                        remainder,
-                    },
-                });
+                return Ok(MapExpression::items(
+                    original.clone(),
+                    Vec::new(),
+                    remainder,
+                    context,
+                ));
             }
 
             let first = parse_map_item_key(input)?;
@@ -750,10 +798,12 @@ fn parse_map(
                     input.span(),
                 ));
             }
-            Ok(MapExpression {
-                tokens: original.clone(),
-                body: MapBody::Items { items, remainder },
-            })
+            Ok(MapExpression::items(
+                original.clone(),
+                items,
+                remainder,
+                context,
+            ))
         },
         |error| state_error("map", "malformed compiler-owned state syntax", error.span()),
     )
@@ -809,19 +859,15 @@ fn parse_cells(
                     break;
                 }
                 let mut field: Path = input.parse().map_err(SyntaxError::from)?;
-                if !is_plain_path(&field) {
+                let Some(last) = plain_path_last(&field) else {
                     return Err(state_error(
                         "cells",
                         "cell fields must be plain Rust paths",
                         field.span(),
                     ));
-                }
-                let name = field
-                    .segments
-                    .pop()
-                    .expect("a plain cell field path is nonempty")
-                    .into_value()
-                    .ident;
+                };
+                let name = last.ident.clone();
+                field.segments.pop();
                 field.segments.pop_punct();
                 let owner = if field.segments.is_empty() {
                     None
@@ -841,20 +887,15 @@ fn parse_cells(
                 }
                 input.parse::<Token![:]>().map_err(SyntaxError::from)?;
                 let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
-                if !is_plain_path(&wrapper) {
+                let Some(last) = plain_path_last(&wrapper) else {
                     return Err(state_error(
                         "cells",
                         "cell wrappers must be plain Rust paths",
                         wrapper.span(),
                     ));
-                }
+                };
                 let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
-                let wrapper_name = wrapper
-                    .segments
-                    .last()
-                    .expect("plain path is nonempty")
-                    .ident
-                    .to_string();
+                let wrapper_name = last.ident.to_string();
                 let value = match wrapper_name.as_str() {
                     "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
                     "Cell" => parse_state_term(value_tokens, context)?,

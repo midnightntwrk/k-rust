@@ -443,24 +443,11 @@ impl<'a> TermBuilder<'a> {
                 }
                 let ordinal = self.or_bool_ordinal;
                 self.or_bool_ordinal += 1;
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| self.expand_wire(argument, side, slots))
-                    .collect::<crate::Result<Vec<_>>>()?;
+                let arguments =
+                    arguments.try_map_ref(|argument| self.expand_wire(argument, side, slots))?;
                 Ok(WireTerm::OrBool {
                     key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    arguments: arguments.try_into().map_err(
-                        |_: krs_ir::AtLeastTwoError| {
-                            ExpandError::new(
-                                expand::CLAIM_ONLY_TERM,
-                                Span::call_site(),
-                                krs_ir::StateTransportError::InvalidTerm(
-                                    krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
-                                )
-                                .to_string(),
-                            )
-                        },
-                    )?,
+                    arguments,
                 })
             }
             TermTree::Cell(cell) => {

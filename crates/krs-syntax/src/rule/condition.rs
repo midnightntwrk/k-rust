@@ -106,7 +106,7 @@ pub enum RuleExtra {
         /// Authored whole-map binding from the subject record.
         base: Ident,
         /// Complete ordinary three-argument update term.
-        update: Box<TermExpression>,
+        update: Box<RuleMapUpdate>,
     },
     /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
     RewriteCell {
@@ -145,7 +145,60 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
     Ok(TokenRange::for_tokens(&tokens)?)
 }
 
-pub(super) fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<RuleExtra> {
+/// One validated ordinary three-argument map update.
+#[derive(Clone, Debug)]
+pub struct RuleMapUpdate {
+    term: TermExpression,
+    arguments: [Expr; 3],
+}
+
+impl RuleMapUpdate {
+    /// Returns the complete structured update term.
+    #[must_use]
+    pub const fn term(&self) -> &TermExpression {
+        &self.term
+    }
+
+    /// Returns the authored base, key, and value expressions.
+    #[must_use]
+    pub fn arguments(&self) -> [&Expr; 3] {
+        self.arguments.each_ref()
+    }
+}
+
+pub(super) struct HaveMapExtra {
+    pub(super) cell: Ident,
+    key: Box<TermExpression>,
+    pub(super) value: Ident,
+}
+
+impl From<HaveMapExtra> for RuleExtra {
+    fn from(extra: HaveMapExtra) -> Self {
+        Self::HaveMap {
+            cell: extra.cell,
+            key: extra.key,
+            value: extra.value,
+        }
+    }
+}
+
+pub(super) struct MapUpdateExtra {
+    pub(super) cell: Ident,
+    pub(super) base: Ident,
+    update: Box<RuleMapUpdate>,
+}
+
+impl From<MapUpdateExtra> for RuleExtra {
+    fn from(extra: MapUpdateExtra) -> Self {
+        Self::UpdateMap {
+            cell: extra.cell,
+            base: extra.base,
+            update: extra.update,
+        }
+    }
+}
+
+pub(super) fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<HaveMapExtra> {
     let cell = input.call(Ident::parse_any)?;
     let content;
     bracketed!(content in input);
@@ -156,14 +209,14 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<RuleExtra>
     if !content.is_empty() {
         return Err(content.error("unexpected tokens after map binding value"));
     }
-    Ok(RuleExtra::HaveMap {
+    Ok(HaveMapExtra {
         cell,
         key: Box::new(TermExpression::from_expression(key)?),
         value,
     })
 }
 
-pub(super) fn parse_update_extra(input: ParseStream<'_>) -> syn::Result<RuleExtra> {
+pub(super) fn parse_update_extra(input: ParseStream<'_>) -> syn::Result<MapUpdateExtra> {
     let cell = input.call(Ident::parse_any)?;
     input.parse::<Token![=]>()?;
     let expression: Expr = input.parse()?;
@@ -180,7 +233,7 @@ pub(super) fn parse_map_update(
     expected_base: &Ident,
     expression: &Expr,
     base_error: &str,
-) -> syn::Result<RuleExtra> {
+) -> syn::Result<MapUpdateExtra> {
     let Expr::Call(ExprCall { func, args, .. }) = expression else {
         return Err(syn::Error::new(
             expression.span(),
@@ -200,12 +253,13 @@ pub(super) fn parse_map_update(
         ));
     }
     let arguments = args.iter().collect::<Vec<_>>();
-    let [base, _, _] = arguments.as_slice() else {
+    let [base, key, value] = arguments.as_slice() else {
         return Err(syn::Error::new(
             args.span(),
             "a map update term requires exactly three arguments",
         ));
     };
+    let base_expression = *base;
     let Expr::Path(base) = base else {
         return Err(syn::Error::new(
             base.span(),
@@ -222,22 +276,14 @@ pub(super) fn parse_map_update(
         ));
     }
     let update = TermExpression::from_expression(expression.clone())?;
-    Ok(RuleExtra::UpdateMap {
+    Ok(MapUpdateExtra {
         cell: cell.clone(),
         base: base.path.segments[0].ident.clone(),
-        update: Box::new(update),
+        update: Box::new(RuleMapUpdate {
+            term: update,
+            arguments: [base_expression.clone(), (*key).clone(), (*value).clone()],
+        }),
     })
-}
-
-pub(super) fn map_update_arguments(update: &TermExpression) -> [&Expr; 3] {
-    let Expr::Call(ExprCall { args, .. }) = update.expression() else {
-        unreachable!("validated map update terms are calls")
-    };
-    let arguments = args.iter().collect::<Vec<_>>();
-    let [base, key, value] = arguments.as_slice() else {
-        unreachable!("validated map update terms have exactly three arguments")
-    };
-    [base, key, value]
 }
 
 pub(crate) fn take_requires_helper(

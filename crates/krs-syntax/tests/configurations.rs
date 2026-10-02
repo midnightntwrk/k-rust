@@ -7,7 +7,7 @@ use krs_syntax::{ConfigurationCellContent, ProvenanceRole, SyntaxErrorKind};
 fn named_root_attribute_preserves_literal_and_anchor() {
     let attribute =
         krs_syntax::ConfigurationAttribute::parse_source(r#"root = "machine""#).unwrap();
-    assert_eq!(attribute.root().value(), "machine");
+    assert_eq!(attribute.root().unwrap().value(), "machine");
     let anchors = attribute.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConfigurationRoot);
@@ -54,7 +54,7 @@ fn one_fixed_computation_cell_preserves_type_paths_and_order() {
     .unwrap();
     assert_eq!(declaration.item().attrs.len(), 1);
     assert_eq!(declaration.name(), "Machine");
-    assert_eq!(declaration.cell().name(), "k");
+    assert_eq!(declaration.cell().unwrap().name(), "k");
 
     let candidates = declaration.reference_candidates();
     assert_eq!(candidates.len(), 2);
@@ -179,4 +179,16 @@ fn unsupported_struct_and_multiplicity_shapes_are_local_errors() {
             assert!(error.span().start().column > source.find('{').unwrap());
         }
     }
+}
+
+#[test]
+fn leaf_accessors_return_none_for_nested_cells() {
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
+        "struct Machine { k: KCell<KSequence>, frame: Frame }",
+    )
+    .unwrap();
+    assert!(declaration.cells()[0].wrapper().is_some());
+    assert!(declaration.cells()[0].content().is_some());
+    assert!(declaration.cells()[1].wrapper().is_none());
+    assert!(declaration.cells()[1].content().is_none());
 }

@@ -9,7 +9,7 @@ use syn::{Attribute, Expr, Ident, ItemFn, Pat, PatIdent, Path, Token, Type, brac
 use super::block::{
     RuleClause, RuleClauseLayout, RuleHeadResult, RuleNarrowing, take_rule_clause_attribute,
 };
-use super::condition::{RuleExtra, condition_token_range, parse_map_update};
+use super::condition::{MapUpdateExtra, RuleExtra, condition_token_range, parse_map_update};
 use super::item::RuleItem;
 use super::pattern::{RulePattern, parse_rule_pattern};
 use crate::path::is_plain_path;
@@ -271,11 +271,8 @@ pub(super) fn parse_machine_clause(
                     _ => None,
                 };
                 if let Some(update) = map_update {
-                    let RuleExtra::UpdateMap { base, .. } = &update else {
-                        unreachable!("machine map-update parsing returns an update extra")
-                    };
-                    extra_bindings.push(base.clone());
-                    extras.push(update);
+                    extra_bindings.push(update.base.clone());
+                    extras.push(update.into());
                 } else {
                     extra_bindings.extend(pattern.bindings().iter().cloned());
                     extras.push(RuleExtra::RewriteCell {
@@ -377,6 +374,10 @@ pub(super) fn parse_machine_clause(
     })
 }
 
-fn parse_machine_update(cell: &Ident, base: &Ident, expression: &Expr) -> syn::Result<RuleExtra> {
+fn parse_machine_update(
+    cell: &Ident,
+    base: &Ident,
+    expression: &Expr,
+) -> syn::Result<MapUpdateExtra> {
     parse_map_update(cell, base, expression, "the map update base must be")
 }

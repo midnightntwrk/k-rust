@@ -6,7 +6,7 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{
     Attribute, Expr, ExprCall, ExprMacro, ExprPath, ExprStruct, FnArg, Ident, ImplItemFn, Lit,
-    LitStr, Member, Pat, PatType, Path, PathArguments, ReturnType, Stmt, Token, Type,
+    LitStr, Member, Pat, PatType, Path, PathArguments, ReturnType, Stmt, Token, Type, TypePath,
 };
 
 use crate::ReferenceCandidate;
@@ -16,7 +16,7 @@ use crate::parse::{
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
 };
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
 use crate::term_sort::{TermSort, parse_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
@@ -87,17 +87,10 @@ impl ConfigurationVariable {
         &self.attribute
     }
 
-    /// Returns the checked `Term<dyn Sort>` type.
-    ///
-    /// # Panics
-    ///
-    /// Panics for a direct typed builtin value. Fixed-state consumers should use
-    /// [`Self::optional_term_sort`] or [`Self::sort`].
+    /// Returns the checked `Term<S>` detail when this variable uses a term type.
     #[must_use]
-    pub const fn term_sort(&self) -> &TermSort {
-        self.term_sort
-            .as_ref()
-            .expect("this configuration variable is not written as `Term<...>`")
+    pub const fn term_sort(&self) -> Option<&TermSort> {
+        self.term_sort.as_ref()
     }
 
     /// Returns the resolved outer semantic sort path for either supported type form.
@@ -215,6 +208,7 @@ impl ComputationCellInitializer {
 #[derive(Clone, Debug)]
 pub struct InitializerFunction {
     item: ImplItemFn,
+    result_type: TypePath,
     variables: Vec<ConfigurationVariable>,
     body: ExprStruct,
     cells: Vec<FixedCellInitializer>,
@@ -231,7 +225,7 @@ impl InitializerFunction {
     /// missing/repeated fields, arbitrary calls, and non-single-item `k!`
     /// computation contents at their local spans.
     pub fn from_item(item: ImplItemFn) -> Result<Self, SyntaxError> {
-        validate_signature(&item)?;
+        let result_type = parse_signature(&item)?;
 
         let mut variables = Vec::with_capacity(item.sig.inputs.len());
         for argument in &item.sig.inputs {
@@ -263,6 +257,7 @@ impl InitializerFunction {
         infer_main_configuration_variable(&mut variables, &cells)?;
         Ok(Self {
             item,
+            result_type,
             variables,
             body,
             cells,
@@ -288,17 +283,10 @@ impl InitializerFunction {
         &self.body
     }
 
-    /// Returns the sole computation-cell initializer.
-    ///
-    /// # Panics
-    ///
-    /// Panics unless this is a legacy single-item `k` initializer. Fixed-state
-    /// consumers should use [`Self::cells`].
+    /// Returns the legacy single-item `k` initializer when present.
     #[must_use]
-    pub const fn cell(&self) -> &ComputationCellInitializer {
-        self.legacy_cell
-            .as_ref()
-            .expect("this initializer has no legacy single-item `k` cell")
+    pub const fn cell(&self) -> Option<&ComputationCellInitializer> {
+        self.legacy_cell.as_ref()
     }
 
     /// Returns the legacy single-item `k` initializer when this declaration
@@ -329,7 +317,7 @@ impl InitializerFunction {
             ProvenanceAnchor::new(
                 ProvenanceRole::InitializerResultType,
                 0,
-                TokenRange::for_tokens(initializer_result_type(&self.item))?,
+                TokenRange::for_tokens(&self.result_type)?,
             ),
         ];
         for (ordinal, variable) in self.variables.iter().enumerate() {
@@ -393,12 +381,9 @@ impl InitializerFunction {
     /// Returns a structured overflow error if a role has more than `u32::MAX`
     /// occurrences.
     pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
-        let Type::Path(result_type) = initializer_result_type(&self.item) else {
-            unreachable!("the initializer return type was validated as `Self`")
-        };
         let mut candidates = vec![ReferenceCandidate {
             key: canonical_key(ProvenanceRole::InitializerResultType, 0),
-            path: result_type.path.clone(),
+            path: self.result_type.path.clone(),
             kind: (),
         }];
         for (ordinal, variable) in self.variables.iter().enumerate() {
@@ -434,7 +419,7 @@ impl KrsSyntax for InitializerFunction {
     }
 }
 
-fn validate_signature(item: &ImplItemFn) -> Result<(), SyntaxError> {
+fn parse_signature(item: &ImplItemFn) -> Result<TypePath, SyntaxError> {
     if let Some(attribute) = item.attrs.first() {
         return Err(unsupported_signature(
             "attributes other than the invoking `#[k::init]` are unsupported",
@@ -496,13 +481,24 @@ fn validate_signature(item: &ImplItemFn) -> Result<(), SyntaxError> {
             signature.ident.span(),
         ));
     };
-    if !is_self_type(result) {
-        return Err(unsupported_signature(
-            "the initializer must return exactly `Self`",
-            result.span(),
-        ));
-    }
-    Ok(())
+    let result_type = match &**result {
+        Type::Path(path)
+            if path.qself.is_none()
+                && path.path.leading_colon.is_none()
+                && path.path.segments.len() == 1
+                && path.path.segments[0].ident == "Self"
+                && matches!(path.path.segments[0].arguments, PathArguments::None) =>
+        {
+            path
+        }
+        _ => {
+            return Err(unsupported_signature(
+                "the initializer must return exactly `Self`",
+                result.span(),
+            ));
+        }
+    };
+    Ok(result_type.clone())
 }
 
 fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVariable, SyntaxError> {
@@ -564,11 +560,7 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
                 parameter.ty.span(),
             ));
         }
-        let mut sort = type_path.path.clone();
-        sort.segments
-            .last_mut()
-            .expect("path is nonempty")
-            .arguments = PathArguments::None;
+        let sort = without_last_arguments(&type_path.path);
         if !is_plain_path(&sort) {
             return Err(unsupported_variable(
                 "the outer configuration-variable sort must be a plain path",
@@ -737,7 +729,7 @@ fn parse_body(
                 attribute.span(),
             ));
         }
-        let parsed = parse_initializer_cell(field.clone())?;
+        let parsed = parse_initializer_cell(field.clone(), name.clone())?;
         if name == "k"
             && let InitializerCellContent::Leaf {
                 constructor,
@@ -765,21 +757,20 @@ fn parse_body(
 }
 
 #[allow(clippy::too_many_lines)] // Validation stays linear and reports each local syn node.
-fn parse_initializer_cell(field: syn::FieldValue) -> Result<FixedCellInitializer, SyntaxError> {
-    let Member::Named(name) = &field.member else {
-        unreachable!("initializer fields were checked as named")
-    };
-    let name = name.clone();
+fn parse_initializer_cell(
+    field: syn::FieldValue,
+    name: Ident,
+) -> Result<FixedCellInitializer, SyntaxError> {
     let content = match &field.expr {
         Expr::Call(ExprCall {
             attrs, func, args, ..
         }) => {
-            if !attrs.is_empty() || args.len() != 1 {
+            let (true, 1, Some(argument)) = (attrs.is_empty(), args.len(), args.first()) else {
                 return Err(unsupported_body(
                     "cell constructors require exactly one argument",
                     field.expr.span(),
                 ));
-            }
+            };
             let Expr::Path(ExprPath {
                 attrs,
                 qself: None,
@@ -791,15 +782,17 @@ fn parse_initializer_cell(field: syn::FieldValue) -> Result<FixedCellInitializer
                     func.span(),
                 ));
             };
-            if !attrs.is_empty() || !is_plain_path(path) || path.segments.len() < 2 {
+            let mut reversed = path.segments.iter().rev();
+            let (true, Some(method), Some(wrapper)) = (
+                attrs.is_empty() && is_plain_path(path),
+                reversed.next(),
+                reversed.next(),
+            ) else {
                 return Err(unsupported_body(
                     "cell constructors must be plain paths",
                     path.span(),
                 ));
-            }
-            let mut reversed = path.segments.iter().rev();
-            let method = reversed.next().expect("constructor path is nonempty");
-            let wrapper = reversed.next().expect("constructor has two segments");
+            };
             if method.ident != "new"
                 || !matches!(wrapper.ident.to_string().as_str(), "Cell" | "KCell")
             {
@@ -808,7 +801,6 @@ fn parse_initializer_cell(field: syn::FieldValue) -> Result<FixedCellInitializer
                     path.span(),
                 ));
             }
-            let argument = args.first().expect("one argument was checked");
             let computation = wrapper.ident == "KCell";
             let value = parse_initializer_state_term(argument, computation)?;
             InitializerCellContent::Leaf {
@@ -846,7 +838,7 @@ fn parse_initializer_cell(field: syn::FieldValue) -> Result<FixedCellInitializer
                         attribute.span(),
                     ));
                 }
-                children.push(parse_initializer_cell(child.clone())?);
+                children.push(parse_initializer_cell(child.clone(), child_name.clone())?);
             }
             if children.is_empty() {
                 return Err(unsupported_body(
@@ -904,19 +896,13 @@ fn parse_initializer_state_term(
     computation: bool,
 ) -> Result<StateTerm, SyntaxError> {
     if let Expr::Macro(ExprMacro { attrs, mac }) = expression {
-        if !attrs.is_empty() || !is_plain_path(&mac.path) {
+        let (true, Some(last)) = (attrs.is_empty(), plain_path_last(&mac.path)) else {
             return Err(unsupported_body(
                 "state macro paths must be plain",
                 expression.span(),
             ));
-        }
-        let name = mac
-            .path
-            .segments
-            .last()
-            .expect("plain path is nonempty")
-            .ident
-            .to_string();
+        };
+        let name = last.ident.to_string();
         return match name.as_str() {
             "k" if computation => Ok(StateTerm::KSequence(parse_k_sequence_expression(
                 mac.tokens.clone(),
@@ -1290,22 +1276,6 @@ fn collect_computation_variable_uses(
             InitializerCellContent::Leaf { .. } => {}
         }
     }
-}
-
-fn is_self_type(ty: &Type) -> bool {
-    matches!(ty, Type::Path(path)
-        if path.qself.is_none()
-            && path.path.leading_colon.is_none()
-            && path.path.segments.len() == 1
-            && path.path.segments[0].ident == "Self"
-            && matches!(path.path.segments[0].arguments, PathArguments::None))
-}
-
-fn initializer_result_type(item: &ImplItemFn) -> &Type {
-    let ReturnType::Type(_, result) = &item.sig.output else {
-        unreachable!("the initializer return type was validated")
-    };
-    result
 }
 
 fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {

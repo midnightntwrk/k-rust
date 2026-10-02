@@ -6,7 +6,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Pat, Path, Token, Type, UseTree};
 
 use super::condition::{
-    RuleExtra, condition_token_range, map_update_arguments, parse_have_extra, parse_update_extra,
+    HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
+    parse_update_extra,
 };
 use super::item::RuleItem;
 use super::machine::parse_machine_clause;
@@ -19,6 +20,36 @@ use crate::parse::{
 use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
+
+enum TermTableExtra {
+    Have(HaveMapExtra),
+    Update(MapUpdateExtra),
+}
+
+impl TermTableExtra {
+    fn introduced_binding(&self) -> &Ident {
+        match self {
+            Self::Have(extra) => &extra.value,
+            Self::Update(extra) => &extra.cell,
+        }
+    }
+
+    fn cell(&self) -> &Ident {
+        match self {
+            Self::Have(extra) => &extra.cell,
+            Self::Update(extra) => &extra.cell,
+        }
+    }
+}
+
+impl From<TermTableExtra> for RuleExtra {
+    fn from(extra: TermTableExtra) -> Self {
+        match extra {
+            TermTableExtra::Have(extra) => extra.into(),
+            TermTableExtra::Update(extra) => extra.into(),
+        }
+    }
+}
 
 /// One explicit binding-sort refinement after a readable rule clause.
 #[derive(Clone, Debug)]
@@ -271,7 +302,7 @@ impl RuleClause {
                     append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
                 }
                 RuleExtra::UpdateMap { cell, update, .. } => {
-                    let [base, key, value] = map_update_arguments(update);
+                    let [base, key, value] = update.arguments();
                     let ordinal = checked_ordinal(
                         update_cell,
                         ProvenanceRole::RuleRightCellsField,
@@ -300,7 +331,7 @@ impl RuleClause {
                     ));
                     append_rule_term_anchors(
                         &mut anchors,
-                        update,
+                        update.term(),
                         RuleTermSide::Right,
                         &mut right,
                     )?;
@@ -502,8 +533,8 @@ impl RuleBlock {
                 loop {
                     let first = input.call(Ident::parse_any)?;
                     match first.unraw().to_string().as_str() {
-                        "have" => extras.push(parse_have_extra(input)?),
-                        "update" => extras.push(parse_update_extra(input)?),
+                        "have" => extras.push(TermTableExtra::Have(parse_have_extra(input)?)),
+                        "update" => extras.push(TermTableExtra::Update(parse_update_extra(input)?)),
                         _ => {
                             let binding = first;
                             input.parse::<Token![:]>()?;
@@ -551,13 +582,7 @@ impl RuleBlock {
             let rule = RuleItem::from_readable_item(item)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
             for extra in &extras {
-                let introduced = match extra {
-                    RuleExtra::HaveMap { value, .. } => value,
-                    RuleExtra::UpdateMap { cell, .. } => cell,
-                    RuleExtra::RewriteCell { .. } => {
-                        unreachable!("term-table extras cannot rewrite ordinary cells")
-                    }
-                };
+                let introduced = extra.introduced_binding();
                 if bindings
                     .iter()
                     .any(|binding| binding.unraw() == introduced.unraw())
@@ -602,7 +627,7 @@ impl RuleBlock {
                 attribute,
                 narrowings,
                 head_result,
-                extras,
+                extras: extras.into_iter().map(RuleExtra::from).collect(),
                 bindings,
                 computation_cell: None,
                 source_range: TokenRange::new(clause_start, semicolon.span),

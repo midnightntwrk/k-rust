@@ -264,22 +264,56 @@ enum Op {
     .unwrap();
 
     assert!(declaration.is_open_family());
-    assert_eq!(declaration.precedence_groups().len(), 2);
+    assert_eq!(declaration.precedence_groups().count(), 2);
+    assert_eq!(declaration.precedence_chain_groups().unwrap().len(), 2);
     assert_eq!(
-        declaration.precedence_groups()[1].associativity(),
+        declaration
+            .precedence_descriptor()
+            .unwrap()
+            .unwrap()
+            .groups
+            .len(),
+        2
+    );
+    assert_eq!(
+        declaration
+            .precedence_groups()
+            .nth(1)
+            .unwrap()
+            .associativity(),
         Some(krs_syntax::GroupAssociativity::Left)
     );
-    assert_eq!(declaration.precedence_groups()[0].associativity(), None);
     assert_eq!(
-        declaration.precedence_groups()[1].name().unwrap(),
+        declaration
+            .precedence_groups()
+            .next()
+            .unwrap()
+            .associativity(),
+        None
+    );
+    assert_eq!(
+        declaration
+            .precedence_groups()
+            .nth(1)
+            .unwrap()
+            .name()
+            .unwrap(),
         "remainder"
     );
     assert_eq!(
-        declaration.precedence_groups()[0].emitted_name(declaration.sort_name(), 0),
+        declaration
+            .precedence_groups()
+            .next()
+            .unwrap()
+            .emitted_name(declaration.sort_name(), 0),
         "op_tier0"
     );
     assert_eq!(
-        declaration.precedence_groups()[1].emitted_name(declaration.sort_name(), 1),
+        declaration
+            .precedence_groups()
+            .nth(1)
+            .unwrap()
+            .emitted_name(declaration.sort_name(), 1),
         "remainder"
     );
     let constructor_sort = declaration.variants()[0].constructor_sort();
@@ -379,16 +413,39 @@ enum Family {
     )
     .unwrap();
 
-    assert_eq!(declaration.precedence_groups()[0].associativity(), None);
     assert_eq!(
-        declaration.precedence_groups()[1].associativity(),
+        declaration
+            .precedence_groups()
+            .next()
+            .unwrap()
+            .associativity(),
+        None
+    );
+    assert_eq!(
+        declaration
+            .precedence_groups()
+            .nth(1)
+            .unwrap()
+            .associativity(),
         Some(krs_syntax::GroupAssociativity::NonAssociative)
     );
     assert_eq!(
-        declaration.precedence_groups()[1].name().unwrap(),
+        declaration
+            .precedence_groups()
+            .nth(1)
+            .unwrap()
+            .name()
+            .unwrap(),
         "equality"
     );
-    assert_eq!(declaration.precedence_groups()[2].associativity(), None);
+    assert_eq!(
+        declaration
+            .precedence_groups()
+            .nth(2)
+            .unwrap()
+            .associativity(),
+        None
+    );
 }
 
 #[test]
@@ -450,7 +507,7 @@ enum Op {
 
     assert!(declaration.is_open_family());
     assert!(declaration.is_reference_family());
-    assert!(declaration.precedence_groups().is_empty());
+    assert!(declaration.precedence_groups().next().is_none());
     assert!(declaration.precedence_provenance().unwrap().is_none());
     assert!(declaration.associativity_provenance().unwrap().is_none());
 
@@ -654,4 +711,21 @@ enum Family {
         ),
         "unexpected error: {error}"
     );
+}
+
+#[test]
+fn a_single_precedence_group_has_no_chain_descriptor() {
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
+        r#"#[k::constructors(sort = Expr, result = KResult)]
+#[k::precedence((X))]
+enum Single {
+    #[k::syntax("x")]
+    X,
+}"#,
+    )
+    .unwrap();
+    assert_eq!(declaration.precedence_groups().count(), 1);
+    assert!(declaration.precedence_chain_groups().is_none());
+    assert!(declaration.precedence_descriptor().unwrap().is_none());
+    assert!(declaration.precedence_provenance().unwrap().is_none());
 }

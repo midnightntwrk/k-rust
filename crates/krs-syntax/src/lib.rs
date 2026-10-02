@@ -37,7 +37,8 @@ pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
 };
 pub use enum_constructor::{
-    EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceGroup,
+    EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
+    EnumPrecedenceGroup,
 };
 pub use error::{SyntaxError, SyntaxErrorKind};
 pub use grammar::{
@@ -59,7 +60,8 @@ pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_
 pub use range::TokenRange;
 pub use rule::{
     RuleBlock, RuleClause, RuleClauseLayout, RuleCondition, RuleExtra, RuleHeadResult, RuleImport,
-    RuleItem, RuleNarrowing, RuleParameter, RulePattern, parse_rule_block_source_with_trivia,
+    RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

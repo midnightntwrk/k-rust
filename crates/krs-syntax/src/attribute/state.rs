@@ -14,17 +14,10 @@ pub struct ConfigurationAttribute {
 }
 
 impl ConfigurationAttribute {
-    /// Returns the authored K root-cell name literal.
-    ///
-    /// # Panics
-    ///
-    /// Panics for a generated-top configuration. Fixed-state consumers should
-    /// use [`Self::optional_root`] when either root policy is accepted.
+    /// Returns the authored K root-cell name literal when a named root is selected.
     #[must_use]
-    pub fn root(&self) -> &LitStr {
-        self.root
-            .as_ref()
-            .expect("generated-top configurations have no named root")
+    pub const fn root(&self) -> Option<&LitStr> {
+        self.root.as_ref()
     }
 
     /// Returns the optional authored root without assuming named-root policy.
@@ -163,8 +156,7 @@ impl KrsSyntax for ConfigurationAttribute {
     ///
     /// # Errors
     ///
-    /// Requires exactly one string-valued `root` argument and rejects unknown or
-    /// repeated arguments at their own tokens.
+    /// Rejects unknown, repeated, empty, or non-string `root` arguments at their own tokens.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         structured(tokens, parse_configuration_stream)
     }
@@ -195,7 +187,6 @@ impl KrsSyntax for InitAttribute {
 fn parse_configuration_stream(
     input: ParseStream<'_>,
 ) -> Result<ConfigurationAttribute, ParseError> {
-    let missing_span = input.span();
     let mut root = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
@@ -239,7 +230,6 @@ fn parse_configuration_stream(
             break;
         }
     }
-    let _ = missing_span;
     Ok(ConfigurationAttribute { root })
 }
 

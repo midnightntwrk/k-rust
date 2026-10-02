@@ -201,7 +201,8 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
                 let cell_name = cell.unraw().to_string();
                 let base_binding = base.unraw().to_string();
-                let update = builder.expand_wire(update.tree(), TermSide::Right, &mut slots)?;
+                let update =
+                    builder.expand_wire(update.term().tree(), TermSide::Right, &mut slots)?;
                 let ordinal = update_ordinal;
                 update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(

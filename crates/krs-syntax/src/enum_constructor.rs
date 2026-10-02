@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_ir::AtLeastTwo;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -8,7 +9,7 @@ use syn::{
     parse_quote,
 };
 
-use crate::attribute::{ConstructorsAttribute, VariantSyntaxAttribute};
+use crate::attribute::{ConstructorFamilyMode, ConstructorsAttribute, VariantSyntaxAttribute};
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{KrsSyntax, checked_ordinal};
@@ -223,6 +224,42 @@ impl EnumConstructorVariant {
     }
 }
 
+/// A precedence chain and the provenance needed to emit its descriptor.
+#[derive(Clone, Debug)]
+pub struct EnumPrecedenceDescriptor<'a> {
+    /// Groups from tightest to weakest binding.
+    pub groups: &'a AtLeastTwo<EnumPrecedenceGroup>,
+    /// Declaration, chain, and group-reference provenance in source order.
+    pub provenance: Vec<ProvenanceAnchor>,
+}
+
+#[derive(Clone, Debug)]
+enum EnumPrecedenceGroups {
+    Single(Box<EnumPrecedenceGroup>),
+    Chain(AtLeastTwo<EnumPrecedenceGroup>),
+}
+
+impl EnumPrecedenceGroups {
+    fn iter(&self) -> impl Iterator<Item = &EnumPrecedenceGroup> {
+        let (single, chain) = match self {
+            Self::Single(group) => (Some(group.as_ref()), None),
+            Self::Chain(groups) => (None, Some(groups)),
+        };
+        single
+            .into_iter()
+            .chain(chain.into_iter().flat_map(AtLeastTwo::iter))
+    }
+
+    fn from_vec(groups: Vec<EnumPrecedenceGroup>) -> Option<Self> {
+        let mut groups = groups.into_iter();
+        let first = groups.next()?;
+        Some(match groups.next() {
+            Some(second) => Self::Chain(AtLeastTwo::new(first, second, groups.collect())),
+            None => Self::Single(Box::new(first)),
+        })
+    }
+}
+
 /// A validated closed constructor family and its generated sort membership.
 #[derive(Clone, Debug)]
 pub struct EnumConstructorDeclaration {
@@ -231,7 +268,7 @@ pub struct EnumConstructorDeclaration {
     variants: Vec<EnumConstructorVariant>,
     open_family: bool,
     reference_family: bool,
-    precedence_groups: Vec<EnumPrecedenceGroup>,
+    precedence_groups: Option<EnumPrecedenceGroups>,
     precedence_declaration_range: Option<TokenRange>,
     precedence_chain_range: Option<TokenRange>,
 }
@@ -330,7 +367,7 @@ impl EnumConstructorDeclaration {
                     expression.span(),
                 ));
             }
-            let helpers = take_variant_helpers(&mut variant.attrs, open_family)?;
+            let helpers = take_variant_helpers(&mut variant.attrs, attribute.mode())?;
             let fields = parse_variant_fields(&variant.fields, open_family, reference_family)?;
             let documentation = production_documentation(&variant.attrs)?;
             let mut syntax = helpers.syntax;
@@ -380,19 +417,20 @@ impl EnumConstructorDeclaration {
                 .map(|field| field.name().clone())
                 .collect::<Vec<_>>();
             let strictness = match helpers.strictness {
-                Some((kind, tokens, _marker)) if reference_family => Some(
-                    StrictnessAttribute::parse_reference(kind, tokens, &available_fields)?,
-                ),
-                Some((kind, tokens, marker)) => Some(StrictnessAttribute::parse_readable(
-                    kind,
-                    tokens,
-                    &marker,
-                    attribute
-                        .result()
-                        .expect("readable helpers require a result sort")
-                        .clone(),
-                    &available_fields,
-                )?),
+                Some(VariantStrictness { kind, tokens, mode }) => Some(match mode {
+                    VariantStrictnessMode::Reference => {
+                        StrictnessAttribute::parse_reference(kind, tokens, &available_fields)?
+                    }
+                    VariantStrictnessMode::Readable { result, marker } => {
+                        StrictnessAttribute::parse_readable(
+                            kind,
+                            tokens,
+                            &marker,
+                            result,
+                            &available_fields,
+                        )?
+                    }
+                }),
                 None => None,
             };
             variants.push(EnumConstructorVariant {
@@ -425,12 +463,12 @@ impl EnumConstructorDeclaration {
                 })?;
                 validate_precedence_members(&precedence, &item.ident, &mut variants)?;
                 (
-                    precedence.groups,
+                    EnumPrecedenceGroups::from_vec(precedence.groups),
                     Some(precedence.declaration_range),
                     Some(precedence.chain_range),
                 )
             } else {
-                (Vec::new(), None, None)
+                (None, None, None)
             };
 
         Ok(Self {
@@ -483,9 +521,19 @@ impl EnumConstructorDeclaration {
     }
 
     /// Returns exhaustive precedence groups in tightest-to-weakest order.
+    pub fn precedence_groups(&self) -> impl Iterator<Item = &EnumPrecedenceGroup> {
+        self.precedence_groups
+            .iter()
+            .flat_map(EnumPrecedenceGroups::iter)
+    }
+
+    /// Returns the precedence chain when at least two groups exist.
     #[must_use]
-    pub fn precedence_groups(&self) -> &[EnumPrecedenceGroup] {
-        &self.precedence_groups
+    pub const fn precedence_chain_groups(&self) -> Option<&AtLeastTwo<EnumPrecedenceGroup>> {
+        match &self.precedence_groups {
+            Some(EnumPrecedenceGroups::Chain(groups)) => Some(groups),
+            Some(EnumPrecedenceGroups::Single(_)) | None => None,
+        }
     }
 
     /// Returns complete production provenance, including its exact member
@@ -510,21 +558,32 @@ impl EnumConstructorDeclaration {
     /// Returns an occurrence-overflow error for an unrepresentable number of
     /// groups.
     pub fn precedence_provenance(&self) -> Result<Option<Vec<ProvenanceAnchor>>, SyntaxError> {
+        Ok(self
+            .precedence_descriptor()?
+            .map(|descriptor| descriptor.provenance))
+    }
+
+    /// Returns the refined precedence chain and its descriptor provenance.
+    ///
+    /// # Errors
+    /// Returns an occurrence-overflow error for an unrepresentable number of groups.
+    pub fn precedence_descriptor(
+        &self,
+    ) -> Result<Option<EnumPrecedenceDescriptor<'_>>, SyntaxError> {
         let (Some(declaration_range), Some(chain_range)) = (
             self.precedence_declaration_range,
             self.precedence_chain_range,
         ) else {
             return Ok(None);
         };
-        if self.precedence_groups.len() < 2 {
+        let Some(groups) = self.precedence_chain_groups() else {
             return Ok(None);
-        }
+        };
         let mut anchors = vec![
             ProvenanceAnchor::new(ProvenanceRole::PrecedenceDeclaration, 0, declaration_range),
             ProvenanceAnchor::new(ProvenanceRole::PrecedenceChain, 0, chain_range),
         ];
-        let group_anchors = self
-            .precedence_groups
+        let group_anchors = groups
             .iter()
             .enumerate()
             .map(|(ordinal, group)| {
@@ -540,7 +599,10 @@ impl EnumConstructorDeclaration {
             })
             .collect::<Result<Vec<_>, SyntaxError>>()?;
         anchors.extend(group_anchors);
-        Ok(Some(anchors))
+        Ok(Some(EnumPrecedenceDescriptor {
+            groups,
+            provenance: anchors,
+        }))
     }
 
     /// Returns associativity provenance derived from the enum-level tiers.
@@ -554,8 +616,7 @@ impl EnumConstructorDeclaration {
             return Ok(None);
         };
         let associated = self
-            .precedence_groups
-            .iter()
+            .precedence_groups()
             .filter(|group| group.associativity.is_some())
             .collect::<Vec<_>>();
         if associated.is_empty() {
@@ -646,6 +707,7 @@ struct EnumPrecedenceChain {
 
 #[derive(Debug)]
 struct ParsedEnumPrecedenceChain {
+    chain_range: TokenRange,
     groups: Vec<EnumPrecedenceGroup>,
 }
 
@@ -654,7 +716,10 @@ impl Parse for ParsedEnumPrecedenceChain {
         if input.is_empty() {
             return Err(input.error("precedence requires at least one parenthesized variant group"));
         }
-        let mut groups = vec![parse_enum_precedence_group(input)?];
+        let first_group = parse_enum_precedence_group(input)?;
+        let first_span = first_group.range.first();
+        let mut last_span = first_group.range.last();
+        let mut groups = vec![first_group];
         while !input.is_empty() {
             input.parse::<Token![>]>().map_err(|_| {
                 input.error("precedence groups must be separated by `>` (binds tighter than)")
@@ -662,9 +727,14 @@ impl Parse for ParsedEnumPrecedenceChain {
             if input.is_empty() {
                 return Err(input.error("`>` must be followed by a precedence group"));
             }
-            groups.push(parse_enum_precedence_group(input)?);
+            let group = parse_enum_precedence_group(input)?;
+            last_span = group.range.last();
+            groups.push(group);
         }
-        Ok(Self { groups })
+        Ok(Self {
+            chain_range: TokenRange::new(first_span, last_span),
+            groups,
+        })
     }
 }
 
@@ -733,7 +803,7 @@ fn take_enum_precedence(
     let mut precedence = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if is_helper_named(&attribute, "precedence") {
+        if let Some(marker) = helper_marker(&attribute, "precedence") {
             if !open_family {
                 return Err(unsupported_enum(
                     "enum-level precedence is available only in readable `result = ...` families",
@@ -754,23 +824,9 @@ fn take_enum_precedence(
             };
             let parsed = syn::parse2::<ParsedEnumPrecedenceChain>(list.tokens.clone())
                 .map_err(SyntaxError::from)?;
-            let first = parsed
-                .groups
-                .first()
-                .expect("the precedence parser requires one group");
-            let final_group = parsed
-                .groups
-                .last()
-                .expect("the precedence parser requires one group");
-            let marker = &attribute
-                .path()
-                .segments
-                .last()
-                .expect("a recognized helper has a final segment")
-                .ident;
             precedence = Some(EnumPrecedenceChain {
                 declaration_range: TokenRange::for_tokens(marker)?,
-                chain_range: TokenRange::new(first.range.first(), final_group.range.last()),
+                chain_range: parsed.chain_range,
                 groups: parsed.groups,
             });
         } else if is_k_helper(&attribute) {
@@ -906,14 +962,46 @@ fn edit_distance(left: &str, right: &str) -> usize {
 struct VariantHelpers {
     syntax: Option<VariantSyntaxAttribute>,
     format: Option<LitStr>,
-    strictness: Option<(StrictnessKind, TokenStream, Ident)>,
+    strictness: Option<VariantStrictness>,
     alias_range: Option<TokenRange>,
+}
+
+struct VariantStrictness {
+    kind: StrictnessKind,
+    tokens: TokenStream,
+    mode: VariantStrictnessMode,
+}
+
+enum VariantStrictnessMode {
+    Readable { result: Path, marker: Ident },
+    Reference,
+}
+
+fn variant_strictness_helper(
+    attribute: &Attribute,
+    family: &ConstructorFamilyMode,
+) -> Option<(StrictnessKind, VariantStrictnessMode)> {
+    let (kind, marker) = helper_marker(attribute, "strict")
+        .map(|marker| (StrictnessKind::Strict, marker))
+        .or_else(|| {
+            helper_marker(attribute, "seqstrict").map(|marker| (StrictnessKind::SeqStrict, marker))
+        })?;
+    let mode = match family {
+        ConstructorFamilyMode::Readable { result } => VariantStrictnessMode::Readable {
+            result: result.clone(),
+            marker: marker.clone(),
+        },
+        ConstructorFamilyMode::Reference => VariantStrictnessMode::Reference,
+        ConstructorFamilyMode::Legacy => return None,
+    };
+    Some((kind, mode))
 }
 
 fn take_variant_helpers(
     attributes: &mut Vec<Attribute>,
-    open_family: bool,
+    family: &ConstructorFamilyMode,
 ) -> Result<VariantHelpers, SyntaxError> {
+    let open_family = !matches!(family, ConstructorFamilyMode::Legacy);
     let mut helpers = VariantHelpers::default();
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
@@ -950,29 +1038,15 @@ fn take_variant_helpers(
                     list.tokens.span(),
                 )
             })?);
-        } else if open_family
-            && (is_helper_named(&attribute, "strict") || is_helper_named(&attribute, "seqstrict"))
-        {
+        } else if let Some((kind, mode)) = variant_strictness_helper(&attribute, family) {
             if helpers.strictness.is_some() {
                 return Err(unsupported_enum(
                     "a variant may declare only one `strict` or `seqstrict` strategy",
                     attribute.span(),
                 ));
             }
-            let kind = if is_helper_named(&attribute, "strict") {
-                StrictnessKind::Strict
-            } else {
-                StrictnessKind::SeqStrict
-            };
             let tokens = marker_tokens(&attribute)?;
-            let marker = attribute
-                .path()
-                .segments
-                .last()
-                .expect("a recognized helper has a final segment")
-                .ident
-                .clone();
-            helpers.strictness = Some((kind, tokens, marker));
+            helpers.strictness = Some(VariantStrictness { kind, tokens, mode });
         } else if open_family && is_helper_named(&attribute, "alias") {
             if helpers.alias_range.is_some() {
                 return Err(unsupported_enum(
@@ -1058,13 +1132,19 @@ fn parse_variant_fields(
     }
 }
 
-fn is_helper_named(attribute: &Attribute, helper: &str) -> bool {
+fn helper_marker<'a>(attribute: &'a Attribute, helper: &str) -> Option<&'a Ident> {
     let path = attribute.path();
-    path.segments.len() >= 2
-        && path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == helper)
+    if path.segments.len() < 2 {
+        return None;
+    }
+    path.segments
+        .last()
+        .filter(|segment| segment.ident == helper)
+        .map(|segment| &segment.ident)
+}
+
+fn is_helper_named(attribute: &Attribute, helper: &str) -> bool {
+    helper_marker(attribute, helper).is_some()
 }
 
 fn is_k_helper(attribute: &Attribute) -> bool {

@@ -16,6 +16,7 @@ fn empty_init_attribute_and_zero_argument_foo_initializer_are_accepted() {
     assert_eq!(
         initializer
             .cell()
+            .unwrap()
             .constructor()
             .segments
             .last()
@@ -23,9 +24,9 @@ fn empty_init_attribute_and_zero_argument_foo_initializer_are_accepted() {
             .ident,
         "new"
     );
-    assert_eq!(initializer.cell().term().symbols().len(), 1);
+    assert_eq!(initializer.cell().unwrap().term().symbols().len(), 1);
     assert_eq!(
-        initializer.cell().term().symbols()[0]
+        initializer.cell().unwrap().term().symbols()[0]
             .path()
             .segments
             .last()
@@ -59,7 +60,7 @@ fn one_main_variable_preserves_parameter_body_and_resolution_candidates() {
     let variable = &initializer.variables()[0];
     assert_eq!(variable.binding(), "program");
     assert_eq!(variable.attribute().name().value(), "PGM");
-    assert!(variable.term_sort().is_dynamic());
+    assert!(variable.term_sort().unwrap().is_dynamic());
 
     let roles = initializer
         .provenance()
@@ -96,9 +97,16 @@ fn main_variable_accepts_a_declared_open_syntax_sort() {
     )
     .unwrap();
     let variable = &initializer.variables()[0];
-    assert!(variable.term_sort().is_dynamic());
+    assert!(variable.term_sort().unwrap().is_dynamic());
     assert_eq!(
-        variable.term_sort().sort().segments.last().unwrap().ident,
+        variable
+            .term_sort()
+            .unwrap()
+            .sort()
+            .segments
+            .last()
+            .unwrap()
+            .ident,
         "Expr"
     );
     let candidates = initializer.reference_candidates().unwrap();
@@ -269,4 +277,18 @@ fn init_marker_rejects_payload_at_first_token() {
         SyntaxErrorKind::UnexpectedAttributePayload { attribute: "init" }
     ));
     assert_eq!(error.span().start().column, 0);
+}
+
+#[test]
+fn optional_accessors_accept_direct_types_and_nonlegacy_cells() {
+    let initializer = krs_syntax::InitializerFunction::parse_source(
+        "fn init(env: Map<Id, Value>) -> Self { Self { env: Cell::new(env) } }",
+    )
+    .unwrap();
+    assert!(initializer.variables()[0].term_sort().is_none());
+    assert!(initializer.cell().is_none());
+    assert_eq!(
+        initializer.reference_candidates().unwrap()[0].path_spelling(),
+        "Self"
+    );
 }

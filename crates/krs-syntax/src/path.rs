@@ -8,6 +8,30 @@ pub(crate) fn is_plain_path(path: &Path) -> bool {
             .all(|segment| matches!(segment.arguments, syn::PathArguments::None))
 }
 
+pub(crate) fn plain_path_last(path: &Path) -> Option<&syn::PathSegment> {
+    is_plain_path(path).then(|| path.segments.last()).flatten()
+}
+
+pub(crate) fn unqualified_path_ident(path: &Path) -> Option<&syn::Ident> {
+    if path.leading_colon.is_some() {
+        return None;
+    }
+    let mut segments = path.segments.iter();
+    let segment = segments.next()?;
+    if segments.next().is_some() || !matches!(segment.arguments, syn::PathArguments::None) {
+        return None;
+    }
+    Some(&segment.ident)
+}
+
+pub(crate) fn without_last_arguments(path: &Path) -> Path {
+    let mut path = path.clone();
+    if let Some(last) = path.segments.last_mut() {
+        last.arguments = syn::PathArguments::None;
+    }
+    path
+}
+
 /// The text of `path`: its segment identifiers joined by `::`, with a
 /// leading `::` when one was authored, such as `::k::symbol`.
 ///

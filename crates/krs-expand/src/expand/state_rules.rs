@@ -850,24 +850,11 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.or_bool)?;
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| self.expand_term(argument, slots))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let arguments =
+                    arguments.try_map_ref(|argument| self.expand_term(argument, slots))?;
                 Ok(WireTerm::OrBool {
                     key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    arguments: arguments.try_into().map_err(
-                        |_: krs_ir::AtLeastTwoError| {
-                            ExpandError::new(
-                                expand::CLAIM_ONLY_TERM,
-                                Span::call_site(),
-                                krs_ir::StateTransportError::InvalidTerm(
-                                    krs_ir::transport::detail::StateTermReason::OrBoolRequiresAtLeastTwoOperands,
-                                )
-                                .to_string(),
-                            )
-                        },
-                    )?,
+                    arguments,
                 })
             }
             TermTree::Cell(cell) => {

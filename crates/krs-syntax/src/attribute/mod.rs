@@ -4,6 +4,7 @@ mod sort;
 mod state;
 mod value;
 
+pub(crate) use constructor::ConstructorFamilyMode;
 pub use constructor::{
     ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionTotality,
     VariantSyntaxAttribute,

@@ -393,5 +393,5 @@ fn map_update_head_identity_is_deferred_to_rust_resolution() {
     let [RuleExtra::UpdateMap { update, .. }] = block.clauses()[0].extras() else {
         panic!("expected one map update")
     };
-    assert_eq!(update.spelling(), "aliased (env , a , a)");
+    assert_eq!(update.term().spelling(), "aliased (env , a , a)");
 }

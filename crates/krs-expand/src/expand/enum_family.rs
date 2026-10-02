@@ -276,7 +276,11 @@ fn enum_precedence_group_name(
     declaration: &krs_syntax::EnumConstructorDeclaration,
     ordinal: usize,
 ) -> String {
-    declaration.precedence_groups()[ordinal].emitted_name(declaration.sort_name(), ordinal)
+    declaration
+        .precedence_groups()
+        .nth(ordinal)
+        .expect("enum precedence ordinal identifies a parsed group")
+        .emitted_name(declaration.sort_name(), ordinal)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -299,13 +303,15 @@ fn expand_enum_family_grammar(
         return Ok(TokenStream::new());
     }
     let mut output = Vec::new();
-    if let Some(anchors) = declaration.precedence_provenance()? {
-        let provenance = host_provenance(env, facade, fallback, &anchors);
+    if let Some(precedence) = declaration.precedence_descriptor()? {
+        let provenance = host_provenance(env, facade, fallback, &precedence.provenance);
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
-        let mut groups = Vec::new();
-        for (ordinal, _) in declaration.precedence_groups().iter().enumerate() {
-            let group = enum_precedence_group_name(declaration, ordinal);
+        let mut group_ordinal = 0_usize;
+        let groups = precedence.groups.try_map_ref(|group| -> crate::Result<_> {
+            let ordinal = group_ordinal;
+            group_ordinal += 1;
+            let name = group.emitted_name(declaration.sort_name(), ordinal);
             let ordinal = u32::try_from(ordinal).map_err(|_| {
                 ExpandError::new(
                     expand::DESCRIPTOR_CAPACITY,
@@ -313,24 +319,18 @@ fn expand_enum_family_grammar(
                     "too many groups",
                 )
             })?;
-            groups.push(DescriptorGroupReference {
+            Ok(DescriptorGroupReference {
                 key: wire_key(precedence_group_reference_role, ordinal),
-                group: ProductionGroupId::new(group)
+                group: ProductionGroupId::new(name)
                     .expect("generated enum groups are valid identities"),
-            });
-        }
+            })
+        })?;
         let grammar = WireGrammarDescriptor::Precedence {
             key: wire_key(precedence_declaration_role, 0),
-            chains: vec![
-                DescriptorPrecedenceChain::new(wire_key(precedence_chain_role, 0), groups)
-                    .map_err(|error| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            declaration.sort_name().span(),
-                            error.to_string(),
-                        )
-                    })?,
-            ],
+            chains: vec![DescriptorPrecedenceChain {
+                key: wire_key(precedence_chain_role, 0),
+                groups,
+            }],
         };
         let descriptor = grammar_macro_descriptor(
             facade,
@@ -350,7 +350,6 @@ fn expand_enum_family_grammar(
         let mut sentences = Vec::new();
         for (sentence_ordinal, (group_ordinal, group)) in declaration
             .precedence_groups()
-            .iter()
             .enumerate()
             .filter(|(_, group)| group.associativity().is_some())
             .enumerate()

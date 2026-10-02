@@ -112,8 +112,14 @@ impl Parse for FunctionAttribute {
 #[derive(Clone, Debug)]
 pub struct ConstructorsAttribute {
     sort: Path,
-    result: Option<Path>,
-    reference: bool,
+    mode: ConstructorFamilyMode,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ConstructorFamilyMode {
+    Legacy,
+    Readable { result: Path },
+    Reference,
 }
 
 impl ConstructorsAttribute {
@@ -127,19 +133,26 @@ impl ConstructorsAttribute {
     /// mode.
     #[must_use]
     pub const fn result(&self) -> Option<&Path> {
-        self.result.as_ref()
+        match &self.mode {
+            ConstructorFamilyMode::Readable { result } => Some(result),
+            ConstructorFamilyMode::Legacy | ConstructorFamilyMode::Reference => None,
+        }
     }
 
     /// Whether this is the materialized reference-family form.
     #[must_use]
     pub const fn is_reference(&self) -> bool {
-        self.reference
+        matches!(self.mode, ConstructorFamilyMode::Reference)
     }
 
     /// Whether variants construct the outer sort directly.
     #[must_use]
     pub const fn is_open_family(&self) -> bool {
-        self.result.is_some() || self.reference
+        !matches!(self.mode, ConstructorFamilyMode::Legacy)
+    }
+
+    pub(crate) const fn mode(&self) -> &ConstructorFamilyMode {
+        &self.mode
     }
 }
 
@@ -441,6 +454,58 @@ impl KrsSyntax for VariantSyntaxAttribute {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ConstructorKey {
+    Sort,
+    Syntax,
+    Group,
+    Avoid,
+    Format,
+}
+
+impl ConstructorKey {
+    fn parse(key: &Ident) -> Result<Self, ParseError> {
+        match key.to_string().as_str() {
+            "sort" => Ok(Self::Sort),
+            "syntax" => Ok(Self::Syntax),
+            "group" => Ok(Self::Group),
+            "avoid" => Ok(Self::Avoid),
+            "format" => Ok(Self::Format),
+            _ => Err(SyntaxError::new(
+                SyntaxErrorKind::UnknownArgument {
+                    name: key.to_string(),
+                },
+                key.span(),
+            )
+            .into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum VariantSyntaxKey {
+    Group,
+    Avoid,
+    Format,
+}
+
+impl VariantSyntaxKey {
+    fn parse(key: &Ident) -> Result<Self, ParseError> {
+        match key.to_string().as_str() {
+            "group" => Ok(Self::Group),
+            "avoid" => Ok(Self::Avoid),
+            "format" => Ok(Self::Format),
+            _ => Err(SyntaxError::new(
+                SyntaxErrorKind::UnknownArgument {
+                    name: key.to_string(),
+                },
+                key.span(),
+            )
+            .into()),
+        }
+    }
+}
+
 fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
@@ -451,62 +516,54 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
 
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
-        match key_name.as_str() {
-            "sort" if sort.is_some() => {
+        let key_kind = ConstructorKey::parse(&key)?;
+        match key_kind {
+            ConstructorKey::Sort if sort.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "sort" },
                     key.span(),
                 )
                 .into());
             }
-            "syntax" if syntax.is_some() => {
+            ConstructorKey::Syntax if syntax.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "syntax" },
                     key.span(),
                 )
                 .into());
             }
-            "group" if group.is_some() => {
+            ConstructorKey::Group if group.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "group" },
                     key.span(),
                 )
                 .into());
             }
-            "avoid" if avoid.is_some() => {
+            ConstructorKey::Avoid if avoid.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "avoid" },
                     key.span(),
                 )
                 .into());
             }
-            "format" if format.is_some() => {
+            ConstructorKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
                     key.span(),
                 )
                 .into());
             }
-            "sort" | "syntax" | "group" | "avoid" | "format" => {}
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            _ => {}
         }
         input.parse::<Token![=]>()?;
         let value: Expr = input.parse()?;
 
-        match key_name.as_str() {
-            "sort" => sort = Some(parse_sort_value(value)?),
-            "syntax" => syntax = Some(parse_syntax_value(value)?),
-            "group" => group = Some(parse_group_value(value)?),
-            "avoid" => avoid = Some(parse_avoid_value(value)?),
-            "format" => format = Some(parse_format_value(value)?),
-            _ => unreachable!("argument name was validated before its value"),
+        match key_kind {
+            ConstructorKey::Sort => sort = Some(parse_sort_value(value)?),
+            ConstructorKey::Syntax => syntax = Some(parse_syntax_value(value)?),
+            ConstructorKey::Group => group = Some(parse_group_value(value)?),
+            ConstructorKey::Avoid => avoid = Some(parse_avoid_value(value)?),
+            ConstructorKey::Format => format = Some(parse_format_value(value)?),
         }
 
         if input.is_empty() {
@@ -742,8 +799,13 @@ fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttri
                 missing_span,
             )
         })?,
-        result,
-        reference: reference.is_some(),
+        mode: if let Some(result) = result {
+            ConstructorFamilyMode::Readable { result }
+        } else if reference.is_some() {
+            ConstructorFamilyMode::Reference
+        } else {
+            ConstructorFamilyMode::Legacy
+        },
     })
 }
 
@@ -768,48 +830,40 @@ fn parse_variant_syntax_stream(
     }
     while !input.is_empty() {
         let key: Ident = input.parse()?;
-        let key_name = key.to_string();
-        match key_name.as_str() {
-            "group" if group.is_some() => {
+        let key_kind = VariantSyntaxKey::parse(&key)?;
+        match key_kind {
+            VariantSyntaxKey::Group if group.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "group" },
                     key.span(),
                 )
                 .into());
             }
-            "avoid" if avoid.is_some() => {
+            VariantSyntaxKey::Avoid if avoid.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "avoid" },
                     key.span(),
                 )
                 .into());
             }
-            "format" if format.is_some() => {
+            VariantSyntaxKey::Format if format.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "format" },
                     key.span(),
                 )
                 .into());
             }
-            "group" | "avoid" | "format" => {}
-            _ => {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnknownArgument { name: key_name },
-                    key.span(),
-                )
-                .into());
-            }
+            _ => {}
         }
-        if key_name == "avoid" && !input.peek(Token![=]) {
+        if matches!(key_kind, VariantSyntaxKey::Avoid) && !input.peek(Token![=]) {
             avoid = Some(LitBool::new(true, key.span()));
         } else {
             input.parse::<Token![=]>()?;
             let value: Expr = input.parse()?;
-            match key_name.as_str() {
-                "group" => group = Some(parse_group_value(value)?),
-                "avoid" => avoid = Some(parse_avoid_value(value)?),
-                "format" => format = Some(parse_format_value(value)?),
-                _ => unreachable!("variant syntax argument was validated before its value"),
+            match key_kind {
+                VariantSyntaxKey::Group => group = Some(parse_group_value(value)?),
+                VariantSyntaxKey::Avoid => avoid = Some(parse_avoid_value(value)?),
+                VariantSyntaxKey::Format => format = Some(parse_format_value(value)?),
             }
         }
         if input.is_empty() {

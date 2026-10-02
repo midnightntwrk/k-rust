@@ -12,11 +12,11 @@ use krs_test_support::assert_rejects;
 fn generated_and_named_roots_and_cell_payloads_are_closed() {
     let generated = krs_syntax::ConfigurationAttribute::parse_source("").unwrap();
     assert!(generated.is_generated_top());
-    assert!(generated.optional_root().is_none());
+    assert!(generated.root().is_none());
     assert!(generated.provenance().unwrap().is_empty());
 
     let named = krs_syntax::ConfigurationAttribute::parse_source(r#"root = "machine""#).unwrap();
-    assert_eq!(named.optional_root().unwrap().value(), "machine");
+    assert_eq!(named.root().unwrap().value(), "machine");
 
     let cell = krs_syntax::CellAttributePayload::parse_source(
         r#"color = "green", name = "currentFrame", multiplicity = "*", cell_type = "Map", nested"#,
@@ -568,7 +568,7 @@ fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
         initializer.cells()[2].content(),
         InitializerCellContent::Nested { children, .. } if children.len() == 1
     ));
-    assert_eq!(initializer.cell().term().spelling(), "program");
+    assert_eq!(initializer.cell().unwrap().term().spelling(), "program");
 
     for (source, expected_kind) in [
         (
@@ -988,4 +988,17 @@ fn whole_configuration_rule_patterns_retain_nested_wildcards() {
             reason: "the root must be a named path/call/record or an Int/Bool literal",
         }
     );
+}
+
+#[test]
+fn map_pattern_binding_conflicts_keep_term_before_frame_order_and_span() {
+    let source = "fn rule(cells! { k: KCell(tail @ ..), env: Cell(map![tail -> tail, tail @ ..]) }: Machine) -> Machine { cells! { k: KCell(.K) } }";
+    let error = krs_syntax::StateRuleItem::parse_source(source).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        &SyntaxErrorKind::UnsupportedRulePattern {
+            reason: "a configuration-rule binding cannot be reused as a different frame or term kind",
+        },
+    );
+    assert_eq!(error.span().start().column, source.find("tail ->").unwrap());
 }

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use krs_ir::AtLeastTwo;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
@@ -9,7 +10,7 @@ use crate::parse::{
     KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument,
     missing, structured, unknown,
 };
-use crate::path::{is_plain_path, path_text};
+use crate::path::{is_plain_path, path_text, unqualified_path_ident};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One checked fragment of a nominal or bracket concrete-syntax template.
@@ -1153,25 +1154,17 @@ fn parse_strictness(
                                 element.span(),
                             ));
                         };
-                        if path.qself.is_some()
-                            || path.path.leading_colon.is_some()
-                            || path.path.segments.len() != 1
-                            || !is_plain_path(&path.path)
-                        {
+                        let ident = (path.qself.is_none())
+                            .then(|| unqualified_path_ident(&path.path))
+                            .flatten();
+                        let Some(ident) = ident else {
                             return Err(invalid_argument(
                                 "sequence",
                                 "an array of unqualified Rust field identifiers",
                                 path.span(),
                             ));
-                        }
-                        parsed.push(
-                            path.path
-                                .segments
-                                .first()
-                                .expect("one segment checked")
-                                .ident
-                                .clone(),
-                        );
+                        };
+                        parsed.push(ident.clone());
                     }
                     if parsed.is_empty() {
                         return Err(ParseError::Structured(SyntaxError::new(
@@ -1223,19 +1216,14 @@ fn parse_strictness(
 
 fn parse_context_alias_reference(input: ParseStream<'_>) -> ParseResult<Ident> {
     let path: Path = input.parse()?;
-    if path.leading_colon.is_some() || path.segments.len() != 1 || !is_plain_path(&path) {
+    let Some(ident) = unqualified_path_ident(&path) else {
         return Err(invalid_argument(
             "using",
             "an unqualified Rust context-alias identifier",
             path.span(),
         ));
-    }
-    Ok(path
-        .segments
-        .first()
-        .expect("one path segment checked")
-        .ident
-        .clone())
+    };
+    Ok(ident.clone())
 }
 
 /// One direct adjacent edge in an authored precedence chain.
@@ -1262,23 +1250,26 @@ impl PrecedenceEdge {
 /// One unrelated `a > b > c` precedence chain.
 #[derive(Clone, Debug)]
 pub struct PrecedenceChain {
-    groups: Vec<Ident>,
+    groups: AtLeastTwo<Ident>,
     range: TokenRange,
 }
 
 impl PrecedenceChain {
     /// Returns production groups from tightest to loosest.
     #[must_use]
-    pub fn groups(&self) -> &[Ident] {
+    pub const fn groups(&self) -> &AtLeastTwo<Ident> {
         &self.groups
     }
 
     /// Returns direct adjacent edges represented by the chain.
     pub fn edges(&self) -> impl Iterator<Item = PrecedenceEdge> + '_ {
-        self.groups.windows(2).map(|pair| PrecedenceEdge {
-            higher: pair[0].clone(),
-            lower: pair[1].clone(),
-        })
+        self.groups
+            .iter()
+            .zip(self.groups.tail())
+            .map(|(higher, lower)| PrecedenceEdge {
+                higher: higher.clone(),
+                lower: lower.clone(),
+            })
     }
 }
 
@@ -1374,18 +1365,18 @@ impl KrsSyntax for PrecedenceDeclaration {
                         first.span(),
                     ));
                 }
-                let mut groups = vec![first];
+                input.parse::<Token![>]>()?;
+                let second: Ident = input.parse()?;
+                let mut last_span = second.span();
+                let mut rest = Vec::new();
                 while input.peek(Token![>]) {
                     input.parse::<Token![>]>()?;
-                    groups.push(input.parse()?);
+                    let group: Ident = input.parse()?;
+                    last_span = group.span();
+                    rest.push(group);
                 }
-                let Some(last) = groups.last() else {
-                    return Err(invalid_grammar(
-                        "a precedence chain must contain a group",
-                        input.span(),
-                    ));
-                };
-                let chain_range = TokenRange::new(groups[0].span(), last.span());
+                let chain_range = TokenRange::new(first.span(), last_span);
+                let groups = AtLeastTwo::new(first, second, rest);
                 chains.push(PrecedenceChain {
                     groups,
                     range: chain_range,

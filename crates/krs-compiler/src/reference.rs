@@ -337,7 +337,10 @@ fn materialize_enum_productions(
                 "readable enum variant has no checked precedence group",
             ))
         })?;
-        let group = declaration.precedence_groups()[group_ordinal]
+        let group = declaration
+            .precedence_groups()
+            .nth(group_ordinal)
+            .expect("enum precedence ordinal identifies a parsed group")
             .emitted_name(declaration.sort_name(), group_ordinal);
         let group = syn::LitStr::new(&group, Span::call_site());
         let template = syntax.syntax();
@@ -608,7 +611,6 @@ fn render_family_grammar(
     let owner = declaration.sort_name();
     let groups = declaration
         .precedence_groups()
-        .iter()
         .enumerate()
         .map(|(ordinal, group)| {
             syn::parse_str::<Ident>(&group.emitted_name(owner, ordinal)).map_err(|error| {
@@ -636,7 +638,7 @@ fn render_family_grammar(
     }
 
     let mut sentences = TokenStream::new();
-    for (ordinal, group) in declaration.precedence_groups().iter().enumerate() {
+    for (ordinal, group) in declaration.precedence_groups().enumerate() {
         let Some(associativity) = group.associativity() else {
             continue;
         };

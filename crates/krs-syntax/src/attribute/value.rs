@@ -4,7 +4,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, ExprPath, Ident, Lit, LitBool, LitStr, Path};
 
 use crate::parse::ParseError;
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, unqualified_path_ident};
 use crate::{SyntaxError, SyntaxErrorKind};
 
 pub(super) fn parse_empty_tokens(
@@ -82,26 +82,17 @@ pub(super) fn parse_unqualified_identifier_value(
         )
         .into());
     };
-    if !attrs.is_empty()
-        || path.leading_colon.is_some()
-        || path.segments.len() != 1
-        || !is_plain_path(&path)
-    {
-        return Err(SyntaxError::new(
+    match unqualified_path_ident(&path) {
+        Some(ident) if attrs.is_empty() => Ok(ident.clone()),
+        _ => Err(SyntaxError::new(
             SyntaxErrorKind::InvalidArgumentValue {
                 name,
                 expected: "an unqualified Rust identifier",
             },
             path.span(),
         )
-        .into());
+        .into()),
     }
-    Ok(path
-        .segments
-        .first()
-        .expect("one path segment checked")
-        .ident
-        .clone())
 }
 
 pub(super) fn parse_sort_value(value: Expr) -> Result<Path, ParseError> {

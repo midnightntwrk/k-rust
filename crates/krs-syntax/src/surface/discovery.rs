@@ -219,19 +219,19 @@ impl<'ast> Discovery<'ast> {
         node: InvocationNode<'ast>,
         replaced: Span,
     ) -> Option<usize> {
-        let facade_index = attrs.iter().position(|attribute| {
-            !is_inert(attribute.path()) && self.resolve.facade_member(attribute.path()).is_some()
-        })?;
         let first_expandable_index = attrs
             .iter()
-            .position(|attribute| !is_inert(attribute.path()))
-            .expect("a facade attribute is expandable");
+            .position(|attribute| !is_inert(attribute.path()))?;
+        let (facade_index, member) = attrs.iter().enumerate().find_map(|(index, attribute)| {
+            if is_inert(attribute.path()) {
+                return None;
+            }
+            self.resolve
+                .facade_member(attribute.path())
+                .map(|member| (index, member))
+        })?;
         let attribute = &attrs[facade_index];
         let entry = self.resolve.resolve(attribute.path());
-        let member = self
-            .resolve
-            .facade_member(attribute.path())
-            .expect("a facade member");
         let index = self.record(Invocation {
             kind: InvocationKind::Attribute(AttributeInvocation {
                 attributes: attrs,

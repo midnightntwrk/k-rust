@@ -134,19 +134,7 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_) => continue,
         };
-        let range = match node {
-            TermNode::ApplicationHead(path) | TermNode::Reference(path) => {
-                TokenRange::for_tokens(path)?
-            }
-            TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value)?,
-            TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value)?,
-            TermNode::IdToken(_)
-            | TermNode::BytesToken(_)
-            | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_) => {
-                unreachable!("special nodes were skipped above")
-            }
-        };
+        let range = node.range()?;
         anchors.push(ProvenanceAnchor::new(
             role,
             checked_ordinal(*counter, role, range.first())?,
@@ -247,19 +235,7 @@ pub(super) fn append_rule_term_anchors(
             | TermNode::Anonymous { .. }
             | TermNode::OrBool(_) => continue,
         };
-        let span = match node {
-            TermNode::ApplicationHead(path) | TermNode::Reference(path) => {
-                TokenRange::for_tokens(path)?
-            }
-            TermNode::Literal(TermLiteral::Integer(value)) => TokenRange::for_tokens(value)?,
-            TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value)?,
-            TermNode::IdToken(_)
-            | TermNode::BytesToken(_)
-            | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_) => {
-                unreachable!("special nodes were skipped above")
-            }
-        };
+        let span = node.range()?;
         anchors.push(ProvenanceAnchor::new(
             role,
             checked_ordinal(*counter, role, span.first())?,

@@ -10,7 +10,7 @@ use syn::{
 
 use crate::ReferenceCandidate;
 use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, without_last_arguments};
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
     TokenRange,
@@ -87,29 +87,21 @@ impl FixedCellField {
         &self.content
     }
 
-    /// Returns the leaf wrapper path.
-    ///
-    /// # Panics
-    ///
-    /// Panics for a nested cell; nested-cell consumers should use [`Self::cell_content`].
+    /// Returns the leaf wrapper path, or `None` for a nested cell.
     #[must_use]
-    pub fn wrapper(&self) -> &Path {
+    pub const fn wrapper(&self) -> Option<&Path> {
         match &self.content {
-            ConfigurationCellContent::Leaf { wrapper, .. } => wrapper,
-            ConfigurationCellContent::Nested { .. } => panic!("nested cells have no leaf wrapper"),
+            ConfigurationCellContent::Leaf { wrapper, .. } => Some(wrapper),
+            ConfigurationCellContent::Nested { .. } => None,
         }
     }
 
-    /// Returns the outer leaf content-sort path.
-    ///
-    /// # Panics
-    ///
-    /// Panics for a nested cell; nested-cell consumers should use [`Self::cell_content`].
+    /// Returns the outer leaf content-sort path, or `None` for a nested cell.
     #[must_use]
-    pub fn content(&self) -> &Path {
+    pub const fn content(&self) -> Option<&Path> {
         match &self.content {
-            ConfigurationCellContent::Leaf { sort, .. } => sort,
-            ConfigurationCellContent::Nested { .. } => panic!("nested cells have no term content"),
+            ConfigurationCellContent::Leaf { sort, .. } => Some(sort),
+            ConfigurationCellContent::Nested { .. } => None,
         }
     }
 
@@ -247,8 +239,8 @@ impl ConfigurationDeclaration {
 
     /// Returns the first cell for the single-cell configuration surface.
     #[must_use]
-    pub fn cell(&self) -> &ComputationCellField {
-        &self.cells[0]
+    pub fn cell(&self) -> Option<&ComputationCellField> {
+        self.cells.first()
     }
 
     /// Returns deterministic declaration and cell metadata anchors.
@@ -471,13 +463,12 @@ fn parse_cell_type(
             ty.span(),
         ));
     };
-    if type_path.qself.is_some() || type_path.path.segments.is_empty() {
+    let (true, Some(last)) = (type_path.qself.is_none(), type_path.path.segments.last()) else {
         return Err(unsupported_field(
             "cell fields require a plain type path",
             ty.span(),
         ));
-    }
-    let last = type_path.path.segments.last().expect("path is nonempty");
+    };
     let computation = last.ident == "KCell";
     if last.ident == "Cell" || computation {
         let PathArguments::AngleBracketed(arguments) = &last.arguments else {
@@ -506,11 +497,7 @@ fn parse_cell_type(
                 content_path.span(),
             ));
         }
-        let mut sort = content_path.path.clone();
-        sort.segments
-            .last_mut()
-            .expect("path is nonempty")
-            .arguments = PathArguments::None;
+        let sort = without_last_arguments(&content_path.path);
         if !is_plain_path(&sort) {
             return Err(unsupported_field(
                 "the outer cell content sort must be a plain Rust path",
@@ -528,12 +515,7 @@ fn parse_cell_type(
                 content_ty.span(),
             ));
         }
-        let mut wrapper = type_path.path.clone();
-        wrapper
-            .segments
-            .last_mut()
-            .expect("path is nonempty")
-            .arguments = PathArguments::None;
+        let wrapper = without_last_arguments(&type_path.path);
         if !is_plain_path(&wrapper) {
             return Err(unsupported_field(
                 "cell wrappers must be plain paths",
@@ -583,11 +565,7 @@ fn parse_inferred_leaf(
     type_path: &syn::TypePath,
     computation: bool,
 ) -> Result<ConfigurationCellContent, SyntaxError> {
-    let mut sort = type_path.path.clone();
-    sort.segments
-        .last_mut()
-        .expect("path is nonempty")
-        .arguments = PathArguments::None;
+    let sort = without_last_arguments(&type_path.path);
     if !is_plain_path(&sort) {
         return Err(unsupported_field(
             "the outer cell content sort must be a plain Rust path",

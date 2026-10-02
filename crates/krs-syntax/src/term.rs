@@ -1,3 +1,4 @@
+use krs_ir::AtLeastTwo;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::parse::Parser;
@@ -106,7 +107,7 @@ impl TermNode {
         }
     }
 
-    fn range(&self) -> Result<TokenRange, SyntaxError> {
+    pub(crate) fn range(&self) -> Result<TokenRange, SyntaxError> {
         match self {
             Self::ApplicationHead(path) | Self::Reference(path) => TokenRange::for_tokens(path),
             Self::Literal(literal) => literal.range(),
@@ -254,7 +255,7 @@ pub enum TermTree {
         /// Complete macro invocation range.
         range: TokenRange,
         /// Ordered operands (at least two).
-        arguments: Vec<TermTree>,
+        arguments: AtLeastTwo<TermTree>,
     },
     /// `k::fragment![Parent { ... }]` complete nested-cell term.
     Cell(CellTerm),
@@ -457,13 +458,16 @@ impl TermExpression {
             Expr::Struct(_) => TermRootKind::Record,
             Expr::Lit(literal) if is_supported_literal(literal) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
-            Expr::Macro(value) if special_macro_name(&value.mac.path).is_some() => {
-                match special_macro_name(&value.mac.path) {
-                    Some("or_bool" | "fragment") => TermRootKind::Call,
-                    Some("id" | "bytes" | "anonymous") => TermRootKind::Literal,
-                    _ => unreachable!(),
-                }
-            }
+            Expr::Macro(value) => special_macro_kind(&value.mac.path)
+                .ok_or_else(|| {
+                    SyntaxError::new(
+                        SyntaxErrorKind::UnsupportedTermExpression {
+                            reason: "the root must be a named path/call/record or an Int/Bool literal",
+                        },
+                        value.span(),
+                    )
+                })?
+                .root_kind(),
             other => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
@@ -664,14 +668,31 @@ fn validate_expression(
     }
 }
 
-fn special_macro_name(path: &Path) -> Option<&'static str> {
+enum TermMacroKind {
+    Id,
+    Bytes,
+    Anonymous,
+    OrBool,
+    Fragment,
+}
+
+impl TermMacroKind {
+    const fn root_kind(self) -> TermRootKind {
+        match self {
+            Self::OrBool | Self::Fragment => TermRootKind::Call,
+            Self::Id | Self::Bytes | Self::Anonymous => TermRootKind::Literal,
+        }
+    }
+}
+
+fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
     let name = path.segments.last()?.ident.to_string();
     match name.as_str() {
-        "id" => Some("id"),
-        "bytes" => Some("bytes"),
-        "anonymous" => Some("anonymous"),
-        "or_bool" => Some("or_bool"),
-        "fragment" => Some("fragment"),
+        "id" => Some(TermMacroKind::Id),
+        "bytes" => Some(TermMacroKind::Bytes),
+        "anonymous" => Some(TermMacroKind::Anonymous),
+        "or_bool" => Some(TermMacroKind::OrBool),
+        "fragment" => Some(TermMacroKind::Fragment),
         _ => None,
     }
 }
@@ -683,8 +704,8 @@ fn validate_special_macro(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&value.attrs, value.span())?;
-    match special_macro_name(&value.mac.path) {
-        Some("id") => {
+    match special_macro_kind(&value.mac.path) {
+        Some(TermMacroKind::Id) => {
             let literal: LitStr = syn::parse2(value.mac.tokens.clone())?;
             let text = literal.value();
             if !valid_extended_id(&text) {
@@ -698,12 +719,12 @@ fn validate_special_macro(
             nodes.push(TermNode::IdToken(literal.clone()));
             Ok(TermTree::IdToken { literal })
         }
-        Some("bytes") => {
+        Some(TermMacroKind::Bytes) => {
             let literal: LitByteStr = syn::parse2(value.mac.tokens.clone())?;
             nodes.push(TermNode::BytesToken(literal.clone()));
             Ok(TermTree::BytesToken { literal })
         }
-        Some("anonymous") => {
+        Some(TermMacroKind::Anonymous) => {
             let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, LitStr)> {
                 let sort: Path = input.parse()?;
                 input.parse::<Token![,]>()?;
@@ -734,27 +755,27 @@ fn validate_special_macro(
             });
             Ok(TermTree::Anonymous { sort, spelling })
         }
-        Some("or_bool") => {
+        Some(TermMacroKind::OrBool) => {
             let expressions = syn::punctuated::Punctuated::<Expr, Token![,]>::parse_terminated
                 .parse2(value.mac.tokens.clone())?;
-            if expressions.len() < 2 {
-                return Err(SyntaxError::new(
-                    SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "or_bool! requires at least two object-Bool operands",
-                    },
-                    value.span(),
-                ));
-            }
+            let expressions = AtLeastTwo::try_from(expressions.into_iter().collect::<Vec<_>>())
+                .map_err(|_| {
+                    SyntaxError::new(
+                        SyntaxErrorKind::UnsupportedTermExpression {
+                            reason: "or_bool! requires at least two object-Bool operands",
+                        },
+                        value.span(),
+                    )
+                })?;
             let range = TokenRange::for_tokens(value)?;
             nodes.push(TermNode::OrBool(range));
-            let arguments = expressions
-                .iter()
-                .map(|expression| validate_expression(expression, context, symbols, nodes))
-                .collect::<Result<Vec<_>, _>>()?;
+            let arguments = expressions.try_map_ref(|expression| {
+                validate_expression(expression, context, symbols, nodes)
+            })?;
             Ok(TermTree::OrBool { range, arguments })
         }
-        Some("fragment") => validate_cell_term(value, context, symbols, nodes),
-        _ => Err(SyntaxError::new(
+        Some(TermMacroKind::Fragment) => validate_cell_term(value, context, symbols, nodes),
+        None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, or `or_bool!` islands",
             },

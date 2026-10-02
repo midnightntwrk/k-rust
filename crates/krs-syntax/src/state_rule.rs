@@ -11,7 +11,7 @@ use crate::parse::{
     KrsSyntax, ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
     unsupported_rule_signature as signature_error,
 };
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, take_requires_helper};
 use crate::term::push_record_field_anchors;
@@ -944,17 +944,17 @@ fn collect_state_term_bindings(
                 output,
             )
         }
-        StateTerm::Map(map) => match map.body() {
-            MapBody::Empty { .. } => Ok(()),
-            MapBody::Items { items, remainder } => {
-                for item in items {
-                    collect_term_bindings(item.key(), output)?;
-                    collect_term_bindings(item.value(), output)?;
+        StateTerm::Map(map) => {
+            if let Some(bindings) = map.pattern_bindings() {
+                for binding in &bindings.terms {
+                    push_binding(binding, StateRuleBindingKind::Term, output)?;
                 }
-                collect_remainder_binding(remainder, StateRuleBindingKind::MapFrame, output)
+                if let Some(binding) = &bindings.frame {
+                    push_binding(binding, StateRuleBindingKind::MapFrame, output)?;
+                }
             }
-            MapBody::Update { .. } => unreachable!("map updates are rejected in patterns"),
-        },
+            Ok(())
+        }
     }
 }
 
@@ -1528,16 +1528,6 @@ fn append_claim_special_anchors(
         }
     }
     Ok(())
-}
-
-fn bare_ident(path: &Path) -> Option<&Ident> {
-    (path.leading_colon.is_none() && path.segments.len() == 1).then(|| {
-        &path
-            .segments
-            .first()
-            .expect("one segment was checked")
-            .ident
-    })
 }
 
 fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
