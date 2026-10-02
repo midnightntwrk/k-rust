@@ -53,7 +53,8 @@ use crate::definition::{
     production_kind::{BracketName, ProductionKind, is_builtin_label},
 };
 use crate::kast::{
-    FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, WellKnownModule, identifier,
+    FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, SortRole, Term, WellKnownModule,
+    identifier,
 };
 use crate::kore::ast::{
     Attributes, Definition as KoreDefinition, Module, Pattern, Sentence as KoreSentence,
@@ -1356,7 +1357,7 @@ fn sort_declarations(
                 Value::String(String::new()),
             );
         }
-        if head.parameters() == 0 && head.as_str().parse::<i32>().is_ok() {
+        if head.parameters() == 0 && SortRole::of_name(head.as_str()) == SortRole::Nat {
             entries.insert(
                 AttributeKey::Nat.as_str().into(),
                 Value::String(head.as_str().into()),

@@ -176,6 +176,29 @@ fn derives_concrete_instantiations_and_numeric_parameter_sorts() {
 }
 
 #[test]
+fn numeral_instance_arguments_of_any_length_are_declared() {
+    let declarations = ["4294967296", "8"].map(|name| {
+        syntax_sort(
+            Vec::new(),
+            Sort::with_parameters("MInt", vec![Sort::new(name)]),
+            Attributes::default(),
+        )
+    });
+    let catalog = SortCatalog::from_visible(&declarations);
+
+    for name in ["4294967296", "8"] {
+        assert!(
+            catalog.defined_heads().contains(&SortHead::nullary(name)),
+            "{name} must be a defined head"
+        );
+        assert!(
+            catalog.all_sorts().contains(&Sort::new(name)),
+            "{name} must be a catalog sort"
+        );
+    }
+}
+
+#[test]
 fn a_production_sort_with_a_nested_sort_parameter_is_no_instance() {
     // Property: `MInt{MInt{W}}` names one sort per `W`, so a production with that result declares
     // no instance of `MInt`, however deep its parameter sits.

@@ -23,6 +23,7 @@ use regex::Regex;
 use crate::definition::AttributeKey;
 use crate::definition::attribute_keys::{KeyParameter, builtin_key};
 use crate::kast::Sort;
+use crate::kast::sort_role::is_numeral_spelling;
 
 use super::*;
 
@@ -653,7 +654,7 @@ impl<'a> Parser<'a> {
             return Err(self.error_at(start, "invalid sort name"));
         }
         let parameters = if self.peek_char_after_trivia()? == Some('{') {
-            if name.chars().all(|ch| ch.is_ascii_digit()) {
+            if is_numeral_spelling(&name) {
                 self.skip_trivia()?;
                 return Err(self.error("numeric sort cannot take parameters"));
             }
@@ -1095,7 +1096,7 @@ fn is_upper_identifier(identifier: &str) -> bool {
 }
 
 fn is_sort_name(name: &str) -> bool {
-    (!name.is_empty() && name.chars().all(|ch| ch.is_ascii_digit())) || is_upper_identifier(name)
+    is_numeral_spelling(name) || is_upper_identifier(name)
 }
 
 fn is_module_name(name: &str) -> bool {

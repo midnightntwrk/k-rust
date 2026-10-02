@@ -386,6 +386,35 @@ fn sort_heads_sharing_a_kore_name_are_an_error() {
 }
 
 #[test]
+fn numeral_instance_arguments_of_any_length_have_nat_declarations() {
+    let source = "module MAIN\n  syntax MInt{4294967296}\nendmodule\n";
+    let declarations =
+        declaration_modules(&lowered(source, "MAIN"), "MAIN").expect("declarations should emit");
+
+    for module in [&declarations.semantics, &declarations.syntax] {
+        let attributes = module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SortDeclaration {
+                    name,
+                    parameters,
+                    attributes,
+                    ..
+                } if name == "Sort4294967296" && parameters.is_empty() => Some(attributes),
+                _ => None,
+            })
+            .expect("Sort4294967296 must be declared");
+        assert!(attributes.0.iter().any(|attribute| matches!(attribute,
+            Pattern::Application { symbol, arguments }
+                if symbol.name == "nat"
+                    && symbol.sort_parameters.is_empty()
+                    && arguments == &[Pattern::String("4294967296".into())]
+        )));
+    }
+}
+
+#[test]
 fn bracket_declarations_accept_klabel_objects_and_legacy_strings() {
     let source = indoc! {r#"
         module MAIN

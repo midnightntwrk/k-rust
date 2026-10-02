@@ -2,8 +2,8 @@
 //!
 //! A sort name in the frontend denotes a kernel sort (whose meaning K fixes whatever the
 //! definition declares), a sort the definition declares, a numeral sort argument, parser
-//! scaffolding, or a rigid sort variable of a sentence. [`Sort::role`] is the one place that reads
-//! the role from the spelling, and every property that separates those roles is one exhaustive
+//! scaffolding, or a rigid sort variable of a sentence. [`SortRole::of_name`] reads the role from
+//! the spelling, and every property that separates those roles is one exhaustive
 //! `match` on [`SortRole`], so adding a role forces a decision in every property.
 
 #![deny(clippy::wildcard_enum_match_arm)]
@@ -11,6 +11,23 @@
 use crate::names::BuiltinSort;
 
 use super::{FrontendSort, Sort};
+
+/// A numeral sort is spelled with one or more ASCII decimal digits, of any length.
+/// A width is a natural number that the frontend never computes with.
+pub(crate) const fn is_numeral_spelling(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
 
 /// A sort whose meaning K fixes, whatever the definition declares.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -85,21 +102,11 @@ pub(crate) enum SortRole {
 
 impl Sort {
     /// The role of this sort's head: a kernel spelling, then `#SortParam`, then any other leading
-    /// `#`, then a decimal numeral that fits in a `u64`, else a defined sort.
+    /// `#`, then a decimal numeral of any length, else a defined sort.
     ///
     /// Parameters are ignored: the role of `MInt{8}` is the role of `MInt`.
     pub(crate) fn role(&self) -> SortRole {
-        if let Some(kernel) = KernelSort::of_name(&self.name) {
-            SortRole::Kernel(kernel)
-        } else if self.name == FrontendSort::SortParam.as_str() {
-            SortRole::RigidVariable
-        } else if self.name.starts_with('#') {
-            SortRole::Scaffolding
-        } else if self.name.parse::<u64>().is_ok() {
-            SortRole::Nat
-        } else {
-            SortRole::Defined
-        }
+        SortRole::of_name(&self.name)
     }
 
     /// Whether this sort is a rigid sort variable of a sentence (`#SortParam{Q}`), which stands
@@ -121,6 +128,21 @@ impl Sort {
 }
 
 impl SortRole {
+    /// The role of a sort head, from its spelling.
+    pub(crate) fn of_name(name: &str) -> SortRole {
+        if let Some(kernel) = KernelSort::of_name(name) {
+            Self::Kernel(kernel)
+        } else if name == FrontendSort::SortParam.as_str() {
+            Self::RigidVariable
+        } else if name.starts_with('#') {
+            Self::Scaffolding
+        } else if is_numeral_spelling(name) {
+            Self::Nat
+        } else {
+            Self::Defined
+        }
+    }
+
     /// A term can have the sort, at parse time or in the compiled definition, so a sentence may
     /// give it terms (a production of it, a token or hooked declaration of it) and positions (an
     /// operand of it).
@@ -336,6 +358,22 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numeral_spellings_are_every_digit_string() {
+        for name in [
+            "99999999999999999999999",
+            "8",
+            "08",
+            "4294967296",
+            "18446744073709551616",
+        ] {
+            assert_eq!(Sort::new(name).role(), SortRole::Nat, "{name}");
+        }
+        for name in ["+8", "-8", "8a", ""] {
+            assert_ne!(Sort::new(name).role(), SortRole::Nat, "{name}");
+        }
+    }
 
     #[test]
     fn term_presupposing_predicates_require_terms() {

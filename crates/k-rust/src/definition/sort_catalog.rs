@@ -26,7 +26,7 @@ use super::resolve::{ModuleId, ResolvedDefinition};
 use super::synonyms::SortSynonyms;
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
-use crate::kast::{FrontendSort, Sort};
+use crate::kast::{FrontendSort, Sort, SortRole};
 use crate::names::BuiltinSort;
 
 #[derive(Clone, Debug)]
@@ -502,7 +502,7 @@ fn compute_defined_heads(
             .values()
             .flatten()
             .flat_map(|sort| &sort.parameters)
-            .filter(|sort| sort.name.parse::<i32>().is_ok())
+            .filter(|sort| sort.parameters.is_empty() && sort.role() == SortRole::Nat)
             .map(SortHead::from),
     );
     defined
