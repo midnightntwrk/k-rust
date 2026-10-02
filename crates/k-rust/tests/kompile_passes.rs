@@ -2798,22 +2798,24 @@ fn a_hybrid_production_outside_the_main_closure_is_not_checked_for_its_predicate
 /// predicate once, the user's own function, which the heat and cool rules use.
 #[test]
 fn declaring_the_predicate_of_a_result_sort_without_k_terms_compiles() {
-    for (file, sort, declaration, symbol) in [
+    for (file, sort, sort_declaration, declaration, symbol) in [
         (
             "remedy8.k",
             "8",
+            "syntax 8",
             "syntax Bool ::= is8(K) [symbol(is8), function]",
             "Lblis8",
         ),
         (
             "remedyfoo.k",
             "#Foo",
+            r#"syntax #Foo ::= "x""#,
             r#"syntax Bool ::= "is#Foo" "(" K ")" [symbol(is#Foo), function]"#,
             "Lblis'Hash'Foo",
         ),
     ] {
         let source = format!(
-            "module MAIN\n  imports BOOL\n  syntax {sort} ::= \"x\"\n  syntax KResult\n  {declaration}\n  syntax Exp ::= foo(Exp) [strict, result({sort})] | \"e\"\nendmodule\n"
+            "module MAIN\n  imports BOOL\n  {sort_declaration}\n  syntax KResult\n  {declaration}\n  syntax Exp ::= foo(Exp) [strict, result({sort})] | \"e\"\nendmodule\n"
         );
         let artifacts = compile_main_with_prelude(file, &source)
             .unwrap_or_else(|error| panic!("{file}: {error}"));

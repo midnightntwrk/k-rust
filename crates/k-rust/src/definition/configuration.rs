@@ -1521,15 +1521,22 @@ mod tests {
     }
 
     /// A configuration variable is initialized through the projection into the sort it is cast
-    /// to; Bag has no K terms and so no projection, which expansion reports at the
-    /// configuration instead of naming a projection that compilation never declares.
+    /// to; Bag has no K terms and so no projection.
+    /// The explicit subsort lets a configuration variable occupy Bag in the grammar; expansion
+    /// reports the missing projection at the configuration instead of naming a projection that
+    /// compilation never declares.
     #[test]
     fn a_configuration_variable_cast_to_a_sort_without_a_projection_is_rejected() {
         let definition = parsed(indoc! {r#"
             module MAIN
+              syntax KConfigVar
+              syntax Bag ::= KConfigVar
               configuration <k> $PGM:Bag </k>
             endmodule
         "#});
+        let resolved = crate::definition::ResolvedDefinition::resolve(&definition).unwrap();
+        let diagnostics = crate::definition::checks::check_outer_modules(&resolved);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
         let error = expand_configurations(&definition)
             .expect_err("a configuration variable cast to `Bag` has no initial value");
         let ConfigurationError::Invalid {

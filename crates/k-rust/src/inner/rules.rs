@@ -1897,7 +1897,17 @@ endmodule
 "#;
         let error = try_load_with_prelude(numeral_source)
             .expect_err("a numeral cannot have terms or operand positions");
-        assert!(error.to_string().contains("InvalidNumeralSort"), "{error}");
+        let crate::outer::LoadError::SourceDiagnostics(diagnostics) = error else {
+            panic!("{error}");
+        };
+        assert_eq!(diagnostics.len(), 2);
+        for diagnostic in diagnostics {
+            assert_eq!(
+                diagnostic.code,
+                crate::diagnostic::DiagnosticCode::InvalidNumeralSort
+            );
+            assert_eq!(diagnostic.severity, crate::diagnostic::Severity::Error);
+        }
 
         let source = |rule: &str| {
             format!(
@@ -1984,7 +1994,17 @@ endmodule
 "#;
         let error = try_load_with_prelude(rejected)
             .expect_err("a numeral cannot have terms or operand positions");
-        assert!(error.to_string().contains("InvalidNumeralSort"), "{error}");
+        let crate::outer::LoadError::SourceDiagnostics(diagnostics) = error else {
+            panic!("{error}");
+        };
+        assert_eq!(diagnostics.len(), 2);
+        for diagnostic in diagnostics {
+            assert_eq!(
+                diagnostic.code,
+                crate::diagnostic::DiagnosticCode::InvalidNumeralSort
+            );
+            assert_eq!(diagnostic.severity, crate::diagnostic::Severity::Error);
+        }
 
         let accepted = r#"
 module MAIN
