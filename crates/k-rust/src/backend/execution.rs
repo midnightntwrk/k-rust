@@ -517,76 +517,6 @@ fn domain_value_bytes<'a, S: PatternSource<'a>>(pattern: S, sort_name: &str) -> 
     .then(|| value.as_bytes().to_vec())
 }
 
-#[cfg(test)]
-mod captured_stdout_tests {
-    use std::sync::Arc;
-
-    use k_rust_backend::term::{Sort, Symbol, Term};
-
-    use super::stdout_stream_buffers;
-
-    fn app(name: &str, arguments: Vec<Term>) -> Term {
-        let sort = Sort::simple("SortK");
-        let symbol = Symbol::constructor(name, arguments.iter().map(Term::sort).collect(), sort);
-        Term::application(Arc::new(symbol), Vec::new(), arguments)
-    }
-
-    fn item(term: Term) -> Term {
-        app("LblListItem", vec![term])
-    }
-
-    fn list(items: Vec<Term>) -> Term {
-        let mut items = items.into_iter();
-        let first = items.next().unwrap();
-        items.fold(first, |left, right| {
-            app("Lbl'Unds'List'Unds'", vec![left, right])
-        })
-    }
-
-    fn stdout_cell(buffer: Term) -> Term {
-        app(
-            "Lbl'-LT-'output'-GT-'",
-            vec![list(vec![
-                item(app(
-                    "Lbl'Hash'ostream",
-                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
-                )),
-                item(Term::domain_value(Sort::simple("SortString"), "off")),
-                item(buffer),
-            ])],
-        )
-    }
-
-    fn buffer(value: Term) -> Term {
-        app(
-            "Lbl'Hash'buffer",
-            vec![app("kseq", vec![value, app("dotk", vec![])])],
-        )
-    }
-
-    #[test]
-    fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
-        let output = stdout_cell(buffer(Term::domain_value(
-            Sort::simple("SortString"),
-            vec![0, b'o', b'k', 255],
-        )));
-        let shared = app("wrap", vec![output]);
-        let doubled = app("pair", vec![shared.clone(), shared]);
-        assert_eq!(
-            stdout_stream_buffers(&doubled),
-            vec![vec![0, b'o', b'k', 255]; 2]
-        );
-
-        let missing = app("other", vec![]);
-        let non_list = app("Lbl'-LT-'output'-GT-'", vec![app("other", vec![])]);
-        let non_string = stdout_cell(buffer(Term::domain_value(Sort::simple("SortInt"), "2")));
-        let non_buffer = stdout_cell(app("other", vec![]));
-        for malformed in [missing, non_list, non_string, non_buffer] {
-            assert!(stdout_stream_buffers(&malformed).is_empty());
-        }
-    }
-}
-
 impl Backend {
     pub fn run_cli(
         &mut self,
@@ -1055,4 +985,74 @@ fn invalid_kore_pattern(
 
 fn pattern_match_error(error: PatternMatchError) -> io::Error {
     io::Error::other(format!("KORE pattern match was indeterminate: {error:?}"))
+}
+
+#[cfg(test)]
+mod captured_stdout_tests {
+    use std::sync::Arc;
+
+    use k_rust_backend::term::{Sort, Symbol, Term};
+
+    use super::stdout_stream_buffers;
+
+    fn app(name: &str, arguments: Vec<Term>) -> Term {
+        let sort = Sort::simple("SortK");
+        let symbol = Symbol::constructor(name, arguments.iter().map(Term::sort).collect(), sort);
+        Term::application(Arc::new(symbol), Vec::new(), arguments)
+    }
+
+    fn item(term: Term) -> Term {
+        app("LblListItem", vec![term])
+    }
+
+    fn list(items: Vec<Term>) -> Term {
+        let mut items = items.into_iter();
+        let first = items.next().unwrap();
+        items.fold(first, |left, right| {
+            app("Lbl'Unds'List'Unds'", vec![left, right])
+        })
+    }
+
+    fn stdout_cell(buffer: Term) -> Term {
+        app(
+            "Lbl'-LT-'output'-GT-'",
+            vec![list(vec![
+                item(app(
+                    "Lbl'Hash'ostream",
+                    vec![Term::domain_value(Sort::simple("SortInt"), "1")],
+                )),
+                item(Term::domain_value(Sort::simple("SortString"), "off")),
+                item(buffer),
+            ])],
+        )
+    }
+
+    fn buffer(value: Term) -> Term {
+        app(
+            "Lbl'Hash'buffer",
+            vec![app("kseq", vec![value, app("dotk", vec![])])],
+        )
+    }
+
+    #[test]
+    fn finds_only_well_shaped_stdout_cells_and_preserves_shared_occurrences() {
+        let output = stdout_cell(buffer(Term::domain_value(
+            Sort::simple("SortString"),
+            vec![0, b'o', b'k', 255],
+        )));
+        let shared = app("wrap", vec![output]);
+        let doubled = app("pair", vec![shared.clone(), shared]);
+        assert_eq!(
+            stdout_stream_buffers(&doubled),
+            vec![vec![0, b'o', b'k', 255]; 2]
+        );
+
+        let missing = app("other", vec![]);
+        let non_list = app("Lbl'-LT-'output'-GT-'", vec![app("other", vec![])]);
+        let non_string = stdout_cell(buffer(Term::domain_value(Sort::simple("SortInt"), "2")));
+        let non_buffer = stdout_cell(app("other", vec![]));
+        for malformed in [missing, non_list, non_string, non_buffer] {
+            assert!(stdout_stream_buffers(&malformed).is_empty());
+        }
+    }
 }

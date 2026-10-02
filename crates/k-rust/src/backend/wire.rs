@@ -1228,15 +1228,14 @@ fn remainder_output<K: WireKore>(
     })
 }
 
+type CandidatesAndRemainder<K> = (
+    Option<Vec<ExecutionCandidateOutput<K>>>,
+    Option<ExecutionRemainderOutput<K>>,
+);
+
 fn execution_candidates_output<K: WireKore>(
     reason: HaltReason,
-) -> Result<
-    (
-        Option<Vec<ExecutionCandidateOutput<K>>>,
-        Option<ExecutionRemainderOutput<K>>,
-    ),
-    BackendError,
-> {
+) -> Result<CandidatesAndRemainder<K>, BackendError> {
     match reason {
         HaltReason::Branch {
             branches,
