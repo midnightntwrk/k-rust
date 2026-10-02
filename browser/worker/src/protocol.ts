@@ -247,7 +247,7 @@ export interface PackManifest {
   artifacts: PackArtifact[];
   framework_sources: MountedSource[];
   /** Absolute VFS paths of the extern crates. */
-  externs: { facade: string; host_runtime: string; compiler_runtime: string };
+  externs: { facade: string; host_runtime: string; collector_runtime: string };
   direct_rustc: {
     edition: string;
     target: string;

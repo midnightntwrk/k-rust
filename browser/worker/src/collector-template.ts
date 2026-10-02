@@ -23,13 +23,13 @@ export function renderCollectorMain(lesson: LessonManifest): string {
     `#[allow(unused_extern_crates)]\nextern crate ${alias} as _;\n` +
     "\nfn main() {\n    if let Err(error) = collect() {\n        eprintln!(\"KRS collector failed: {error}\");\n        std::process::exit(1);\n    }\n}\n\n" +
     "fn collect() -> Result<(), Box<dyn std::error::Error>> {\n    let contexts = vec![\n" +
-    `        __krs_compiler_runtime::PackageContext::new(${context}, std::path::Path::new(${rustString(`${p.manifest_dir}/Cargo.toml`)}))?,\n` +
+    `        __krs_collector_runtime::PackageContext::new(${context}, std::path::Path::new(${rustString(`${p.manifest_dir}/Cargo.toml`)}))?,\n` +
     "    ];\n" +
     "    let tables: &[&__krs_host_runtime::__private::RegistrationTable] = &[\n" +
     `        &${alias}::__KRS_REGISTRATIONS,\n` +
     "    ];\n" +
     "    let builtins = __krs_host_runtime::builtin_registry();\n" +
-    "    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        __krs_host_runtime::host_descriptors_from(tables),\n        &builtins,\n    )?;\n" +
+    "    let bundle = __krs_collector_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        __krs_host_runtime::host_descriptors_from(tables),\n        &builtins,\n    )?;\n" +
     "    use std::io::Write as _;\n" +
     "    let stdout = std::io::stdout().lock();\n" +
     "    let mut writer = std::io::BufWriter::with_capacity(64 * 1024, stdout);\n" +

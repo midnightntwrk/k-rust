@@ -405,7 +405,7 @@ def assemble(args):
     write_table(doc, "[direct_rustc.externs]", {
         "k": by_crate["krs"],
         "__krs_host_runtime": by_crate["krs"],
-        "__krs_compiler_runtime": by_crate["krs_collector"],
+        "__krs_collector_runtime": by_crate["krs_collector"],
     })
     write_table(doc, "[checks]", {
         "so_files": 0,

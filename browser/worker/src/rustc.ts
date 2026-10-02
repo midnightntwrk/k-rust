@@ -84,7 +84,7 @@ export function collectorInvocation(pack: PackManifest, lesson: LessonManifest):
       "--extern",
       `__krs_host_runtime=${pack.externs.host_runtime}`,
       "--extern",
-      `__krs_compiler_runtime=${pack.externs.compiler_runtime}`,
+      `__krs_collector_runtime=${pack.externs.collector_runtime}`,
       "--error-format=json",
       "-o",
       COLLECTOR_OUT,

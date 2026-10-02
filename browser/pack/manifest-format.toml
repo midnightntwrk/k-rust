@@ -96,10 +96,10 @@ collector_flags = "array of strings: additional flags for the collector binary (
 framework_sources = "array of virtual paths the collector reads at run time; each is served from the framework-source artifact whose virtual_path matches"
 
 [tables."direct_rustc.externs"]
-description = "Crate aliases to pack paths. Keys: k (the lesson's facade), __krs_host_runtime and __krs_compiler_runtime (the generated collector, backed by krs-collector)."
+description = "Crate aliases to pack paths. Keys: k (the lesson's facade), __krs_host_runtime and __krs_collector_runtime (the generated collector, backed by krs-collector)."
 k = "pack path of the krs rlib"
 __krs_host_runtime = "pack path of the krs rlib"
-__krs_compiler_runtime = "pack path of the krs_collector rlib"
+__krs_collector_runtime = "pack path of the krs_collector rlib"
 
 [tables.checks]
 description = "Build-time assertions; build.sh fails before writing the manifest if any is violated."
@@ -179,6 +179,6 @@ verify = "Before use, check every [[artifact]] against bytes and sha256 and reco
 compiler_vfs = "Mount deps/ and proc-macro-meta/ read-only under one directory (the worker uses /pack/deps and /pack/proc-macro-meta) and materialize the bundle at /sysroot."
 collector_vfs = "Serve each framework-source artifact at its virtual_path; nothing else from the pack is visible to the collector."
 lesson_rustc = "rustc.wasm <lesson> --crate-name <crate> --crate-type rlib --edition <edition> --target <target> --sysroot <sysroot> -C panic=<panic> <extra_flags> -L dependency=<mount>/<each dependency_search_path> --extern k=<mount>/<externs.k> <lesson lint flags> with CARGO_PKG_NAME, CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, CARGO_CRATE_NAME in the WASI environment"
-collector_rustc = "rustc.wasm <collector> --crate-type bin <same common flags> <collector_flags> --extern <crate>=<lesson rlib> --extern __krs_host_runtime=<mount>/<externs.__krs_host_runtime> --extern __krs_compiler_runtime=<mount>/<externs.__krs_compiler_runtime>"
+collector_rustc = "rustc.wasm <collector> --crate-type bin <same common flags> <collector_flags> --extern <crate>=<lesson rlib> --extern __krs_host_runtime=<mount>/<externs.__krs_host_runtime> --extern __krs_collector_runtime=<mount>/<externs.__krs_collector_runtime>"
 same_revision = "The pack, the expander module, and the native oracle must come from one KRS revision, because the expander's output must match the krs-macros the pack's rlibs were built from; compare producer.krs_revision."
 reference_run = "tests/browser-backend/verify.py applies this contract under Node WASI and in headless browsers (mount /pack)."

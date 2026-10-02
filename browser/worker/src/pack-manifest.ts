@@ -44,7 +44,7 @@ export interface SourcePackManifest {
     rustc_bootstrap_required: boolean;
     collector_flags: string[];
     framework_sources: string[];
-    externs: { k: string; __krs_host_runtime: string; __krs_compiler_runtime: string };
+    externs: { k: string; __krs_host_runtime: string; __krs_collector_runtime: string };
   };
   input: Array<{ name: string; kind: string; git_tree?: string }>;
   artifact: SourceArtifact[];
@@ -134,7 +134,7 @@ export async function packFromManifest(source: SourcePackManifest, extra: PackAd
     externs: {
       facade: extern(d.externs.k),
       host_runtime: extern(d.externs.__krs_host_runtime),
-      compiler_runtime: extern(d.externs.__krs_compiler_runtime),
+      collector_runtime: extern(d.externs.__krs_collector_runtime),
     },
     direct_rustc: {
       edition: d.edition,

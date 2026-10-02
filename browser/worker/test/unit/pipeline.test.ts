@@ -98,7 +98,7 @@ describe("pack adapter (pack manifest, schema_version 2)", () => {
     expect(pack.pack_id).toBe("sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117");
     expect(pack.artifacts.length).toBe(28);
     expect(pack.externs.facade).toBe("/pack/deps/libkrs-add96ba03f57c1b6.rlib");
-    expect(pack.externs.compiler_runtime).toBe("/pack/deps/libkrs_compiler-cb1260d0465cc762.rlib");
+    expect(pack.externs.collector_runtime).toBe("/pack/deps/libkrs_compiler-cb1260d0465cc762.rlib");
     expect(pack.artifacts.filter((a) => a.role === "proc-macro-metadata").map((a) => a.mount)).toEqual([
       "/pack/proc-macro-meta/libkrs_macros-e5fa7b53b7bfa6e3.rmeta",
       "/pack/proc-macro-meta/libserde_derive-34455017fa8b0d0c.rmeta",

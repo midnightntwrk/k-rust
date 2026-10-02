@@ -12,13 +12,13 @@ fn main() {
 
 fn collect() -> Result<(), Box<dyn std::error::Error>> {
     let contexts = vec![
-        __krs_compiler_runtime::PackageContext::new("KRS-TOUR-MINIMAL", "krs-tour-minimal", "0.0.0", "workspace", "krs_tour_minimal", std::path::Path::new("/workspace/tour-minimal/Cargo.toml"))?,
+        __krs_collector_runtime::PackageContext::new("KRS-TOUR-MINIMAL", "krs-tour-minimal", "0.0.0", "workspace", "krs_tour_minimal", std::path::Path::new("/workspace/tour-minimal/Cargo.toml"))?,
     ];
     let tables: &[&__krs_host_runtime::__private::RegistrationTable] = &[
         &krs_tour_minimal::__KRS_REGISTRATIONS,
     ];
     let builtins = __krs_host_runtime::builtin_registry();
-    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(
+    let bundle = __krs_collector_runtime::collect_host_descriptors_with_builtins(
         contexts,
         __krs_host_runtime::host_descriptors_from(tables),
         &builtins,
