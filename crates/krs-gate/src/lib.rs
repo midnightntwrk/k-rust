@@ -5,6 +5,8 @@
 //! `krs-gate compile [--timings FILE] DEFINITION-IR OUTPUT-KORE` writes the compiled KORE definition and, when requested, a `krs-timings/1` document.
 //! It reads [`krs_ir::DefinitionIr`] through [`krs_ir::json::from_slice`] and calls [`krs_k_rust::compile_definition_with_context_timed`] with [`krs_k_rust::CompileOptions`] selecting the Haskell backend.
 //! The timing document is written on success and failure, uses the document name `native-compile`, and includes `native.input` and `native.write` spans.
+//! `krs-gate collector-bundle COLLECTOR-STDOUT DESCRIPTOR-BUNDLE` requires equality between the collector wire decoded by [`krs_ir::DescriptorBundle::from_collector_protocol`] and the typed emitted [`krs_ir::DescriptorBundle`].
+//! It returns a JSON summary with the collector wire `protocol_version`, `descriptors` count, and `descriptor_kinds` counts using canonical serialized names.
 //! `krs-gate kore-compare REFERENCE NATIVE MODULE [--label FROM=CANONICAL]... [--reference-claims PATH MODULE]` invokes [`kore_compare::compare_kore`] or [`kore_compare::compare_kore_with_reference_claims`].
 //! These compare definitions parsed by [`k_rust::kore::parser::parse_definition`] under the closed normalization and projector policy documented in [`kore_compare`].
 //! `krs-gate proof split DEFINITION OUTPUT-DIR MODULE SPEC-MODULE LABEL...` extracts one-claim specifications and a claim-free definition through [`proof`].
@@ -181,6 +183,8 @@
 //! After a failed load, `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations can still succeed in that session.
 //! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
+/// Compare collector stdout with a typed emitted descriptor bundle.
+pub mod collector_bundle;
 /// Compile Definition IR into native KORE.
 pub mod compile;
 /// Assemble surface configuration variables through the native frontend.

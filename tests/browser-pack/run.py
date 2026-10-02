@@ -161,7 +161,7 @@ class Runner:
 
     def oracle(self) -> bool:
         return self.step("oracle", ["bash", "browser/worker/test/parity/regenerate-oracle.sh", self.oracle_dir],
-                         env={"CLI_TARGET": str(self.cli_target), "KRS_BIN": str(self.krs_bin)})
+                         env={"CLI_TARGET": str(self.cli_target)})
 
     def licenses(self) -> bool:
         return self.step("licenses", ["python3", RELEASE, "licenses", "--staged", self.staged, "--fork-source", self.args.fork_source.resolve(),

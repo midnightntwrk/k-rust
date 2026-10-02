@@ -16,8 +16,8 @@
 # CARGO_MANIFEST_DIR.
 #
 # Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp),
-# CLI_TARGET (default SCRATCH/krs-parity-cli-target), KRS_BIN (a krs binary
-# built from this checkout; built when absent), KRS_Z3_LIB, LOAD_MAX (default 40).
+# CLI_TARGET (default SCRATCH/krs-parity-cli-target; krs and krs-gate are built
+# from this checkout on every run), KRS_Z3_LIB, LOAD_MAX (default 40).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -28,7 +28,8 @@ ORACLE_TOML=${2:-$OUT/oracle.toml}
 LOAD_MAX=${LOAD_MAX:-40}
 Z3=${KRS_Z3_LIB:-$(ls -d /nix/store/*-z3-4.12.5-lib/lib | head -1)}
 CLI_TARGET=${CLI_TARGET:-$SCRATCH/krs-parity-cli-target}
-KRS_BIN=${KRS_BIN:-$CLI_TARGET/debug/krs}
+KRS_BIN=$CLI_TARGET/debug/krs
+GATE_BIN=$CLI_TARGET/debug/krs-gate
 PATCH=$HERE/edit-e1.patch
 
 wait_for_load() {
@@ -46,11 +47,12 @@ if ! git -C "$REPO" diff --quiet HEAD -- crates tests/tour-minimal Cargo.lock; t
 fi
 REV=$(git -C "$REPO" rev-parse HEAD)
 
-if [[ ! -x $KRS_BIN ]]; then
+# One package per invocation, so krs-gate's features never unify into the krs binary.
+for package in krs-cli:krs krs-gate:krs-gate; do
   wait_for_load
   (cd "$REPO" && LIBRARY_PATH=$Z3${LIBRARY_PATH:+:$LIBRARY_PATH} LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \
-    nice -n 19 ionice -c3 cargo +stable build --locked --offline -j 4 -p krs-cli --bin krs --target-dir "$CLI_TARGET")
-fi
+    nice -n 19 ionice -c3 cargo +stable build --locked --offline -j 4 -p "${package%%:*}" --bin "${package##*:}" --target-dir "$CLI_TARGET")
+done
 
 export_at() { # DIR: fresh git archive of HEAD
   rm -rf "$1"
@@ -97,12 +99,11 @@ export_at "$OUT/src-e1"
 emit native "$OUT/src-base"
 emit native-e1 "$OUT/src-e1"
 
-python3 - "$OUT" "$REPO" "$REV" "$ORACLE_TOML" "$KRS_BIN" "$PATCH" <<'PY'
+LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} python3 - "$OUT" "$REPO" "$REV" "$ORACLE_TOML" "$KRS_BIN" "$PATCH" "$GATE_BIN" <<'PY'
 import hashlib, json, subprocess, sys
-from collections import Counter
 from pathlib import Path
 
-out, repo, rev, oracle_toml, krs_bin, patch = sys.argv[1:]
+out, repo, rev, oracle_toml, krs_bin, patch, gate_bin = sys.argv[1:]
 out = Path(out)
 
 def sha(path):
@@ -113,53 +114,19 @@ def tree(spec):
 
 def record(name, lesson):
     pretty = out / name / "descriptor-bundle.json"
-    data = json.loads(pretty.read_bytes())
     bundle = out / name / "collector-stdout.json"
-    wire = json.loads(bundle.read_bytes())
-    restored = {
-        "protocol_version": data["protocol_version"],
-        "descriptors": wire["descriptors"],
-        "declarations": wire["declarations"],
-    }
-    for descriptor in restored["descriptors"]:
-        descriptor.update(descriptor.pop("payload"))
-        for node in descriptor["provenance"]["origins"]:
-            frames = []
-            for frame in node["origin"]:
-                code = frame[0]
-                if code in range(4):
-                    _, file, start, end, item, label = frame
-                    expanded = {
-                        "frame_type": "ranged",
-                        "kind": ["authored", "macro_invocation", "generated_artifact", "frontend_diagnostic"][code],
-                        "range": {"file": wire["files"][file], "start_byte": start, "end_byte": end},
-                    }
-                elif code in range(4, 7):
-                    _, item, label = frame
-                    expanded = {
-                        "frame_type": "transformation",
-                        "kind": ["generated_descriptor", "semantic_ir", "definition_ir"][code - 4],
-                    }
-                else:
-                    sys.exit(f"{name}: unknown collector frame code {code}")
-                if item is not None:
-                    expanded["item"] = wire["items"][item]
-                if label is not None:
-                    expanded["label"] = label
-                frames.append(expanded)
-            node["origin"] = frames
-    if restored != data:
-        sys.exit(f"{name}: expanded collector stdout differs from the pretty emit-k artifact")
+    summary = json.loads(subprocess.check_output([
+        gate_bin, "collector-bundle", str(bundle), str(pretty),
+    ]))
     if not bundle.read_bytes().endswith(b"\n"):
         sys.exit(f"{name}: collector stdout lacks its trailing newline")
-    kinds = Counter(d["descriptor_kind"] for d in data["descriptors"])
     return {
         "bundle": str(bundle),
         "bundle_bytes": bundle.stat().st_size,
         "bundle_sha256": sha(bundle),
-        "protocol_version": wire["protocol_version"],
-        "descriptors": len(data["descriptors"]),
-        "descriptor_kinds": dict(sorted(kinds.items())),
+        "protocol_version": summary["protocol_version"],
+        "descriptors": summary["descriptors"],
+        "descriptor_kinds": summary["descriptor_kinds"],
         "lesson_source": str(lesson),
         "lesson_source_sha256": sha(lesson),
         "emit_seconds": int((out / f"{name}.seconds").read_text()),
