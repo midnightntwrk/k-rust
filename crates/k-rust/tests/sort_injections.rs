@@ -5,7 +5,7 @@ use k_rust::definition::{
     Attributes, Definition, FlatImport, FlatModule, LOCATION_ATTRIBUTE, ProductionItem,
     ResolvedDefinition, SOURCE_ATTRIBUTE, Sentence,
 };
-use k_rust::inner::resolve_rule_bubbles;
+use k_rust::inner::{ParseError, RuleError, resolve_rule_bubbles};
 use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata};
 use k_rust::kompile::{
     SortInjectionError, SortInjector, add_sort_injections_to_definition, generate_sort_projections,
@@ -905,6 +905,26 @@ fn semantic_bound_definition(source: &str) -> ResolvedDefinition {
     ResolvedDefinition::resolve(&lowered(source)).unwrap()
 }
 
+/// The resolved definition of `source`, whose declared subsorts contradict the position `K` fixes
+/// for one of its kernel sorts.
+///
+/// No rule grammar has an order of the sorts of such a view, so rule-bubble resolution rejects it
+/// with the cycle; it has no bubble to resolve, so its lowered definition is resolved directly to
+/// read the injector's bound over the declared relation.
+fn kernel_contradicting_definition(source: &str) -> ResolvedDefinition {
+    let parsed = k_rust::outer::parse("injections.k", source).expect("definition should parse");
+    let definition = k_rust::outer::lower(&parsed, "MAIN").expect("definition should lower");
+    assert!(
+        matches!(
+            resolve_rule_bubbles(&definition),
+            Err(RuleError::Parse(error))
+                if matches!(error.error, ParseError::CircularSubsorts { .. })
+        ),
+        "the view contradicts a kernel sort position"
+    );
+    ResolvedDefinition::resolve(&definition).unwrap()
+}
+
 fn semantic_bound_injector() -> ResolvedDefinition {
     let definition = lowered(indoc! {r#"
         module MAIN
@@ -993,7 +1013,7 @@ fn semantic_bound_excludes_kbott_and_lower_parser_sorts() {
 
 #[test]
 fn semantic_bound_excludes_a_strict_lower_parser_sort() {
-    let definition = semantic_bound_definition(indoc! {r#"
+    let definition = kernel_contradicting_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -1027,7 +1047,7 @@ fn semantic_bound_rejects_sorts_above_k() {
 
 #[test]
 fn semantic_bound_rejects_a_distinct_common_bound_above_k() {
-    let definition = semantic_bound_definition(indoc! {r#"
+    let definition = kernel_contradicting_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B

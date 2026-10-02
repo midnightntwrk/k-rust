@@ -44,7 +44,7 @@ use crate::timings::PhaseTimings;
 use super::config::{
     BuiltinTokenGrammar, add_bottom_subsort, add_casts, add_implicit_ml_syntax, add_k_syntax,
     add_kitem_subsort, add_sort_bracket, add_subsort, add_synonym_casts, implicit_kseq_bracket,
-    nonterminal, truth,
+    nonterminal, reject_kernel_position_contradiction, truth,
 };
 use super::location::span_location;
 use super::parser::{
@@ -593,6 +593,7 @@ fn rule_grammar(
     scope: RuleGrammarScope<'_>,
 ) -> Result<Grammar, ParseError> {
     let visible = rule_grammar_view(resolved, module, scope);
+    reject_kernel_position_contradiction(&visible)?;
     let scanner_seed = match scope {
         RuleGrammarScope::GlobalScanner => None,
         RuleGrammarScope::Module { scanner_seed } => scanner_seed,
@@ -797,7 +798,8 @@ fn rule_grammar(
         grammar.admit_rewrites_in_argument_positions(&rule_sorts, &scaffolding);
     }
 
-    // The generated productions are complete; check their sorts against their roles (G1-G3).
+    // The generated productions are complete; check their sorts against their roles and the
+    // acyclicity of the semantic subsort relation (G0-G3).
     #[cfg(debug_assertions)]
     grammar.assert_generated_sort_roles(&universe);
     Ok(grammar)
@@ -1725,6 +1727,32 @@ endmodule
     /// A view that imports KAST and declares nothing else loads in a debug build. Its main
     /// module's global rule grammar is built as the scanner seed and never parses, so only the
     /// sort-role checker reads it, and its semantic relation is acyclic (G0).
+    /// A user sort is a sort of K items, so `syntax Exp ::= KItem` closes `Exp < KItem < Exp`
+    /// with the kernel position the rule grammar gives `Exp`. Built without the load, which would
+    /// report the declaration first, the rule grammar rejects the view with that cycle before it
+    /// generates any production, so its sort-role check never meets a cyclic relation.
+    #[test]
+    fn a_view_contradicting_a_kernel_position_has_no_rule_grammar() {
+        let source = "module MAIN\n  syntax KItem\n  syntax Exp ::= \"a\"\n  syntax Exp ::= KItem\nendmodule\n";
+        let parsed = crate::outer::parse("main.k", source).expect("MAIN parses");
+        let definition = crate::outer::lower(&parsed, "MAIN").expect("MAIN lowers");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("MAIN resolves");
+        let main = resolved.main_module_id();
+        for scope in [
+            RuleGrammarScope::GlobalScanner,
+            RuleGrammarScope::Module { scanner_seed: None },
+        ] {
+            match rule_grammar(&resolved, main, scope) {
+                Err(ParseError::CircularSubsorts { path }) => {
+                    assert!(path.contains(&Sort::new("Exp")), "{path:?}");
+                    assert!(path.contains(&KernelSort::KItem.sort()), "{path:?}");
+                }
+                Err(error) => panic!("expected the kernel-position cycle, got {error}"),
+                Ok(_) => panic!("the rule grammar of a contradicting view was built"),
+            }
+        }
+    }
+
     #[test]
     fn a_view_that_only_imports_kast_loads() {
         if let Err(error) = try_load_with_prelude("module MAIN\n  imports KAST\nendmodule\n") {

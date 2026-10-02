@@ -49,6 +49,7 @@ pub use attribute_keys::AttributeKey;
 pub use catalog::{
     FreshGeneratorError, LabelHead, ProductionCatalog, ProductionId, ProductionSignature, SortHead,
 };
+pub(crate) use checks::kernel_position_cycle;
 pub use checks::{
     CheckMode, Error as CheckError, StructuralCheckBackend, StructuralCheckOptions,
     check_anonymous_variables, check_associativity, check_attribute_semantics, check_attributes,

@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::super::partial_order::first_cycle;
+use super::super::partial_order::{Cycle, first_cycle};
 use super::super::relations::{disambiguation_subsort_pairs, states_disambiguation_subsort};
 use super::super::sort_catalog::SortShape;
 use super::super::{
@@ -280,25 +280,33 @@ fn kernel_completion(sorts: &BTreeSet<Sort>) -> BTreeMap<(Sort, Sort), String> {
     completion
 }
 
-/// Reject a module view whose declared subsorts contradict the positions `K` fixes for its kernel
-/// sorts.
+/// The first cycle of a module view's declared subsorts completed with the kernel positions of its
+/// sorts, when the declared subsorts alone are acyclic.
 ///
-/// The declared relation `D` is the one the view's rule grammar starts from: the semantic subsort
-/// pairs of its unlabeled, non-parametric unary productions and the `(element, list)` pairs of its
-/// user lists. Completed with the kernel positions of the sorts it mentions or the view declares
-/// ([`kernel_completion`], itself acyclic), it must stay acyclic: a cycle then places a sort of K
-/// items at or above `KItem` or `K`, or a sort a variable stands at at or below `KBott`,
-/// `#KVariable` or `KConfigVar`, which no order of K terms can have.
-///
-/// A cycle of `D` alone is the definition's circular subsort error and is left to the checks that
-/// report it.
-/// The declared steps of every contradiction already reported, at an earlier module of the dependency order, are left out of the search.
-/// A view that only repeats an earlier contradiction therefore finds no cycle, and a cycle still found is a contradiction independent of those already reported.
-/// It is reported once, on the first step of its cycle that is declared and not a kernel position.
-fn check_kernel_sort_positions(
+/// A cycle found places a sort of K items at or above `KItem` or `K`, or a sort a variable stands
+/// at at or below `KBott`, `#KVariable` or `KConfigVar`: the declarations contradict a kernel
+/// position, so no grammar built from the view has an order of its sorts. A cycle of the declared
+/// subsorts alone is the definition's circular subsort error, which its own checks report, so it is
+/// not searched for here. The grammar builders call this before generating any production; the
+/// load reports the same contradiction with a diagnostic through [`check_outer_modules`].
+pub(crate) fn kernel_position_cycle(visible: &[&Sentence]) -> Option<Cycle<Sort>> {
+    kernel_position_search(visible, &BTreeSet::new()).map(|search| search.cycle)
+}
+
+/// A cycle of a module view's declared subsorts and their kernel completion, with the relations
+/// that close it.
+struct KernelPositionSearch {
+    declared: BTreeSet<(Sort, Sort)>,
+    completion: BTreeMap<(Sort, Sort), String>,
+    cycle: Cycle<Sort>,
+}
+
+/// Search `visible`'s declared subsorts, less the pairs of `excluded`, completed with the kernel
+/// positions of its sorts for a cycle; `None` when the declared subsorts alone are cyclic.
+fn kernel_position_search(
     visible: &[&Sentence],
-    reported: &mut BTreeSet<(Sort, Sort)>,
-) -> Option<Diagnostic> {
+    excluded: &BTreeSet<(Sort, Sort)>,
+) -> Option<KernelPositionSearch> {
     let declared = disambiguation_subsort_pairs(visible);
     if first_cycle(declared.iter().cloned()).is_some() {
         return None;
@@ -327,10 +335,41 @@ fn check_kernel_sort_positions(
     let cycle = first_cycle(
         declared
             .iter()
-            .filter(|pair| !reported.contains(*pair))
+            .filter(|pair| !excluded.contains(*pair))
             .chain(completion.keys())
             .cloned(),
     )?;
+    Some(KernelPositionSearch {
+        declared,
+        completion,
+        cycle,
+    })
+}
+
+/// Reject a module view whose declared subsorts contradict the positions `K` fixes for its kernel
+/// sorts.
+///
+/// The declared relation `D` is the one the view's rule grammar starts from: the semantic subsort
+/// pairs of its unlabeled, non-parametric unary productions and the `(element, list)` pairs of its
+/// user lists. Completed with the kernel positions of the sorts it mentions or the view declares
+/// ([`kernel_completion`], itself acyclic), it must stay acyclic: a cycle then places a sort of K
+/// items at or above `KItem` or `K`, or a sort a variable stands at at or below `KBott`,
+/// `#KVariable` or `KConfigVar`, which no order of K terms can have.
+///
+/// A cycle of `D` alone is the definition's circular subsort error and is left to the checks that
+/// report it.
+/// The declared steps of every contradiction already reported, at an earlier module of the dependency order, are left out of the search.
+/// A view that only repeats an earlier contradiction therefore finds no cycle, and a cycle still found is a contradiction independent of those already reported.
+/// It is reported once, on the first step of its cycle that is declared and not a kernel position.
+fn check_kernel_sort_positions(
+    visible: &[&Sentence],
+    reported: &mut BTreeSet<(Sort, Sort)>,
+) -> Option<Diagnostic> {
+    let KernelPositionSearch {
+        declared,
+        completion,
+        cycle,
+    } = kernel_position_search(visible, reported)?;
 
     let steps = cycle
         .path

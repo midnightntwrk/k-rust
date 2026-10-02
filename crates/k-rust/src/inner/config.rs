@@ -25,7 +25,7 @@ use std::fmt;
 use crate::definition::AttributeKey;
 use crate::definition::{
     Attributes, Definition, EquivalenceAccumulator, Location, ModuleId, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, push_if_inequivalent,
+    ResolveError, ResolvedDefinition, Sentence, kernel_position_cycle, push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
@@ -241,6 +241,7 @@ fn configuration_grammar(
 ) -> Result<Grammar, ParseError> {
     let mut visible = resolved.signature_sentences(module);
     add_implicit_ml_syntax(resolved, &mut visible);
+    reject_kernel_position_contradiction(&visible)?;
     // The reference configuration grammar imports DEFAULT-LAYOUT explicitly,
     // even when the language declares a program-specific `#Layout` sort.
     let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())?;
@@ -304,10 +305,32 @@ fn configuration_grammar(
     }
     add_synonym_casts(&mut grammar, &universe, &CONFIGURATION_GRAMMAR)?;
 
-    // The generated productions are complete; check their sorts against their roles (G1-G3).
+    // The generated productions are complete; check their sorts against their roles and the
+    // acyclicity of the semantic subsort relation (G0-G3).
     #[cfg(debug_assertions)]
     grammar.assert_generated_sort_roles(&universe);
     Ok(grammar)
+}
+
+/// Reject the definition sentences `visible` a grammar is about to be built from when their
+/// declared subsorts contradict the positions `K` fixes for its kernel sorts.
+///
+/// The rule and configuration grammars add, for every member sort, the kernel subsorts its role
+/// grants (`S < KItem`, `KBott < S` and the variable sorts below `S`). A declared subsort that
+/// places a sort of K items at or above `KItem` or `K`, or a sort a variable stands at at or below
+/// `KBott`, closes a cycle with those pairs, and a grammar with a cyclic subsort relation has no
+/// order to infer sorts against. The error is the grammar's circular subsort error with the cycle
+/// of declared and kernel pairs. The load reports the same contradiction as a diagnostic on the
+/// declaration before it builds any grammar; this check makes every builder establish it, whatever
+/// path reaches it. It reads only the sentences the builder already holds, so it adds no counted
+/// work.
+pub(super) fn reject_kernel_position_contradiction(
+    visible: &[&Sentence],
+) -> Result<(), ParseError> {
+    match kernel_position_cycle(visible) {
+        Some(cycle) => Err(ParseError::CircularSubsorts { path: cycle.path }),
+        None => Ok(()),
+    }
 }
 
 pub(super) fn implicit_kseq_bracket(resolved: &ResolvedDefinition) -> Option<&Attributes> {
@@ -785,6 +808,26 @@ mod tests {
         let resolved = loaded.resolved();
         let module = resolved.module_id("MAIN").expect("MAIN is resolved");
         configuration_grammar(resolved, module).expect("the configuration grammar builds")
+    }
+
+    /// A user sort is a sort of K items, so `syntax Exp ::= KItem` closes `Exp < KItem < Exp`
+    /// with the kernel position the configuration grammar gives `Exp`. Built without the load,
+    /// which would report the declaration first, the configuration grammar rejects the view with
+    /// that cycle before it generates any production.
+    #[test]
+    fn a_view_contradicting_a_kernel_position_has_no_configuration_grammar() {
+        let source = "module MAIN\n  syntax KItem\n  syntax Exp ::= \"a\"\n  syntax Exp ::= KItem\nendmodule\n";
+        let parsed = crate::outer::parse("main.k", source).expect("MAIN parses");
+        let definition = crate::outer::lower(&parsed, "MAIN").expect("MAIN lowers");
+        let resolved = ResolvedDefinition::resolve(&definition).expect("MAIN resolves");
+        match configuration_grammar(&resolved, resolved.main_module_id()) {
+            Err(ParseError::CircularSubsorts { path }) => {
+                assert!(path.contains(&Sort::new("Exp")), "{path:?}");
+                assert!(path.contains(&KernelSort::KItem.sort()), "{path:?}");
+            }
+            Err(error) => panic!("expected the kernel-position cycle, got {error}"),
+            Ok(_) => panic!("the configuration grammar of a contradicting view was built"),
+        }
     }
 
     fn unary(child: &str) -> [ProductionItem; 1] {

@@ -34,7 +34,8 @@ impl Grammar {
     /// grammar's semantic subsort relation is cyclic:
     ///
     /// - G0 acyclic: the semantic subsort relation has no cycle. The panic names each step of the
-    ///   cycle and whether a generated unary production or the definition states it.
+    ///   cycle, marked `(generated)` when a generated unlabeled unary production states it and
+    ///   `(declared)` otherwise (a pair a generated production also states is marked generated).
     /// - G1 classified: every sort of its result and of its nonterminal items, declared or
     ///   recognized, is a member or synonym alias of `universe`, a kernel sort, a scaffolding
     ///   sort, or a registered placeholder.
@@ -54,12 +55,15 @@ impl Grammar {
     /// operand sort of a visible production is one.
     ///
     /// G2 and G3 read the order of the semantic subsort relation, which G0 guarantees. Every
-    /// cycle a definition can cause is ruled out before this point: the load rejects a definition
-    /// whose declared subsorts contradict the positions K fixes for its kernel sorts, the grammar
-    /// constructor rejects a cycle among the definition's own productions, and the per-member
-    /// generators state only the kernel positions a sort's role grants, by const assertion. A
-    /// cycle here therefore needs a generated pair outside those rules, which is a compiler
-    /// defect, so every labeled generated production is checked against G2 and G3.
+    /// cycle a definition can cause is ruled out before this point, on every path that builds a
+    /// rule or configuration grammar: the builder first rejects the definition sentences it is
+    /// built from when their declared subsorts contradict the positions K fixes for its kernel
+    /// sorts (`config::reject_kernel_position_contradiction`, the contradiction the load also
+    /// reports as a diagnostic), the grammar constructor rejects a cycle among the definition's own
+    /// productions, and the per-member generators state only the kernel positions a sort's role
+    /// grants, by const assertion. A cycle here therefore needs a generated pair outside those
+    /// rules, which is a compiler defect, so every labeled generated production is checked against
+    /// G2 and G3.
     pub(in crate::inner) fn assert_generated_sort_roles(&self, universe: &SortUniverse) {
         // The check's own order, built outside the grammar's cache and uncounted: the check is
         // not work of the grammar, so it neither changes the work counters nor builds the order
@@ -123,7 +127,9 @@ impl Grammar {
 
     /// G0: the steps `A < B` of `path`, a cycle whose last sort is its first, each marked
     /// `(generated)` when a generated unlabeled production `B ::= A` states it and `(declared)`
-    /// otherwise.
+    /// otherwise. `(declared)` means only that no generated unlabeled unary production states the
+    /// pair: a pair a generator inserts into the relation without a production (a user list's
+    /// element below its non-empty list) is marked declared.
     fn render_cycle_steps(&self, path: &[Sort]) -> String {
         path.iter()
             .zip(path.iter().skip(1))

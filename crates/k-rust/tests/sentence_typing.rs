@@ -2,6 +2,7 @@
 
 use k_rust::builtin;
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence};
+use k_rust::inner::{ParseError, RuleError};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::{
     BranchTyping, CompilationBackend, CompileOptions, PositionTyping, SentenceTyper,
@@ -388,11 +389,15 @@ fn compiled_kore(loaded: &LoadedDefinition) -> Result<String, k_rust::kompile::C
         .map(|artifacts| artifacts.definition_kore)
 }
 
-fn lowered(source: &str) -> (Definition, ResolvedDefinition) {
+/// `source` parsed and lowered with `MAIN` as its main module, its bubbles left unparsed.
+fn unparsed(source: &str) -> Definition {
     let parsed = k_rust::outer::parse("lowered.k", source).expect("definition should parse");
-    let definition = k_rust::outer::lower(&parsed, "MAIN").expect("definition should lower");
-    let definition =
-        k_rust::inner::resolve_rule_bubbles(&definition).expect("rule bubbles should resolve");
+    k_rust::outer::lower(&parsed, "MAIN").expect("definition should lower")
+}
+
+fn lowered(source: &str) -> (Definition, ResolvedDefinition) {
+    let definition = k_rust::inner::resolve_rule_bubbles(&unparsed(source))
+        .expect("rule bubbles should resolve");
     let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
     (definition, resolved)
 }
@@ -459,9 +464,14 @@ fn a_term_below_k_at_a_position_above_k_is_injected_as_a_sequence() {
     assert!(!body.contains("inj{KItem,KList}"), "{body}");
 }
 
+// A user sort is a sort of K items, below `KItem`, so `syntax Above ::= K` closes the cycle
+// `KItem < K < Above < KItem`: the declaration contradicts the position of `K` above every K item.
+// No rule grammar can be built for such a view, so rule-bubble resolution rejects it with the
+// cycle before building one. The definition has no bubble, so its resolved definition is read
+// directly, and the typer reports the circular order too.
 #[test]
 fn a_user_sort_above_k_is_circular() {
-    let (_, resolved) = lowered(indoc::indoc! {r#"
+    let definition = unparsed(indoc::indoc! {r#"
         module MAIN
           syntax K
           syntax KItem
@@ -469,6 +479,16 @@ fn a_user_sort_above_k_is_circular() {
           syntax Above ::= K
         endmodule
     "#});
+    assert!(
+        matches!(
+            k_rust::inner::resolve_rule_bubbles(&definition),
+            Err(RuleError::Parse(error))
+                if matches!(&error.error, ParseError::CircularSubsorts { path }
+                    if path.contains(&Sort::new("Above")))
+        ),
+        "a user sort above K is rejected before a rule grammar is built"
+    );
+    let resolved = ResolvedDefinition::resolve(&definition).expect("definition should resolve");
     assert!(matches!(
         SentenceTyper::new(&resolved, "MAIN"),
         Err(SentenceTypingError::Sort {
