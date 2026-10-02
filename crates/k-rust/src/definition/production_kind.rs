@@ -21,7 +21,7 @@ use super::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
     Sentence, SortCatalog, SortHead,
 };
-use crate::kast::{InternalLabel, Sort};
+use crate::kast::{InternalLabel, Label, Sort};
 use crate::kompile::Injectable;
 
 /// Whether each application of a function production denotes exactly one value, as its
@@ -245,7 +245,8 @@ impl ProductionKind {
     ///
     /// Eligibility reads the declaration alone; whether the source's own equations identify
     /// applications with different arguments is not decided here. The rule grammar and the
-    /// projection pass both read this one predicate, so they agree on which productions a field
+    /// projection pass both read this predicate through [`FieldProjectionSource::of`], which also
+    /// requires the source to bind no sort parameter, so they agree on which productions a field
     /// projection passes through.
     pub(crate) fn admits_field_projection(self) -> bool {
         match self {
@@ -256,6 +257,110 @@ impl ProductionKind {
             | Self::Function { .. }
             | Self::MacroProduction
             | Self::Unlabelled => false,
+        }
+    }
+}
+
+/// A labelled production whose named nonterminals get field projections
+/// `project:<label>:<field>`: its kind admits one ([`ProductionKind::admits_field_projection`]),
+/// it binds no sort parameter, and it has a named nonterminal.
+///
+/// A production's `parameters` are sort variables bound by that sentence alone, spelled like
+/// sorts. A source with sort parameters (`syntax {W} Foo ::= pick(x: MInt{W}, y: Int)`) is a
+/// family of symbols `pick{W}`, one per instantiation: the sort of a field that mentions a
+/// parameter depends on the member that built the value, and the equation of every field
+/// quantifies over the parameters, so no projection of a fixed signature inverts the family.
+/// Copying such a field's sort into a projection with no binder would turn `W` into a concrete
+/// sort named `W`. A source with sort parameters therefore gets no projection; its named
+/// nonterminals still name its record syntax. For the same reason it is never judged the sole
+/// generator of its sort: it generates one sort per instantiation, and each instance may have
+/// further productions of its own, so no single no-junk axiom makes it sole.
+///
+/// The fields are private, so [`FieldProjectionSource::of`] is the only way to obtain one, and
+/// [`FieldProjectionSource::projection_production`] is the only builder of a field projection
+/// production. Every sort that production mentions is a sort of the source, which binds no
+/// parameter, so no projection mentions a sort parameter.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FieldProjectionSource<'a> {
+    label: &'a Label,
+    sort: &'a Sort,
+    items: &'a [ProductionItem],
+}
+
+impl<'a> FieldProjectionSource<'a> {
+    /// `Some` exactly when `sentence` is a labelled production, its kind admits a field
+    /// projection, its `parameters` are empty, and it has a named nonterminal.
+    pub(crate) fn of(sentence: &'a Sentence) -> Option<Self> {
+        let Sentence::Production {
+            label: Some(label),
+            parameters,
+            sort,
+            items,
+            ..
+        } = sentence
+        else {
+            return None;
+        };
+        if !parameters.is_empty() || !ProductionKind::of(sentence).admits_field_projection() {
+            return None;
+        }
+        let source = Self { label, sort, items };
+        source
+            .nonterminals()
+            .any(|(_, name)| name.is_some())
+            .then_some(source)
+    }
+
+    /// The source's label, which the projection equations apply.
+    pub(crate) fn label(&self) -> &'a Label {
+        self.label
+    }
+
+    /// The source's result sort, the argument sort of each of its projections.
+    pub(crate) fn sort(&self) -> &'a Sort {
+        self.sort
+    }
+
+    /// The source's nonterminals in item order, with their names.
+    pub(crate) fn nonterminals(&self) -> impl Iterator<Item = (&'a Sort, Option<&'a str>)> {
+        self.items.iter().filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, name } => Some((sort, name.as_deref())),
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+    }
+
+    /// `field_sort ::= name "(" sort ")"`, labelled `project:<label>:<name>`, with no sort
+    /// parameters and `function` marked on top of `attributes`.
+    ///
+    /// `field_sort` is the sort of the source's nonterminal named `name`, so every sort the
+    /// production mentions is a sort of the source, which binds no sort parameter.
+    pub(crate) fn projection_production(
+        &self,
+        field_sort: &Sort,
+        name: &str,
+        mut attributes: Attributes,
+    ) -> Sentence {
+        debug_assert!(
+            self.nonterminals()
+                .any(|(sort, field)| sort == field_sort && field == Some(name)),
+            "`{name}: {field_sort}` is no named nonterminal of `{}`",
+            self.label.name
+        );
+        attributes.mark(AttributeKey::Function);
+        Sentence::Production {
+            label: Some(Label::field_projection(&self.label.name, name)),
+            parameters: Vec::new(),
+            sort: field_sort.clone(),
+            items: vec![
+                ProductionItem::Terminal(name.to_owned()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: self.sort.clone(),
+                    name: None,
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            attributes,
         }
     }
 }
@@ -458,7 +563,6 @@ fn injected_subsorts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kast::Label;
 
     fn production(
         label: Option<&str>,
@@ -591,6 +695,79 @@ mod tests {
             ProductionKind::of_unbracketed(&bracket),
             ProductionKind::Unlabelled
         );
+    }
+
+    /// `syntax {W} Foo ::= pick(x: MInt{W}, y: Int)` is a family of symbols, one per `W`, so no
+    /// projection of a fixed signature inverts it; the same production without the binder is a
+    /// source. A bracket, a function and a production with no named nonterminal are none.
+    #[test]
+    fn only_a_parameterless_labelled_constructor_with_a_named_nonterminal_is_a_projection_source() {
+        let pick = |parameters: Vec<Sort>, keys: &[AttributeKey]| {
+            let mut pick = production(
+                Some("pick"),
+                "Foo",
+                vec![
+                    ProductionItem::Terminal("pick".into()),
+                    ProductionItem::Terminal("(".into()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::with_parameters("MInt", vec![Sort::new("W")]),
+                        name: Some("x".into()),
+                    },
+                    ProductionItem::Terminal(",".into()),
+                    ProductionItem::NonTerminal {
+                        sort: Sort::new("Int"),
+                        name: Some("y".into()),
+                    },
+                    ProductionItem::Terminal(")".into()),
+                ],
+                keys,
+            );
+            let Sentence::Production {
+                parameters: binder, ..
+            } = &mut pick
+            else {
+                unreachable!()
+            };
+            *binder = parameters;
+            pick
+        };
+
+        let parametric = pick(vec![Sort::new("W")], &[]);
+        assert!(FieldProjectionSource::of(&parametric).is_none());
+
+        let closed = pick(Vec::new(), &[]);
+        let source = FieldProjectionSource::of(&closed).expect("a parameterless constructor");
+        assert_eq!(source.label().name, "pick");
+        assert_eq!(source.sort(), &Sort::new("Foo"));
+        assert_eq!(
+            source.nonterminals().collect::<Vec<_>>(),
+            [
+                (
+                    &Sort::with_parameters("MInt", vec![Sort::new("W")]),
+                    Some("x")
+                ),
+                (&Sort::new("Int"), Some("y")),
+            ]
+        );
+
+        assert!(FieldProjectionSource::of(&pick(Vec::new(), &[AttributeKey::Bracket])).is_none());
+        assert!(FieldProjectionSource::of(&pick(Vec::new(), &[AttributeKey::Function])).is_none());
+        let unnamed = production(
+            Some("pair"),
+            "Foo",
+            vec![
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Int"),
+                    name: None,
+                },
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Int"),
+                    name: None,
+                },
+            ],
+            &[],
+        );
+        assert!(FieldProjectionSource::of(&unnamed).is_none());
     }
 
     /// The syntax declaration of an unlabelled bracket is made under its `bracketLabel`, so the

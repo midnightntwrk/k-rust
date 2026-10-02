@@ -5365,3 +5365,22 @@ fn a_placeholder_slot_without_a_declared_instance_states_no_subsort() {
     assert!(message.contains("incompatible sort bounds"), "{message}");
     assert!(!message.contains("MInt{K}"), "{message}");
 }
+
+/// A production with sort parameters binds `W` in that sentence alone, so its named nonterminals
+/// give record syntax but no field projection: a projection `x(Foo)` of sort `MInt{W}` would
+/// mention `W` outside its binder. The rule grammar of a module declaring one is therefore built
+/// without such a projection, and the module's rules resolve.
+#[test]
+fn a_production_with_sort_parameters_contributes_no_field_projection_to_the_rule_grammar() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax Bar ::= "b"
+          syntax {W} Foo ::= pick(x: MInt{W}, y: Bar)
+          syntax Foo ::= "g"
+          rule g => g
+        endmodule
+    "#};
+    resolve_rule_bubbles(&lowered(source))
+        .expect("the rule grammar has no projection of the parametric pick");
+}

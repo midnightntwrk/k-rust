@@ -42,7 +42,7 @@ use std::sync::{Arc, OnceLock};
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::ast::TransientWireValue;
-use crate::definition::production_kind::ProductionKind;
+use crate::definition::production_kind::FieldProjectionSource;
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
     Sentence, SortHead, compute_associativities, compute_disambiguation_subsorts,
@@ -950,10 +950,11 @@ impl<'c, 'a> SourceLinks<'c, 'a> {
 
 /// The syntax of the field projections a parsing module's text may apply, rules and programs
 /// alike: one function production `Field ::= name "(" Sort ")"` labelled
-/// `project:<klabel>:<name>` per named nonterminal of a labelled production whose kind admits a
-/// field projection ([`ProductionKind::admits_field_projection`], the predicate the kompile pass
-/// that declares the projections reads), unless the module already defines one of those labels
-/// itself. The projection rules are the kompile pass's; a parsing grammar needs only the syntax.
+/// `project:<klabel>:<name>` per named nonterminal of a field projection source
+/// ([`FieldProjectionSource::of`], the witness the kompile pass that declares the projections
+/// also reads, and whose [`FieldProjectionSource::projection_production`] builds both), unless
+/// the module already defines one of those labels itself. The projection rules are the kompile
+/// pass's; a parsing grammar needs only the syntax.
 pub(in crate::inner) fn named_projection_productions<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<Sentence> {
@@ -969,58 +970,26 @@ pub(in crate::inner) fn named_projection_productions<'a>(
         .collect::<HashSet<_>>();
     let mut generated = Vec::new();
     for sentence in &sentences {
-        let Sentence::Production {
-            label: Some(label),
-            sort,
-            items,
-            ..
-        } = sentence
-        else {
+        let Some(source) = FieldProjectionSource::of(sentence) else {
             continue;
         };
-        if !ProductionKind::of(sentence).admits_field_projection() {
-            continue;
-        }
-        let fields = items
-            .iter()
-            .filter_map(|item| match item {
-                ProductionItem::NonTerminal {
-                    sort,
-                    name: Some(name),
-                } => Some((sort, name)),
-                _ => None,
-            })
+        let fields = source
+            .nonterminals()
+            .filter_map(|(sort, name)| Some((sort, name?)))
             .collect::<Vec<_>>();
-        if fields.is_empty()
-            || fields.iter().any(|(_, name)| {
-                defined.contains(
-                    Label::field_projection(&label.name, name.as_str())
-                        .name
-                        .as_str(),
-                )
-            })
-        {
+        if fields.iter().any(|(_, name)| {
+            defined.contains(
+                Label::field_projection(&source.label().name, name)
+                    .name
+                    .as_str(),
+            )
+        }) {
             continue;
         }
         for (field_sort, name) in fields {
-            let mut generated_attributes = Attributes::default();
-            generated_attributes.mark(AttributeKey::Function);
-            generated_attributes.mark(AttributeKey::GeneratedRuleSyntax);
-            generated.push(Sentence::Production {
-                label: Some(Label::field_projection(&label.name, name)),
-                parameters: Vec::new(),
-                sort: field_sort.clone(),
-                items: vec![
-                    ProductionItem::Terminal(name.clone()),
-                    ProductionItem::Terminal("(".into()),
-                    ProductionItem::NonTerminal {
-                        sort: sort.clone(),
-                        name: None,
-                    },
-                    ProductionItem::Terminal(")".into()),
-                ],
-                attributes: generated_attributes,
-            });
+            let mut attributes = Attributes::default();
+            attributes.mark(AttributeKey::GeneratedRuleSyntax);
+            generated.push(source.projection_production(field_sort, name, attributes));
         }
     }
     generated
@@ -1678,5 +1647,80 @@ mod tests {
             ["project:paren:inner"]
         );
         assert_eq!(field_labels(&pass(base)), ["project:paren:inner"]);
+    }
+
+    #[test]
+    fn a_production_with_sort_parameters_yields_no_field_projection_in_the_grammar_or_the_pass() {
+        let pick = |parameters: Vec<Sort>| Sentence::Production {
+            label: Some(Label::new("pick")),
+            parameters,
+            sort: Sort::new("Foo"),
+            items: vec![
+                ProductionItem::Terminal("pick".into()),
+                ProductionItem::Terminal("(".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::with_parameters("MInt", vec![Sort::new("W")]),
+                    name: Some("x".into()),
+                },
+                ProductionItem::Terminal(",".into()),
+                ProductionItem::NonTerminal {
+                    sort: Sort::new("Int"),
+                    name: Some("y".into()),
+                },
+                ProductionItem::Terminal(")".into()),
+            ],
+            attributes: Attributes::default(),
+        };
+        let field_labels = |sentences: &[Sentence]| {
+            sentences
+                .iter()
+                .filter_map(|sentence| match sentence {
+                    Sentence::Production {
+                        label: Some(label), ..
+                    } if label.name.starts_with("project:pick:") => Some(label.name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let pass = |production: Sentence| {
+            let definition = crate::definition::Definition {
+                main_module: "MAIN".into(),
+                modules: vec![crate::definition::FlatModule {
+                    name: "MAIN".into(),
+                    imports: Vec::new(),
+                    local_sentences: vec![Arc::new(production)],
+                    attributes: Attributes::default(),
+                }],
+                attributes: Attributes::default(),
+            };
+            crate::kompile::generate_sort_projections(&definition)
+                .unwrap()
+                .modules[0]
+                .local_sentences
+                .iter()
+                .map(|sentence| (**sentence).clone())
+                .collect::<Vec<_>>()
+        };
+
+        let parametric = pick(vec![Sort::new("W")]);
+        assert_eq!(
+            (
+                field_labels(&named_projection_productions([&parametric])),
+                field_labels(&pass(parametric))
+            ),
+            (Vec::<String>::new(), Vec::<String>::new())
+        );
+
+        // Control: without the binder the production is a source and gets both projections in
+        // both.
+        let closed = pick(Vec::new());
+        assert_eq!(
+            field_labels(&named_projection_productions([&closed])),
+            ["project:pick:x", "project:pick:y"]
+        );
+        assert_eq!(
+            field_labels(&pass(closed)),
+            ["project:pick:x", "project:pick:y"]
+        );
     }
 }

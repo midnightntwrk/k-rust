@@ -37,7 +37,7 @@ use std::sync::Arc;
 use crate::definition::ResolveError;
 use serde_json::{Value, json};
 
-use crate::definition::production_kind::{ProductionKind, SortGenerators};
+use crate::definition::production_kind::{FieldProjectionSource, SortGenerators};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, DefinitionViews, ModuleId, ProductionId};
 use crate::kast::ProductionIdentity;
@@ -328,36 +328,14 @@ fn named_projections(
     main_generators: &mut MainSortGenerators<'_, '_>,
     defined_labels: &std::collections::BTreeSet<LabelHead>,
 ) -> Vec<Sentence> {
-    let Sentence::Production {
-        label: Some(source_label),
-        parameters,
-        sort,
-        items,
-        ..
-    } = production
-    else {
+    let Some(source) = FieldProjectionSource::of(production) else {
         return Vec::new();
     };
-    if !ProductionKind::of(production).admits_field_projection() {
-        return Vec::new();
-    }
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "ProductionItem is syntax; only the listed variants are special here"
-    )]
-    let nonterminals = items
-        .iter()
-        .filter_map(|item| match item {
-            ProductionItem::NonTerminal { sort, name } => Some((sort, name)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !nonterminals.iter().any(|(_, name)| name.is_some()) {
-        return Vec::new();
-    }
+    let source_label = source.label();
+    let nonterminals = source.nonterminals().collect::<Vec<_>>();
     if nonterminals
         .iter()
-        .filter_map(|(_, name)| name.as_ref())
+        .filter_map(|(_, name)| *name)
         .any(|name| {
             defined_labels.contains(&LabelHead::new(
                 Label::field_projection(&source_label.name, name).name,
@@ -366,7 +344,7 @@ fn named_projections(
     {
         return Vec::new();
     }
-    let sole_generator = sole_generator(main_generators, identity, parameters, sort);
+    let sole_generator = sole_generator(main_generators, identity, source.sort());
     let variables = nonterminals
         .iter()
         .enumerate()
@@ -383,25 +361,10 @@ fn named_projections(
         };
         let label = Label::field_projection(&source_label.name, field_name);
         let mut attributes = Attributes::default();
-        attributes.mark(AttributeKey::Function);
         if let Some(sole_generator) = sole_generator {
             attributes.declare_total(TotalityWitness::sole_generator(sole_generator));
         }
-        generated.push(Sentence::Production {
-            label: Some(label.clone()),
-            parameters: Vec::new(),
-            sort: (*field_sort).clone(),
-            items: vec![
-                ProductionItem::Terminal(field_name.clone()),
-                ProductionItem::Terminal("(".into()),
-                ProductionItem::NonTerminal {
-                    sort: sort.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal(")".into()),
-            ],
-            attributes,
-        });
+        generated.push(source.projection_production(field_sort, field_name, attributes));
         generated.push(Sentence::Rule {
             body: Term::Rewrite {
                 left: Box::new(Term::Apply {
@@ -474,15 +437,14 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
     }
 }
 
-/// Judge whether the projection source with content identity `source`, sort parameters
-/// `parameters` and result sort `sort` is the only alternative of `sort`'s no-junk axiom, minting
-/// the evidence when it is.
+/// Judge whether the projection source with content identity `source` and result sort `sort` is
+/// the only alternative of `sort`'s no-junk axiom, minting the evidence when it is.
 ///
 /// The alternatives are those [`SortGenerators`] derives from the main module's productions,
 /// sort catalog and subsort order, the same derivation the emitted no-junk axiom of `sort` uses.
 /// A source not visible in the main module is no alternative there, so it is never the sole one.
-/// A source with sort parameters generates one sort per instantiation, and each instance may have
-/// further productions of its own, so no single axiom makes it sole and it is never judged so.
+/// A source binds no sort parameter ([`FieldProjectionSource`] says why a parametric production is
+/// never one).
 ///
 /// The judgement runs at the `generate_sort_projections` stage, before the definition is final,
 /// and still gives the alternatives the emitted axiom lists for every sort it can judge sole. An
@@ -504,12 +466,8 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
 fn sole_generator(
     main_generators: &mut MainSortGenerators<'_, '_>,
     source: ProductionIdentity,
-    parameters: &[Sort],
     sort: &Sort,
 ) -> Option<SoleGenerator> {
-    if !parameters.is_empty() {
-        return None;
-    }
     let source = main_generators
         .views
         .production_catalog(main_generators.main)
