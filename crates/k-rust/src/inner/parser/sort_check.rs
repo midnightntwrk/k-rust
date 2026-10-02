@@ -39,7 +39,7 @@ impl Grammar {
     ///   cycle, marked `(generated)` when a generated unlabeled unary production states it and
     ///   `(declared)` otherwise (a pair a generated production also states is marked generated).
     /// - G1 classified: every sort of its result and of its nonterminal items, declared or
-    ///   recognized, is a member or synonym alias of `universe`, a kernel sort, a scaffolding
+    ///   recognized, has terms and is a member or synonym alias of `universe`, a kernel sort, a scaffolding
     ///   sort, or a registered placeholder. Every parametric instance binds exactly its formal
     ///   parameters and writes the substituted sort at each parameter-dependent result or item;
     ///   every such written sort is classified too.
@@ -216,13 +216,14 @@ impl Grammar {
 
     /// G1: whether `sort` has a role a generated production may give it.
     fn is_classified(&self, sort: &Sort, universe: &SortUniverse) -> bool {
-        universe.admits(sort)
-            || self.placeholders.contains_key(sort)
-            || match sort.role() {
-                SortRole::Kernel(_) => sort.parameters.is_empty(),
-                SortRole::Scaffolding => true,
-                SortRole::RigidVariable | SortRole::Nat | SortRole::Defined => false,
-            }
+        sort.role().has_terms()
+            && (universe.admits(sort)
+                || self.placeholders.contains_key(sort)
+                || match sort.role() {
+                    SortRole::Kernel(_) => sort.parameters.is_empty(),
+                    SortRole::Scaffolding => true,
+                    SortRole::RigidVariable | SortRole::Nat | SortRole::Defined => false,
+                })
     }
 }
 
@@ -492,6 +493,21 @@ mod tests {
         let (mut grammar, universe) = grammar_and_universe();
 
         add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("Sort"));
+
+        grammar.assert_generated_sort_roles(&universe);
+    }
+
+    #[test]
+    #[should_panic(expected = "G1: the generated production `syntax KItem ::= 8` mentions `8`")]
+    fn a_kitem_subsort_of_a_declared_numeral_fails_g1() {
+        let mut sentences = module();
+        sentences.push(syntax_sort(Vec::new(), Sort::new("8")));
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
+        assert!(universe.admits(&Sort::new("8")));
+        let mut grammar = Grammar::from_configuration_sentences(visible.iter().copied())
+            .expect("the module's grammar builds");
+        add_subsort(&mut grammar, Sort::new("KItem"), Sort::new("8"));
 
         grammar.assert_generated_sort_roles(&universe);
     }

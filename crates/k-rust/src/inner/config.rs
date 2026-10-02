@@ -829,6 +829,20 @@ mod tests {
         )
     }
 
+    #[test]
+    fn a_declared_numeral_receives_no_configuration_grammar_production() {
+        let source = r#"module MAIN
+  syntax 8
+  configuration <k> $PGM:8 </k>
+endmodule
+"#;
+        let error = load_with_prelude(source).expect_err("a width has no configuration position");
+        assert!(
+            error.to_string().contains("could not parse configuration"),
+            "{error}"
+        );
+    }
+
     /// The configuration grammar of MAIN in `source`, loaded with the prelude.
     fn main_configuration_grammar(source: &str) -> Grammar {
         let loaded =

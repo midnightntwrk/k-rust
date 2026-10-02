@@ -455,7 +455,7 @@ pub fn check_user_lists(module: &ResolvedModule, visible: &[&Sentence]) -> Vec<D
 ///
 /// - `KItem < K`;
 /// - `S < KItem` for every `S` whose terms are all K items and which is neither `K` nor `KItem`
-///   ([`crate::kast::SortRole::lies_below_kitem`]);
+///   ([`crate::kast::SortRole::has_implicit_kitem_subsort`]);
 /// - `KBott < S`, `#KVariable < S` and `KConfigVar < S` for every `S` a variable may stand at
 ///   ([`crate::kast::SortRole::admits_variables`]);
 /// - `#KVariable < KBott`, `KConfigVar < KBott` and `Cell < Bag`.
@@ -489,7 +489,7 @@ fn kernel_completion(sorts: &BTreeSet<Sort>) -> BTreeMap<(Sort, Sort), String> {
     // Invariant: `completion` holds the fixed pairs and the pairs of every entry of `sorts` before `sort`; each iteration consumes one sort and adds at most four pairs.
     for sort in sorts {
         let role = sort.role();
-        if role.lies_below_kitem() {
+        if role.has_implicit_kitem_subsort() {
             add(sort, &kitem, format!("every {sort} is a KItem"));
         }
         if role.admits_variables() {

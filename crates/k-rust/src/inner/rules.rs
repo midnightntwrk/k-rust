@@ -1665,6 +1665,55 @@ endmodule
         .expect("the rule grammar builds")
     }
 
+    #[test]
+    fn a_declared_numeral_receives_no_rule_grammar_production() {
+        let source = |rule: &str| {
+            format!(
+                r#"module MAIN
+  imports BOOL
+  syntax 8
+  syntax W = 8
+  syntax Foo ::= g(K) | "done"
+  {rule}
+endmodule
+"#
+            )
+        };
+        let loaded = load_with_prelude(&source(""));
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+        let numeral_absent = grammar.sort_id(&Sort::new("8")).is_none();
+        let kitem_subsort = grammar.has_equivalent_production(
+            &Sort::new("KItem"),
+            &[ProductionItem::NonTerminal {
+                sort: Sort::new("8"),
+                name: None,
+            }],
+            false,
+        );
+        let terminals_absent = [":8", "::8", ":W", "::W"]
+            .into_iter()
+            .all(|terminal| !grammar.has_production_with_terminal(terminal));
+        let mut outcomes = Vec::new();
+        for cast in ["8", "W"] {
+            let rule = format!("rule g(X:{cast}) => done");
+            let error = try_load_with_prelude(&source(&rule))
+                .err()
+                .map(|error| error.to_string());
+            outcomes.push((rule, error));
+        }
+        // Every production's result and nonterminal sorts are interned, so an absent sort id
+        // rules out every production position at the numeral, including casts and brackets.
+        assert!(
+            numeral_absent
+                && !kitem_subsort
+                && terminals_absent
+                && outcomes.iter().all(|(_, error)| error
+                    .as_ref()
+                    .is_some_and(|error| error.contains("could not parse rule"))),
+            "numeral absent: {numeral_absent}; KItem ::= 8: {kitem_subsort}; cast terminals absent: {terminals_absent}; rule outcomes: {outcomes:?}"
+        );
+    }
+
     /// Whether `grammar` has the sort helper production `result ::= label "(" K ")"`.
     fn has_sort_helper(grammar: &Grammar, label: &str, result: &str) -> bool {
         grammar.has_equivalent_production(

@@ -159,6 +159,7 @@ The compiled definition declares it (`sort Sort8{} [nat{}("8")]`) only so that `
 A definition may declare one (`syntax 8`) and use it as a sort argument, as a synonym target or in an attribute.
 A production of a numeral sort, an operand of one, a `token` or `hook` declaration of one, a sort synonym spelled as one and a sort parameter spelled as one are rejected at load with `InvalidNumeralSort`.
 The pinned K frontend accepts `syntax 8 ::= "eight"` and compiles rules over it whose terms never reach a K position; k-rust rejects that definition because a width has no terms.
+A declared numeral, and a synonym of one, has no variable, cast, bracket or KItem position in either grammar, so `X:8` and `$PGM:8` do not parse.
 
 `strict` or `seqstrict` on a production with sort parameters (`syntax {W} Foo ::= pick(MInt{W}, Int) [strict]`) is rejected at the strictness stage with `InvalidStrictness`, in every module of the compiled definition.
 Such a production declares one symbol per instantiation, and its evaluation contexts range over all of them.

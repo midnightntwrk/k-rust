@@ -36,9 +36,9 @@ use crate::kast::{Sort, SortRole};
 /// is never a member; a declared sort that happens to share a parameter's spelling stays a member.
 /// A parametric sort with a free parameter (`MInt{Width}`) is a shape, not a sort, and is never a
 /// member. The arguments of a declared instance (the `8` of `MInt{8}`) are not positions of the
-/// grammar, so a numeral is a member only when a sentence declares it or gives a production a
-/// position of it. A numeral names a width and has no terms; the sort checks reject every
-/// sentence that gives it terms or positions before a loaded definition reaches this universe.
+/// grammar, so a numeral is a member only when a sentence declares it (`syntax 8`), since the
+/// definition checks reject every position of one. It is a width without terms
+/// ([`SortRole::has_terms`]), so its rows are empty.
 ///
 /// Membership is independent of the role: kernel, scaffolding and numeral sorts are members when
 /// the sentences declare or position them, and the plan tables decide what each role receives.
@@ -123,8 +123,8 @@ impl SortUniverse {
     }
 
     /// Whether `sort` is a member or a visible alias whose denotation is a sort of the grammar:
-    /// a sort a generated production may mention. Read by the grammar sort-role check, which
-    /// exists in builds with debug assertions.
+    /// membership only. The grammar sort-role check also requires the role to have terms before
+    /// a generated production may mention it. The check exists in builds with debug assertions.
     #[cfg(debug_assertions)]
     pub(in crate::inner) fn admits(&self, sort: &Sort) -> bool {
         self.members.contains_key(sort) || self.synonyms.iter().any(|(alias, _)| alias == sort)
@@ -167,9 +167,12 @@ fn unbound_sorts(sentence: &Sentence) -> Vec<&Sort> {
 }
 
 /// Whether `sort` is a sort of the grammar whose universe has `members`: a member, or a nullary
-/// kernel sort, which every grammar has. A synonym whose target is neither spells no sort of the
-/// grammar.
+/// kernel sort, which every grammar has, and only when its role has terms. A synonym whose
+/// target fails either condition spells no sort of the grammar.
 fn is_grammar_sort(members: &BTreeMap<Sort, SortRole>, sort: &Sort) -> bool {
+    if !sort.role().has_terms() {
+        return false;
+    }
     if members.contains_key(sort) {
         return true;
     }
@@ -315,14 +318,12 @@ pub(in crate::inner) struct RuleMemberProductions {
 /// from (`kompile::passes::generate_sort_helpers`): a rule can mention `isS(_)` or
 /// `project:S(_)` exactly when the compiled definition declares it.
 ///
-/// For the other columns: a defined sort receives every production. A numeral member is a sort
-/// that a sentence declares or gives a production a position of ([`SortUniverse`]), so it
-/// receives what a defined sort receives. `Bool` is a sort of `K` terms, but its `KItem` subsort,
-/// its variable subsorts and its casts belong to the fixed kernel syntax both grammars share, so
-/// the member loop adds only its scaffolding and bracket. `KLabel`, `KList` and `KString` receive
+/// For the other columns: a defined sort receives every production.
+/// A numeral member is a width without terms ([`SortRole::has_terms`]) and receives nothing.
+/// `Bool` is a sort of `K` terms, but its `KItem` subsort, its variable subsorts and its casts belong to the fixed kernel syntax both grammars share, so the member loop adds only its scaffolding and bracket. `KLabel`, `KList` and `KString` receive
 /// every production except `KItem ::= S` when the module declares them: a variable, a cast or a
 /// bracket may stand at a label, an argument sequence or a token spelling, but none of the three
-/// is a sort of K items ([`SortRole::lies_below_kitem`]), and with the declared `KList ::= K` and
+/// is a sort of K items ([`SortRole::has_implicit_kitem_subsort`]), and with the declared `KList ::= K` and
 /// `K ::= KItem`, `KItem ::= KList` would close the cycle `KItem < K < KList < KItem`, under which
 /// no term can be given a sort. `K`, `KItem`, `Bag`, `Cell`, `KBott` and `KConfigVar` receive
 /// their other productions from the kernel syntax and the kernel seeds, not from the member loop.
@@ -331,7 +332,7 @@ pub(in crate::inner) struct RuleMemberProductions {
 pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMemberProductions {
     use KernelSort as S;
     match role {
-        SortRole::Defined | SortRole::Nat => RuleMemberProductions {
+        SortRole::Defined => RuleMemberProductions {
             predicate: role.has_sort_predicate(),
             projection: role.has_sort_projection(),
             #[cfg(not(feature = "z3-inference"))]
@@ -363,7 +364,8 @@ pub(in crate::inner) const fn rule_member_productions(role: SortRole) -> RuleMem
         },
         SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell)
         | SortRole::RigidVariable
-        | SortRole::Scaffolding => RuleMemberProductions {
+        | SortRole::Scaffolding
+        | SortRole::Nat => RuleMemberProductions {
             predicate: role.has_sort_predicate(),
             projection: role.has_sort_projection(),
             #[cfg(not(feature = "z3-inference"))]
@@ -532,12 +534,12 @@ pub(in crate::inner) mod configuration {
         pub(in crate::inner) casts: bool,
     }
 
-    /// The configuration grammar's per-member table: a defined sort, a numeral member (a sort a
-    /// sentence declares or positions, as in the rule grammar) and every kernel sort receive a
-    /// bracket; a defined sort and a numeral member receive their subsorts and casts here;
+    /// The configuration grammar's per-member table: a defined sort and every kernel sort receive
+    /// a bracket; a defined sort receives its subsorts and casts here. A numeral member is a width
+    /// without terms ([`SortRole::has_terms`]) and receives nothing;
     /// `KLabel`, `KList` and `KString` receive every production except `KItem ::= S`, because a
     /// label, an argument sequence and a token spelling are not K items
-    /// ([`SortRole::lies_below_kitem`]) and `KItem ::= KList` would close the cycle
+    /// ([`SortRole::has_implicit_kitem_subsort`]) and `KItem ::= KList` would close the cycle
     /// `KItem < K < KList < KItem` with the declared `KList ::= K` and `K ::= KItem`; the other
     /// kernel sorts receive their subsorts and casts from the fixed kernel syntax; a rigid variable
     /// and a scaffolding sort denote no set of terms a configuration could mention and receive
@@ -547,7 +549,7 @@ pub(in crate::inner) mod configuration {
     ) -> ConfigurationMemberProductions {
         use KernelSort as S;
         match role {
-            SortRole::Defined | SortRole::Nat => ConfigurationMemberProductions {
+            SortRole::Defined => ConfigurationMemberProductions {
                 bracket: true,
                 kitem_subsort: true,
                 variable_subsorts: true,
@@ -567,12 +569,14 @@ pub(in crate::inner) mod configuration {
                 variable_subsorts: false,
                 casts: false,
             },
-            SortRole::RigidVariable | SortRole::Scaffolding => ConfigurationMemberProductions {
-                bracket: false,
-                kitem_subsort: false,
-                variable_subsorts: false,
-                casts: false,
-            },
+            SortRole::RigidVariable | SortRole::Scaffolding | SortRole::Nat => {
+                ConfigurationMemberProductions {
+                    bracket: false,
+                    kitem_subsort: false,
+                    variable_subsorts: false,
+                    casts: false,
+                }
+            }
         }
     }
 
@@ -614,31 +618,42 @@ pub(in crate::inner) mod configuration {
     ]);
 }
 
-/// Whether the per-member subsort columns of both member tables state, for `role`, only kernel
-/// positions the role grants: `KItem ::= S` only for a sort strictly below `KItem`
-/// ([`SortRole::lies_below_kitem`]), and `S ::= KBott`, `S ::= KConfigVar` and `S ::= #KVariable`
-/// only for a sort a variable stands at ([`SortRole::admits_variables`]).
+/// Whether both member rows receive productions only for a role with terms, and their subsort columns state, for `role`, only kernel positions the role grants.
+/// `KItem ::= S` requires a sort strictly below `KItem` ([`SortRole::has_implicit_kitem_subsort`]), and `S ::= KBott`, `S ::= KConfigVar` and `S ::= #KVariable` require a sort a variable stands at ([`SortRole::admits_variables`]).
 ///
 /// A generated subsort is an inclusion the grammar's sort order relies on. One that the role
 /// denies places a sort where it cannot lie, and together with the definition's own subsorts it
 /// can close a cycle, in which no term can be given a sort.
-const fn member_subsorts_are_granted(role: SortRole) -> bool {
+const fn member_rows_are_granted(role: SortRole) -> bool {
     let rule = rule_member_productions(role);
     let configuration = configuration::configuration_member_productions(role);
-    (!rule.kitem_subsort || role.lies_below_kitem())
-        && (!configuration.kitem_subsort || role.lies_below_kitem())
+    let rule_has_productions = rule.predicate
+        || rule.projection
+        || rule.kitem_subsort
+        || rule.bottom_subsort
+        || rule.casts
+        || rule.bracket;
+    #[cfg(not(feature = "z3-inference"))]
+    let rule_has_productions = rule_has_productions || rule.rule_scaffold;
+    let configuration_has_productions = configuration.bracket
+        || configuration.kitem_subsort
+        || configuration.variable_subsorts
+        || configuration.casts;
+    (!rule.kitem_subsort || role.has_implicit_kitem_subsort())
+        && (!configuration.kitem_subsort || role.has_implicit_kitem_subsort())
         && (!rule.bottom_subsort || role.admits_variables())
         && (!configuration.variable_subsorts || role.admits_variables())
+        && (role.has_terms() || !(rule_has_productions || configuration_has_productions))
 }
 
-/// Every role's rows of both member tables state only granted kernel positions: a row that states
-/// another does not compile.
+/// Every role's rows of both member tables require terms and state only granted kernel positions:
+/// a row that violates either condition does not compile.
 const _: () = {
     let mut index = 0;
     while index < KernelSort::ALL.len() {
         assert!(
-            member_subsorts_are_granted(SortRole::Kernel(KernelSort::ALL[index])),
-            "a member table states a kernel position that a kernel sort's role denies"
+            member_rows_are_granted(SortRole::Kernel(KernelSort::ALL[index])),
+            "a member table grants a production or kernel position that a kernel sort's role denies"
         );
         index += 1;
     }
@@ -651,8 +666,8 @@ const _: () = {
     let mut index = 0;
     while index < others.len() {
         assert!(
-            member_subsorts_are_granted(others[index]),
-            "a member table states a kernel position that a non-kernel role denies"
+            member_rows_are_granted(others[index]),
+            "a member table grants a production or kernel position that a non-kernel role denies"
         );
         index += 1;
     }
@@ -707,14 +722,13 @@ mod tests {
         assert!(universe.member(&Sort::new("8")).is_none());
     }
 
-    /// Directly supplied sentences can make a numeral a member, whose existing plan rows grant
-    /// it the productions of a defined sort except the sort predicate and projection.
+    /// Directly supplied sentences can make a numeral a member, but its width role has no terms
+    /// and receives no per-member production.
     /// The load checks reject numeral terms and positions before grammar construction; this
     /// fixture bypasses those checks to pin the universe and plan rows themselves.
     /// A numeral that only instantiates a parametric sort is not a member.
     #[test]
-    fn a_numeral_declared_or_positioned_by_a_sentence_is_a_member_with_the_rows_of_a_defined_sort()
-    {
+    fn a_numeral_member_receives_no_production() {
         let sentences = [
             Sentence::Production {
                 label: None,
@@ -754,14 +768,24 @@ mod tests {
                 RuleMemberProductions {
                     predicate: false,
                     projection: false,
-                    ..rule_member_productions(SortRole::Defined)
+                    #[cfg(not(feature = "z3-inference"))]
+                    rule_scaffold: false,
+                    kitem_subsort: false,
+                    bottom_subsort: false,
+                    casts: false,
+                    bracket: false,
                 },
                 rule_member_productions(member.role()),
                 "{numeral}"
             );
             assert_eq!(
                 configuration_member_productions(member.role()),
-                configuration_member_productions(SortRole::Defined),
+                ConfigurationMemberProductions {
+                    bracket: false,
+                    kitem_subsort: false,
+                    variable_subsorts: false,
+                    casts: false,
+                },
                 "{numeral}"
             );
         }
@@ -850,6 +874,17 @@ mod tests {
         for alias in ["New", "Word", "Old"] {
             assert!(!universe.admits(&Sort::new(alias)), "{alias}");
         }
+    }
+
+    #[test]
+    fn a_synonym_of_a_numeral_has_no_casts() {
+        let sentences = [syntax_sort(Sort::new("8")), synonym_declaration("W", "8")];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
+
+        assert_eq!(universe.synonym_casts().count(), 0);
+        #[cfg(debug_assertions)]
+        assert!(!universe.admits(&Sort::new("W")));
     }
 
     /// Control: a synonym of a nullary kernel sort, which every grammar has, keeps its casts.
@@ -1006,9 +1041,9 @@ mod tests {
         assert_eq!(projection_operand(&mint("8")), Some(Sort::new("K")));
     }
 
-    /// A synonym's projection cast lowers to the projection of its target, so a synonym of a
-    /// sort without a projection (`Bag`, a numeral member) has no projection cast; its other
-    /// casts remain.
+    /// A synonym's projection cast lowers to the projection of its target, so a synonym of
+    /// `Bag` has no projection cast but keeps its other casts. A numeral has no terms and its
+    /// synonym has no cast target.
     #[test]
     fn a_synonym_of_a_sort_without_a_projection_has_no_projection_cast() {
         let synonym = |alias: &str, target: Sort| Sentence::SortSynonym {
@@ -1032,13 +1067,11 @@ mod tests {
         let universe = SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
 
         let casts = universe.synonym_casts().collect::<Vec<_>>();
-        assert_eq!(casts.len(), 2);
+        assert_eq!(casts.len(), 1);
         assert_eq!(casts[0].cast(), &Sort::new("Bg"));
         assert_eq!(casts[0].label(), &KernelSort::Bag.sort());
         assert_eq!(casts[0].projection_operand(), None);
-        assert_eq!(casts[1].cast(), &Sort::new("W"));
-        assert_eq!(casts[1].label(), &Sort::new("8"));
-        assert_eq!(casts[1].projection_operand(), None);
+        assert!(casts.iter().all(|target| target.cast() != &Sort::new("W")));
     }
 
     fn every_role() -> Vec<SortRole> {
@@ -1054,10 +1087,8 @@ mod tests {
             .collect()
     }
 
-    /// The tables of CBC-05 section 2.3, except the `Nat` rows, which equal the `Defined` rows (a
-    /// numeral member is a sort a sentence declares or positions), and the rule grammar's sort
-    /// predicate and projection columns, which are the role predicates compilation generates the
-    /// same helpers from. The other columns are those of the struct, in field order.
+    /// The tables of CBC-05 section 2.3, with empty `Nat` rows because a width has no terms, and the rule grammar's sort predicate and projection columns reading the role predicates compilation generates the same helpers from.
+    /// The other columns are those of the struct, in field order.
     #[test]
     fn plan_tables_are_pinned() {
         use KernelSort as S;
@@ -1106,7 +1137,7 @@ mod tests {
             let every_rule_production = vec![true; rule_member(role).len()];
             let no_rule_production = vec![false; rule_member(role).len()];
             let expected_rule = match role {
-                SortRole::Defined | SortRole::Nat => every_rule_production,
+                SortRole::Defined => every_rule_production,
                 SortRole::Kernel(S::Bool) => vec![
                     #[cfg(not(feature = "z3-inference"))]
                     true,
@@ -1126,16 +1157,19 @@ mod tests {
                 ],
                 SortRole::Kernel(S::K | S::KItem | S::KConfigVar | S::KBott | S::Bag | S::Cell)
                 | SortRole::RigidVariable
-                | SortRole::Scaffolding => no_rule_production,
+                | SortRole::Scaffolding
+                | SortRole::Nat => no_rule_production,
             };
             assert_eq!(rule_member(role).to_vec(), expected_rule, "{role:?}");
             let expected_configuration = match role {
-                SortRole::Defined | SortRole::Nat => [true, true, true, true],
+                SortRole::Defined => [true, true, true, true],
                 SortRole::Kernel(S::KLabel | S::KList | S::KString) => [true, false, true, true],
                 SortRole::Kernel(
                     S::Bool | S::K | S::KItem | S::Bag | S::Cell | S::KBott | S::KConfigVar,
                 ) => [true, false, false, false],
-                SortRole::RigidVariable | SortRole::Scaffolding => [false, false, false, false],
+                SortRole::RigidVariable | SortRole::Scaffolding | SortRole::Nat => {
+                    [false, false, false, false]
+                }
             };
             assert_eq!(
                 configuration_member(role),
@@ -1187,20 +1221,35 @@ mod tests {
         );
     }
 
-    /// The runtime twin of the `const` assertion over [`member_subsorts_are_granted`]: no row of
-    /// either member table states a kernel position the sort's role denies. A label, an argument
-    /// sequence and a token spelling are not K items, so `KLabel`, `KList` and `KString` receive
-    /// no `KItem ::= S`.
+    /// The runtime twin of the `const` assertion over [`member_rows_are_granted`]: no row of either member table grants a production to a role without terms or states a kernel position the sort's role denies.
+    /// A label, an argument sequence and a token spelling are not K items, so `KLabel`, `KList` and `KString` receive no `KItem ::= S`.
     #[test]
-    fn member_subsort_columns_state_only_granted_kernel_positions() {
+    fn member_rows_require_terms_and_state_only_granted_kernel_positions() {
         let mut denied = Vec::new();
         for role in every_role() {
             let rule = rule_member_productions(role);
             let configuration = configuration_member_productions(role);
-            if rule.kitem_subsort && !role.lies_below_kitem() {
+            let columns = [
+                rule.predicate,
+                rule.projection,
+                #[cfg(not(feature = "z3-inference"))]
+                rule.rule_scaffold,
+                rule.kitem_subsort,
+                rule.bottom_subsort,
+                rule.casts,
+                rule.bracket,
+                configuration.bracket,
+                configuration.kitem_subsort,
+                configuration.variable_subsorts,
+                configuration.casts,
+            ];
+            if !role.has_terms() && columns.into_iter().any(|column| column) {
+                denied.push(format!("member productions for {role:?} without terms"));
+            }
+            if rule.kitem_subsort && !role.has_implicit_kitem_subsort() {
                 denied.push(format!("rule KItem ::= {role:?}"));
             }
-            if configuration.kitem_subsort && !role.lies_below_kitem() {
+            if configuration.kitem_subsort && !role.has_implicit_kitem_subsort() {
                 denied.push(format!("configuration KItem ::= {role:?}"));
             }
             if rule.bottom_subsort && !role.admits_variables() {
@@ -1214,7 +1263,7 @@ mod tests {
         }
         assert!(
             denied.is_empty(),
-            "member tables state kernel positions the roles deny: {denied:#?}"
+            "member tables grant productions or kernel positions the roles deny: {denied:#?}"
         );
     }
 
