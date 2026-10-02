@@ -9,7 +9,8 @@ use k_rust::{
     kast::Sort,
     kompile::{
         CompilationBackend, CompileOptions, ConfigurationAssembler, ConfigurationError,
-        ProgramGrammar, SortInjectionError, compile_loaded_definition, compile_search_pattern,
+        GroundCause, GroundInput, ProgramGrammar, SortInjectionError, UndeterminedCause,
+        UndeterminedSite, compile_loaded_definition, compile_search_pattern,
     },
     kore::printer::Printer,
     outer::{LoadOptions, ResolvedSource, load_with_options},
@@ -521,7 +522,16 @@ fn assert_phantom_instance(error: ConfigurationError, expected_variable: &str) {
     let SortInjectionError::UndeterminedInstance(instance) = injection.as_ref() else {
         panic!("unexpected injection error {injection:?}");
     };
-    assert!(instance.phantom, "{instance:?}");
+    assert!(
+        matches!(
+            &instance.site,
+            UndeterminedSite::Ground {
+                input: GroundInput::Value,
+                cause: GroundCause::Instance(UndeterminedCause::Phantom { label, parameter }),
+            } if label == "size" && parameter == &Sort::new("S")
+        ),
+        "{instance:?}"
+    );
     let message = error.to_string();
     assert!(message.contains(expected_variable), "{message}");
     assert!(message.contains("`size`"), "{message}");
@@ -547,4 +557,51 @@ fn a_phantom_configuration_instance_names_the_bound_variable() {
     let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
     let error = assembler.bind("$X", "size()").unwrap_err();
     assert_phantom_instance(error, "$X");
+}
+
+#[test]
+fn a_phantom_value_diagnostic_offers_no_cast() {
+    let compiled = compiled(PHANTOM_CONFIGURATION, "MAIN");
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let program = assembler.program(&Sort::new("Int"), "size()").unwrap_err();
+    let binding = assembler.bind("$X", "size()").unwrap_err();
+    for error in [program, binding] {
+        let message = error.to_string();
+        assert!(message.contains("no sort cast can fix it"), "{message}");
+        for forbidden in [
+            "add a sort cast",
+            "sentence sort variable",
+            "only the sort of a predicate",
+        ] {
+            assert!(!message.contains(forbidden), "{message}");
+        }
+    }
+}
+
+#[test]
+fn an_open_value_instance_names_the_read_sort() {
+    let compiled = compiled(
+        r#"module MAIN
+  syntax Foo ::= "a" [symbol(a)]
+  syntax {S} Foo ::= wrap(S) [symbol(wrap)]
+  syntax {S} S ::= undef() [function, total, symbol(undef)]
+  configuration <k> $PGM:Foo </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let message = assembler
+        .program(&Sort::new("Foo"), "wrap(undef())")
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("read at"), "{message}");
+    assert!(message.contains("wrap"), "{message}");
+    assert!(
+        !message.contains("only the sort of a predicate"),
+        "{message}"
+    );
+    assert!(!message.contains("add a sort cast"), "{message}");
 }

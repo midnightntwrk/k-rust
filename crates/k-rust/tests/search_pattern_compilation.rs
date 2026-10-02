@@ -11,7 +11,8 @@ use k_rust::definition::{
 use k_rust::inner::{RuleError, definition_with_named_projections};
 use k_rust::kompile::{
     CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-    KoreVariableIdentity, SortInjectionError, compile_loaded_definition, compile_search_pattern,
+    GroundCause, GroundInput, KoreVariableIdentity, SortInjectionError, UndeterminedCause,
+    UndeterminedSite, compile_loaded_definition, compile_search_pattern,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust::kore::parser::{parse_definition, parse_pattern};
@@ -518,11 +519,69 @@ endmodule
         else {
             panic!("{pattern}: {error:?}")
         };
-        assert_eq!(instance.label.as_deref(), Some("size"));
-        assert!(instance.phantom, "{error}");
+        assert!(
+            matches!(
+                &instance.site,
+                UndeterminedSite::Ground {
+                    input: GroundInput::SearchPattern,
+                    cause: GroundCause::Instance(UndeterminedCause::Phantom { label, parameter }),
+                } if label == "size" && parameter == &k_rust::kast::Sort::new("S")
+            ),
+            "{error}"
+        );
         assert!(error.to_string().contains("size"), "{error}");
         assert!(error.to_string().contains("search pattern"), "{error}");
     }
+}
+
+#[test]
+fn a_phantom_search_pattern_diagnostic_offers_no_cast() {
+    let context = load_context(
+        "search-pattern/phantom.k",
+        r#"requires "domains.md"
+module MAIN
+  imports INT
+  syntax {S} Int ::= size() [function, total, symbol(size)]
+  configuration <k> $PGM:Int </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let message = compile_in(&context, "MAIN", "<k> size():Int ~> _ </k>")
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("no sort cast can fix it"), "{message}");
+    assert!(!message.contains("add a sort cast"), "{message}");
+    assert!(!message.contains("sentence sort variable"), "{message}");
+    assert!(
+        !message.contains("only the sort of a predicate"),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_open_search_pattern_diagnostic_keeps_cast_advice() {
+    let context = load_context(
+        "search-pattern/open.k",
+        r#"module MAIN
+  syntax Foo ::= "a" [symbol(a)]
+  syntax {S} Foo ::= wrap(S) [symbol(wrap)]
+  syntax {S} S ::= undef() [function, total, symbol(undef)]
+  configuration <k> $PGM:Foo </k>
+endmodule
+"#,
+        "MAIN",
+    );
+    let message = compile_in(&context, "MAIN", "<k> wrap(undef()) ~> _ </k>")
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("wrap"), "{message}");
+    assert!(message.contains("add a sort cast"), "{message}");
+    assert!(!message.contains("sentence sort variable"), "{message}");
+    assert!(
+        !message.contains("only the sort of a predicate"),
+        "{message}"
+    );
 }
 
 #[test]

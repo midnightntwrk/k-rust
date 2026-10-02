@@ -30,7 +30,7 @@ use super::passes::{
     ResolveSemanticCastsError, expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
-use super::sort_injections::{SortInjectionError, SortInjector, rewrite_projection};
+use super::sort_injections::{GroundInput, SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
 use super::{ConcretizeCellsError, concretize_cells_in_sentence};
 
@@ -195,13 +195,13 @@ pub fn compile_search_pattern(
         return Err(CompileSearchPatternError::ExpectedGeneratedTopCell { actual });
     }
     let body = injector.inject(&body, &top)?;
-    injector.require_ground(&body)?;
+    injector.require_ground(&body, GroundInput::SearchPattern)?;
     let requires_is_true = is_true(&requires);
     let requires = (!requires_is_true)
         .then(|| injector.inject(&requires, &bool_sort))
         .transpose()?;
     if let Some(requires) = &requires {
-        injector.require_ground(requires)?;
+        injector.require_ground(requires, GroundInput::SearchPattern)?;
     }
 
     let converter =

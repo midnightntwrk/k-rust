@@ -51,7 +51,7 @@ mod sentence_variables {
     /// The sort variables an injected sentence quantifies over.
     /// Each is a whole sort argument of a matching-logic connective: the sort of a predicate,
     /// which is the whole carrier or empty at every sort alike, so it chooses nothing and the
-    /// sentence binds it. Only `SortInjector::sentence_sort_variables` builds a nonempty set.
+    /// sentence binds it. Only `SortInjector::sentence_sort_variables` exposes a nonempty set.
     #[derive(Clone, Debug, Default, Eq, PartialEq)]
     pub struct SentenceSortVariables {
         names: BTreeSet<String>,
@@ -77,11 +77,30 @@ mod sentence_variables {
         }
     }
 
+    struct Offender {
+        term: String,
+        variable: Sort,
+        cause: UndeterminedCause,
+    }
+
     impl SortInjector<'_, '_> {
         pub(crate) fn sentence_sort_variables<'t>(
             &self,
             terms: impl IntoIterator<Item = &'t Term>,
         ) -> Result<SentenceSortVariables, SortInjectionError> {
+            self.classify(terms).map_err(|offender| {
+                SortInjectionError::UndeterminedInstance(Box::new(UndeterminedInstance {
+                    term: offender.term,
+                    variable: offender.variable,
+                    site: UndeterminedSite::Sentence(offender.cause),
+                }))
+            })
+        }
+
+        fn classify<'t>(
+            &self,
+            terms: impl IntoIterator<Item = &'t Term>,
+        ) -> Result<SentenceSortVariables, Box<Offender>> {
             let mut variables = SentenceSortVariables::default();
             let mut injection = None;
             let mut leaf = None;
@@ -94,10 +113,58 @@ mod sentence_variables {
                 )?;
             }
             if let Some(offender) = injection.or(leaf) {
-                Err(SortInjectionError::UndeterminedInstance(Box::new(offender)))
+                Err(Box::new(offender))
             } else {
                 Ok(variables)
             }
+        }
+
+        /// Require an injected ground term to contain no sort variable, even at a
+        /// predicate sort: a ground value binds no sort variable.
+        pub(crate) fn require_ground(
+            &self,
+            term: &Term,
+            input: GroundInput,
+        ) -> Result<(), SortInjectionError> {
+            let variables = self.classify([term]).map_err(|offender| {
+                SortInjectionError::UndeterminedInstance(Box::new(UndeterminedInstance {
+                    term: offender.term,
+                    variable: offender.variable,
+                    site: UndeterminedSite::Ground {
+                        input,
+                        cause: GroundCause::Instance(offender.cause),
+                    },
+                }))
+            })?;
+            if variables.is_empty() {
+                return Ok(());
+            }
+            // Classification has rejected every occurrence except whole predicate sorts.
+            // Report the first remaining occurrence on the connective that carries it.
+            let mut offender = None;
+            term.visit_preorder(&mut |term| {
+                if offender.is_none()
+                    && let Term::Apply { label, .. } = term
+                    && let Some(variable) = label
+                        .parameters
+                        .iter()
+                        .find(|sort| sort.is_rigid_variable())
+                {
+                    offender = Some(UndeterminedInstance {
+                        term: render_term(term),
+                        variable: variable.clone(),
+                        site: UndeterminedSite::Ground {
+                            input,
+                            cause: GroundCause::PredicateSort {
+                                label: label.name.clone(),
+                            },
+                        },
+                    });
+                }
+            });
+            Err(SortInjectionError::UndeterminedInstance(Box::new(
+                offender.expect("a nonempty sentence binder has a predicate-sort occurrence"),
+            )))
         }
 
         // Invariant: each recursive call descends into a direct subterm, so term depth bounds recursion. The walk returns the first non-injection label offender in pre-order, retaining the first injection and leaf only as fallbacks.
@@ -106,9 +173,9 @@ mod sentence_variables {
             &self,
             term: &Term,
             variables: &mut SentenceSortVariables,
-            injection: &mut Option<UndeterminedInstance>,
-            leaf: &mut Option<UndeterminedInstance>,
-        ) -> Result<(), SortInjectionError> {
+            injection: &mut Option<Offender>,
+            leaf: &mut Option<Offender>,
+        ) -> Result<(), Box<Offender>> {
             match term.unannotated() {
                 Term::Apply { label, .. } | Term::InjectedLabel(label) => {
                     for (index, parameter) in label.parameters.iter().enumerate() {
@@ -159,20 +226,28 @@ mod sentence_variables {
                             )
                             | None => (None, false),
                         };
-                        let offender = UndeterminedInstance {
+                        let cause = match (formal, phantom) {
+                            (Some(parameter), true) => UndeterminedCause::Phantom {
+                                label: label.name.clone(),
+                                parameter,
+                            },
+                            (Some(parameter), false) => UndeterminedCause::Open {
+                                label: label.name.clone(),
+                                parameter,
+                            },
+                            (None, true | false) => UndeterminedCause::Unattributed {
+                                label: Some(label.name.clone()),
+                            },
+                        };
+                        let offender = Offender {
                             term: render_term(term),
-                            label: Some(label.name.clone()),
-                            parameter: formal,
                             variable: variable.clone(),
-                            phantom,
-                            ground_predicate: false,
+                            cause,
                         };
                         if label.is(WellKnownSymbol::Inj) {
                             injection.get_or_insert(offender);
                         } else {
-                            return Err(SortInjectionError::UndeterminedInstance(Box::new(
-                                offender,
-                            )));
+                            return Err(Box::new(offender));
                         }
                     }
                     if let Term::Apply { arguments, .. } = term.unannotated() {
@@ -188,13 +263,10 @@ mod sentence_variables {
                 }
                 | Term::Token { sort, .. } => {
                     if let Some(variable) = first_sort_variable(sort) {
-                        leaf.get_or_insert_with(|| UndeterminedInstance {
+                        leaf.get_or_insert_with(|| Offender {
                             term: render_term(term),
-                            label: None,
-                            parameter: None,
                             variable: variable.clone(),
-                            phantom: false,
-                            ground_predicate: false,
+                            cause: UndeterminedCause::Unattributed { label: None },
                         });
                     }
                 }
@@ -343,16 +415,54 @@ pub struct AmbiguousInstance {
     pub candidates: Vec<Vec<Sort>>,
 }
 
-/// A sentence sort variable outside a predicate sort, or anywhere in a ground term.
+/// A sort variable left where it must not stay, with where it was found and why nothing fixed it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UndeterminedInstance {
+    /// The offending application or leaf, rendered for the diagnostic.
     pub term: String,
-    pub label: Option<String>,
-    pub parameter: Option<Sort>,
+    /// The sort variable sort injection left in it.
     pub variable: Sort,
-    pub phantom: bool,
-    /// A whole predicate sort rejected because the ground term has no sentence binder.
-    pub ground_predicate: bool,
+    pub site: UndeterminedSite,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UndeterminedSite {
+    /// A rule, claim, equation or macro: its binder may quantify only a predicate's sort.
+    Sentence(UndeterminedCause),
+    /// A value without a binder, read by `input`'s grammar.
+    Ground {
+        input: GroundInput,
+        cause: GroundCause,
+    },
+}
+
+/// What parsed a ground value, which decides whether its text can hold a sort cast.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroundInput {
+    /// A program or configuration value: the definition's syntax, which has no sort casts.
+    Value,
+    /// A search pattern: rule content, which has sort casts.
+    SearchPattern,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GroundCause {
+    /// An application instance or leaf sort that classification found undetermined.
+    Instance(UndeterminedCause),
+    /// A matching-logic connective's sort: a sentence would bind it, a ground value cannot.
+    PredicateSort { label: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UndeterminedCause {
+    /// `parameter` occurs in neither the argument sorts nor the result sort of `label`'s
+    /// production: no application determines it and no cast fixes it.
+    Phantom { label: String, parameter: Sort },
+    /// `parameter` occurs in the production's sorts, and neither the arguments nor the
+    /// position fixed it.
+    Open { label: String, parameter: Sort },
+    /// An `inj`, a label whose production is unknown, or a variable's or token's sort.
+    Unattributed { label: Option<String> },
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -367,6 +477,7 @@ pub struct SortMismatch {
 }
 
 impl fmt::Display for SortInjectionError {
+    #[deny(clippy::wildcard_enum_match_arm)]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Definition(error) => error.fmt(formatter),
@@ -485,54 +596,82 @@ impl fmt::Display for SortInjectionError {
                 mismatch.term, mismatch.required, mismatch.found, mismatch.required
             ),
             Self::UndeterminedInstance(instance) => {
-                if let Some(label) = &instance.label
-                    && let Some(parameter) = &instance.parameter
-                {
-                    write!(
+                let (input, cause) = match &instance.site {
+                    UndeterminedSite::Sentence(cause) => (None, cause),
+                    UndeterminedSite::Ground {
+                        input,
+                        cause: GroundCause::Instance(cause),
+                    } => (Some(*input), cause),
+                    UndeterminedSite::Ground {
+                        input,
+                        cause: GroundCause::PredicateSort { label },
+                    } => {
+                        write!(
+                            formatter,
+                            "the sort of `{label}` in `{}` is not determined; a ground value binds no sort variable, so even a predicate's sort must be determined",
+                            instance.term
+                        )?;
+                        return match input {
+                            GroundInput::Value => Ok(()),
+                            GroundInput::SearchPattern => {
+                                write!(formatter, ", so add a sort cast that fixes it")
+                            }
+                        };
+                    }
+                };
+                match cause {
+                    UndeterminedCause::Phantom { label, parameter }
+                    | UndeterminedCause::Open { label, parameter } => write!(
                         formatter,
                         "the instance of `{label}` in `{}` is not determined: its sort parameter {parameter} ",
                         instance.term
-                    )?;
-                    if instance.phantom {
-                        write!(
-                            formatter,
-                            "occurs in neither its argument sorts nor its result sort, so no application of `{label}` determines it"
-                        )?;
-                    } else {
-                        write!(
-                            formatter,
-                            "is fixed neither by its arguments nor by its position"
-                        )?;
-                    }
-                    write!(
+                    )?,
+                    UndeterminedCause::Unattributed { label: Some(label) } => write!(
                         formatter,
-                        ", so sort injection left the sentence sort variable {} in it, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                        "the instance of `{label}` in `{}` is not determined: ",
+                        instance.term
+                    )?,
+                    UndeterminedCause::Unattributed { label: None } => write!(
+                        formatter,
+                        "term `{}` has an undetermined sort: ",
+                        instance.term
+                    )?,
+                }
+                match (input, cause) {
+                    (
+                        None | Some(GroundInput::Value | GroundInput::SearchPattern),
+                        UndeterminedCause::Phantom { label, parameter },
+                    ) => write!(
+                        formatter,
+                        "occurs in neither its argument sorts nor its result sort, so no application of `{label}` determines it and no sort cast can fix it; `{label}` can be used in no rule, claim, program, configuration value or search pattern unless its declaration drops {parameter} or uses it in an argument or the result sort"
+                    ),
+                    (None, UndeterminedCause::Open { .. }) => write!(
+                        formatter,
+                        "is fixed neither by its arguments nor by its position, so sort injection left the sentence sort variable {} in it, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
                         instance.variable
-                    )
-                } else {
-                    if let Some(label) = &instance.label {
+                    ),
+                    (None, UndeterminedCause::Unattributed { .. }) => write!(
+                        formatter,
+                        "it contains the sentence sort variable {}, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                        instance.variable
+                    ),
+                    (Some(GroundInput::Value), UndeterminedCause::Open { .. }) => write!(
+                        formatter,
+                        "is fixed neither by its arguments nor by the sort the value is read at; a program or configuration value binds no sort variable and its syntax has no sort casts, so every instance must follow from its arguments and the sort it is read at"
+                    ),
+                    (Some(GroundInput::Value), UndeterminedCause::Unattributed { .. }) => write!(
+                        formatter,
+                        "it contains the sort variable {}; a program or configuration value binds no sort variable and its syntax has no sort casts, so every instance must follow from its arguments and the sort it is read at",
+                        instance.variable
+                    ),
+                    (Some(GroundInput::SearchPattern), UndeterminedCause::Open { .. }) => write!(
+                        formatter,
+                        "is fixed neither by its arguments nor by its position; a search pattern binds no sort variable, so add a sort cast that fixes it"
+                    ),
+                    (Some(GroundInput::SearchPattern), UndeterminedCause::Unattributed { .. }) => {
                         write!(
                             formatter,
-                            "the instance of `{label}` in `{}` is not determined: ",
-                            instance.term
-                        )?;
-                    } else {
-                        write!(
-                            formatter,
-                            "term `{}` has an undetermined sort: ",
-                            instance.term
-                        )?;
-                    }
-                    if instance.ground_predicate {
-                        write!(
-                            formatter,
-                            "it contains the sentence sort variable {}; a ground term has no sentence binder, so even a predicate sort must be determined; add a sort cast that fixes it",
-                            instance.variable
-                        )
-                    } else {
-                        write!(
-                            formatter,
-                            "it contains the sentence sort variable {}, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it",
+                            "it contains the sort variable {}; a search pattern binds no sort variable, so add a sort cast that fixes it",
                             instance.variable
                         )
                     }
@@ -633,38 +772,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.inject_with_position(term, &top, false)
     }
 
-    /// Require an injected ground term to contain no sentence sort variable, even at a
-    /// predicate sort: a ground term has no sentence binder.
-    pub(crate) fn require_ground(&self, term: &Term) -> Result<(), SortInjectionError> {
-        if self.sentence_sort_variables([term])?.is_empty() {
-            return Ok(());
-        }
-        // Classification has rejected every occurrence except whole predicate sorts.
-        // Report the first remaining occurrence on the connective that carries it.
-        let mut offender = None;
-        term.visit_preorder(&mut |term| {
-            if offender.is_none()
-                && let Term::Apply { label, .. } = term
-                && let Some(variable) = label
-                    .parameters
-                    .iter()
-                    .find(|sort| sort.is_rigid_variable())
-            {
-                offender = Some(UndeterminedInstance {
-                    term: render_term(term),
-                    label: Some(label.name.clone()),
-                    parameter: None,
-                    variable: variable.clone(),
-                    phantom: false,
-                    ground_predicate: true,
-                });
-            }
-        });
-        Err(SortInjectionError::UndeterminedInstance(Box::new(
-            offender.expect("a nonempty sentence binder has a predicate-sort occurrence"),
-        )))
-    }
-
     /// Instantiate a parsed value at its supplied position and reject any remaining sentence variable.
     /// The position decides only parameters nothing else fixes: `solve_parameters` accepts
     /// the instance fixed by the arguments whenever it fits the position.
@@ -675,7 +782,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ) -> Result<(Term, Sort), SortInjectionError> {
         let sort = self.term_sort(term, Some(position))?;
         let injected = self.inject_with_position(term, &sort, false)?;
-        self.require_ground(&injected)?;
+        self.require_ground(&injected, GroundInput::Value)?;
         Ok((injected, sort))
     }
 
@@ -2367,7 +2474,10 @@ fn semantic_projection(term: &Term, projection: Label) -> Term {
 
 #[cfg(test)]
 mod tests {
-    use super::{SortInjectionError, SortInjector, rewrite_projection};
+    use super::{
+        GroundCause, GroundInput, SortInjectionError, SortInjector, UndeterminedCause,
+        UndeterminedSite, rewrite_projection,
+    };
     use crate::definition::{PartialOrder, ResolvedDefinition, Sentence, production_identity};
     use crate::kast::{Label, Sort, Term, TermMetadata, parser::parse_term};
 
@@ -2392,14 +2502,16 @@ mod tests {
         assert_eq!(variables.names().collect::<Vec<_>>(), ["Q0"]);
         assert!(!variables.is_empty());
 
-        let error = injector.require_ground(&predicate).unwrap_err();
+        let error = injector
+            .require_ground(&predicate, GroundInput::Value)
+            .unwrap_err();
         let message = error.to_string();
         assert!(
-            message.contains("a ground term has no sentence binder"),
+            message.contains("a ground value binds no sort variable"),
             "{message}"
         );
         assert!(
-            message.contains("even a predicate sort must be determined"),
+            message.contains("even a predicate's sort must be determined"),
             "{message}"
         );
         assert!(
@@ -2409,11 +2521,43 @@ mod tests {
         let SortInjectionError::UndeterminedInstance(instance) = error else {
             panic!("{error:?}")
         };
-        assert_eq!(instance.label.as_deref(), Some("#Equals"));
+        assert_eq!(
+            instance.site,
+            UndeterminedSite::Ground {
+                input: GroundInput::Value,
+                cause: GroundCause::PredicateSort {
+                    label: "#Equals".into()
+                },
+            }
+        );
         assert_eq!(instance.variable, q);
+        assert!(!message.contains("add a sort cast"), "{message}");
+        let pattern_error = injector
+            .require_ground(&predicate, GroundInput::SearchPattern)
+            .unwrap_err();
+        assert!(
+            pattern_error
+                .to_string()
+                .contains("add a sort cast that fixes it")
+        );
+        let SortInjectionError::UndeterminedInstance(pattern_instance) = pattern_error else {
+            panic!("{pattern_error:?}")
+        };
+        assert_eq!(
+            pattern_instance.site,
+            UndeterminedSite::Ground {
+                input: GroundInput::SearchPattern,
+                cause: GroundCause::PredicateSort {
+                    label: "#Equals".into()
+                },
+            }
+        );
         assert!(
             injector
-                .require_ground(&equals(vec![Sort::new("Bool"), Sort::new("Int")]))
+                .require_ground(
+                    &equals(vec![Sort::new("Bool"), Sort::new("Int")]),
+                    GroundInput::Value
+                )
                 .is_ok()
         );
 
@@ -2469,10 +2613,14 @@ mod tests {
         let SortInjectionError::UndeterminedInstance(instance) = error else {
             panic!("{error:?}")
         };
-        assert_eq!(instance.label.as_deref(), Some("zero"));
-        assert_eq!(instance.parameter, Some(Sort::new("S")));
+        assert_eq!(
+            instance.site,
+            UndeterminedSite::Sentence(UndeterminedCause::Open {
+                label: "zero".into(),
+                parameter: Sort::new("S"),
+            })
+        );
         assert_eq!(instance.variable, q);
-        assert!(!instance.phantom);
     }
 
     fn order(edges: &[(&str, &str)]) -> PartialOrder<Sort> {

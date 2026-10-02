@@ -75,6 +75,12 @@ mod sentence_variables {
         let error = compile(source, main_module, check_mode)
             .expect_err("the sentence must reject its undetermined label instance");
         assert_eq!(error.stage, "add sort injections", "{error}");
+        if !phantom {
+            assert_eq!(
+                error.message,
+                r#"sentence-variables.k:7: (origin: concretize-cells) the instance of `wrap(_)_MAIN_Foo_S` in ``wrap(_)_MAIN_Foo_S`{#SortParam{Q3}}(`undef()_MAIN_S`{#SortParam{Q3}}(.KList))` is not determined: its sort parameter S is fixed neither by its arguments nor by its position, so sort injection left the sentence sort variable #SortParam{Q3} in it, and only the sort of a predicate may stay a sort variable; add a sort cast that fixes it"#
+            );
+        }
         let line = source
             .lines()
             .position(|line| line.trim_start().starts_with(sentence))
@@ -84,7 +90,6 @@ mod sentence_variables {
             format!("sentence-variables.k:{line}: "),
             format!("the instance of `{label}"),
             format!("sort parameter {parameter}"),
-            "only the sort of a predicate may stay a sort variable".to_owned(),
         ] {
             assert!(error.message.contains(&expected), "{expected}: {error}");
         }
@@ -95,6 +100,17 @@ mod sentence_variables {
             phantom,
             "{error}"
         );
+        if phantom {
+            assert!(error.message.contains("no sort cast can fix it"), "{error}");
+            assert!(!error.message.contains("add a sort cast"), "{error}");
+        } else {
+            assert!(
+                error
+                    .message
+                    .contains("only the sort of a predicate may stay a sort variable"),
+                "{error}"
+            );
+        }
     }
 
     #[test]

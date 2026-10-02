@@ -194,6 +194,8 @@ A sentence sort variable left by sort injection may occur only as a whole sort a
 The emitted rule, claim, equation or macro binds exactly those variables.
 Any other occurrence is rejected at `add sort injections` with a located `UndeterminedInstance` diagnostic naming the application whose instance neither its arguments nor its position determine; add a sort cast that fixes the instance.
 A phantom parameter occurs in neither an argument sort nor the result sort (`syntax {S} Int ::= size()`), so no cast fixes it: its production may be declared, but no rule may use it.
+A program, configuration value or search pattern binds no sort variable, so its diagnostic requires every instance, including a predicate's sort, to be determined.
+Program and configuration-value syntax has no sort casts, so only a search pattern's diagnostic advises a sort cast.
 
 A program or configuration value is instantiated at the sort it is read at; that position decides only parameters its arguments leave open.
 A value read at `K` is instantiated at `KItem`, because the configuration map holds `KItem` values.
