@@ -17,14 +17,14 @@
 //! id = "backend.matching.relation_query"
 //! name = "subsort and overload membership queries"
 //! sites = ["SortGraph::check_subsort"]
-//! variable = "S = sorts or overloaded symbols; g = sort-argument nodes of the two compared sorts; C = overload closure pairs"
+//! variable = "S = nodes of the subsort order or overloaded symbols; c = nodes of the two compared sort terms; C = overload closure pairs"
 //! counters = []
 //! no_counter = "relation queries have no dedicated counter"
 //! span = "none"
 //!
 //! [[cost]]
 //! mode = "SortGraph::check_subsort"
-//! bound = "O(g x log |S|)"
+//! bound = "O(c x log |S|)"
 //!
 //! [[cost]]
 //! mode = "OverloadGraph::is_overloading, OverloadGraph::overloaded_by"
@@ -40,8 +40,7 @@
 //! problem for p bounded by |pattern| plus subject-side `And` duplications and one `map_queue`
 //! postponement per map pair, each pop O(arity) plus an eager composition of the substitution per
 //! binding; `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
-//! queries over the closures `definition.rs` builds, O(log |S|) per sort head plus one lookup per
-//! nested sort argument, and a linear scan of the overload closure for `common_overloads`.
+//! queries over the closures `definition.rs` builds, O(log |S|) sort comparisons per query, each linear in the compared sorts, and a linear scan of the overload closure for `common_overloads`.
 //! AC and A collection matching is `collections`, re-exported here so every entry
 //! point of `crate::matching` keeps its path.
 
@@ -187,97 +186,181 @@ pub enum SortError {
     FoundUnknownSort(Sort),
 }
 
-/// Reflexive-transitive subsort closure keyed by the supersort name.
+/// A sort in which no sort variable occurs: a sort of the theory and a node of its order.
+/// The derived order is the inner sort's, which `Borrow<Sort>` lookups rely on.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ClosedSort(Sort);
+
+impl ClosedSort {
+    pub(crate) fn new(sort: Sort) -> Result<Self, Sort> {
+        if first_sort_variable(&sort).is_some() {
+            Err(sort)
+        } else {
+            Ok(Self(sort))
+        }
+    }
+
+    pub(crate) fn simple(name: impl Into<Name>) -> Self {
+        Self(Sort::simple(name))
+    }
+
+    pub(crate) fn sort(&self) -> &Sort {
+        &self.0
+    }
+
+    pub(crate) fn head(&self) -> &Name {
+        let Sort::Application { name, .. } = &self.0 else {
+            unreachable!("a closed sort has an application root")
+        };
+        name
+    }
+}
+
+impl std::borrow::Borrow<Sort> for ClosedSort {
+    fn borrow(&self) -> &Sort {
+        self.sort()
+    }
+}
+
+fn first_sort_variable(sort: &Sort) -> Option<&Name> {
+    match sort {
+        Sort::Variable(name) => Some(name),
+        Sort::Application { arguments, .. } => arguments.iter().find_map(first_sort_variable),
+    }
+}
+
+/// The reflexive-transitive closure of declared pairs over whole closed sorts.
+/// Closed-sort membership is answered only from that closure: a declared instance is below
+/// its supersort regardless of arity, other instances gain no edge, and constructors gain no
+/// covariance from their arguments. The head relation is only the closure's projection: it
+/// over-approximates whether some instance of one head may be below another.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SortGraph {
-    subsorts: BTreeMap<Name, BTreeSet<Name>>,
+    below: BTreeMap<ClosedSort, BTreeSet<ClosedSort>>,
+    constructors: BTreeSet<Name>,
+    heads_below: BTreeMap<Name, BTreeSet<Name>>,
 }
 
 impl SortGraph {
+    pub(crate) fn from_closure(
+        constructors: impl IntoIterator<Item = Name>,
+        below: BTreeMap<ClosedSort, BTreeSet<ClosedSort>>,
+    ) -> Self {
+        let constructors = constructors.into_iter().collect::<BTreeSet<_>>();
+        let mut heads_below = constructors
+            .iter()
+            .map(|name| (name.clone(), BTreeSet::from([name.clone()])))
+            .collect::<BTreeMap<_, _>>();
+        for (sup, subs) in &below {
+            let heads = heads_below.entry(sup.head().clone()).or_default();
+            heads.insert(sup.head().clone());
+            heads.extend(subs.iter().map(|sub| sub.head().clone()));
+        }
+        Self {
+            below,
+            constructors,
+            heads_below,
+        }
+    }
+
     pub fn insert(&mut self, supersort: impl Into<Name>, subsorts: impl IntoIterator<Item = Name>) {
         let supersort = supersort.into();
-        let mut closure = subsorts.into_iter().collect::<BTreeSet<_>>();
-        closure.insert(supersort.clone());
-        self.subsorts.insert(supersort, closure);
+        let mut heads = subsorts.into_iter().collect::<BTreeSet<_>>();
+        heads.insert(supersort.clone());
+        let below = heads.iter().cloned().map(ClosedSort::simple).collect();
+        self.below
+            .insert(ClosedSort::simple(supersort.clone()), below);
+        self.heads_below.insert(supersort.clone(), heads);
+        self.constructors.insert(supersort);
     }
 
     pub fn check_subsort(&self, sub: &Sort, sup: &Sort) -> Result<bool, SortError> {
+        // Reflexivity holds even before resolving a sort; distinct root variables are open.
         if sub == sup {
             return Ok(true);
         }
-        let Sort::Application {
-            name: sub_name,
-            arguments: sub_arguments,
-        } = sub
-        else {
+        let Sort::Application { name: sub_head, .. } = sub else {
             let Sort::Variable(name) = sub else {
                 unreachable!()
             };
             return Err(SortError::FoundSortVariable(name.clone()));
         };
-        let Sort::Application {
-            name: sup_name,
-            arguments: sup_arguments,
-        } = sup
-        else {
+        let Sort::Application { name: sup_head, .. } = sup else {
             let Sort::Variable(name) = sup else {
                 unreachable!()
             };
             return Err(SortError::FoundSortVariable(name.clone()));
         };
-        let Some(subsorts) = self.subsorts.get(sup_name) else {
-            return Err(SortError::FoundUnknownSort(sup.clone()));
-        };
-        if !subsorts.contains(sub_name) {
-            return Ok(false);
-        }
-        if sub_arguments.len() != sup_arguments.len() {
-            return Ok(false);
-        }
-        for (sub_argument, sup_argument) in sub_arguments.iter().zip(sup_arguments) {
-            if !self.check_subsort(sub_argument, sup_argument)? {
+        // A node's down-set states every declared path to that whole sort, without covariance.
+        if let Some(set) = self.below.get(sup) {
+            if set.contains(sub) {
+                return Ok(true);
+            }
+            if first_sort_variable(sub).is_none() {
                 return Ok(false);
             }
         }
-        Ok(true)
-    }
-
-    pub(crate) fn subsorts_of(&self, sort: &Sort) -> Option<&BTreeSet<Name>> {
-        let Sort::Application { name, arguments } = sort else {
-            return None;
+        // A closed instance absent from the axioms is below only itself; its head must be known.
+        if !self.constructors.contains(sup_head) && !self.heads_below.contains_key(sup_head) {
+            return Err(SortError::FoundUnknownSort(sup.clone()));
+        }
+        let variable = first_sort_variable(sub).or_else(|| first_sort_variable(sup));
+        let Some(variable) = variable else {
+            return Ok(false);
         };
-        arguments
-            .is_empty()
-            .then(|| self.subsorts.get(name))
-            .flatten()
+        // Open sorts stand for all instances. Only absence in the head projection refutes all.
+        if sub_head != sup_head
+            && !self
+                .heads_below
+                .get(sup_head)
+                .is_some_and(|heads| heads.contains(sub_head))
+        {
+            return Ok(false);
+        }
+        Err(SortError::FoundSortVariable(variable.clone()))
     }
 
     fn overlap(&self, left: &Sort, right: &Sort) -> bool {
         self.known_overlap(left, right).unwrap_or(true)
     }
 
-    /// Whether two sorts without sort arguments have a common subsort, when both are known.
+    /// Whether two closed sorts with known heads have a common subsort in the exact order.
+    /// A closed sort absent from the axioms has the singleton down-set containing itself.
     pub(crate) fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
         let (
             Sort::Application {
-                name: left,
-                arguments: left_arguments,
+                name: left_head, ..
             },
             Sort::Application {
-                name: right,
-                arguments: right_arguments,
+                name: right_head, ..
             },
         ) = (left, right)
         else {
             return None;
         };
-        if !left_arguments.is_empty() || !right_arguments.is_empty() {
+        if first_sort_variable(left).is_some()
+            || first_sort_variable(right).is_some()
+            || (!self.constructors.contains(left_head) && !self.heads_below.contains_key(left_head))
+            || (!self.constructors.contains(right_head)
+                && !self.heads_below.contains_key(right_head))
+        {
             return None;
         }
-        match (self.subsorts.get(left), self.subsorts.get(right)) {
-            (Some(left), Some(right)) => Some(!left.is_disjoint(right)),
-            _ => None,
-        }
+        Some(match (self.below.get(left), self.below.get(right)) {
+            (Some(a), Some(b)) => !a.is_disjoint(b),
+            (Some(a), None) => a.contains(right),
+            (None, Some(b)) => b.contains(left),
+            (None, None) => left == right,
+        })
+    }
+
+    pub(crate) fn closures(&self) -> impl Iterator<Item = (&ClosedSort, &BTreeSet<ClosedSort>)> {
+        self.below.iter()
+    }
+
+    /// An over-approximation over heads; must never answer a question about one closed sort.
+    pub(crate) fn heads_possibly_below(&self, head: &str) -> Option<&BTreeSet<Name>> {
+        self.heads_below.get(head)
     }
 }
 
@@ -333,11 +416,7 @@ pub(crate) fn match_injection_equality(
         return Some(InjectionEquality::Distinct);
     }
     if let Some(sorts) = sorts
-        && let (Some(left), Some(right)) = (
-            sorts.subsorts_of(left_source),
-            sorts.subsorts_of(right_source),
-        )
-        && left.is_disjoint(right)
+        && sorts.known_overlap(left_source, right_source) == Some(false)
     {
         return Some(InjectionEquality::Distinct);
     }

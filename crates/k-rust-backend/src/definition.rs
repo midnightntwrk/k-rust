@@ -30,7 +30,7 @@
 //! id = "backend.definition.closure"
 //! name = "subsort and overload transitive-closure construction"
 //! sites = ["build_sort_graph", "OverloadGraph::from_relations", "OverloadGraph"]
-//! variable = "S = sorts or overload symbols; C = closure pairs; h = longest relation chain"
+//! variable = "S = nodes of the subsort order (declared sorts without parameters and the sorts the subsort axioms name) or overload symbols; C = closure pairs; h = longest relation chain"
 //! counters = []
 //! no_counter = "closure construction runs once per definition load and has no dedicated counter"
 //! span = "per call"
@@ -70,7 +70,7 @@ use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
     builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
-    matching::SortGraph,
+    matching::{ClosedSort, SortGraph},
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
@@ -380,7 +380,7 @@ pub struct BackendDefinition {
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
-    inhabited_sorts: OnceLock<BTreeSet<Name>>,
+    inhabited_sorts: OnceLock<BTreeSet<ClosedSort>>,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
@@ -1043,7 +1043,7 @@ impl BackendDefinition {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(DefinitionError::Axiom)?,
         );
-        let sort_graph = build_sort_graph(sorts.keys().cloned(), subsorts);
+        let sort_graph = build_sort_graph(&sorts, subsorts);
         for (greater, lesser) in &overloads {
             if !symbols.contains_key(greater) {
                 return Err(DefinitionError::UnknownSymbol(greater.to_string()));
@@ -1216,18 +1216,13 @@ impl BackendDefinition {
     /// of a constructor or total function without sort parameters is inhabited when every
     /// argument sort is, since applying it to values of those sorts denotes a value; and a
     /// supersort of an inhabited sort is inhabited through the injection. A sort outside the
-    /// fixed point, a parametric sort, and a sort variable answer false: a sort without such a
-    /// value-building production, or whose productions all need a value of an uninhabited sort,
-    /// has no value, and the others are not analyzed.
+    /// fixed point and a sort with a sort variable answer false; a closed instance is analysed
+    /// like any sort. Instances of a hooked or domain-value parametric constructor are not
+    /// inhabited by declaration alone: which instances have values is the hook's to say.
     pub(crate) fn sort_is_inhabited(&self, sort: &Sort) -> bool {
-        let Sort::Application { name, arguments } = sort else {
-            return false;
-        };
-        arguments.is_empty()
-            && self
-                .inhabited_sorts
-                .get_or_init(|| inhabited_sorts(self))
-                .contains(name)
+        self.inhabited_sorts
+            .get_or_init(|| inhabited_sorts(self))
+            .contains(sort)
     }
 
     /// I5: every value of `sort` is covered by an alternative of a complete no-junk axiom.
@@ -1872,11 +1867,7 @@ fn is_decimal_integer(value: &str) -> bool {
 
 /// The least fixed point described at [`BackendDefinition::sort_is_inhabited`]; each round
 /// scans the symbols and subsort sets once, and a round that adds no sort ends the iteration.
-fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
-    let simple = |sort: &Sort| match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => Some(name.clone()),
-        _ => None,
-    };
+fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<ClosedSort> {
     let mut inhabited = definition
         .sorts
         .iter()
@@ -1884,7 +1875,7 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
             info.parameters.is_empty()
                 && (info.hook.is_some() || info.has_domain_values || info.collection.is_some())
         })
-        .map(|(name, _)| name.clone())
+        .map(|(name, _)| ClosedSort::simple(name.clone()))
         .collect::<BTreeSet<_>>();
     let builders = definition
         .symbols
@@ -1897,11 +1888,11 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
                 )
         })
         .filter_map(|symbol| {
-            let result = simple(&symbol.result_sort)?;
+            let result = ClosedSort::new(symbol.result_sort.clone()).ok()?;
             let arguments = symbol
                 .argument_sorts
                 .iter()
-                .map(simple)
+                .map(|sort| ClosedSort::new(sort.clone()).ok())
                 .collect::<Option<Vec<_>>>()?;
             Some((result, arguments))
         })
@@ -1918,15 +1909,8 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
                 inhabited.insert(result.clone());
             }
         }
-        for supersort in definition.sorts.keys() {
-            if inhabited.contains(supersort) {
-                continue;
-            }
-            if definition
-                .sort_graph
-                .subsorts_of(&Sort::simple(supersort.clone()))
-                .is_some_and(|subsorts| subsorts.iter().any(|sort| inhabited.contains(sort)))
-            {
+        for (supersort, below) in definition.sort_graph.closures() {
+            if !inhabited.contains(supersort) && below.iter().any(|sort| inhabited.contains(sort)) {
                 inhabited.insert(supersort.clone());
             }
         }
@@ -2349,6 +2333,13 @@ fn attach_collection_metadata(
         let Some(collection) = &info.collection else {
             continue;
         };
+        // The three attributes name one symbol each, fixing one collection sort; collection
+        // terms carry that sort without arguments.
+        if !info.parameters.is_empty() {
+            return Err(DefinitionError::MalformedCollection(format!(
+                "collection sort {sort_name} must have no sort parameters"
+            )));
+        }
         let (names, collection) = match collection {
             CollectionSort::Map(names) => {
                 let element = symbols.get(&names.element).ok_or_else(|| {
@@ -2442,16 +2433,28 @@ fn attach_collection_metadata(
     Ok(())
 }
 
-fn build_sort_graph(names: impl IntoIterator<Item = Name>, pairs: Vec<(Name, Name)>) -> SortGraph {
+fn build_sort_graph(
+    sorts: &BTreeMap<Name, SortInfo>,
+    pairs: Vec<(ClosedSort, ClosedSort)>,
+) -> SortGraph {
     let _span = measure::algorithm_span(Algorithm::BackendDefinitionClosure);
-    let names = names.into_iter().collect::<Vec<_>>();
+    let names = sorts
+        .iter()
+        .filter(|(_, info)| info.parameters.is_empty())
+        .map(|(name, _)| ClosedSort::simple(name.clone()))
+        .chain(
+            pairs
+                .iter()
+                .flat_map(|(sub, sup)| [sub.clone(), sup.clone()]),
+        )
+        .collect::<BTreeSet<_>>();
     let mut closure = names
         .iter()
         .cloned()
         .map(|name| (name.clone(), BTreeSet::from([name])))
         .collect::<BTreeMap<_, _>>();
-    for (sub, sup) in pairs {
-        closure.entry(sup).or_default().insert(sub);
+    for (sub, sup) in &pairs {
+        closure.entry(sup.clone()).or_default().insert(sub.clone());
     }
     // Invariant: `closure` only grows, bounded by |S|^2 pairs; exit when a round adds nothing.
     loop {
@@ -2469,9 +2472,16 @@ fn build_sort_graph(names: impl IntoIterator<Item = Name>, pairs: Vec<(Name, Nam
             break;
         }
     }
-    let mut graph = SortGraph::default();
-    for name in names {
-        graph.insert(name.clone(), closure.remove(&name).unwrap_or_default());
+    let graph = SortGraph::from_closure(sorts.keys().cloned(), closure);
+    #[cfg(debug_assertions)]
+    for (sub, sup) in &pairs {
+        debug_assert_eq!(
+            graph.check_subsort(sub.sort(), sup.sort()),
+            Ok(true),
+            "the subsort order misses a declared subsort axiom: {:?} <= {:?}",
+            sub.sort(),
+            sup.sort()
+        );
     }
     graph
 }
@@ -2480,7 +2490,7 @@ fn subsort_attribute(
     pattern: &kore::Pattern,
     attributes: &kore::Attributes,
     sorts: &BTreeMap<Name, SortInfo>,
-) -> Result<Option<(Name, Name)>, DefinitionError> {
+) -> Result<Option<(ClosedSort, ClosedSort)>, DefinitionError> {
     let Some((symbol, arguments)) = attributes.application(KoreAttribute::Subsort) else {
         return Ok(None);
     };
@@ -2530,21 +2540,12 @@ fn subsort_attribute(
             "subsort axiom does not agree with its sub- and supersort parameters".into(),
         ));
     }
-    match (sub, sup) {
-        (
-            Sort::Application {
-                name: sub,
-                arguments: _,
-            },
-            Sort::Application {
-                name: sup,
-                arguments: _,
-            },
-        ) => Ok(Some((sub, sup))),
-        _ => Err(DefinitionError::MalformedAttribute(
-            "subsort arguments must be concrete sorts".into(),
-        )),
-    }
+    let closed = |sort| {
+        ClosedSort::new(sort).map_err(|_| {
+            DefinitionError::MalformedAttribute("subsort arguments must be concrete sorts".into())
+        })
+    };
+    Ok(Some((closed(sub)?, closed(sup)?)))
 }
 
 fn overload_attribute(

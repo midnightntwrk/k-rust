@@ -6,6 +6,7 @@ mod externalize;
 pub(crate) mod lean_bridge;
 mod matching;
 mod matching_oracle;
+mod parametric_subsorts;
 mod rewrite;
 mod walk_flags;
 

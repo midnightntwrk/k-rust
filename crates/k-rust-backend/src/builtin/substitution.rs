@@ -99,7 +99,9 @@ pub(crate) struct KVarSorts {
 impl KVarSorts {
     /// One worklist pass over the dependency edges,
     /// O((sorts + symbols x arity + subsort pairs) x log sorts): every edge insert, reach test and
-    /// sort lookup is an ordered-map operation keyed by sort name.
+    /// sort lookup is an ordered-map operation keyed by sort name. Subsort edges merge all
+    /// instances of a head into one node. This only adds reachability, so `kvar_free` stays
+    /// an under-approximation.
     pub(crate) fn of(definition: &BackendDefinition) -> Self {
         let tokens = definition
             .sorts
@@ -140,10 +142,7 @@ impl KVarSorts {
             }
         }
         for supersort in definition.sorts.keys() {
-            if let Some(subsorts) = definition
-                .sort_graph
-                .subsorts_of(&Sort::simple(supersort.clone()))
-            {
+            if let Some(subsorts) = definition.sort_graph.heads_possibly_below(supersort) {
                 for subsort in subsorts.iter().filter(|subsort| *subsort != supersort) {
                     dependents
                         .entry(subsort.clone())
