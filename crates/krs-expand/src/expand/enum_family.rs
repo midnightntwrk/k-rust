@@ -12,7 +12,7 @@ use krs_ir::wire::{
 };
 use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
-    GroupAssociativity, ProductionGroupId,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, GroupAssociativity, ProductionGroupId,
 };
 use krs_syntax::{
     GroupAssociativity as SyntaxGroupAssociativity, ProvenanceRole, SyntaxTemplateItem, TokenRange,
@@ -413,7 +413,7 @@ fn expand_enum_variant(
     let variant_name = variant.name().to_string();
     let descriptor_factory = format_ident!("__krs_enum_constructor_{nonce:016x}_{index}");
     let grammar_factory = format_ident!("__krs_enum_grammar_{nonce:016x}_{index}");
-    let disambiguator = format!("enum:{enum_name}");
+    let disambiguator = format!("{ENUM_VARIANT_DISAMBIGUATOR_PREFIX}{enum_name}");
     let grammar_name = format!("__krs_grammar_{enum_name}_{variant_name}");
     let anchors = declaration.variant_provenance(variant)?;
     if variant.syntax().is_some_and(|syntax| !syntax.avoid())

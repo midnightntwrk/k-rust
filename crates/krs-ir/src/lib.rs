@@ -88,7 +88,7 @@ pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
     StableItemId, lower_hex,
 };
-pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SourceMapKey};
+pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
 pub use ir_level::{
     DefinitionLevel, IrClaim, IrClaimBinder, IrContextAlias, IrLevel, IrRuleBody, IrRuleCondition,
     IrRulePriority, IrSimplification, IrSimplificationPriority, IrSortRef, IrSubsort, IrTerm,

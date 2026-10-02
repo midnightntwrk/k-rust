@@ -213,12 +213,13 @@ fn symbol(id: &str, emitted_name: &str, kind: SymbolKind) -> SymbolIdentity {
 
 #[test]
 fn native_rule_labels_match_the_source_frontend_namespace_policy() {
+    let label = |name: &str| LabelIdentity::new(LabelId::new("label").unwrap(), name).unwrap();
     assert_eq!(
-        super::native_rule_label("SMOKE", "foo-to-bar"),
+        super::native_rule_label("SMOKE", &label("foo-to-bar")),
         "SMOKE.foo-to-bar"
     );
     assert_eq!(
-        super::native_rule_label("SMOKE", "krsRule_725f2944b8a5a8eaf4b9fc6c"),
+        super::native_rule_label("SMOKE", &label("krsRule_725f2944b8a5a8eaf4b9fc6c")),
         "krsRule_725f2944b8a5a8eaf4b9fc6c"
     );
 }

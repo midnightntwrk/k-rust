@@ -74,6 +74,23 @@ impl<'de> Deserialize<'de> for ModuleId {
 #[serde(transparent)]
 pub struct SemanticId(String);
 
+const WILDCARD_PREFIX: &str = "__krs_wildcard_";
+const ANONYMOUS_SEPARATOR: &str = "__krs_";
+
+/// The reserved encoding recognized in a semantic identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SemanticIdKind<'a> {
+    /// An identity beginning with the reserved wildcard prefix.
+    Wildcard,
+    /// An underscore-prefixed name followed by a decimal occurrence ordinal.
+    Anonymous {
+        /// The name before the final reserved separator.
+        name: &'a str,
+    },
+    /// An identity without a recognized reserved encoding.
+    Named,
+}
+
 impl SemanticId {
     /// Creates a nonempty path-free semantic identity.
     ///
@@ -82,6 +99,44 @@ impl SemanticId {
     /// Returns [`IrIdentityError`] for blank or path-shaped input.
     pub fn new(value: impl Into<String>) -> Result<Self, IrIdentityError> {
         validated_id(crate::IrIdentityKind::SemanticId, value.into()).map(Self)
+    }
+
+    /// Creates a wildcard occurrence with the reserved spelling.
+    #[must_use]
+    pub fn wildcard(ordinal: usize) -> Self {
+        Self(format!("{WILDCARD_PREFIX}{ordinal}"))
+    }
+
+    /// Appends the reserved occurrence suffix to an anonymous spelling.
+    ///
+    /// Recognition requires an underscore-prefixed spelling longer than one byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IrIdentityError`] when the resulting identity is path-shaped.
+    pub fn anonymous(spelling: &str, ordinal: usize) -> Result<Self, IrIdentityError> {
+        Self::new(format!("{spelling}{ANONYMOUS_SEPARATOR}{ordinal}"))
+    }
+
+    /// Classifies the reserved encoding.
+    ///
+    /// An identity that carries both encodings is a wildcard.
+    #[must_use]
+    pub fn kind(&self) -> SemanticIdKind<'_> {
+        if self.0.starts_with(WILDCARD_PREFIX) {
+            return SemanticIdKind::Wildcard;
+        }
+        self.0
+            .rsplit_once(ANONYMOUS_SEPARATOR)
+            .filter(|(name, ordinal)| {
+                name.starts_with('_')
+                    && name.len() > 1
+                    && !ordinal.is_empty()
+                    && ordinal.bytes().all(|byte| byte.is_ascii_digit())
+            })
+            .map_or(SemanticIdKind::Named, |(name, _)| {
+                SemanticIdKind::Anonymous { name }
+            })
     }
 
     /// Returns the identity.
@@ -161,4 +216,62 @@ pub(crate) fn validated_id(
         return Err(IrIdentityError::PathLike(kind, value));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_semantic_constructors_round_trip() {
+        let wildcard = SemanticId::wildcard(12);
+        assert_eq!(wildcard.as_str(), "__krs_wildcard_12");
+        assert_eq!(wildcard.kind(), SemanticIdKind::Wildcard);
+        let anonymous = SemanticId::anonymous("_B", 34).unwrap();
+        assert_eq!(anonymous.as_str(), "_B__krs_34");
+        assert_eq!(anonymous.kind(), SemanticIdKind::Anonymous { name: "_B" });
+        assert!(SemanticId::anonymous("_a/b", 0).is_err());
+        assert!(SemanticId::anonymous("_a\\b", 0).is_err());
+    }
+
+    #[test]
+    fn semantic_kind_preserves_reserved_predicate_edges() {
+        for spelling in ["__krs_wildcard_", "__krs_wildcard_text", "__krs_wildcard_١"] {
+            assert_eq!(
+                SemanticId::new(spelling).unwrap().kind(),
+                SemanticIdKind::Wildcard
+            );
+        }
+        for (spelling, name) in [
+            ("_B__krs_0", "_B"),
+            ("_B__krs_000", "_B"),
+            ("_é__krs_9", "_é"),
+            ("_B__krs_1__krs_2", "_B__krs_1"),
+        ] {
+            let id = SemanticId::new(spelling).unwrap();
+            assert_eq!(id.kind(), SemanticIdKind::Anonymous { name }, "{spelling}");
+        }
+        for spelling in [
+            "B",
+            "_B",
+            "_",
+            "B__krs_0",
+            "__krs_0",
+            "___krs_0",
+            "_B__krs_",
+            "_B__krs_-1",
+            "_B__krs_1x",
+            "_B__krs_١",
+            "_B__krs_1__krs_",
+            "__krs_wildcard",
+        ] {
+            assert_eq!(
+                SemanticId::new(spelling).unwrap().kind(),
+                SemanticIdKind::Named,
+                "{spelling}"
+            );
+        }
+        let overlap = SemanticId::new("__krs_wildcard_text__krs_0").unwrap();
+        assert_eq!(overlap.kind(), SemanticIdKind::Wildcard);
+    }
 }

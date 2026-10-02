@@ -11,8 +11,8 @@ use krs_ir::{
     FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration, FixedConfigurationVariable,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItemKind,
     GroupAssociativity, LabelIdentity, ListOperation, MapOperation, ProductionAttribute,
-    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation,
-    SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
+    ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind, SentenceKind,
+    SetOperation, SourceMapKey, StableText, StrictnessKind, SymbolId, SymbolIdentity,
 };
 
 use crate::sidecar::{GeneratedRanges, SidecarError};
@@ -1539,9 +1539,9 @@ fn render_term_with_binders(
     let start = 0;
     match term.kind() {
         DefinitionTermKind::Variable { variable } => {
-            if variable.as_str().starts_with("__krs_wildcard_") {
+            if variable.kind() == SemanticIdKind::Wildcard {
                 output.push("_");
-            } else if let Some(name) = anonymous_name(variable) {
+            } else if let SemanticIdKind::Anonymous { name } = variable.kind() {
                 output.push(name);
                 output.push(":");
                 output.push(context.sort_name_ref(term.sort())?);
@@ -2114,15 +2114,6 @@ fn variable_name(variable: &SemanticId) -> String {
         write!(result, "{byte:02X}").expect("writing to String cannot fail");
     }
     result
-}
-
-fn anonymous_name(variable: &SemanticId) -> Option<&str> {
-    let (name, ordinal) = variable.as_str().rsplit_once("__krs_")?;
-    (name.starts_with('_')
-        && name.len() > 1
-        && !ordinal.is_empty()
-        && ordinal.bytes().all(|byte| byte.is_ascii_digit()))
-    .then_some(name)
 }
 
 fn quoted(value: &str) -> String {

@@ -284,6 +284,8 @@ pub struct StableItemId {
     disambiguator: String,
 }
 
+const GENERATED_PRODUCTION_ITEM_NAME: &str = "__krs_generated_semantic_production";
+
 impl StableItemId {
     /// Creates and validates a declaration identity.
     ///
@@ -318,6 +320,26 @@ impl StableItemId {
             item_kind,
             disambiguator,
         })
+    }
+
+    pub(crate) fn generated_production(
+        package: PackageId,
+        module_path: impl IntoIterator<Item = impl Into<String>>,
+        disambiguator: impl Into<String>,
+    ) -> Result<Self, IdentityError> {
+        Self::new(
+            package,
+            module_path,
+            GENERATED_PRODUCTION_ITEM_NAME,
+            ItemKind::Constructor,
+            disambiguator,
+        )
+    }
+
+    /// Recognizes the reserved generated-production item name regardless of namespace.
+    #[must_use]
+    pub fn is_generated_production(&self) -> bool {
+        self.item_name == GENERATED_PRODUCTION_ITEM_NAME
     }
 
     /// Returns the package containing this item.
@@ -587,6 +609,43 @@ mod tests {
 
     fn package(namespace: &str, name: &str) -> PackageId {
         crate::testing::package_with(namespace, name, "1.0.0", "workspace")
+    }
+
+    #[test]
+    fn generated_production_recognition_depends_only_on_item_name() {
+        let generated = StableItemId::generated_production(
+            package("ORG-A", "a"),
+            ["expr"],
+            "generated-disambiguator",
+        )
+        .unwrap();
+        assert!(generated.is_generated_production());
+        assert_eq!(generated.item_name(), "__krs_generated_semantic_production");
+        assert_eq!(generated.item_kind(), ItemKind::Constructor);
+        assert_eq!(generated.module_path(), ["expr"]);
+        assert_eq!(generated.disambiguator(), "generated-disambiguator");
+        let other_namespace = StableItemId::new(
+            package("ORG-B", "b"),
+            ["nested"],
+            generated.item_name(),
+            ItemKind::Sort,
+            "",
+        )
+        .unwrap();
+        assert!(other_namespace.is_generated_production());
+        for name in ["__krs_generated_semantic_production_suffix", "ordinary"] {
+            assert!(
+                !StableItemId::new(
+                    package("ORG-A", "a"),
+                    ["expr"],
+                    name,
+                    ItemKind::Constructor,
+                    ""
+                )
+                .unwrap()
+                .is_generated_production()
+            );
+        }
     }
 
     #[test]

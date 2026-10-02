@@ -141,7 +141,15 @@ pub struct SymbolIdentity {
     kind: SymbolKind,
 }
 
+const GENERATED_PRODUCTION_SYMBOL_PREFIX: &str = "krsGenerated_";
+
 impl SymbolIdentity {
+    /// Builds the reserved generated-production symbol name from its owner hash.
+    #[must_use]
+    pub fn generated_production_name(hash: &str) -> String {
+        format!("{GENERATED_PRODUCTION_SYMBOL_PREFIX}{hash}")
+    }
+
     /// Creates a target-neutral symbol declaration.
     ///
     /// # Errors
@@ -194,7 +202,21 @@ pub struct LabelIdentity {
     emitted_name: String,
 }
 
+const FALLBACK_LABEL_PREFIX: &str = "krsRule_";
+
 impl LabelIdentity {
+    /// Builds the reserved fallback label name from its owner hash.
+    #[must_use]
+    pub fn fallback_name(hash: &str) -> String {
+        format!("{FALLBACK_LABEL_PREFIX}{hash}")
+    }
+
+    /// Recognizes an emitted label beginning with the reserved fallback prefix.
+    #[must_use]
+    pub fn is_fallback(&self) -> bool {
+        self.emitted_name.starts_with(FALLBACK_LABEL_PREFIX)
+    }
+
     /// Creates a generated label declaration.
     ///
     /// # Errors
@@ -1669,6 +1691,24 @@ mod tests {
     use crate::ClaimModality;
     use crate::ir_validation::validate_claim;
     use crate::{CellPost, FixedCellClause};
+
+    #[test]
+    fn fallback_label_recognition_preserves_prefix_predicate() {
+        let label = |name: &str| LabelIdentity::new(LabelId::new("label").unwrap(), name).unwrap();
+        let fallback = LabelIdentity::fallback_name("0123abcdef");
+        assert_eq!(fallback, "krsRule_0123abcdef");
+        assert!(label(&fallback).is_fallback());
+        for name in ["krsRule_", "krsRule_nonhex"] {
+            assert!(label(name).is_fallback());
+        }
+        for name in ["krsRule", "prefix_krsRule_0", "ordinary"] {
+            assert!(!label(name).is_fallback());
+        }
+        assert_eq!(
+            SymbolIdentity::generated_production_name("0123abcdef"),
+            "krsGenerated_0123abcdef"
+        );
+    }
 
     fn node(key: &str) -> NodeOrigin {
         crate::testing::origin_in(

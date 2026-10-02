@@ -569,7 +569,7 @@ impl StructuredTermBuilder<'_> {
                     self.invalid_term("wildcard has no expected production-field sort")
                 })?;
                 let ordinal = self.wildcard_offset + self.wildcards.len();
-                let id = SemanticId::new(format!("__krs_wildcard_{ordinal}"))?;
+                let id = SemanticId::wildcard(ordinal);
                 self.wildcards
                     .push(SemanticVariable::new(id.clone(), sort.clone()));
                 Ok(SemanticTerm::variable(
@@ -615,7 +615,7 @@ impl StructuredTermBuilder<'_> {
                 }
                 let sort = semantic_sort_ref(&sort.sort);
                 let ordinal = self.wildcard_offset + self.wildcards.len();
-                let id = SemanticId::new(format!("{spelling}__krs_{ordinal}"))?;
+                let id = SemanticId::anonymous(spelling, ordinal)?;
                 self.wildcards
                     .push(SemanticVariable::new(id.clone(), sort.clone()));
                 Ok(SemanticTerm::variable(
@@ -893,7 +893,7 @@ impl StructuredTermBuilder<'_> {
             self.invalid_term("partial named patterns are valid only in structured rule subjects")
         })?;
         let ordinal = self.wildcard_offset + self.wildcards.len();
-        let id = SemanticId::new(format!("__krs_wildcard_{ordinal}"))?;
+        let id = SemanticId::wildcard(ordinal);
         let role = format!("record-rest-{ordinal}");
         self.wildcards
             .push(SemanticVariable::new(id.clone(), sort.clone()));

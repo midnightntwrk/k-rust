@@ -35,8 +35,8 @@ use krs_ir::{
     FixedCellContent, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItemKind, GroupAssociativity, ListOperation, MapOperation, NodeOrigin,
-    OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SentenceKind,
-    SetOperation, SourceMapKey, StableItemId, StrictnessKind, SymbolId,
+    OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind,
+    SentenceKind, SetOperation, SourceMapKey, StableItemId, StrictnessKind, SymbolId,
 };
 use serde_json::json;
 
@@ -2004,10 +2004,7 @@ impl Adapter {
                 },
             )?;
         let mut attributes = attributes_for_origin(sentence.origin());
-        attributes.insert(
-            "label",
-            json!(native_rule_label(module, sentence.label().emitted_name())),
-        );
+        attributes.insert("label", json!(native_rule_label(module, sentence.label())));
         if let Some(priority) = sentence.priority() {
             attributes.insert("priority", json!(priority.value().to_string()));
         }
@@ -2914,7 +2911,7 @@ fn native_variable(
 ) -> NativeTerm {
     let name = if existential {
         format!("?{}", variable_name(variable))
-    } else if let Some(name) = anonymous_name(variable) {
+    } else if let SemanticIdKind::Anonymous { name } = variable.kind() {
         name.to_owned()
     } else {
         variable_name(variable)
@@ -2932,24 +2929,16 @@ fn variable_name(variable: &SemanticId) -> String {
     output
 }
 
-fn anonymous_name(variable: &SemanticId) -> Option<&str> {
-    let (name, ordinal) = variable.as_str().rsplit_once("__krs_")?;
-    (name.starts_with('_')
-        && name.len() > 1
-        && !ordinal.is_empty()
-        && ordinal.bytes().all(|byte| byte.is_ascii_digit()))
-    .then_some(name)
-}
-
 const fn builtin_label(operation: BuiltinOperation) -> &'static str {
     operation.spec().k_label
 }
 
-fn native_rule_label(module: &str, emitted_name: &str) -> String {
+fn native_rule_label(module: &str, label: &krs_ir::LabelIdentity) -> String {
+    let emitted_name = label.emitted_name();
     // Shared lowering emits this reserved fallback directly as a label
     // attribute. K therefore leaves it unqualified. Authored/named rules and
     // claims pass through K's named-sentence path and acquire the module.
-    if emitted_name.starts_with("krsRule_") {
+    if label.is_fallback() {
         emitted_name.to_owned()
     } else {
         format!("{module}.{emitted_name}")

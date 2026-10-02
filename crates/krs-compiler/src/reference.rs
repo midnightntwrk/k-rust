@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument, ListOperation,
-    MapOperation, OriginFrame, PackageId, ProtocolHeadRuleExtra, ProtocolHeadRuleResult,
-    ProvenanceRole, RangedOriginKind, SemanticRule, SemanticSortRef, SemanticTheory, SetOperation,
-    Sha256Digest, SourceFileId, StableItemId,
+    DescriptorHeadRule, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, ListOperation, MapOperation, OriginFrame, PackageId,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, SemanticRule,
+    SemanticSortRef, SemanticTheory, SetOperation, Sha256Digest, SourceFileId, StableItemId,
 };
 use krs_syntax::surface::{self, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream};
@@ -411,7 +411,7 @@ fn materialize_reference_variant_fields(
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
 ) -> Result<(), ReferenceExpansionError> {
-    let disambiguator = format!("enum:{family}");
+    let disambiguator = format!("{ENUM_VARIANT_DISAMBIGUATOR_PREFIX}{family}");
     let descriptors = bundle
         .descriptors
         .iter()
@@ -1357,7 +1357,10 @@ fn render_declared_application(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     let base = render_declared_path(id, package)?;
-    let Some(owner) = id.disambiguator().strip_prefix("enum:") else {
+    let Some(owner) = id
+        .disambiguator()
+        .strip_prefix(ENUM_VARIANT_DISAMBIGUATOR_PREFIX)
+    else {
         return Ok(base);
     };
     let owner = rust_ident(owner);

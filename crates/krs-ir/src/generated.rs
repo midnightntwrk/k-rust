@@ -103,11 +103,9 @@ pub fn generated_production_id(
         lower_hex(grammar_descriptor.disambiguator().as_bytes())
     );
 
-    StableItemId::new(
+    StableItemId::generated_production(
         grammar_descriptor.package().clone(),
         grammar_descriptor.module_path().iter().cloned(),
-        "__krs_generated_semantic_production",
-        ItemKind::Constructor,
         disambiguator,
     )
     .map_err(GeneratedProductionIdError::InvalidDerivedIdentity)

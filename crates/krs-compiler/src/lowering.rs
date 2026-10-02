@@ -359,7 +359,9 @@ impl NamingPass {
                 let id = LabelId::new(format!("rule:{}", lower_hex(owner.as_bytes())))?;
                 let name = rule.label().map_or_else(
                     || match rule.relational_body() {
-                        SemanticRuleBody::Term(_) => format!("krsRule_{}", short_hash(&owner)),
+                        SemanticRuleBody::Term(_) => {
+                            LabelIdentity::fallback_name(&short_hash(&owner))
+                        }
                         SemanticRuleBody::Configuration(_) => lower_camel(rule.id().item_name()),
                     },
                     |label| label.name().to_owned(),
@@ -1502,8 +1504,8 @@ fn production_symbol_name(production: &krs_ir::SemanticProduction, owner: &str) 
     if let Some(symbol) = production.explicit_symbol() {
         return lower_camel(symbol.final_component());
     }
-    if production.id().item_name() == "__krs_generated_semantic_production" {
-        format!("krsGenerated_{}", short_hash(owner))
+    if production.id().is_generated_production() {
+        SymbolIdentity::generated_production_name(&short_hash(owner))
     } else {
         lower_camel(production.id().item_name())
     }
