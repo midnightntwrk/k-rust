@@ -532,6 +532,17 @@ impl Grammar {
             .count()
     }
 
+    /// Whether some production of the grammar declares the terminal `terminal` among its items.
+    #[cfg(test)]
+    pub(crate) fn has_production_with_terminal(&self, terminal: &str) -> bool {
+        self.productions.iter().any(|production| {
+            production
+                .declared_items
+                .iter()
+                .any(|item| matches!(item, ProductionItem::Terminal(text) if text == terminal))
+        })
+    }
+
     pub(in crate::inner) fn scanner(&self) -> &Scanner {
         &self.scanner
     }

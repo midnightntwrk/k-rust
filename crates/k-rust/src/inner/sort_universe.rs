@@ -95,11 +95,9 @@ impl SortUniverse {
     /// written with the alias, typed by the target. A synonym whose target is not a sort of the
     /// grammar has no casts: they would be typed by a sort no production derives or accepts.
     pub(in crate::inner) fn synonym_casts(&self) -> impl Iterator<Item = CastTarget> + '_ {
-        self.synonyms.iter().map(|(alias, target)| CastTarget {
-            cast: alias.clone(),
-            label: target.clone(),
-            outer_inner: KernelSort::K.sort(),
-        })
+        self.synonyms
+            .iter()
+            .map(|(alias, target)| CastTarget::new(alias.clone(), target.clone()))
     }
 
     /// Whether `sort` is a member or the alias of a synonym whose target is a sort of the grammar:
@@ -213,46 +211,40 @@ impl GrammarSort {
 ///
 /// `cast` is the sort written after `::`, `:` and `:>`, and the result of the syntactic casts
 /// `::`; `label` is the operand sort of `::` and `:`, the result of `:` and `:>`, and names the
-/// semantic cast; `outer_inner` is the operand sort of `:>`. A synonym's casts are written with
-/// the alias and typed by the target, because the alias is a spelling of the target.
+/// semantic cast. A synonym's casts are written with the alias and typed by the target, because
+/// the alias is a spelling of the target.
+///
+/// The projection cast `{K}:>cast` lowers to `project:label` applied to its `K` operand.
+/// Compilation declares `project:label` exactly when the role of `label` has a sort projection
+/// ([`SortRole::has_sort_projection`]), so the family has the projection cast exactly then:
+/// `projects` is decided once, in [`CastTarget::new`], from that predicate.
 pub(in crate::inner) struct CastTarget {
     cast: Sort,
     label: Sort,
-    outer_inner: Sort,
+    projects: bool,
 }
 
 impl CastTarget {
-    /// The casts of a grammar sort: written with and typed by the sort, and `{K}:>S` projects any
-    /// `K` term to it.
-    pub(in crate::inner) fn member(sort: &GrammarSort) -> Self {
+    /// The casts written with `cast` and typed by `label`. The projection cast is among them
+    /// exactly when `label`'s role has a sort projection, the condition under which compilation
+    /// declares the `project:label` it lowers to.
+    fn new(cast: Sort, label: Sort) -> Self {
+        let projects = label.role().has_sort_projection();
         Self {
-            cast: sort.sort.clone(),
-            label: sort.sort.clone(),
-            outer_inner: KernelSort::K.sort(),
+            cast,
+            label,
+            projects,
         }
     }
 
-    /// The casts of a kernel sort in the fixed kernel syntax. `KLabel` and `KList` are not sorts
-    /// of `K` terms, so `:>` into them starts from a term of the same sort; every other kernel
-    /// sort is projected from `K`.
+    /// The casts of a grammar sort: written with and typed by the sort.
+    pub(in crate::inner) fn member(sort: &GrammarSort) -> Self {
+        Self::new(sort.sort.clone(), sort.sort.clone())
+    }
+
+    /// The casts of a kernel sort in the fixed kernel syntax: written with and typed by the sort.
     pub(in crate::inner) fn kernel(kernel: KernelSort) -> Self {
-        let outer_inner = match kernel {
-            KernelSort::KLabel => KernelSort::KLabel,
-            KernelSort::KList => KernelSort::KList,
-            KernelSort::K
-            | KernelSort::KItem
-            | KernelSort::KConfigVar
-            | KernelSort::KBott
-            | KernelSort::KString
-            | KernelSort::Bag
-            | KernelSort::Cell
-            | KernelSort::Bool => KernelSort::K,
-        };
-        Self {
-            cast: kernel.sort(),
-            label: kernel.sort(),
-            outer_inner: outer_inner.sort(),
-        }
+        Self::new(kernel.sort(), kernel.sort())
     }
 
     pub(in crate::inner) fn cast(&self) -> &Sort {
@@ -263,8 +255,10 @@ impl CastTarget {
         &self.label
     }
 
-    pub(in crate::inner) fn outer_inner(&self) -> &Sort {
-        &self.outer_inner
+    /// The operand sort of the projection cast `{K}:>cast`, which is `K`, or `None` when the
+    /// family has no projection cast because compilation declares no `project:label`.
+    pub(in crate::inner) fn projection_operand(&self) -> Option<Sort> {
+        self.projects.then(|| KernelSort::K.sort())
     }
 }
 
@@ -288,7 +282,7 @@ pub(in crate::inner) struct RuleMemberProductions {
     pub(in crate::inner) kitem_subsort: bool,
     /// `S ::= KBott`, through which a variable stands at the sort.
     pub(in crate::inner) bottom_subsort: bool,
-    /// The four cast productions of [`CastTarget::member`].
+    /// The cast productions of [`CastTarget::member`].
     pub(in crate::inner) casts: bool,
     /// `S ::= "(" S ")"`.
     pub(in crate::inner) bracket: bool,
@@ -377,7 +371,7 @@ pub(in crate::inner) enum ScaffoldPosition {
 pub(in crate::inner) struct RuleKernelSeeds {
     /// `S ::= "(" S ")"`.
     pub(in crate::inner) bracket: bool,
-    /// The four cast productions of [`CastTarget::kernel`].
+    /// The cast productions of [`CastTarget::kernel`].
     pub(in crate::inner) casts: bool,
     /// The `#Rule` scaffolding of the portable build, and where it is added.
     #[cfg(not(feature = "z3-inference"))]
@@ -514,7 +508,7 @@ pub(in crate::inner) mod configuration {
         /// `S ::= KConfigVar` and `S ::= #KVariable`: a configuration variable and a variable
         /// stand at the sort.
         pub(in crate::inner) variable_subsorts: bool,
-        /// The four cast productions of [`CastTarget::member`](super::CastTarget::member).
+        /// The cast productions of [`CastTarget::member`](super::CastTarget::member).
         pub(in crate::inner) casts: bool,
     }
 
@@ -801,7 +795,7 @@ mod tests {
         assert_eq!(casts.len(), 1);
         assert_eq!(casts[0].cast(), &Sort::new("Wad"));
         assert_eq!(casts[0].label(), &Sort::new("Rat"));
-        assert_eq!(casts[0].outer_inner(), &Sort::new("K"));
+        assert_eq!(casts[0].projection_operand(), Some(Sort::new("K")));
         assert!(universe.member(&Sort::new("Wad")).is_none());
         #[cfg(debug_assertions)]
         {
@@ -858,25 +852,91 @@ mod tests {
         assert!(universe.admits(&Sort::new("Item")));
     }
 
+    /// The projection cast `{K}:>S` lowers to `project:S`, which compilation declares for `K`,
+    /// `KItem` and `Bool` and for no other kernel sort, so only their kernel casts have it.
     #[test]
-    fn kernel_casts_project_from_k_except_into_klabel_and_klist() {
+    fn kernel_casts_have_the_projection_cast_exactly_for_k_kitem_and_bool() {
         for kernel in KernelSort::ALL {
             let target = CastTarget::kernel(kernel);
             assert_eq!(target.cast(), &kernel.sort());
             assert_eq!(target.label(), &kernel.sort());
             let expected = match kernel {
-                KernelSort::KLabel | KernelSort::KList => kernel.sort(),
-                KernelSort::K
-                | KernelSort::KItem
-                | KernelSort::KConfigVar
+                KernelSort::K | KernelSort::KItem | KernelSort::Bool => Some(Sort::new("K")),
+                KernelSort::KConfigVar
                 | KernelSort::KBott
+                | KernelSort::KLabel
+                | KernelSort::KList
                 | KernelSort::KString
                 | KernelSort::Bag
-                | KernelSort::Cell
-                | KernelSort::Bool => Sort::new("K"),
+                | KernelSort::Cell => None,
             };
-            assert_eq!(target.outer_inner(), &expected, "{}", kernel.name());
+            assert_eq!(target.projection_operand(), expected, "{}", kernel.name());
         }
+    }
+
+    /// A defined member and a declared instance have a sort projection, so their casts include
+    /// `{K}:>S`; a numeral member has none, so its casts do not.
+    #[test]
+    fn member_casts_have_the_projection_cast_exactly_for_a_sort_with_a_projection() {
+        let sentences = [
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::new("8"),
+                items: vec![ProductionItem::Terminal("eight".into())],
+                attributes: Attributes::default(),
+            },
+            syntax_sort(Sort::new("Foo")),
+            syntax_sort(mint("8")),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        let projection_operand = |sort: &Sort| {
+            let member = universe
+                .member(sort)
+                .unwrap_or_else(|| panic!("{sort} is a member"));
+            CastTarget::member(&member).projection_operand()
+        };
+        assert_eq!(projection_operand(&Sort::new("8")), None);
+        assert_eq!(projection_operand(&Sort::new("Foo")), Some(Sort::new("K")));
+        assert_eq!(projection_operand(&mint("8")), Some(Sort::new("K")));
+    }
+
+    /// A synonym's projection cast lowers to the projection of its target, so a synonym of a
+    /// sort without a projection (`Bag`, a numeral member) has no projection cast; its other
+    /// casts remain.
+    #[test]
+    fn a_synonym_of_a_sort_without_a_projection_has_no_projection_cast() {
+        let synonym = |alias: &str, target: Sort| Sentence::SortSynonym {
+            new_sort: Sort::new(alias),
+            old_sort: target,
+            attributes: Attributes::default(),
+        };
+        let sentences = [
+            Sentence::Production {
+                label: None,
+                parameters: Vec::new(),
+                sort: Sort::new("8"),
+                items: vec![ProductionItem::Terminal("eight".into())],
+                attributes: Attributes::default(),
+            },
+            synonym("Bg", KernelSort::Bag.sort()),
+            synonym("W", Sort::new("8")),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+
+        let universe = SortUniverse::new(&visible);
+
+        let casts = universe.synonym_casts().collect::<Vec<_>>();
+        assert_eq!(casts.len(), 2);
+        assert_eq!(casts[0].cast(), &Sort::new("Bg"));
+        assert_eq!(casts[0].label(), &KernelSort::Bag.sort());
+        assert_eq!(casts[0].projection_operand(), None);
+        assert_eq!(casts[1].cast(), &Sort::new("W"));
+        assert_eq!(casts[1].label(), &Sort::new("8"));
+        assert_eq!(casts[1].projection_operand(), None);
     }
 
     fn every_role() -> Vec<SortRole> {

@@ -1768,8 +1768,11 @@ fn lower_term(production: &Production, children: &[Term]) -> Term {
         .label
         .clone()
         .unwrap_or_else(|| Label::new("#anonymous"));
-    // Scala's `TreeNodesToKORE` does not preserve the parser-only outer-cast label. It lowers
-    // `{term}:>Sort` to the sort projection generated for the cast's result sort.
+    // The outer-cast label is parser-only: `{term}:>Sort` reads `term` as a term of the cast's
+    // result sort, which is the sort projection of that sort. `add_casts` adds `#OuterCast`
+    // productions only for result sorts with a sort projection, so a generated production
+    // lowers to a declared `project:` label. A definition's own production labelled
+    // `#OuterCast` is not decided there and may still name an undeclared projection.
     if label.is(InternalLabel::OuterCast) {
         label = Label::projection(&production.result);
     }

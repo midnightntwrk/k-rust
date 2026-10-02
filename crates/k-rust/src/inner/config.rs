@@ -653,9 +653,11 @@ pub(super) fn add_synonym_casts(
     Ok(())
 }
 
-/// The four cast productions of `target`: `S ::= L "::S"`, `S ::= "{" L "}" "::S"`,
-/// `L ::= L ":S"` and `L ::= "{" I "}" ":>S"`, with `S` its cast, `L` its label and `I` its
-/// outer inner sort.
+/// The syntactic casts and the semantic cast of `target`, and the projection cast when its label
+/// sort has a sort projection: `S ::= L "::S"`, `S ::= "{" L "}" "::S"`, `L ::= L ":S"` and
+/// `L ::= "{" K "}" ":>S"`, with `S` its cast and `L` its label. The projection cast lowers to
+/// `project:L`, so it is added only when [`CastTarget::projection_operand`] gives its operand
+/// sort, which is exactly when compilation declares `project:L`.
 pub(super) fn add_casts(grammar: &mut Grammar, target: &CastTarget) -> Result<(), ParseError> {
     let cast_sort = target.cast();
     let label_sort = target.label();
@@ -712,21 +714,24 @@ pub(super) fn add_casts(grammar: &mut Grammar, target: &CastTarget) -> Result<()
             false,
         )?;
     }
-    grammar.add(
-        label_sort.clone(),
-        vec![
-            ProductionItem::Terminal("{".into()),
-            ProductionItem::NonTerminal {
-                sort: target.outer_inner().clone(),
-                name: None,
-            },
-            ProductionItem::Terminal("}".into()),
-            ProductionItem::Terminal(format!(":>{cast_sort}")),
-        ],
-        Some(Label::new("#OuterCast")),
-        false,
-        false,
-    )
+    if let Some(operand) = target.projection_operand() {
+        grammar.add(
+            label_sort.clone(),
+            vec![
+                ProductionItem::Terminal("{".into()),
+                ProductionItem::NonTerminal {
+                    sort: operand,
+                    name: None,
+                },
+                ProductionItem::Terminal("}".into()),
+                ProductionItem::Terminal(format!(":>{cast_sort}")),
+            ],
+            Some(Label::new("#OuterCast")),
+            false,
+            false,
+        )?;
+    }
+    Ok(())
 }
 
 pub(super) fn nonterminal(sort: &str) -> ProductionItem {

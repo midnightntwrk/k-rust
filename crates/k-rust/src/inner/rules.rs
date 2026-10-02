@@ -1718,4 +1718,107 @@ endmodule
             panic!("a configuration of a view that sees KAST loads: {error}");
         }
     }
+
+    /// The projection cast `{T}:>S` lowers to `project:S`, which compilation declares exactly for
+    /// the sorts with a sort projection, so the rule grammar offers it for those sorts and their
+    /// synonyms only. The syntactic and semantic casts lower to no compiled symbol and stay for
+    /// every sort, so `:8` and `::8` remain.
+    #[test]
+    fn the_rule_grammar_offers_the_projection_cast_only_for_a_sort_with_a_projection() {
+        let loaded = load_with_prelude(
+            r#"
+module MAIN
+  imports BOOL
+  syntax 8 ::= "eight"
+  syntax Foo ::= foo(8) | "done" | g(K) [function] | h(K)
+  syntax Bg = Bag
+  syntax Wad = Foo
+endmodule
+"#,
+        );
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+
+        for terminal in [":>Foo", ":>Wad", ":>K", ":>KItem", ":>Bool", ":8", "::8"] {
+            assert!(
+                grammar.has_production_with_terminal(terminal),
+                "the rule grammar offers {terminal}"
+            );
+        }
+        for terminal in [":>8", ":>Bag", ":>Cell", ":>KLabel", ":>KList", ":>Bg"] {
+            assert!(
+                !grammar.has_production_with_terminal(terminal),
+                "the rule grammar offers {terminal}"
+            );
+        }
+
+        let loaded = load_with_prelude(KSEQ_IMPORTING_MAIN);
+        let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
+        assert!(!grammar.has_production_with_terminal(":>KString"));
+    }
+
+    /// Through the loader: a rule with a projection cast to a numeral or to `Bag` is rejected
+    /// while parsing, at the cast; a projection cast to a defined sort and a semantic cast to a
+    /// numeral load.
+    #[test]
+    fn a_rule_with_a_projection_cast_to_a_sort_without_a_projection_does_not_parse() {
+        let source = |rule: &str| {
+            format!(
+                r#"
+module MAIN
+  imports BOOL
+  syntax 8 ::= "eight"
+  syntax Foo ::= foo(8) | "done" | g(K) [function] | h(K) | bar(8) [function]
+  {rule}
+endmodule
+"#
+            )
+        };
+        for rule in ["rule g(X) => foo({X}:>8)", "rule g(X) => h({X}:>Bag)"] {
+            match try_load_with_prelude(&source(rule)) {
+                Ok(_) => panic!("`{rule}` loads"),
+                Err(error) => {
+                    let error = error.to_string();
+                    assert!(error.contains("could not parse rule"), "{rule}: {error}");
+                }
+            }
+        }
+        for rule in ["rule g(X) => h({X}:>Foo)", "rule bar(X:8) => foo(X)"] {
+            if let Err(error) = try_load_with_prelude(&source(rule)) {
+                panic!("`{rule}` loads: {error}");
+            }
+        }
+    }
+
+    /// The configuration grammar offers the projection cast under the same condition, so a
+    /// configuration with `{T}:>8` is rejected while parsing, and one with `{T}:>Foo` loads.
+    #[test]
+    fn a_configuration_with_a_projection_cast_to_a_numeral_does_not_parse() {
+        let source = |configuration: &str| {
+            format!(
+                r#"
+module MAIN
+  imports BOOL
+  syntax 8 ::= "eight"
+  syntax Foo ::= foo(8) | "done"
+  {configuration}
+endmodule
+"#
+            )
+        };
+        let rejected = "configuration <k> foo({eight}:>8) </k>";
+        match try_load_with_prelude(&source(rejected)) {
+            Ok(_) => panic!("`{rejected}` loads"),
+            Err(error) => {
+                let error = error.to_string();
+                assert!(
+                    error.contains("could not parse configuration"),
+                    "{rejected}: {error}"
+                );
+            }
+        }
+        let accepted = "configuration <k> {done}:>Foo </k>";
+        if let Err(error) = try_load_with_prelude(&source(accepted)) {
+            panic!("`{accepted}` loads: {error}");
+        }
+    }
 }
