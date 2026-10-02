@@ -1,6 +1,6 @@
-//! These definition checks traverse module sentences and terms linearly, plus one closure-free cycle search per module view for the kernel sort positions; callers supply derived catalogs and no dedicated counter is recorded.
+//! These definition checks traverse module sentences and terms linearly, plus one closure-free cycle search for kernel sort positions and one synonym closure per module view; callers supply derived catalogs and no dedicated counter is recorded.
 //!
-//! Sort, user-list and kernel-sort-position checks performed while outer modules are constructed.
+//! Sort, synonym, user-list and kernel-sort-position checks performed while outer modules are constructed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,6 +9,7 @@ use super::super::relations::{disambiguation_subsort_pairs, states_disambiguatio
 use super::super::sort_catalog::SortShape;
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
+    SortSynonyms, Spelling, SynonymDefect,
 };
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
@@ -16,7 +17,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, Sort, SortRole};
 
-/// Java `Module.checkSorts` (`outer.scala:486-516`).
+/// Check declared sort shapes and nonterminal denotations in the module's view.
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -54,6 +55,14 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                         let ProductionItem::NonTerminal { sort, .. } = item else {
                             return None;
                         };
+                        if parameters.contains(sort) {
+                            return None;
+                        }
+                        let sort = match sorts.sort_synonyms().spelling(sort) {
+                            Spelling::Sort => sort,
+                            Spelling::Synonym { denotes } => denotes,
+                            Spelling::Undenoted => return None,
+                        };
                         match SortShape::of(sort, parameters) {
                             // A nested operand names no instance, so it is reported as nested
                             // and not also as a missing sort.
@@ -68,9 +77,8 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                             | SortShape::UnsupportedHead => {}
                         }
                         let head = SortHead::from(sort);
-                        let missing_head = !parameters.contains(sort)
-                            && !sorts.defined_heads().contains(&head)
-                            && !sorts.synonym_map().contains_key(sort);
+                        let missing_head =
+                            !parameters.contains(sort) && !sorts.defined_heads().contains(&head);
                         // An operand that mentions no formal parameter at any depth names one
                         // sort, so it must be a declared instance; one that mentions a parameter
                         // names a family and is instantiated with the production.
@@ -118,8 +126,8 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
 /// `parameters`, against the admitted shapes ([`SortShape`]).
 ///
 /// A declared instance `MInt{a}` whose argument is not a formal parameter must name a width or a
-/// sort the module knows: its argument is judged as an operand would be, so it is a numeral, a
-/// defined sort head or a synonym alias.
+/// sort the module knows: a numeral or a defined sort head. A synonym argument is rejected because application does not rewrite inside
+/// sort arguments.
 fn check_declared_sort(
     sort: &Sort,
     parameters: &[Sort],
@@ -130,18 +138,29 @@ fn check_declared_sort(
     match SortShape::of(sort, parameters) {
         SortShape::UnsupportedHead => diagnostics.push(unsupported_head(sort, sentence)),
         SortShape::NestedArgument => diagnostics.push(nested_argument(sort, sentence)),
-        SortShape::Instance { argument } => {
-            if argument.role() != SortRole::Nat
-                && !sorts.defined_heads().contains(&SortHead::from(argument))
-                && !sorts.synonym_map().contains_key(argument)
-            {
+        SortShape::Instance { argument } => match sorts.sort_synonyms().spelling(argument) {
+            Spelling::Sort => {
+                if argument.role() != SortRole::Nat
+                    && !sorts.defined_heads().contains(&SortHead::from(argument))
+                {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::UndefinedSort,
+                        format!("Could not find sorts: [{argument}]"),
+                        sentence,
+                    ));
+                }
+            }
+            Spelling::Synonym { denotes } => {
                 diagnostics.push(Diagnostic::error(
                     DiagnosticCode::UndefinedSort,
-                    format!("Could not find sorts: [{argument}]"),
+                    format!(
+                        "Could not find sorts: [{argument}] ({argument} is a sort synonym of {denotes}, and synonyms are not applied inside the arguments of {sort})"
+                    ),
                     sentence,
                 ));
             }
-        }
+            Spelling::Undenoted => {}
+        },
         SortShape::Parameter | SortShape::Nullary | SortShape::Schematic { .. } => {}
     }
 }
@@ -160,6 +179,105 @@ fn nested_argument(sort: &Sort, sentence: &Sentence) -> Diagnostic {
         format!("Nested parametric sorts are currently unsupported: {sort}"),
         sentence,
     )
+}
+
+/// Report each synonym defect once, at the first module whose view contains it.
+/// Views only grow under import, so an importer does not repeat its importee's defect.
+pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut reported = BTreeSet::new();
+    for (module_id, module) in definition.modules() {
+        let synonyms = SortSynonyms::of_module(definition, module_id);
+        for defect in synonyms.defects() {
+            let (declarations, message) = match defect {
+                SynonymDefect::Cycle { declarations } => {
+                    let equations = declarations
+                        .iter()
+                        .map(|sentence| {
+                            let Sentence::SortSynonym {
+                                new_sort, old_sort, ..
+                            } = sentence
+                            else {
+                                unreachable!("a synonym cycle contains only synonym declarations");
+                            };
+                            format!("{new_sort} = {old_sort}{}", synonym_location(sentence))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (
+                        declarations.clone(),
+                        format!("sort synonyms {equations} form a cycle, so they denote no sort"),
+                    )
+                }
+                SynonymDefect::Ambiguous {
+                    alias,
+                    declarations,
+                } => {
+                    let denotations = declarations
+                        .iter()
+                        .map(|(sentence, denotes)| {
+                            format!("{denotes}{}", synonym_location(sentence))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" and ");
+                    (
+                        declarations.iter().map(|(sentence, _)| *sentence).collect(),
+                        format!(
+                            "sort synonym {alias} denotes both {denotations} in the view of module {}",
+                            module.name
+                        ),
+                    )
+                }
+            };
+            // A view may order the same declarations differently; their origins and equations,
+            // not that order, identify the defect already reported by an importee.
+            let key = declarations
+                .iter()
+                .map(|sentence| {
+                    let Sentence::SortSynonym {
+                        new_sort, old_sort, ..
+                    } = sentence
+                    else {
+                        unreachable!("a synonym defect contains only synonym declarations");
+                    };
+                    (
+                        new_sort.clone(),
+                        old_sort.clone(),
+                        sentence.attributes().source().map(str::to_owned),
+                        sentence.attributes().location(),
+                    )
+                })
+                .collect::<BTreeSet<_>>();
+            if reported.insert(key) {
+                let first = declarations
+                    .first()
+                    .expect("a synonym defect has at least one declaration");
+                diagnostics.push(Diagnostic::error(
+                    DiagnosticCode::InvalidSortSynonym,
+                    message,
+                    first,
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+fn synonym_location(sentence: &Sentence) -> String {
+    let attributes = sentence.attributes();
+    match (attributes.source(), attributes.location()) {
+        (Some(source), Some(location)) => {
+            format!(
+                " ({source}:{}:{})",
+                location.start_line, location.start_column
+            )
+        }
+        (Some(source), None) => format!(" ({source})"),
+        (None, Some(location)) => {
+            format!(" ({}:{})", location.start_line, location.start_column)
+        }
+        (None, None) => String::new(),
+    }
 }
 
 /// Java `Module.checkUserLists` (`outer.scala:518-534`).
@@ -463,6 +581,7 @@ fn declared_step_text(sentence: &Sentence, lesser: &Sort, greater: &Sort) -> Str
 /// Run the outer-module checks over every module in dependency order: the sorts and user lists
 /// each module declares, and the kernel sort positions of each module view's declared subsorts,
 /// leaving declared steps of previously reported kernel-position contradictions out of later searches.
+/// Synonym cycles and ambiguities are reported once at the first module whose view contains them.
 pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut reported_kernel_contradictions = BTreeSet::new();
@@ -476,6 +595,7 @@ pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
             &mut reported_kernel_contradictions,
         ));
     }
+    diagnostics.extend(check_sort_synonyms(definition));
     diagnostics
 }
 

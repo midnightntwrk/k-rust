@@ -2659,6 +2659,7 @@ fn check_sorts_accepts_variables_synonyms_and_declared_instantiations() {
                     old_sort: Sort::new("Original"),
                     attributes: Attributes::default(),
                 },
+                syntax_sort(Sort::new("Original")),
                 syntax_sort(mint_six.clone()),
                 Sentence::Production {
                     label: None,
@@ -2689,6 +2690,140 @@ fn check_sorts_accepts_variables_synonyms_and_declared_instantiations() {
         outer_sort_diagnostics(&diagnostics).is_empty(),
         "{diagnostics:#?}"
     );
+}
+
+#[test]
+fn check_sorts_finds_a_synonym_operand_by_its_denotation() {
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("Alias"),
+                    old_sort: Sort::new("Original"),
+                    attributes: Attributes::default(),
+                },
+                production(None, "SynonymResult", &["Alias"], Attributes::default()),
+            ],
+        )],
+    );
+
+    assert_eq!(
+        outer_sort_diagnostics(&diagnostics)
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>(),
+        ["Could not find sorts: [Original]"]
+    );
+}
+
+#[test]
+fn check_sorts_rejects_a_synonym_as_a_sort_argument() {
+    let mint = |argument| Sort::with_parameters("MInt", vec![Sort::new(argument)]);
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Int")),
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("Alias"),
+                    old_sort: Sort::new("Int"),
+                    attributes: Attributes::default(),
+                },
+                syntax_sort(mint("Alias")),
+            ],
+        )],
+    );
+    let sort_diagnostics = outer_sort_diagnostics(&diagnostics);
+    assert_eq!(sort_diagnostics.len(), 1, "{diagnostics:#?}");
+    assert!(
+        sort_diagnostics[0]
+            .message
+            .starts_with("Could not find sorts: [Alias]")
+    );
+    assert!(sort_diagnostics[0].message.contains("sort synonym"));
+
+    let control = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![syntax_sort(Sort::new("Int")), syntax_sort(mint("Int"))],
+        )],
+    );
+    assert!(outer_sort_diagnostics(&control).is_empty(), "{control:#?}");
+}
+
+#[test]
+fn check_sort_synonyms_reports_each_defect_once() {
+    let synonym = |alias, referent| Sentence::SortSynonym {
+        new_sort: Sort::new(alias),
+        old_sort: Sort::new(referent),
+        attributes: Attributes::default(),
+    };
+    let modules = vec![
+        outer_check_module("CYC", &[], vec![synonym("A", "B"), synonym("B", "A")]),
+        outer_check_module("USER", &["CYC"], vec![]),
+        outer_check_module("L", &[], vec![synonym("X", "Int")]),
+        outer_check_module("R", &[], vec![synonym("X", "Bool")]),
+        outer_check_module("BOTH", &["L", "R"], vec![]),
+        outer_check_module("TOP", &["USER", "BOTH"], vec![]),
+    ];
+    let resolved = resolved_definition("TOP", modules.clone());
+    let diagnostics = k_rust::definition::check_sort_synonyms(&resolved);
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+    );
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains('A')
+            && diagnostic.message.contains('B')
+            && diagnostic.message.contains("cycle")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        ["X", "Int", "Bool", "BOTH"]
+            .iter()
+            .all(|name| diagnostic.message.contains(name))
+    }));
+
+    let compiled = k_rust::definition::check_definition_with_options(
+        &resolved,
+        k_rust::definition::StructuralCheckOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        compiled
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+            .count(),
+        2,
+        "{compiled:#?}"
+    );
+
+    let outer = outer_check_diagnostics("TOP", modules);
+    assert_eq!(
+        outer
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+            .count(),
+        2
+    );
+    for diagnostic in diagnostics {
+        assert_eq!(
+            outer
+                .iter()
+                .filter(|candidate| *candidate == &diagnostic)
+                .count(),
+            1,
+            "{outer:#?}"
+        );
+    }
 }
 
 #[test]

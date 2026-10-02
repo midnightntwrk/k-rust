@@ -116,6 +116,13 @@ Every instance notion the frontend builds (declared instances, the instance an o
 Any other parametric head or arity (`MInt{A, B}`) is rejected when the definition is loaded with `User-defined parametric sorts are currently unsupported: MInt{A,B}`, a nested parametric sort (`MInt{MInt{W}}`, `MInt{MInt{8}}`) with `Nested parametric sorts are currently unsupported: MInt{MInt{W}}`, and a declared instance with an undeclared argument (`MInt{Foo}`) with `Could not find sorts: [Foo]`.
 This is a recorded divergence from the pinned K frontend: it accepts a nested parametric declaration that nothing uses (`syntax {W} MInt{MInt{W}}`), and Rust rejects it by the same rule, since a nested sort names no width wherever it is written.
 
+A sort synonym is a spelling of the sort at the end of its chain in the module's full view, including private imports.
+Production result and nonterminal sorts use that denotation; a production's own sort parameter shadows a synonym of the same spelling.
+A cycle, or one alias with two denotations in a view, is rejected at load with `InvalidSortSynonym`, whether used or not: those equations name no unique sort.
+A synonym inside a sort argument is rejected, because application rewrites whole production sorts and the alias itself declares no sort.
+Casts currently use the denotation of a single-step synonym; support for chains and private intermediate aliases in casts is pending FU-10-T2.
+The pinned frontend applies one step, so a chain fails backend validation with `Sort 'SortB' not defined`, and rewrites a sort that a production parameter binds; these are recorded divergences.
+
 ## Variable sort annotations
 
 A semantic cast `t:S` requires the sort of `t` to be less than or equal to `S` (K user manual, "Semantic casts"); on a variable this is an upper bound, in both inference engines.

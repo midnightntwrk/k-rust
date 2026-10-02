@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ast::{Attributes, Sentence};
 use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
+use super::synonyms::SortSynonyms;
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::mentions_parameter;
 use crate::kast::{FrontendSort, Sort};
@@ -32,8 +33,7 @@ use crate::names::BuiltinSort;
 pub struct SortCatalog<'a> {
     declarations: Vec<&'a Sentence>,
     declarations_by_head: BTreeMap<SortHead, Vec<&'a Sentence>>,
-    synonyms: Vec<&'a Sentence>,
-    synonym_map: BTreeMap<Sort, Sort>,
+    synonyms: SortSynonyms<'a>,
     defined_heads: BTreeSet<SortHead>,
     instantiations: BTreeMap<SortHead, BTreeSet<Sort>>,
     all_sorts: BTreeSet<Sort>,
@@ -57,11 +57,7 @@ impl<'a> SortCatalog<'a> {
             .copied()
             .filter(|sentence| matches!(sentence, Sentence::SyntaxSort { .. }))
             .collect::<Vec<_>>();
-        let synonyms = sentences
-            .iter()
-            .copied()
-            .filter(|sentence| matches!(sentence, Sentence::SortSynonym { .. }))
-            .collect::<Vec<_>>();
+        let synonyms = SortSynonyms::of(sentences.iter().copied());
 
         let mut declarations_by_head = BTreeMap::<SortHead, Vec<&Sentence>>::new();
         for declaration in &declarations {
@@ -72,17 +68,6 @@ impl<'a> SortCatalog<'a> {
                 .entry(SortHead::from(sort))
                 .or_default()
                 .push(declaration);
-        }
-
-        let mut synonym_map = BTreeMap::new();
-        for synonym in &synonyms {
-            let Sentence::SortSynonym {
-                new_sort, old_sort, ..
-            } = synonym
-            else {
-                unreachable!()
-            };
-            synonym_map.insert(new_sort.clone(), old_sort.clone());
         }
 
         let instantiations = compute_instantiations(&sentences, &declarations);
@@ -205,7 +190,6 @@ impl<'a> SortCatalog<'a> {
             declarations,
             declarations_by_head,
             synonyms,
-            synonym_map,
             defined_heads,
             instantiations,
             all_sorts,
@@ -237,12 +221,9 @@ impl<'a> SortCatalog<'a> {
             .map_or(&[], Vec::as_slice)
     }
 
-    pub fn synonyms(&self) -> impl ExactSizeIterator<Item = &'a Sentence> + '_ {
-        self.synonyms.iter().copied()
-    }
-
-    pub fn synonym_map(&self) -> &BTreeMap<Sort, Sort> {
-        &self.synonym_map
+    /// Closed denotations of the synonym declarations in this catalog's view.
+    pub fn sort_synonyms(&self) -> &SortSynonyms<'a> {
+        &self.synonyms
     }
 
     pub fn defined_heads(&self) -> &BTreeSet<SortHead> {

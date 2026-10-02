@@ -390,7 +390,7 @@ reason = "runnable-artifact write and load; the JSON encoding it calls is a site
 [[without_primary_card]]
 files = ["crates/k-rust/src/definition/synonyms.rs"]
 classification = "responsibility-only"
-reason = "the apply-sort-synonyms load phase: a resolve, one pass over local productions, and an update, each carried by definition.resolve.imports"
+reason = "the apply-sort-synonyms load phase: per-module closure of the visible synonym declarations, then application to local productions, with resolve and update carried by definition.resolve.imports"
 
 [[without_primary_card]]
 files = ["crates/k-rust/src/outer/mod.rs"]

@@ -71,7 +71,7 @@ pub use rhs_variables::{
 pub(crate) use rhs_variables::{CheckedRoot, right_hand_side_binding};
 pub(crate) use rhs_variables::{FreeVariable, local_function_free_variables};
 pub(crate) use sorts::kernel_position_cycle;
-pub use sorts::{check_outer_modules, check_sorts, check_user_lists};
+pub use sorts::{check_outer_modules, check_sort_synonyms, check_sorts, check_user_lists};
 
 const ALLOWED_TOKEN_ATTRIBUTES: [AttributeKey; 3] = [
     AttributeKey::Function,
@@ -206,6 +206,7 @@ pub fn check_definition_with_options(
             sort_catalog,
         )?);
     }
+    diagnostics.extend(check_sort_synonyms(definition));
     diagnostics.extend(check_duplicate_klabels(definition));
     diagnostics.extend(check_unused_symbols_with_views(&views, &options));
     diagnostics.extend(check_duplicate_overloads_with_views(&views));

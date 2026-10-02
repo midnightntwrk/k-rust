@@ -1590,3 +1590,172 @@ fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extr
         (base_source, "b => a")
     );
 }
+
+#[test]
+fn a_synonym_chain_is_applied_to_its_end() {
+    let source = indoc! {r#"
+        module MAIN
+        syntax Num ::= "zero" [symbol(zero)]
+        syntax B = Num
+        syntax A = B
+        syntax Foo ::= g(A) [symbol(g)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let loaded = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+    let production = loaded.definition().main_module().unwrap().local_sentences.iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Production { label: Some(label), .. } if label.name == "g"))
+        .unwrap();
+    let Sentence::Production { items, .. } = &**production else {
+        panic!("expected g production")
+    };
+    let arguments = items
+        .iter()
+        .filter_map(|item| {
+            if let ProductionItem::NonTerminal { sort, .. } = item {
+                Some(sort)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(arguments, [&k_rust::kast::Sort::new("Num")]);
+}
+
+#[test]
+fn a_private_import_chain_is_applied_to_its_end() {
+    let source = indoc! {r#"
+        module M0
+        syntax Num ::= "zero" [symbol(zero)]
+        syntax B = Num
+        endmodule
+        module M1
+        imports private M0
+        syntax A = B
+        endmodule
+        module MAIN
+        imports M1
+        syntax Foo ::= g(A) [symbol(g)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let loaded = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+    let production = loaded.definition().main_module().unwrap().local_sentences.iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Production { label: Some(label), .. } if label.name == "g"))
+        .unwrap();
+    let Sentence::Production { items, .. } = &**production else {
+        panic!("expected g production")
+    };
+    let arguments = items
+        .iter()
+        .filter_map(|item| {
+            if let ProductionItem::NonTerminal { sort, .. } = item {
+                Some(sort)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(arguments, [&k_rust::kast::Sort::new("Num")]);
+}
+
+#[test]
+fn cyclic_sort_synonyms_are_rejected_at_load() {
+    for source in [
+        indoc! {r#"
+            module MAIN
+            syntax A = B
+            syntax B = A
+            syntax Foo ::= "foo"
+            endmodule
+        "#},
+        indoc! {r#"
+            module MAIN
+            syntax A = A
+            endmodule
+        "#},
+    ] {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        let result = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver);
+        let Err(LoadError::SourceDiagnostics(diagnostics)) = result else {
+            panic!("expected source diagnostics for cyclic synonyms, load was accepted")
+        };
+        let defects = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+            .collect::<Vec<_>>();
+        assert_eq!(defects.len(), 1, "{diagnostics:#?}");
+        assert_eq!(defects[0].source.as_deref(), Some("main.k"));
+        assert_eq!(defects[0].location.unwrap().start_line, 2);
+    }
+}
+
+#[test]
+fn an_ambiguous_sort_synonym_is_rejected_at_load() {
+    let source = indoc! {r#"
+        module L
+        syntax Num ::= "zero"
+        syntax A = Num
+        endmodule
+        module R
+        syntax Bit ::= "one"
+        syntax A = Bit
+        endmodule
+        module MAIN
+        imports L
+        imports R
+        syntax Foo ::= g(A)
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let result = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver);
+    let Err(LoadError::SourceDiagnostics(diagnostics)) = result else {
+        panic!("expected source diagnostics for ambiguous synonym, load was accepted")
+    };
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+            .count(),
+        1,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn a_production_parameter_shadows_a_synonym_at_load() {
+    let source = indoc! {r#"
+        module MAIN
+        syntax Num ::= "zero"
+        syntax S = Num
+        syntax {S} S ::= myid(S) [function, symbol(myid)]
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let loaded = load(ResolvedSource::new("main.k", source), "MAIN", &mut resolver).unwrap();
+    let production = loaded.definition().main_module().unwrap().local_sentences.iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Production { label: Some(label), .. } if label.name == "myid"))
+        .unwrap();
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        ..
+    } = &**production
+    else {
+        panic!("expected myid production")
+    };
+    assert_eq!(parameters, &[k_rust::kast::Sort::new("S")]);
+    assert_eq!(sort, &k_rust::kast::Sort::new("S"));
+    let arguments = items
+        .iter()
+        .filter_map(|item| {
+            if let ProductionItem::NonTerminal { sort, .. } = item {
+                Some(sort)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(arguments, [&k_rust::kast::Sort::new("S")]);
+}

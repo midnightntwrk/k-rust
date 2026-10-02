@@ -61,8 +61,8 @@ pub use checks::{
     check_functions, check_holes, check_is_sort_predicates, check_k_terms, check_klabels,
     check_module, check_module_with_options, check_outer_modules, check_proof_module,
     check_regexes, check_rewrites, check_rhs_variables, check_singleton_overloads,
-    check_sort_top_uniqueness, check_sorts, check_streams, check_syntax_groups, check_tokens,
-    check_unused_symbols, check_user_lists,
+    check_sort_synonyms, check_sort_top_uniqueness, check_sorts, check_streams,
+    check_syntax_groups, check_tokens, check_unused_symbols, check_user_lists,
 };
 pub(crate) use configuration::expand_configurations_allowing_reserved_cells;
 pub use configuration::{
@@ -89,6 +89,6 @@ pub use relations::{
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
 pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
 pub use sort_catalog::SortCatalog;
-pub use synonyms::apply_sort_synonyms;
 pub(crate) use synonyms::apply_sort_synonyms_with_resolved;
+pub use synonyms::{SortSynonyms, Spelling, SynonymDefect, apply_sort_synonyms};
 pub use views::DefinitionViews;

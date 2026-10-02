@@ -31,7 +31,7 @@ fn synonym(new_sort: Sort, old_sort: Sort) -> Sentence {
 }
 
 #[test]
-fn applies_visible_synonyms_once_to_only_production_sorts() {
+fn applies_the_end_of_each_synonym_chain_to_only_production_sorts() {
     let alias = Sort::new("Alias");
     let expression = Sort::new("Exp");
     let term = Sort::new("Term");
@@ -44,7 +44,7 @@ fn applies_visible_synonyms_once_to_only_production_sorts() {
     };
     let production = Sentence::Production {
         label: Some(Label::new("wrap")),
-        parameters: vec![parameter.clone(), alias.clone()],
+        parameters: vec![parameter.clone()],
         sort: alias.clone(),
         items: vec![
             ProductionItem::Terminal("[".into()),
@@ -68,7 +68,7 @@ fn applies_visible_synonyms_once_to_only_production_sorts() {
                 &[],
                 vec![
                     synonym(alias.clone(), expression.clone()),
-                    synonym(expression.clone(), term),
+                    synonym(expression.clone(), term.clone()),
                 ],
             ),
             module("MAIN", &["BASE"], vec![production]),
@@ -90,15 +90,15 @@ fn applies_visible_synonyms_once_to_only_production_sorts() {
     };
 
     assert_eq!(label.as_ref().unwrap().name, "wrap");
-    assert_eq!(parameters, &[parameter, alias.clone()]);
-    assert_eq!(sort, &expression, "synonyms are applied only once");
+    assert_eq!(parameters, &[parameter]);
+    assert_eq!(sort, &term);
     assert_eq!(attributes, &production_attributes);
     assert_eq!(
         items,
         &[
             ProductionItem::Terminal("[".into()),
             ProductionItem::NonTerminal {
-                sort: expression,
+                sort: term,
                 name: Some("value".into()),
             },
             ProductionItem::NonTerminal {
@@ -222,67 +222,141 @@ fn reports_resolution_errors_before_transforming() {
     );
 }
 
+#[test]
+fn a_production_parameter_shadows_a_synonym_of_its_spelling() {
+    let alias = Sort::new("Alias");
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BASE", &[], vec![synonym(alias.clone(), Sort::new("Exp"))]),
+            module(
+                "MAIN",
+                &["BASE"],
+                vec![Sentence::Production {
+                    label: None,
+                    parameters: vec![alias.clone()],
+                    sort: alias.clone(),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: alias.clone(),
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                }],
+            ),
+        ],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = apply_sort_synonyms(&definition).unwrap();
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        ..
+    } = &*transformed.main_module().unwrap().local_sentences[0]
+    else {
+        panic!("expected production")
+    };
+    assert_eq!(parameters.as_slice(), std::slice::from_ref(&alias));
+    assert_eq!(sort, &alias);
+    assert_eq!(
+        items,
+        &[ProductionItem::NonTerminal {
+            sort: alias,
+            name: None
+        }]
+    );
+}
+
+#[test]
+fn undenoted_synonyms_are_left_in_place() {
+    let alias = Sort::new("A");
+    let referent = Sort::new("B");
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            &[],
+            vec![
+                synonym(alias.clone(), referent.clone()),
+                synonym(referent, alias.clone()),
+                Sentence::Production {
+                    label: None,
+                    parameters: vec![],
+                    sort: alias.clone(),
+                    items: vec![ProductionItem::NonTerminal {
+                        sort: alias.clone(),
+                        name: None,
+                    }],
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = apply_sort_synonyms(&definition).unwrap();
+    let Sentence::Production { sort, items, .. } = &*transformed.modules[0].local_sentences[2]
+    else {
+        panic!("expected production")
+    };
+    assert_eq!(sort, &alias);
+    assert_eq!(
+        items,
+        &[ProductionItem::NonTerminal {
+            sort: alias,
+            name: None
+        }]
+    );
+}
+
 proptest! {
     #[test]
-    fn synonym_application_is_an_exact_non_recursive_lookup(
-        alias_name in "[A-Z][A-Za-z0-9]{0,7}",
-        target_name in "[A-Z][A-Za-z0-9]{0,7}",
-        other_name in "[A-Z][A-Za-z0-9]{0,7}",
+    fn synonym_application_follows_chains_and_is_idempotent(
+        names in prop::collection::btree_set("[A-Z][A-Za-z0-9]{0,7}", 2..=5),
     ) {
-        prop_assume!(alias_name != target_name);
-        prop_assume!(alias_name != other_name);
-        let alias = Sort::new(alias_name);
-        let target = Sort::new(target_name);
-        let other = Sort::new(other_name);
+        let names = names.into_iter().map(Sort::new).collect::<Vec<_>>();
+        let alias = names.first().unwrap().clone();
+        let target = names.last().unwrap().clone();
         let nested = Sort::with_parameters("Box", vec![alias.clone()]);
+        let mut sentences = names.windows(2).rev()
+            .map(|pair| synonym(pair[0].clone(), pair[1].clone()))
+            .collect::<Vec<_>>();
+        sentences.push(Sentence::Production {
+            label: None,
+            parameters: vec![],
+            sort: alias.clone(),
+            items: vec![
+                ProductionItem::NonTerminal {
+                    sort: alias,
+                    name: None,
+                },
+                ProductionItem::NonTerminal {
+                    sort: nested.clone(),
+                    name: None,
+                },
+            ],
+            attributes: Attributes::default(),
+        });
         let definition = Definition {
             main_module: "MAIN".into(),
-            modules: vec![module(
-                "MAIN",
-                &[],
-                vec![
-                    synonym(alias.clone(), target.clone()),
-                    Sentence::Production {
-                        label: None,
-                        parameters: vec![alias.clone()],
-                        sort: alias,
-                        items: vec![
-                            ProductionItem::NonTerminal {
-                                sort: other.clone(),
-                                name: None,
-                            },
-                            ProductionItem::NonTerminal {
-                                sort: nested.clone(),
-                                name: None,
-                            },
-                        ],
-                        attributes: Attributes::default(),
-                    },
-                ],
-            )],
+            modules: vec![module("MAIN", &[], sentences)],
             attributes: Attributes::default(),
         };
 
         let transformed = apply_sort_synonyms(&definition).unwrap();
-        let Sentence::Production {
-            parameters,
-            sort,
-            items,
-            ..
-        } = &*transformed.modules[0].local_sentences[1]
+        let Sentence::Production { parameters, sort, items, .. } =
+            &**transformed.modules[0].local_sentences.last().unwrap()
         else {
             panic!("expected production")
         };
         prop_assert_eq!(sort, &target);
-        prop_assert_eq!(parameters, match &*definition.modules[0].local_sentences[1] {
-            Sentence::Production { parameters, .. } => parameters,
-            _ => unreachable!(),
-        });
+        prop_assert!(parameters.is_empty());
         prop_assert_eq!(
             items,
             &vec![
                 ProductionItem::NonTerminal {
-                    sort: other,
+                    sort: target,
                     name: None,
                 },
                 ProductionItem::NonTerminal {
@@ -291,5 +365,6 @@ proptest! {
                 },
             ]
         );
+        prop_assert_eq!(apply_sort_synonyms(&transformed).unwrap(), transformed);
     }
 }

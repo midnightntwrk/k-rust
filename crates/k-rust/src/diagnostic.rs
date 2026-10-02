@@ -176,6 +176,7 @@ diagnostic_codes! {
     InvalidSmtLemma => "InvalidSmtLemma",
     InvalidSemanticCast => "InvalidSemanticCast",
     InvalidSimplification => "InvalidSimplification",
+    InvalidSortSynonym => "InvalidSortSynonym",
     InvalidStreamCell => "InvalidStreamCell",
     InvalidStrictness => "InvalidStrictness",
     InvalidUnitAttribute => "InvalidUnitAttribute",
@@ -226,7 +227,57 @@ impl DiagnosticCode {
             Self::UnadmittedHookNamespace => Some(WarningCategory::MissingHook),
             Self::UnusedVariable => Some(WarningCategory::UnusedVar),
             Self::UnusedSymbol => Some(WarningCategory::UnusedSymbol),
-            _ => None,
+            Self::ClaimInDefinition
+            | Self::DuplicateSentenceLabel
+            | Self::DuplicateConfigurationCell
+            | Self::DuplicateKLabel
+            | Self::DuplicateUserList
+            | Self::InvalidAnonymousVariable
+            | Self::InvalidAttribute
+            | Self::InvalidAsPattern
+            | Self::InvalidBracketProduction
+            | Self::InvalidCommutativeSimplification
+            | Self::InvalidConstantFolding
+            | Self::InvalidCellConcretization
+            | Self::InvalidContext
+            | Self::InvalidExistentialVariable
+            | Self::InvalidFunctionPattern
+            | Self::InvalidFreshConstant
+            | Self::InvalidFunctionConfiguration
+            | Self::InvalidLocalFunction
+            | Self::InvalidHole
+            | Self::InvalidHeatCool
+            | Self::InvalidListDeclaration
+            | Self::InvalidMainCell
+            | Self::InvalidMacroExpansion
+            | Self::InvalidOrPattern
+            | Self::InvalidRegex
+            | Self::InvalidRewrite
+            | Self::InvalidIoStream
+            | Self::IsSortPredicateConflict
+            | Self::InvalidSmtLemma
+            | Self::InvalidSemanticCast
+            | Self::InvalidSimplification
+            | Self::InvalidSortSynonym
+            | Self::InvalidStreamCell
+            | Self::InvalidStrictness
+            | Self::InvalidUnitAttribute
+            | Self::IllegalFunctionOnLhs
+            | Self::InconsistentFunctionRuleAttributes
+            | Self::MultipleTopSorts
+            | Self::InvalidTokenProduction
+            | Self::InvalidDomainValue
+            | Self::KernelSortPosition
+            | Self::ProofModuleRule
+            | Self::ProofModuleSyntax
+            | Self::UnboundVariable
+            | Self::UnsupportedExistentialVariable
+            | Self::UnsupportedCellBag
+            | Self::UndefinedKLabel
+            | Self::UndeclaredTag
+            | Self::UndefinedSort
+            | Self::UnrecognizedAttribute
+            | Self::UnsupportedParametricSort => None,
         }
     }
 }

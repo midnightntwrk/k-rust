@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::definition::{
     AttributeConflict, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
-    ResolvedDefinition, Sentence, SortCatalog, SortHead,
+    ResolvedDefinition, Sentence, SortCatalog, SortHead, Spelling,
 };
 use k_rust::kast::{Label, Sort};
 use serde_json::{Value, json};
@@ -230,8 +230,10 @@ fn derives_synonym_hook_token_and_list_views() {
     let catalog = resolved.sort_catalog(resolved.main_module_id());
 
     assert_eq!(
-        catalog.synonym_map().get(&Sort::new("Nat")),
-        Some(&Sort::new("Int"))
+        catalog.sort_synonyms().spelling(&Sort::new("Nat")),
+        Spelling::Synonym {
+            denotes: &Sort::new("Int")
+        }
     );
     assert_eq!(catalog.hooks().get("Int"), Some(&"INT.Int".into()));
     assert_eq!(
