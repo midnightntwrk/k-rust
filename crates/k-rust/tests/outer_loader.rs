@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use indoc::indoc;
 use k_rust::definition::{ProductionItem, Sentence};
 use k_rust::diagnostic::{
-    DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
+    Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity, WarningCategory, WarningLevel,
 };
 use k_rust::kast::TermSpan;
 use k_rust::outer::{
@@ -1212,6 +1212,241 @@ fn load_rechecks_sorts_after_configuration_expansion() {
             && diagnostic.source.as_deref() == Some("checkCellSortDeclFail.k")
             && diagnostic.location.is_some()
     }));
+}
+
+/// Load `source` as `main.k` with the embedded prelude as its implicit source.
+fn load_with_prelude(
+    source: &str,
+    main_module: &str,
+) -> Result<k_rust::outer::LoadedDefinition, LoadError> {
+    let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    load_with_options(
+        ResolvedSource::new("main.k", source.to_owned()),
+        main_module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..LoadOptions::default()
+        },
+    )
+}
+
+/// The single `KernelSortPosition` error the load of `source` fails with, after checking that it
+/// is an error on line `line` of `main.k` and that it names `cycle`.
+fn kernel_sort_position_error(
+    source: &str,
+    main_module: &str,
+    line: u32,
+    cycle: &str,
+) -> Diagnostic {
+    let Err(error) = load_with_prelude(source, main_module) else {
+        panic!("{main_module} loads, but its declared subsorts contradict a kernel position");
+    };
+    let LoadError::SourceDiagnostics(diagnostics) = error else {
+        panic!("expected source diagnostics, got {error:?}");
+    };
+    let mut kernel = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::KernelSortPosition)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(kernel.len(), 1, "{diagnostics:#?}");
+    let diagnostic = kernel.pop().expect("one diagnostic");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.source.as_deref(), Some("main.k"));
+    let location = diagnostic.location.expect("the diagnostic has a location");
+    assert_eq!(location.start_line, line, "{diagnostic:#?}");
+    assert!(
+        diagnostic
+            .message
+            .contains(&format!("closing the cycle {cycle}:")),
+        "{diagnostic:#?}"
+    );
+    diagnostic
+}
+
+/// Load `source`, which states no kernel-position contradiction, and check that it loads.
+fn assert_loads_without_kernel_sort_position(source: &str, main_module: &str) {
+    let loaded = load_with_prelude(source, main_module)
+        .unwrap_or_else(|error| panic!("{main_module} loads: {error:?}"));
+    assert!(
+        loaded
+            .diagnostics()
+            .iter()
+            .all(|diagnostic| diagnostic.code != DiagnosticCode::KernelSortPosition),
+        "{:#?}",
+        loaded.diagnostics()
+    );
+}
+
+const C1_WITHOUT_ITS_CONTRADICTION: &str = indoc! {r#"
+    module C1
+      imports BASIC-K
+      syntax Exp ::= "a" | "b" | f(Exp) [function]
+      rule f(X) => X
+      configuration <k> $PGM:Exp </k>
+    endmodule
+"#};
+
+#[test]
+fn a_sort_of_k_items_declared_above_kitem_is_rejected_at_load_before_any_bubble() {
+    let source = indoc! {r#"
+        module C1
+          imports BASIC-K
+          syntax Exp ::= "a" | "b" | f(Exp) [function]
+          syntax Exp ::= KItem
+          rule f(X) => X
+          configuration <k> $PGM:Exp </k>
+        endmodule
+    "#};
+    let diagnostic = kernel_sort_position_error(source, "C1", 4, "KItem < Exp < KItem");
+    assert!(
+        diagnostic
+            .message
+            .contains("KItem < Exp is declared by `syntax Exp ::= KItem`"),
+        "{diagnostic:#?}"
+    );
+    assert!(
+        diagnostic
+            .message
+            .contains("Exp < KItem because every Exp is a KItem"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[test]
+fn a_sort_of_k_items_declared_above_kitem_is_rejected_without_a_bubble() {
+    let source = indoc! {r#"
+        module C3
+          imports BASIC-K
+          syntax Exp ::= "a" | "b"
+          syntax Exp ::= KItem
+        endmodule
+    "#};
+    kernel_sort_position_error(source, "C3", 4, "KItem < Exp < KItem");
+}
+
+#[test]
+fn a_sort_a_variable_stands_at_declared_below_kbott_is_rejected_at_load() {
+    let source = indoc! {r#"
+        module C5
+          imports BASIC-K
+          syntax Exp ::= "a" | "b"
+          syntax KBott ::= Exp
+          configuration <k> $PGM:Exp </k>
+        endmodule
+    "#};
+    let diagnostic = kernel_sort_position_error(source, "C5", 4, "Exp < KBott < Exp");
+    assert!(
+        diagnostic
+            .message
+            .contains("Exp < KBott is declared by `syntax KBott ::= Exp`; KBott < Exp because a variable may stand at Exp"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[test]
+fn a_contradiction_declared_in_an_import_is_reported_once_on_its_declaration() {
+    let source = indoc! {r#"
+        module A
+          imports BASIC-K
+          syntax Exp ::= "a" | "b"
+          syntax Exp ::= K
+        endmodule
+
+        module MAIN
+          imports A
+          syntax Stmt ::= Exp
+        endmodule
+    "#};
+    // Line 4 is A's `syntax Exp ::= K`; MAIN's view repeats the contradiction and is not reported
+    // again.
+    let diagnostic = kernel_sort_position_error(source, "MAIN", 4, "KItem < K < Exp < KItem");
+    assert!(
+        diagnostic
+            .message
+            .contains("K < Exp is declared by `syntax Exp ::= K`"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[test]
+fn a_contradiction_through_an_intermediate_declared_sort_is_rejected_at_load() {
+    let source = indoc! {r#"
+        module MAIN
+          imports BASIC-K
+          syntax #W ::= KItem
+          syntax Exp ::= #W
+          syntax Exp ::= "a"
+        endmodule
+    "#};
+    let diagnostic = kernel_sort_position_error(source, "MAIN", 3, "KItem < #W < Exp < KItem");
+    assert!(
+        diagnostic
+            .message
+            .contains("KItem < #W is declared by `syntax #W ::= KItem`"),
+        "{diagnostic:#?}"
+    );
+    assert!(
+        diagnostic
+            .message
+            .contains("#W < Exp is declared by `syntax Exp ::= #W`"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[test]
+fn a_contradiction_through_a_user_list_is_rejected_at_load() {
+    let source = indoc! {r#"
+        module MAIN
+          imports BASIC-K
+          syntax #W ::= KItem
+          syntax Ws ::= List{#W, ","}
+        endmodule
+    "#};
+    let diagnostic = kernel_sort_position_error(source, "MAIN", 3, "KItem < #W < Ws < KItem");
+    assert!(
+        diagnostic
+            .message
+            .contains("#W < Ws is declared by the user list Ws of #W"),
+        "{diagnostic:#?}"
+    );
+}
+
+#[test]
+fn declared_subsorts_consistent_with_the_kernel_positions_load() {
+    assert_loads_without_kernel_sort_position(
+        indoc! {r#"
+            module K4
+              imports KAST
+            endmodule
+        "#},
+        "K4",
+    );
+    assert_loads_without_kernel_sort_position(
+        indoc! {r#"
+            module MAIN
+              imports BASIC-K
+              syntax Exp ::= "a" | "b"
+              syntax KItem ::= Exp
+            endmodule
+        "#},
+        "MAIN",
+    );
+    assert_loads_without_kernel_sort_position(
+        indoc! {r#"
+            module MAIN
+              imports BASIC-K
+              syntax Exp ::= "a" | "b"
+              syntax K ::= Exp
+            endmodule
+        "#},
+        "MAIN",
+    );
+    assert_loads_without_kernel_sort_position(C1_WITHOUT_ITS_CONTRADICTION, "C1");
 }
 
 proptest! {

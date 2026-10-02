@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "definition.relations.build"
 //! name = "construction of subsort, overload, priority, and associativity relations"
-//! sites = ["compute_subsorts", "compute_disambiguation_subsorts", "compute_priorities", "compute_associativities", "compute_overloads", "ResolvedDefinition::subsorts", "ResolvedDefinition::overloads", "ResolvedDefinition::priorities"]
+//! sites = ["compute_subsorts", "compute_disambiguation_subsorts", "disambiguation_subsort_pairs", "compute_priorities", "compute_associativities", "compute_overloads", "ResolvedDefinition::subsorts", "ResolvedDefinition::overloads", "ResolvedDefinition::priorities"]
 //! variable = "P = productions; C = partial-order closure work; g_i = productions in overload group i; a = production arity; q = PartialOrder::less_than_eq cost; eq = sentence-equivalence cost; t_j = tags in associativity declaration j"
 //! counters = ["KompilePartialOrdersBuilt", "KompileProductionCatalogsBuilt", "KompileSentenceEquivalenceChecks"]
 //! consumes = [
@@ -101,28 +101,7 @@ pub fn compute_subsorts<'a>(
 ) -> Result<PartialOrder<Sort>, Cycle<Sort>> {
     let relations = sentences
         .into_iter()
-        .filter_map(|sentence| {
-            let Sentence::Production {
-                label,
-                parameters,
-                sort,
-                items,
-                ..
-            } = sentence
-            else {
-                return None;
-            };
-            let [
-                ProductionItem::NonTerminal {
-                    sort: child_sort, ..
-                },
-            ] = items.as_slice()
-            else {
-                return None;
-            };
-            (parameters.is_empty() && (label.is_none() || syntactic))
-                .then(|| (child_sort.clone(), sort.clone()))
-        })
+        .filter_map(|sentence| subsort_pair(sentence, syntactic))
         .collect::<BTreeSet<_>>();
     PartialOrder::new(relations)
 }
@@ -138,37 +117,96 @@ pub fn compute_disambiguation_subsorts(
     let mut relations = compute_subsorts(sentences.iter().copied(), false)?
         .direct_relations()
         .clone();
-    for sentence in sentences {
-        let Sentence::Production {
-            parameters,
-            sort,
-            items,
-            attributes,
-            ..
-        } = sentence
-        else {
-            continue;
-        };
-        if !parameters.is_empty() || !attributes.has(AttributeKey::UserList) {
-            continue;
-        }
-        let nonterminals = items
+    relations.extend(
+        sentences
             .iter()
-            .filter_map(|item| match item {
-                ProductionItem::NonTerminal { sort, .. } => Some(sort),
-                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
-            })
-            .collect::<Vec<_>>();
-        let child = match nonterminals.as_slice() {
-            [list, child] if *list == sort && *child != sort => Some(*child),
-            [child, list] if *list == sort && *child != sort => Some(*child),
-            _ => None,
-        };
-        if let Some(child) = child {
-            relations.insert((child.clone(), sort.clone()));
-        }
-    }
+            .filter_map(|sentence| user_list_subsort_pair(sentence)),
+    );
     PartialOrder::new(relations)
+}
+
+/// The direct pairs of [`compute_disambiguation_subsorts`]: the semantic subsort pairs of the
+/// unlabeled, non-parametric unary productions, plus `(element, list)` for every non-parametric
+/// user list.
+///
+/// No order is built, so a cyclic relation is returned as it is.
+pub(crate) fn disambiguation_subsort_pairs(sentences: &[&Sentence]) -> BTreeSet<(Sort, Sort)> {
+    sentences
+        .iter()
+        .flat_map(|sentence| disambiguation_subsort_pairs_of(sentence))
+        .collect()
+}
+
+/// Whether `sentence` states the pair `(lesser, greater)` of [`disambiguation_subsort_pairs`].
+pub(crate) fn states_disambiguation_subsort(
+    sentence: &Sentence,
+    lesser: &Sort,
+    greater: &Sort,
+) -> bool {
+    disambiguation_subsort_pairs_of(sentence)
+        .any(|(child, parent)| child == *lesser && parent == *greater)
+}
+
+fn disambiguation_subsort_pairs_of(sentence: &Sentence) -> impl Iterator<Item = (Sort, Sort)> {
+    subsort_pair(sentence, false)
+        .into_iter()
+        .chain(user_list_subsort_pair(sentence))
+}
+
+/// The `(child, sort)` pair a non-parametric unary production states: in the semantic relation
+/// only when it is unlabeled, in the syntactic relation always.
+fn subsort_pair(sentence: &Sentence, syntactic: bool) -> Option<(Sort, Sort)> {
+    let Sentence::Production {
+        label,
+        parameters,
+        sort,
+        items,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let [
+        ProductionItem::NonTerminal {
+            sort: child_sort, ..
+        },
+    ] = items.as_slice()
+    else {
+        return None;
+    };
+    (parameters.is_empty() && (label.is_none() || syntactic))
+        .then(|| (child_sort.clone(), sort.clone()))
+}
+
+/// The `(element, list)` pair a non-parametric user-list production states, which the rule
+/// grammar adds as `List ::= Element`.
+fn user_list_subsort_pair(sentence: &Sentence) -> Option<(Sort, Sort)> {
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    if !parameters.is_empty() || !attributes.has(AttributeKey::UserList) {
+        return None;
+    }
+    let nonterminals = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => Some(sort),
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let child = match nonterminals.as_slice() {
+        [list, child] if *list == sort && *child != sort => Some(*child),
+        [child, list] if *list == sort && *child != sort => Some(*child),
+        _ => None,
+    };
+    child.map(|child| (child.clone(), sort.clone()))
 }
 
 /// Compute Scala's priority order from adjacent syntax-priority blocks.

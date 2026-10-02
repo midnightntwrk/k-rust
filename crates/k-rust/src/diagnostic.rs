@@ -173,6 +173,7 @@ diagnostic_codes! {
     InvalidRewrite => "InvalidRewrite",
     InvalidIoStream => "InvalidIoStream",
     IsSortPredicateConflict => "IsSortPredicateConflict",
+    KernelSortPosition => "KernelSortPosition",
     InvalidSmtLemma => "InvalidSmtLemma",
     InvalidSemanticCast => "InvalidSemanticCast",
     InvalidSimplification => "InvalidSimplification",

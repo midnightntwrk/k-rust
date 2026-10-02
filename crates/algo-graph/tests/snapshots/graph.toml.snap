@@ -3246,9 +3246,18 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/partial_order.rs"
 symbol = "find_cycle"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/partial_order.rs"
+symbol = "first_cycle"
+
 [[node.cost]]
 mode = "one partial order"
 bound = "O((V + E) log V + C log V)"
+
+[[node.cost]]
+mode = "first_cycle of a relation"
+bound = "O((V + E) log V); no closure is computed and no partial order is counted"
 
 [[node.cost]]
 mode = "upper_bounds or lower_bounds of a nonempty set S"
@@ -3639,6 +3648,11 @@ symbol = "compute_subsorts"
 crate = "k-rust"
 file = "crates/k-rust/src/definition/relations.rs"
 symbol = "compute_disambiguation_subsorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/relations.rs"
+symbol = "disambiguation_subsort_pairs"
 
 [[node.sites]]
 crate = "k-rust"

@@ -1,13 +1,17 @@
 //! ```toml algorithm
 //! id = "definition.order.partial"
 //! name = "finite partial-order construction and closure"
-//! sites = ["PartialOrder", "PartialOrder::new", "find_cycle"]
+//! sites = ["PartialOrder", "PartialOrder::new", "find_cycle", "first_cycle"]
 //! variable = "V = elements; E = direct relations; C = sum over direct relations (a, b) of 1 + |closure(b)|, the elements cloned and inserted into closure sets"
 //! counters = ["KompilePartialOrdersBuilt"]
 //!
 //! [[cost]]
 //! mode = "one partial order"
 //! bound = "O((V + E) log V + C log V)"
+//!
+//! [[cost]]
+//! mode = "first_cycle of a relation"
+//! bound = "O((V + E) log V); no closure is computed and no partial order is counted"
 //!
 //! [[cost]]
 //! mode = "upper_bounds or lower_bounds of a nonempty set S"
@@ -84,23 +88,7 @@ impl<T: Ord> Eq for PartialOrder<T> {}
 impl<T: Clone + Ord> PartialOrder<T> {
     pub fn new(relations: impl IntoIterator<Item = (T, T)>) -> Result<Self, Cycle<T>> {
         let direct = relations.into_iter().collect::<BTreeSet<_>>();
-        let elements = direct
-            .iter()
-            .flat_map(|(lesser, greater)| [lesser.clone(), greater.clone()])
-            .collect::<BTreeSet<_>>();
-
-        let mut graph = DiGraph::<T, ()>::new();
-        let nodes = elements
-            .iter()
-            .cloned()
-            .map(|element| {
-                let node = graph.add_node(element.clone());
-                (element, node)
-            })
-            .collect::<BTreeMap<_, _>>();
-        for (lesser, greater) in &direct {
-            graph.add_edge(nodes[lesser], nodes[greater], ());
-        }
+        let (elements, graph) = relation_graph(&direct);
 
         if toposort(&graph, None).is_err() {
             return Err(Cycle {
@@ -375,6 +363,42 @@ impl<T: Clone + Ord> PartialOrder<T> {
     }
 }
 
+/// A directed cycle of the strict relation `relations`, if it has one.
+///
+/// The relation is read as [`PartialOrder::new`] reads it, and the cycle is the one that
+/// construction would report, but neither the order nor its transitive closure is built, so the
+/// search costs one depth-first traversal and counts no partial order.
+pub(crate) fn first_cycle<T: Clone + Ord>(
+    relations: impl IntoIterator<Item = (T, T)>,
+) -> Option<Cycle<T>> {
+    let direct = relations.into_iter().collect::<BTreeSet<_>>();
+    let (_, graph) = relation_graph(&direct);
+    find_cycle(&graph).map(|path| Cycle { path })
+}
+
+/// The elements of `direct` and its graph: one node per element, one edge from the lesser to the
+/// greater element of every pair.
+fn relation_graph<T: Clone + Ord>(direct: &BTreeSet<(T, T)>) -> (BTreeSet<T>, DiGraph<T, ()>) {
+    let elements = direct
+        .iter()
+        .flat_map(|(lesser, greater)| [lesser.clone(), greater.clone()])
+        .collect::<BTreeSet<_>>();
+
+    let mut graph = DiGraph::<T, ()>::new();
+    let nodes = elements
+        .iter()
+        .cloned()
+        .map(|element| {
+            let node = graph.add_node(element.clone());
+            (element, node)
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (lesser, greater) in direct {
+        graph.add_edge(nodes[lesser], nodes[greater], ());
+    }
+    (elements, graph)
+}
+
 fn unique<T: Ord>(mut elements: BTreeSet<T>) -> Option<T> {
     (elements.len() == 1).then(|| elements.pop_first().expect("length was one"))
 }
@@ -430,4 +454,23 @@ fn find_cycle<T: Clone + Ord>(graph: &DiGraph<T, ()>) -> Option<Vec<T>> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_cycle_reports_the_cycle_the_order_construction_rejects() {
+        let acyclic = [(1, 2), (2, 3), (1, 3), (4, 3)];
+        assert!(PartialOrder::new(acyclic).is_ok());
+        assert_eq!(first_cycle(acyclic), None);
+        assert_eq!(first_cycle(Vec::<(u8, u8)>::new()), None);
+
+        let cyclic = [(1, 2), (2, 3), (3, 1), (4, 1)];
+        let expected = PartialOrder::new(cyclic).expect_err("the relation is cyclic");
+        assert_eq!(first_cycle(cyclic), Some(expected));
+
+        assert_eq!(first_cycle([(5, 5)]), Some(Cycle { path: vec![5, 5] }));
+    }
 }
