@@ -1,8 +1,9 @@
 // Drives KrsCompiler (controller + module worker) under Bun: a build, a
 // cancellation during rustc-lesson, and a build in the replacement worker.
 //
-//   bun test/run-controller.ts [--assets DIR] [--out FILE.json]
+//   bun test/run-controller.ts [--assets DIR] [--oracle FILE] [--out FILE.json]
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -12,7 +13,14 @@ import type { CompileEvent, LessonManifest, PackManifest } from "../src/protocol
 import { check, SCENARIOS } from "./scenarios.ts";
 import { scratchPath } from "./harness/environment.ts";
 
-const { values } = parseArgs({ options: { assets: { type: "string", default: scratchPath("krs-browser-assets") }, out: { type: "string" } } });
+const { values } = parseArgs({
+  options: {
+    assets: { type: "string", default: scratchPath("krs-browser-assets") },
+    oracle: { type: "string", default: scratchPath("krs-browser-parity/oracle/native/collector-stdout.json") },
+    out: { type: "string" },
+  },
+});
+const oracleSha256 = createHash("sha256").update(readFileSync(values.oracle!)).digest("hex");
 const dir = values.assets!;
 const pack = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8")) as PackManifest;
 const lesson = JSON.parse(readFileSync(join(dir, "lessons/tour-minimal/lesson.json"), "utf8")) as LessonManifest;
@@ -44,14 +52,16 @@ compiler.dispose();
 
 const result = {
   host: `bun ${Bun.version}`,
-  first: check(expect, first),
+  oracle: values.oracle!,
+  oracleSha256,
+  first: check(expect!, first, oracleSha256),
   firstSha256: first.at(-1)?.type === "success" ? (first.at(-1) as { bundleSha256: string }).bundleSha256 : null,
   cancelled: {
     last: cancelled.at(-1),
     sawRustcEnd: cancelled.some((e) => e.type === "progress" && e.stage === "rustc-lesson" && e.state === "end"),
   },
   workers: [workersBefore, compiler.workersStarted],
-  recovery: check(expect, recovery),
+  recovery: check(expect!, recovery, oracleSha256),
 };
 const pass = result.first.ok && result.cancelled.last?.type === "cancelled" && !result.cancelled.sawRustcEnd &&
   result.recovery.ok && result.workers[1] === result.workers[0]! + 1;

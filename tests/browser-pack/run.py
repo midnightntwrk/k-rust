@@ -213,7 +213,8 @@ class Runner:
         return self.step("expectations-backend", ["sh", "-c", f"echo 'backend suite: {'recording ' + str(len(missing)) + ' cases' if missing else 'every case has an entry'} for fork {fork}'"]) and ok
 
     def pipeline(self) -> bool:
-        return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets, "--out", self.out / "pipeline-bun.json"], cwd=WORKER)
+        return self.step("pipeline", ["bun", "test/run-pipeline.ts", "--assets", self.assets,
+                                      "--oracle", self.oracle_dir / "native/collector-stdout.json", "--out", self.out / "pipeline-bun.json"], cwd=WORKER)
 
     def check(self) -> bool:
         command = ["python3", HERE / "verify.py", "--check", "--staged", self.assets, "--out", self.out / "check.json"]

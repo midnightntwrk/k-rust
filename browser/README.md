@@ -51,8 +51,8 @@ what = "stage a pack and the policy and expander modules as worker assets"
 
 [[runner]]
 cwd = "browser/worker"
-run = "bun test/verify.ts"
-what = "worker gate: unit tests, pipeline under Bun and Node, controller, and the scenario plan in Chromium and Firefox (test/browser/run-browser.ts)"
+run = "bun test/verify.ts --oracle FILE"
+what = "worker gate: unit tests, pipeline under Bun and Node, controller, and the scenario plan in Chromium and Firefox (test/browser/run-browser.ts); FILE is the native collector stdout bundle"
 
 [[runner]]
 cwd = "browser/worker"
@@ -84,6 +84,10 @@ cwd = "."
 run = "python3 tests/browser-pack/run.py --pack PACK --fork-build FORK_BUILD --fork-source FORK_SOURCE --out DIR"
 what = "every browser gate above, in order, against one pack (the release regression run)"
 ```
+
+A successful scenario must produce the native oracle bundle byte for byte, so no runner pins a bundle digest.
+`test/run-pipeline.ts`, `test/run-controller.ts`, `test/browser/run-browser.ts`, and `test/verify.ts` take that bundle as `--oracle FILE` (default `SCRATCH/krs-browser-parity/oracle/native/collector-stdout.json`, written by `test/parity/regenerate-oracle.sh`), and a missing file is an error.
+`tests/browser-pack/run.py` regenerates the oracle before the pipeline step and passes its own.
 
 Each browser runner listens on fixed local ports, and its driver takes the next port:
 

@@ -4,6 +4,8 @@
 //
 //   bun test/browser/run-browser.ts --browser chromium|firefox [--site DIR] [--out DIR] [--bundles DIR] [--oracle FILE] [--port N]
 
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { openSite, type BrowserName, type SiteSession } from "../harness/browsers.ts";
@@ -26,6 +28,7 @@ const browser = values.browser as BrowserName;
 if (browser !== "chromium" && browser !== "firefox") throw new Error("--browser is chromium or firefox");
 const port = Number(values.port ?? (browser === "chromium" ? 4315 : 4325));
 const bundles = values.bundles ?? join(values.out!, "..", browser);
+const oracleSha256 = createHash("sha256").update(readFileSync(values.oracle!)).digest("hex");
 
 let records: Awaited<ReturnType<typeof runPlan>> = [];
 let failure: string | null = null;
@@ -39,7 +42,7 @@ try {
     firefox: values.firefox!,
     chromiumArgs: ["--enable-precise-memory-info"],
   });
-  records = await runPlan(session.evaluate, session.sampler, SCENARIOS.map((s) => s.name));
+  records = await runPlan(session.evaluate, session.sampler, SCENARIOS.map((s) => s.name), oracleSha256);
 } catch (error) {
   failure = String(error instanceof Error ? error.stack : error);
 } finally {

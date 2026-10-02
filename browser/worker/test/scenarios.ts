@@ -3,12 +3,9 @@
 
 import type { FailureCode, Stage } from "../src/protocol.ts";
 
-export const ORACLE_SHA256 = "04a8b7632eeb3336185652e0f4046189fc918fd2a1fc19423d69292bf6a16d18";
-export const ORACLE_BYTES = 24922;
-
 export interface Expectation {
   outcome: "success" | "failure";
-  bundleSha256?: string;
+  bundleEqualsNativeOracle?: boolean;
   stage?: Stage;
   code?: FailureCode;
   /** Expected diagnostics (subset match on the listed fields). */
@@ -77,7 +74,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "tour-minimal",
     fixture: "tour-minimal.rs",
-    expect: { outcome: "success", bundleSha256: ORACLE_SHA256 },
+    expect: { outcome: "success", bundleEqualsNativeOracle: true },
   },
   {
     name: "policy-d007",
@@ -135,7 +132,7 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "tour-minimal-again",
     fixture: "tour-minimal.rs",
-    expect: { outcome: "success", bundleSha256: ORACLE_SHA256 },
+    expect: { outcome: "success", bundleEqualsNativeOracle: true },
   },
 ];
 
@@ -152,15 +149,18 @@ interface TerminalEvent {
   diagnostics?: Array<{ origin: string; code: string | null; class: string; authored: { start: number; end: number } | null }>;
 }
 
-/** Checks the terminal event and the progress ordering of one scenario's events. */
-export function check(expect: Expectation, events: Array<{ type: string; stage?: string; state?: string }>): Check {
+/** Checks terminal events and progress ordering using the runner's native oracle bundle digest. */
+export function check(expect: Expectation, events: Array<{ type: string; stage?: string; state?: string }>, oracleSha256: string): Check {
+  if (!/^[0-9a-f]{64}$/.test(oracleSha256)) throw new Error("check requires the native oracle bundle SHA-256");
   const problems: string[] = [];
   const terminal = events.filter((e) => e.type === "success" || e.type === "failure" || e.type === "cancelled");
   if (terminal.length !== 1) problems.push(`expected one terminal event, got ${terminal.length}`);
   const last = terminal[0] as TerminalEvent | undefined;
   if (last && last !== events[events.length - 1]) problems.push("events after the terminal event");
   if (last?.type !== expect.outcome) problems.push(`outcome ${last?.type}, expected ${expect.outcome}`);
-  if (expect.bundleSha256 && last?.bundleSha256 !== expect.bundleSha256) problems.push(`bundle ${last?.bundleSha256}`);
+  if (expect.bundleEqualsNativeOracle && last?.bundleSha256 !== oracleSha256) {
+    problems.push(`bundle ${last?.bundleSha256}, expected native oracle ${oracleSha256}`);
+  }
   if (expect.stage && last?.stage !== expect.stage) problems.push(`stage ${last?.stage}, expected ${expect.stage}`);
   if (expect.code && last?.code !== expect.code) problems.push(`code ${last?.code}, expected ${expect.code}`);
   if (expect.diagnosticCount !== undefined && (last?.diagnostics ?? []).length !== expect.diagnosticCount) {

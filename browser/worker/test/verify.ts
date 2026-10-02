@@ -2,7 +2,7 @@
 // under Bun, and the worker in headless Chromium and (when installed)
 // headless Firefox. Waits while the 1-minute load average exceeds --load-max.
 //
-//   bun test/verify.ts [--out DIR] [--load-max 40] [--skip-firefox]
+//   bun test/verify.ts [--out DIR] [--oracle FILE] [--load-max 40] [--skip-firefox]
 //
 // Prerequisites (defaults under the scratch root, harness/environment.ts): a
 // dependency pack (krs-browser-pack/pack) staged by bun scripts/stage-assets.ts
@@ -20,10 +20,12 @@ const { values } = parseArgs({
     "load-max": { type: "string", default: "40" },
     "skip-firefox": { type: "boolean", default: false },
     assets: { type: "string", default: scratchPath("krs-browser-assets") },
+    oracle: { type: "string", default: scratchPath("krs-browser-parity/oracle/native/collector-stdout.json") },
   },
 });
 const root = join(import.meta.dir, "..");
 const out = values.out!;
+if (!existsSync(values.oracle!)) throw new Error(`native oracle bundle ${values.oracle} is missing; run test/parity/regenerate-oracle.sh`);
 mkdirSync(out, { recursive: true });
 const loadMax = Number(values["load-max"]);
 
@@ -49,11 +51,11 @@ async function step(name: string, command: string[]) {
 if (!existsSync(join(values.assets!, "pack.json"))) await step("stage-assets", ["bun", "scripts/stage-assets.ts", "--out", values.assets!]);
 await step("build-site", ["bun", "scripts/build-site.ts", "--assets", values.assets!]);
 await step("unit", ["bun", "test", "test/unit"]);
-await step("pipeline-bun", ["bun", "test/run-pipeline.ts", "--assets", values.assets!, "--evidence", "--out", join(out, "pipeline-bun.json")]);
-await step("pipeline-node", ["node", "test/run-pipeline.ts", "--assets", values.assets!, "--evidence", "--out", join(out, "pipeline-node.json")]);
-await step("controller-bun", ["bun", "test/run-controller.ts", "--assets", values.assets!, "--out", join(out, "controller-bun.json")]);
-await step("chromium", ["bun", "test/browser/run-browser.ts", "--browser", "chromium", "--out", out]);
-if (!values["skip-firefox"] && existsSync(firefoxBinary())) await step("firefox", ["bun", "test/browser/run-browser.ts", "--browser", "firefox", "--out", out]);
+await step("pipeline-bun", ["bun", "test/run-pipeline.ts", "--assets", values.assets!, "--oracle", values.oracle!, "--evidence", "--out", join(out, "pipeline-bun.json")]);
+await step("pipeline-node", ["node", "test/run-pipeline.ts", "--assets", values.assets!, "--oracle", values.oracle!, "--evidence", "--out", join(out, "pipeline-node.json")]);
+await step("controller-bun", ["bun", "test/run-controller.ts", "--assets", values.assets!, "--oracle", values.oracle!, "--out", join(out, "controller-bun.json")]);
+await step("chromium", ["bun", "test/browser/run-browser.ts", "--browser", "chromium", "--oracle", values.oracle!, "--out", out]);
+if (!values["skip-firefox"] && existsSync(firefoxBinary())) await step("firefox", ["bun", "test/browser/run-browser.ts", "--browser", "firefox", "--oracle", values.oracle!, "--out", out]);
 
 const pass = results.every((r) => r.exitCode === 0);
 writeFileSync(join(out, "verify.json"), `${JSON.stringify({ pass, results }, null, 1)}\n`);

@@ -17,9 +17,9 @@ export interface StepRecord {
 }
 
 /** Runs the scenario plan in one page session; `evaluate` runs an async function body in the page. */
-export async function runPlan(evaluate: Evaluate, sampler: TreeSampler, scenarios: string[]): Promise<StepRecord[]> {
+export async function runPlan(evaluate: Evaluate, sampler: TreeSampler, scenarios: string[], oracleSha256: string): Promise<StepRecord[]> {
   const steps: Array<[string, string]> = [
-    ["init", "return await window.krsWorker.init();"],
+    ["init", `return await window.krsWorker.init(${JSON.stringify(oracleSha256)});`],
     ...scenarios.map((name): [string, string] => [name, `return await window.krsWorker.run(${JSON.stringify(name)});`]),
     ["cancel-during-rustc-lesson", "return await window.krsWorker.cancelDuringRustcLesson(100);"],
     ["supersede", "return await window.krsWorker.supersede();"],

@@ -9,6 +9,7 @@ import { check, expectationFor, SCENARIOS } from "../scenarios.ts";
 let compiler: KrsCompiler | null = null;
 let lesson: LessonManifest | null = null;
 let forkRevision = "";
+let oracleSha256: string | null = null;
 const fixtures = new Map<string, string>();
 
 function base64(bytes: Uint8Array): string {
@@ -60,7 +61,9 @@ async function collect(iterable: AsyncIterable<CompileEvent>, onEvent?: (event: 
   return { events, wallMs: performance.now() - started };
 }
 
-async function init() {
+/** Scenario runners must supply the native oracle digest; runSource callers compare their own bundles. */
+async function init(nativeOracleSha256?: string) {
+  oracleSha256 = nativeOracleSha256 ?? null;
   const t0 = performance.now();
   const pack = (await (await fetch("./assets/pack.json")).json()) as PackManifest;
   forkRevision = pack.fork_revision;
@@ -97,12 +100,13 @@ async function init() {
 async function run(name: string, options: { debugEvidence?: boolean; keepBundle?: boolean } = {}) {
   const scenario = SCENARIOS.find((s) => s.name === name);
   if (!scenario || !compiler || !lesson) throw new Error(`unknown scenario ${name} or not initialized`);
+  if (oracleSha256 === null) throw new Error("scenario runner requires the native oracle bundle SHA-256");
   const resourcesBefore = resourceNames().length;
   const heapBefore = heap();
   const { events, wallMs } = await collect(
     compiler.compile({ lesson, files: { "src/lib.rs": fixtures.get(scenario.fixture)! }, debugEvidence: options.debugEvidence ?? true }),
   );
-  const verdict = check(expectationFor(scenario, forkRevision), events.map((e) => e.event));
+  const verdict = check(expectationFor(scenario, forkRevision), events.map((e) => e.event), oracleSha256);
   return {
     scenario: name,
     wallMs,

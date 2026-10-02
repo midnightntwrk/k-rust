@@ -2,9 +2,10 @@
 // (Node 24 strips the types), over the staged assets, and records events,
 // timings, and memory.
 //
-//   bun test/run-pipeline.ts [--assets DIR] [--out FILE.json] [--only NAME,...] [--repeat N]
+//   bun test/run-pipeline.ts [--assets DIR] [--oracle FILE] [--out FILE.json] [--only NAME,...] [--repeat N]
 //   node test/run-pipeline.ts ...
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
@@ -18,6 +19,7 @@ import { check, expectationFor, SCENARIOS } from "./scenarios.ts";
 const { values } = parseArgs({
   options: {
     assets: { type: "string", default: scratchPath("krs-browser-assets") },
+    oracle: { type: "string", default: scratchPath("krs-browser-parity/oracle/native/collector-stdout.json") },
     out: { type: "string" },
     only: { type: "string" },
     repeat: { type: "string", default: "1" },
@@ -25,6 +27,7 @@ const { values } = parseArgs({
   },
 });
 const assetsDir = values.assets!;
+const oracleSha256 = createHash("sha256").update(readFileSync(values.oracle!)).digest("hex");
 const here = new URL(".", import.meta.url).pathname;
 const host = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
   ? `bun ${(globalThis as unknown as { Bun: { version: string } }).Bun.version}`
@@ -72,7 +75,7 @@ for (let round = 0; round < Number(values.repeat); round += 1) {
       { emit: (event) => events.push(event), memory },
     );
     const wallMs = performance.now() - started;
-    const verdict = check(expectationFor(scenario, pack.fork_revision), events);
+    const verdict = check(expectationFor(scenario, pack.fork_revision), events, oracleSha256);
     if (!verdict.ok) failed += 1;
     const terminal = events[events.length - 1]!;
     process.stderr.write(
@@ -101,6 +104,8 @@ const summary = {
   host,
   platform: `${process.platform} ${process.arch}`,
   assets: assetsDir,
+  oracle: values.oracle!,
+  oracleSha256,
   pack_id: pack.pack_id,
   loadAndVerifyMs: loadMs,
   contextMs,
