@@ -37,7 +37,8 @@ use crate::kast::{Sort, SortRole};
 /// A parametric sort with a free parameter (`MInt{Width}`) is a shape, not a sort, and is never a
 /// member. The arguments of a declared instance (the `8` of `MInt{8}`) are not positions of the
 /// grammar, so a numeral is a member only when a sentence declares it or gives a production a
-/// position of it (`syntax 8 ::= "eight"`); it is then a sort of terms like any declared sort.
+/// position of it. A numeral names a width and has no terms; the sort checks reject every
+/// sentence that gives it terms or positions before a loaded definition reaches this universe.
 ///
 /// Membership is independent of the role: kernel, scaffolding and numeral sorts are members when
 /// the sentences declare or position them, and the plan tables decide what each role receives.
@@ -706,11 +707,11 @@ mod tests {
         assert!(universe.member(&Sort::new("8")).is_none());
     }
 
-    /// A numeral that a sentence declares (`syntax 16`) or gives a production a position of
-    /// (`syntax 8 ::= "eight"`, the operand of `bar(8)`) is a sort of terms, and receives what a
-    /// defined sort receives in both grammars except the sort predicate and projection, which
-    /// compilation declares for no numeral; a numeral that only instantiates a parametric sort is
-    /// not a member.
+    /// Directly supplied sentences can make a numeral a member, whose existing plan rows grant
+    /// it the productions of a defined sort except the sort predicate and projection.
+    /// The load checks reject numeral terms and positions before grammar construction; this
+    /// fixture bypasses those checks to pin the universe and plan rows themselves.
+    /// A numeral that only instantiates a parametric sort is not a member.
     #[test]
     fn a_numeral_declared_or_positioned_by_a_sentence_is_a_member_with_the_rows_of_a_defined_sort()
     {

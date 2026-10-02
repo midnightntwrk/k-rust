@@ -1759,3 +1759,77 @@ fn a_production_parameter_shadows_a_synonym_at_load() {
         .collect::<Vec<_>>();
     assert_eq!(arguments, [&k_rust::kast::Sort::new("S")]);
 }
+
+#[test]
+fn a_numeral_sort_with_terms_is_rejected_before_any_bubble() {
+    let mut accepted = Vec::new();
+    for (module, source, lines) in [
+        (
+            "N1B",
+            indoc! {r#"
+            module N1B
+              syntax 8 ::= "eight"
+              syntax Foo ::= bar(8) | "done"
+              rule bar(eight) => done
+            endmodule
+        "#},
+            vec![2, 3],
+        ),
+        (
+            "N20",
+            indoc! {r#"
+            module N20
+              syntax Foo ::= "foo"
+              syntax 8 = Foo
+              syntax Bar ::= bar(8) | "done"
+              rule bar(foo) => done
+            endmodule
+        "#},
+            vec![3],
+        ),
+    ] {
+        let diagnostics = match load_with_prelude(source, module) {
+            Err(LoadError::SourceDiagnostics(diagnostics)) => diagnostics,
+            Ok(_) => {
+                accepted.push(module);
+                continue;
+            }
+            Err(error) => panic!(
+                "{module}: expected numeral source diagnostics before any bubble, got {error:?}"
+            ),
+        };
+        let errors = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == Severity::Error)
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), lines.len(), "{diagnostics:#?}");
+        assert!(
+            errors
+                .iter()
+                .all(|diagnostic| diagnostic.code == DiagnosticCode::InvalidNumeralSort),
+            "{diagnostics:#?}"
+        );
+        let mut actual_lines = errors
+            .iter()
+            .map(|diagnostic| {
+                assert_eq!(diagnostic.source.as_deref(), Some("main.k"));
+                diagnostic
+                    .location
+                    .expect("the offending sentence has a location")
+                    .start_line
+            })
+            .collect::<Vec<_>>();
+        actual_lines.sort();
+        assert_eq!(actual_lines, lines);
+        if module == "N20" {
+            assert!(
+                errors[0].message.ends_with("a sort synonym."),
+                "{diagnostics:#?}"
+            );
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "numeral terms loaded before any bubble was checked: {accepted:?}"
+    );
+}

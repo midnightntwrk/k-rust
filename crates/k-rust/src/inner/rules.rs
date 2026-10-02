@@ -1567,13 +1567,18 @@ endmodule
         assert!(universe.member(&Sort::new("Sort2")).is_some(), "{names:?}");
     }
 
-    /// A numeral sort that a sentence declares or gives a production a position of is a sort of
-    /// terms, so a rule variable stands at a position of it: `bar(_X)` parses with `_X` at the
-    /// operand sort `8`.
+    /// A numeral names a width, so both a production of it and an operand position of it are
+    /// rejected before the rule bubble is parsed. A declaration alone gives it no terms.
     #[test]
-    fn a_rule_variable_stands_at_a_numeral_sort_a_sentence_declares() {
-        for declaration in [r#"syntax 8 ::= "eight""#, "syntax 8"] {
-            let loaded = load_with_prelude(&format!(
+    fn a_numeral_with_terms_or_positions_is_rejected_at_load() {
+        for (declaration, expected_places) in [
+            (
+                r#"syntax 8 ::= "eight""#,
+                vec!["the sort of a production.", "an operand of a production."],
+            ),
+            ("syntax 8", vec!["an operand of a production."]),
+        ] {
+            let error = try_load_with_prelude(&format!(
                 r#"
 module MAIN
   {declaration}
@@ -1581,26 +1586,22 @@ module MAIN
   rule bar(_X) => done
 endmodule
 "#
-            ));
-            let main = loaded
-                .definition()
-                .modules
-                .iter()
-                .find(|module| module.name == "MAIN")
-                .expect("MAIN is a module");
-            let bodies = main
-                .local_sentences
-                .iter()
-                .filter_map(|sentence| match &**sentence {
-                    Sentence::Rule { body, .. } => Some(body.to_string()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            assert_eq!(
-                bodies,
-                ["`bar(_)_MAIN_Foo_8`(#SemanticCastTo8(_X))=>`done_MAIN_Foo`(.KList)"],
-                "{declaration}"
-            );
+            ))
+            .expect_err("a numeral cannot have terms or operand positions");
+            let crate::outer::LoadError::SourceDiagnostics(mut diagnostics) = error else {
+                panic!("{declaration}: {error}");
+            };
+            diagnostics
+                .sort_by_key(|diagnostic| diagnostic.location.map(|location| location.start_line));
+            assert_eq!(diagnostics.len(), expected_places.len(), "{diagnostics:#?}");
+            for (diagnostic, place) in diagnostics.iter().zip(expected_places) {
+                assert_eq!(
+                    diagnostic.code,
+                    crate::diagnostic::DiagnosticCode::InvalidNumeralSort,
+                    "{diagnostics:#?}"
+                );
+                assert!(diagnostic.message.ends_with(place), "{diagnostic:#?}");
+            }
         }
     }
 
@@ -1848,16 +1849,15 @@ endmodule
 
     /// The projection cast `{T}:>S` lowers to `project:S`, which compilation declares exactly for
     /// the sorts with a sort projection, so the rule grammar offers it for those sorts and their
-    /// synonyms only. The syntactic and semantic casts lower to no compiled symbol and stay for
-    /// every sort, so `:8` and `::8` remain.
+    /// synonyms only. A width declaration gives a numeral no terms and no projection.
     #[test]
     fn the_rule_grammar_offers_the_projection_cast_only_for_a_sort_with_a_projection() {
         let loaded = load_with_prelude(
             r#"
 module MAIN
   imports BOOL
-  syntax 8 ::= "eight"
-  syntax Foo ::= foo(8) | "done" | g(K) [function] | h(K)
+  syntax 8
+  syntax Foo ::= "done" | g(K) [function] | h(K)
   syntax Bg = Bag
   syntax Wad = Foo
 endmodule
@@ -1865,7 +1865,7 @@ endmodule
         );
         let grammar = module_rule_grammar_of(loaded.resolved(), "MAIN");
 
-        for terminal in [":>Foo", ":>Wad", ":>K", ":>KItem", ":>Bool", ":8", "::8"] {
+        for terminal in [":>Foo", ":>Wad", ":>K", ":>KItem", ":>Bool"] {
             assert!(
                 grammar.has_production_with_terminal(terminal),
                 "the rule grammar offers {terminal}"
@@ -1883,42 +1883,48 @@ endmodule
         assert!(!grammar.has_production_with_terminal(":>KString"));
     }
 
-    /// Through the loader: a rule with a projection cast to a numeral or to `Bag` is rejected
-    /// while parsing, at the cast; a projection cast to a defined sort and a semantic cast to a
-    /// numeral load.
+    /// A numeral position is rejected at load; a projection cast to `Bag` is rejected at the
+    /// cast because no K term can be projected into Bag. A defined sort has a projection.
     #[test]
     fn a_rule_with_a_projection_cast_to_a_sort_without_a_projection_does_not_parse() {
+        let numeral_source = r#"
+module MAIN
+  imports BOOL
+  syntax 8 ::= "eight"
+  syntax Foo ::= foo(8) | "done" | g(K) [function]
+  rule g(X) => foo({X}:>8)
+endmodule
+"#;
+        let error = try_load_with_prelude(numeral_source)
+            .expect_err("a numeral cannot have terms or operand positions");
+        assert!(error.to_string().contains("InvalidNumeralSort"), "{error}");
+
         let source = |rule: &str| {
             format!(
                 r#"
 module MAIN
   imports BOOL
-  syntax 8 ::= "eight"
-  syntax Foo ::= foo(8) | "done" | g(K) [function] | h(K) | bar(8) [function]
+  syntax Foo ::= "done" | g(K) [function] | h(K)
   {rule}
 endmodule
 "#
             )
         };
-        for rule in ["rule g(X) => foo({X}:>8)", "rule g(X) => h({X}:>Bag)"] {
-            match try_load_with_prelude(&source(rule)) {
-                Ok(_) => panic!("`{rule}` loads"),
-                Err(error) => {
-                    let error = error.to_string();
-                    assert!(error.contains("could not parse rule"), "{rule}: {error}");
-                }
-            }
-        }
-        for rule in ["rule g(X) => h({X}:>Foo)", "rule bar(X:8) => foo(X)"] {
-            if let Err(error) = try_load_with_prelude(&source(rule)) {
-                panic!("`{rule}` loads: {error}");
-            }
+        let rejected = "rule g(X) => h({X}:>Bag)";
+        let error = try_load_with_prelude(&source(rejected)).expect_err("Bag has no projection");
+        assert!(
+            error.to_string().contains("could not parse rule"),
+            "{rejected}: {error}"
+        );
+        let accepted = "rule g(X) => h({X}:>Foo)";
+        if let Err(error) = try_load_with_prelude(&source(accepted)) {
+            panic!("`{accepted}` loads: {error}");
         }
     }
 
     /// A definition's own production labelled `#OuterCast` reads its operand through the
-    /// projection into its result sort. With a numeral result there is no such projection, so a
-    /// use of it is a parse error at the use; with a defined result it lowers to `project:Foo`.
+    /// projection into its result sort. A scaffolding sort has no such projection, so its use
+    /// is a parse error at the use; with a defined result it lowers to `project:Foo`.
     #[test]
     fn a_definitions_own_projection_cast_to_a_sort_without_a_projection_does_not_parse() {
         let source = |result: &str, rule: &str| {
@@ -1926,24 +1932,24 @@ endmodule
                 r#"
 module MAIN
   imports BOOL
-  syntax 8 ::= "eight"
-  syntax {result} ::= "{{" K "}}" "as{result}" [symbol(#OuterCast)]
-  syntax Foo ::= foo(8) | g(K) [function]
+  syntax #Foo ::= "foo"
+  syntax {result} ::= "{{" K "}}" "asFoo" [symbol(#OuterCast)]
+  syntax Foo ::= foo(#Foo) | g(K) [function]
   {rule}
 endmodule
 "#
             )
         };
-        let rejected = source("8", "rule g(X) => foo({X} as8)");
+        let rejected = source("#Foo", "rule g(X) => foo({X} asFoo)");
         match try_load_with_prelude(&rejected) {
-            Ok(_) => panic!("`rule g(X) => foo({{X}} as8)` loads"),
+            Ok(_) => panic!("`rule g(X) => foo({{X}} asFoo)` loads"),
             Err(error) => {
                 let error = error.to_string();
                 assert!(
                     error.starts_with("main.k:7:")
                         && error.contains("could not parse rule")
                         && error.contains(
-                            "projection cast to sort 8, which has no sort projection because no K term has sort 8"
+                            "projection cast to sort #Foo, which has no sort projection because no K term has sort #Foo"
                         ),
                     "{error}"
                 );
@@ -1964,36 +1970,31 @@ endmodule
         assert!(projects, "the rule body mentions project:Foo");
     }
 
-    /// The configuration grammar offers the projection cast under the same condition, so a
-    /// configuration with `{T}:>8` is rejected while parsing, and one with `{T}:>Foo` loads.
+    /// A numeral's terms and positions are rejected before configuration parsing; a projection
+    /// cast into a defined sort still loads because compilation declares its projection.
     #[test]
-    fn a_configuration_with_a_projection_cast_to_a_numeral_does_not_parse() {
-        let source = |configuration: &str| {
-            format!(
-                r#"
+    fn a_configuration_with_a_projection_cast_to_a_numeral_is_rejected_at_load() {
+        let rejected = r#"
 module MAIN
   imports BOOL
   syntax 8 ::= "eight"
   syntax Foo ::= foo(8) | "done"
-  {configuration}
+  configuration <k> foo({eight}:>8) </k>
 endmodule
-"#
-            )
-        };
-        let rejected = "configuration <k> foo({eight}:>8) </k>";
-        match try_load_with_prelude(&source(rejected)) {
-            Ok(_) => panic!("`{rejected}` loads"),
-            Err(error) => {
-                let error = error.to_string();
-                assert!(
-                    error.contains("could not parse configuration"),
-                    "{rejected}: {error}"
-                );
-            }
-        }
-        let accepted = "configuration <k> {done}:>Foo </k>";
-        if let Err(error) = try_load_with_prelude(&source(accepted)) {
-            panic!("`{accepted}` loads: {error}");
+"#;
+        let error = try_load_with_prelude(rejected)
+            .expect_err("a numeral cannot have terms or operand positions");
+        assert!(error.to_string().contains("InvalidNumeralSort"), "{error}");
+
+        let accepted = r#"
+module MAIN
+  imports BOOL
+  syntax Foo ::= "done"
+  configuration <k> {done}:>Foo </k>
+endmodule
+"#;
+        if let Err(error) = try_load_with_prelude(accepted) {
+            panic!("`{{done}}:>Foo` loads: {error}");
         }
     }
 }

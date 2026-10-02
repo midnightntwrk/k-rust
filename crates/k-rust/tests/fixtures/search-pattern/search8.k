@@ -1,3 +1,4 @@
+// The sort checks reject numeral terms and operand positions before search-pattern parsing.
 module SEARCH8-SYNTAX
   imports BOOL-SYNTAX
   syntax 8 ::= "eight"

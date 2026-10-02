@@ -1521,19 +1521,17 @@ mod tests {
     }
 
     /// A configuration variable is initialized through the projection into the sort it is cast
-    /// to; a numeral has no K terms and so no projection, which expansion reports at the
+    /// to; Bag has no K terms and so no projection, which expansion reports at the
     /// configuration instead of naming a projection that compilation never declares.
     #[test]
     fn a_configuration_variable_cast_to_a_sort_without_a_projection_is_rejected() {
         let definition = parsed(indoc! {r#"
             module MAIN
-              syntax 8 ::= "eight"
-              syntax Foo ::= foo(8)
-              configuration <k> $PGM:8 </k>
+              configuration <k> $PGM:Bag </k>
             endmodule
         "#});
         let error = expand_configurations(&definition)
-            .expect_err("a configuration variable cast to `8` has no initial value");
+            .expect_err("a configuration variable cast to `Bag` has no initial value");
         let ConfigurationError::Invalid {
             module,
             location,
@@ -1547,14 +1545,13 @@ mod tests {
         assert!(location.is_some(), "{error}");
         assert_eq!(*location, configuration_location(&definition), "{error}");
         assert!(
-            message.contains("`$PGM`") && message.contains("sort `8`"),
+            message.contains("`$PGM`") && message.contains("sort `Bag`"),
             "{message}"
         );
 
         let control = parsed(indoc! {r#"
             module MAIN
-              syntax 8 ::= "eight"
-              syntax Foo ::= foo(8)
+              syntax Foo ::= "foo"
               configuration <k> $PGM:Foo </k>
             endmodule
         "#});

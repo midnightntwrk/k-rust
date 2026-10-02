@@ -2613,7 +2613,7 @@ fn heat_cool_still_rejects_rules_and_contexts_without_result_predicates() {
 fn heat_cool_rejects_a_declared_result_sort_without_a_sort_predicate() {
     let source = indoc! {r#"
         module MAIN
-          syntax 8 ::= "eight"
+          syntax 8
           syntax #Foo ::= "foo"
           syntax Val ::= "v"
           syntax Exp ::= "heat" [symbol(heat)]
@@ -2657,7 +2657,7 @@ fn a_strict_result_sort_without_a_sort_predicate_is_an_invalid_heat_cool_diagnos
     let source = indoc! {r#"
         module MAIN
           imports BOOL
-          syntax 8 ::= "eight"
+          syntax 8
           syntax KResult
           syntax Exp ::= foo(Exp) [strict, result(8)] | "e"
         endmodule
@@ -7855,7 +7855,7 @@ fn rejects_a_hybrid_sort_without_a_sort_predicate() {
         endmodule
         module MAIN
           imports BOOL
-          syntax 8 ::= "eight"
+          syntax 8
           syntax #Foo ::= "foo"
           syntax Val ::= "v"
           syntax Exp ::= Val

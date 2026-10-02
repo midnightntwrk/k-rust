@@ -3207,3 +3207,206 @@ fn check_user_lists_rejects_distinct_declarations_and_accepts_diamonds() {
         "{single:#?}"
     );
 }
+
+#[test]
+fn check_sorts_rejects_numeral_sorts_with_terms_or_positions() {
+    let nt = |name| ProductionItem::NonTerminal {
+        sort: Sort::new(name),
+        name: None,
+    };
+    let terminal = |value: &str| ProductionItem::Terminal(value.into());
+    let constructor = |parameters, sort, items| Sentence::Production {
+        label: None,
+        parameters,
+        sort: Sort::new(sort),
+        items,
+        attributes: Attributes::default(),
+    };
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Foo")),
+                constructor(vec![], "8", vec![terminal("eight")]),
+                constructor(
+                    vec![],
+                    "Foo",
+                    vec![terminal("bar"), terminal("("), nt("16"), terminal(")")],
+                ),
+                constructor(vec![], "Foo", vec![nt("32")]),
+                constructor(vec![], "64", vec![nt("Foo")]),
+                Sentence::SyntaxSort {
+                    parameters: vec![],
+                    sort: Sort::new("128"),
+                    attributes: attrs(&[("token", json!(""))]),
+                },
+                Sentence::SyntaxSort {
+                    parameters: vec![],
+                    sort: Sort::new("256"),
+                    attributes: attrs(&[("hook", json!("INT.Int"))]),
+                },
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("512"),
+                    old_sort: Sort::new("Foo"),
+                    attributes: Attributes::default(),
+                },
+                constructor(
+                    vec![Sort::new("1024")],
+                    "Foo",
+                    vec![terminal("baz"), terminal("("), nt("1024"), terminal(")")],
+                ),
+            ],
+        )],
+    );
+    let numeral = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidNumeralSort)
+        .collect::<Vec<_>>();
+    let mut messages = numeral
+        .iter()
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    messages.sort();
+    let mut expected = [
+        ("8", "the sort of a production"),
+        ("16", "an operand of a production"),
+        ("32", "an operand of a production"),
+        ("64", "the sort of a production"),
+        ("128", "a token or hooked sort"),
+        ("256", "a token or hooked sort"),
+        ("512", "a sort synonym"),
+        ("1024", "a sort parameter"),
+    ].map(|(sort, place)| format!("Sort {sort} is a numeral: it names a width, such as the argument of MInt{{{sort}}}, and has no terms, so it cannot be {place}."));
+    expected.sort();
+    assert_eq!(messages, expected);
+    assert!(
+        numeral
+            .iter()
+            .all(|diagnostic| diagnostic.severity == Severity::Error)
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.starts_with("Could not find sorts:")),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn check_sorts_admits_numeral_declarations_arguments_and_synonym_targets() {
+    let formal = Sort::new("S");
+    let mint = |argument| Sort::with_parameters("MInt", vec![argument]);
+    let diagnostics = outer_check_diagnostics(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("8")),
+                syntax_sort(mint(Sort::new("8"))),
+                syntax_sort(Sort::new("Foo")),
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("W"),
+                    old_sort: Sort::new("8"),
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("wrap")),
+                    parameters: vec![formal.clone()],
+                    sort: mint(formal.clone()),
+                    items: vec![
+                        ProductionItem::Terminal("wrap(".into()),
+                        ProductionItem::NonTerminal {
+                            sort: formal,
+                            name: None,
+                        },
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    attributes: Attributes::default(),
+                },
+                Sentence::Production {
+                    label: Some(Label::new("f")),
+                    parameters: vec![],
+                    sort: Sort::new("Foo"),
+                    items: vec![
+                        ProductionItem::Terminal("f(".into()),
+                        ProductionItem::NonTerminal {
+                            sort: mint(Sort::new("8")),
+                            name: None,
+                        },
+                        ProductionItem::Terminal(")".into()),
+                    ],
+                    attributes: Attributes::default(),
+                },
+            ],
+        )],
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::InvalidNumeralSort),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn numeral_sort_checks_use_operand_denotations_and_keep_one_error_per_place_and_sort() {
+    let sentence = |parameters, sort, arguments: &[&str]| Sentence::Production {
+        label: Some(Label::new("f")),
+        parameters,
+        sort: Sort::new(sort),
+        items: arguments
+            .iter()
+            .map(|argument| ProductionItem::NonTerminal {
+                sort: Sort::new(*argument),
+                name: None,
+            })
+            .collect(),
+        attributes: Attributes::default(),
+    };
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Foo")),
+                Sentence::SortSynonym {
+                    new_sort: Sort::new("W"),
+                    old_sort: Sort::new("8"),
+                    attributes: Attributes::default(),
+                },
+                sentence(vec![], "16", &["W", "32", "W", "8"]),
+                sentence(vec![Sort::new("64")], "64", &["64"]),
+                Sentence::SyntaxSort {
+                    parameters: vec![Sort::new("128")],
+                    sort: Sort::new("128"),
+                    attributes: attrs(&[("token", json!("")), ("hook", json!("INT.Int"))]),
+                },
+            ],
+        )],
+    );
+    let (module_id, module) = definition.modules().next().unwrap();
+    let diagnostics = k_rust::definition::check_sorts(module, &definition.sort_catalog(module_id));
+    assert_eq!(diagnostics.len(), 6, "{diagnostics:#?}");
+    assert!(diagnostics.iter().all(|diagnostic| diagnostic.code
+        == DiagnosticCode::InvalidNumeralSort
+        && diagnostic.severity == Severity::Error));
+    let expected = [
+        ("16", "the sort of a production"),
+        ("8", "an operand of a production"),
+        ("32", "an operand of a production"),
+        ("64", "a sort parameter"),
+        ("128", "a sort parameter"),
+        ("128", "a token or hooked sort"),
+    ].map(|(sort, place)| format!("Sort {sort} is a numeral: it names a width, such as the argument of MInt{{{sort}}}, and has no terms, so it cannot be {place}."));
+    assert_eq!(
+        diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+}

@@ -76,7 +76,8 @@ pub(crate) enum SortRole {
     RigidVariable,
     /// Any other `#`-prefixed head: parser scaffolding, which denotes no set of terms.
     Scaffolding,
-    /// A decimal numeral: a sort argument such as the width of `MInt{8}`.
+    /// A decimal numeral: a width, the argument of a parametric sort such as `MInt{8}`.
+    /// It has no terms ([`SortRole::has_terms`]).
     Nat,
     /// Any other head: its meaning comes from the definition.
     Defined,
@@ -120,6 +121,19 @@ impl Sort {
 }
 
 impl SortRole {
+    /// A term can have the sort, at parse time or in the compiled definition, so a sentence may
+    /// give it terms (a production of it, a token or hooked declaration of it) and positions (an
+    /// operand of it).
+    /// This holds for every role except a numeral, which is a width: the argument of a parametric
+    /// sort such as `MInt{8}`, naming a natural number, not a set of terms.
+    /// `check_sorts` rejects every sentence that would give a numeral terms or positions.
+    pub(crate) const fn has_terms(self) -> bool {
+        match self {
+            Self::Nat => false,
+            Self::Kernel(..) | Self::RigidVariable | Self::Scaffolding | Self::Defined => true,
+        }
+    }
+
     /// Every term of the sort is a `KItem`: compilation declares `S < KItem` for it.
     pub(crate) const fn has_implicit_kitem_subsort(self) -> bool {
         use KernelSort as S;
@@ -296,6 +310,18 @@ impl SortRole {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn has_terms_rows_are_pinned() {
+        for role in KernelSort::ALL.into_iter().map(SortRole::Kernel).chain([
+            SortRole::RigidVariable,
+            SortRole::Scaffolding,
+            SortRole::Nat,
+            SortRole::Defined,
+        ]) {
+            assert_eq!(role.has_terms(), role != SortRole::Nat, "{role:?}");
+        }
+    }
 
     // Verbatim copies of the classifier bodies the predicates replace. They are frozen here so
     // that the table below keeps comparing against the rules the consumers used when the

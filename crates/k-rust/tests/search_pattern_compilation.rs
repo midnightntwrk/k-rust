@@ -496,44 +496,50 @@ endmodule
     );
 }
 
-fn search8_context() -> &'static Context {
-    static CONTEXT: OnceLock<Context> = OnceLock::new();
-    CONTEXT.get_or_init(|| load_context("search-pattern/search8.k", SEARCH8, "SEARCH8"))
-}
-
-fn variable_sorts(pattern: &Pattern, name: &str) -> BTreeSet<String> {
-    let mut sorts = BTreeSet::new();
-    walk(pattern, &mut |pattern| {
-        if let Pattern::Variable(variable) = pattern
-            && variable.name == name
-        {
-            sorts.insert(variable.sort.to_string());
-        }
-    });
-    sorts
-}
-
 #[test]
-fn search_pattern_compilation_binds_a_numeral_sorted_variable_without_a_sort_predicate() {
-    for contents in ["<k> foo(X) </k>", "<k> foo(X:8) </k>"] {
-        let compiled = compile_in(search8_context(), "SEARCH8", contents)
-            .unwrap_or_else(|error| panic!("{contents}: {error:?}"));
-        let rendered = compiled.pattern.to_string();
+fn a_numeral_sorted_search_position_is_rejected_at_load() {
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let error = load_with_options(
+        ResolvedSource::new("search-pattern/search8.k", SEARCH8),
+        "SEARCH8",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect_err("a numeral cannot have terms or search operand positions");
+    let k_rust::outer::LoadError::SourceDiagnostics(mut diagnostics) = error else {
+        panic!("{error}");
+    };
+    diagnostics.sort_by_key(|diagnostic| diagnostic.location.map(|location| location.start_line));
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    for (diagnostic, (sentence, place)) in diagnostics.iter().zip([
+        ("syntax 8 ::=", "the sort of a production."),
+        ("syntax Foo ::=", "an operand of a production."),
+    ]) {
         assert_eq!(
-            variable_sorts(&compiled.pattern, "VarX"),
-            BTreeSet::from(["Sort8{}".to_owned()]),
-            "{contents}: {rendered}"
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidNumeralSort,
+            "{diagnostic:#?}"
         );
-        assert!(rendered.contains("Lblfoo"), "{contents}: {rendered}");
-        assert!(!rendered.contains("Lblis8"), "{contents}: {rendered}");
+        assert_eq!(diagnostic.severity, k_rust::diagnostic::Severity::Error);
+        let line = SEARCH8
+            .lines()
+            .position(|line| line.trim_start().starts_with(sentence))
+            .expect("the rejected sentence is in the fixture") as u32
+            + 1;
+        assert_eq!(
+            diagnostic.location.unwrap().start_line,
+            line,
+            "{diagnostic:#?}"
+        );
+        assert!(diagnostic.message.ends_with(place), "{diagnostic:#?}");
     }
-
-    let control = compile_in(search8_context(), "SEARCH8", "<k> X:Foo </k>").unwrap();
-    let rendered = control.pattern.to_string();
-    assert_eq!(
-        variable_sorts(&control.pattern, "VarX"),
-        BTreeSet::from(["SortFoo{}".to_owned()]),
-        "{rendered}"
-    );
-    assert!(rendered.contains("LblisFoo"), "{rendered}");
 }

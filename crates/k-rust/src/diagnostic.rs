@@ -166,6 +166,7 @@ diagnostic_codes! {
     InvalidHole => "InvalidHole",
     InvalidHeatCool => "InvalidHeatCool",
     InvalidListDeclaration => "InvalidListDeclaration",
+    InvalidNumeralSort => "InvalidNumeralSort",
     InvalidMainCell => "InvalidMainCell",
     InvalidMacroExpansion => "InvalidMacroExpansion",
     InvalidOrPattern => "InvalidOrPattern",
@@ -248,6 +249,7 @@ impl DiagnosticCode {
             | Self::InvalidHole
             | Self::InvalidHeatCool
             | Self::InvalidListDeclaration
+            | Self::InvalidNumeralSort
             | Self::InvalidMainCell
             | Self::InvalidMacroExpansion
             | Self::InvalidOrPattern

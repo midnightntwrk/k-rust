@@ -23,8 +23,9 @@ use crate::kast::{FrontendSort, Sort, SortRole};
 pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    // Invariant: `diagnostics` holds the parametric-sort and undefined-sort errors of every entry of `module.local_sentences` before `sentence`; each iteration consumes one local sentence.
+    // Invariant: `diagnostics` holds the numeral-sort, parametric-sort and undefined-sort errors of every entry of `module.local_sentences` before `sentence`; each iteration consumes one local sentence.
     for sentence in module.local_sentences.iter().map(std::sync::Arc::as_ref) {
+        numeral_sort_diagnostics(sentence, sorts, &mut diagnostics);
         match sentence {
             Sentence::SyntaxSort {
                 parameters, sort, ..
@@ -84,6 +85,9 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
                             Spelling::Synonym { denotes } => denotes,
                             Spelling::Undenoted => return None,
                         };
+                        if !sort.role().has_terms() {
+                            return None;
+                        }
                         match SortShape::of(sort, parameters) {
                             // A nested operand names no instance, so it is reported as nested
                             // and not also as a missing sort.
@@ -141,6 +145,78 @@ pub fn check_sorts(module: &ResolvedModule, sorts: &SortCatalog<'_>) -> Vec<Diag
     }
 
     diagnostics
+}
+
+/// N1: production results and operands have terms, numeral declarations carry neither `token`
+/// nor `hook`, and synonym aliases and sentence sort parameters are not numerals.
+/// A compiled numeral declaration names a natural-number width so a parametric sort such as
+/// `MInt{8}` is well formed; it does not name a set of terms that a sentence can produce or accept.
+fn numeral_sort_diagnostics(
+    sentence: &Sentence,
+    sorts: &SortCatalog<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut reported = BTreeSet::new();
+    let mut check = |sort: &Sort, place| {
+        if !sort.role().has_terms() && reported.insert((place, sort.clone())) {
+            diagnostics.push(Diagnostic::error(
+                DiagnosticCode::InvalidNumeralSort,
+                format!("Sort {sort} is a numeral: it names a width, such as the argument of MInt{{{sort}}}, and has no terms, so it cannot be {place}."),
+                sentence,
+            ));
+        }
+    };
+    match sentence {
+        Sentence::Production {
+            parameters,
+            sort,
+            items,
+            ..
+        } => {
+            for parameter in parameters {
+                check(parameter, "a sort parameter");
+            }
+            if !parameters.contains(sort) {
+                check(sort, "the sort of a production");
+            }
+            for item in items {
+                if let ProductionItem::NonTerminal { sort, .. } = item {
+                    if parameters.contains(sort) {
+                        continue;
+                    }
+                    match sorts.sort_synonyms().spelling(sort) {
+                        Spelling::Sort => check(sort, "an operand of a production"),
+                        Spelling::Synonym { denotes } => {
+                            check(denotes, "an operand of a production")
+                        }
+                        Spelling::Undenoted => {}
+                    }
+                }
+            }
+        }
+        Sentence::SyntaxSort {
+            parameters,
+            sort,
+            attributes,
+        } => {
+            for parameter in parameters {
+                check(parameter, "a sort parameter");
+            }
+            if attributes.has(AttributeKey::Token) || attributes.has(AttributeKey::Hook) {
+                check(sort, "a token or hooked sort");
+            }
+        }
+        Sentence::SortSynonym { new_sort, .. } => check(new_sort, "a sort synonym"),
+        Sentence::SyntaxLexical { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Rule { .. }
+        | Sentence::Claim { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => {}
+    }
 }
 
 /// Check the sort a declaration or a production result writes, with the sentence's formal sort
