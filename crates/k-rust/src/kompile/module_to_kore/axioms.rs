@@ -17,7 +17,7 @@
 use super::equations::substitute_equation_sort;
 use super::*;
 use crate::definition::production_kind::{
-    NoJunkAlternative, ProductionKind, SortGenerators, match_sort_parameters,
+    ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, mentions_parameter,
 };
 use crate::kompile::passes::{Injectable, has_subsort_axiom};
 
@@ -249,6 +249,9 @@ fn generated_variable(prefix: &str, index: usize, sort: &KoreSort) -> Pattern {
     })
 }
 
+/// The no-junk axiom of every concrete sort whose axiom is statable ([`NoJunkAxiom`]) and has an
+/// alternative.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn no_junk_axioms(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
@@ -256,7 +259,21 @@ fn no_junk_axioms(
 ) -> Vec<KoreSentence> {
     let mut axioms = Vec::new();
     for sort in sorts.sorted_all_sorts() {
-        let generators = SortGenerators::of(productions, sorts, subsorts, sort);
+        let generators = match NoJunkAxiom::of(productions, sorts, subsorts, sort) {
+            NoJunkAxiom::Stated(generators) => generators,
+            // A generator's free sort parameters put its applications at every instantiation
+            // among the sort's values, which no finite disjunction lists.
+            NoJunkAxiom::Unstatable { generator } => {
+                debug_assert!(
+                    matches!(
+                        productions.production(generator),
+                        Sentence::Production { parameters, .. } if !parameters.is_empty()
+                    ),
+                    "only a generator with sort parameters can leave one free at {sort:?}"
+                );
+                continue;
+            }
+        };
         if generators.is_empty() {
             continue;
         }
@@ -270,14 +287,12 @@ fn no_junk_axioms(
                 NoJunkAlternative::DomainValues => Pattern::Top {
                     sort: result_sort.clone(),
                 },
-                NoJunkAlternative::Generator(id) => {
-                    let Some(production) =
-                        generated_production_for_sort(productions.production(id), sort)
-                    else {
-                        unreachable!(
-                            "SortGenerators admits a labelled generator only when its result sort instantiates to the sort"
-                        )
-                    };
+                NoJunkAlternative::Generator(instance) => {
+                    let production = generated_production_for_sort(
+                        productions.production(instance.production()),
+                        instance,
+                        sort,
+                    );
                     let variables = production
                         .arguments
                         .iter()
@@ -369,44 +384,72 @@ fn consistent_generated_variable(
     }
 }
 
+/// The symbol of the generator `production` instantiated at `target` by `instance`'s
+/// substitution, with its argument sorts and result sort `target`.
+///
+/// `instance` binds every sort parameter of `production`, so every sort this encodes is closed
+/// and the closed encoding applies.
 fn generated_production_for_sort(
     production: &Sentence,
+    instance: &ClosedInstance,
     target: &Sort,
-) -> Option<GeneratedProduction> {
+) -> GeneratedProduction {
     let Sentence::Production {
-        label: Some(label),
+        label,
         parameters,
-        sort,
         items,
         ..
     } = production
     else {
-        return None;
+        unreachable!("production catalogs contain productions")
     };
-    let mut substitution = BTreeMap::new();
-    match_sort_parameters(sort, target, parameters, &mut substitution)?;
-    let concrete_label = Label::with_parameters(
-        &label.name,
-        label
-            .parameters
+    let Some(label) = label else {
+        unreachable!(
+            "a generator's kind is base or algebraic, which only a labelled production has"
+        )
+    };
+    let substitution = instance.substitution();
+    let label_parameters = label
+        .parameters
+        .iter()
+        .map(|sort| substitute_equation_sort(sort, substitution))
+        .collect::<Vec<_>>();
+    let arguments = items
+        .iter()
+        .filter_map(|item| match item {
+            ProductionItem::NonTerminal { sort, .. } => {
+                Some(substitute_equation_sort(sort, substitution))
+            }
+            ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+        })
+        .collect::<Vec<_>>();
+    if cfg!(debug_assertions) {
+        // A parameter spelled like a sort the substitution introduces is told apart from that
+        // sort by spelling alone, so the test covers the parameters no binding mentions.
+        let checked = parameters
             .iter()
-            .map(|sort| substitute_equation_sort(sort, &substitution))
-            .collect(),
-    );
-    Some(GeneratedProduction {
-        parameters: Vec::new(),
-        symbol: encode_kore_label(&concrete_label),
-        arguments: items
-            .iter()
-            .filter_map(|item| match item {
-                ProductionItem::NonTerminal { sort, .. } => Some(encode_kore_sort(
-                    &substitute_equation_sort(sort, &substitution),
-                )),
-                ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
+            .filter(|parameter| {
+                !substitution
+                    .values()
+                    .any(|image| mentions_parameter(image, std::slice::from_ref(*parameter)))
             })
-            .collect(),
+            .cloned()
+            .collect::<Vec<_>>();
+        debug_assert!(
+            !label_parameters
+                .iter()
+                .chain(&arguments)
+                .any(|sort| mentions_parameter(sort, &checked)),
+            "the closed instance of `{}` leaves a sort parameter of {checked:?} in an encoded sort",
+            label.name
+        );
+    }
+    GeneratedProduction {
+        parameters: Vec::new(),
+        symbol: encode_kore_label(&Label::with_parameters(&label.name, label_parameters)),
+        arguments: arguments.iter().map(encode_kore_sort).collect(),
         result: encode_kore_sort(target),
-    })
+    }
 }
 
 /// `∃ Val. Val = f(K0, …)` for a labelled production `f`; its caller emits it only when the

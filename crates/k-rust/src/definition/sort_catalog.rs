@@ -24,6 +24,7 @@ use super::ast::{Attributes, Sentence};
 use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::definition::AttributeKey;
+use crate::definition::production_kind::mentions_parameter;
 use crate::kast::Sort;
 use crate::names::BuiltinSort;
 
@@ -345,7 +346,7 @@ fn compute_instantiations(
 ) -> BTreeMap<SortHead, BTreeSet<Sort>> {
     let mut nonempty = BTreeMap::<SortHead, BTreeSet<Sort>>::new();
     let mut heads = BTreeSet::new();
-    // Invariant: `heads` holds the head of every parametric production sort among the entries of `sentences` before `sentence`, and `nonempty` maps each such head to those sorts that mention none of their production's `parameters`; each iteration consumes one sentence.
+    // Invariant: `heads` holds the head of every parametric production sort among the entries of `sentences` before `sentence`, and `nonempty` maps each such head to those sorts that mention none of their production's `parameters` at any depth; each iteration consumes one sentence.
     for sentence in sentences {
         let Sentence::Production {
             parameters, sort, ..
@@ -356,12 +357,9 @@ fn compute_instantiations(
         if !sort.parameters.is_empty() {
             let head = SortHead::from(sort);
             heads.insert(head.clone());
-            if !parameters.contains(sort)
-                && sort
-                    .parameters
-                    .iter()
-                    .all(|parameter| !parameters.contains(parameter))
-            {
+            // A sort with a parameter at any depth (`MInt{MInt{W}}`) names a family of sorts, not
+            // one declared instance.
+            if !mentions_parameter(sort, parameters) {
                 nonempty.entry(head).or_default().insert(sort.clone());
             }
         }

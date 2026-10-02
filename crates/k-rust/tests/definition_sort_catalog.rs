@@ -176,6 +176,33 @@ fn derives_concrete_instantiations_and_numeric_parameter_sorts() {
 }
 
 #[test]
+fn a_production_sort_with_a_nested_sort_parameter_is_no_instance() {
+    // Property: `MInt{MInt{W}}` names one sort per `W`, so a production with that result declares
+    // no instance of `MInt`, however deep its parameter sits.
+    let w = Sort::new("W");
+    let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+    let declaration = syntax_sort(vec![w.clone()], mint(w.clone()), Attributes::default());
+    let bar = syntax_sort(Vec::new(), Sort::new("Bar"), Attributes::default());
+    let nest = Sentence::Production {
+        label: Some(Label::new("nest")),
+        parameters: vec![w.clone()],
+        sort: mint(mint(w.clone())),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("Bar"),
+            name: None,
+        }],
+        attributes: Attributes::default(),
+    };
+    let catalog = SortCatalog::from_visible([&declaration, &bar, &nest]);
+
+    assert_eq!(
+        catalog.instantiations().get(&SortHead::new("MInt", 1)),
+        Some(&BTreeSet::new())
+    );
+    assert!(!catalog.all_sorts().contains(&mint(mint(w))));
+}
+
+#[test]
 fn derives_synonym_hook_token_and_list_views() {
     let resolved = fixture();
     let catalog = resolved.sort_catalog(resolved.main_module_id());

@@ -1167,17 +1167,24 @@ module_snapshot!(
 
 /// The printed axioms of the semantic module whose top pattern is a disjunction over `sort`:
 /// the sort's no-junk axiom.
+///
+/// The selection ignores whitespace, so an axiom the printer breaks across lines is selected too.
 fn no_junk_axioms_of(source: &str, sort: &str) -> Vec<String> {
     let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
     let printer = Printer::pretty(100);
-    let prefix = format!(r"axiom{{}} \or{{{sort}}}(");
+    let prefix = format!(r"axiom{{}}\or{{{sort}}}(");
     modules
         .semantics
         .sentences
         .iter()
         .filter(|sentence| matches!(sentence, Sentence::Axiom { .. }))
         .map(|sentence| printer.print_sentence(sentence))
-        .filter(|printed| printed.starts_with(&prefix))
+        .filter(|printed| {
+            printed
+                .split_whitespace()
+                .collect::<String>()
+                .starts_with(&prefix)
+        })
         .collect()
 }
 
@@ -1208,6 +1215,40 @@ fn token_productions_contribute_only_top_to_no_junk_in_any_order() {
     ];
     assert_eq!(no_junk_axioms_of(lower_first, "SortStr{}"), expected);
     assert_eq!(no_junk_axioms_of(upper_first, "SortStr{}"), expected);
+}
+
+#[test]
+fn a_sort_with_a_generator_leaving_a_sort_parameter_free_gets_no_no_junk_axiom() {
+    // Property: `pick{W}` is a value of `Foo` for every sort `W`, so no finite disjunction lists
+    // `Foo`'s values and `Foo` gets no no-junk axiom, whether `W` occurs in an argument or nowhere;
+    // `Bar`, whose generator is closed, keeps its axiom.
+    let open = indoc! {r#"
+        module MAIN
+          syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax Bar ::= "b" [symbol(b)]
+          syntax {W} Foo ::= pick(MInt{W}, Bar) [symbol(pick)]
+          syntax Foo ::= "g" [symbol(g)]
+        endmodule
+    "#};
+    let phantom = indoc! {r#"
+        module MAIN
+          syntax {W} MInt{W} [hook(MINT.MInt)]
+          syntax Bar ::= "b" [symbol(b)]
+          syntax {W} Foo ::= pick(Bar) [symbol(pick)]
+          syntax Foo ::= "g" [symbol(g)]
+        endmodule
+    "#};
+    let bar = vec![
+        r"axiom{} \or{SortBar{}}(Lblb{}(), \bottom{SortBar{}}()) [constructor{}()]".to_owned(),
+    ];
+    for source in [open, phantom] {
+        assert_eq!(
+            no_junk_axioms_of(source, "SortFoo{}"),
+            Vec::<String>::new(),
+            "{source}"
+        );
+        assert_eq!(no_junk_axioms_of(source, "SortBar{}"), bar, "{source}");
+    }
 }
 
 #[test]

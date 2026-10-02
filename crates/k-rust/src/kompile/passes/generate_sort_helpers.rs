@@ -37,7 +37,7 @@ use std::sync::Arc;
 use crate::definition::ResolveError;
 use serde_json::{Value, json};
 
-use crate::definition::production_kind::{FieldProjectionSource, SortGenerators};
+use crate::definition::production_kind::{FieldProjectionSource, NoJunkAxiom};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{AttributeKey, DefinitionViews, ModuleId, ProductionId};
 use crate::kast::ProductionIdentity;
@@ -394,7 +394,7 @@ fn named_projections(
 #[derive(Clone, Copy)]
 pub(crate) struct SoleGenerator(());
 
-/// The no-junk alternatives of the main module's sorts, as [`SortGenerators`] derives them for the
+/// The no-junk alternatives of the main module's sorts, as [`NoJunkAxiom`] derives them for the
 /// emitted no-junk axioms, computed once per sort a projection source asks about.
 ///
 /// The subsort order and sort catalog are read only when a source has a named field, and one
@@ -418,19 +418,23 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
     /// The main-module production that is the only alternative of `sort`'s no-junk axiom.
     ///
     /// `None` also when the main module's subsort order is cyclic: that order has no no-junk
-    /// axioms at all (emission rejects the cycle), so no projection is judged total on it.
+    /// axioms at all (emission rejects the cycle), so no projection is judged total on it. `None`
+    /// too when the sort's no-junk axiom is unstatable: no axiom says every value of the sort is
+    /// an application of one symbol.
     fn sole_generator(&mut self, sort: &Sort) -> Option<ProductionId> {
         if let Some(sole) = self.sole.get(sort) {
             return *sole;
         }
         let sole = self.views.subsorts(self.main).ok().and_then(|subsorts| {
-            SortGenerators::of(
+            match NoJunkAxiom::of(
                 self.views.production_catalog(self.main),
                 self.views.sort_catalog(self.main),
                 subsorts,
                 sort,
-            )
-            .sole_generator()
+            ) {
+                NoJunkAxiom::Stated(generators) => generators.sole_generator(),
+                NoJunkAxiom::Unstatable { .. } => None,
+            }
         });
         self.sole.insert(sort.clone(), sole);
         sole
@@ -440,9 +444,12 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
 /// Judge whether the projection source with content identity `source` and result sort `sort` is
 /// the only alternative of `sort`'s no-junk axiom, minting the evidence when it is.
 ///
-/// The alternatives are those [`SortGenerators`] derives from the main module's productions,
+/// The alternatives are those [`NoJunkAxiom`] derives from the main module's productions,
 /// sort catalog and subsort order, the same derivation the emitted no-junk axiom of `sort` uses.
 /// A source not visible in the main module is no alternative there, so it is never the sole one.
+/// A sort whose no-junk axiom is unstatable ([`NoJunkAxiom::Unstatable`], a generator with a sort
+/// parameter its result does not bind) has no sole generator: the theory states no axiom that
+/// makes every value of the sort an application of the source.
 /// A source binds no sort parameter ([`FieldProjectionSource`] says why a parametric production is
 /// never one).
 ///

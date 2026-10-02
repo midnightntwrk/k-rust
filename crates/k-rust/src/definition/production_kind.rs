@@ -1,5 +1,5 @@
 //! This definition-layer module holds no algorithm of its own: the kind of a production is a
-//! constant number of attribute lookups, and [`SortGenerators::of`] is one scan of a production
+//! constant number of attribute lookups, and [`NoJunkAxiom::of`] is one scan of a production
 //! catalog and one of a sort catalog per sort, which the `kompile.kore.axioms` card of its caller
 //! (`no_junk_axioms`) counts.
 //!
@@ -10,8 +10,9 @@
 //! emitted theory from whether a production is a subsort, a matching-logic builtin, a bracket, a
 //! function, a macro production or a token reads that decision from the kind, so no two claims
 //! about one production can rest on two different readings of its attributes.
-//! [`SortGenerators`] derives the alternatives of a sort's no-junk axiom from the kinds of its
-//! productions.
+//! [`NoJunkAxiom`] derives what a sort's no-junk axiom can state from the kinds of its
+//! productions: the alternatives ([`SortGenerators`]), or nothing when a generator's sort
+//! parameters are not all bound at the sort.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -405,33 +406,117 @@ pub(crate) fn match_sort_parameters(
     Some(())
 }
 
+/// Whether `sort`, or any sort inside it at any depth, is an element of `parameters`.
+///
+/// This is the one test of whether a sort taken from a sentence mentions a sort parameter that
+/// sentence binds: a parameter may occur as the sort itself (`W`) or nested inside an argument
+/// (`MInt{MInt{W}}`).
+// Invariant: each call tests one node of `sort` and recurses only into its `parameters`, so the
+// finite `sort` bounds the calls.
+pub(crate) fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
+    parameters.contains(sort)
+        || sort
+            .parameters
+            .iter()
+            .any(|argument| mentions_parameter(argument, parameters))
+}
+
+/// A generator of a concrete sort with the substitution that binds every one of its sort
+/// parameters so that its result sort is that sort.
+///
+/// Minted only by [`NoJunkAxiom::of`], after matching the generator's result sort against the
+/// sort bound each element of the production's `parameters`, so applying the substitution to any
+/// sort of the production leaves no sort parameter of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClosedInstance {
+    production: ProductionId,
+    substitution: BTreeMap<Sort, Sort>,
+}
+
+impl ClosedInstance {
+    /// The generator.
+    pub(crate) fn production(&self) -> ProductionId {
+        self.production
+    }
+
+    /// The binding of each of the generator's sort parameters, with every parameter a key.
+    pub(crate) fn substitution(&self) -> &BTreeMap<Sort, Sort> {
+        &self.substitution
+    }
+}
+
 /// One alternative of a concrete sort's no-junk axiom, in axiom order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NoJunkAlternative<'g> {
     /// `\top`: the domain values of the sort.
     DomainValues,
-    /// The symbol of this production, instantiated at the sort, applied to fresh variables.
-    Generator(ProductionId),
+    /// The symbol of this production, instantiated at the sort by the instance's substitution,
+    /// applied to fresh variables.
+    Generator(&'g ClosedInstance),
     /// The injection of a strict subsort into the sort, along the subsort axioms of the emitted
     /// theory.
     Injection(&'g Injectable),
 }
 
 /// An alternative a production of the sort contributes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Alternative {
     DomainValues,
-    Generator(ProductionId),
+    Generator(ClosedInstance),
 }
 
-/// The no-junk alternatives of one concrete sort: every value of the sort is one of them.
+/// What the no-junk axiom of one concrete sort can state.
+///
+/// A no-junk axiom is one sentence `axiom{} \or{S}(..)` with no sort parameters, so each
+/// alternative must be a pattern over closed sorts. A generator whose result sort, matched against
+/// the sort, binds every one of its sort parameters contributes one such pattern. A generator with
+/// a parameter that the match leaves free (`syntax {W} Foo ::= pick(MInt{W}, Int)` at `Foo`, or a
+/// phantom `syntax {W} Foo ::= pick(Int)`, whose symbols `pick{W}` still differ per `W`) puts its
+/// application at every instantiation of that parameter among the sort's values, which no finite
+/// disjunction lists. Listing only some instantiations, or leaving that generator out, would state
+/// a false axiom, and a false finite no-junk axiom lets a prover discard a branch that has a
+/// solution, and could make a sibling the sole generator whose field projections are then judged
+/// total. Stating no axiom only loses that pruning for the sort, so it is the sound choice.
+#[must_use]
+#[derive(Debug)]
+pub(crate) enum NoJunkAxiom {
+    /// Every value of the sort is one of these alternatives (none: the sort gets no axiom).
+    Stated(SortGenerators),
+    /// The generator `generator`'s sort parameters are not all bound by matching its result sort
+    /// against the sort, so the theory states no no-junk axiom for the sort.
+    Unstatable { generator: ProductionId },
+}
+
+impl NoJunkAxiom {
+    /// What the no-junk axiom of the concrete sort `sort` can state, in a module whose
+    /// productions, sorts and subsort order are `productions`, `sorts` and `subsorts`.
+    ///
+    /// A parametric production generates `sort` when its result sort matches `sort` by
+    /// instantiating its sort parameters ([`match_sort_parameters`]); when that match leaves an
+    /// element of its `parameters` unbound, the axiom is [`NoJunkAxiom::Unstatable`].
+    pub(crate) fn of(
+        productions: &ProductionCatalog<'_>,
+        sorts: &SortCatalog<'_>,
+        subsorts: &PartialOrder<Sort>,
+        sort: &Sort,
+    ) -> Self {
+        match SortGenerators::of(productions, sorts, subsorts, sort) {
+            Ok(generators) => Self::Stated(generators),
+            Err(generator) => Self::Unstatable { generator },
+        }
+    }
+}
+
+/// The no-junk alternatives of one concrete sort whose generators all instantiate closed at it:
+/// every value of the sort is one of them.
 ///
 /// The productions of the sort contribute their [`ProductionKind::no_junk`] alternatives in
 /// catalog order, with a single `\top` at the position of the first token production however many
 /// token productions the sort has, since each of them contributes the same alternative. The
 /// injections of the strict subsorts along subsort axioms follow ([`injected_subsorts`]), and a
 /// sort whose own declaration carries `token` but
-/// that has no token production ends with `\top`.
+/// that has no token production ends with `\top`. Only [`NoJunkAxiom::of`] builds one, so a sort
+/// with a generator that does not instantiate closed ([`NoJunkAxiom::Unstatable`]) has none.
 #[derive(Debug)]
 pub(crate) struct SortGenerators {
     alternatives: Vec<Alternative>,
@@ -440,24 +525,21 @@ pub(crate) struct SortGenerators {
 }
 
 impl SortGenerators {
-    /// The no-junk alternatives of the concrete sort `sort` in a module whose productions,
-    /// sorts and subsort order are `productions`, `sorts` and `subsorts`.
-    ///
-    /// A parametric production generates `sort` when its result sort matches `sort` by
-    /// instantiating its sort parameters ([`match_sort_parameters`]).
-    pub(crate) fn of(
+    /// The no-junk alternatives of the concrete sort `sort`, or `Err` with the first generator in
+    /// catalog order whose sort parameters matching its result sort against `sort` leaves unbound.
+    fn of(
         productions: &ProductionCatalog<'_>,
         sorts: &SortCatalog<'_>,
         subsorts: &PartialOrder<Sort>,
         sort: &Sort,
-    ) -> Self {
+    ) -> Result<Self, ProductionId> {
         let head = SortHead::from(sort);
         let mut alternatives = Vec::new();
-        // Invariant: `alternatives` holds, in catalog order, the generator of every production of
-        // `head` before this one whose kind is a generator and whose result sort instantiates to
-        // `sort`, plus one domain-values alternative at the position of the first earlier
-        // production whose kind contributes domain values; this scan runs once per sort,
-        // O(|productions|).
+        // Invariant: `alternatives` holds, in catalog order, a closed instance of every production
+        // of `head` before this one whose kind is a generator and whose result sort instantiates
+        // to `sort`, each binding every sort parameter of its production, plus one domain-values
+        // alternative at the position of the first earlier production whose kind contributes
+        // domain values; this scan runs once per sort, O(|productions|).
         for (id, production) in productions.productions() {
             let Sentence::Production {
                 parameters,
@@ -477,16 +559,24 @@ impl SortGenerators {
                     }
                 }
                 NoJunk::Generator => {
-                    if match_sort_parameters(
-                        production_sort,
-                        sort,
-                        parameters,
-                        &mut BTreeMap::new(),
-                    )
-                    .is_some()
+                    let mut substitution = BTreeMap::new();
+                    if match_sort_parameters(production_sort, sort, parameters, &mut substitution)
+                        .is_none()
                     {
-                        alternatives.push(Alternative::Generator(id));
+                        continue;
                     }
+                    // Every element of `parameters`, not only those the items mention: a phantom
+                    // parameter still indexes distinct symbols.
+                    if !parameters
+                        .iter()
+                        .all(|parameter| substitution.contains_key(parameter))
+                    {
+                        return Err(id);
+                    }
+                    alternatives.push(Alternative::Generator(ClosedInstance {
+                        production: id,
+                        substitution,
+                    }));
                 }
                 NoJunk::Absent => {}
             }
@@ -495,11 +585,11 @@ impl SortGenerators {
             && sorts
                 .attributes_for(&head)
                 .is_some_and(|attributes| attributes.has(AttributeKey::Token));
-        Self {
+        Ok(Self {
             alternatives,
             injections: injected_subsorts(sorts, subsorts, sort),
             token_sort,
-        }
+        })
     }
 
     /// Whether the sort has no alternative at all, so that it gets no no-junk axiom.
@@ -511,9 +601,9 @@ impl SortGenerators {
     pub(crate) fn alternatives(&self) -> impl Iterator<Item = NoJunkAlternative<'_>> {
         self.alternatives
             .iter()
-            .map(|alternative| match *alternative {
+            .map(|alternative| match alternative {
                 Alternative::DomainValues => NoJunkAlternative::DomainValues,
-                Alternative::Generator(id) => NoJunkAlternative::Generator(id),
+                Alternative::Generator(instance) => NoJunkAlternative::Generator(instance),
             })
             .chain(self.injections.iter().map(NoJunkAlternative::Injection))
             .chain(self.token_sort.then_some(NoJunkAlternative::DomainValues))
@@ -526,9 +616,9 @@ impl SortGenerators {
     pub(crate) fn sole_generator(&self) -> Option<ProductionId> {
         if self.injections.is_empty()
             && !self.token_sort
-            && let [Alternative::Generator(id)] = self.alternatives.as_slice()
+            && let [Alternative::Generator(instance)] = self.alternatives.as_slice()
         {
-            Some(*id)
+            Some(instance.production())
         } else {
             None
         }
@@ -592,14 +682,139 @@ mod tests {
         )
     }
 
+    fn no_junk_axiom(
+        productions: &[&Sentence],
+        sorts: &SortCatalog<'_>,
+        sort: &Sort,
+    ) -> NoJunkAxiom {
+        let catalog = ProductionCatalog::from_visible(productions.iter().copied());
+        let subsorts = PartialOrder::new(std::iter::empty()).expect("no subsort cycle");
+        NoJunkAxiom::of(&catalog, sorts, &subsorts, sort)
+    }
+
     fn generators(
         productions: &[&Sentence],
         sorts: &SortCatalog<'_>,
         sort: &Sort,
     ) -> SortGenerators {
-        let catalog = ProductionCatalog::from_visible(productions.iter().copied());
-        let subsorts = PartialOrder::new(std::iter::empty()).expect("no subsort cycle");
-        SortGenerators::of(&catalog, sorts, &subsorts, sort)
+        match no_junk_axiom(productions, sorts, sort) {
+            NoJunkAxiom::Stated(generators) => generators,
+            NoJunkAxiom::Unstatable { generator } => {
+                panic!("expected a statable axiom, found the open generator {generator:?}")
+            }
+        }
+    }
+
+    /// The alternatives with each generator named by its production.
+    #[derive(Debug, Eq, PartialEq)]
+    enum Named {
+        DomainValues,
+        Generator(ProductionId),
+        Injection,
+    }
+
+    fn named(generators: &SortGenerators) -> Vec<Named> {
+        generators
+            .alternatives()
+            .map(|alternative| match alternative {
+                NoJunkAlternative::DomainValues => Named::DomainValues,
+                NoJunkAlternative::Generator(instance) => Named::Generator(instance.production()),
+                NoJunkAlternative::Injection(_) => Named::Injection,
+            })
+            .collect()
+    }
+
+    fn declaration(parameters: &[&str], sort: Sort) -> Sentence {
+        Sentence::SyntaxSort {
+            parameters: parameters.iter().map(|name| Sort::new(*name)).collect(),
+            sort,
+            attributes: Attributes::default(),
+        }
+    }
+
+    fn parametric_production(
+        label: &str,
+        parameters: &[&str],
+        sort: Sort,
+        arguments: Vec<Sort>,
+    ) -> Sentence {
+        Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters: parameters.iter().map(|name| Sort::new(*name)).collect(),
+            sort,
+            items: arguments
+                .into_iter()
+                .map(|sort| ProductionItem::NonTerminal { sort, name: None })
+                .collect(),
+            attributes: Attributes::default(),
+        }
+    }
+
+    /// `syntax {W} Foo ::= pick(MInt{W}, Bar)` at `Foo` leaves `W` free, and so does the phantom
+    /// `syntax {W} Foo ::= pick(Bar)`: `Foo`'s values include `pick{W}(..)` for every `W`, which no
+    /// finite disjunction lists, so `Foo`'s no-junk axiom is unstatable, whatever the order of
+    /// its closed sibling `g`.
+    #[test]
+    fn a_generator_whose_result_leaves_a_sort_parameter_free_makes_the_axiom_unstatable() {
+        let foo = Sort::new("Foo");
+        let bar = Sort::new("Bar");
+        let mint = |argument: Sort| Sort::with_parameters("MInt", vec![argument]);
+        let declarations = [
+            declaration(&["W"], mint(Sort::new("W"))),
+            declaration(&[], bar.clone()),
+            declaration(&[], foo.clone()),
+        ];
+        let sorts = SortCatalog::from_visible(declarations.iter());
+        let open = parametric_production(
+            "pick",
+            &["W"],
+            foo.clone(),
+            vec![mint(Sort::new("W")), bar.clone()],
+        );
+        let phantom = parametric_production("pick", &["W"], foo.clone(), vec![bar.clone()]);
+        let g = parametric_production("g", &[], foo.clone(), Vec::new());
+        for generator in [&open, &phantom] {
+            for (order, position) in [([generator, &g], 0), ([&g, generator], 1)] {
+                let NoJunkAxiom::Unstatable { generator: id } = no_junk_axiom(&order, &sorts, &foo)
+                else {
+                    panic!("{generator:?} leaves W free at Foo");
+                };
+                assert_eq!(id, ProductionId(position));
+            }
+        }
+    }
+
+    /// `syntax {W} Box{W} ::= box(W)` at `Box{Bar}` binds `W` to `Bar`: one closed instance.
+    #[test]
+    fn a_generator_whose_result_binds_every_sort_parameter_is_a_closed_instance() {
+        let bar = Sort::new("Bar");
+        let boxed = |argument: Sort| Sort::with_parameters("Box", vec![argument]);
+        let declarations = [
+            declaration(&["W"], boxed(Sort::new("W"))),
+            declaration(&[], bar.clone()),
+        ];
+        let sorts = SortCatalog::from_visible(declarations.iter());
+        let r#box =
+            parametric_production("box", &["W"], boxed(Sort::new("W")), vec![Sort::new("W")]);
+        let NoJunkAxiom::Stated(generators) = no_junk_axiom(&[&r#box], &sorts, &boxed(bar.clone()))
+        else {
+            panic!("box binds W at Box{{Bar}}");
+        };
+        let instances = generators
+            .alternatives()
+            .map(|alternative| match alternative {
+                NoJunkAlternative::Generator(instance) => {
+                    (instance.production(), instance.substitution().clone())
+                }
+                NoJunkAlternative::DomainValues | NoJunkAlternative::Injection(_) => {
+                    panic!("box is the only alternative, found {alternative:?}")
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            instances,
+            [(ProductionId(0), BTreeMap::from([(Sort::new("W"), bar)]))]
+        );
     }
 
     #[test]
@@ -615,10 +830,9 @@ mod tests {
         let upper = token("idUpper", "[A-Z]+");
         for order in [[&lower, &upper], [&upper, &lower]] {
             let generated = generators(&order, &sorts, &sort);
-            let alternatives = generated.alternatives().collect::<Vec<_>>();
             assert_eq!(
-                alternatives,
-                [NoJunkAlternative::DomainValues],
+                named(&generated),
+                [Named::DomainValues],
                 "a labelled token production is never a generator, whatever its position"
             );
         }
@@ -638,13 +852,12 @@ mod tests {
         let last = production(Some("last"), "Id", Vec::new(), &[]);
         let relexed = token("idUpper", "[A-Z]+");
         let generated = generators(&[&first, &lexed, &last, &relexed], &sorts, &sort);
-        let alternatives = generated.alternatives().collect::<Vec<_>>();
         assert_eq!(
-            alternatives,
+            named(&generated),
             [
-                NoJunkAlternative::Generator(ProductionId(0)),
-                NoJunkAlternative::DomainValues,
-                NoJunkAlternative::Generator(ProductionId(2)),
+                Named::Generator(ProductionId(0)),
+                Named::DomainValues,
+                Named::Generator(ProductionId(2)),
             ]
         );
     }
