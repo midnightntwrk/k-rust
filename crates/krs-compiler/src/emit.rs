@@ -1,5 +1,5 @@
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
-use krs_ir::k_surface::{DefinitionIndex, variable_name};
+use krs_ir::k_surface::{DefinitionIndex, ImportPolicy, builtin_imports, variable_name};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -384,92 +384,6 @@ fn emit_module<'a>(
     Ok(())
 }
 
-#[derive(Default)]
-struct BuiltinRequirements {
-    sorts: BTreeSet<BuiltinSort>,
-    operations: BTreeSet<BuiltinSort>,
-}
-
-impl BuiltinRequirements {
-    fn sort(&mut self, sort: &DefinitionSortRef) {
-        if let DefinitionSortRef::Builtin(sort) = sort {
-            self.sorts.insert(*sort);
-        }
-    }
-
-    fn term(&mut self, term: &DefinitionTerm) {
-        self.sort(term.sort());
-        match term.kind() {
-            DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
-            DefinitionTermKind::Application {
-                application,
-                arguments,
-            } => {
-                if let ApplicationRef::Builtin(operation) = application {
-                    self.operations.insert(operation.result_sort());
-                    for sort in operation.argument_sorts() {
-                        self.operations.insert(*sort);
-                    }
-                }
-                for argument in arguments {
-                    self.term(argument);
-                }
-            }
-            DefinitionTermKind::KSequence { item_sort, items } => {
-                self.sort(item_sort);
-                for item in items {
-                    self.term(item);
-                }
-            }
-            DefinitionTermKind::Map { arguments, .. } => {
-                self.sorts.insert(BuiltinSort::Map);
-                for argument in arguments {
-                    self.term(argument);
-                }
-            }
-            DefinitionTermKind::List { arguments, .. } => {
-                self.sorts.insert(BuiltinSort::List);
-                for argument in arguments {
-                    self.term(argument);
-                }
-            }
-            DefinitionTermKind::Set { arguments, .. } => {
-                self.sorts.insert(BuiltinSort::Set);
-                for argument in arguments {
-                    self.term(argument);
-                }
-            }
-            DefinitionTermKind::Rewrite { from, to } => {
-                self.term(from);
-                self.term(to);
-            }
-            DefinitionTermKind::Cell { children, .. } => {
-                for child in children {
-                    self.term(child);
-                }
-            }
-        }
-    }
-
-    fn fixed_cells(&mut self, cells: &[FixedCell<DefinitionSortRef, SymbolId>]) {
-        for cell in cells {
-            match cell.content() {
-                FixedCellContent::Term { sort } => self.sort(sort),
-                FixedCellContent::Children { children } => self.fixed_cells(children),
-            }
-        }
-    }
-
-    fn initializer(&mut self, cells: &[FixedInitializerCell<SymbolId, DefinitionTerm>]) {
-        for cell in cells {
-            match cell.content() {
-                FixedInitializerContent::Term { term } => self.term(term),
-                FixedInitializerContent::Children { children } => self.initializer(children),
-            }
-        }
-    }
-}
-
 /// Returns the exact authored and compiler-inferred imports emitted for a module.
 #[must_use]
 pub fn definition_module_imports(module: &DefinitionModule) -> BTreeSet<String> {
@@ -477,87 +391,12 @@ pub fn definition_module_imports(module: &DefinitionModule) -> BTreeSet<String> 
         .imports()
         .iter()
         .map(|id| id.as_str().to_owned())
-        .chain(builtin_imports(module))
+        .chain(
+            builtin_imports(module, ImportPolicy::SourceText)
+                .into_iter()
+                .map(str::to_owned),
+        )
         .collect()
-}
-
-fn builtin_imports(module: &DefinitionModule) -> BTreeSet<String> {
-    let mut requirements = BuiltinRequirements::default();
-    for sentence in module.sentences() {
-        match sentence {
-            DefinitionSentence::SyntaxSort(_)
-            | DefinitionSentence::Precedence(_)
-            | DefinitionSentence::Associativity(_) => {}
-            DefinitionSentence::Subsort(sentence) => {
-                requirements.sort(sentence.subsort());
-                requirements.sort(sentence.supersort());
-            }
-            DefinitionSentence::Production(sentence) => {
-                requirements.sort(sentence.result_sort());
-                for item in sentence.items() {
-                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-                        requirements.sort(sort);
-                    }
-                }
-                for attribute in sentence.attributes() {
-                    if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
-                        requirements.sort(result_sort.sort());
-                    }
-                }
-            }
-            DefinitionSentence::Configuration(configuration) => {
-                requirements.fixed_cells(configuration.cells());
-                for variable in configuration.variables() {
-                    requirements.sort(variable.sort());
-                }
-                requirements.initializer(configuration.initializer());
-            }
-            DefinitionSentence::ContextAlias(sentence) => {
-                for variable in sentence.variables() {
-                    requirements.sort(variable.sort());
-                }
-                for cell in sentence.body().cells() {
-                    requirements.term(cell.pattern());
-                }
-            }
-            DefinitionSentence::Rule(sentence) => {
-                for variable in sentence.variables() {
-                    requirements.sort(variable.sort());
-                }
-                match sentence.relational_body() {
-                    DefinitionRuleBody::Term(term) => requirements.term(term),
-                    DefinitionRuleBody::Configuration(rewrite) => {
-                        for clause in rewrite.clauses() {
-                            requirements.term(clause.before());
-                            if let CellPost::Replace { term } = clause.after() {
-                                requirements.term(term);
-                            }
-                        }
-                    }
-                }
-                if let Some(condition) = sentence.requires() {
-                    requirements.term(condition.term());
-                }
-            }
-        }
-    }
-    requirements
-        .sorts
-        .into_iter()
-        .filter_map(|sort| builtin_import(sort, &requirements.operations))
-        .map(str::to_owned)
-        .collect()
-}
-
-fn builtin_import(
-    sort: BuiltinSort,
-    operation_sorts: &BTreeSet<BuiltinSort>,
-) -> Option<&'static str> {
-    if operation_sorts.contains(&sort) {
-        sort.spec().k_module
-    } else {
-        sort.spec().k_syntax_module
-    }
 }
 
 /// Renders one typed sentence with the definition's canonical emission context.
@@ -1266,11 +1105,16 @@ fn emit_cell_clause(
                 CellContentFrame::KSequenceTail {
                     binding: Some(binding),
                     ..
-                } => emit_named_frame_suffix(writer, binding, "K", " ~> "),
+                } => emit_named_frame_suffix(
+                    writer,
+                    binding,
+                    BuiltinSort::KSequence.spec().k_name,
+                    " ~> ",
+                ),
                 CellContentFrame::MapRemainder {
                     binding: Some(binding),
                     ..
-                } => emit_named_frame_suffix(writer, binding, "Map", " "),
+                } => emit_named_frame_suffix(writer, binding, BuiltinSort::Map.spec().k_name, " "),
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
                 | CellContentFrame::MapRemainder { binding: None, .. } => {}
@@ -1293,7 +1137,12 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
         CellContentFrame::KSequenceTail { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, "K", " ~> ");
+                emit_named_frame_suffix(
+                    writer,
+                    binding,
+                    BuiltinSort::KSequence.spec().k_name,
+                    " ~> ",
+                );
             } else {
                 writer.push(" ...");
             }
@@ -1302,7 +1151,7 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
         CellContentFrame::MapRemainder { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, "Map", " ");
+                emit_named_frame_suffix(writer, binding, BuiltinSort::Map.spec().k_name, " ");
             } else {
                 writer.push(" ...");
             }

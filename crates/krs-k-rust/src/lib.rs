@@ -28,11 +28,11 @@ use k_rust::{
 use krs_diagnostic::envelope::DiagnosticGeneratedRange;
 use krs_diagnostic::{Code, Diagnostic, Label, Location, Severity, ToDiagnostic, codes};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
-    ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
-    DefinitionClaimBinder, DefinitionIr, DefinitionProductionAttribute, DefinitionRuleBody,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
-    FixedCellContent, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    ApplicationRef, BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality,
+    ConfigurationRoot, ConfigurationSentence, ContextAliasSentence, DefinitionClaimBinder,
+    DefinitionIr, DefinitionProductionAttribute, DefinitionRuleBody, DefinitionSentence,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItemKind, GroupAssociativity, ListOperation, MapOperation, NodeOrigin,
     OriginFrame, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId, SemanticIdKind,
@@ -45,7 +45,7 @@ pub use k_rust::kompile::EmittedSentenceProvenance;
 pub use k_rust::outer::LoadedDefinition;
 pub use k_rust::provenance::{GeneratingPass, InputAddress, InputSentenceKind, InputSpace};
 pub use k_rust::timings::PhaseTimings as NativePhaseTimings;
-use krs_ir::k_surface::{DefinitionIndex, variable_name};
+use krs_ir::k_surface::{DefinitionIndex, ImportPolicy, builtin_imports, variable_name};
 use krs_ir::measure::Timings;
 
 /// Metadata for the source and builtin revisions forming the native frontend.
@@ -1413,7 +1413,10 @@ impl<'a> Adapter<'a> {
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));
         }
-        let mut imports = module_builtin_imports(module);
+        let mut imports = builtin_imports(module, ImportPolicy::NativeFrontend)
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
         imports.extend(
             module
                 .imports()
@@ -2162,7 +2165,11 @@ impl<'a> Adapter<'a> {
                     (
                         NativeTerm::sequence([
                             content,
-                            native_variable(binding, Some(NativeSort::new("K")), false),
+                            native_variable(
+                                binding,
+                                Some(NativeSort::new(BuiltinSort::KSequence.spec().k_name)),
+                                false,
+                            ),
                         ]),
                         false,
                     )
@@ -2175,7 +2182,11 @@ impl<'a> Adapter<'a> {
                             "_Map_",
                             vec![
                                 content,
-                                native_variable(binding, Some(NativeSort::new("Map")), false),
+                                native_variable(
+                                    binding,
+                                    Some(NativeSort::new(BuiltinSort::Map.spec().k_name)),
+                                    false,
+                                ),
                             ],
                         ),
                         false,
@@ -2241,7 +2252,7 @@ impl<'a> Adapter<'a> {
                     ApplicationRef::Declared(symbol) => {
                         self.symbol_name(symbol, term.origin())?.to_owned()
                     }
-                    ApplicationRef::Builtin(operation) => builtin_label(*operation).to_owned(),
+                    ApplicationRef::Builtin(operation) => operation.spec().k_label.to_owned(),
                 }),
                 arguments: arguments
                     .iter()
@@ -2541,166 +2552,6 @@ impl<'a> Adapter<'a> {
     }
 }
 
-fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String> {
-    let mut sorts = BTreeSet::new();
-    for sentence in module.sentences() {
-        match sentence {
-            DefinitionSentence::SyntaxSort(_)
-            | DefinitionSentence::Precedence(_)
-            | DefinitionSentence::Associativity(_) => {}
-            DefinitionSentence::Subsort(sentence) => {
-                collect_builtin_sort(sentence.subsort(), &mut sorts);
-                collect_builtin_sort(sentence.supersort(), &mut sorts);
-            }
-            DefinitionSentence::Production(sentence) => {
-                collect_builtin_sort(sentence.result_sort(), &mut sorts);
-                for item in sentence.items() {
-                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-                        collect_builtin_sort(sort, &mut sorts);
-                    }
-                }
-                for attribute in sentence.attributes() {
-                    if let DefinitionProductionAttribute::Strictness { result_sort, .. } = attribute
-                    {
-                        collect_builtin_sort(result_sort.sort(), &mut sorts);
-                    }
-                }
-            }
-            DefinitionSentence::Configuration(sentence) => {
-                // Configuration expansion lowers external variables through
-                // `Map:lookup`, even when no authored cell has sort Map.
-                sorts.insert(BuiltinSort::Map);
-                collect_fixed_configuration_builtins(sentence, &mut sorts);
-            }
-            DefinitionSentence::ContextAlias(sentence) => {
-                for variable in sentence.variables() {
-                    collect_builtin_sort(variable.sort(), &mut sorts);
-                }
-                for cell in sentence.body().cells() {
-                    collect_term_builtins(cell.pattern(), &mut sorts);
-                }
-            }
-            DefinitionSentence::Rule(sentence) => {
-                for variable in sentence.variables() {
-                    collect_builtin_sort(variable.sort(), &mut sorts);
-                }
-                match sentence.relational_body() {
-                    DefinitionRuleBody::Term(term) => collect_term_builtins(term, &mut sorts),
-                    DefinitionRuleBody::Configuration(rewrite) => {
-                        for clause in rewrite.clauses() {
-                            collect_term_builtins(clause.before(), &mut sorts);
-                            if let CellPost::Replace { term } = clause.after() {
-                                collect_term_builtins(term, &mut sorts);
-                            }
-                        }
-                    }
-                }
-                if let Some(condition) = sentence.requires() {
-                    collect_term_builtins(condition.term(), &mut sorts);
-                }
-                if let Some(condition) = sentence.claim().and_then(|claim| claim.ensures()) {
-                    collect_term_builtins(condition.term(), &mut sorts);
-                }
-            }
-        }
-    }
-    sorts
-        .into_iter()
-        .filter_map(|sort| sort.spec().k_module.map(str::to_owned))
-        .collect()
-}
-
-fn collect_builtin_sort(sort: &DefinitionSortRef, output: &mut BTreeSet<BuiltinSort>) {
-    if let DefinitionSortRef::Builtin(sort) = sort {
-        output.insert(*sort);
-    }
-}
-
-fn collect_term_builtins(term: &DefinitionTerm, output: &mut BTreeSet<BuiltinSort>) {
-    collect_builtin_sort(term.sort(), output);
-    match term.kind() {
-        DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
-        DefinitionTermKind::Application {
-            application,
-            arguments,
-        } => {
-            if let ApplicationRef::Builtin(operation) = application {
-                output.insert(operation.result_sort());
-                output.extend(operation.argument_sorts().iter().copied());
-            }
-            for argument in arguments {
-                collect_term_builtins(argument, output);
-            }
-        }
-        DefinitionTermKind::KSequence { item_sort, items } => {
-            collect_builtin_sort(item_sort, output);
-            for item in items {
-                collect_term_builtins(item, output);
-            }
-        }
-        DefinitionTermKind::Map { arguments, .. } => {
-            output.insert(BuiltinSort::Map);
-            for argument in arguments {
-                collect_term_builtins(argument, output);
-            }
-        }
-        DefinitionTermKind::List { arguments, .. } => {
-            output.insert(BuiltinSort::List);
-            for argument in arguments {
-                collect_term_builtins(argument, output);
-            }
-        }
-        DefinitionTermKind::Set { arguments, .. } => {
-            output.insert(BuiltinSort::Set);
-            for argument in arguments {
-                collect_term_builtins(argument, output);
-            }
-        }
-        DefinitionTermKind::Rewrite { from, to } => {
-            collect_term_builtins(from, output);
-            collect_term_builtins(to, output);
-        }
-        DefinitionTermKind::Cell { children, .. } => {
-            for child in children {
-                collect_term_builtins(child, output);
-            }
-        }
-    }
-}
-
-fn collect_fixed_configuration_builtins(
-    configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    output: &mut BTreeSet<BuiltinSort>,
-) {
-    fn visit_cells(
-        values: &[FixedCell<DefinitionSortRef, SymbolId>],
-        output: &mut BTreeSet<BuiltinSort>,
-    ) {
-        for cell in values {
-            match cell.content() {
-                FixedCellContent::Term { sort } => collect_builtin_sort(sort, output),
-                FixedCellContent::Children { children } => visit_cells(children, output),
-            }
-        }
-    }
-    fn initializer(
-        cells: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
-        output: &mut BTreeSet<BuiltinSort>,
-    ) {
-        for cell in cells {
-            match cell.content() {
-                FixedInitializerContent::Term { term } => collect_term_builtins(term, output),
-                FixedInitializerContent::Children { children } => initializer(children, output),
-            }
-        }
-    }
-    visit_cells(configuration.cells(), output);
-    for variable in configuration.variables() {
-        collect_builtin_sort(variable.sort(), output);
-    }
-    initializer(configuration.initializer(), output);
-}
-
 fn native_format(fragments: &[FormatFragment]) -> String {
     use std::fmt::Write as _;
 
@@ -2739,7 +2590,7 @@ fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
 }
 
 fn native_claim_counter(sentence_index: usize) -> NativeTerm {
-    let sort = Some(NativeSort::new("Int"));
+    let sort = Some(NativeSort::new(BuiltinSort::Int.spec().k_name));
     incomplete_cell(
         "generatedCounter",
         NativeTerm::Rewrite {
@@ -2857,10 +2708,6 @@ fn native_variable(
     NativeTerm::Variable { name, sort }
 }
 
-const fn builtin_label(operation: BuiltinOperation) -> &'static str {
-    operation.spec().k_label
-}
-
 fn native_rule_label(module: &str, label: &krs_ir::LabelIdentity) -> String {
     let emitted_name = label.emitted_name();
     // Shared lowering emits this reserved fallback directly as a label
@@ -2899,7 +2746,7 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
 fn truth() -> NativeTerm {
     NativeTerm::Token {
         token: "true".into(),
-        sort: NativeSort::new("Bool"),
+        sort: NativeSort::new(BuiltinSort::Bool.spec().k_name),
     }
 }
 

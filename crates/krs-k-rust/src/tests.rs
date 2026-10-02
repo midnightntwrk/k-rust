@@ -17,6 +17,7 @@ use k_rust::{
     },
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
+use krs_ir::k_surface::{ImportPolicy, builtin_imports};
 use krs_ir::{
     ApplicationRef, BuiltinOperation, CellAttribute, CellContentFrame, CellPost, ClaimModality,
     ConfigurationRoot, ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr,
@@ -36,8 +37,7 @@ use super::{
     Adapter, Author, Backend, CapabilityAvailability, CompileOptions, FRONTEND_CAPABILITIES,
     FRONTEND_PIN, GeneratingPass, InputAddress, InputSentenceKind, InputSpace, LoadedDefinition,
     NativeNodePlace, ProvenanceError, SentenceNodeRole, TermContext, adapt_definition,
-    adapt_definition_for, compile_definition, compile_loaded_definition, module_builtin_imports,
-    prepare_definition,
+    adapt_definition_for, compile_definition, compile_loaded_definition, prepare_definition,
 };
 
 const MODULE: &str = "KRS-ADAPTER-TEST";
@@ -868,11 +868,8 @@ fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
         vec![DefinitionSentence::Rule(rule)],
     );
     assert_eq!(
-        module_builtin_imports(&module),
-        ["BOOL", "ID-SYNTAX", "INT", "MAP"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect()
+        builtin_imports(&module, ImportPolicy::NativeFrontend),
+        ["BOOL", "ID-SYNTAX", "INT", "MAP"].into_iter().collect()
     );
 }
 

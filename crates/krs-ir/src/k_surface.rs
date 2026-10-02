@@ -1,11 +1,14 @@
-//! K-surface naming shared by the `.k` printer and the k-rust adapter.
+//! K-surface facts shared by the `.k` printer and the k-rust adapter.
 //! Each backend must retain its own printing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    DefinitionIr, DefinitionSentence, DefinitionSortRef, FixedCell, FixedCellContent,
-    ProductionGroupId, ProductionSentence, SemanticId, StableItemId, SymbolId, SymbolIdentity,
+    ApplicationRef, BuiltinSort, CellPost, DefinitionIr, DefinitionModule, DefinitionRuleBody,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
+    FixedCellContent, FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
+    ProductionAttribute, ProductionGroupId, ProductionSentence, SemanticId, StableItemId, SymbolId,
+    SymbolIdentity,
 };
 
 /// Borrowed declarations and names from one Definition IR.
@@ -116,6 +119,197 @@ impl<'a> DefinitionIndex<'a> {
     }
 }
 
+/// Builtin import requirements for a K consumer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImportPolicy {
+    /// Imports for the source-text printer.
+    /// Each sort found in a declaration or term annotation must select its syntax module unless a visited builtin operation uses that sort, in which case it must select its full module.
+    /// Operation signature sorts must only upgrade already required sorts; they must not add imports by themselves.
+    /// Configurations must not imply a Map import, and claim `ensures` terms must not contribute requirements.
+    SourceText,
+    /// Imports for the native frontend.
+    /// Each required sort must select its full module, including sorts required only by a builtin operation's signature.
+    /// Every configuration must require Map because frontend expansion lowers external variables through `Map:lookup`.
+    /// Claim `ensures` terms must contribute requirements.
+    NativeFrontend,
+}
+
+/// Returns a module's builtin imports under the selected consumer policy.
+/// Both policies must inspect subsorts, production signatures and strictness result sorts, configuration cell sorts, variables and initializers, context alias variables and cell patterns, and rule variables, bodies and `requires` terms.
+/// Term traversal must include annotations, K-sequence item sorts, collection sorts and all children.
+/// Claim binder declarations must not contribute requirements independently of rule variables and terms.
+/// Sorts whose selected catalog module is absent must not produce imports.
+#[must_use]
+pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTreeSet<&'static str> {
+    let mut requirements = BuiltinRequirements::default();
+    for sentence in module.sentences() {
+        match sentence {
+            DefinitionSentence::SyntaxSort(_)
+            | DefinitionSentence::Precedence(_)
+            | DefinitionSentence::Associativity(_) => {}
+            DefinitionSentence::Subsort(sentence) => {
+                requirements.sort(sentence.subsort());
+                requirements.sort(sentence.supersort());
+            }
+            DefinitionSentence::Production(sentence) => {
+                requirements.sort(sentence.result_sort());
+                for item in sentence.items() {
+                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
+                        requirements.sort(sort);
+                    }
+                }
+                for attribute in sentence.attributes() {
+                    if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
+                        requirements.sort(result_sort.sort());
+                    }
+                }
+            }
+            DefinitionSentence::Configuration(configuration) => {
+                if policy == ImportPolicy::NativeFrontend {
+                    requirements.sorts.insert(BuiltinSort::Map);
+                }
+                requirements.fixed_cells(configuration.cells());
+                for variable in configuration.variables() {
+                    requirements.sort(variable.sort());
+                }
+                requirements.initializer(configuration.initializer());
+            }
+            DefinitionSentence::ContextAlias(sentence) => {
+                for variable in sentence.variables() {
+                    requirements.sort(variable.sort());
+                }
+                for cell in sentence.body().cells() {
+                    requirements.term(cell.pattern());
+                }
+            }
+            DefinitionSentence::Rule(sentence) => {
+                for variable in sentence.variables() {
+                    requirements.sort(variable.sort());
+                }
+                match sentence.relational_body() {
+                    DefinitionRuleBody::Term(term) => requirements.term(term),
+                    DefinitionRuleBody::Configuration(rewrite) => {
+                        for clause in rewrite.clauses() {
+                            requirements.term(clause.before());
+                            if let CellPost::Replace { term } = clause.after() {
+                                requirements.term(term);
+                            }
+                        }
+                    }
+                }
+                if let Some(condition) = sentence.requires() {
+                    requirements.term(condition.term());
+                }
+                if policy == ImportPolicy::NativeFrontend
+                    && let Some(condition) = sentence.claim().and_then(|claim| claim.ensures())
+                {
+                    requirements.term(condition.term());
+                }
+            }
+        }
+    }
+    if policy == ImportPolicy::NativeFrontend {
+        requirements.sorts.extend(&requirements.operations);
+    }
+    requirements
+        .sorts
+        .into_iter()
+        .filter_map(|sort| {
+            if policy == ImportPolicy::NativeFrontend || requirements.operations.contains(&sort) {
+                sort.spec().k_module
+            } else {
+                sort.spec().k_syntax_module
+            }
+        })
+        .collect()
+}
+
+#[derive(Default)]
+struct BuiltinRequirements {
+    sorts: BTreeSet<BuiltinSort>,
+    operations: BTreeSet<BuiltinSort>,
+}
+
+impl BuiltinRequirements {
+    fn sort(&mut self, sort: &DefinitionSortRef) {
+        if let DefinitionSortRef::Builtin(sort) = sort {
+            self.sorts.insert(*sort);
+        }
+    }
+
+    fn term(&mut self, term: &DefinitionTerm) {
+        self.sort(term.sort());
+        match term.kind() {
+            DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
+            DefinitionTermKind::Application {
+                application,
+                arguments,
+            } => {
+                if let ApplicationRef::Builtin(operation) = application {
+                    self.operations.insert(operation.result_sort());
+                    for sort in operation.argument_sorts() {
+                        self.operations.insert(*sort);
+                    }
+                }
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::KSequence { item_sort, items } => {
+                self.sort(item_sort);
+                for item in items {
+                    self.term(item);
+                }
+            }
+            DefinitionTermKind::Map { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::Map);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::List { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::List);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::Set { arguments, .. } => {
+                self.sorts.insert(BuiltinSort::Set);
+                for argument in arguments {
+                    self.term(argument);
+                }
+            }
+            DefinitionTermKind::Rewrite { from, to } => {
+                self.term(from);
+                self.term(to);
+            }
+            DefinitionTermKind::Cell { children, .. } => {
+                for child in children {
+                    self.term(child);
+                }
+            }
+        }
+    }
+
+    fn fixed_cells(&mut self, cells: &[FixedCell<DefinitionSortRef, SymbolId>]) {
+        for cell in cells {
+            match cell.content() {
+                FixedCellContent::Term { sort } => self.sort(sort),
+                FixedCellContent::Children { children } => self.fixed_cells(children),
+            }
+        }
+    }
+
+    fn initializer(&mut self, cells: &[FixedInitializerCell<SymbolId, DefinitionTerm>]) {
+        for cell in cells {
+            match cell.content() {
+                FixedInitializerContent::Term { term } => self.term(term),
+                FixedInitializerContent::Children { children } => self.initializer(children),
+            }
+        }
+    }
+}
+
 /// Returns `V` followed by the identity's UTF-8 bytes in uppercase hexadecimal.
 ///
 /// # Panics
@@ -137,11 +331,12 @@ mod tests {
     use super::*;
     use crate::testing::{item, origin};
     use crate::{
-        BuiltinSort, CellContentFrame, ConfigurationRoot, ConfigurationSentence,
-        ContextAliasSentence, DefinitionModule, DefinitionTerm, DefinitionVariable,
-        FixedCellPattern, FixedConfigurationPattern, FixedInitializerCell, ItemKind, ModuleId,
-        ProductionAttribute, ProductionGroupIdentity, ProductionItem, SymbolKind,
-        SyntaxSortSentence,
+        BuiltinOperation, BuiltinSort, CellContentFrame, ClaimModality, ConfigurationRoot,
+        ConfigurationSentence, ContextAliasSentence, DefinitionClaim, DefinitionModule,
+        DefinitionRuleCondition, DefinitionTerm, DefinitionVariable, FixedCellPattern,
+        FixedConfigurationPattern, FixedInitializerCell, ItemKind, LabelId, LabelIdentity,
+        ModuleId, ProductionAttribute, ProductionGroupIdentity, ProductionItem, RuleSentence,
+        SentenceKind, SymbolKind, SyntaxSortSentence,
     };
 
     fn symbol_id(name: &str) -> SymbolId {
@@ -264,6 +459,150 @@ mod tests {
             ],
         );
         DefinitionIr::new(module_id, vec![module]).expect("valid definition")
+    }
+
+    fn import_module(sentences: Vec<DefinitionSentence>) -> DefinitionModule {
+        DefinitionModule::new(
+            origin("imports-module"),
+            ModuleId::new("IMPORTS").expect("valid module ID"),
+            Vec::new(),
+            Vec::new(),
+            sentences,
+        )
+    }
+
+    fn term_rule(term: DefinitionTerm, kind: SentenceKind) -> RuleSentence {
+        let body = DefinitionTerm::rewrite(
+            origin("imports-rewrite"),
+            term.sort().clone(),
+            term.clone(),
+            term,
+        )
+        .expect("valid rewrite");
+        RuleSentence::new(
+            origin("imports-rule"),
+            LabelIdentity::new(
+                LabelId::new("imports-rule").expect("valid label ID"),
+                "imports",
+            )
+            .expect("valid label"),
+            kind,
+            Vec::new(),
+            body,
+        )
+        .expect("valid rule")
+    }
+
+    fn bool_operation() -> DefinitionTerm {
+        DefinitionTerm::application(
+            origin("bool-operation"),
+            DefinitionSortRef::Builtin(BuiltinSort::Bool),
+            ApplicationRef::Builtin(BuiltinOperation::BoolNot),
+            vec![
+                DefinitionTerm::token(
+                    origin("bool-argument"),
+                    DefinitionSortRef::Builtin(BuiltinSort::Bool),
+                    "false",
+                )
+                .expect("valid Boolean token"),
+            ],
+        )
+    }
+
+    fn claim_with_ensures(term: DefinitionTerm) -> RuleSentence {
+        term_rule(bool_operation(), SentenceKind::Claim).with_claim(Some(DefinitionClaim::new(
+            origin("claim-modality"),
+            ClaimModality::AllPaths,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Some(DefinitionRuleCondition::new(origin("ensures"), term)),
+        )))
+    }
+
+    #[test]
+    fn import_policies_preserve_consumer_differences() {
+        let syntax_only = term_rule(
+            DefinitionTerm::token(origin("syntax-int"), int_sort(), "0")
+                .expect("valid integer token"),
+            SentenceKind::Equation,
+        );
+        let operation = term_rule(bool_operation(), SentenceKind::Equation);
+        let ensures = DefinitionTerm::application(
+            origin("ensures-application"),
+            DefinitionSortRef::Builtin(BuiltinSort::Bool),
+            ApplicationRef::Declared(symbol_id("predicate")),
+            vec![
+                DefinitionTerm::token(
+                    origin("ensures-bytes"),
+                    DefinitionSortRef::Builtin(BuiltinSort::Bytes),
+                    "0x00",
+                )
+                .expect("valid bytes token"),
+            ],
+        );
+        let module = import_module(vec![
+            DefinitionSentence::Rule(syntax_only),
+            DefinitionSentence::Rule(operation),
+            DefinitionSentence::Configuration(configuration()),
+            DefinitionSentence::Rule(claim_with_ensures(ensures)),
+        ]);
+        assert_eq!(
+            builtin_imports(&module, ImportPolicy::SourceText),
+            BTreeSet::from(["BOOL", "INT-SYNTAX"]),
+        );
+        assert_eq!(
+            builtin_imports(&module, ImportPolicy::NativeFrontend),
+            BTreeSet::from(["BOOL", "BYTES", "INT", "MAP"]),
+        );
+    }
+
+    #[test]
+    fn operation_signatures_only_add_requirements_for_native_frontend() {
+        let term = DefinitionTerm::application(
+            origin("signature-only-operation"),
+            DefinitionSortRef::Builtin(BuiltinSort::Bool),
+            ApplicationRef::Builtin(BuiltinOperation::IntGreaterEqual),
+            vec![
+                DefinitionTerm::variable(
+                    origin("signature-left"),
+                    DefinitionSortRef::Declared(symbol_id("integer-subsort")),
+                    semantic_id("left"),
+                ),
+                DefinitionTerm::variable(
+                    origin("signature-right"),
+                    DefinitionSortRef::Declared(symbol_id("integer-subsort")),
+                    semantic_id("right"),
+                ),
+            ],
+        );
+        let module = import_module(vec![DefinitionSentence::Rule(term_rule(
+            term,
+            SentenceKind::Equation,
+        ))]);
+        assert_eq!(
+            builtin_imports(&module, ImportPolicy::SourceText),
+            BTreeSet::from(["BOOL"]),
+        );
+        assert_eq!(
+            builtin_imports(&module, ImportPolicy::NativeFrontend),
+            BTreeSet::from(["BOOL", "INT"]),
+        );
+    }
+
+    #[test]
+    fn sorts_without_catalog_modules_do_not_add_imports() {
+        let module = import_module(vec![DefinitionSentence::Rule(term_rule(
+            DefinitionTerm::variable(
+                origin("computation-variable"),
+                DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+                semantic_id("computation"),
+            ),
+            SentenceKind::Equation,
+        ))]);
+        for policy in [ImportPolicy::SourceText, ImportPolicy::NativeFrontend] {
+            assert!(builtin_imports(&module, policy).is_empty());
+        }
     }
 
     #[test]
