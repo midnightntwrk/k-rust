@@ -10,6 +10,12 @@ A string expectation is surface text compared structurally;
 Top-level `reason`, when present, is the required stop reason of the single execution leaf.
 Top-level `[report]` maps a checked cell to the field that reports its expected value in the pinned outcome;
 a port's outcome hook may refine that record.
+A native case with `search = true` must execute to exactly one leaf at a depth of at least one,
+and final-state search from the same configuration then checks the search bounds against that execution:
+unbounded, bounded to one result, and bounded to the leaf's depth, search must find exactly the leaf's state;
+bounded to zero results it must find none;
+bounded to one step less, it must find exactly the state that execution reaches at that bound, which is not the leaf's state.
+The single state search retains under its own name must meet the case's expectations.
 """
 
 from __future__ import annotations
@@ -92,14 +98,24 @@ def outcome_record(
     return record if spec.outcome is None else spec.outcome(case, record)
 
 
+def searched(case: Mapping[str, Any]) -> bool:
+    """Return whether a case opts into the search checks."""
+
+    value = case.get("search", False)
+    if type(value) is not bool:
+        raise GateError(f"{case['id']}: search must be a boolean")
+    return value
+
+
 def check_case(
     session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
+    state: str = "case",
 ) -> dict[str, Any]:
-    """Check the retained state and return the port's pinned outcome shape."""
+    """Check a retained state and return the port's pinned outcome shape."""
 
     for item in expectations(corpus, case):
         try:
-            session.expect("case", item.cell, text=item.text, size=item.size, head=item.head)
+            session.expect(state, item.cell, text=item.text, size=item.size, head=item.head)
         except GateError as error:
             raise GateError(f"{case['id']}: {error}") from error
     return outcome_record(corpus, case, spec)
@@ -110,6 +126,7 @@ def native_case(
 ) -> dict[str, Any]:
     """Configure, execute, retain, and check one native case."""
 
+    search = searched(case)
     pattern = session.configure(spec.variables(case))["pattern"]
     result = session.execute(pattern, keep="case")
     reason = corpus.get("reason")
@@ -117,7 +134,44 @@ def native_case(
         leaves = result.get("leaves")
         if not isinstance(leaves, list) or len(leaves) != 1 or leaves[0].get("reason") != reason:
             raise GateError(f"{case['id']}: expected execution reason {reason}, got {leaves}")
-    return check_case(session, case, spec, corpus)
+    outcome = check_case(session, case, spec, corpus)
+    if search:
+        search_case(session, case, spec, corpus, pattern)
+    return outcome
+
+
+def _leaf(session: krs_gate.Session, case: Mapping[str, Any], pattern: str, **options: Any) -> Mapping[str, Any]:
+    leaves = session.execute(pattern, **options)["leaves"]
+    if len(leaves) != 1:
+        raise GateError(f"{case['id']}: search requires exactly one execution leaf, got {len(leaves)}")
+    return leaves[0]
+
+
+def search_case(
+    session: krs_gate.Session, case: Mapping[str, Any], spec: Specification, corpus: Mapping[str, Any],
+    pattern: str,
+) -> None:
+    """Check the search bounds against execution and the expectations against the state search retains."""
+
+    leaf = _leaf(session, case, pattern)
+    depth = leaf["depth"]
+    if depth < 1:
+        raise GateError(f"{case['id']}: search requires an execution of at least one step")
+    bounded = _leaf(session, case, pattern, max_depth=depth - 1)["state"]
+    if bounded == leaf["state"]:
+        raise GateError(f"{case['id']}: execution bounded to depth {depth - 1} already reached the final state")
+    for options, expected in (
+        ({}, [leaf["state"]]), ({"max_results": 1}, [leaf["state"]]), ({"max_depth": depth}, [leaf["state"]]),
+        ({"max_results": 0}, []), ({"max_depth": depth - 1}, [bounded]),
+    ):
+        states = [state["state"] for state in session.search(pattern, **options)["states"]]
+        if states != expected:
+            raise GateError(
+                f"{case['id']}: search {options} found {len(states)} states other than the {len(expected)} expected"
+            )
+    if session.search(pattern, keep="search")["states"] != 1:
+        raise GateError(f"{case['id']}: search with keep did not retain one state")
+    check_case(session, case, spec, corpus, "search")
 
 
 def native_corpus(
@@ -151,5 +205,6 @@ def java_case(
 ) -> dict[str, Any]:
     """Retain Java KORE and run the same expectations and outcome builder."""
 
+    searched(case)
     session.read(kore, "case")
     return check_case(session, case, spec, corpus)

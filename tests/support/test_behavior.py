@@ -89,6 +89,80 @@ class BehaviorTests(unittest.TestCase):
                 behavior.native_case(session, case, self.spec, {"reason": "stuck"})
         session.expect.assert_not_called()
 
+    @staticmethod
+    def _search_session(searches: dict[str, list[str]]) -> mock.Mock:
+        session = mock.Mock()
+        session.configure.return_value = {"pattern": "opaque"}
+
+        def execute(_: str, **options: object) -> dict[str, object]:
+            if "keep" in options:
+                return {"leaves": [{"reason": "stuck"}]}
+            if options.get("max_depth") == 2:
+                return {"leaves": [{"state": "bounded", "depth": 2}]}
+            return {"leaves": [{"state": "final", "depth": 3}]}
+
+        def search(_: str, **options: object) -> dict[str, object]:
+            if "keep" in options:
+                return {"states": 1}
+            key = ",".join(f"{name}={value}" for name, value in options.items())
+            return {"states": [{"state": state} for state in searches.get(key, ["final"])]}
+
+        session.execute.side_effect = execute
+        session.search.side_effect = search
+        return session
+
+    def test_search_checks_bounds_against_execution_and_rechecks_the_kept_state(self) -> None:
+        corpus = {"expect": {"cell": "value"}, "report": {"cell": "field"}}
+        case = {"id": "sample", "search": True, "observe": ["cell"]}
+        session = self._search_session({"max_results=0": [], "max_depth=2": ["bounded"]})
+        self.assertEqual(behavior.native_case(session, case, self.spec, corpus), {"id": "sample", "field": "value"})
+        self.assertEqual(session.execute.call_args_list, [
+            mock.call("opaque", keep="case"), mock.call("opaque"), mock.call("opaque", max_depth=2),
+        ])
+        self.assertEqual(session.search.call_args_list, [
+            mock.call("opaque"), mock.call("opaque", max_results=1), mock.call("opaque", max_depth=3),
+            mock.call("opaque", max_results=0), mock.call("opaque", max_depth=2),
+            mock.call("opaque", keep="search"),
+        ])
+        self.assertEqual(session.expect.call_args_list, [
+            mock.call(state, "cell", text="value", size=None, head=None) for state in ("case", "search")
+        ])
+
+    def test_search_rejects_ignored_bounds_and_disagreement(self) -> None:
+        bounded = {"max_results=0": [], "max_depth=2": ["bounded"]}
+        for searches, count in (
+            ({**bounded, "": ["other"]}, "1 states other than the 1 expected"),
+            ({**bounded, "max_results=1": ["final", "other"]}, "2 states other than the 1 expected"),
+            ({"max_depth=2": ["bounded"]}, "1 states other than the 0 expected"),
+            ({"max_results=0": []}, "1 states other than the 1 expected"),
+        ):
+            with self.subTest(searches=searches), self.assertRaisesRegex(GateError, f"sample: search .*{count}"):
+                behavior.native_case(self._search_session(searches), {"id": "sample", "search": True}, self.spec, {})
+
+    def test_search_requires_one_leaf_reached_in_a_step(self) -> None:
+        session = mock.Mock()
+        session.configure.return_value = {"pattern": "opaque"}
+        for leaves, message in (
+            ([{"state": "a", "depth": 1}, {"state": "b", "depth": 1}], "exactly one execution leaf, got 2"),
+            ([{"state": "final", "depth": 0}], "at least one step"),
+            ([{"state": "final", "depth": 1}], "depth 0 already reached the final state"),
+        ):
+            session.execute.return_value = {"leaves": leaves}
+            with self.subTest(leaves=leaves), self.assertRaisesRegex(GateError, f"sample: .*{message}"):
+                behavior.native_case(session, {"id": "sample", "search": True}, self.spec, {})
+        session.search.assert_not_called()
+
+    def test_malformed_search_flag_is_rejected_before_running(self) -> None:
+        for route in ("native", "java"):
+            session = mock.Mock()
+            with self.subTest(route=route), self.assertRaisesRegex(GateError, "sample: search must be a boolean"):
+                case = {"id": "sample", "search": "yes"}
+                if route == "native":
+                    behavior.native_case(session, case, self.spec, {})
+                else:
+                    behavior.java_case(session, case, self.spec, "opaque java", {})
+            self.assertEqual(session.method_calls, [])
+
     def test_structural_failure_names_case(self) -> None:
         session = mock.Mock()
         session.expect.side_effect = GateError("mismatch")

@@ -7,6 +7,7 @@ This route does not require the Java K toolchain.
 Each case declares what it observes and expects as data, in the format `tests/support/behavior.py` describes.
 KWasm cases check `instrs` and `valstack`; `instrs` defaults to `.K` and trap cases override both cells.
 The `expected_type`, `expected_value`, and `expected_outcome` case fields supply the pinned outcome report through `native.py`.
+The `i32-add` and `i32-div-u-zero` cases set `search = true`, so the gate also checks the session's final-state search against the native execution of a value and a trap case.
 
 Run `python3 tests/kwasm/verify.py --java-reference` to add the upstream K reference route.
 The gate kompiles the emitted K definition, runs each case with `krun --output kore`, and passes the resulting KORE states to the `kore.read` session operation and checks them with the same structural expectations and outcome builder as the native route.
