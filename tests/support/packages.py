@@ -6,7 +6,7 @@ and `tests/repo-hygiene/verify.py` rejects one that has none.
 Each row names the gate that owns the package.
 
 An authored package is source the project maintains,
-so its gate runs rustfmt, Clippy with warnings denied,
+so its gate runs rustfmt, `krs fmt`, Clippy with warnings denied,
 and a check with the `Krs.lock` MSRV toolchain through `check_packages`.
 A fixture package is a pinned input to a compatibility probe;
 its source is deliberately shaped for the probe,
@@ -24,6 +24,7 @@ from support import ROOT, GateError
 from support.lock import msrv
 from support.pins import load_toml
 from support.process import run
+from support.tools import rustfmt_dir
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,10 @@ PACKAGES = (
 )
 
 
-def check_packages(gate: str, *, env: Mapping[str, str], target_dir: Path) -> None:
+def check_packages(gate: str, *, krs: Path, env: Mapping[str, str], target_dir: Path) -> None:
     """Format-check, lint, and MSRV-check every authored package that `gate` owns.
 
+    `krs` is the caller's KRS binary, which checks the whole package without path arguments.
     `target_dir` is the caller's own Cargo target directory.
     """
 
@@ -62,6 +64,10 @@ def check_packages(gate: str, *, env: Mapping[str, str], target_dir: Path) -> No
     if not owned:
         raise GateError(f"no standalone packages are registered for gate {gate!r}")
     environment = {**env, "CARGO_TARGET_DIR": os.fspath(target_dir)}
+    format_environment = {
+        **environment,
+        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), env.get("PATH", os.environ.get("PATH", "")))),
+    }
     for package in owned:
         if package.kind != "authored":
             continue
@@ -71,6 +77,11 @@ def check_packages(gate: str, *, env: Mapping[str, str], target_dir: Path) -> No
             # A virtual manifest has no package of its own to format.
             command.insert(3, "--all")
         run(command, timeout=300, environment=environment)
+        run(
+            [os.fspath(krs), "fmt", "--check", "--manifest-path", os.fspath(manifest)],
+            timeout=300,
+            environment=format_environment,
+        )
         run(
             [
                 "cargo", "+stable", "clippy", "--manifest-path", os.fspath(manifest),

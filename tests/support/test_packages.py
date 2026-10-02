@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT  # noqa: E402
 from support import packages  # noqa: E402
+
+KRS = Path("/var/tmp/package-helper-test-target/debug/krs")
+RUSTFMT = Path("/var/tmp/package-helper-test-rustfmt")
 
 
 def tracked_files() -> set[str]:
@@ -38,14 +42,15 @@ class PackageHelperTests(unittest.TestCase):
     def test_checks_only_authored_rows_for_the_owning_gate(self) -> None:
         environment = {"PACKAGE_TEST_MARKER": "original"}
         target = Path("/var/tmp/package-helper-test-target")
-        with mock.patch.object(packages, "run") as runner:
-            packages.check_packages("imp", env=environment, target_dir=target)
+        with mock.patch.object(packages, "run") as runner, mock.patch.object(packages, "rustfmt_dir", return_value=RUSTFMT):
+            packages.check_packages("imp", krs=KRS, env=environment, target_dir=target)
         commands = [list(call.args[0]) for call in runner.call_args_list]
         authored = [package for package in packages.PACKAGES if package.gate == "imp" and package.kind == "authored"]
         fixtures = [package for package in packages.PACKAGES if package.gate == "imp" and package.kind == "fixture"]
         for package in authored:
             manifest = str(ROOT / package.manifest)
             with self.subTest(manifest=package.manifest):
+                self.assertIn([str(KRS), "fmt", "--check", "--manifest-path", manifest], commands)
                 self.assertTrue(any(command[2] == "clippy" and manifest in command for command in commands))
                 self.assertTrue(any(command[2] == "check" and manifest in command for command in commands))
         for package in fixtures:
@@ -56,11 +61,21 @@ class PackageHelperTests(unittest.TestCase):
             self.assertEqual(call.kwargs["environment"]["PACKAGE_TEST_MARKER"], "original")
 
     def test_rustfmt_uses_explicit_stable_toolchain(self) -> None:
-        with mock.patch.object(packages, "run") as runner:
-            packages.check_packages("tour-minimal", env={}, target_dir=Path("/var/tmp/package-helper-test-target"))
+        with mock.patch.object(packages, "run") as runner, mock.patch.object(packages, "rustfmt_dir", return_value=RUSTFMT):
+            packages.check_packages(
+                "tour-minimal", krs=KRS, env={}, target_dir=Path("/var/tmp/package-helper-test-target")
+            )
         command = list(runner.call_args_list[0].args[0])
         self.assertEqual(command[:4], ["cargo", "+stable", "fmt", "--check"])
         self.assertIn(str(ROOT / "tests/tour-minimal/Cargo.toml"), command)
+
+    def test_krs_fmt_finds_the_working_rustfmt(self) -> None:
+        with mock.patch.object(packages, "run") as runner, mock.patch.object(packages, "rustfmt_dir", return_value=RUSTFMT):
+            packages.check_packages(
+                "tour-minimal", krs=KRS, env={"PATH": "/usr/bin"}, target_dir=Path("/var/tmp/package-helper-test-target")
+            )
+        krs_fmt = next(call for call in runner.call_args_list if call.args[0][0] == str(KRS))
+        self.assertEqual(krs_fmt.kwargs["environment"]["PATH"], os.pathsep.join((str(RUSTFMT), "/usr/bin")))
 
 
 if __name__ == "__main__":

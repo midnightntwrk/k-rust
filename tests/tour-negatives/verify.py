@@ -102,7 +102,7 @@ def main() -> None:
     target = checkout_scratch() / "tour-negatives-root-target"
     environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(environment)
-    check_packages("tour-negatives", env=environment, target_dir=target)
+    check_packages("tour-negatives", krs=binary, env=environment, target_dir=target)
     check_overlap(binary)
     print("PASS overlap: structured analysis code, exact second Foo head, and default human snippet")
     cases = (

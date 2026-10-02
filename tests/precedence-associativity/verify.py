@@ -32,7 +32,7 @@ def main() -> int:
         environment = {**z3_environment(), "CARGO_TARGET_DIR": str(target)}
         binary = build(environment, target=target)
         check_packages(
-            "precedence-associativity", env=environment, target_dir=target
+            "precedence-associativity", krs=binary, env=environment, target_dir=target
         )
         emitted = workspace / "emitted"
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")

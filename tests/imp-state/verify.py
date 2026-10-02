@@ -11,6 +11,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
 from support.imp_oracle import KAST, DivisionCase, RejectionPin, Spec, main as run_oracle  # noqa: E402
+from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.tools import checkout_scratch, z3_environment  # noqa: E402
 
@@ -159,11 +160,9 @@ KAST_SPEC = KAST(
 
 
 def main() -> int:
-    check_packages(
-        "imp-state",
-        env=z3_environment(),
-        target_dir=checkout_scratch() / "imp-state-root-target",
-    )
+    target = checkout_scratch() / "imp-state-root-target"
+    environment = z3_environment()
+    check_packages("imp-state", krs=build(environment, target=target), env=environment, target_dir=target)
     return run_oracle(SPEC, KAST_SPEC)
 
 

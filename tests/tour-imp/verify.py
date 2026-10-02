@@ -107,7 +107,7 @@ def main() -> None:
     env = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
     gate = krs_gate.build(target, environment=env)
-    check_packages("tour-imp", env=env, target_dir=target)
+    check_packages("tour-imp", krs=binary, env=env, target_dir=target)
 
     # The chapter slices lie outside every target's source directory, so they are named explicitly.
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE, sync.CHAPTERS], environment=env)

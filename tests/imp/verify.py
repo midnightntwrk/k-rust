@@ -272,7 +272,7 @@ def phase_rust(context: Context) -> RustBuild:
 
     krs = build(env, target=context.target, timeout=600)
     krs_gate.build(context.target, environment=env)
-    check_packages("imp", env=env, target_dir=context.target)
+    check_packages("imp", krs=krs, env=env, target_dir=context.target)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(

@@ -78,8 +78,7 @@ def main() -> None:
     env = {**environment(), "CARGO_TARGET_DIR": os.fspath(target)}
     binary = build(env)
     gate = krs_gate.configured_or_build(target)
-    check_packages("tour-composition", env=env, target_dir=target)
-    run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
+    check_packages("tour-composition", krs=binary, env=env, target_dir=target)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout
     second_expansion = run(command(binary, "expand"), environment=env).stdout

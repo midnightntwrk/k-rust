@@ -178,7 +178,7 @@ def main() -> int:
     if SOURCE.read_bytes() != before:
         raise GateError("krs fmt --check unexpectedly changed the tour source")
     print("PASS format: krs fmt --check preserved source and region markers")
-    check_packages("tour-minimal", env=environment, target_dir=target)
+    check_packages("tour-minimal", krs=binary, env=environment, target_dir=target)
 
     checked = run(cli_command(binary, "check"), environment=environment)
     if checked.stdout != "KRS check passed: 9 descriptors, 2 semantic modules\n":
