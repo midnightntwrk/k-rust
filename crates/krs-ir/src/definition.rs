@@ -20,10 +20,10 @@ use crate::ir_validation::{
 use crate::sorted::{SortKey, SortedByKey};
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, GrammarProductionItem,
-    GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
-    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
-    ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
-    SourceMapKey, StableItemId,
+    GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, HookPointSortSource,
+    IrIdentityError, ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin,
+    PrecedenceRelation, ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId,
+    SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
 use crate::{CellContentFrame, FixedConfiguration, FixedConfigurationRewrite};
 
@@ -565,7 +565,7 @@ impl DefinitionIr {
                 }
             }
         }
-        validate_bn128_point_constructors(&self.modules)?;
+        validate_hook_point_constructors(&self.modules)?;
         validate_precedence_order::<DefinitionLevel>(&self.modules)?;
         validate_subsort_order::<DefinitionLevel>(&subsort_parents)?;
         Ok(())
@@ -1562,8 +1562,7 @@ fn require_definition_group(
     }
 }
 
-#[allow(clippy::too_many_lines)] // Checks each BN128 hook against the backend's point signatures.
-fn validate_bn128_point_constructors(
+fn validate_hook_point_constructors(
     modules: &[DefinitionModule],
 ) -> Result<(), DefinitionValidationError> {
     let sorts = modules
@@ -1585,10 +1584,10 @@ fn validate_bn128_point_constructors(
         })
         .collect::<Vec<_>>();
     let check = |hook,
-                 expected_sort,
-                 expected_signature,
-                 arity,
+                 expected_signature: crate::Bn128PointSignature,
                  used_sort: Option<&DefinitionSortRef>| {
+        let expected_sort = expected_signature.sort_name();
+        let arity = expected_signature.arity();
         let sort = if let Some(used_sort) = used_sort {
             match used_sort {
                 DefinitionSortRef::Declared(id) => Some(id),
@@ -1652,39 +1651,13 @@ fn validate_bn128_point_constructors(
                 GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
                 _ => None,
             });
-        match hook {
-            HookOperation::KryptoBn128Valid => {
-                check(
-                    hook,
-                    "G1Point",
-                    crate::Bn128PointSignature::G1,
-                    2,
-                    first_argument,
-                )?;
-            }
-            HookOperation::KryptoBn128G2Valid => {
-                check(
-                    hook,
-                    "G2Point",
-                    crate::Bn128PointSignature::G2,
-                    4,
-                    first_argument,
-                )?;
-            }
-            HookOperation::KryptoBn128Add | HookOperation::KryptoBn128Mul => {
-                check(
-                    hook,
-                    "G1Point",
-                    crate::Bn128PointSignature::G1,
-                    2,
-                    Some(production.result_sort()),
-                )?;
-            }
-            HookOperation::KryptoBn128Ate => {
-                check(hook, "G1Point", crate::Bn128PointSignature::G1, 2, None)?;
-                check(hook, "G2Point", crate::Bn128PointSignature::G2, 4, None)?;
-            }
-            _ => {}
+        for constraint in hook.spec().signature.point_constructors() {
+            let used_sort = match constraint.source {
+                HookPointSortSource::FirstArgument => first_argument,
+                HookPointSortSource::Result => Some(production.result_sort()),
+                HookPointSortSource::Named => None,
+            };
+            check(hook, constraint.signature, used_sort)?;
         }
     }
     Ok(())

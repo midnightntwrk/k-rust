@@ -9,78 +9,9 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{BuiltinSort, IrIdentityError, NodeOrigin, StableItemId, ir::validated_id};
+use crate::{IrIdentityError, NodeOrigin, StableItemId, ir::validated_id};
 
-/// Exact backend hook identities selected by qualified KRS semantics.
-///
-/// Textual hook names remain target-specific catalog data. Authored Rust,
-/// descriptors, and IR carry only these closed identities.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HookOperation {
-    /// Raw 32-byte Keccak-256 digest (`KRYPTO.keccak256raw`).
-    KryptoKeccak256Raw,
-    /// Raw 32-byte SHA-256 digest (`KRYPTO.sha256raw`).
-    KryptoSha256Raw,
-    /// Raw 20-byte RIPEMD-160 digest (`KRYPTO.ripemd160raw`).
-    KryptoRipemd160Raw,
-    /// Recover 64-byte secp256k1 public-key coordinates (`KRYPTO.ecdsaRecover`).
-    KryptoEcdsaRecover,
-    /// Validate a concrete `alt_bn128` G1 point (`KRYPTO.bn128valid`).
-    KryptoBn128Valid,
-    /// Add two concrete `alt_bn128` G1 points (`KRYPTO.bn128add`).
-    KryptoBn128Add,
-    /// Multiply a concrete `alt_bn128` G1 point by an integer (`KRYPTO.bn128mul`).
-    KryptoBn128Mul,
-    /// Validate a concrete `alt_bn128` G2 point and subgroup membership (`KRYPTO.bn128g2valid`).
-    KryptoBn128G2Valid,
-    /// Test whether an `alt_bn128` pairing product is the target-group identity (`KRYPTO.bn128ate`).
-    KryptoBn128Ate,
-}
-
-impl HookOperation {
-    /// Complete hook catalog in stable semantic order.
-    pub const ALL: [Self; 9] = [
-        Self::KryptoKeccak256Raw,
-        Self::KryptoSha256Raw,
-        Self::KryptoRipemd160Raw,
-        Self::KryptoEcdsaRecover,
-        Self::KryptoBn128Valid,
-        Self::KryptoBn128Add,
-        Self::KryptoBn128Mul,
-        Self::KryptoBn128G2Valid,
-        Self::KryptoBn128Ate,
-    ];
-
-    /// Fixed builtin signature, when the hook does not operate on a
-    /// definition-declared algebraic sort.
-    #[must_use]
-    pub const fn builtin_signature(self) -> Option<(BuiltinSort, &'static [BuiltinSort])> {
-        match self {
-            Self::KryptoKeccak256Raw | Self::KryptoSha256Raw | Self::KryptoRipemd160Raw => {
-                Some((BuiltinSort::Bytes, &[BuiltinSort::Bytes]))
-            }
-            Self::KryptoEcdsaRecover => Some((
-                BuiltinSort::Bytes,
-                &[
-                    BuiltinSort::Bytes,
-                    BuiltinSort::Int,
-                    BuiltinSort::Bytes,
-                    BuiltinSort::Bytes,
-                ],
-            )),
-            Self::KryptoBn128Ate => {
-                Some((BuiltinSort::Bool, &[BuiltinSort::List, BuiltinSort::List]))
-            }
-            Self::KryptoBn128Valid
-            | Self::KryptoBn128Add
-            | Self::KryptoBn128Mul
-            | Self::KryptoBn128G2Valid => None,
-        }
-    }
-}
-
-pub use crate::catalog::BuiltinOperation;
+pub use crate::catalog::{BuiltinOperation, HookOperation};
 
 /// An application reference whose declared identity depends on the IR layer.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

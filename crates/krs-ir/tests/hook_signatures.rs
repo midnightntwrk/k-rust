@@ -440,16 +440,18 @@ fn bn128_definition(
             .unwrap(),
         ));
     }
-    let (result_sort, arguments) = if hook == HookOperation::KryptoBn128Ate {
-        (
+    let point = DefinitionSortRef::declared(point_sort);
+    let (result_sort, arguments) = match hook {
+        HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
+            (DefinitionSortRef::bool(), vec![point])
+        }
+        HookOperation::KryptoBn128Add => (point.clone(), vec![point.clone(), point]),
+        HookOperation::KryptoBn128Mul => (point.clone(), vec![point, DefinitionSortRef::int()]),
+        HookOperation::KryptoBn128Ate => (
             DefinitionSortRef::bool(),
             vec![DefinitionSortRef::list(), DefinitionSortRef::list()],
-        )
-    } else {
-        (
-            DefinitionSortRef::bool(),
-            vec![DefinitionSortRef::declared(point_sort)],
-        )
+        ),
+        _ => panic!("the fixture requires a BN128 hook"),
     };
     sentences.push(DefinitionSentence::Production(
         ProductionSentence::new(
@@ -565,4 +567,123 @@ fn bn128_hooks_require_a_unique_point_constructor_with_the_expected_sort_and_sig
     )
     .unwrap();
     assert_canonical_contract(&definition);
+}
+
+#[test]
+fn bn128_add_and_mul_require_g1_constructors_for_the_result_sort() {
+    for (hook, expected_message) in [
+        (
+            HookOperation::KryptoBn128Add,
+            "hook KRYPTO.bn128add requires a unique G1Point(Int, Int) constructor; sort OtherPoint has 1 matching constructors",
+        ),
+        (
+            HookOperation::KryptoBn128Mul,
+            "hook KRYPTO.bn128mul requires a unique G1Point(Int, Int) constructor; sort OtherPoint has 1 matching constructors",
+        ),
+    ] {
+        let definition = bn128_definition("G1Point", &[("Point", 2)], hook, None).unwrap();
+        assert_canonical_contract(&definition);
+        let error = bn128_definition("OtherPoint", &[("Point", 2)], hook, None).unwrap_err();
+        assert_eq!(
+            error,
+            DefinitionValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort: "OtherPoint".to_owned(),
+                expected_signature: krs_ir::Bn128PointSignature::G1,
+                matching_constructors: 1,
+            }
+        );
+        assert_eq!(error.to_string(), expected_message);
+        assert_eq!(
+            bn128_definition("G1Point", &[("Point", 3)], hook, None),
+            Err(DefinitionValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort: "G1Point".to_owned(),
+                expected_signature: krs_ir::Bn128PointSignature::G1,
+                matching_constructors: 0,
+            })
+        );
+    }
+}
+
+#[test]
+fn bn128_g2_valid_requires_g2_constructors_for_the_first_argument_sort() {
+    let hook = HookOperation::KryptoBn128G2Valid;
+    let definition = bn128_definition("G2Point", &[("Point", 4)], hook, None).unwrap();
+    assert_canonical_contract(&definition);
+    for (sort, constructors, count, expected_message) in [
+        (
+            "OtherPoint",
+            vec![("Point", 4)],
+            1,
+            "hook KRYPTO.bn128g2valid requires a unique G2Point(Int, Int, Int, Int) constructor; sort OtherPoint has 1 matching constructors",
+        ),
+        (
+            "G2Point",
+            vec![("Point", 2)],
+            0,
+            "hook KRYPTO.bn128g2valid requires a unique G2Point(Int, Int, Int, Int) constructor; sort G2Point has 0 matching constructors",
+        ),
+        (
+            "G2Point",
+            vec![("Point", 4), ("OtherPoint", 4)],
+            2,
+            "hook KRYPTO.bn128g2valid requires a unique G2Point(Int, Int, Int, Int) constructor; sort G2Point has 2 matching constructors",
+        ),
+    ] {
+        let error = bn128_definition(sort, &constructors, hook, None).unwrap_err();
+        assert_eq!(
+            error,
+            DefinitionValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort: sort.to_owned(),
+                expected_signature: krs_ir::Bn128PointSignature::G2,
+                matching_constructors: count,
+            }
+        );
+        assert_eq!(error.to_string(), expected_message);
+    }
+}
+
+#[test]
+fn bn128_pairing_checks_named_g1_before_named_g2() {
+    let hook = HookOperation::KryptoBn128Ate;
+    for (sort, constructors, g2_arity, expected_signature, expected_sort, expected_message) in [
+        (
+            "OtherPoint",
+            vec![("Point", 2)],
+            None,
+            krs_ir::Bn128PointSignature::G1,
+            "G1Point",
+            "hook KRYPTO.bn128ate requires a unique G1Point(Int, Int) constructor; sort G1Point has 0 matching constructors",
+        ),
+        (
+            "G1Point",
+            vec![("Point", 3)],
+            Some(2),
+            krs_ir::Bn128PointSignature::G1,
+            "G1Point",
+            "hook KRYPTO.bn128ate requires a unique G1Point(Int, Int) constructor; sort G1Point has 0 matching constructors",
+        ),
+        (
+            "G1Point",
+            vec![("Point", 2)],
+            Some(2),
+            krs_ir::Bn128PointSignature::G2,
+            "G2Point",
+            "hook KRYPTO.bn128ate requires a unique G2Point(Int, Int, Int, Int) constructor; sort G2Point has 0 matching constructors",
+        ),
+    ] {
+        let error = bn128_definition(sort, &constructors, hook, g2_arity).unwrap_err();
+        assert_eq!(
+            error,
+            DefinitionValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort: expected_sort.to_owned(),
+                expected_signature,
+                matching_constructors: 0,
+            }
+        );
+        assert_eq!(error.to_string(), expected_message);
+    }
 }

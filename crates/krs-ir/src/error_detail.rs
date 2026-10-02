@@ -90,6 +90,26 @@ details! {
     }
 }
 
+impl Bn128PointSignature {
+    /// Returns the required declared sort name.
+    #[must_use]
+    pub const fn sort_name(self) -> &'static str {
+        match self {
+            Self::G1 => "G1Point",
+            Self::G2 => "G2Point",
+        }
+    }
+
+    /// Returns the number of integer coordinates in the constructor.
+    #[must_use]
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::G1 => 2,
+            Self::G2 => 4,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

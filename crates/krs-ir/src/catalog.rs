@@ -1,6 +1,281 @@
-//! Declarative builtin catalogs for the pinned K frontend.
+//! Declarative builtin and hook catalogs for the pinned K frontend.
 
 use serde::{Deserialize, Serialize};
+
+use crate::Bn128PointSignature;
+
+/// A sort constraint in a hook's declared-point signature.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HookSortConstraint {
+    /// An exact builtin sort.
+    Builtin(BuiltinSort),
+    /// Any definition-declared algebraic sort.
+    Declared,
+    /// The production's result sort.
+    Result,
+}
+
+/// Location of a sort whose constructor a hook requires.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HookPointSortSource {
+    /// The production's first nonterminal argument.
+    FirstArgument,
+    /// The production's result sort.
+    Result,
+    /// A declared sort with the constructor signature's expected name.
+    Named,
+}
+
+/// A constructor requirement imposed by the native hook backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HookPointConstructor {
+    /// Required point name and integer-coordinate signature.
+    pub signature: Bn128PointSignature,
+    /// Where the production selects the point sort.
+    pub source: HookPointSortSource,
+}
+
+/// Production signature and constructor requirements for a hook.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HookSignature {
+    /// A fixed signature consisting entirely of builtin sorts.
+    Builtin {
+        /// Exact builtin result sort.
+        result_sort: BuiltinSort,
+        /// Ordered builtin argument sorts.
+        argument_sorts: &'static [BuiltinSort],
+        /// Required constructors in validation order.
+        point_constructors: &'static [HookPointConstructor],
+    },
+    /// A signature involving a definition-declared point sort.
+    DeclaredPoint {
+        /// Constraint on the production's result sort.
+        result_sort: HookSortConstraint,
+        /// Ordered constraints on the nonterminal argument sorts.
+        argument_sorts: &'static [HookSortConstraint],
+        /// Required constructors in validation order.
+        point_constructors: &'static [HookPointConstructor],
+    },
+}
+
+impl HookSignature {
+    /// Returns the fixed builtin signature, if present.
+    #[must_use]
+    pub const fn builtin_signature(self) -> Option<(BuiltinSort, &'static [BuiltinSort])> {
+        match self {
+            Self::Builtin {
+                result_sort,
+                argument_sorts,
+                ..
+            } => Some((result_sort, argument_sorts)),
+            Self::DeclaredPoint { .. } => None,
+        }
+    }
+
+    /// Returns the constructor constraints in validation order.
+    #[must_use]
+    pub const fn point_constructors(self) -> &'static [HookPointConstructor] {
+        match self {
+            Self::Builtin {
+                point_constructors, ..
+            }
+            | Self::DeclaredPoint {
+                point_constructors, ..
+            } => point_constructors,
+        }
+    }
+}
+
+/// Per-hook facts shared by the Rust facade and pinned K adapters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HookOperationSpec {
+    /// Rust module in an authored hook path.
+    pub rust_module: &'static str,
+    /// Rust hook name within the module.
+    pub rust_name: &'static str,
+    /// Exact native frontend hook spelling.
+    pub k_hook: &'static str,
+    /// Production signature and backend constructor constraints.
+    pub signature: HookSignature,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __krs_hook_operation_catalog {
+    ($callback:path) => {
+        $callback! {
+            /// Raw 32-byte Keccak-256 digest (`KRYPTO.keccak256raw`).
+            KryptoKeccak256Raw {
+                rust_module: krypto,
+                rust_name: keccak256_raw,
+                k_hook: "KRYPTO.keccak256raw",
+                signature: $crate::HookSignature::Builtin {
+                    result_sort: $crate::BuiltinSort::Bytes,
+                    argument_sorts: &[$crate::BuiltinSort::Bytes],
+                    point_constructors: &[],
+                }
+            }
+            /// Raw 32-byte SHA-256 digest (`KRYPTO.sha256raw`).
+            KryptoSha256Raw {
+                rust_module: krypto,
+                rust_name: sha256_raw,
+                k_hook: "KRYPTO.sha256raw",
+                signature: $crate::HookSignature::Builtin {
+                    result_sort: $crate::BuiltinSort::Bytes,
+                    argument_sorts: &[$crate::BuiltinSort::Bytes],
+                    point_constructors: &[],
+                }
+            }
+            /// Raw 20-byte RIPEMD-160 digest (`KRYPTO.ripemd160raw`).
+            KryptoRipemd160Raw {
+                rust_module: krypto,
+                rust_name: ripemd160_raw,
+                k_hook: "KRYPTO.ripemd160raw",
+                signature: $crate::HookSignature::Builtin {
+                    result_sort: $crate::BuiltinSort::Bytes,
+                    argument_sorts: &[$crate::BuiltinSort::Bytes],
+                    point_constructors: &[],
+                }
+            }
+            /// Recover 64-byte secp256k1 public-key coordinates (`KRYPTO.ecdsaRecover`).
+            KryptoEcdsaRecover {
+                rust_module: krypto,
+                rust_name: ecdsa_recover,
+                k_hook: "KRYPTO.ecdsaRecover",
+                signature: $crate::HookSignature::Builtin {
+                    result_sort: $crate::BuiltinSort::Bytes,
+                    argument_sorts: &[$crate::BuiltinSort::Bytes, $crate::BuiltinSort::Int, $crate::BuiltinSort::Bytes, $crate::BuiltinSort::Bytes],
+                    point_constructors: &[],
+                }
+            }
+            /// Validate a concrete `alt_bn128` G1 point (`KRYPTO.bn128valid`).
+            KryptoBn128Valid {
+                rust_module: krypto,
+                rust_name: bn128_valid,
+                k_hook: "KRYPTO.bn128valid",
+                signature: $crate::HookSignature::DeclaredPoint {
+                    result_sort: $crate::HookSortConstraint::Builtin($crate::BuiltinSort::Bool),
+                    argument_sorts: &[$crate::HookSortConstraint::Declared],
+                    point_constructors: &[$crate::HookPointConstructor {
+                        signature: $crate::Bn128PointSignature::G1,
+                        source: $crate::HookPointSortSource::FirstArgument,
+                    }],
+                }
+            }
+            /// Add two concrete `alt_bn128` G1 points (`KRYPTO.bn128add`).
+            KryptoBn128Add {
+                rust_module: krypto,
+                rust_name: bn128_add,
+                k_hook: "KRYPTO.bn128add",
+                signature: $crate::HookSignature::DeclaredPoint {
+                    result_sort: $crate::HookSortConstraint::Declared,
+                    argument_sorts: &[$crate::HookSortConstraint::Result, $crate::HookSortConstraint::Result],
+                    point_constructors: &[$crate::HookPointConstructor {
+                        signature: $crate::Bn128PointSignature::G1,
+                        source: $crate::HookPointSortSource::Result,
+                    }],
+                }
+            }
+            /// Multiply a concrete `alt_bn128` G1 point by an integer (`KRYPTO.bn128mul`).
+            KryptoBn128Mul {
+                rust_module: krypto,
+                rust_name: bn128_mul,
+                k_hook: "KRYPTO.bn128mul",
+                signature: $crate::HookSignature::DeclaredPoint {
+                    result_sort: $crate::HookSortConstraint::Declared,
+                    argument_sorts: &[$crate::HookSortConstraint::Result, $crate::HookSortConstraint::Builtin($crate::BuiltinSort::Int)],
+                    point_constructors: &[$crate::HookPointConstructor {
+                        signature: $crate::Bn128PointSignature::G1,
+                        source: $crate::HookPointSortSource::Result,
+                    }],
+                }
+            }
+            /// Validate a concrete `alt_bn128` G2 point and subgroup membership (`KRYPTO.bn128g2valid`).
+            KryptoBn128G2Valid {
+                rust_module: krypto,
+                rust_name: bn128_g2_valid,
+                k_hook: "KRYPTO.bn128g2valid",
+                signature: $crate::HookSignature::DeclaredPoint {
+                    result_sort: $crate::HookSortConstraint::Builtin($crate::BuiltinSort::Bool),
+                    argument_sorts: &[$crate::HookSortConstraint::Declared],
+                    point_constructors: &[$crate::HookPointConstructor {
+                        signature: $crate::Bn128PointSignature::G2,
+                        source: $crate::HookPointSortSource::FirstArgument,
+                    }],
+                }
+            }
+            /// Test whether an `alt_bn128` pairing product is the target-group identity (`KRYPTO.bn128ate`).
+            KryptoBn128Ate {
+                rust_module: krypto,
+                rust_name: bn128_ate,
+                k_hook: "KRYPTO.bn128ate",
+                signature: $crate::HookSignature::Builtin {
+                    result_sort: $crate::BuiltinSort::Bool,
+                    argument_sorts: &[$crate::BuiltinSort::List, $crate::BuiltinSort::List],
+                    point_constructors: &[
+                        $crate::HookPointConstructor {
+                            signature: $crate::Bn128PointSignature::G1,
+                            source: $crate::HookPointSortSource::Named,
+                        },
+                        $crate::HookPointConstructor {
+                            signature: $crate::Bn128PointSignature::G2,
+                            source: $crate::HookPointSortSource::Named,
+                        },
+                    ],
+                }
+            }
+        }
+    };
+}
+
+macro_rules! define_hook_operations {
+    ($( $(#[$meta:meta])* $variant:ident {
+        rust_module: $module:ident,
+        rust_name: $name:ident,
+        k_hook: $hook:literal,
+        signature: $signature:expr
+    })*) => {
+        /// Exact backend hook identities selected by qualified KRS semantics.
+        ///
+        /// Textual hook names remain target-specific catalog data. Authored Rust,
+        /// descriptors, and IR carry only these closed identities.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum HookOperation {
+            $($(#[$meta])* $variant,)*
+        }
+
+        impl HookOperation {
+            /// Complete hook catalog in stable semantic order.
+            pub const ALL: [Self; [$(stringify!($variant)),*].len()] = [$(Self::$variant),*];
+
+            /// Returns the pinned hook specification.
+            #[must_use]
+            pub const fn spec(self) -> &'static HookOperationSpec {
+                match self {
+                    $(Self::$variant => {
+                        const SPEC: HookOperationSpec = HookOperationSpec {
+                            rust_module: stringify!($module),
+                            rust_name: stringify!($name),
+                            k_hook: $hook,
+                            signature: $signature,
+                        };
+                        &SPEC
+                    },)*
+                }
+            }
+
+            /// Fixed builtin signature, when the hook does not operate on a
+            /// definition-declared algebraic sort.
+            #[must_use]
+            pub const fn builtin_signature(self) -> Option<(BuiltinSort, &'static [BuiltinSort])> {
+                self.spec().signature.builtin_signature()
+            }
+        }
+    };
+}
+
+__krs_hook_operation_catalog!(define_hook_operations);
 
 /// Per-sort facts shared by the Rust facade and pinned K adapters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

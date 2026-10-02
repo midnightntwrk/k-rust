@@ -49,7 +49,11 @@ pub use bundle::{
     DescriptorPayload, DescriptorProvenance, DescriptorProvenanceError, Payload, SentenceKind,
     SortDescriptor, SortPayload,
 };
-pub use catalog::{BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec};
+pub use catalog::{
+    BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
+    HookOperationSpec, HookPointConstructor, HookPointSortSource, HookSignature,
+    HookSortConstraint,
+};
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
 };

@@ -1636,18 +1636,7 @@ impl Adapter {
                 attributes.insert("total", json!(""));
             }
             DefinitionProductionAttribute::Hook { operation, .. } => {
-                let hook = match operation {
-                    krs_ir::HookOperation::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
-                    krs_ir::HookOperation::KryptoSha256Raw => "KRYPTO.sha256raw",
-                    krs_ir::HookOperation::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
-                    krs_ir::HookOperation::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
-                    krs_ir::HookOperation::KryptoBn128Valid => "KRYPTO.bn128valid",
-                    krs_ir::HookOperation::KryptoBn128Add => "KRYPTO.bn128add",
-                    krs_ir::HookOperation::KryptoBn128Mul => "KRYPTO.bn128mul",
-                    krs_ir::HookOperation::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
-                    krs_ir::HookOperation::KryptoBn128Ate => "KRYPTO.bn128ate",
-                };
-                attributes.insert("hook", json!(hook));
+                attributes.insert("hook", json!(operation.spec().k_hook));
             }
             DefinitionProductionAttribute::Alias { .. } => {
                 attributes.insert("alias", json!(""));

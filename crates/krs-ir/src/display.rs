@@ -101,17 +101,7 @@ impl fmt::Display for BuiltinOperation {
 
 impl fmt::Display for HookOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::KryptoKeccak256Raw => "KRYPTO.keccak256raw",
-            Self::KryptoSha256Raw => "KRYPTO.sha256raw",
-            Self::KryptoRipemd160Raw => "KRYPTO.ripemd160raw",
-            Self::KryptoEcdsaRecover => "KRYPTO.ecdsaRecover",
-            Self::KryptoBn128Valid => "KRYPTO.bn128valid",
-            Self::KryptoBn128Add => "KRYPTO.bn128add",
-            Self::KryptoBn128Mul => "KRYPTO.bn128mul",
-            Self::KryptoBn128G2Valid => "KRYPTO.bn128g2valid",
-            Self::KryptoBn128Ate => "KRYPTO.bn128ate",
-        })
+        formatter.write_str(self.spec().k_hook)
     }
 }
 

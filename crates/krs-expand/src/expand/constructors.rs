@@ -112,42 +112,30 @@ pub(crate) fn function(
                 .iter()
                 .map(|segment| segment.ident.to_string())
                 .collect::<Vec<_>>();
-            let operation = match segments.as_slice() {
-                [module, name] if module == "krypto" && name == "keccak256_raw" => {
-                    krs_ir::HookOperation::KryptoKeccak256Raw
-                }
-                [module, name] if module == "krypto" && name == "sha256_raw" => {
-                    krs_ir::HookOperation::KryptoSha256Raw
-                }
-                [module, name] if module == "krypto" && name == "ripemd160_raw" => {
-                    krs_ir::HookOperation::KryptoRipemd160Raw
-                }
-                [module, name] if module == "krypto" && name == "ecdsa_recover" => {
-                    krs_ir::HookOperation::KryptoEcdsaRecover
-                }
-                [module, name] if module == "krypto" && name == "bn128_valid" => {
-                    krs_ir::HookOperation::KryptoBn128Valid
-                }
-                [module, name] if module == "krypto" && name == "bn128_add" => {
-                    krs_ir::HookOperation::KryptoBn128Add
-                }
-                [module, name] if module == "krypto" && name == "bn128_mul" => {
-                    krs_ir::HookOperation::KryptoBn128Mul
-                }
-                [module, name] if module == "krypto" && name == "bn128_g2_valid" => {
-                    krs_ir::HookOperation::KryptoBn128G2Valid
-                }
-                [module, name] if module == "krypto" && name == "bn128_ate" => {
-                    krs_ir::HookOperation::KryptoBn128Ate
-                }
-                _ => {
-                    return Err(ExpandError::new(
+            let operation = krs_ir::HookOperation::ALL
+                .into_iter()
+                .find(|operation| {
+                    let spec = operation.spec();
+                    matches!(segments.as_slice(), [module, name] if module == spec.rust_module && name == spec.rust_name)
+                })
+                .ok_or_else(|| {
+                    let expected = krs_ir::HookOperation::ALL
+                        .map(|operation| {
+                            let spec = operation.spec();
+                            format!("`{}::{}`", spec.rust_module, spec.rust_name)
+                        });
+                    let (last, preceding) = expected
+                        .split_last()
+                        .expect("the hook catalog contains operations");
+                    ExpandError::new(
                         expand::UNKNOWN_HOOK,
                         path.span(),
-                        "unknown KRS hook; expected `krypto::keccak256_raw`, `krypto::sha256_raw`, `krypto::ripemd160_raw`, `krypto::ecdsa_recover`, `krypto::bn128_valid`, `krypto::bn128_add`, `krypto::bn128_mul`, `krypto::bn128_g2_valid`, or `krypto::bn128_ate`",
-                    ));
-                }
-            };
+                        format!(
+                            "unknown KRS hook; expected {}, or {last}",
+                            preceding.join(", ")
+                        ),
+                    )
+                })?;
             Ok((
                 ProvenanceAnchor::new(
                     ProvenanceRole::FunctionHook,

@@ -8,9 +8,9 @@ use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellContentFrame, CellPost, FixedCell,
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
     FixedInitializerCell, FixedInitializerContent, FormatFragment, GrammarProductionItem,
-    GrammarProductionItemKind, HookOperation, ListOperation, MapOperation, PrecedenceRelation,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
-    SetOperation, SourceMapKey,
+    GrammarProductionItemKind, HookOperation, HookSignature, HookSortConstraint, ListOperation,
+    MapOperation, PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId,
+    SemanticId, SentenceKind, SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1081,43 +1081,37 @@ pub(crate) fn validate_production_shape<L: Validation>(
                 | GrammarProductionItemKind::RegexTerminal { .. } => None,
             })
             .collect::<Vec<_>>();
-        let valid_signature =
-            if let Some((expected_result, expected_arguments)) = operation.builtin_signature() {
+        let valid_signature = match operation.spec().signature {
+            HookSignature::Builtin {
+                result_sort: expected_result,
+                argument_sorts: expected_arguments,
+                ..
+            } => {
                 result_sort == &L::builtin_sort(expected_result)
+                    && argument_sorts.len() == expected_arguments.len()
                     && argument_sorts
-                        == expected_arguments
-                            .iter()
-                            .copied()
-                            .map(L::builtin_sort)
-                            .collect::<Vec<_>>()
-                            .iter()
-                            .collect::<Vec<_>>()
-            } else {
-                match operation {
-                    HookOperation::KryptoBn128Valid | HookOperation::KryptoBn128G2Valid => {
-                        result_sort == &L::builtin_sort(BuiltinSort::Bool)
-                            && argument_sorts.len() == 1
-                            && L::declared_sort(argument_sorts[0]).is_some()
-                    }
-                    HookOperation::KryptoBn128Add => {
-                        L::declared_sort(result_sort).is_some()
-                            && argument_sorts.as_slice() == [result_sort, result_sort]
-                    }
-                    HookOperation::KryptoBn128Mul => {
-                        L::declared_sort(result_sort).is_some()
-                            && argument_sorts.len() == 2
-                            && argument_sorts[0] == result_sort
-                            && argument_sorts[1] == &L::builtin_sort(BuiltinSort::Int)
-                    }
-                    HookOperation::KryptoKeccak256Raw
-                    | HookOperation::KryptoSha256Raw
-                    | HookOperation::KryptoRipemd160Raw
-                    | HookOperation::KryptoEcdsaRecover
-                    | HookOperation::KryptoBn128Ate => {
-                        unreachable!("builtin-signature hooks are handled above")
-                    }
-                }
-            };
+                        .iter()
+                        .zip(expected_arguments)
+                        .all(|(actual, expected)| *actual == &L::builtin_sort(*expected))
+            }
+            HookSignature::DeclaredPoint {
+                result_sort: expected_result,
+                argument_sorts: expected_arguments,
+                ..
+            } => {
+                let matches = |actual: &L::Sort, expected: HookSortConstraint| match expected {
+                    HookSortConstraint::Builtin(sort) => actual == &L::builtin_sort(sort),
+                    HookSortConstraint::Declared => L::declared_sort(actual).is_some(),
+                    HookSortConstraint::Result => actual == result_sort,
+                };
+                matches(result_sort, expected_result)
+                    && argument_sorts.len() == expected_arguments.len()
+                    && argument_sorts
+                        .iter()
+                        .zip(expected_arguments)
+                        .all(|(actual, expected)| matches(actual, *expected))
+            }
+        };
         if !valid_signature {
             return Err(L::error(ValidationError::InvalidHookSignature(operation)));
         }
