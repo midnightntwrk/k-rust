@@ -58,6 +58,8 @@ pub use passes::{
     resolve_strict, subsort_kitem,
 };
 pub(crate) use passes::{DefinedBody, Injectable, SoleGenerator};
+#[cfg(feature = "cli")]
+pub(crate) use passes::{Placement, PlacementKind};
 pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };

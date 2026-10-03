@@ -33,12 +33,14 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Write};
 
+use super::placement::CPlacement;
 use crate::definition::{
     AttributeKey, Attributes, ProductionId, ProductionItem, Sentence, SortCatalog, SortHead,
     compute_associativities, compute_overloads, compute_priorities, compute_subsorts,
     sentence_equivalent,
 };
 use crate::kast::{Label, Sort};
+use crate::kompile::{Placement, PlacementKind};
 use crate::kompile::{encode_kore_label, encode_kore_sort};
 
 use super::scanner::{Scanner, TokenKey};
@@ -49,13 +51,31 @@ enum GrammarError {
     CircularPriority(Vec<String>),
     CircularSubsort(Vec<Sort>),
     CircularOverload(Vec<ProductionId>),
-    MissingStartProduction { sort: Sort },
-    MissingSemanticAction { sort: Sort },
-    InvalidBracket { sort: Sort },
-    InvalidSubsort { sort: Sort },
-    InvalidUserListMetadata { sort: Sort },
-    InvalidUserList { sort: Sort, message: String },
+    MissingStartProduction {
+        sort: Sort,
+    },
+    MissingSemanticAction {
+        sort: Sort,
+    },
+    InvalidBracket {
+        sort: Sort,
+    },
+    InvalidSubsort {
+        sort: Sort,
+    },
+    InvalidUserListMetadata {
+        sort: Sort,
+    },
+    InvalidUserList {
+        sort: Sort,
+        message: String,
+    },
     Scanner(String),
+    UnlicensedPlacement {
+        production: Box<Sentence>,
+        child: Sort,
+        target: Sort,
+    },
 }
 
 impl fmt::Display for GrammarError {
@@ -101,6 +121,14 @@ impl fmt::Display for GrammarError {
                 "subsort production for {sort} must contain exactly one nonterminal"
             ),
             Self::Scanner(message) => formatter.write_str(message),
+            Self::UnlicensedPlacement {
+                production,
+                child,
+                target,
+            } => write!(
+                formatter,
+                "unlicensed parser placement {child} -> {target} in production {production:?}"
+            ),
             Self::InvalidUserListMetadata { sort } => write!(
                 formatter,
                 "user-list terminator bridge for {sort} requires string userList and userListTerminator labels"
@@ -203,7 +231,9 @@ fn render_inner(
     let semantic_sentences = || {
         sentences.iter().filter(|sentence| {
             !matches!(sentence, Sentence::Production { attributes, .. }
-                if attributes.has(AttributeKey::BisonParsingOnlySubsort))
+                if attributes.has(AttributeKey::BisonParsingOnlySubsort)
+                    || attributes.has(AttributeKey::NotInjection)
+                    || attributes.has(AttributeKey::UserListTerminator))
         })
     };
     let subsorts = compute_subsorts(semantic_sentences(), false)
@@ -211,6 +241,14 @@ fn render_inner(
     let overloads = compute_overloads(semantic_sentences(), &subsorts)
         .map_err(|cycle| GrammarError::CircularOverload(cycle.path))?;
 
+    let sorts = module_sorts(sentences);
+    let placements = CPlacement {
+        subsorts: &subsorts,
+        sorts: &sorts,
+        location: "@$",
+        has_location: "0",
+        prefix: "placed",
+    };
     let mut output = String::new();
     write_prologue(&mut output, mode, stack_depth);
 
@@ -266,10 +304,9 @@ fn render_inner(
             write_production(
                 &mut output,
                 production,
-                sentences,
                 scanner,
                 &sort_catalog,
-                &subsorts,
+                &placements,
                 &overloads,
                 mode == Mode::Glr,
             )?;
@@ -689,14 +726,12 @@ fn reachable_sorts(productions: &[GrammarProduction], start: &Sort) -> BTreeSet<
     reachable
 }
 
-#[allow(clippy::too_many_arguments)]
 fn write_production(
     output: &mut String,
     production: &GrammarProduction,
-    module_sentences: &[Sentence],
     scanner: &Scanner,
     sort_catalog: &SortCatalog<'_>,
-    subsorts: &crate::definition::PartialOrder<Sort>,
+    placements: &CPlacement<'_>,
     overloads: &crate::definition::OverloadOrder<'_>,
     glr: bool,
 ) -> Result<(), GrammarError> {
@@ -741,6 +776,10 @@ fn write_production(
     // K's Production.isSubsort requires both a unary nonterminal shape and no
     // klabel. A labeled unary production is an ordinary constructor.
     let is_subsort = label.is_none() && subsort_child(items).is_some();
+    let placements = CPlacement {
+        has_location: if has_location { "1" } else { "0" },
+        ..*placements
+    };
 
     if attributes.has(AttributeKey::Token) && !is_subsort {
         write_token_action(output, sort, sort_catalog, has_location);
@@ -748,7 +787,7 @@ fn write_production(
         && is_subsort
         && !attributes.has(AttributeKey::NotInjection)
     {
-        write_subsort_action(output, sort, items, attributes, has_location)?;
+        write_subsort_action(output, &production.source, &placements)?;
     } else if attributes.has(AttributeKey::Token) && is_subsort {
         write_token_subsort_action(output, sort, has_location);
     } else if is_subsort && attributes.has(AttributeKey::NotInjection) {
@@ -764,12 +803,11 @@ fn write_production(
             items,
             attributes,
             &nonterminals,
-            module_sentences,
             sort_catalog,
-            subsorts,
+            &placements,
             overloads,
             has_location,
-        );
+        )?;
     } else if attributes.has(AttributeKey::Bracket) {
         let [child] = nonterminals.as_slice() else {
             return Err(GrammarError::InvalidBracket { sort: sort.clone() });
@@ -815,25 +853,40 @@ fn write_token_action(
     .expect("writing to a string cannot fail");
 }
 
+fn require_placement(
+    production: &Sentence,
+    child: &Sort,
+    target: &Sort,
+    placements: &CPlacement<'_>,
+) -> Result<Placement, GrammarError> {
+    Placement::between(child, target, placements.subsorts).ok_or_else(|| {
+        GrammarError::UnlicensedPlacement {
+            production: Box::new(production.clone()),
+            child: child.clone(),
+            target: target.clone(),
+        }
+    })
+}
+
 fn write_subsort_action(
     output: &mut String,
-    result: &Sort,
-    items: &[ProductionItem],
-    attributes: &Attributes,
-    has_location: bool,
+    production: &Sentence,
+    placements: &CPlacement<'_>,
 ) -> Result<(), GrammarError> {
+    let Sentence::Production {
+        sort: result,
+        items,
+        attributes,
+        ..
+    } = production
+    else {
+        unreachable!()
+    };
     let child = subsort_child(items).ok_or_else(|| GrammarError::InvalidSubsort {
         sort: result.clone(),
     })?;
     let result_kore = c_kore_sort(result);
-    let child_kore = c_kore_sort(child);
-    writeln!(
-        output,
-        "{{\n  node *n = malloc(sizeof(node) + sizeof(node *));\n  n->str = false;\n  n->location = @$;\n  n->hasLocation = {};\n  n->nchildren = 1;\n  n->sort = \"{result_kore}\";\n  if (!$1.nterm->str && strncmp($1.nterm->symbol, \"inj{{\", 4) == 0) {{\n    char *childSort = $1.nterm->children[0]->sort;\n    n->symbol = injSymbol(childSort, n->sort);\n    n->children[0] = $1.nterm->children[0];\n  }} else {{\n    n->symbol = \"inj{{{child_kore}, {result_kore}}}\";\n    n->children[0] = $1.nterm;\n  }}",
-        u8::from(has_location)
-    )
-    .expect("writing to a string cannot fail");
-
+    output.push_str("{\n");
     if attributes.has(AttributeKey::UserListTerminator) {
         let nil = attributes
             .label(AttributeKey::UserListTerminator)
@@ -850,11 +903,17 @@ fn write_subsort_action(
         writeln!(
             output,
             "  node *n2 = malloc(sizeof(node));\n  n2->symbol = \"{nil}\";\n  n2->str = false;\n  n2->location = @$;\n  n2->hasLocation = 0;\n  n2->nchildren = 0;\n  n2->sort = \"{result_kore}\";\n  node *n3 = malloc(sizeof(node) + 2*sizeof(node *));\n  n3->symbol = \"{cons}\";\n  n3->str = false;\n  n3->location = @$;\n  n3->hasLocation = {};\n  n3->nchildren = 2;\n  n3->children[0] = n2;\n  n3->children[1] = $1.nterm;\n  n3->sort = \"{result_kore}\";\n  value_type value = {{.nterm = n3}};\n  $$ = value;\n}}",
-            u8::from(has_location)
+            placements.has_location
         )
         .expect("writing to a string cannot fail");
     } else {
-        output.push_str("  value_type value = {.nterm = n};\n  $$ = value;\n}\n");
+        let plan = require_placement(production, child, result, placements)?;
+        let value = placements.write(output, &plan, "$1.nterm");
+        writeln!(
+            output,
+            "  value_type value = {{.nterm = {value}}};\n  $$ = value;\n}}"
+        )
+        .expect("writing to a string cannot fail");
     }
     Ok(())
 }
@@ -877,12 +936,11 @@ fn write_labeled_action(
     items: &[ProductionItem],
     attributes: &Attributes,
     rhs_nonterminals: &[usize],
-    module_sentences: &[Sentence],
     sort_catalog: &SortCatalog<'_>,
-    subsorts: &crate::definition::PartialOrder<Sort>,
+    placements: &CPlacement<'_>,
     overloads: &crate::definition::OverloadOrder<'_>,
     has_location: bool,
-) {
+) -> Result<(), GrammarError> {
     writeln!(
         output,
         "{{\n  node *n = malloc(sizeof(node) + sizeof(node *)*{});\n  n->str = false;\n  n->location = @$;\n  n->nchildren = {};",
@@ -923,30 +981,37 @@ fn write_labeled_action(
         else {
             continue;
         };
+        let lesser_production = overloads.production(*lesser);
+        let result_plan = require_placement(lesser_production, lesser_result, result, placements)?;
         let greater_arguments = nonterminal_sorts(items);
         let lesser_arguments = nonterminal_sorts(lesser_items);
-        output.push_str("  if (true");
+        let mut recoveries = Vec::new();
         for ((greater, lesser), rhs) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
             .zip(rhs_nonterminals)
         {
-            if greater == lesser {
+            require_placement(lesser_production, lesser, greater, placements)?;
+            let cases = if greater == lesser {
+                Vec::new()
+            } else {
+                recovery_cases(placements, greater, lesser, &format!("${rhs}.nterm"))
+            };
+            recoveries.push(cases);
+        }
+        output.push_str("  if (true");
+        for (greater_lesser, cases) in greater_arguments
+            .iter()
+            .zip(&lesser_arguments)
+            .zip(&recoveries)
+        {
+            if greater_lesser.0 == greater_lesser.1 {
                 continue;
             }
-            let candidates = module_subsorts(module_sentences, subsorts, lesser);
-            write!(
-                output,
-                " && strncmp(${rhs}.nterm->symbol, \"inj{{\", 4) == 0 && (false"
-            )
-            .expect("writing to a string cannot fail");
-            for candidate in candidates {
-                write!(
-                    output,
-                    " || strcmp(${rhs}.nterm->children[0]->sort, \"{}\") == 0",
-                    c_kore_sort(&candidate)
-                )
-                .expect("writing to a string cannot fail");
+            output.push_str(" && (false");
+            for case in cases {
+                write!(output, " || ({})", case.condition)
+                    .expect("writing to a string cannot fail");
             }
             output.push(')');
         }
@@ -963,29 +1028,44 @@ fn write_labeled_action(
             )
         )
         .expect("writing to a string cannot fail");
-        for (index, ((greater, lesser), rhs)) in greater_arguments
+        for (index, (((greater, lesser), rhs), cases)) in greater_arguments
             .iter()
             .zip(&lesser_arguments)
             .zip(rhs_nonterminals)
+            .zip(&recoveries)
             .enumerate()
         {
             if greater == lesser {
                 writeln!(output, "    n->children[{index}] = ${rhs}.nterm;")
                     .expect("writing to a string cannot fail");
             } else {
-                let lesser_sort = c_kore_sort(lesser);
-                writeln!(
-                    output,
-                    "    {{\n      node *origChild = ${rhs}.nterm;\n      char *lesserSort = \"{lesser_sort}\";\n      if (strcmp(origChild->children[0]->sort, lesserSort) == 0) {{\n        n->children[{index}] = origChild->children[0];\n      }} else {{\n        node *inj = malloc(sizeof(node) + sizeof(node *));\n        inj->symbol = injSymbol(origChild->children[0]->sort, lesserSort);\n        inj->str = false;\n        inj->location = origChild->location;\n        inj->nchildren = 1;\n        inj->sort = lesserSort;\n        inj->hasLocation = origChild->hasLocation;\n        inj->children[0] = origChild->children[0];\n        n->children[{index}] = inj;\n      }}\n    }}"
-                )
-                .expect("writing to a string cannot fail");
+                for (ordinal, case) in cases.iter().enumerate() {
+                    writeln!(
+                        output,
+                        "    {}if ({}) {{",
+                        if ordinal == 0 { "" } else { "else " },
+                        case.condition
+                    )
+                    .expect("writing to a string cannot fail");
+                    let location = format!("${rhs}.nterm->location");
+                    let has_location = format!("${rhs}.nterm->hasLocation");
+                    let prefix = format!("recovered_{index}");
+                    let emitter = CPlacement {
+                        location: &location,
+                        has_location: &has_location,
+                        prefix: &prefix,
+                        ..*placements
+                    };
+                    let child = emitter.write(output, &case.placement, &case.child);
+                    writeln!(output, "      n->children[{index}] = {child};\n    }}")
+                        .expect("writing to a string cannot fail");
+                }
             }
         }
+        let returned = placements.write(output, &result_plan, "n");
         writeln!(
             output,
-            "    node *n2 = malloc(sizeof(node) + sizeof(node *));\n    n2->str = false;\n    n2->location = @$;\n    n2->nchildren = 1;\n    n2->sort = \"{}\";\n    n2->hasLocation = {};\n    n2->symbol = injSymbol(n->sort, n2->sort);\n    n2->children[0] = n;\n    value_type value = {{.nterm = n2}};\n    $$ = value;\n  }} else",
-            c_kore_sort(result),
-            u8::from(has_location)
+            "    value_type value = {{.nterm = {returned}}};\n    $$ = value;\n  }} else"
         )
         .expect("writing to a string cannot fail");
     }
@@ -1003,22 +1083,209 @@ fn write_labeled_action(
             .expect("writing to a string cannot fail");
     }
     output.push_str("    value_type value = {.nterm = n};\n    $$ = value;\n  }\n}\n");
+    Ok(())
 }
 
-fn module_subsorts(
-    sentences: &[Sentence],
-    subsorts: &crate::definition::PartialOrder<Sort>,
-    upper: &Sort,
-) -> BTreeSet<Sort> {
-    let mut sorts = BTreeSet::new();
+struct RecoveryCase {
+    condition: String,
+    child: String,
+    placement: Placement,
+}
+
+fn recovery_cases(
+    placements: &CPlacement<'_>,
+    greater: &Sort,
+    lesser: &Sort,
+    node: &str,
+) -> Vec<RecoveryCase> {
+    placements
+        .sorts
+        .iter()
+        .filter_map(|source| {
+            let placement = Placement::between(source, lesser, placements.subsorts)?;
+            let outer = Placement::between(lesser, greater, placements.subsorts)?;
+            let shape = RecoveryShape::from_plan(source, &placement, placements.subsorts)
+                .wrap(&outer, placements.subsorts);
+            let (condition, child) = shape.c_match(node);
+            Some(RecoveryCase {
+                condition,
+                child,
+                placement,
+            })
+        })
+        .collect()
+}
+
+/// The inverse of an outer placement. Each traversal is guarded before its child is read.
+/// Only a canonical singleton has an inverse from K to an item.
+#[derive(Debug)]
+enum RecoveryShape {
+    Value(Sort),
+    Injection {
+        witness: crate::kompile::Injectable,
+        inner: Box<Self>,
+    },
+    Singleton(Box<Self>),
+}
+
+impl RecoveryShape {
+    fn from_plan(
+        source: &Sort,
+        plan: &Placement,
+        subsorts: &crate::definition::PartialOrder<Sort>,
+    ) -> Self {
+        Self::Value(source.clone()).wrap(plan, subsorts)
+    }
+
+    fn wrap(self, plan: &Placement, subsorts: &crate::definition::PartialOrder<Sort>) -> Self {
+        let inject = |inner: Self, witness: &crate::kompile::Injectable| match inner {
+            Self::Injection {
+                witness: nested,
+                inner,
+            } if nested.target() == witness.source() => {
+                match crate::kompile::Injectable::between(
+                    nested.source(),
+                    witness.target(),
+                    subsorts,
+                ) {
+                    Some(composed) => Self::Injection {
+                        witness: composed,
+                        inner,
+                    },
+                    None => Self::Injection {
+                        witness: witness.clone(),
+                        inner: Box::new(Self::Injection {
+                            witness: nested,
+                            inner,
+                        }),
+                    },
+                }
+            }
+            inner @ (Self::Value(_) | Self::Injection { .. } | Self::Singleton(_)) => {
+                Self::Injection {
+                    witness: witness.clone(),
+                    inner: Box::new(inner),
+                }
+            }
+        };
+        match plan.kind() {
+            PlacementKind::Identity => self,
+            PlacementKind::Injection(witness) => inject(self, witness),
+            PlacementKind::SingletonK { item } => Self::Singleton(Box::new(match item {
+                None => self,
+                Some(witness) => inject(self, witness),
+            })),
+            PlacementKind::SingletonKInjection { item, sequence } => inject(
+                Self::Singleton(Box::new(match item {
+                    None => self,
+                    Some(witness) => inject(self, witness),
+                })),
+                sequence,
+            ),
+        }
+    }
+
+    fn c_match(&self, node: &str) -> (String, String) {
+        match self {
+            Self::Value(sort) => (
+                format!("strcmp(({node})->sort, \"{}\") == 0", c_kore_sort(sort)),
+                node.into(),
+            ),
+            Self::Injection { witness, inner } => {
+                let child = format!("({node})->children[0]");
+                let (condition, recovered) = inner.c_match(&child);
+                (
+                    format!(
+                        "!({node})->str && ({node})->nchildren == 1 && strcmp(({node})->symbol, {}) == 0 && strcmp(({node})->sort, \"{}\") == 0 && ({condition})",
+                        quote_c_string(&super::placement::injection_symbol(witness)),
+                        c_kore_sort(witness.target())
+                    ),
+                    recovered,
+                )
+            }
+            Self::Singleton(inner) => {
+                let head = format!("({node})->children[0]");
+                let tail = format!("({node})->children[1]");
+                let (condition, recovered) = inner.c_match(&head);
+                (
+                    format!(
+                        "!({node})->str && ({node})->nchildren == 2 && strcmp(({node})->symbol, \"kseq{{}}\") == 0 && strcmp(({node})->sort, \"SortK{{}}\") == 0 && !({tail})->str && ({tail})->nchildren == 0 && strcmp(({tail})->symbol, \"dotk{{}}\") == 0 && strcmp(({tail})->sort, \"SortK{{}}\") == 0 && strcmp(({head})->sort, \"SortKItem{{}}\") == 0 && ({condition})"
+                    ),
+                    recovered,
+                )
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn recover<'a>(
+        &self,
+        pattern: &'a crate::kore::ast::Pattern,
+    ) -> Option<&'a crate::kore::ast::Pattern> {
+        use crate::kore::ast::Pattern;
+        match self {
+            Self::Value(_) => Some(pattern),
+            Self::Injection { witness, inner } => {
+                let Pattern::Application { symbol, arguments } = pattern else {
+                    return None;
+                };
+                (symbol.name == "inj"
+                    && symbol.sort_parameters
+                        == [
+                            encode_kore_sort(witness.source()),
+                            encode_kore_sort(witness.target()),
+                        ]
+                    && arguments.len() == 1)
+                    .then(|| inner.recover(&arguments[0]))
+                    .flatten()
+            }
+            Self::Singleton(inner) => {
+                let Pattern::Application { symbol, arguments } = pattern else {
+                    return None;
+                };
+                let [
+                    head,
+                    Pattern::Application {
+                        symbol: tail,
+                        arguments: empty,
+                    },
+                ] = arguments.as_slice()
+                else {
+                    return None;
+                };
+                (symbol.name == "kseq"
+                    && symbol.sort_parameters.is_empty()
+                    && tail.name == "dotk"
+                    && tail.sort_parameters.is_empty()
+                    && empty.is_empty())
+                .then(|| inner.recover(head))
+                .flatten()
+            }
+        }
+    }
+}
+
+fn module_sorts(sentences: &[Sentence]) -> BTreeSet<Sort> {
+    let mut sorts = BTreeSet::from([Sort::new("K"), Sort::new("KItem")]);
     for sentence in sentences {
         match sentence {
-            Sentence::Production { sort, items, .. } => {
-                sorts.insert(sort.clone());
-                sorts.extend(nonterminal_sorts(items).into_iter().cloned());
+            Sentence::Production {
+                parameters,
+                sort,
+                items,
+                ..
+            } => {
+                if parameters.is_empty() {
+                    sorts.insert(sort.clone());
+                    sorts.extend(nonterminal_sorts(items).into_iter().cloned());
+                }
             }
-            Sentence::SyntaxSort { sort, .. } => {
-                sorts.insert(sort.clone());
+            Sentence::SyntaxSort {
+                parameters, sort, ..
+            } => {
+                if parameters.is_empty() {
+                    sorts.insert(sort.clone());
+                }
             }
             Sentence::SortSynonym { .. }
             | Sentence::SyntaxLexical { .. }
@@ -1033,15 +1300,12 @@ fn module_subsorts(
         }
     }
     sorts
-        .into_iter()
-        .filter(|candidate| subsorts.less_than_eq(candidate, upper))
-        .collect()
 }
 
 fn write_prologue(output: &mut String, mode: Mode, stack_depth: u64) {
     write!(
         output,
-        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nchar *enquote(char *);\nchar *injSymbol(char *, char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
+        "%{{\n#include <stdio.h>\n#include <string.h>\n#include \"node.h\"\n#include \"parser.tab.h\"\nint yylex(YYSTYPE *, YYLTYPE *, void *);\nvoid yyerror(YYLTYPE *, void *, const char *);\nchar *enquote(char *);\nYYSTYPE mergeAmb(YYSTYPE x0, YYSTYPE x1);\nnode *result;\nextern char *filename;\n# define YYMAXDEPTH {}\n",
         stack_depth
     )
     .expect("writing to a string cannot fail");
@@ -1309,6 +1573,55 @@ mod tests {
     }
 
     #[test]
+    fn kitem_subsort_returns_a_singleton_k() {
+        use crate::kompile::{Placement, PlacementKind};
+        let sentences = vec![
+            syntax_sort("K", &[("locations", "")]),
+            production("K", vec![nonterminal("KItem")], None, &[]),
+            production(
+                "KItem",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                &[],
+            ),
+        ];
+        let subsorts = compute_subsorts(sentences.iter(), false).unwrap();
+        let plan = Placement::between(&Sort::new("KItem"), &Sort::new("K"), &subsorts).unwrap();
+        assert!(matches!(
+            plan.kind(),
+            PlacementKind::SingletonK { item: None }
+        ));
+        use crate::kore::ast::{Pattern, Symbol};
+        let app = |name: &str, arguments| Pattern::Application {
+            symbol: Symbol {
+                name: name.into(),
+                sort_parameters: vec![],
+            },
+            arguments,
+        };
+        let item = app("Lbla", vec![]);
+        let expected = app("kseq", vec![item.clone(), app("dotk", vec![])]);
+        assert_eq!(plan.apply_kore(item, &[]), expected);
+        let output = rendered(&sentences, "K", Mode::Lr).unwrap();
+        assert!(
+            output.contains("->symbol = \"kseq{}\""),
+            "SingletonK action required; generated parser:\n{output}"
+        );
+        assert!(output.contains("->symbol = \"dotk{}\""));
+        assert!(output.contains("value_type value = {.nterm = placed_kseq}"));
+        assert!(output.contains("placed_kseq->children[0] = $1.nterm"));
+        assert!(output.contains("placed_kseq->children[1] = placed_dotk"));
+        assert!(output.contains("placed_kseq->sort = \"SortK{}\""));
+        assert!(output.contains("placed_dotk->sort = \"SortK{}\""));
+        assert!(output.contains("n->sort = \"SortKItem{}\""));
+        assert!(output.contains("placed_kseq->location = @$"));
+        assert!(output.contains("placed_kseq->hasLocation = 1"));
+        assert!(output.contains("placed_dotk->hasLocation = 1"));
+        assert!(!output.contains("inj{SortKItem{}, SortK{}}"));
+        println!("SingletonK: returned kseq(a,dotk()); head sort KItem, sequence/tail sort K");
+    }
+
+    #[test]
     fn renders_tokens_labels_brackets_locations_and_kore_names() {
         let integer_regex = ProductionItem::regex("[0-9]+");
         let label = Label::new("_+_#quoted");
@@ -1460,7 +1773,7 @@ mod tests {
     }
 
     #[test]
-    fn subsorts_and_user_list_bridges_build_injections_and_cons_cells() {
+    fn user_list_bridge_returns_cons_without_an_unused_injection() {
         let sentences = vec![
             production(
                 "List",
@@ -1477,7 +1790,10 @@ mod tests {
         ];
         let output = rendered(&sentences, "List", Mode::Lr).unwrap();
 
-        assert!(output.contains("inj{SortElem{}, SortList{}}"));
+        assert!(!output.contains("inj{SortElem{}, SortList{}}"));
+        assert_eq!(output.matches("malloc(").count(), 3); // Elem, nil and cons.
+        assert!(output.contains("value_type value = {.nterm = n3}"));
+        assert!(output.contains("n3->sort = \"SortList{}\""));
         assert!(output.contains("n2->symbol = \"Lblnil{}\""));
         assert!(output.contains("n3->symbol = \"Lblcons{}\""));
         assert!(output.contains("n3->children[1] = $1.nterm"));
@@ -1597,9 +1913,299 @@ mod tests {
         ];
         let output = rendered(&sentences, "Big", Mode::Lr).unwrap();
 
-        assert!(output.contains("strncmp($2.nterm->symbol, \"inj{\", 4) == 0"));
+        assert!(
+            output
+                .contains("strcmp(($2.nterm)->symbol, \"inj{SortSmallArg{}, SortBigArg{}}\") == 0")
+        );
         assert!(output.contains("n->symbol = \"LblfSmall{}\""));
-        assert!(output.contains("n2->symbol = injSymbol(n->sort, n2->sort)"));
+        assert!(output.contains("placed_injection->symbol = \"inj{SortSmall{}, SortBig{}}\""));
+        assert!(output.contains("value_type value = {.nterm = placed_injection}"));
+        assert!(!output.contains("injSymbol("));
+    }
+
+    fn kore_app(
+        name: &str,
+        arguments: Vec<crate::kore::ast::Pattern>,
+    ) -> crate::kore::ast::Pattern {
+        crate::kore::ast::Pattern::Application {
+            symbol: crate::kore::ast::Symbol {
+                name: name.into(),
+                sort_parameters: vec![],
+            },
+            arguments,
+        }
+    }
+
+    #[test]
+    fn nested_item_and_above_k_placements_preserve_sequence_structure() {
+        let sentences = vec![
+            production("KList", vec![nonterminal("K")], None, &[]),
+            production("K", vec![nonterminal("KItem")], None, &[]),
+            production("KItem", vec![nonterminal("S")], None, &[]),
+            production(
+                "S",
+                vec![ProductionItem::Terminal("a".into())],
+                Some("a"),
+                &[],
+            ),
+        ];
+        let order = compute_subsorts(sentences.iter(), false).unwrap();
+        let item = kore_app("Lbla", vec![]);
+        let item_plan = Placement::between(&Sort::new("S"), &Sort::new("KItem"), &order).unwrap();
+        assert!(matches!(item_plan.kind(), PlacementKind::Injection(_)));
+        let item = item_plan.apply_kore(item, &[]);
+        let singleton = Placement::between(&Sort::new("KItem"), &Sort::new("K"), &order)
+            .unwrap()
+            .apply_kore(item.clone(), &[]);
+        assert_eq!(
+            singleton,
+            kore_app("kseq", vec![item, kore_app("dotk", vec![])])
+        );
+        let plan = Placement::between(&Sort::new("K"), &Sort::new("KList"), &order).unwrap();
+        assert!(
+            matches!(plan.kind(), PlacementKind::Injection(w) if w.source() == &Sort::new("K"))
+        );
+        let placed = plan.apply_kore(singleton.clone(), &[]);
+        let crate::kore::ast::Pattern::Application { arguments, .. } = &placed else {
+            panic!("expected injection")
+        };
+        assert_eq!(arguments, &[singleton]);
+        let output = rendered(&sentences, "KList", Mode::Lr).unwrap();
+        assert!(output.contains("value_type value = {.nterm = placed_kseq}"));
+        assert!(output.contains("placed_kseq->children[0] = $1.nterm"));
+        assert!(output.contains("inj{SortS{}, SortKItem{}}"));
+        assert!(output.contains("inj{SortK{}, SortKList{}}"));
+        assert!(!output.contains("inj{SortS{}, SortKList{}}"));
+        assert!(!output.contains("inj{SortKItem{}, SortK{}}"));
+        assert!(!output.contains("injSymbol("));
+    }
+
+    #[test]
+    fn equal_result_overload_returns_the_lesser_application_directly() {
+        let sentences = vec![
+            production("BigArg", vec![nonterminal("SmallArg")], None, &[]),
+            production(
+                "R",
+                vec![
+                    ProductionItem::Terminal("f".into()),
+                    nonterminal("SmallArg"),
+                ],
+                Some("fSmall"),
+                &[("klabel", "f")],
+            ),
+            production(
+                "R",
+                vec![ProductionItem::Terminal("f".into()), nonterminal("BigArg")],
+                Some("fBig"),
+                &[("klabel", "f")],
+            ),
+        ];
+        let order = compute_subsorts(sentences.iter(), false).unwrap();
+        let plan = Placement::between(&Sort::new("R"), &Sort::new("R"), &order).unwrap();
+        assert_eq!(plan.kind(), &PlacementKind::Identity);
+        let app = kore_app("LblfSmall", vec![kore_app("LbLa", vec![])]);
+        assert_eq!(plan.apply_kore(app.clone(), &[]), app);
+        let output = rendered(&sentences, "R", Mode::Lr).unwrap();
+        let branch = output.split("n->symbol = \"LblfSmall{}\"").last().unwrap();
+        assert!(branch.contains("value_type value = {.nterm = n}"));
+        assert!(!output.contains("inj{SortR{}, SortR{}}"));
+        assert!(!output.contains("injSymbol("));
+    }
+
+    #[test]
+    fn overload_k_argument_recovers_only_a_canonical_singleton() {
+        let sentences = vec![
+            production("K", vec![nonterminal("KItem")], None, &[]),
+            production(
+                "R",
+                vec![ProductionItem::Terminal("f".into()), nonterminal("KItem")],
+                Some("fItem"),
+                &[("klabel", "f")],
+            ),
+            production(
+                "R",
+                vec![ProductionItem::Terminal("f".into()), nonterminal("K")],
+                Some("fK"),
+                &[("klabel", "f")],
+            ),
+        ];
+        let order = compute_subsorts(sentences.iter(), false).unwrap();
+        let plan = Placement::between(&Sort::new("KItem"), &Sort::new("K"), &order).unwrap();
+        let shape = RecoveryShape::from_plan(&Sort::new("KItem"), &plan, &order);
+        let item = kore_app("Lbla", vec![]);
+        let singleton = plan.apply_kore(item.clone(), &[]);
+        assert_eq!(shape.recover(&singleton), Some(&item));
+        let empty = kore_app("dotk", vec![]);
+        assert_eq!(shape.recover(&empty), None);
+        let multi = kore_app("kseq", vec![item.clone(), singleton]);
+        assert_eq!(shape.recover(&multi), None);
+        let arbitrary_k = kore_app("LblkFunction", vec![]);
+        assert_eq!(shape.recover(&arbitrary_k), None);
+        let output = rendered(&sentences, "R", Mode::Lr).unwrap();
+        assert!(output.contains("n->symbol = \"LblfItem{}\""));
+        assert!(output.contains("strcmp((($2.nterm)->children[1])->symbol, \"dotk{}\") == 0"));
+        assert!(output.contains("n->children[0] = ($2.nterm)->children[0]"));
+        assert!(!output.contains("inj{SortKItem{}, SortK{}}"));
+    }
+
+    #[test]
+    fn overload_recovery_reinjects_only_witnessed_sources_and_preserves_whole_k() {
+        let order = crate::definition::PartialOrder::new([
+            (Sort::new("S"), Sort::new("Mid")),
+            (Sort::new("Mid"), Sort::new("Upper")),
+            (Sort::new("KItem"), Sort::new("K")),
+            (Sort::new("K"), Sort::new("KList")),
+        ])
+        .unwrap();
+        let sorts = BTreeSet::from([
+            Sort::new("S"),
+            Sort::new("Mid"),
+            Sort::new("Upper"),
+            Sort::new("K"),
+            Sort::new("KItem"),
+            Sort::new("KList"),
+        ]);
+        let emitter = CPlacement {
+            location: "location",
+            has_location: "1",
+            prefix: "recovered",
+            subsorts: &order,
+            sorts: &sorts,
+        };
+        let cases = recovery_cases(&emitter, &Sort::new("Upper"), &Sort::new("Mid"), "arg");
+        assert_eq!(cases.len(), 2);
+        let source_case = cases.iter().find(|case| matches!(case.placement.kind(), PlacementKind::Injection(w) if w.source() == &Sort::new("S"))).unwrap();
+        let mut output = String::new();
+        let returned = emitter.write(&mut output, &source_case.placement, &source_case.child);
+        assert_eq!(returned, "recovered_injection");
+        assert!(output.contains("inj{SortS{}, SortMid{}}"));
+        assert!(source_case.condition.contains("inj{SortS{}, SortUpper{}}"));
+        let plan = Placement::between(&Sort::new("K"), &Sort::new("KList"), &order).unwrap();
+        let shape = RecoveryShape::from_plan(&Sort::new("K"), &plan, &order);
+        let whole = kore_app(
+            "kseq",
+            vec![
+                kore_app("a", vec![]),
+                kore_app(
+                    "kseq",
+                    vec![kore_app("b", vec![]), kore_app("dotk", vec![])],
+                ),
+            ],
+        );
+        let embedded = plan.apply_kore(whole.clone(), &[]);
+        assert_eq!(shape.recover(&embedded), Some(&whole));
+        let output_cases = recovery_cases(&emitter, &Sort::new("KList"), &Sort::new("K"), "arg");
+        assert!(
+            output_cases
+                .iter()
+                .any(|case| case.child == "(arg)->children[0]"
+                    && case.placement.kind() == &PlacementKind::Identity)
+        );
+    }
+
+    #[test]
+    fn singleton_overload_recovery_reinjects_a_narrower_item_with_a_witness() {
+        let order = crate::definition::PartialOrder::new([
+            (Sort::new("S"), Sort::new("Mid")),
+            (Sort::new("KItem"), Sort::new("K")),
+        ])
+        .unwrap();
+        let source = Sort::new("S");
+        let placement = Placement::between(&source, &Sort::new("Mid"), &order).unwrap();
+        let outer = Placement::between(&Sort::new("Mid"), &Sort::new("K"), &order).unwrap();
+        let shape = RecoveryShape::from_plan(&source, &placement, &order).wrap(&outer, &order);
+        let item = kore_app("Lbla", vec![]);
+        // Consecutive witnessed item injections compact to S -> KItem.
+        let direct = Placement::between(&source, &Sort::new("K"), &order)
+            .unwrap()
+            .apply_kore(item.clone(), &[]);
+        assert_eq!(shape.recover(&direct), Some(&item));
+        let recovered = shape.recover(&direct).unwrap().clone();
+        let placed = placement.clone().apply_kore(recovered, &[]);
+        let crate::kore::ast::Pattern::Application { symbol, arguments } = &placed else {
+            panic!("expected witnessed injection")
+        };
+        assert_eq!(
+            symbol.sort_parameters,
+            [
+                encode_kore_sort(&source),
+                encode_kore_sort(&Sort::new("Mid"))
+            ]
+        );
+        assert_eq!(arguments, &[item]);
+        let sorts = BTreeSet::from([source, Sort::new("Mid"), Sort::new("KItem"), Sort::new("K")]);
+        let emitter = CPlacement {
+            location: "location",
+            has_location: "1",
+            prefix: "r",
+            subsorts: &order,
+            sorts: &sorts,
+        };
+        let cases = recovery_cases(&emitter, &Sort::new("K"), &Sort::new("Mid"), "arg");
+        let case = cases.iter().find(|case| matches!(case.placement.kind(), PlacementKind::Injection(w) if w.source() == &Sort::new("S"))).unwrap();
+        assert!(case.condition.contains("dotk{}"));
+        assert!(case.condition.contains("inj{SortS{}, SortKItem{}}"));
+        let mut code = String::new();
+        let returned = emitter.write(&mut code, &case.placement, &case.child);
+        assert_eq!(returned, "r_injection");
+        assert!(code.contains("inj{SortS{}, SortMid{}}"));
+        assert!(!code.contains("injSymbol("));
+    }
+
+    #[test]
+    fn recovery_follows_composed_placements_without_crossing_k_as_an_injection() {
+        let order = crate::definition::PartialOrder::new([
+            (Sort::new("S"), Sort::new("G")),
+            (Sort::new("KItem"), Sort::new("K")),
+            (Sort::new("K"), Sort::new("G")),
+        ])
+        .unwrap();
+        let source = Sort::new("S");
+        let lesser = Placement::between(&source, &Sort::new("K"), &order).unwrap();
+        let outer = Placement::between(&Sort::new("K"), &Sort::new("G"), &order).unwrap();
+        let shape = RecoveryShape::from_plan(&source, &lesser, &order).wrap(&outer, &order);
+        let value = kore_app("Lbla", vec![]);
+        let wrong_route = Placement::between(&source, &Sort::new("G"), &order)
+            .unwrap()
+            .apply_kore(value.clone(), &[]);
+        assert_eq!(shape.recover(&wrong_route), None);
+        let right_route = outer.apply_kore(lesser.apply_kore(value.clone(), &[]), &[]);
+        assert_eq!(shape.recover(&right_route), Some(&value));
+        let sorts = BTreeSet::from([source, Sort::new("K"), Sort::new("KItem"), Sort::new("G")]);
+        let emitter = CPlacement {
+            location: "location",
+            has_location: "1",
+            prefix: "p",
+            subsorts: &order,
+            sorts: &sorts,
+        };
+        let cases = recovery_cases(&emitter, &Sort::new("G"), &Sort::new("K"), "arg");
+        assert!(
+            cases
+                .iter()
+                .all(|case| !case.condition.contains("inj{SortS{}, SortG{}}"))
+        );
+        assert!(cases.iter().any(|case| case.condition.contains("kseq{}")));
+    }
+
+    #[test]
+    fn parsing_only_order_cannot_license_an_injection() {
+        let sentences = vec![production(
+            "Target",
+            vec![nonterminal("Source")],
+            None,
+            &[
+                ("#bisonParsingOnlySubsort", ""),
+                ("source", "bad.k"),
+                ("location", "(2,1,2,10)"),
+            ],
+        )];
+        let error = rendered(&sentences, "Target", Mode::Lr)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Source -> Target"), "{error}");
+        assert!(error.contains("bad.k"), "{error}");
+        assert!(error.contains("(2,1,2,10)"), "{error}");
     }
 
     #[test]

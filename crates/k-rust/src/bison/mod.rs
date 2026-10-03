@@ -1,6 +1,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 
 mod grammar;
+mod placement;
 mod scanner;
 mod toolchain;
 

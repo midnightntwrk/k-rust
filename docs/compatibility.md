@@ -231,6 +231,20 @@ The check applies to every rule-like sentence `compile_loaded_definition` emits,
 It types in the order injection runs in, where every user sort is declared below `KItem`; it reports no sort for `#cells`, `#dots`, `#noDots`, and variables nothing types, places an authored cell's body at its content sort, and reports a cast operand's requirement as the cast's sort (below a downcast the operand's own sort is above it).
 [Typing-view tests](../crates/k-rust/tests/sentence_typing.rs) check it on hand-picked positions, on every loaded rule of the prelude, and against the injections the compiled definition contains.
 
+## Generated parser coercions
+
+Generated Bison parsers use the compiler's licensed outer placement plans.
+Equal sorts preserve the value, concrete non-reflexive injections require an emitted subsort path, and an item at K becomes `kseq(item,dotk())` with KItem and K node sorts.
+A whole K value retains its tail, including when embedded into a declared supersort of K.
+Only witnessed injection pairs may flatten; sequence construction is never an injection edge.
+An unplaceable grammar coercion fails generation with its production, source location and sort pair.
+User-list bridges construct their cons/nil value directly.
+
+Overload actions return equal-result applications directly and recover narrower arguments only through concrete licensed placements.
+A K argument can narrow to an item only when it is a canonical singleton with a dotk tail; empty K, multiple items and arbitrary K-returning applications retain the greater overload.
+Dynamic argument sorts select a finite set of witnessed branches, so generated C cannot invent an injection pair at runtime.
+These corrections change previously malformed parser output such as `inj{KItem,K}` and reflexive result injections; ordinary constructor and token encodings retain their existing representation.
+
 ## Configuration value transport
 
 Every configuration-map value is transported as `#KConfigValue(K):KItem`, an ordinary private constructor generated with the partial function `#unboxKConfigValue(KItem):K` and its sole equation `#unboxKConfigValue(#KConfigValue(KS:K)) => KS`.
