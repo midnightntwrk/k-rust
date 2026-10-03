@@ -346,7 +346,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     ) -> Result<Injectable, TermConversionError> {
         self.require_arity(label, arguments, 1)?;
         let witness = self.injection_witness(label)?;
-        let actual = self.term_sort(&arguments[0])?;
+        let actual = self.structural_sort(&arguments[0])?;
         if actual != *witness.source() {
             return Err(TermConversionError::InvalidBuiltin {
                 label: label.name.clone(),
@@ -732,10 +732,18 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
     }
 
     fn term_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
-        // Structural sorts describe the emitted variable, kseq, rewrite and conjunction;
-        // metadata can describe an enclosing placement instead. Injector-produced terms
-        // already agree with these structural sorts, preserving their sequence flattening
-        // and common-sort choices while preventing metadata from licensing a retained inj.
+        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. })
+            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
+        {
+            return Ok(sort);
+        }
+        self.structural_sort(term)
+    }
+
+    /// Recover the operand's emitted sort without treating its placement annotation as
+    /// evidence for a retained injection. Rewrite and conjunction sorts still follow the
+    /// child sorts used by `pattern`, preserving ordinary conversion's metadata policy.
+    fn structural_sort(&self, term: &Term) -> Result<Sort, TermConversionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Err(TermConversionError::UnsupportedInjectedLabel),
             Term::Rewrite { left, right }

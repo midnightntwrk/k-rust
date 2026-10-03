@@ -26,7 +26,9 @@ pub use compile::{
     EmittedSentenceProvenance, compile_loaded_definition, compile_loaded_definition_timed,
 };
 pub use fresh_names::GeneratedVariableIdentity;
-pub use initial_configuration::{ConfigurationAssembler, ConfigurationError, ProgramGrammar};
+pub use initial_configuration::{
+    ConfigurationAssembler, ConfigurationError, ProgramGrammar, program_start_position,
+};
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 pub use invariants::assert_frontend_pattern;
 pub use module_to_kore::{

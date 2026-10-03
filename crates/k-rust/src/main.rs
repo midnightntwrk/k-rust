@@ -1939,11 +1939,12 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
     if let Some(mode) = bison_mode
         && let Some(start_sort) = artifacts.configuration_variables.get("PGM")
     {
+        let start_sort = k_rust::kompile::program_start_position(start_sort);
         write_timings.time(emission_phase::GENERATE_BISON_PARSER, || {
             k_rust::bison::generate_program_parser(
                 loaded.resolved(),
                 &syntax_module.name,
-                start_sort,
+                &start_sort,
                 &options.output_directory,
                 k_rust::bison::Options {
                     mode,
@@ -2450,7 +2451,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     drop(config_vars_parse_phase);
 
     let definition_parse_started = Instant::now();
-    let syntax = parse_kore_definition(&compiled.definition_kore)?;
+    let syntax = {
+        let _definition_parse_phase = tracing::info_span!(
+            "phase",
+            name = tracing::field::display("parse_kore_definition")
+        )
+        .entered();
+        parse_kore_definition(&compiled.definition_kore)?
+    };
     let definition_parse_seconds = definition_parse_started.elapsed().as_secs_f64();
 
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]

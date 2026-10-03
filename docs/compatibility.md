@@ -243,6 +243,7 @@ KItem-to-K placement uses `kseq(item,dotk)`, never an injection.
 For a binding declared at K, the configuration parser prefers a successful KItem reading and tries its selected module's existing K entry only when there is no item reading or no KItem start sort.
 Ambiguity, inference, validation and macro errors are retained.
 Explicit program start-sort parsing and grammar visibility remain unchanged.
+Compiled metadata now records a K-declared variable as K, while a generated `$PGM` parser still starts at KItem for a K declaration.
 Supplied values are still parsed, expanded and checked when no initializer reads the map, then dropped because the top initializer is nullary.
 
 Serialized maps and depth-zero initializer patterns expose the box, which ordinary simplification removes from initialized cells.

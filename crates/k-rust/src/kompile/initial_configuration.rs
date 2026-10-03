@@ -611,6 +611,13 @@ mod value {
     }
 }
 
+/// A program read at a K-declared position prefers one item, using the same
+/// instantiation preference as the assembler, so the generated parser's start
+/// symbol is KItem and its result is a licensed item embedding.
+pub fn program_start_position(declared: &KastSort) -> KastSort {
+    configuration_position(declared)
+}
+
 /// KItem is the instantiation preference for an open result read at K; fixed K values retain K.
 fn configuration_position(declared: &KastSort) -> KastSort {
     if declared.name == BuiltinSort::K.k_name() {
@@ -777,6 +784,22 @@ mod tests {
     use crate::kore::printer::Printer;
 
     use super::*;
+
+    #[test]
+    fn program_start_position_prefers_kitem_for_k_and_keeps_other_sorts() {
+        assert_eq!(
+            program_start_position(&KastSort::builtin(BuiltinSort::K)),
+            KastSort::builtin(BuiltinSort::KItem)
+        );
+        assert_eq!(
+            program_start_position(&KastSort::builtin(BuiltinSort::KItem)),
+            KastSort::builtin(BuiltinSort::KItem)
+        );
+        assert_eq!(
+            program_start_position(&KastSort::new("Pgm")),
+            KastSort::new("Pgm")
+        );
+    }
 
     #[test]
     fn top_initializer_combines_program_and_configuration_bindings() {

@@ -295,6 +295,56 @@ fn converts_sequences_using_item_sorts() {
 }
 
 #[test]
+fn retained_injection_checks_the_emitted_operand_sort_before_placement_metadata() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax A ::= "a" [symbol(a)]
+          syntax B ::= "b" [symbol(b)]
+          syntax KList ::= K
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let converter = TermConverter::new(&resolved, "MAIN").unwrap();
+    let variable = sorted_variable("X", "B");
+    for (operand, source, target) in [
+        (variable.clone(), "B", "KItem"),
+        (Term::Sequence(vec![]), "K", "KList"),
+        (
+            Term::Rewrite {
+                left: Box::new(variable.clone()),
+                right: Box::new(variable.clone()),
+            },
+            "B",
+            "KItem",
+        ),
+        (
+            Term::As {
+                pattern: Box::new(variable.clone()),
+                alias: Box::new(variable),
+            },
+            "B",
+            "KItem",
+        ),
+    ] {
+        let operand = operand.with_metadata(TermMetadata {
+            sort: Some(Sort::new("A")),
+            ..TermMetadata::default()
+        });
+        let injection = |source, target| Term::Apply {
+            label: Label::with_parameters("inj", vec![Sort::new(source), Sort::new(target)]),
+            arguments: vec![operand.clone()],
+        };
+        assert!(matches!(
+            converter.convert(&injection("A", "KItem")),
+            Err(TermConversionError::InvalidBuiltin { .. })
+        ));
+        converter
+            .convert(&injection(source, target))
+            .expect("the operand's emitted sort licenses the injection despite placement metadata");
+    }
+}
+
+#[test]
 fn recovers_parameterized_semantic_cast_sorts() {
     let definition = lowered("module MAIN\nendmodule");
     let cast = Term::Apply {

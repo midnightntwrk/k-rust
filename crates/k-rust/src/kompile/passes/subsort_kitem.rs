@@ -183,7 +183,7 @@ mod witness {
         /// The encoder must preserve each witnessed sort and its formal scope, as
         /// `TermConverter::kore_sort` and `encode_kore_sort_with_formals` do; replacing
         /// either sort with a different one would invalidate the witness.
-        pub(crate) fn try_apply_kore<E>(
+        pub(in crate::kompile) fn try_apply_kore<E>(
             self,
             pattern: Pattern,
             mut encode: impl FnMut(&Sort) -> Result<crate::kore::ast::Sort, E>,

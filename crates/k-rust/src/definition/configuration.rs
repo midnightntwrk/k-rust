@@ -282,10 +282,6 @@ fn expand_configurations_inner(
 }
 
 /// Whether expansion will replace a configuration-variable leaf with a decoded map read.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "Term is not a sentence kind; non-cell nodes are initializer leaves"
-)]
 fn configuration_reads_value(term: &Term) -> bool {
     match term.unannotated() {
         Term::Apply { label, arguments } if label.is(InternalLabel::ConfigCell) => {
@@ -295,7 +291,14 @@ fn configuration_reads_value(term: &Term) -> bool {
             arguments.iter().any(configuration_reads_value)
         }
         Term::Apply { label, .. } if label.is(InternalLabel::ExternalCell) => false,
-        _ => {
+        Term::InjectedLabel(_)
+        | Term::Rewrite { .. }
+        | Term::As { .. }
+        | Term::Variable { .. }
+        | Term::Sequence(_)
+        | Term::Apply { .. }
+        | Term::Token { .. }
+        | Term::Annotated { .. } => {
             let mut reads = false;
             term.visit_preorder(&mut |term| {
                 reads |= matches!(term, Term::Token { sort, .. }
