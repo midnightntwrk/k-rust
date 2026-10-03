@@ -3794,6 +3794,65 @@ fn a_named_field_projection_is_not_total_with_a_sort_polymorphic_generator() {
 }
 
 #[test]
+fn a_cell_map_key_projection_is_not_total_with_a_sort_polymorphic_generator() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax {S} S ::= wrap(S) [symbol(wrap)]
+          configuration <items> <item multiplicity="*" type="Map"> <id> 0 </id> </item> </items>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    assert_eq!(cell_map_key_projection_attributes(source), (true, false));
+}
+
+#[test]
+fn a_cell_map_key_projection_is_total_without_a_sort_polymorphic_generator() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          configuration <items> <item multiplicity="*" type="Map"> <id> 0 </id> </item> </items>
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    assert_eq!(cell_map_key_projection_attributes(source), (true, true));
+}
+
+fn cell_map_key_projection_attributes(source: &str) -> (bool, bool) {
+    let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
+    let transformed = generate_sort_projections(&definition).unwrap();
+    let twice = generate_sort_projections(&transformed).unwrap();
+    assert_eq!(
+        transformed, twice,
+        "cell-map key totality must be idempotent"
+    );
+    transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| {
+            let Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } = &**sentence
+            else {
+                return None;
+            };
+            (label.name == "ItemCellMapKey").then(|| {
+                (
+                    attributes.get("function").is_some(),
+                    attributes.get("total").is_some(),
+                )
+            })
+        })
+        .expect("configuration expansion must generate the cell-map key projection")
+}
+
+#[test]
 fn generated_sort_projections_are_idempotent() {
     let definition = Definition {
         main_module: "MAIN".into(),

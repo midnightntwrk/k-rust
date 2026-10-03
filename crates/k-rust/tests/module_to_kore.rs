@@ -1500,6 +1500,87 @@ fn no_junk_axioms_of(source: &str, sort: &str) -> Vec<String> {
 }
 
 #[test]
+fn a_cell_map_key_projection_emits_totality_only_for_a_sole_cell_generator() {
+    for (schema, expected_attributes, expected_functional_axioms) in [
+        (
+            "syntax {S} S ::= wrap(S) [symbol(wrap)]",
+            "[function{}()]",
+            0,
+        ),
+        ("", "[function{}(), functional{}(), total{}()]", 1),
+    ] {
+        let source = format!(
+            r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              {schema}
+              configuration <items> <item multiplicity="*" type="Map"> <id> 0 </id> </item> </items>
+              syntax K
+              syntax Map
+            endmodule
+            "#
+        );
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected require {required}"));
+        let loaded = outer::load(
+            outer::ResolvedSource::new("cell-map.k", &source),
+            "MAIN",
+            &mut resolver,
+        )
+        .expect("cell-map configuration should load and expand");
+        let definition = k_rust::kompile::generate_sort_predicate_syntax(&loaded.into_definition())
+            .expect("sort predicate syntax should generate");
+        let definition = k_rust::kompile::generate_sort_projections(&definition)
+            .expect("cell-map key totality should be judged");
+        let definition = k_rust::kompile::concretize_cells(&definition)
+            .expect("generated cell rules should have their declared arities");
+        let definition = k_rust::kompile::subsort_kitem(&definition)
+            .expect("generated projections should have their KItem subsort paths");
+        let modules = module_to_kore(&definition, "MAIN").expect("KORE modules should emit");
+        let printer = Printer::compact();
+        let declaration = modules
+            .semantics
+            .sentences
+            .iter()
+            .find(|sentence| {
+                matches!(sentence, Sentence::SymbolDeclaration { symbol, .. }
+                    if symbol.name == "LblItemCellMapKey")
+            })
+            .expect("cell-map key symbol should be declared");
+        let expected = format!(
+            "symbol LblItemCellMapKey{{}}(SortItemCell{{}}) : SortIdCell{{}} {expected_attributes}"
+        );
+        assert_eq!(
+            printer
+                .print_sentence(declaration)
+                .split_whitespace()
+                .collect::<String>(),
+            expected.split_whitespace().collect::<String>(),
+            "schema {schema:?}",
+        );
+        let functional_axioms = modules
+            .semantics
+            .sentences
+            .iter()
+            .filter(|sentence| {
+                let Sentence::Axiom { attributes, .. } = sentence else {
+                    return false;
+                };
+                attributes.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, .. }
+                        if symbol.name == "functional")
+                }) && printer
+                    .print_sentence(sentence)
+                    .contains("LblItemCellMapKey{}(")
+            })
+            .count();
+        assert_eq!(
+            functional_axioms, expected_functional_axioms,
+            "schema {schema:?}"
+        );
+    }
+}
+
+#[test]
 fn a_sort_polymorphic_generator_is_listed_after_the_sorts_own_generators() {
     let source = indoc! {r#"
         module MAIN

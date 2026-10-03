@@ -27,6 +27,7 @@ use std::fmt;
 use k_rust_kore::measure::{self, Counter};
 
 use crate::definition::checks::{LabelParameterError, SentenceLabelParameterError};
+use crate::definition::configuration::cell_map_key_label;
 use crate::definition::production_kind::{NoJunk, ProductionKind, ResultSorts};
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
@@ -1436,7 +1437,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         actual: 0,
                     })?
             } else {
-                Term::apply(format!("{}Key", expected.name), vec![visited.clone()])
+                Term::apply(cell_map_key_label(expected), vec![visited.clone()])
             };
             let key = self.inject_with_position(&key, key_sort, is_lhs)?;
             return Ok(Some(Term::apply(element_label, vec![key, visited])));

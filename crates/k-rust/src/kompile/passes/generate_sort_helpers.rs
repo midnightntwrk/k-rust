@@ -5,7 +5,7 @@
 //! variable = """\
 //! M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions \
 //! declared locally, summed over modules; F = distinct result sorts of the productions that get \
-//! a named field projection"""
+//! a named field projection or a cell-map key projection"""
 //! counters = []
 //! no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
@@ -21,10 +21,8 @@
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
 //!
-//! The field projections of a production are total only when it is the sole no-junk alternative of
-//! its sort; that judgement derives the alternatives of the sort from the main module once per sort
-//! (one scan of its productions and one of its sorts, O(V + S log S)), and only for the F sorts of
-//! productions with a named field.
+//! The field and cell-map key projections of a production are total only when it is the sole no-junk alternative of its sort.
+//! That judgement derives the alternatives of the sort from the main module once per sort (one scan of its productions and one of its sorts, O(V + S log S)), and only for the F sorts of productions with a named field or a cell-map key projection.
 //!
 //! The predicate-rule step (`generate_sort_predicate_rules_pass` in `finalize.rs`) forces each module's subsort view and emits the `true` rule of a predicate only when its sort is placeable at `K`; that check scans the sort's supersorts in the closure, O(S log S).
 //!
@@ -35,6 +33,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::definition::ResolveError;
+use crate::definition::configuration::cell_map_key_label;
 use serde_json::{Value, json};
 
 use crate::definition::production_kind::{FieldProjectionSource, NoJunkAxiom};
@@ -286,6 +285,66 @@ pub(crate) fn generate_sort_projections_pass(
                     }),
             );
         }
+        // The key equation reads only the cell production's key child; a schema alternative
+        // at the cell sort has no matching equation, so only a sole generator licenses totality.
+        for (_, production) in &local_productions {
+            let Sentence::Production {
+                sort: map_sort,
+                attributes,
+                ..
+            } = production
+            else {
+                unreachable!()
+            };
+            if !attributes.has(AttributeKey::CellCollection)
+                || attributes.string(AttributeKey::Hook) != Some("MAP.concat")
+            {
+                continue;
+            }
+            let Some(cell_label) = attributes.string(AttributeKey::WrapElement) else {
+                continue;
+            };
+            let [cell_id] = productions.productions_for(&LabelHead::new(cell_label)) else {
+                continue;
+            };
+            let Sentence::Production {
+                sort: cell_sort, ..
+            } = productions.production(*cell_id)
+            else {
+                unreachable!()
+            };
+            let Some(evidence) = sole_generator(
+                &mut main_generators,
+                productions.identity(*cell_id),
+                cell_sort,
+            ) else {
+                continue;
+            };
+            let key_label = cell_map_key_label(map_sort);
+            for sentence in &mut module.local_sentences {
+                let Sentence::Production {
+                    label: Some(label),
+                    items,
+                    attributes,
+                    ..
+                } = &**sentence
+                else {
+                    continue;
+                };
+                let nonterminals = items.iter().filter_map(|item| match item {
+                    ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                    ProductionItem::Terminal(_) | ProductionItem::RegexTerminal { .. } => None,
+                });
+                if label.name == key_label
+                    && nonterminals.eq(std::iter::once(cell_sort))
+                    && !attributes.has(AttributeKey::Total)
+                {
+                    crate::definition::sentence_mut(sentence)
+                        .attributes_mut()
+                        .declare_total(TotalityWitness::sole_generator(evidence));
+                }
+            }
+        }
         extend_with_new_sentences(&mut module.local_sentences, generated);
     }
     Ok(output)
@@ -393,9 +452,7 @@ fn named_projections(
     generated
 }
 
-/// Evidence that a field projection's source is the only alternative of its sort's no-junk
-/// axiom, so every value of the sort is an application of the source and each projection of it
-/// denotes exactly one value.
+/// Evidence that a field projection's source, or a cell-map key projection's cell production, is the only alternative of its sort's no-junk axiom, so every value of the sort is an application of the source and each projection of it denotes exactly one value.
 ///
 /// Its field is private, which makes `sole_generator` its only constructor: the one judgement
 /// that reads the alternatives of the source's sort mints it. It is `Copy` because one judgement
@@ -406,9 +463,7 @@ pub(crate) struct SoleGenerator(());
 /// The no-junk alternatives of the main module's sorts, as [`NoJunkAxiom`] derives them for the
 /// emitted no-junk axioms, computed once per sort a projection source asks about.
 ///
-/// The subsort order and sort catalog are read only when a source has a named field, and one
-/// sort's alternatives are one scan of the main module's productions, so the pass does that scan
-/// at most once per sort of a field projection source.
+/// The subsort order and sort catalog are read only when a source has a named field or a cell-map key projection, and one sort's alternatives are one scan of the main module's productions, so the pass does that scan at most once per sort of a projection source.
 struct MainSortGenerators<'v, 'a> {
     views: &'v DefinitionViews<'a>,
     main: ModuleId,
@@ -459,8 +514,8 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
 /// A sort whose no-junk axiom is unstatable ([`NoJunkAxiom::Unstatable`], a generator with a sort
 /// parameter its result does not bind) has no sole generator: the theory states no axiom that
 /// makes every value of the sort an application of the source.
-/// A source binds no sort parameter ([`FieldProjectionSource`] says why a parametric production is
-/// never one).
+/// Field projection sources bind no sort parameter ([`FieldProjectionSource`] says why a
+/// parametric production is never one); generated cell productions also bind none.
 ///
 /// The judgement runs at the `generate_sort_projections` stage, before the definition is final,
 /// and still gives the alternatives the emitted axiom lists for every sort it can judge sole. An
@@ -476,9 +531,9 @@ impl<'v, 'a> MainSortGenerators<'v, 'a> {
 /// has the injections of the `KItem` subsorts an earlier stage added (the seeded `Bool` among
 /// them), and every sort `KItem` injects into already has the injection of `KItem`, so none of
 /// them is judged sole here. Nothing after this stage removes the `function`, `macro`
-/// or `bracket` attribute that keeps a production out of the alternatives. A cell sort's
-/// projection is total for a different reason (its one cell production), which
-/// `TotalityWitness::cell_projection` names.
+/// or `bracket` attribute that keeps a production out of the alternatives. A cell-map key
+/// projection uses the same judgement: its equation covers only its cell production, so a
+/// schema alternative at the cell sort prevents totality.
 fn sole_generator(
     main_generators: &mut MainSortGenerators<'_, '_>,
     source: ProductionIdentity,

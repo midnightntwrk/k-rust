@@ -19,7 +19,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
     "production EntriesCellMap ::= \".EntriesCellMap\" label=.EntriesCellMap [function=\"\", hook=\"MAP.unit\"]",
     "production EntriesCellMap ::= EntriesCellMap EntriesCellMap label=_EntriesCellMap_ [assoc=\"\", avoid=\"\", cellCollection=\"\", comm=\"\", element=\"EntriesCellMapItem\", function=\"\", hook=\"MAP.concat\", unit=\".EntriesCellMap\", wrapElement=\"<entries>\"]",
     "production Bool ::= KeyCell \"in_keys\" \"(\" EntriesCellMap \")\" label=EntriesCellMap:in_keys [function=\"\", hook=\"MAP.in_keys\", total=\"\"]",
-    "production KeyCell ::= \"EntriesCellMapKey\" \"(\" EntriesCell \")\" label=EntriesCellMapKey [function=\"\", total=\"\"]",
+    "production KeyCell ::= \"EntriesCellMapKey\" \"(\" EntriesCell \")\" label=EntriesCellMapKey [function=\"\"]",
     "rule `EntriesCellMapKey`(`<entries>`(#noDots(.KList),Key,#dots(.KList)))=>Key requires #token(\"true\",\"Bool\") ensures #token(\"true\",\"Bool\") []",
     "production WorkerCell ::= \"<worker>\" Int \"</worker>\" label=<worker> [cell=\"\", cellName=\"worker\", format=\"%1%i%n%2%d%n%3\"]",
     "production WorkerCell ::= \"initWorkerCell\" label=initWorkerCell [function=\"\", initializer=\"\", total=\"\"]",

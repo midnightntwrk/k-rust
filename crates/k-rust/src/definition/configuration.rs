@@ -40,6 +40,12 @@ use crate::kast::{FrontendSort, GeneratedCell, GeneratedLabel, InternalLabel, La
 use crate::names::BuiltinSort;
 use crate::provenance::{GeneratingPass, record_generated_origins};
 
+/// The one writer of the cell-map key projection's label, shared by its production,
+/// collection wrapping, and totality judgement.
+pub(crate) fn cell_map_key_label(map_sort: &Sort) -> String {
+    format!("{}Key", map_sort.name)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
     Definition(ResolveError),
@@ -857,7 +863,7 @@ impl Generator<'_, '_> {
                 attributes
             },
         ));
-        let key_label = format!("{}Key", map_sort.name);
+        let key_label = cell_map_key_label(map_sort);
         self.push(production(
             Some(key_label.clone()),
             key_sort.clone(),
@@ -867,11 +873,7 @@ impl Generator<'_, '_> {
                 nonterminal_sort(cell_sort.clone()),
                 ProductionItem::Terminal(")".into()),
             ],
-            {
-                let mut attributes = Attributes::from_pairs([(AttributeKey::Function, json!(""))]);
-                attributes.declare_total(TotalityWitness::cell_projection());
-                attributes
-            },
+            Attributes::from_pairs([(AttributeKey::Function, json!(""))]),
         ));
         let key = Term::Variable {
             name: "Key".into(),

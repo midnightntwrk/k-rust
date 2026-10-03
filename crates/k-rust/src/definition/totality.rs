@@ -6,6 +6,8 @@
 //! `total` on a function symbol states that every application of it denotes exactly one value.
 //! A pass that generates a function production may claim it only after discharging that
 //! obligation, and [`Attributes::declare_total`] takes the discharge as a [`TotalityWitness`].
+//! Two reasons carry evidence from a judgement; four named reasons state obligations that the
+//! generating rules or hooks discharge.
 
 use serde_json::Value;
 
@@ -18,7 +20,7 @@ use crate::kompile::{DefinedBody, SoleGenerator};
 /// Its field is private, so a witness exists only through the constructors below. Two reasons
 /// carry evidence that only the judgement discharging the obligation can mint:
 /// [`TotalityWitness::defined_body`] takes a [`DefinedBody`] and
-/// [`TotalityWitness::sole_generator`] takes a [`SoleGenerator`]. The other five are named
+/// [`TotalityWitness::sole_generator`] takes a [`SoleGenerator`]. The other four are named
 /// reasons without evidence: they compile at any call site, so they force the writer to state
 /// which obligation the generated rules or hook discharge, for review to check, but do not prove
 /// that it is discharged.
@@ -32,7 +34,6 @@ enum TotalityReason {
     CoveringPredicate,
     KEquality,
     Hooked,
-    CellProjection,
     NullaryInitializer,
 }
 
@@ -66,11 +67,6 @@ impl TotalityWitness {
         Self(TotalityReason::Hooked)
     }
 
-    /// Reason: a cell-sort projection: a cell sort has exactly one production, the cell.
-    pub(crate) fn cell_projection() -> Self {
-        Self(TotalityReason::CellProjection)
-    }
-
     /// Reason: a nullary initializer whose single unconditional rule builds its value.
     pub(crate) fn nullary_initializer() -> Self {
         Self(TotalityReason::NullaryInitializer)
@@ -93,7 +89,6 @@ impl Attributes {
             TotalityReason::CoveringPredicate
             | TotalityReason::KEquality
             | TotalityReason::Hooked
-            | TotalityReason::CellProjection
             | TotalityReason::NullaryInitializer => {}
         }
         self.insert(AttributeKey::Total.as_str(), Value::String(String::new()));
@@ -112,7 +107,6 @@ mod tests {
             TotalityWitness::covering_predicate(),
             TotalityWitness::k_equality(),
             TotalityWitness::hooked(),
-            TotalityWitness::cell_projection(),
             TotalityWitness::nullary_initializer(),
         ] {
             let mut attributes = Attributes::default();
