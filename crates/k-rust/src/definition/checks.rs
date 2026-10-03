@@ -501,7 +501,7 @@ pub fn check_tokens(
                     sort.name
                 )
             } else {
-                format!("Sort {sort} has domain values (its head {head} has a token declaration, or the compiler writes its literals). Productions of this sort can only contain [function] or [token] labels.")
+                format!("Sort {sort} has domain values (its head has a token declaration, or the compiler writes its literals). Productions of this sort can only contain [function] or [token] labels.")
             },
             sentence,
         ));

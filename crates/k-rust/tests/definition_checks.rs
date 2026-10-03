@@ -2606,6 +2606,181 @@ fn syntax_sort(sort: Sort) -> Sentence {
     }
 }
 
+fn regex_token_production(sort: Sort, parameters: Vec<Sort>, regex: &str) -> Sentence {
+    Sentence::Production {
+        label: None,
+        parameters,
+        sort,
+        items: vec![ProductionItem::RegexTerminal {
+            regex: regex.into(),
+            precede_regex: None,
+            follow_regex: None,
+        }],
+        attributes: attrs(&[("token", json!(""))]),
+    }
+}
+
+fn located_unused_symbol() -> Attributes {
+    // These declaration-only fixtures intentionally never apply their symbols.
+    let mut attributes = located();
+    attributes.insert("unused", json!(""));
+    attributes
+}
+
+#[test]
+fn outer_checks_reject_a_token_production_at_its_own_sort_parameter() {
+    let mut token = regex_token_production(Sort::new("S"), vec![Sort::new("S")], "[a-z]+@");
+    *token.attributes_mut() = Attributes::merge([token.attributes(), &located()]).unwrap();
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module("MAIN", &[], vec![token.clone()])],
+    );
+    let diagnostics = k_rust::definition::check_outer_modules(&definition);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0],
+        Diagnostic::error(
+            DiagnosticCode::InvalidTokenProduction,
+            "A token production whose sort is its own sort parameter S gives every sort domain values, including every sort that has constructors, and a sort with domain values has no constructors; declare the token production at each sort that has these tokens",
+            &token,
+        )
+    );
+}
+
+#[test]
+fn outer_checks_reject_bare_parameter_sort_declarations_with_or_without_token() {
+    for attributes in [Attributes::default(), attrs(&[("token", json!(""))])] {
+        let mut declaration = Sentence::SyntaxSort {
+            parameters: vec![Sort::new("S")],
+            sort: Sort::new("S"),
+            attributes,
+        };
+        *declaration.attributes_mut() =
+            Attributes::merge([declaration.attributes(), &located()]).unwrap();
+        let definition = resolved_definition(
+            "MAIN",
+            vec![outer_check_module("MAIN", &[], vec![declaration.clone()])],
+        );
+        let diagnostics = k_rust::definition::check_outer_modules(&definition);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics[0],
+            Diagnostic::error(
+                DiagnosticCode::UnsupportedParametricSort,
+                "syntax {S} S declares no sort: S is a sort parameter of this declaration, so it names every sort, and the declaration's attributes would apply to all of them; declare each sort by name",
+                &declaration,
+            )
+        );
+    }
+}
+
+#[test]
+fn constructor_schema_formals_do_not_refer_to_a_hooked_token_sort_of_the_same_name() {
+    // The result and operand denote the sentence's formal, independently of its spelling.
+    for formal in ["Int", "S"] {
+        let mut schema = production(Some("wrap"), formal, &[formal], located_unused_symbol());
+        let Sentence::Production { parameters, .. } = &mut schema else {
+            unreachable!();
+        };
+        parameters.push(Sort::new(formal));
+        let definition = resolved_definition(
+            "MAIN",
+            vec![
+                outer_check_module(
+                    "INT",
+                    &[],
+                    vec![
+                        Sentence::SyntaxSort {
+                            parameters: vec![],
+                            sort: Sort::new("Int"),
+                            attributes: attrs(&[("hook", json!("INT.Int")), ("token", json!(""))]),
+                        },
+                        regex_token_production(Sort::new("Int"), vec![], "[0-9]+"),
+                    ],
+                ),
+                outer_check_module("MAIN", &["INT"], vec![schema]),
+            ],
+        );
+        let diagnostics = check_definition(&definition).unwrap();
+        assert!(diagnostics.is_empty(), "formal {formal}: {diagnostics:#?}");
+    }
+}
+
+#[test]
+fn constructors_at_instances_of_a_token_head_are_rejected_without_a_prelude() {
+    let mut constructor = production(Some("foo"), "MInt", &[], located_unused_symbol());
+    let Sentence::Production { sort, .. } = &mut constructor else {
+        unreachable!();
+    };
+    *sort = mint(Sort::new("8"));
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                regex_token_production(mint(Sort::new("W")), vec![Sort::new("W")], "[0-9]+p[0-9]+"),
+                constructor.clone(),
+            ],
+        )],
+    );
+    let diagnostics = check_definition(&definition).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0],
+        Diagnostic::error(
+            DiagnosticCode::InvalidTokenProduction,
+            "Sort MInt{8} has domain values (its head has a token declaration, or the compiler writes its literals). Productions of this sort can only contain [function] or [token] labels.",
+            &constructor,
+        )
+    );
+}
+
+#[test]
+fn constructors_at_compiler_literal_sorts_are_rejected_without_a_token_declaration() {
+    let constructor = production(Some("foo"), "Bool", &[], located_unused_symbol());
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module("MAIN", &[], vec![constructor.clone()])],
+    );
+    let diagnostics = check_definition(&definition).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0],
+        Diagnostic::error(
+            DiagnosticCode::InvalidTokenProduction,
+            "Sort Bool has domain values (its head has a token declaration, or the compiler writes its literals). Productions of this sort can only contain [function] or [token] labels.",
+            &constructor,
+        )
+    );
+}
+
+#[test]
+fn constructors_at_exact_token_sorts_keep_the_existing_diagnostic_text() {
+    let constructor = production(Some("foo"), "Int", &["Int"], located_unused_symbol());
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                regex_token_production(Sort::new("Int"), vec![], "[0-9]+"),
+                constructor.clone(),
+            ],
+        )],
+    );
+    let diagnostics = check_definition(&definition).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0],
+        Diagnostic::error(
+            DiagnosticCode::InvalidTokenProduction,
+            "Sort Int was declared as a token. Productions of this sort can only contain [function] or [token] labels.",
+            &constructor,
+        )
+    );
+}
+
 #[test]
 fn check_sorts_rejects_leading_zero_widths_without_undefined_sort_errors() {
     let definition = resolved_definition(
@@ -3519,22 +3694,31 @@ fn numeral_sort_checks_use_operand_denotations_and_keep_one_error_per_place_and_
     );
     let (module_id, module) = definition.modules().next().unwrap();
     let diagnostics = k_rust::definition::check_sorts(module, &definition.sort_catalog(module_id));
-    assert_eq!(diagnostics.len(), 6, "{diagnostics:#?}");
-    assert!(diagnostics.iter().all(|diagnostic| diagnostic.code
-        == DiagnosticCode::InvalidNumeralSort
-        && diagnostic.severity == Severity::Error));
-    let expected = [
+    // A numeral formal is invalid because widths cannot be sort parameters.
+    // Independently, binding the declaration's result declares no sort; the token/hook
+    // attributes also require a sort with terms, which a width is not.
+    assert_eq!(diagnostics.len(), 7, "{diagnostics:#?}");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == Severity::Error)
+    );
+    let mut expected = [
         ("16", "the sort of a production"),
         ("8", "an operand of a production"),
         ("32", "an operand of a production"),
         ("64", "a sort parameter"),
         ("128", "a sort parameter"),
         ("128", "a token or hooked sort"),
-    ].map(|(sort, place)| format!("Sort {sort} is a numeral: it names a width, such as the argument of MInt{{{sort}}}, and has no terms, so it cannot be {place}."));
+    ].map(|(sort, place)| (DiagnosticCode::InvalidNumeralSort, format!("Sort {sort} is a numeral: it names a width, such as the argument of MInt{{{sort}}}, and has no terms, so it cannot be {place}."))).to_vec();
+    expected.push((
+        DiagnosticCode::UnsupportedParametricSort,
+        "syntax {128} 128 declares no sort: 128 is a sort parameter of this declaration, so it names every sort, and the declaration's attributes would apply to all of them; declare each sort by name".into(),
+    ));
     assert_eq!(
         diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.message.as_str())
+            .map(|diagnostic| (diagnostic.code, diagnostic.message.clone()))
             .collect::<Vec<_>>(),
         expected
     );
