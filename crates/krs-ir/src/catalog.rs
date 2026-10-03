@@ -237,8 +237,8 @@ macro_rules! define_hook_operations {
     })*) => {
         /// Exact backend hook identities selected by qualified KRS semantics.
         ///
-        /// Textual hook names remain target-specific catalog data. Authored Rust,
-        /// descriptors, and IR carry only these closed identities.
+        /// Authored Rust, descriptors, and IR carry only these closed identities;
+        /// the native hook spelling is the `k_hook` field of [`HookOperationSpec`].
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
         #[serde(rename_all = "snake_case")]
         pub enum HookOperation {
