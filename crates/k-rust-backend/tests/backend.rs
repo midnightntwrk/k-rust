@@ -7,6 +7,8 @@ mod anywhere_matching;
 mod matching;
 #[path = "backend/overloaded_list_owise.rs"]
 mod overloaded_list_owise;
+#[path = "backend/partial_equation_heads.rs"]
+mod partial_equation_heads;
 #[path = "backend/properties.rs"]
 mod properties;
 #[path = "backend/rewrite.rs"]

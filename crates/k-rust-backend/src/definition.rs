@@ -2206,11 +2206,22 @@ fn symbol_attributes(attributes: &kore::Attributes) -> Result<SymbolAttributes, 
         attributes.has(KoreAttribute::Constructor) || attributes.has(KoreAttribute::SortInjection);
     let total = attributes.has(KoreAttribute::Total) || attributes.has(KoreAttribute::Functional);
     let function = attributes.has(KoreAttribute::Function);
+    let evaluated_by_equations = [
+        KoreAttribute::Anywhere,
+        KoreAttribute::Macro,
+        KoreAttribute::MacroRec,
+        KoreAttribute::Alias,
+        KoreAttribute::AliasRec,
+    ]
+    .into_iter()
+    .any(|key| attributes.has(key));
     let symbol_type = if constructor {
         SymbolType::Constructor
     } else if total {
         SymbolType::Function(FunctionType::Total)
-    } else if function {
+    } else if function || evaluated_by_equations {
+        // A symbol evaluated by its equations without a totality claim is partial:
+        // its applications carry definedness obligations.
         SymbolType::Function(FunctionType::Partial)
     } else {
         return Err(DefinitionError::InvalidSymbolType(format!(
