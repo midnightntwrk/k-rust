@@ -47,8 +47,7 @@ fn schematic_configuration_content_uses_the_inferred_k_instance() {
         endmodule
     "#});
     let expanded = expand_configurations(&definition).unwrap();
-    // The configuration grammar does not tightly constrain the parameter from the argument
-    // sort, so disambiguation infers K as a safe fallback. The cell must preserve that instance.
+    // The parser instantiates S at K for this content; the cell's content sort must be K.
     assert_eq!(cell_content_sort(&expanded, "<foo>"), "K");
 }
 
@@ -65,6 +64,8 @@ fn explicitly_cast_schematic_configuration_content_keeps_its_int_instance() {
     assert_eq!(cell_content_sort(&expanded, "<foo>"), "Int");
 }
 
+// A parametric-head instance (MInt{8}) is inferred only by z3 sort inference; portable inference refuses parametric sorts.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn schematic_configuration_content_keeps_its_parametric_head_instance() {
     let definition = parsed(indoc! {r#"

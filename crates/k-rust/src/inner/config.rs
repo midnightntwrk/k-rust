@@ -26,9 +26,9 @@ use std::fmt;
 
 use crate::definition::AttributeKey;
 use crate::definition::{
-    Attributes, Definition, EquivalenceAccumulator, Location, ModuleId, ProductionItem,
-    ResolveError, ResolvedDefinition, Sentence, SortSynonyms, kernel_position_cycle,
-    push_if_inequivalent,
+    Attributes, Definition, EquivalenceAccumulator, LabelHead, LabelResultSort, Location, ModuleId,
+    ProductionCatalog, ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortSynonyms,
+    kernel_position_cycle, push_if_inequivalent,
 };
 use crate::kast::sort_role::KernelSort;
 use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
@@ -201,21 +201,20 @@ fn up_configuration(
     module: &str,
     parsed: Term,
     attributes: Attributes,
-    catalog: &crate::definition::ProductionCatalog<'_>,
+    catalog: &ProductionCatalog<'_>,
 ) -> Result<Sentence, ConfigError> {
     // Only cell-content leaves determine generated cell sorts; nested applications do not.
-    fn keep_content_instance(
-        term: Term,
-        catalog: &crate::definition::ProductionCatalog<'_>,
-    ) -> Term {
+    fn keep_content_instance(term: Term, catalog: &ProductionCatalog<'_>) -> Term {
+        // #configCell arguments are [start, properties, contents, end].
+        const CONFIG_CELL_CONTENTS_INDEX: usize = 2;
         if let Term::Apply { label, .. } = term.unannotated()
             && !label.is(InternalLabel::ConfigCell)
             && !label.is(InternalLabel::Cells)
             && !label.is(InternalLabel::ExternalCell)
             && label.semantic_cast_sort().is_none()
         {
-            if let Some(result @ crate::definition::LabelResultSort::Schematic { .. }) =
-                catalog.result_sort_of(&crate::definition::LabelHead::from(label))
+            if let Some(result @ LabelResultSort::Schematic { .. }) =
+                catalog.result_sort_of(&LabelHead::from(label))
                 && let Some(sort) = result.of_application(&label.parameters)
             {
                 return Term::Apply {
@@ -239,7 +238,7 @@ fn up_configuration(
                         .into_iter()
                         .enumerate()
                         .map(|(index, term)| {
-                            if index == 2 {
+                            if index == CONFIG_CELL_CONTENTS_INDEX {
                                 keep_content_instance(term, catalog)
                             } else {
                                 term
