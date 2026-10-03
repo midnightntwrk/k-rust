@@ -4,6 +4,7 @@
 //! refer to stable IDs, so neither the textual emitter nor a native frontend
 //! adapter can independently invent identities or attach adapter metadata.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -917,7 +918,10 @@ pub type DefinitionSimplificationPriority = crate::IrSimplificationPriority;
 
 /// Rule, equation, or claim sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
-#[serde(deny_unknown_fields, try_from = "RuleSentenceWire")]
+#[serde(
+    deny_unknown_fields,
+    try_from = "RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionLevel>>"
+)]
 pub struct RuleSentence {
     origin: NodeOrigin,
     label: LabelIdentity,
@@ -931,55 +935,46 @@ pub struct RuleSentence {
 
 impl Serialize for RuleSentence {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let count = 5
-            + usize::from(self.requires.is_some())
-            + usize::from(self.priority.is_some())
-            + usize::from(self.simplification.is_some())
-            + usize::from(self.claim.is_some());
-        let mut fields = serializer.serialize_struct("RuleSentence", count)?;
-        fields.serialize_field("origin", &self.origin)?;
-        fields.serialize_field("label", &self.label)?;
-        fields.serialize_field("kind", &self.kind())?;
-        fields.serialize_field("variables", &self.variables)?;
-        if let Some(value) = &self.requires {
-            fields.serialize_field("requires", value)?;
+        RuleSentenceWire {
+            origin: Cow::Borrowed(&self.origin),
+            label: Cow::Borrowed(&self.label),
+            kind: self.kind(),
+            variables: Cow::Borrowed(&self.variables),
+            requires: self.requires.as_ref().map(Cow::Borrowed),
+            priority: self.priority.as_ref().map(Cow::Borrowed),
+            simplification: self.simplification.as_ref().map(Cow::Borrowed),
+            claim: self.claim.as_ref().map(Cow::Borrowed),
+            body: self.relational_body(),
         }
-        if let Some(value) = &self.priority {
-            fields.serialize_field("priority", value)?;
-        }
-        if let Some(value) = &self.simplification {
-            fields.serialize_field("simplification", value)?;
-        }
-        if let Some(value) = &self.claim {
-            fields.serialize_field("claim", value)?;
-        }
-        fields.serialize_field("body", &self.relational_body())?;
-        fields.end()
+        .serialize(serializer)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename = "RuleSentence", deny_unknown_fields)]
-struct RuleSentenceWire {
-    origin: NodeOrigin,
-    label: LabelIdentity,
+struct RuleSentenceWire<'a, B> {
+    origin: Cow<'a, NodeOrigin>,
+    label: Cow<'a, LabelIdentity>,
     kind: SentenceKind,
-    variables: Vec<DefinitionVariable>,
+    variables: Cow<'a, [DefinitionVariable]>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    requires: Option<DefinitionRuleCondition>,
+    requires: Option<Cow<'a, DefinitionRuleCondition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<DefinitionRulePriority>,
+    priority: Option<Cow<'a, DefinitionRulePriority>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    simplification: Option<DefinitionSimplification>,
+    simplification: Option<Cow<'a, DefinitionSimplification>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    claim: Option<DefinitionClaim>,
-    body: crate::ir_level::RuleBodyWire<crate::DefinitionLevel>,
+    claim: Option<Cow<'a, DefinitionClaim>>,
+    body: B,
 }
 
-impl TryFrom<RuleSentenceWire> for RuleSentence {
+impl TryFrom<RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionLevel>>>
+    for RuleSentence
+{
     type Error = DefinitionValidationError;
-    fn try_from(value: RuleSentenceWire) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: RuleSentenceWire<'static, crate::ir_level::RuleBodyWire<DefinitionLevel>>,
+    ) -> Result<Self, Self::Error> {
         let content = value.body.refine(value.kind).map_err(|error| match error {
             crate::ir_level::RuleBodyRefinementError::NotRewrite => {
                 DefinitionValidationError::RuleBodyNotRewrite(value.label.id.clone())
@@ -993,13 +988,13 @@ impl TryFrom<RuleSentenceWire> for RuleSentence {
             }
         })?;
         Ok(Self {
-            origin: value.origin,
-            label: value.label,
-            variables: value.variables,
-            requires: value.requires,
-            priority: value.priority,
-            simplification: value.simplification,
-            claim: value.claim,
+            origin: value.origin.into_owned(),
+            label: value.label.into_owned(),
+            variables: value.variables.into_owned(),
+            requires: value.requires.map(Cow::into_owned),
+            priority: value.priority.map(Cow::into_owned),
+            simplification: value.simplification.map(Cow::into_owned),
+            claim: value.claim.map(Cow::into_owned),
             content,
         })
     }

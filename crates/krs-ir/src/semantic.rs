@@ -5,6 +5,7 @@
 //! frontend-specific production metadata; those belong to Definition IR and
 //! adapters respectively.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -872,7 +873,10 @@ impl SemanticRuleLabel {
 
 /// One relational semantic sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
-#[serde(deny_unknown_fields, try_from = "SemanticRuleWire")]
+#[serde(
+    deny_unknown_fields,
+    try_from = "SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLevel>>"
+)]
 pub struct SemanticRule {
     origin: NodeOrigin,
     id: StableItemId,
@@ -887,82 +891,72 @@ pub struct SemanticRule {
 
 impl Serialize for SemanticRule {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let count = 5
-            + usize::from(self.label.is_some())
-            + usize::from(self.requires.is_some())
-            + usize::from(self.priority.is_some())
-            + usize::from(self.simplification.is_some())
-            + usize::from(self.claim.is_some());
-        let mut fields = serializer.serialize_struct("SemanticRule", count)?;
-        fields.serialize_field("origin", &self.origin)?;
-        fields.serialize_field("id", &self.id)?;
-        fields.serialize_field("kind", &self.kind())?;
-        if let Some(value) = &self.label {
-            fields.serialize_field("label", value)?;
+        SemanticRuleWire {
+            origin: Cow::Borrowed(&self.origin),
+            id: Cow::Borrowed(&self.id),
+            kind: self.kind(),
+            label: self.label.as_ref().map(Cow::Borrowed),
+            requires: self.requires.as_ref().map(Cow::Borrowed),
+            priority: self.priority.as_ref().map(Cow::Borrowed),
+            simplification: self.simplification.as_ref().map(Cow::Borrowed),
+            claim: self.claim.as_ref().map(Cow::Borrowed),
+            variables: Cow::Borrowed(&self.variables),
+            body: self.relational_body(),
         }
-        if let Some(value) = &self.requires {
-            fields.serialize_field("requires", value)?;
-        }
-        if let Some(value) = &self.priority {
-            fields.serialize_field("priority", value)?;
-        }
-        if let Some(value) = &self.simplification {
-            fields.serialize_field("simplification", value)?;
-        }
-        if let Some(value) = &self.claim {
-            fields.serialize_field("claim", value)?;
-        }
-        fields.serialize_field("variables", &self.variables)?;
-        fields.serialize_field("body", &self.relational_body())?;
-        fields.end()
+        .serialize(serializer)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename = "SemanticRule", deny_unknown_fields)]
-struct SemanticRuleWire {
-    origin: NodeOrigin,
-    id: StableItemId,
+struct SemanticRuleWire<'a, B> {
+    origin: Cow<'a, NodeOrigin>,
+    id: Cow<'a, StableItemId>,
     kind: SentenceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<SemanticRuleLabel>,
+    label: Option<Cow<'a, SemanticRuleLabel>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    requires: Option<SemanticRuleCondition>,
+    requires: Option<Cow<'a, SemanticRuleCondition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<SemanticRulePriority>,
+    priority: Option<Cow<'a, SemanticRulePriority>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    simplification: Option<SemanticSimplification>,
+    simplification: Option<Cow<'a, SemanticSimplification>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    claim: Option<SemanticClaim>,
-    variables: Vec<SemanticVariable>,
-    body: crate::ir_level::RuleBodyWire<crate::SemanticLevel>,
+    claim: Option<Cow<'a, SemanticClaim>>,
+    variables: Cow<'a, [SemanticVariable]>,
+    body: B,
 }
 
-impl TryFrom<SemanticRuleWire> for SemanticRule {
+impl TryFrom<SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLevel>>>
+    for SemanticRule
+{
     type Error = SemanticValidationError;
-    fn try_from(value: SemanticRuleWire) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: SemanticRuleWire<'static, crate::ir_level::RuleBodyWire<SemanticLevel>>,
+    ) -> Result<Self, Self::Error> {
         let content = value.body.refine(value.kind).map_err(|error| match error {
             crate::ir_level::RuleBodyRefinementError::NotRewrite => {
-                SemanticValidationError::RuleBodyNotRewrite(Box::new(value.id.clone()))
+                SemanticValidationError::RuleBodyNotRewrite(Box::new(value.id.as_ref().clone()))
             }
             crate::ir_level::RuleBodyRefinementError::InvalidConfigurationKind => {
                 if value.kind == SentenceKind::Alias {
-                    SemanticValidationError::InvalidAliasRoot(Box::new(value.id.clone()))
+                    SemanticValidationError::InvalidAliasRoot(Box::new(value.id.as_ref().clone()))
                 } else {
-                    SemanticValidationError::InvalidSimplificationRoot(Box::new(value.id.clone()))
+                    SemanticValidationError::InvalidSimplificationRoot(Box::new(
+                        value.id.as_ref().clone(),
+                    ))
                 }
             }
         })?;
         Ok(Self {
-            origin: value.origin,
-            id: value.id,
-            label: value.label,
-            requires: value.requires,
-            priority: value.priority,
-            simplification: value.simplification,
-            claim: value.claim,
-            variables: value.variables,
+            origin: value.origin.into_owned(),
+            id: value.id.into_owned(),
+            label: value.label.map(Cow::into_owned),
+            requires: value.requires.map(Cow::into_owned),
+            priority: value.priority.map(Cow::into_owned),
+            simplification: value.simplification.map(Cow::into_owned),
+            claim: value.claim.map(Cow::into_owned),
+            variables: value.variables.into_owned(),
             content,
         })
     }
