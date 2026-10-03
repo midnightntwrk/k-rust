@@ -1,0 +1,145 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Exp ::= Exp \"&&&\" Exp [comm, symbol(c3)]\n  syntax Exp ::= Exp \"+++\" Exp [function, comm, symbol(p3)]\n  syntax Exp ::= \".E\" [symbol(dotE)]\n    | Exp \"**\" Exp [assoc, unit(dotE), symbol(s2)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblc3{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("c3")
+  ]
+  symbol Lblp3{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    function{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("p3")
+  ]
+  symbol LbldotE{}() : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,37)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("dotE")
+  ]
+  symbol Lbls2{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,7,5,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("s2"),
+    unit{}(LbldotE{}())
+  ]
+  axiom{R}
+    \equals{SortExp{}, R}(Lblc3{}(K1:SortExp{}, K2:SortExp{}), Lblc3{}(K2:SortExp{}, K1:SortExp{}))
+    [comm{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lblc3{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, LbldotE{}()))
+    [functional{}()]
+  axiom{R}
+    \equals{SortExp{}, R}(
+      Lbls2{}(Lbls2{}(K1:SortExp{}, K2:SortExp{}), K3:SortExp{}),
+      Lbls2{}(K1:SortExp{}, Lbls2{}(K2:SortExp{}, K3:SortExp{}))
+    )
+    [assoc{}()]
+  axiom{R} \equals{SortExp{}, R}(Lbls2{}(K:SortExp{}, LbldotE{}()), K:SortExp{}) [unit{}()]
+  axiom{R} \equals{SortExp{}, R}(Lbls2{}(LbldotE{}(), K:SortExp{}), K:SortExp{}) [unit{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortExp{},
+      \equals{SortExp{}, R}(Val:SortExp{}, Lbls2{}(K0:SortExp{}, K1:SortExp{}))
+    )
+    [functional{}()]
+  axiom{}
+    \or{SortExp{}}(
+      \exists{SortExp{}}(
+        X0:SortExp{},
+        \exists{SortExp{}}(X1:SortExp{}, Lblc3{}(X0:SortExp{}, X1:SortExp{}))
+      ),
+      LbldotE{}(),
+      \exists{SortExp{}}(
+        X0:SortExp{},
+        \exists{SortExp{}}(X1:SortExp{}, Lbls2{}(X0:SortExp{}, X1:SortExp{}))
+      ),
+      \bottom{SortExp{}}()
+    )
+    [constructor{}()]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,6,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortExp{} []
+  symbol Lblc3{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    comm{}(),
+    format{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("c3"),
+    terminals{}("010")
+  ]
+  symbol Lblp3{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    comm{}(),
+    format{}(),
+    function{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,60)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("p3"),
+    terminals{}("010")
+  ]
+  symbol LbldotE{}() : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,37)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("dotE"),
+    terminals{}("1")
+  ]
+  symbol Lbls2{}(SortExp{}, SortExp{}) : SortExp{}
+  [
+    assoc{}(),
+    format{}(),
+    functional{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,7,5,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("s2"),
+    terminals{}("010"),
+    unit{}(LbldotE{}())
+  ]
+endmodule []
+
+// macros

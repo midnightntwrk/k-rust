@@ -59,7 +59,7 @@ pub(super) fn generated_axioms(
             | ProductionKind::Algebraic
             | ProductionKind::Base => {}
         }
-        semantics.extend(algebraic_axioms(id, production, subsorts)?);
+        semantics.extend(algebraic_axioms(id, production, kind, subsorts)?);
         let claims = roles.claims(id);
         if claims.functional()
             && let Some(axiom) = functional_axiom(production)
@@ -640,6 +640,7 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
 fn algebraic_axioms(
     id: ProductionId,
     production: &Sentence,
+    kind: ProductionKind,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<Vec<KoreSentence>, ModuleToKoreError> {
     let Sentence::Production {
@@ -654,10 +655,28 @@ fn algebraic_axioms(
     };
     let assoc = attributes.has(AttributeKey::Assoc);
     let idem = attributes.has(AttributeKey::Idem);
+    let comm = attributes.has(AttributeKey::Comm) && kind == ProductionKind::Algebraic;
     let unit = attributes
         .string(AttributeKey::Unit)
-        .filter(|_| attributes.has(AttributeKey::Function));
-    if !assoc && !idem && unit.is_none() {
+        .filter(|_| attributes.has(AttributeKey::Function) || assoc);
+    if attributes.has(AttributeKey::Injective) {
+        for (key, name) in [
+            (AttributeKey::Assoc, "assoc"),
+            (AttributeKey::Comm, "comm"),
+            (AttributeKey::Idem, "idem"),
+        ] {
+            if attributes.has(key) {
+                return Err(invalid_algebraic(
+                    id,
+                    name,
+                    format!(
+                        "injective contradicts the {name} axiom, which identifies applications with different arguments"
+                    ),
+                ));
+            }
+        }
+    }
+    if !assoc && !idem && !comm && unit.is_none() {
         return Ok(Vec::new());
     }
     let Some(label) = label else {
@@ -667,6 +686,8 @@ fn algebraic_axioms(
                 "assoc"
             } else if idem {
                 "idem"
+            } else if comm {
+                "comm"
             } else {
                 "unit"
             },
@@ -733,6 +754,49 @@ fn algebraic_axioms(
                 ])),
             }),
             attributes: marker_attribute(KoreAttribute::Assoc),
+        });
+    }
+
+    if comm {
+        if arguments.len() != 2 {
+            return Err(invalid_algebraic(
+                id,
+                "comm",
+                format!("expected arity 2, found {}", arguments.len()),
+            ));
+        }
+        if arguments[0] != arguments[1] {
+            return Err(invalid_algebraic(
+                id,
+                "comm",
+                "both argument sorts must be equal",
+            ));
+        }
+        let argument_sort = encode_kore_sort_with_formals(arguments[0], parameters);
+        let variables = ["K1", "K2"].map(|name| Variable {
+            kind: VariableKind::Element,
+            name: name.into(),
+            sort: argument_sort.clone(),
+        });
+        let apply = |arguments| Pattern::Application {
+            symbol: symbol.clone(),
+            arguments,
+        };
+        axioms.push(KoreSentence::Axiom {
+            parameters: axiom_parameters.clone(),
+            pattern: Box::new(Pattern::Equals {
+                operand_sort: Box::new(result_sort.clone()),
+                result_sort: KoreSort::Variable("R".into()),
+                left: Box::new(apply(vec![
+                    Pattern::Variable(variables[0].clone()),
+                    Pattern::Variable(variables[1].clone()),
+                ])),
+                right: Box::new(apply(vec![
+                    Pattern::Variable(variables[1].clone()),
+                    Pattern::Variable(variables[0].clone()),
+                ])),
+            }),
+            attributes: marker_attribute(KoreAttribute::Comm),
         });
     }
 

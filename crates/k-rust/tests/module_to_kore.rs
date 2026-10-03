@@ -1242,6 +1242,19 @@ module_snapshot!(
 );
 
 module_snapshot!(
+    emits_comm_axiom_for_non_function_productions,
+    r#"
+        module MAIN
+          syntax Exp ::= Exp "&&&" Exp [comm, symbol(c3)]
+          syntax Exp ::= Exp "+++" Exp [function, comm, symbol(p3)]
+          syntax Exp ::= ".E" [symbol(dotE)]
+            | Exp "**" Exp [assoc, unit(dotE), symbol(s2)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+module_snapshot!(
     emits_functional_axioms,
     r#"
         module MAIN
@@ -1742,6 +1755,58 @@ fn rejects_ill_sorted_idempotent_productions() {
         error.to_string(),
         "cannot emit idem axiom for production #0: the result and both argument sorts must be equal"
     );
+}
+
+#[test]
+fn rejects_non_binary_commutative_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "single(" Exp ")" [comm, symbol(single)]
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit comm axiom for production #0: expected arity 2, found 1"
+    );
+}
+
+#[test]
+fn rejects_ill_sorted_commutative_productions() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Small ::= "mix(" Small "," Large ")" [comm, symbol(mix)]
+          syntax Large
+        endmodule
+    "#};
+    let error = module_to_kore(&rules(source, "MAIN"), "MAIN").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot emit comm axiom for production #0: both argument sorts must be equal"
+    );
+}
+
+#[test]
+fn rejects_injective_algebraic_productions() {
+    for attribute in ["assoc", "comm", "idem"] {
+        for function in ["", "function, "] {
+            let source = format!(
+                r#"
+                module MAIN
+                  syntax Exp ::= Exp "mix" Exp [{function}{attribute}, injective, symbol(mix)]
+                endmodule
+                "#
+            );
+            let error = module_to_kore(&rules(&source, "MAIN"), "MAIN").unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "cannot emit {attribute} axiom for production #0: injective contradicts the {attribute} axiom, which identifies applications with different arguments"
+                ),
+                "{source}"
+            );
+        }
+    }
 }
 
 #[test]
