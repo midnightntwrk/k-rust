@@ -79,13 +79,30 @@ fn mint_literal_leading_zero_width_is_canonical_and_keeps_token_text() {
     ];
     let grammar = Grammar::from_sentences(&sentences).unwrap();
     for text in ["0p08", "0P008", "0p8"] {
-        let term = grammar.parse(&mint_eight, text).unwrap();
-        assert_eq!(
-            term.unannotated(),
-            &Term::Token {
-                token: text.into(),
-                sort: mint_eight.clone(),
-            }
+        #[cfg(feature = "z3-inference")]
+        {
+            let term = grammar.parse(&mint_eight, text).unwrap();
+            assert_eq!(
+                term.unannotated(),
+                &Term::Token {
+                    token: text.into(),
+                    sort: mint_eight.clone(),
+                }
+            );
+        }
+        // Portable inference decides only monomorphic typings, and a literal's sort `MInt{8}`
+        // carries a parameter, so every spelling reaches the same Z3 boundary; none is refused
+        // earlier for its width spelling.
+        #[cfg(not(feature = "z3-inference"))]
+        assert!(
+            matches!(
+                grammar.parse(&mint_eight, text),
+                Err(ParseError::Z3InferenceRequired {
+                    ambiguity: false,
+                    parametric_sorts: true,
+                })
+            ),
+            "{text}"
         );
     }
 }

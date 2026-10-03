@@ -3872,3 +3872,24 @@ mod chart_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod mint_literal_tests {
+    use super::*;
+
+    /// The width is the number the digits spell, so every spelling of eight names `MInt{8}`;
+    /// this holds in both builds, whatever inference later decides about the parametric sort.
+    #[test]
+    fn mint_literal_width_is_the_canonical_numeral() {
+        let mint = Sort::new("MInt");
+        let mint_eight = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+        for token in ["0p8", "0p08", "0P008"] {
+            assert_eq!(mint_literal_sort(&mint, token), mint_eight, "{token}");
+        }
+        assert_eq!(
+            mint_literal_sort(&mint, "1p000"),
+            Sort::with_parameters("MInt", vec![Sort::new("0")])
+        );
+        assert_eq!(mint_literal_sort(&mint_eight, "12"), mint_eight);
+    }
+}
