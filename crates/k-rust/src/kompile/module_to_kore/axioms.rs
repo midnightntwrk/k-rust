@@ -17,7 +17,8 @@
 use super::equations::substitute_equation_sort;
 use super::*;
 use crate::definition::production_kind::{
-    ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, ResultSorts, mentions_parameter,
+    ClosedInstance, NoJunkAlternative, NoJunkAxiom, ProductionKind, ResultSorts, UnitInstance,
+    mentions_parameter,
 };
 use crate::definition::relations::SubsortDeclaration;
 use crate::kompile::passes::{Injectable, has_subsort_axiom};
@@ -59,7 +60,13 @@ pub(super) fn generated_axioms(
             | ProductionKind::Algebraic
             | ProductionKind::Base => {}
         }
-        semantics.extend(algebraic_axioms(id, production, kind, subsorts)?);
+        semantics.extend(algebraic_axioms(
+            id,
+            production,
+            kind,
+            subsorts,
+            productions,
+        )?);
         let claims = roles.claims(id);
         if claims.functional()
             && let Some(axiom) = functional_axiom(production)
@@ -642,6 +649,7 @@ fn algebraic_axioms(
     production: &Sentence,
     kind: ProductionKind,
     subsorts: &PartialOrder<Sort>,
+    productions: &ProductionCatalog<'_>,
 ) -> Result<Vec<KoreSentence>, ModuleToKoreError> {
     let Sentence::Production {
         label,
@@ -858,8 +866,10 @@ fn algebraic_axioms(
             name: "K".into(),
             sort: result_sort.clone(),
         };
+        let instance = UnitInstance::of(productions, unit, sort)
+            .map_err(|error| invalid_algebraic(id, "unit", error.to_string()))?;
         let unit = Pattern::Application {
-            symbol: encode_kore_label(&Label::new(unit)),
+            symbol: encode_kore_label_with_formals(instance.label(), parameters),
             arguments: Vec::new(),
         };
         for arguments in [

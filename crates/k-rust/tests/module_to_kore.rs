@@ -366,6 +366,194 @@ fn unit_attribute_naming_no_production_is_an_error() {
 }
 
 #[test]
+fn schematic_labels_cannot_escape_through_symbol_attributes() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Value
+          syntax {S} Value ::= member(S) [symbol(member)]
+          syntax Value ::= Value "join" Value [symbol(join), element(member)]
+        endmodule
+    "#};
+    let error = declaration_modules(&lowered(source, "MAIN"), "MAIN")
+        .expect_err("an attribute names one symbol, rather than a schematic family");
+    let diagnostic = format!("{error:?}");
+    assert!(
+        diagnostic.contains("SchematicAttributeLabel"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("label: \"member\""), "{diagnostic}");
+    assert!(
+        diagnostic.contains(&format!("parameters: {:?}", [kast::Sort::new("S")])),
+        "{diagnostic}"
+    );
+}
+
+fn compiled_probe(source: &str, module: &str) -> k_rust::kore::ast::Definition {
+    use k_rust::{
+        builtin::embedded,
+        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+        outer::{LoadOptions, ResolvedSource, load_with_options},
+    };
+
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("collection-probe.k", source),
+        module,
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("collection probe should load");
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .expect("collection probe should compile");
+    parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse")
+}
+
+fn assert_unit_instance(module: &k_rust::kore::ast::Module, expected: &str) {
+    let printer = Printer::pretty(1000);
+    let unit_axioms = module
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } if attributes.0.iter().any(|attribute| {
+                matches!(
+                    attribute,
+                    Pattern::Application { symbol, arguments }
+                        if symbol.name == "unit" && arguments.is_empty()
+                )
+            }) =>
+            {
+                Some(printer.print_pattern(pattern))
+            }
+            _ => None,
+        })
+        .filter(|pattern| pattern.contains("Lblcat"))
+        .collect::<Vec<_>>();
+    assert_eq!(unit_axioms.len(), 2, "both unit axioms must be emitted");
+    for axiom in unit_axioms {
+        assert!(axiom.contains(expected), "{axiom}");
+    }
+
+    let unit_attribute = module
+        .sentences
+        .iter()
+        .find_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if symbol.name == "Lblcat" => {
+                attributes.0.iter().find_map(|attribute| match attribute {
+                    Pattern::Application { symbol, arguments } if symbol.name == "unit" => {
+                        let [instance] = arguments.as_slice() else {
+                            panic!("unit attribute must name exactly one symbol instance");
+                        };
+                        Some(printer.print_pattern(instance))
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .expect("cat must carry a unit attribute");
+    assert_eq!(unit_attribute, expected);
+}
+
+#[test]
+fn schematic_function_unit_is_instantiated_at_the_naming_result_sort() {
+    let source = indoc! {r#"
+        module UNIT-PARAM-FN
+          imports INT
+          syntax {S} S ::= "eps" [symbol(eps)]
+          syntax Foo ::= Int
+          syntax Foo ::= Foo "++" Foo [symbol(cat), function, assoc, unit(eps)]
+        endmodule
+    "#};
+    let definition = compiled_probe(source, "UNIT-PARAM-FN");
+    let module = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "UNIT-PARAM-FN")
+        .expect("main module should be emitted");
+    assert_unit_instance(module, "Lbleps{SortFoo{}}()");
+}
+
+#[test]
+fn schematic_unit_uses_the_naming_productions_binder() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax {T} Box{T}
+          syntax {S} S ::= "eps" [symbol(eps)]
+          syntax {T} Box{T} ::= Box{T} "++" Box{T}
+            [symbol(cat), function, assoc, unit(eps)]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN")
+        .expect("a unit can be instantiated with the naming production's own formals");
+    assert_unit_instance(&modules.semantics, "Lbleps{SortBox{SortT}}()");
+    for sentence in &modules.semantics.sentences {
+        if let Sentence::Axiom {
+            parameters,
+            pattern,
+            ..
+        } = sentence
+            && Printer::pretty(1000)
+                .print_pattern(pattern)
+                .contains("Lbleps{SortBox{SortT}}()")
+        {
+            assert!(parameters.iter().any(|parameter| parameter == "SortT"));
+        }
+    }
+}
+
+#[test]
+fn map_ceil_instantiates_in_keys_from_the_closed_element_key_sort() {
+    let source = indoc! {r#"
+        module MAP-IK-PARAM
+          syntax V
+          syntax MyMap [hook(MAP.Map)]
+          syntax MyMap ::= item(V, V) [function, hook(MAP.element), symbol(item)]
+          syntax MyMap ::= ".MyMap" [function, hook(MAP.unit), symbol(unit)]
+          syntax MyMap ::= MyMap MyMap
+            [function, hook(MAP.concat), symbol(concat), element(item), unit(unit), assoc, comm]
+          syntax {W} Bool ::= keys(W, MyMap) [function, hook(MAP.in_keys), symbol(keys)]
+        endmodule
+    "#};
+    let definition = compiled_probe(source, "MAP-IK-PARAM");
+    let module = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "MAP-IK-PARAM")
+        .expect("main module should be emitted");
+    let printer = Printer::pretty(1000);
+    let map_ceil_axioms = module
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom { pattern, .. } => Some(printer.print_pattern(pattern)),
+            _ => None,
+        })
+        .filter(|pattern| pattern.contains("\\ceil{SortMyMap{}") && pattern.contains("Lblkeys"))
+        .collect::<Vec<_>>();
+    assert_eq!(map_ceil_axioms.len(), 1);
+    assert!(
+        map_ceil_axioms[0].contains("Lblkeys{SortV{}}"),
+        "{}",
+        map_ceil_axioms[0]
+    );
+}
+
+#[test]
 fn sort_heads_sharing_a_kore_name_are_an_error() {
     let error = declaration_modules(
         &lowered(

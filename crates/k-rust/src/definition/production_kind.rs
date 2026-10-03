@@ -1,7 +1,8 @@
-//! This definition-layer module holds no algorithm of its own: the kind of a production is a
+//! This definition-layer module has no separate measurement card: the kind of a production is a
 //! constant number of attribute lookups, and [`NoJunkAxiom::of`] is one scan of a production
 //! catalog and one of a sort catalog per sort, which the `kompile.kore.axioms` card of its caller
-//! (`no_junk_axioms`) counts.
+//! (`no_junk_axioms`) counts. [`UnitInstance::of`] resolves one label and matches the unit's
+//! finite result-sort tree, then visits each unit parameter to require and read its binding.
 //!
 //! What a production's own declaration makes its symbol, decided once.
 //!
@@ -21,8 +22,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionId, ProductionItem,
-    Sentence, SortCatalog, SortHead,
+    AttributeKey, Attributes, LabelHead, PartialOrder, ProductionCatalog, ProductionId,
+    ProductionItem, Sentence, SortCatalog, SortHead,
 };
 use crate::kast::{InternalLabel, Label, Sort};
 use crate::kompile::Injectable;
@@ -471,6 +472,102 @@ pub(crate) fn mentions_parameter(sort: &Sort, parameters: &[Sort]) -> bool {
             .any(|argument| mentions_parameter(argument, parameters))
 }
 
+/// The instance of a `unit` production at the result sort of the production that names it.
+///
+/// Matching that sort must bind every parameter of the unit. The resulting label may mention
+/// the naming production's own parameters, so callers must encode it in that production's binder.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct UnitInstance {
+    label: Label,
+}
+
+/// Why a `unit` attribute cannot identify an instance at its naming production's result sort.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum UnitInstanceError {
+    NotOneProduction { count: usize },
+    Unbound { parameters: Vec<Sort> },
+}
+
+impl std::fmt::Display for UnitInstanceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotOneProduction { count } => {
+                write!(
+                    formatter,
+                    "the unit label resolves to {count} productions, expected one"
+                )
+            }
+            Self::Unbound { parameters } => write!(
+                formatter,
+                "the unit's result sort cannot bind sort parameters {{{}}} at the naming production's result sort",
+                parameters
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnitInstanceError {}
+
+impl UnitInstance {
+    pub(crate) fn of(
+        productions: &ProductionCatalog<'_>,
+        unit: &str,
+        at: &Sort,
+    ) -> Result<Self, UnitInstanceError> {
+        let ids = productions.productions_for(&LabelHead::new(unit));
+        let [id] = ids else {
+            return Err(UnitInstanceError::NotOneProduction { count: ids.len() });
+        };
+        let Sentence::Production {
+            label: Some(label),
+            parameters,
+            sort,
+            ..
+        } = productions.production(*id)
+        else {
+            unreachable!("a label index identifies labelled productions")
+        };
+        if parameters.is_empty() {
+            return Ok(Self {
+                label: label.clone(),
+            });
+        }
+        let mut substitution = BTreeMap::new();
+        if match_sort_parameters(sort, at, parameters, &mut substitution).is_none() {
+            return Err(UnitInstanceError::Unbound {
+                parameters: parameters.clone(),
+            });
+        }
+        let unbound = parameters
+            .iter()
+            .filter(|parameter| !substitution.contains_key(*parameter))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unbound.is_empty() {
+            return Err(UnitInstanceError::Unbound {
+                parameters: unbound,
+            });
+        }
+        Ok(Self {
+            label: Label::with_parameters(
+                &label.name,
+                parameters
+                    .iter()
+                    .map(|parameter| substitution[parameter].clone())
+                    .collect(),
+            ),
+        })
+    }
+
+    pub(crate) fn label(&self) -> &Label {
+        &self.label
+    }
+}
+
 /// A generator of a concrete sort with the substitution that binds every one of its sort
 /// parameters so that its result sort is that sort.
 ///
@@ -837,6 +934,83 @@ mod tests {
                 .map(|sort| ProductionItem::NonTerminal { sort, name: None })
                 .collect(),
             attributes: Attributes::default(),
+        }
+    }
+
+    #[test]
+    fn unit_instance_preserves_a_closed_units_label() {
+        let unit = parametric_production("eps", &[], Sort::new("Foo"), Vec::new());
+        let catalog = ProductionCatalog::from_visible([&unit]);
+        let instance = UnitInstance::of(&catalog, "eps", &Sort::new("Foo")).unwrap();
+        let Sentence::Production {
+            label: Some(label), ..
+        } = &unit
+        else {
+            unreachable!()
+        };
+        assert_eq!(instance.label(), label);
+    }
+
+    #[test]
+    fn unit_instance_binds_parameters_in_declaration_order_in_the_naming_binder() {
+        let unit = parametric_production(
+            "eps",
+            &["V", "K"],
+            Sort::with_parameters("Pair", vec![Sort::new("K"), Sort::new("V")]),
+            Vec::new(),
+        );
+        let catalog = ProductionCatalog::from_visible([&unit]);
+        let at = Sort::with_parameters("Pair", vec![Sort::new("Foo"), Sort::new("T")]);
+        assert_eq!(
+            UnitInstance::of(&catalog, "eps", &at).unwrap().label(),
+            &Label::with_parameters("eps", vec![Sort::new("T"), Sort::new("Foo")]),
+        );
+    }
+
+    #[test]
+    fn unit_instance_rejects_parameters_not_bound_by_its_result() {
+        let unit = parametric_production("eps", &["S", "T"], Sort::new("S"), Vec::new());
+        let catalog = ProductionCatalog::from_visible([&unit]);
+        assert_eq!(
+            UnitInstance::of(&catalog, "eps", &Sort::new("Foo")),
+            Err(UnitInstanceError::Unbound {
+                parameters: vec![Sort::new("T")]
+            }),
+        );
+    }
+
+    #[test]
+    fn unit_instance_rejects_a_result_that_cannot_match_the_naming_sort() {
+        let unit = parametric_production(
+            "eps",
+            &["S"],
+            Sort::with_parameters("Pair", vec![Sort::new("S"), Sort::new("S")]),
+            Vec::new(),
+        );
+        let catalog = ProductionCatalog::from_visible([&unit]);
+        for at in [
+            Sort::new("Foo"),
+            Sort::with_parameters("Pair", vec![Sort::new("Foo"), Sort::new("Bar")]),
+        ] {
+            assert_eq!(
+                UnitInstance::of(&catalog, "eps", &at),
+                Err(UnitInstanceError::Unbound {
+                    parameters: vec![Sort::new("S")]
+                }),
+            );
+        }
+    }
+
+    #[test]
+    fn unit_instance_requires_exactly_one_production() {
+        let first = parametric_production("eps", &[], Sort::new("Foo"), Vec::new());
+        let second = parametric_production("eps", &[], Sort::new("Bar"), Vec::new());
+        let catalog = ProductionCatalog::from_visible([&first, &second]);
+        for (unit, count) in [("absent", 0), ("eps", 2)] {
+            assert_eq!(
+                UnitInstance::of(&catalog, unit, &Sort::new("Foo")),
+                Err(UnitInstanceError::NotOneProduction { count }),
+            );
         }
     }
 

@@ -50,7 +50,10 @@ use crate::definition::{
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
     ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
     SortCatalog, SortHead,
-    production_kind::{BracketName, ProductionKind, is_builtin_label},
+    production_kind::{
+        BracketName, ProductionKind, UnitInstance, UnitInstanceError, is_builtin_label,
+        mentions_parameter,
+    },
 };
 use crate::kast::{
     FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, SortRole, Term, WellKnownModule,
@@ -273,6 +276,10 @@ pub enum DeclarationError {
         label: String,
         productions: usize,
     },
+    SchematicAttributeLabel {
+        label: String,
+        parameters: Vec<Sort>,
+    },
     /// Two sort heads that differ only in arity would be declared under one KORE sort name.
     DuplicateSortName {
         name: String,
@@ -460,6 +467,10 @@ impl fmt::Display for DeclarationError {
                 formatter,
                 "Expected to find exactly one production for KLabel: {label} found: {productions}"
             ),
+            Self::SchematicAttributeLabel { label, parameters } => write!(
+                formatter,
+                "attribute label {label} has sort parameters {parameters:?}; an attribute must name one symbol instance"
+            ),
             Self::DuplicateSortName {
                 name,
                 first,
@@ -580,6 +591,8 @@ fn declarations_with_roles(
             Some(symbol_attributes(
                 attributes,
                 label,
+                sort,
+                parameters,
                 kind,
                 claims,
                 productions,
@@ -595,6 +608,8 @@ fn declarations_with_roles(
         let syntax_attributes = symbol_attributes(
             attributes,
             label,
+            sort,
+            parameters,
             kind,
             claims,
             productions,
@@ -655,6 +670,8 @@ fn declarations_with_roles(
         let attributes = symbol_attributes(
             attributes,
             &label,
+            sort,
+            parameters,
             ProductionKind::of_unbracketed(production),
             claims,
             productions,
@@ -1000,6 +1017,7 @@ fn generate_map_ceil_rules(
         let Sentence::Production {
             label: Some(in_keys_label),
             items: in_keys_items,
+            parameters,
             attributes,
             ..
         } = production
@@ -1016,9 +1034,18 @@ fn generate_map_ceil_rules(
                 message: "MAP.in_keys must have a map as its second argument".into(),
             });
         };
+        if mentions_parameter(&map_sort, parameters) {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: in_keys_id.0,
+                message: format!(
+                    "MAP.in_keys production {} has a map argument {map_sort} that mentions its sort parameters",
+                    in_keys_label.name
+                ),
+            });
+        }
         let map_productions = productions.productions_for_sort(&SortHead::from(&map_sort));
-        let concat = hooked_production(productions, map_productions, "MAP.concat");
-        let element = hooked_production(productions, map_productions, "MAP.element");
+        let concat = hooked_production(productions, map_productions, "MAP.concat")?;
+        let element = hooked_production(productions, map_productions, "MAP.element")?;
         let Some((concat_id, concat_label, _)) = concat else {
             return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
                 production: in_keys_id.0,
@@ -1080,12 +1107,12 @@ fn generate_map_ceil_rules(
                     ],
                 });
         let element = annotated_application(
-            element_label,
+            Label::new(&element_label.name),
             arguments.clone(),
             productions.identity(element_id),
         );
         let concat = annotated_application(
-            concat_label,
+            Label::new(&concat_label.name),
             vec![element, rest.clone()],
             productions.identity(concat_id),
         );
@@ -1097,7 +1124,7 @@ fn generate_map_ceil_rules(
             arguments: vec![concat],
         };
         let in_keys = annotated_application(
-            in_keys_label.clone(),
+            Label::new(&in_keys_label.name),
             vec![arguments[0].clone(), rest],
             productions.identity(in_keys_id),
         );
@@ -1157,20 +1184,30 @@ fn hooked_production(
     productions: &ProductionCatalog<'_>,
     candidates: &[ProductionId],
     hook: &str,
-) -> Option<(ProductionId, Label, Vec<Sort>)> {
-    candidates.iter().find_map(|id| {
+) -> Result<Option<(ProductionId, Label, Vec<Sort>)>, ModuleToKoreError> {
+    for id in candidates {
         let Sentence::Production {
             label: Some(label),
+            parameters,
             items,
             attributes,
             ..
         } = productions.production(*id)
         else {
-            return None;
+            continue;
         };
-        (attributes.string(AttributeKey::Hook) == Some(hook))
-            .then(|| (*id, label.clone(), nonterminal_sorts(items)))
-    })
+        if attributes.string(AttributeKey::Hook) != Some(hook) {
+            continue;
+        }
+        if !parameters.is_empty() {
+            return Err(ModuleToKoreError::InvalidGeneratedMapAxiom {
+                production: id.0,
+                message: format!("{hook} production {} has sort parameters", label.name),
+            });
+        }
+        return Ok(Some((*id, label.clone(), nonterminal_sorts(items))));
+    }
+    Ok(None)
 }
 
 fn typed_variable(name: impl Into<String>, sort: Sort) -> Term {
@@ -1437,6 +1474,8 @@ fn collection_attribute_overrides(
 fn symbol_attributes(
     source: &KAttributes,
     label: &Label,
+    sort: &Sort,
+    parameters: &[Sort],
     kind: ProductionKind,
     claims: SymbolClaims,
     productions: &ProductionCatalog<'_>,
@@ -1508,11 +1547,33 @@ fn symbol_attributes(
     }
 
     let mut overrides = BTreeMap::new();
-    for key in [
-        AttributeKey::Unit,
-        AttributeKey::Element,
-        AttributeKey::Update,
-    ] {
+    if let Some(unit) = entries
+        .get(AttributeKey::Unit.as_str())
+        .and_then(Value::as_str)
+    {
+        let instance = UnitInstance::of(productions, unit, sort).map_err(|error| match error {
+            UnitInstanceError::NotOneProduction { count } => {
+                DeclarationError::InvalidCollectionLabel {
+                    label: unit.into(),
+                    productions: count,
+                }
+            }
+            UnitInstanceError::Unbound { parameters } => {
+                DeclarationError::SchematicAttributeLabel {
+                    label: unit.into(),
+                    parameters,
+                }
+            }
+        })?;
+        overrides.insert(
+            AttributeKey::Unit.as_str().into(),
+            vec![Pattern::Application {
+                symbol: encode_kore_label_with_formals(instance.label(), parameters),
+                arguments: Vec::new(),
+            }],
+        );
+    }
+    for key in [AttributeKey::Element, AttributeKey::Update] {
         if let Some(label) = entries.get(key.as_str()).and_then(Value::as_str) {
             overrides.insert(
                 key.as_str().into(),
@@ -1899,7 +1960,19 @@ fn label_pattern(
         });
     };
     let parameters = match productions.production(*production) {
-        Sentence::Production { label, .. } => label.as_ref(),
+        Sentence::Production {
+            label: production_label,
+            parameters,
+            ..
+        } => {
+            if !parameters.is_empty() {
+                return Err(DeclarationError::SchematicAttributeLabel {
+                    label: label.into(),
+                    parameters: parameters.clone(),
+                });
+            }
+            production_label.as_ref()
+        }
         Sentence::SyntaxSort { .. }
         | Sentence::SortSynonym { .. }
         | Sentence::SyntaxLexical { .. }

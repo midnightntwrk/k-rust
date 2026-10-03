@@ -31,6 +31,7 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, SortRole, Term};
 
 mod attributes;
+mod collections;
 mod deprecated;
 mod functions;
 mod kompile_checks;
@@ -149,6 +150,11 @@ fn check_module_with_options_and_catalog(
         .chain(check_holes(&sentences))
         .chain(check_streams(&sentences, subsorts))
         .chain(check_configuration_cells(&sentences, production_catalog))
+        .chain(collections::check_collection_productions(
+            &sentences,
+            production_catalog,
+            sort_catalog,
+        ))
         .chain(check_tokens(&sentences, sort_catalog, &macro_labels))
         .chain(check_domain_value_tokens(&sentences, sort_catalog))
         .chain(check_k_terms(&sentences))

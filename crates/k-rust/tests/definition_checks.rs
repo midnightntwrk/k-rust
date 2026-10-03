@@ -3926,3 +3926,208 @@ fn numeral_sort_checks_use_operand_denotations_and_keep_one_error_per_place_and_
         expected
     );
 }
+
+fn collection_check_diagnostics(source: &str, main: &str) -> Vec<Diagnostic> {
+    let parsed = k_rust::outer::parse("collections.k", source).unwrap();
+    let definition = k_rust::outer::lower(&parsed, main).unwrap();
+    let resolved = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    check_module(&resolved, resolved.main_module_id()).unwrap()
+}
+
+fn collection_errors(diagnostics: &[Diagnostic], code: DiagnosticCode) -> Vec<&Diagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == code)
+        .collect()
+}
+
+#[test]
+fn collection_checks_reject_parametric_set_and_map_elements_at_their_productions() {
+    for (main, source, element, hook) in [
+        (
+            "SET-ELEM-PARAM",
+            r#"module SET-ELEM-PARAM
+  syntax MySet [hook(SET.Set)]
+  syntax {W} MySet ::= sitem(W) [function, hook(SET.element), symbol(sitem)]
+  syntax MySet ::= ".MySet" [function, hook(SET.unit), symbol(sunit)]
+  syntax MySet ::= MySet MySet [function, hook(SET.concat), symbol(sconcat), element(sitem), unit(sunit), assoc, comm, idem]
+endmodule
+"#,
+            "sitem",
+            "SET.element",
+        ),
+        (
+            "MAP-PARAMETRIC",
+            r#"module MAP-PARAMETRIC
+  syntax V
+  syntax MyMap [hook(MAP.Map)]
+  syntax {W} MyMap ::= item(W, V) [function, hook(MAP.element), symbol(item)]
+  syntax MyMap ::= ".MyMap" [function, hook(MAP.unit), symbol(unit)]
+  syntax MyMap ::= MyMap MyMap [function, hook(MAP.concat), symbol(concat), element(item), unit(unit), assoc, comm]
+  syntax {W} Bool ::= keys(W, MyMap) [function, hook(MAP.in_keys), symbol(keys)]
+endmodule
+"#,
+            "item",
+            "MAP.element",
+        ),
+        (
+            "MAP-ELEM-ONLY",
+            r#"module MAP-ELEM-ONLY
+  syntax V
+  syntax MyMap [hook(MAP.Map)]
+  syntax {W} MyMap ::= item(W, V) [function, hook(MAP.element), symbol(item)]
+  syntax MyMap ::= ".MyMap" [function, hook(MAP.unit), symbol(unit)]
+  syntax MyMap ::= MyMap MyMap [function, hook(MAP.concat), symbol(concat), element(item), unit(unit), assoc, comm]
+  syntax Bool ::= keys(V, MyMap) [function, hook(MAP.in_keys), symbol(keys)]
+endmodule
+"#,
+            "item",
+            "MAP.element",
+        ),
+    ] {
+        let diagnostics = collection_check_diagnostics(source, main);
+        let errors = collection_errors(&diagnostics, DiagnosticCode::UnsupportedParametricSort);
+        let role = errors
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains(hook))
+            .unwrap_or_else(|| panic!("missing collection role rejection: {diagnostics:#?}"));
+        assert!(role.message.contains(element) && role.message.contains("{W}"));
+        assert_eq!(role.severity, Severity::Error);
+        assert_eq!(role.source.as_deref(), Some("collections.k"));
+        assert!(role.location.is_some(), "{role:#?}");
+        assert!(
+            errors
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("element attribute")),
+            "{diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn collection_checks_reject_every_parametric_hooked_role() {
+    for hook in [
+        "LIST.element",
+        "LIST.concat",
+        "LIST.unit",
+        "SET.element",
+        "SET.concat",
+        "SET.unit",
+        "MAP.element",
+        "MAP.concat",
+        "MAP.unit",
+        "BAG.element",
+        "BAG.concat",
+        "BAG.unit",
+        "RANGEMAP.elementRng",
+        "RANGEMAP.concat",
+        "RANGEMAP.unit",
+    ] {
+        let source = format!(
+            "module ROLES syntax C syntax {{W}} C ::= role(W) [function, hook({hook}), symbol(role)] endmodule"
+        );
+        let diagnostics = collection_check_diagnostics(&source, "ROLES");
+        let errors = collection_errors(&diagnostics, DiagnosticCode::UnsupportedParametricSort);
+        assert_eq!(errors.len(), 1, "{hook}: {diagnostics:#?}");
+        assert!(errors[0].message.contains(hook), "{diagnostics:#?}");
+    }
+}
+
+#[test]
+fn collection_checks_reject_schemas_named_by_collection_attributes() {
+    for attribute in ["element", "update", "wrapElement"] {
+        let source = format!(
+            r#"module ATTRIBUTES
+  syntax C
+  syntax {{W}} C ::= role(W) [function, symbol(role)]
+  syntax C ::= C "++" C [symbol(cat), {attribute}(role)]
+endmodule"#
+        );
+        let diagnostics = collection_check_diagnostics(&source, "ATTRIBUTES");
+        let errors = collection_errors(&diagnostics, DiagnosticCode::UnsupportedParametricSort);
+        assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+        assert!(errors[0].message.contains(attribute) && errors[0].message.contains("role"));
+        assert_eq!(errors[0].location.as_ref().unwrap().start_line, 4);
+    }
+}
+
+#[test]
+fn collection_checks_reject_schematic_units_of_collection_sorts() {
+    for hook in [
+        "MAP.Map",
+        "SET.Set",
+        "LIST.List",
+        "BAG.Bag",
+        "RANGEMAP.RangeMap",
+    ] {
+        let source = format!(
+            r#"module UNIT-COLLECTION
+  syntax C [hook({hook})]
+  syntax {{S}} S ::= "eps" [symbol(eps)]
+  syntax C ::= C "++" C [symbol(cat), unit(eps)]
+endmodule"#
+        );
+        let diagnostics = collection_check_diagnostics(&source, "UNIT-COLLECTION");
+        let errors = collection_errors(&diagnostics, DiagnosticCode::InvalidUnitAttribute);
+        assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+        assert!(errors[0].message.contains(hook) && errors[0].message.contains("eps"));
+        assert_eq!(errors[0].location.as_ref().unwrap().start_line, 4);
+    }
+}
+
+#[test]
+fn collection_checks_reject_units_with_unbound_sort_parameters() {
+    let diagnostics = collection_check_diagnostics(
+        r#"module UNIT-UNBOUND
+  syntax Foo
+  syntax {S} Foo ::= "eps" [symbol(eps)]
+  syntax Foo ::= Foo "++" Foo [symbol(cat), unit(eps)]
+endmodule"#,
+        "UNIT-UNBOUND",
+    );
+    let errors = collection_errors(&diagnostics, DiagnosticCode::InvalidUnitAttribute);
+    assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+    assert!(errors[0].message.contains("eps") && errors[0].message.contains("{S}"));
+    assert_eq!(errors[0].location.as_ref().unwrap().start_line, 4);
+}
+
+#[test]
+fn collection_checks_reject_in_keys_with_a_schematic_map_argument() {
+    let diagnostics = collection_check_diagnostics(
+        r#"module IN-KEYS
+  syntax Bool
+  syntax {W} Bool ::= keys(W, W) [function, hook(MAP.in_keys), symbol(keys)]
+endmodule"#,
+        "IN-KEYS",
+    );
+    let errors = collection_errors(&diagnostics, DiagnosticCode::UnsupportedParametricSort);
+    assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+    assert!(errors[0].message.contains("MAP.in_keys") && errors[0].message.contains("keys"));
+    assert_eq!(errors[0].location.as_ref().unwrap().start_line, 3);
+}
+
+#[test]
+fn collection_checks_accept_parametric_list_operations_and_instantiable_units() {
+    let diagnostics = collection_check_diagnostics(
+        r#"module LIST-OPERATIONS
+  syntax List [hook(LIST.List)]
+  syntax Int
+  syntax {W} MInt{W}
+  syntax {W} List ::= update(List, Int, MInt{W}) [function, hook(LIST.updateMInt), symbol(update)]
+  syntax {W} MInt{W} ::= get(List, Int) [function, hook(LIST.getMInt), symbol(get)]
+  syntax {W} MInt{W} ::= size(List) [function, hook(LIST.sizeMInt), symbol(size)]
+  syntax Foo
+  syntax {S} S ::= "eps" [symbol(eps)]
+  syntax Foo ::= Foo "++" Foo [symbol(cat), function, assoc, unit(eps)]
+endmodule"#,
+        "LIST-OPERATIONS",
+    );
+    assert!(
+        collection_errors(&diagnostics, DiagnosticCode::UnsupportedParametricSort).is_empty(),
+        "{diagnostics:#?}"
+    );
+    assert!(
+        collection_errors(&diagnostics, DiagnosticCode::InvalidUnitAttribute).is_empty(),
+        "{diagnostics:#?}"
+    );
+}
