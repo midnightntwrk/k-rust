@@ -287,6 +287,9 @@ pub(crate) fn generate_sort_projections_pass(
         }
         // The key equation reads only the cell production's key child; a schema alternative
         // at the cell sort has no matching equation, so only a sole generator licenses totality.
+        // Invariant: every preceding local map-cell collection with a unique, sole-generating
+        // cell production has total on its matching local key projections; each iteration
+        // consumes one local production.
         for (_, production) in &local_productions {
             let Sentence::Production {
                 sort: map_sort,
@@ -294,7 +297,7 @@ pub(crate) fn generate_sort_projections_pass(
                 ..
             } = production
             else {
-                unreachable!()
+                unreachable!("the production catalog contains only production sentences")
             };
             if !attributes.has(AttributeKey::CellCollection)
                 || attributes.string(AttributeKey::Hook) != Some("MAP.concat")
@@ -311,7 +314,7 @@ pub(crate) fn generate_sort_projections_pass(
                 sort: cell_sort, ..
             } = productions.production(*cell_id)
             else {
-                unreachable!()
+                unreachable!("a catalog production ID identifies a production sentence")
             };
             let Some(evidence) = sole_generator(
                 &mut main_generators,
@@ -321,6 +324,9 @@ pub(crate) fn generate_sort_projections_pass(
                 continue;
             };
             let key_label = cell_map_key_label(map_sort);
+            // Invariant: every preceding local production with `key_label` and exactly one
+            // nonterminal of `cell_sort` carries total, licensed by `evidence`; each iteration
+            // consumes one local sentence.
             for sentence in &mut module.local_sentences {
                 let Sentence::Production {
                     label: Some(label),
@@ -452,7 +458,9 @@ fn named_projections(
     generated
 }
 
-/// Evidence that a field projection's source, or a cell-map key projection's cell production, is the only alternative of its sort's no-junk axiom, so every value of the sort is an application of the source and each projection of it denotes exactly one value.
+/// Evidence that a field projection's source, or a cell-map key projection's cell production,
+/// is the only alternative of its sort's no-junk axiom, so every value of the sort is an
+/// application of the source and each projection of it denotes exactly one value.
 ///
 /// Its field is private, which makes `sole_generator` its only constructor: the one judgement
 /// that reads the alternatives of the source's sort mints it. It is `Copy` because one judgement
@@ -463,7 +471,9 @@ pub(crate) struct SoleGenerator(());
 /// The no-junk alternatives of the main module's sorts, as [`NoJunkAxiom`] derives them for the
 /// emitted no-junk axioms, computed once per sort a projection source asks about.
 ///
-/// The subsort order and sort catalog are read only when a source has a named field or a cell-map key projection, and one sort's alternatives are one scan of the main module's productions, so the pass does that scan at most once per sort of a projection source.
+/// The subsort order and sort catalog are read only when a source has a named field or a
+/// cell-map key projection, and one sort's alternatives are one scan of the main module's
+/// productions, so the pass does that scan at most once per sort of a projection source.
 struct MainSortGenerators<'v, 'a> {
     views: &'v DefinitionViews<'a>,
     main: ModuleId,
