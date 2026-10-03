@@ -1,15 +1,15 @@
 //! Initializer totality is decided after written equations and macro expansions are available.
-//! For I initializer labels and T RHS nodes, the least fixed point takes at most I changing
-//! rounds, O(I x (I + T) x log P) plus the main-module EquationTotality judgement and resolution.
-//! RHS frame erasure allocates O(T) once; fixed-point rounds only traverse the prepared terms.
+//! For I initializer labels, T RHS nodes and U child-unit obligations, the least fixed point
+//! takes at most I changing rounds, O(I x (I + T + U) x log P) plus the main-module
+//! EquationTotality judgement and resolution. RHS preparation allocates O(T + U) once.
 #![deny(clippy::wildcard_enum_match_arm)]
 
 use crate::definition::head_totality::{EquationTotality, is_true, term_is_defined};
 use crate::definition::totality::TotalityWitness;
 use crate::definition::{
-    AttributeKey, Definition, ProductionItem, ResolveError, Sentence, match_rule_label,
+    AttributeKey, Definition, LabelHead, ProductionItem, ResolveError, Sentence, match_rule_label,
 };
-use crate::kast::{InternalLabel, Label, Term};
+use crate::kast::{InternalLabel, Label, Sort, Term};
 use crate::provenance::GeneratingPass;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,9 +28,24 @@ pub(crate) fn declare_initializer_totality_pass(
     let mut initializer_rules = BTreeMap::<String, Vec<InitializerRule>>::new();
     let mut cells = BTreeSet::new();
     let mut defined = BTreeSet::new();
+    let mut units = BTreeMap::<Sort, BTreeSet<String>>::new();
+    for (_, production) in productions.productions() {
+        if let Sentence::Production {
+            sort, attributes, ..
+        } = production
+            && (attributes.has(AttributeKey::Cell) || attributes.has(AttributeKey::CellCollection))
+            && let Some(unit) = attributes.string(AttributeKey::Unit)
+        {
+            units
+                .entry(sort.clone())
+                .or_default()
+                .insert(unit.to_owned());
+        }
+    }
+    let mut child_units = BTreeMap::<String, BTreeSet<String>>::new();
     // Generation receipts separate configuration products from source-written markers.
     // Signatures separate nullary initializers from configuration-map readers.
-    // Collect every constructor and unit before judging any initializer dependency.
+    // Collect cell boundaries and evidently defined hooked units before initializer dependencies.
     for (_, production) in productions.productions() {
         let Sentence::Production {
             label: Some(label),
@@ -46,12 +61,32 @@ pub(crate) fn declare_initializer_totality_pass(
         }
         if attributes.has(AttributeKey::Cell) {
             cells.insert(label.name.clone());
-            defined.insert(label.name.clone());
+            let required = child_units.entry(label.name.clone()).or_default();
+            for item in items {
+                if let ProductionItem::NonTerminal { sort, .. } = item
+                    && let Some(units) = units.get(sort)
+                {
+                    required.extend(units.iter().cloned());
+                }
+            }
         }
-        if (attributes.has(AttributeKey::Cell) || attributes.has(AttributeKey::CellCollection))
-            && let Some(unit) = attributes.string(AttributeKey::Unit)
+        // Ordinary cell constructors and optional units use EquationTotality below: source
+        // equations or a merged function property can make a generated label partial.
+        // Hooked collection units build the empty collection despite lacking a total marker,
+        // but an anywhere or macro equation can change that meaning. The unit's own receipt
+        // supplies its origin; a cell's source-written unit property cannot supply evidence.
+        if matches!(items.as_slice(), [ProductionItem::Terminal(_)])
+            && attributes.has(AttributeKey::Function)
+            && matches!(
+                attributes.string(AttributeKey::Hook),
+                Some("BAG.unit" | "SET.unit" | "MAP.unit" | "LIST.unit")
+            )
+            && totality.as_ref().is_some_and(|t| {
+                let head = LabelHead::from(label);
+                !t.heads_anywhere(&head) && !t.heads_macro(&head)
+            })
         {
-            defined.insert(unit.to_owned());
+            defined.insert(label.name.clone());
         }
         if attributes.has(AttributeKey::Initializer)
             && attributes.has(AttributeKey::Function)
@@ -87,6 +122,10 @@ pub(crate) fn declare_initializer_totality_pass(
                 rule_right: without_initializer_frames(rule_right, &cells),
                 requires: requires.clone(),
                 ensures: ensures.clone(),
+                // Cell closing fills absent optional/collection slots with these units.
+                // Check all possible insertions rather than duplicating its placement analysis.
+                // This may withhold evidence when a partial unit's slot is already populated.
+                child_units: initializer_child_units(rule_right, &child_units),
             });
         }
     }
@@ -151,6 +190,22 @@ struct InitializerRule {
     rule_right: Term,
     requires: Term,
     ensures: Term,
+    child_units: BTreeSet<String>,
+}
+
+fn initializer_child_units(
+    term: &Term,
+    child_units: &BTreeMap<String, BTreeSet<String>>,
+) -> BTreeSet<String> {
+    let mut required = BTreeSet::new();
+    term.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } = term.unannotated()
+            && let Some(units) = child_units.get(&label.name)
+        {
+            required.extend(units.iter().cloned());
+        }
+    });
+    required
 }
 
 fn initializer_rules_are_defined(
@@ -160,9 +215,14 @@ fn initializer_rules_are_defined(
     // A partial function needs an applicable equation, not only defined possible results.
     // Nullary signatures have one argument tuple, covered by any unconditional equation.
     rules.iter().any(|rule| is_true(&rule.requires))
-        && rules
-            .iter()
-            .all(|rule| is_true(&rule.ensures) && term_is_defined(&rule.rule_right, defined))
+        && rules.iter().all(|rule| {
+            is_true(&rule.ensures)
+                && term_is_defined(&rule.rule_right, defined)
+                && rule
+                    .child_units
+                    .iter()
+                    .all(|unit| defined(&Label::new(unit)))
+        })
 }
 
 fn defined_initializer(
@@ -262,7 +322,6 @@ fn initializer_label_is_defined(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kast::Sort;
     use crate::names::BuiltinSort;
     fn truth() -> Term {
         Term::Token {
@@ -284,6 +343,7 @@ mod tests {
                 rule_right: without_initializer_frames(term, &cells),
                 requires: truth(),
                 ensures: truth(),
+                child_units: BTreeSet::new(),
             };
             defined_initializer(&[rule], &mut |label| {
                 cells.contains(&label.name) || label.name == "content"
@@ -318,6 +378,7 @@ mod tests {
             rule_right: without_initializer_frames(&incomplete_cell(cell, child), &cells),
             requires: truth(),
             ensures: truth(),
+            child_units: BTreeSet::new(),
         };
         let rules = BTreeMap::from([
             (
@@ -341,6 +402,7 @@ mod tests {
             rule_right: truth(),
             requires: Term::variable("Condition"),
             ensures: truth(),
+            child_units: BTreeSet::new(),
         };
         let unconditional = || InitializerRule {
             requires: truth(),

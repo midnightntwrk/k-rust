@@ -440,7 +440,7 @@ fn source_written_initializer_marker_cannot_mint_totality() {
             module MAIN
               syntax Int ::= r"[0-9]+" [token]
               syntax Int ::= "fake" [initializer, function, symbol(fake)]
-              rule fake => 0 requires false
+              rule fake => 0
               configuration <n> 0 </n>
             endmodule
         "#},
@@ -538,6 +538,66 @@ fn nullary_initializer_unresolved_anywhere_rule_is_not_total() {
         endmodule
     "#},
         &[("initNCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_anywhere_cell_and_parent_are_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax Int ::= p(Int) [function, symbol(p)]
+              syntax Int ::= Int "/Int" Int [function]
+              rule p(X) => X /Int 0
+              rule <n> 0 </n> => <n> p(0) </n> [anywhere]
+              configuration <top> <n> 0 </n> </top>
+            endmodule
+        "#},
+        &[("initNCell", false), ("initTopCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_function_cell_and_parent_are_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              configuration <top> <n function=""> 0 </n> </top>
+            endmodule
+        "#},
+        &[("initNCell", false), ("initTopCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_anywhere_optional_unit_is_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax NCell ::= bad() [function, symbol(bad)]
+              rule .NCell => bad() [anywhere]
+              configuration <top> <n multiplicity="?"> 0 </n> </top>
+            endmodule
+        "#},
+        &[("initNCell", true), ("initTopCell", false)],
+    );
+}
+
+#[test]
+fn nullary_initializer_anywhere_collection_unit_is_not_total() {
+    assert_initializer_totality(
+        indoc! {r#"
+            module MAIN
+              syntax Int ::= r"[0-9]+" [token]
+              syntax NCellSet ::= bad() [function, symbol(bad)]
+              rule .NCellSet => bad() [anywhere]
+              configuration <top> <n multiplicity="*" type="Set"> 0 </n> </top>
+            endmodule
+        "#},
+        &[("initNCell", true), ("initTopCell", false)],
     );
 }
 
