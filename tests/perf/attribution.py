@@ -200,7 +200,9 @@ def expanded_constructs(text: str, crate: str) -> dict[str, Any]:
     constructs: dict[str, dict[str, Any]] = {}
     chunks = []
     for first, chunk in top_level_chunks(text):
-        header = chunk[chunk.index(first):].partition("{")[0].strip()
+        rest = chunk[chunk.index(first):]
+        positions = [position for delimiter in ("{", ";", "=") if (position := rest.find(delimiter)) >= 0]
+        header = rest[:min(positions, default=len(rest))].strip()
         if header.startswith("const _"):
             info = {"prefix": "registration", "nonce": None, "variant": None, "authored": None}
         else:

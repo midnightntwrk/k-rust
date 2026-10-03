@@ -170,6 +170,15 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual(chunks["authored"]["authored"], "lookup")
         self.assertIn("registration", chunks)
 
+    def test_braceless_const_value_does_not_identify_construct(self):
+        source = EXPANDED + "const FACTORY: fn() -> ::k::HostDescriptor = __krs_head_rule_descriptor_0123456789abcdef;\n"
+        expanded = attribution.expanded_constructs(source, "krs_x")
+        chunk = expanded["chunks"][-1]
+        self.assertEqual(chunk["prefix"], "authored")
+        self.assertEqual(chunk["authored"], "FACTORY")
+        self.assertIsNone(chunk["nonce"])
+        self.assertIsNone(chunk["key"])
+
     def test_expanded_constructs_with_compact_anchors(self):
         compact = '''\
 #[doc(hidden)]
