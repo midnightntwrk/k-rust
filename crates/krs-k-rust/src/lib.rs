@@ -2185,7 +2185,7 @@ impl<'a> Adapter<'a> {
                             content,
                             native_variable(
                                 binding,
-                                Some(NativeSort::new(BuiltinSort::KSequence.spec().k_name)),
+                                Some(NativeSort::new(BuiltinSort::KSequence.k_name())),
                                 false,
                             ),
                         ]),
@@ -2202,7 +2202,7 @@ impl<'a> Adapter<'a> {
                                 content,
                                 native_variable(
                                     binding,
-                                    Some(NativeSort::new(BuiltinSort::Map.spec().k_name)),
+                                    Some(NativeSort::new(BuiltinSort::Map.k_name())),
                                     false,
                                 ),
                             ],
@@ -2497,7 +2497,7 @@ impl<'a> Adapter<'a> {
     ) -> Result<NativeSort, AdapterError> {
         Ok(NativeSort::new(match sort {
             DefinitionSortRef::Declared(symbol) => self.symbol_name(symbol, origin)?,
-            DefinitionSortRef::Builtin(sort) => sort.spec().k_name,
+            DefinitionSortRef::Builtin(sort) => sort.k_name(),
         }))
     }
 
@@ -2608,7 +2608,7 @@ fn native_cells(mut cells: Vec<NativeTerm>) -> NativeTerm {
 }
 
 fn native_claim_counter(sentence_index: usize) -> NativeTerm {
-    let sort = Some(NativeSort::new(BuiltinSort::Int.spec().k_name));
+    let sort = Some(NativeSort::new(BuiltinSort::Int.k_name()));
     incomplete_cell(
         "generatedCounter",
         NativeTerm::Rewrite {
@@ -2764,7 +2764,7 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
 fn truth() -> NativeTerm {
     NativeTerm::Token {
         token: "true".into(),
-        sort: NativeSort::new(BuiltinSort::Bool.spec().k_name),
+        sort: NativeSort::new(BuiltinSort::Bool.k_name()),
     }
 }
 

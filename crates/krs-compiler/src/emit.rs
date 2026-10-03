@@ -255,7 +255,7 @@ impl<'a> EmitContext<'a> {
     fn sort_name_ref(&self, sort: &DefinitionSortRef) -> Result<&str, EmitError> {
         match sort {
             DefinitionSortRef::Declared(id) => self.sort_name(id),
-            DefinitionSortRef::Builtin(sort) => Ok(sort.spec().k_name),
+            DefinitionSortRef::Builtin(sort) => Ok(sort.k_name()),
         }
     }
 
@@ -1114,13 +1114,13 @@ fn emit_cell_clause(
                 } => emit_named_frame_suffix(
                     writer,
                     binding,
-                    BuiltinSort::KSequence.spec().k_name,
+                    BuiltinSort::KSequence.k_name(),
                     " ~> ",
                 ),
                 CellContentFrame::MapRemainder {
                     binding: Some(binding),
                     ..
-                } => emit_named_frame_suffix(writer, binding, BuiltinSort::Map.spec().k_name, " "),
+                } => emit_named_frame_suffix(writer, binding, BuiltinSort::Map.k_name(), " "),
                 CellContentFrame::Exact
                 | CellContentFrame::KSequenceTail { binding: None, .. }
                 | CellContentFrame::MapRemainder { binding: None, .. } => {}
@@ -1143,12 +1143,7 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
         CellContentFrame::KSequenceTail { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(
-                    writer,
-                    binding,
-                    BuiltinSort::KSequence.spec().k_name,
-                    " ~> ",
-                );
+                emit_named_frame_suffix(writer, binding, BuiltinSort::KSequence.k_name(), " ~> ");
             } else {
                 writer.push(" ...");
             }
@@ -1157,7 +1152,7 @@ fn emit_single_frame(frame: &CellContentFrame, writer: &mut Writer) -> Result<()
         CellContentFrame::MapRemainder { origin, binding } => {
             let frame_start = writer.source.len();
             if let Some(binding) = binding {
-                emit_named_frame_suffix(writer, binding, BuiltinSort::Map.spec().k_name, " ");
+                emit_named_frame_suffix(writer, binding, BuiltinSort::Map.k_name(), " ");
             } else {
                 writer.push(" ...");
             }
