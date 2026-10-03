@@ -1424,6 +1424,8 @@ impl Term {
         Self::allocate(TermAllocation::Structural(kind))
     }
 
+    // Each caller selects one allocation mode; specialize away the other mode's setup.
+    #[inline(always)]
     #[deny(clippy::wildcard_enum_match_arm)]
     fn allocate(allocation: TermAllocation<'_>) -> Self {
         let (kind, cache, reused) = match allocation {
