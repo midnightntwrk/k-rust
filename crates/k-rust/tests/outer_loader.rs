@@ -1859,6 +1859,416 @@ fn a_production_parameter_shadows_a_synonym_at_load() {
     assert_eq!(arguments, [&k_rust::kast::Sort::new("S")]);
 }
 
+fn synonym_overlap_error(
+    source: &str,
+    main_module: &str,
+    synonym_line: u32,
+    other_meaning: &str,
+) -> Diagnostic {
+    let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let result = load(
+        ResolvedSource::new("main.k", source),
+        main_module,
+        &mut resolver,
+    );
+    assert_synonym_overlap_error(result, synonym_line, other_meaning)
+}
+
+fn assert_synonym_overlap_error(
+    result: Result<k_rust::outer::LoadedDefinition, LoadError>,
+    synonym_line: u32,
+    other_meaning: &str,
+) -> Diagnostic {
+    let diagnostics = match result {
+        Err(LoadError::SourceDiagnostics(diagnostics)) => diagnostics,
+        Err(error) => panic!("expected source diagnostics for a synonym overlap, got {error:?}"),
+        Ok(_) => panic!("expected source diagnostics for a synonym overlap, load was accepted"),
+    };
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .collect::<Vec<_>>();
+    assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+    let diagnostic = errors[0];
+    assert_eq!(diagnostic.code, DiagnosticCode::InvalidSortSynonym);
+    assert_eq!(diagnostic.source.as_deref(), Some("main.k"));
+    assert_eq!(
+        diagnostic
+            .location
+            .expect("the synonym has a location")
+            .start_line,
+        synonym_line,
+        "{diagnostic:#?}"
+    );
+    assert!(
+        diagnostic.message.contains(other_meaning),
+        "{diagnostic:#?}"
+    );
+    diagnostic.clone()
+}
+
+#[test]
+fn synonym_overlap_with_the_injected_counter_body_sort_is_rejected_without_int_import() {
+    let source = indoc! {r#"
+        module P8
+          syntax Foo ::= "foo"
+          syntax Int = Foo
+          rule foo => foo
+        endmodule
+    "#};
+    assert_synonym_overlap_error(
+        load_with_prelude(source, "P8"),
+        3,
+        "Int is given a sort position in generated or injected grammar syntax by syntax GeneratedCounterCell",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_configuration_cell_sorts_is_rejected_before_rule_parsing() {
+    for (alias, imports, configuration, referent) in [
+        ("ACell", "imports INT", "<k> $PGM:K </k> <a> 0 </a>", "Int"),
+        ("KCell", "", "<k> $PGM:K </k>", "Foo"),
+        (
+            "GeneratedTopCell",
+            "",
+            "<k> $PGM:K </k> <a> foo </a>",
+            "Foo",
+        ),
+        ("GeneratedCounterCell", "", "<k> $PGM:K </k>", "Foo"),
+        (
+            "TopCellFragment",
+            "",
+            "<top> <k> $PGM:K </k> <a> foo </a> </top>",
+            "Foo",
+        ),
+        (
+            "ItemCellBag",
+            "",
+            "<k> $PGM:K </k> <item multiplicity=\"*\"> foo </item>",
+            "Foo",
+        ),
+        (
+            "ItemCellMap",
+            "",
+            "<k> $PGM:K </k> <item multiplicity=\"*\" type=\"Map\"> <key> foo </key> </item>",
+            "Foo",
+        ),
+    ] {
+        let source = format!(
+            "module TEST-CELLS\n  {imports}\n  syntax Foo ::= \"foo\"\n  configuration {configuration}\n  syntax {alias} = {referent}\n  rule <k> foo => .K ...</k>\nendmodule\n"
+        );
+        let diagnostic = assert_synonym_overlap_error(
+            load_with_prelude(&source, "TEST-CELLS"),
+            5,
+            &format!("{alias} is given a sort position in generated or injected grammar syntax"),
+        );
+        assert!(
+            diagnostic.message.contains(&format!("syntax {alias}")),
+            "{diagnostic:#?}"
+        );
+    }
+}
+
+#[test]
+fn synonym_overlap_with_injected_generated_cell_sorts_is_rejected_without_configuration() {
+    for (alias, meaning) in [
+        (
+            "GeneratedTopCell",
+            "GeneratedTopCell names the compiler-generated <generatedTop> configuration cell",
+        ),
+        (
+            "GeneratedCounterCell",
+            "GeneratedCounterCell is given a sort position in generated or injected grammar syntax by syntax GeneratedCounterCell",
+        ),
+    ] {
+        let source = format!(
+            "module TEST-CELLS\n  syntax Foo ::= \"foo\"\n  syntax {alias} = Foo\n  rule foo => foo\nendmodule\n"
+        );
+        assert_synonym_overlap_error(load_with_prelude(&source, "TEST-CELLS"), 3, meaning);
+    }
+}
+
+#[test]
+fn synonym_overlap_with_a_future_generated_top_wrapper_is_rejected_at_load() {
+    assert_synonym_overlap_error(
+        load_with_prelude(
+            indoc! {r#"
+            module P5
+              configuration <k> $PGM:K </k>
+              syntax Foo ::= "foo"
+              syntax GeneratedTopCell = Foo
+              rule <k> foo => .K ...</k>
+            endmodule
+        "#},
+            "P5",
+        ),
+        4,
+        "GeneratedTopCell names the compiler-generated <generatedTop> configuration cell",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_implicit_ml_syntax_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module ML-SYNTAX
+              syntax A ::= "a"
+            endmodule
+            module MAIN
+              syntax T ::= "t"
+              syntax A = T
+              rule t => t
+            endmodule
+        "#},
+        "MAIN",
+        6,
+        "A is given a sort position in generated or injected grammar syntax by syntax A ::= \"a\"",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_a_bare_sort_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module E1
+              syntax T ::= "t"
+              syntax A
+              syntax A = T
+              syntax Foo ::= g(A) | "done"
+              rule g(t) => done
+            endmodule
+        "#},
+        "E1",
+        4,
+        "A is declared as a sort by syntax A",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_a_token_sort_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module E5
+              syntax T ::= "t"
+              syntax A [token]
+              syntax A = T
+              syntax Foo ::= g(A) | "done"
+              rule g(t) => done
+            endmodule
+        "#},
+        "E5",
+        4,
+        "A is declared as a sort by syntax A",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_an_imported_production_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module E3-BASE
+              syntax A ::= "a"
+            endmodule
+            module E3
+              imports E3-BASE
+              syntax T ::= "t"
+              syntax A = T
+              syntax Foo ::= g(A) | "done"
+              rule g(t) => done
+            endmodule
+        "#},
+        "E3",
+        7,
+        "A is declared as a sort by syntax A ::= \"a\"",
+    );
+}
+
+#[test]
+fn synonym_overlap_is_rejected_before_a_rule_can_create_a_cast_ambiguity() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module ALIAS-MIN
+              syntax T ::= "t"
+              syntax A
+              syntax A = T
+              rule _X:A => t
+            endmodule
+        "#},
+        "ALIAS-MIN",
+        4,
+        "A is declared as a sort by syntax A",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_a_kernel_sort_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module K1
+              syntax Foo ::= "foo" | g(KItem)
+              syntax KItem = Foo
+              rule g(_) => foo
+            endmodule
+        "#},
+        "K1",
+        3,
+        "KItem is a kernel sort, whose meaning K fixes",
+    );
+}
+
+#[test]
+fn synonym_overlap_with_a_parser_sort_is_rejected_at_load() {
+    synonym_overlap_error(
+        indoc! {r#"
+            module K3
+              syntax Foo ::= "foo" | g(#Bar)
+              syntax #Bar = Foo
+              rule g(foo) => foo
+            endmodule
+        "#},
+        "K3",
+        3,
+        "#Bar is a parser sort (#), which has no terms",
+    );
+}
+
+#[test]
+fn synonym_overlap_is_reported_once_at_the_first_combining_importer() {
+    let declarations = indoc! {r#"
+        module B
+          syntax A ::= "a"
+        endmodule
+        module S
+          syntax T ::= "t"
+          syntax A = T
+        endmodule
+    "#};
+    let source = format!(
+        "{declarations}\nmodule MAIN\n  imports B\n  imports S\nendmodule\n\
+         module TOP\n  imports MAIN\nendmodule\n"
+    );
+    let diagnostic = synonym_overlap_error(
+        &source,
+        "TOP",
+        6,
+        "A is declared as a sort by syntax A ::= \"a\"",
+    );
+    assert!(
+        diagnostic
+            .message
+            .contains("a second meaning in module MAIN:"),
+        "{diagnostic:#?}"
+    );
+
+    // Neither defining module sees the other meaning until an importer combines their views.
+    for (module, source) in [
+        ("B", "module B\nsyntax A ::= \"a\"\nendmodule\n"),
+        (
+            "S",
+            "module S\nsyntax T ::= \"t\"\nsyntax A = T\nendmodule\n",
+        ),
+    ] {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        let loaded = load(ResolvedSource::new("main.k", source), module, &mut resolver)
+            .unwrap_or_else(|error| panic!("{module} alone must load: {error:?}"));
+        assert!(
+            loaded
+                .diagnostics()
+                .iter()
+                .all(|diagnostic| diagnostic.code != DiagnosticCode::InvalidSortSynonym),
+            "{:#?}",
+            loaded.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn synonym_overlap_controls_load_and_productions_use_the_alias_denotation() {
+    for (module, source, label, denotation) in [
+        (
+            "E4",
+            indoc! {r#"
+                module E4
+                  syntax T ::= "t"
+                  syntax A = T
+                  syntax A ::= "a" [symbol(a)]
+                  syntax Foo ::= g(A) | "done"
+                  rule g(a) => done
+                endmodule
+            "#},
+            "a",
+            "T",
+        ),
+        (
+            "WAD-RAY",
+            indoc! {r#"
+                module WAD-RAY
+                  syntax Rat ::= r"[0-9]+" [token]
+                  syntax Wad = Rat
+                  syntax Ray = Rat
+                  syntax Wad ::= "f(" Ray ")" [symbol(f)]
+                  rule f(0:Wad) => 0
+                endmodule
+            "#},
+            "f",
+            "Rat",
+        ),
+        (
+            "CHAIN",
+            indoc! {r#"
+                module CHAIN
+                  syntax Rat ::= r"[0-9]+" [token]
+                  syntax Ray = Rat
+                  syntax Wad = Ray
+                  syntax Wad ::= "f(" Ray ")" [symbol(f)]
+                  rule f(0:Wad) => 0
+                endmodule
+            "#},
+            "f",
+            "Rat",
+        ),
+        (
+            "BOUND",
+            indoc! {r#"
+                module BOUND
+                  syntax Num ::= "zero"
+                  syntax S = Num
+                  syntax {S} S ::= myid(S) [function, symbol(myid)]
+                endmodule
+            "#},
+            "myid",
+            "S",
+        ),
+    ] {
+        let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
+        let loaded = load(ResolvedSource::new("main.k", source), module, &mut resolver)
+            .unwrap_or_else(|error| panic!("{module} must load: {error:?}"));
+        assert!(
+            loaded
+                .diagnostics()
+                .iter()
+                .all(|diagnostic| diagnostic.code != DiagnosticCode::InvalidSortSynonym),
+            "{:#?}",
+            loaded.diagnostics()
+        );
+        let production = loaded
+            .definition()
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| {
+                matches!(&***sentence, Sentence::Production { label: Some(candidate), .. }
+                if candidate.name == label)
+            })
+            .expect("the production is retained");
+        let Sentence::Production { sort, .. } = &**production else {
+            panic!("expected a production")
+        };
+        assert_eq!(sort, &k_rust::kast::Sort::new(denotation), "{module}");
+    }
+}
+
 #[test]
 fn a_numeral_sort_with_terms_is_rejected_before_any_bubble() {
     let mut accepted = Vec::new();

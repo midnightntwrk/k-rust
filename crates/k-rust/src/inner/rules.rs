@@ -565,6 +565,34 @@ fn rule_grammar_view<'a>(
             visible
         }
     };
+    inject_rule_cell_sentences(resolved, &mut visible);
+    visible
+}
+
+/// Sentences added to either rule view independently of the module's imports.
+/// Configuration grammars use the same ML-SYNTAX augmentation as the module rule view.
+pub(crate) fn grammar_injected_sentences(
+    resolved: &ResolvedDefinition,
+    module: ModuleId,
+) -> Vec<&Sentence> {
+    let mut global = resolved.sentences(module);
+    let global_end = global.len();
+    inject_rule_cell_sentences(resolved, &mut global);
+    let mut signature = resolved.signature_sentences(module);
+    let signature_end = signature.len();
+    add_implicit_ml_syntax(resolved, &mut signature);
+    inject_rule_cell_sentences(resolved, &mut signature);
+    global[global_end..]
+        .iter()
+        .chain(&signature[signature_end..])
+        .copied()
+        .collect()
+}
+
+fn inject_rule_cell_sentences<'a>(
+    resolved: &'a ResolvedDefinition,
+    visible: &mut Vec<&'a Sentence>,
+) {
     // RULE-CELLS supplies parse-only cells, notably generatedCounter for claims
     // about fresh constants. The compiler generates their real productions later.
     // Import only these declarations into the grammar, preserving the source module.
@@ -595,7 +623,6 @@ fn rule_grammar_view<'a>(
             }
         }
     }
-    visible
 }
 
 fn rule_grammar(

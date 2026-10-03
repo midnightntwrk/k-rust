@@ -9,6 +9,7 @@ use super::super::relations::{
     SubsortDeclaration, disambiguation_subsort_pairs, states_disambiguation_subsort,
 };
 use super::super::sort_catalog::SortShape;
+use super::super::synonyms::{AliasMeaning, synonym_overlaps};
 use super::super::{
     ProductionItem, ResolvedDefinition, ResolvedModule, Sentence, SortCatalog, SortHead,
     SortSynonyms, Spelling, SynonymDefect,
@@ -358,11 +359,22 @@ fn nested_argument(sort: &Sort, sentence: &Sentence) -> Diagnostic {
 /// Equations with neither source nor location are deduplicated by spelling, so identical defects
 /// in unrelated modules without origins produce one diagnostic.
 pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
+    if !definition.modules().any(|(_, module)| {
+        module
+            .local_sentences
+            .iter()
+            .any(|sentence| matches!(sentence.as_ref(), Sentence::SortSynonym { .. }))
+    }) {
+        return Vec::new();
+    }
     let mut diagnostics = Vec::new();
     let mut reported = BTreeSet::new();
+    let synonyms = definition
+        .modules()
+        .map(|(id, _)| (id, SortSynonyms::of_module(definition, id)))
+        .collect::<BTreeMap<_, _>>();
     for (module_id, module) in definition.modules() {
-        let synonyms = SortSynonyms::of_module(definition, module_id);
-        for defect in synonyms.defects() {
+        for defect in synonyms[&module_id].defects() {
             let (declarations, message) = match defect {
                 SynonymDefect::Cycle { declarations } => {
                     let equations = declarations
@@ -433,6 +445,80 @@ pub fn check_sort_synonyms(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
                 ));
             }
         }
+    }
+    for (module_id, overlap) in synonym_overlaps(definition, &synonyms) {
+        let alias = &overlap.alias;
+        let Sentence::SortSynonym {
+            old_sort: referent, ..
+        } = overlap.synonym
+        else {
+            unreachable!("an overlap identifies a synonym declaration");
+        };
+        let meaning = match overlap.meaning {
+            AliasMeaning::Declared(sentence) | AliasMeaning::Positioned(sentence) => {
+                let summary = match sentence {
+                    Sentence::SyntaxSort { sort, .. } => format!("syntax {sort}"),
+                    Sentence::Production { sort, items, .. } => {
+                        let items = items
+                            .iter()
+                            .map(|item| match item {
+                                ProductionItem::NonTerminal { sort, .. } => sort.to_string(),
+                                ProductionItem::Terminal(text) => format!("{text:?}"),
+                                ProductionItem::RegexTerminal { regex, .. } => {
+                                    format!("r{regex:?}")
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        format!("syntax {sort} ::= {items}")
+                    }
+                    Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+                    | Sentence::ContextAlias { .. }
+                    | Sentence::Context { .. }
+                    | Sentence::Rule { .. }
+                    | Sentence::Claim { .. }
+                    | Sentence::Configuration { .. }
+                    | Sentence::Bubble { .. } => {
+                        unreachable!("only sort declarations and productions declare sort heads")
+                    }
+                };
+                let position = match overlap.meaning {
+                    AliasMeaning::Declared(_) => "declared as a sort",
+                    AliasMeaning::Positioned(_) => {
+                        "given a sort position in generated or injected grammar syntax"
+                    }
+                    AliasMeaning::Role(_) | AliasMeaning::GeneratedCell(_) => {
+                        unreachable!("a declaration names a sentence")
+                    }
+                };
+                format!(
+                    "{alias} is {position} by {summary}{}",
+                    synonym_location(sentence)
+                )
+            }
+            AliasMeaning::GeneratedCell(cell) => format!(
+                "{alias} names the compiler-generated {} configuration cell",
+                cell.label()
+            ),
+            AliasMeaning::Role(role) => match role {
+                SortRole::Kernel(_) => format!("{alias} is a kernel sort, whose meaning K fixes"),
+                SortRole::Scaffolding => {
+                    format!("{alias} is a parser sort (#), which has no terms")
+                }
+                SortRole::RigidVariable => format!("{alias} is the rigid sort variable"),
+                SortRole::Nat | SortRole::Defined => {
+                    unreachable!("numeral and defined roles are not fixed alias meanings")
+                }
+            },
+        };
+        diagnostics.push(Diagnostic::error(
+            DiagnosticCode::InvalidSortSynonym,
+            format!("Sort synonym {alias} = {referent} gives {alias} a second meaning in module {}: {meaning}.", definition.module(module_id).name),
+            overlap.synonym,
+        ));
     }
     diagnostics
 }
@@ -755,7 +841,7 @@ fn declared_step_text(sentence: &Sentence, lesser: &Sort, greater: &Sort) -> Str
 /// Run the outer-module checks over every module in dependency order: the sorts and user lists
 /// each module declares, and the kernel sort positions of each module view's declared subsorts,
 /// leaving declared steps of previously reported kernel-position contradictions out of later searches.
-/// Synonym cycles and ambiguities are reported once at the first module whose view contains them.
+/// Synonym cycles, ambiguities and overlaps are reported once at the first module whose view contains them.
 pub fn check_outer_modules(definition: &ResolvedDefinition) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut reported_kernel_contradictions = BTreeSet::new();

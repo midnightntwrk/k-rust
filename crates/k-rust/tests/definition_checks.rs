@@ -3136,6 +3136,209 @@ fn check_sort_synonyms_reports_each_defect_once() {
     }
 }
 
+fn overlap_synonym(alias: Sort, referent: Sort, source: &str, line: u32) -> Sentence {
+    Sentence::SortSynonym {
+        new_sort: alias,
+        old_sort: referent,
+        attributes: attrs(&[
+            (SOURCE_ATTRIBUTE, json!(source)),
+            (LOCATION_ATTRIBUTE, json!([line, 1, line, 20])),
+        ]),
+    }
+}
+
+#[test]
+fn synonym_overlap_is_the_same_before_and_after_application_and_at_compile_checks() {
+    let synonym = overlap_synonym(Sort::new("A"), Sort::new("T"), "main.k", 4);
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            outer_check_module(
+                "BASE",
+                &[],
+                vec![Sentence::Production {
+                    label: Some(Label::new("a")),
+                    parameters: vec![],
+                    sort: Sort::new("A"),
+                    items: vec![ProductionItem::Terminal("a".into())],
+                    attributes: attrs(&[
+                        (SOURCE_ATTRIBUTE, json!("base.k")),
+                        (LOCATION_ATTRIBUTE, json!([2, 1, 2, 20])),
+                        ("unused", json!("")),
+                    ]),
+                }],
+            ),
+            outer_check_module(
+                "MAIN",
+                &["BASE"],
+                vec![
+                    syntax_sort(Sort::new("T")),
+                    synonym,
+                    production(Some("use_alias"), "A", &[], located_unused_symbol()),
+                ],
+            ),
+        ],
+        attributes: Attributes::default(),
+    };
+    let raw = k_rust::definition::ResolvedDefinition::resolve(&definition).unwrap();
+    let applied = k_rust::definition::apply_sort_synonyms(&definition).unwrap();
+    let applied = k_rust::definition::ResolvedDefinition::resolve(&applied).unwrap();
+    let raw_overlap = k_rust::definition::check_sort_synonyms(&raw);
+    assert_eq!(raw_overlap.len(), 1, "{raw_overlap:#?}");
+    assert!(raw_overlap[0].message.contains("module MAIN:"));
+    assert!(raw_overlap[0].message.contains("base.k:2"));
+    assert_eq!(raw_overlap[0].source.as_deref(), Some("main.k"));
+    assert_eq!(raw_overlap[0].location.unwrap().start_line, 4);
+    assert_eq!(
+        raw_overlap,
+        k_rust::definition::check_sort_synonyms(&applied)
+    );
+    for definition in [&raw, &applied] {
+        let compiled = check_definition(definition).unwrap();
+        let overlap = compiled
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::InvalidSortSynonym)
+            .collect::<Vec<_>>();
+        assert_eq!(overlap, raw_overlap);
+    }
+}
+
+#[test]
+fn synonym_overlap_compares_heads_by_name_and_arity() {
+    let formal = Sort::new("W");
+    let schema = Sentence::SyntaxSort {
+        parameters: vec![formal.clone()],
+        sort: Sort::with_parameters("MInt", vec![formal]),
+        attributes: Attributes::default(),
+    };
+    let mint_eight = Sort::with_parameters("MInt", vec![Sort::new("8")]);
+    for (alias, overlaps) in [(mint_eight, true), (Sort::new("MInt"), false)] {
+        let synonym = overlap_synonym(alias, Sort::new("Foo"), "head.k", 3);
+        let definition = resolved_definition(
+            "MAIN",
+            vec![outer_check_module(
+                "MAIN",
+                &[],
+                vec![schema.clone(), syntax_sort(Sort::new("Foo")), synonym],
+            )],
+        );
+        let diagnostics = k_rust::definition::check_sort_synonyms(&definition);
+        assert_eq!(diagnostics.len(), usize::from(overlaps), "{diagnostics:#?}");
+        if overlaps {
+            assert!(diagnostics[0].message.contains("MInt{8}"));
+            assert!(diagnostics[0].message.contains("MInt{W}"));
+            assert_eq!(diagnostics[0].source.as_deref(), Some("head.k"));
+            assert_eq!(diagnostics[0].location.unwrap().start_line, 3);
+        }
+    }
+}
+
+#[test]
+fn synonym_overlap_deduplicates_repeated_declarations_and_importer_views() {
+    let synonym = overlap_synonym(Sort::new("A"), Sort::new("T"), "synonym.k", 7);
+    let mut declaration = syntax_sort(Sort::new("A"));
+    *declaration.attributes_mut() = attrs(&[
+        (SOURCE_ATTRIBUTE, json!("sort.k")),
+        (LOCATION_ATTRIBUTE, json!([2, 1, 2, 20])),
+    ]);
+    let definition = resolved_definition(
+        "TOP",
+        vec![
+            outer_check_module("B", &[], vec![declaration.clone(), declaration]),
+            outer_check_module(
+                "S",
+                &[],
+                vec![syntax_sort(Sort::new("T")), synonym.clone(), synonym],
+            ),
+            outer_check_module("FIRST", &["B", "S"], vec![]),
+            outer_check_module("NEXT", &["B", "S"], vec![]),
+            outer_check_module("TOP", &["FIRST", "NEXT"], vec![]),
+        ],
+    );
+    let diagnostics = k_rust::definition::check_sort_synonyms(&definition);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    let first_combining = definition
+        .dependency_order()
+        .iter()
+        .map(|&id| &definition.module(id).name)
+        .find(|name| name.as_str() == "FIRST" || name.as_str() == "NEXT")
+        .expect("the importers occur in dependency order");
+    assert!(
+        diagnostics[0]
+            .message
+            .contains(&format!("module {first_combining}:"))
+    );
+    assert!(diagnostics[0].message.contains("sort.k:2"));
+    assert_eq!(diagnostics[0].source.as_deref(), Some("synonym.k"));
+    assert_eq!(diagnostics[0].location.unwrap().start_line, 7);
+}
+
+#[test]
+fn synonym_overlap_skips_undenoted_aliases_and_preserves_the_root_cycle_diagnostic() {
+    let definition = resolved_definition(
+        "MAIN",
+        vec![outer_check_module(
+            "MAIN",
+            &[],
+            vec![
+                syntax_sort(Sort::new("A")),
+                overlap_synonym(Sort::new("A"), Sort::new("B"), "cycle.k", 3),
+                overlap_synonym(Sort::new("B"), Sort::new("A"), "cycle.k", 4),
+            ],
+        )],
+    );
+    let diagnostics = k_rust::definition::check_sort_synonyms(&definition);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert!(diagnostics[0].message.contains("form a cycle"));
+    assert!(!diagnostics[0].message.contains("second meaning"));
+}
+
+#[test]
+fn synonym_overlap_rejects_the_rigid_sort_variable_and_leaves_numerals_to_their_check() {
+    let rigid = resolved_definition(
+        "RIGID",
+        vec![outer_check_module(
+            "RIGID",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Foo")),
+                overlap_synonym(Sort::new("#SortParam"), Sort::new("Foo"), "rigid.k", 3),
+            ],
+        )],
+    );
+    let diagnostics = k_rust::definition::check_sort_synonyms(&rigid);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert!(
+        diagnostics[0]
+            .message
+            .contains("#SortParam is the rigid sort variable")
+    );
+    assert_eq!(diagnostics[0].source.as_deref(), Some("rigid.k"));
+    assert_eq!(diagnostics[0].location.unwrap().start_line, 3);
+
+    let numeral = resolved_definition(
+        "NUMERAL",
+        vec![outer_check_module(
+            "NUMERAL",
+            &[],
+            vec![
+                syntax_sort(Sort::new("Foo")),
+                overlap_synonym(Sort::new("8"), Sort::new("Foo"), "numeral.k", 3),
+            ],
+        )],
+    );
+    assert!(k_rust::definition::check_sort_synonyms(&numeral).is_empty());
+    let diagnostics = k_rust::definition::check_outer_modules(&numeral);
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .collect::<Vec<_>>();
+    assert_eq!(errors.len(), 1, "{diagnostics:#?}");
+    assert_eq!(errors[0].code, DiagnosticCode::InvalidNumeralSort);
+    assert_eq!(errors[0].source.as_deref(), Some("numeral.k"));
+    assert_eq!(errors[0].location.unwrap().start_line, 3);
+}
+
 #[test]
 fn check_sorts_rejects_undeclared_instantiations_and_parametric_results() {
     let formal = Sort::new("S");

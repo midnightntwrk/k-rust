@@ -6,9 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::DiGraph;
 
-use crate::kast::Sort;
+use crate::kast::{GeneratedCell, Sort, SortRole};
+use crate::provenance::GeneratingPass;
 
-use super::{Definition, ModuleId, ProductionItem, ResolveError, ResolvedDefinition, Sentence};
+use super::{
+    Definition, ModuleId, ProductionItem, ResolveError, ResolvedDefinition, Sentence, SortHead,
+};
 
 /// What a whole sort spelling denotes in a view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +172,179 @@ impl<'a> SortSynonyms<'a> {
     pub fn is_empty(&self) -> bool {
         self.denotations.is_empty() && self.undenoted.is_empty()
     }
+}
+
+/// A synonym whose alias already has a meaning in a module view.
+pub(crate) struct SynonymOverlap<'a> {
+    pub(crate) alias: Sort,
+    /// The first visible synonym declaration of the alias.
+    pub(crate) synonym: &'a Sentence,
+    pub(crate) meaning: AliasMeaning<'a>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum AliasMeaning<'a> {
+    /// The spelling fixes the meaning independently of declarations.
+    Role(SortRole),
+    /// A sort declaration, or a production declaring its unbound result in its own view.
+    Declared(&'a Sentence),
+    /// An unbound sort position generated after application or injected into a grammar.
+    Positioned(&'a Sentence),
+    /// The configuration wrapper and fresh-counter cells synthesized during compilation.
+    GeneratedCell(GeneratedCell),
+}
+
+/// Find each overlap at the first module whose view contains it.
+/// A synonym introduces a new spelling; a spelling with two meanings in a view denotes no one sort.
+/// A production result is a use of an alias when its own module sees that synonym, and otherwise declares a sort head.
+/// This distinction holds before and after synonym application; sort declarations always declare their written head.
+/// Configuration expansion and grammar injections introduce positions independently of synonym application.
+/// Their unbound sorts retain their own meaning even when the module sees a synonym with that spelling.
+pub(crate) fn synonym_overlaps<'a>(
+    definition: &'a ResolvedDefinition,
+    synonyms: &BTreeMap<ModuleId, SortSynonyms<'a>>,
+) -> Vec<(ModuleId, SynonymOverlap<'a>)> {
+    if synonyms.values().all(SortSynonyms::is_empty) {
+        return Vec::new();
+    }
+    let declared = definition
+        .modules()
+        .map(|(id, module)| {
+            let mut heads = BTreeMap::new();
+            for sentence in &module.local_sentences {
+                if sentence
+                    .attributes()
+                    .origin_record()
+                    .is_some_and(|origin| origin.pass == GeneratingPass::ConfigurationExpansion)
+                {
+                    for sort in crate::inner::unbound_sorts(sentence) {
+                        heads
+                            .entry(SortHead::from(sort))
+                            .or_insert(AliasMeaning::Positioned(sentence.as_ref()));
+                    }
+                    continue;
+                }
+                let sort = match sentence.as_ref() {
+                    Sentence::SyntaxSort { sort, .. } => Some(sort),
+                    Sentence::Production {
+                        sort, parameters, ..
+                    } if !parameters.contains(sort)
+                        && synonyms[&id].spelling(sort) == Spelling::Sort =>
+                    {
+                        Some(sort)
+                    }
+                    Sentence::Production { .. }
+                    | Sentence::SortSynonym { .. }
+                    | Sentence::SyntaxLexical { .. }
+                    | Sentence::SyntaxAssociativity { .. }
+                    | Sentence::SyntaxPriority { .. }
+                    | Sentence::ContextAlias { .. }
+                    | Sentence::Context { .. }
+                    | Sentence::Rule { .. }
+                    | Sentence::Claim { .. }
+                    | Sentence::Configuration { .. }
+                    | Sentence::Bubble { .. } => None,
+                };
+                if let Some(sort) = sort {
+                    heads
+                        .entry(SortHead::from(sort))
+                        .or_insert(AliasMeaning::Declared(sentence.as_ref()));
+                }
+            }
+            (id, heads)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut overlaps = Vec::new();
+    let mut reported = BTreeSet::new();
+    for &id in definition.dependency_order() {
+        if synonyms[&id].is_empty() {
+            continue;
+        }
+        let mut visible_modules = definition
+            .transitive_imports(id)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        visible_modules.insert(id);
+        let mut injected = BTreeMap::new();
+        for sentence in crate::inner::grammar_injected_sentences(definition, id) {
+            for sort in crate::inner::unbound_sorts(sentence) {
+                injected.entry(SortHead::from(sort)).or_insert(sentence);
+            }
+        }
+        let visible = definition.sentences(id);
+        let has_cells = visible.iter().any(|sentence| {
+            matches!(sentence, Sentence::Production { attributes, .. } if attributes.has(super::AttributeKey::Cell))
+        });
+        let mut seen = BTreeSet::new();
+        for sentence in visible {
+            let Sentence::SortSynonym {
+                new_sort: alias, ..
+            } = sentence
+            else {
+                continue;
+            };
+            if !matches!(synonyms[&id].spelling(alias), Spelling::Synonym { .. })
+                || !seen.insert(alias)
+            {
+                continue;
+            }
+            let meaning = match alias.role() {
+                role @ (SortRole::Kernel(_) | SortRole::RigidVariable | SortRole::Scaffolding) => {
+                    Some(AliasMeaning::Role(role))
+                }
+                SortRole::Nat => None,
+                SortRole::Defined => definition
+                    .dependency_order()
+                    .iter()
+                    .filter(|module| visible_modules.contains(module))
+                    .find_map(|module| declared[module].get(&SortHead::from(alias)).copied())
+                    .or_else(|| {
+                        injected
+                            .get(&SortHead::from(alias))
+                            .copied()
+                            .map(AliasMeaning::Positioned)
+                    })
+                    .or_else(|| {
+                        // A cell configuration gains a generated top wrapper and fresh counter
+                        // during compilation even when expansion did not need the wrapper yet.
+                        has_cells
+                            .then(|| {
+                                [GeneratedCell::Top, GeneratedCell::Counter]
+                                    .into_iter()
+                                    .find(|cell| alias == &Sort::builtin(cell.sort()))
+                                    .map(AliasMeaning::GeneratedCell)
+                            })
+                            .flatten()
+                    }),
+            };
+            if let Some(meaning) = meaning {
+                // The alias fixes a role meaning; declaration meanings are identified by their origins.
+                let origin = |sentence: &Sentence| {
+                    (
+                        sentence.attributes().source().map(str::to_owned),
+                        sentence.attributes().location(),
+                    )
+                };
+                let meaning_origin = match meaning {
+                    AliasMeaning::Role(_) | AliasMeaning::GeneratedCell(_) => None,
+                    AliasMeaning::Declared(declaration) | AliasMeaning::Positioned(declaration) => {
+                        Some(origin(declaration))
+                    }
+                };
+                if reported.insert((alias.clone(), origin(sentence), meaning_origin)) {
+                    overlaps.push((
+                        id,
+                        SynonymOverlap {
+                            alias: alias.clone(),
+                            synonym: sentence,
+                            meaning,
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    overlaps
 }
 
 /// Replace each production's result and nonterminal sorts by their denotations in its module's full view.

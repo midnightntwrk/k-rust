@@ -40,8 +40,8 @@ use crate::{
     builtin,
     definition::{
         ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
-        Sentence, apply_sort_synonyms_with_resolved, check_outer_modules, check_sorts,
-        json::ProvenanceDefinition,
+        Sentence, apply_sort_synonyms_with_resolved, check_outer_modules, check_sort_synonyms,
+        check_sorts, json::ProvenanceDefinition,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{
@@ -1160,7 +1160,9 @@ fn finish_load(
         timings.time(load_phase::RESOLVE_AND_CHECK_SORTS, || {
             let resolved = ResolvedDefinition::resolve(&definition)
                 .map_err(LoadError::DefinitionResolution)?;
-            let mut expanded_diagnostics = Vec::new();
+            // Expansion creates concrete cell sorts after synonym application. Check their
+            // meanings before the rule grammars turn these positions into cast families.
+            let mut expanded_diagnostics = check_sort_synonyms(&resolved);
             for (module_id, module) in resolved.modules() {
                 expanded_diagnostics.extend(check_sorts(module, &resolved.sort_catalog(module_id)));
             }

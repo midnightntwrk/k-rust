@@ -49,6 +49,7 @@ use crate::kast::{Sort, SortRole};
 /// one alias in a module mean the same sort. An alias with no unique denotation (on a cycle,
 /// ambiguous, or behind such an alias) has no casts;
 /// `check_sort_synonyms` rejects its declarations at load.
+/// A denoted alias has role `Defined` and is never also a member; the load checks before configuration parsing and after expansion reject any second meaning, including injected grammar positions.
 pub(in crate::inner) struct SortUniverse {
     members: BTreeMap<Sort, SortRole>,
     /// `(alias, denotation)` once per visible alias whose denotation is a sort of the grammar (a
@@ -78,9 +79,13 @@ impl SortUniverse {
             .iter()
             .filter_map(|sentence| synonym_alias(sentence))
             .filter_map(|alias| match synonyms.spelling(alias) {
-                Spelling::Synonym { denotes } => seen
-                    .insert(alias)
-                    .then(|| (alias.clone(), denotes.clone())),
+                Spelling::Synonym { denotes } => {
+                    debug_assert!(
+                        !members.contains_key(alias) && alias.role() == SortRole::Defined,
+                        "the synonym alias {alias} is also a sort of the grammar; check_sort_synonyms rejects that view"
+                    );
+                    seen.insert(alias).then(|| (alias.clone(), denotes.clone()))
+                }
                 Spelling::Undenoted => None,
                 Spelling::Sort => {
                     debug_assert!(
@@ -134,7 +139,7 @@ impl SortUniverse {
 /// The sorts a sentence declares or gives a position that its own `parameters` do not bind: the
 /// sort of a `syntax S` declaration, the result and nonterminal item sorts of a production. No
 /// other sentence declares a sort or a position of one; a synonym is a spelling of its target.
-fn unbound_sorts(sentence: &Sentence) -> Vec<&Sort> {
+pub(crate) fn unbound_sorts(sentence: &Sentence) -> Vec<&Sort> {
     match sentence {
         Sentence::Production {
             parameters,
@@ -874,6 +879,19 @@ mod tests {
         for alias in ["New", "Word", "Old"] {
             assert!(!universe.admits(&Sort::new(alias)), "{alias}");
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "the synonym alias A is also a sort of the grammar")]
+    fn a_synonym_alias_cannot_also_be_a_sort_of_the_grammar() {
+        let sentences = [
+            syntax_sort(Sort::new("T")),
+            syntax_sort(Sort::new("A")),
+            synonym_declaration("A", "T"),
+        ];
+        let visible = sentences.iter().collect::<Vec<_>>();
+        SortUniverse::new(&visible, &SortSynonyms::of(visible.iter().copied()));
     }
 
     #[test]

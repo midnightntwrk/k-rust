@@ -22,5 +22,6 @@ pub use programs::{
     ParsedProgram, PresentedProgram, ProgramError, ProgramParseError, ProgramParser,
     definition_with_named_projections, parse_program,
 };
-pub(crate) use rules::resolve_rule_bubbles_with_resolved;
 pub use rules::{RuleError, RuleParseError, parse_rule_content, resolve_rule_bubbles};
+pub(crate) use rules::{grammar_injected_sentences, resolve_rule_bubbles_with_resolved};
+pub(crate) use sort_universe::unbound_sorts;
