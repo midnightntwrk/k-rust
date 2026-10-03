@@ -540,3 +540,142 @@ fn a_conjunctive_left_hand_side_the_index_files_apart_withholds_every_certificat
         Predicate::False
     );
 }
+
+/// These concatenations combine disjoint bindings/elements and have no idempotence axiom.
+/// A collision denotes bottom, so both strict wrappers denote bottom and their equality is top.
+const DISJOINT_COLLECTIONS: &str = r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortMap{} [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+  hooked-sort SortSet{} [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+  sort SortR{} []
+  hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}(), unit{}(mapUnit{}())]
+  hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+  hooked-symbol setItem{}(SortInt{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
+  hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), unit{}(setUnit{}())]
+  symbol cMap{}(SortMap{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol dMap{}(SortMap{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol cSet{}(SortSet{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol dSet{}(SortSet{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol ok{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+endmodule []"#;
+
+fn disjoint_collection_cases() -> [(&'static str, &'static str, &'static str, &'static str); 3] {
+    [
+        (
+            "map equal values",
+            "Map",
+            r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")), mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")))"#,
+            r#"mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+        ),
+        (
+            "map different values",
+            "Map",
+            r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")), mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2")))"#,
+            r#"mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+        ),
+        (
+            "disjoint set",
+            "Set",
+            r#"setConcat{}(setItem{}(\dv{SortInt{}}("1")), setItem{}(\dv{SortInt{}}("1")))"#,
+            r#"setItem{}(\dv{SortInt{}}("1"))"#,
+        ),
+    ]
+}
+
+#[test]
+fn collision_wrappers_are_not_structurally_distinct() {
+    let definition = internalized(DISJOINT_COLLECTIONS);
+    for (name, kind, collision, singleton) in disjoint_collection_cases() {
+        let left = internal_term(&definition, &format!("c{kind}{{}}({collision})"));
+        let right = internal_term(&definition, &format!("d{kind}{{}}({collision})"));
+        assert!(
+            !left.structurally_distinct_after_normalization(&right),
+            "{name}: strict wrappers of bottom are equal patterns"
+        );
+        assert_eq!(
+            simplify_equality(
+                &definition,
+                &format!("c{kind}{{}}({collision})"),
+                &format!("d{kind}{{}}({collision})"),
+                &NoSolver,
+            ),
+            Predicate::True,
+            "{name}"
+        );
+        assert!(
+            internal_term(&definition, &format!("c{kind}{{}}({singleton})"))
+                .structurally_distinct_after_normalization(&internal_term(
+                    &definition,
+                    &format!("d{kind}{{}}({singleton})"),
+                )),
+            "{name}: defined singleton wrappers stay distinct"
+        );
+    }
+}
+
+fn check_collision_implications(definition: &BackendDefinition, solver: &dyn SmtSolver) {
+    use std::collections::BTreeSet;
+
+    use k_rust_backend::implication::{
+        ImplicationStatus, check_implication_with_existentials_complete,
+    };
+    use k_rust_kore::kore::parser::parse_pattern;
+
+    let pattern = |source: &str| {
+        let syntax = parse_pattern(source).expect("pattern should parse");
+        definition
+            .admit_unverified(&syntax, &[])
+            .internalize_pattern()
+            .expect("pattern should internalize")
+    };
+    for (name, kind, collision, singleton) in disjoint_collection_cases() {
+        let consequent = pattern(&format!("c{kind}{{}}({}Unit{{}}())", kind.to_lowercase()));
+        let antecedent = |collection: &str| {
+            pattern(&format!(
+                r"\and{{SortR{{}}}}(ok{{}}(), \equals{{SortR{{}}, SortR{{}}}}(c{kind}{{}}({collection}), d{kind}{{}}({collection})))"
+            ))
+        };
+        let check = |antecedent| {
+            check_implication_with_existentials_complete(
+                definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &BTreeSet::new(),
+                solver,
+            )
+            .expect("the check should not stop")
+            .expect("the implication should be checked")
+        };
+        let raw = check(antecedent(collision));
+        assert_ne!(raw.status(), ImplicationStatus::Valid, "{name}: {raw:#?}");
+        let normalized = check(pattern(r"\and{SortR{}}(ok{}(), \top{SortR{}}())"));
+        assert_eq!(
+            normalized.status(),
+            ImplicationStatus::Invalid,
+            "{name}: {normalized:#?}"
+        );
+        let vacuous = check(antecedent(singleton));
+        assert_eq!(
+            vacuous.status(),
+            ImplicationStatus::Valid,
+            "{name}: {vacuous:#?}"
+        );
+    }
+}
+
+#[test]
+fn collision_implications_are_not_valid_without_a_solver() {
+    check_collision_implications(&internalized(DISJOINT_COLLECTIONS), &NoSolver);
+}
+
+#[cfg(feature = "z3")]
+#[test]
+fn collision_implications_are_not_valid_with_z3() {
+    let definition = internalized(DISJOINT_COLLECTIONS);
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+    check_collision_implications(&definition, &solver);
+}

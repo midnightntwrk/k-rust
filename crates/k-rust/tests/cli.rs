@@ -4740,6 +4740,101 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Disjoint collection collisions make both strict wrappers bottom, whose equality is top.
+/// The defined `ok` value therefore cannot imply the different constructor `c(empty)`.
+#[test]
+fn kore_implies_does_not_refute_equal_bottom_collection_wrappers() {
+    let (root, _) = fixture();
+    let definition = root.join("definition.kore");
+    let antecedent = root.join("antecedent.kore");
+    let consequent = root.join("consequent.kore");
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  hooked-sort SortMap{} [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+  hooked-sort SortSet{} [hook{}("SET.Set"), unit{}(setUnit{}()), element{}(setItem{}()), concat{}(setConcat{}())]
+  sort SortR{} []
+  hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+  hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{} [function{}(), total{}(), hook{}("MAP.element")]
+  hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{} [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}(), unit{}(mapUnit{}())]
+  hooked-symbol setUnit{}() : SortSet{} [function{}(), total{}(), hook{}("SET.unit")]
+  hooked-symbol setItem{}(SortInt{}) : SortSet{} [function{}(), total{}(), hook{}("SET.element")]
+  hooked-symbol setConcat{}(SortSet{}, SortSet{}) : SortSet{} [function{}(), hook{}("SET.concat"), assoc{}(), comm{}(), unit{}(setUnit{}())]
+  symbol cMap{}(SortMap{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol dMap{}(SortMap{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol cSet{}(SortSet{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol dSet{}(SortSet{}) : SortR{} [constructor{}(), functional{}(), injective{}()]
+  symbol ok{}() : SortR{} [constructor{}(), functional{}(), injective{}()]
+endmodule []"#,
+    )
+    .unwrap();
+    let check = |left: &str, right: &str| {
+        fs::write(&antecedent, left).unwrap();
+        fs::write(&consequent, right).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+        command
+            .arg("kore-implies")
+            .arg(&definition)
+            .args(["--module", "MAIN", "--antecedent"])
+            .arg(&antecedent)
+            .arg("--consequent")
+            .arg(&consequent);
+        let output = output_with_watchdog(command);
+        assert!(
+            output.status.success(),
+            "{left} => {right}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let mut raw_results = Vec::new();
+    for (name, kind, collision, singleton) in [
+        (
+            "map equal values",
+            "Map",
+            r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")), mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")))"#,
+            r#"mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+        ),
+        (
+            "map different values",
+            "Map",
+            r#"mapConcat{}(mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1")), mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2")))"#,
+            r#"mapItem{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+        ),
+        (
+            "disjoint set without idem",
+            "Set",
+            r#"setConcat{}(setItem{}(\dv{SortInt{}}("1")), setItem{}(\dv{SortInt{}}("1")))"#,
+            r#"setItem{}(\dv{SortInt{}}("1"))"#,
+        ),
+    ] {
+        let empty = format!("c{kind}{{}}({}Unit{{}}())", kind.to_lowercase());
+        let constrained = |collection: &str| {
+            format!(
+                r"\and{{SortR{{}}}}(ok{{}}(), \equals{{SortR{{}}, SortR{{}}}}(c{kind}{{}}({collection}), d{kind}{{}}({collection})))"
+            )
+        };
+        let raw = check(&constrained(collision), &empty);
+        raw_results.push((name, raw["status"].clone()));
+        let normalized = check(r"\and{SortR{}}(ok{}(), \top{SortR{}}())", &empty);
+        assert_eq!(normalized["status"], "invalid", "{name}: {normalized:#}");
+        let vacuous = check(&constrained(singleton), &empty);
+        assert_eq!(vacuous["status"], "valid", "{name}: {vacuous:#}");
+        let value = format!("c{kind}{{}}({singleton})");
+        let reflexive = check(&value, &value);
+        assert_eq!(reflexive["status"], "valid", "{name}: {reflexive:#}");
+    }
+    assert!(
+        raw_results
+            .iter()
+            .all(|(_, status)| status == "unknown" || status == "invalid"),
+        "raw collision implications must never be valid: {raw_results:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kore_implies_rejects_a_syntactic_sort_mismatch_before_internalization() {
     let (root, _) = fixture();

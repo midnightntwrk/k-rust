@@ -2,33 +2,36 @@
 //! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
 //! an algorithm; `Counter::TermConstructed` per construction; no worklist.
 //!
-//! The invariants every `Term` satisfies, which the Lean term model (`lean/KRust/TermAttributes.lean`,
-//! `WF` and `TotalOrder`) assumes and `tests/backend/term_order.rs` checks:
+//! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`.
+//! The Lean attribute bridge checks `ceil_free`, macro presence and k-cell count separately;
+//! it does not certify the collision exclusion for value shape:
 //!
 //! ```toml algorithm-representation
 //! id = "representation.backend.term"
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
-//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set",
+//! sites = ["Term", "TermData", "Term::new", "Term::allocate", "synthesize_attributes", "Term::map", "Term::set",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
 //!     "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
 //! invariant = """\
-//! Term::new is the only place a TermData is built, and a TermData is never mutated after it is \
-//! shared: Term and TermData keep their fields private. Term::new sets the stored hash to \
+//! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
+//! shared: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
 //! calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) \
 //! is structural equality of the kind, and Ord for Term is the derived order on the kind. \
-//! Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
+//! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
 //! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
 //! children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a \
-//! Map kind: after merging the entries of a same-definition rest, it verifies strict (key, \
-//! value) order or sorts and removes adjacent equal pairs. Only Term::set builds a Set kind: \
-//! after merging the elements of a same-definition rest, it sorts the elements and removes \
-//! adjacent equal ones. with_evaluated_cache sets the bit only through marked_evaluated, which \
-//! rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence \
-//! every map and set, at every depth of every Term, is sorted with adjacent entries or elements \
-//! distinct."""
-//! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
+//! Map kind: after merging the entries of a same-definition rest, it verifies nondecreasing (key, \
+//! value) order or sorts, retaining repeated keys and bindings. Only Term::set builds a Set kind: \
+//! after merging the elements of a same-definition rest, it sorts and retains repeated elements. \
+//! Allocation synthesizes shape from the completed kind and every immediate child: a repeated \
+//! map key or set element anywhere below a term excludes constructor_like and \
+//! concrete_after_normalization; a collision root also excludes structural evaluated. \
+//! with_evaluated_cache rebuilds through the same allocator, recomputing shape and overriding \
+//! only evaluated, with a collision root taking precedence. The Lean ceilFree proofs concern \
+//! the separate conservative ceil_free attribute, not this hereditary shape exclusion."""
+//! tests = ["crates/k-rust-backend/tests/backend/term_order.rs", "crates/k-rust-backend/src/tests/definedness.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
 //!
@@ -411,7 +414,7 @@ impl SymbolAttributes {
     /// readers that ask whether an application is computed or total rather than free, and a
     /// read of it spelled `symbol_type == SymbolType::Constructor` would bypass this role. The
     /// readers of `symbol_type` that remain:
-    /// - `Term::application_raw` (the `concrete_after_normalization` shape, which keeps the
+    /// - `synthesize_attributes` (the `concrete_after_normalization` shape, which keeps the
     ///   declared formula of the Lean model's `concrete`) and `ceil_free` (partiality), here;
     /// - partiality or totality: `definedness::ceil_term_node`, `smt::symbol_exactness`,
     ///   `simplify` (`is_total_application`, `occurs_under_total_context`),
@@ -594,11 +597,11 @@ pub struct TermAttributes {
     pub constructor_like: bool,
     pub concrete_after_normalization: bool,
     pub can_be_evaluated: bool,
-    /// See [`TermAttributes::ceil_free`]; set only by `Term::new`, from the kind.
+    /// See [`TermAttributes::ceil_free`]; set only by `Term::allocate`, from the kind.
     ceil_free: bool,
-    /// See [`TermAttributes::has_macro_or_alias`]; set only by `Term::new`, from the kind.
+    /// See [`TermAttributes::has_macro_or_alias`]; set only by `Term::allocate`, from the kind.
     has_macro_or_alias: bool,
-    /// See [`TermAttributes::k_cells`]; set only by `Term::new`, from the kind.
+    /// See [`TermAttributes::k_cells`]; set only by `Term::allocate`, from the kind.
     k_cells: u8,
     hash: u64,
 }
@@ -621,20 +624,20 @@ impl Default for TermAttributes {
 
 impl TermAttributes {
     /// Whether `definedness::ceil_term` of this term is empty for every definition, by
-    /// construction: see `ceil_free`, which `Term::new` stores here.
+    /// construction: see `ceil_free`, which `Term::allocate` stores here.
     pub fn ceil_free(&self) -> bool {
         self.ceil_free
     }
 
     /// Whether some application in this term has a symbol with `macro_or_alias`: exactly when
-    /// `Term::first_macro_or_alias_symbol` finds one. See `has_macro_or_alias`, which `Term::new`
+    /// `Term::first_macro_or_alias_symbol` finds one. See `has_macro_or_alias`, which `Term::allocate`
     /// stores here.
     pub fn has_macro_or_alias(&self) -> bool {
         self.has_macro_or_alias
     }
 
     /// The number of `<k>` cells of this term that are not nested in a `<k>` cell, saturated at
-    /// 2. See `k_cells`, which `Term::new` stores here.
+    /// 2. See `k_cells`, which `Term::allocate` stores here.
     pub fn k_cells(&self) -> u8 {
         self.k_cells
     }
@@ -651,10 +654,7 @@ pub struct Term(Arc<TermData>);
 
 impl Term {
     pub fn and(left: Self, right: Self) -> Self {
-        let mut attributes = combine_attributes([&left, &right]);
-        attributes.constructor_like = false;
-        attributes.concrete_after_normalization = false;
-        Self::new(TermKind::And(left, right), attributes)
+        Self::new(TermKind::And(left, right))
     }
 
     pub fn application(
@@ -686,28 +686,11 @@ impl Term {
         sort_arguments: Vec<Sort>,
         arguments: Vec<Self>,
     ) -> Self {
-        let mut attributes = combine_attributes(arguments.iter());
-        // A free constructor application is a normal form, and a value built only from free
-        // constructors, when its arguments are; no other root states that by structure.
-        let free = symbol.attributes.head_role() == HeadRole::FreeConstructor;
-        attributes.evaluated = free && attributes.evaluated;
-        attributes.constructor_like = free && attributes.constructor_like;
-        // A shape, not freeness: the root is one a normal form can have (the Lean model's
-        // `concrete` reads the same declared flags).
-        attributes.concrete_after_normalization = (symbol.attributes.symbol_type
-            == SymbolType::Constructor
-            || (symbol.attributes.anywhere && !symbol.attributes.declared_function))
-            && attributes.concrete_after_normalization;
-        attributes.can_be_evaluated =
-            symbol.attributes.has_evaluators && attributes.can_be_evaluated;
-        Self::new(
-            TermKind::Application {
-                symbol,
-                sort_arguments,
-                arguments,
-            },
-            attributes,
-        )
+        Self::new(TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        })
     }
 
     fn collection_application(
@@ -796,20 +779,11 @@ impl Term {
         } else {
             value
         };
-        let attributes = TermAttributes {
-            constructor_like: true,
-            concrete_after_normalization: true,
-            ..TermAttributes::default()
-        };
-        Self::new(TermKind::DomainValue { sort, value }, attributes)
+        Self::new(TermKind::DomainValue { sort, value })
     }
 
     pub fn variable(variable: Variable) -> Self {
-        let attributes = TermAttributes {
-            variables: BTreeSet::from([variable.clone()]),
-            ..TermAttributes::default()
-        };
-        Self::new(TermKind::Variable(variable), attributes)
+        Self::new(TermKind::Variable(variable))
     }
 
     pub fn injection(source: Sort, target: Sort, term: Self) -> Self {
@@ -822,14 +796,11 @@ impl Term {
         {
             return Self::injection(inner_source.clone(), target, inner.clone());
         }
-        Self::new(
-            TermKind::Injection {
-                source,
-                target,
-                term: term.clone(),
-            },
-            term.attributes().clone(),
-        )
+        Self::new(TermKind::Injection {
+            source,
+            target,
+            term,
+        })
     }
 
     /// The map binding the keys of `entries` and of `rest`, its entries sorted by `(key, value)`.
@@ -866,23 +837,11 @@ impl Term {
         {
             return rest;
         }
-        let mut attributes = combine_attributes(
-            entries
-                .iter()
-                .flat_map(|(key, value)| [key, value])
-                .chain(rest.iter()),
-        );
-        if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-            mark_repeated_collection(&mut attributes);
-        }
-        Self::new(
-            TermKind::Map {
-                definition,
-                entries,
-                rest,
-            },
-            attributes,
-        )
+        Self::new(TermKind::Map {
+            definition,
+            entries,
+            rest,
+        })
     }
 
     pub fn list(
@@ -920,20 +879,11 @@ impl Term {
         {
             return middle.clone();
         }
-        let attributes = combine_attributes(
-            heads.iter().chain(
-                rest.iter()
-                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
-            ),
-        );
-        Self::new(
-            TermKind::List {
-                definition,
-                heads,
-                rest,
-            },
-            attributes,
-        )
+        Self::new(TermKind::List {
+            definition,
+            heads,
+            rest,
+        })
     }
 
     /// The set holding `elements` and the elements of `rest`, sorted.
@@ -969,18 +919,11 @@ impl Term {
         {
             return rest;
         }
-        let mut attributes = combine_attributes(elements.iter().chain(rest.iter()));
-        if elements.windows(2).any(|pair| pair[0] == pair[1]) {
-            mark_repeated_collection(&mut attributes);
-        }
-        Self::new(
-            TermKind::Set {
-                definition,
-                elements,
-                rest,
-            },
-            attributes,
-        )
+        Self::new(TermKind::Set {
+            definition,
+            elements,
+            rest,
+        })
     }
 
     /// The least element this internal set holds twice, if any. Such a set is `\bottom`
@@ -1103,9 +1046,7 @@ impl Term {
         if self.attributes().evaluated {
             return self.clone();
         }
-        let mut attributes = self.attributes().clone();
-        attributes.evaluated = true;
-        Self::new(self.kind().clone(), attributes)
+        Self::allocate(self.kind().clone(), EvaluatedCache::Marked)
     }
 
     /// Whether two handles share the same immutable term allocation.
@@ -1478,7 +1419,19 @@ impl Term {
         }
     }
 
-    fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
+    fn new(kind: TermKind) -> Self {
+        Self::allocate(kind, EvaluatedCache::Structural)
+    }
+
+    #[deny(clippy::wildcard_enum_match_arm)]
+    fn allocate(kind: TermKind, cache: EvaluatedCache) -> Self {
+        let (mut attributes, collision_root) = synthesize_attributes(&kind);
+        match cache {
+            EvaluatedCache::Structural => {}
+            EvaluatedCache::Marked => attributes.evaluated = !collision_root,
+        }
+        #[cfg(debug_assertions)]
+        validate_attributes(&kind, &attributes, cache);
         measure::bump(Counter::TermConstructed);
         attributes.ceil_free = ceil_free(&kind);
         attributes.has_macro_or_alias = has_macro_or_alias(&kind);
@@ -1870,13 +1823,165 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
     combined
 }
 
-/// The attributes of a set that holds an element twice or a map that binds a key twice. Such a
-/// collection is `\bottom` (set and map concatenation are nilpotent on a shared element or key),
-/// so it is neither a constructor-like value nor a normal form: the simplifier must visit it,
-/// and its root step reports it as `\bottom` (`simplify::simplify_root`).
-fn mark_repeated_collection(attributes: &mut TermAttributes) {
-    attributes.evaluated = false;
-    attributes.constructor_like = false;
+#[derive(Clone, Copy)]
+enum EvaluatedCache {
+    Structural,
+    Marked,
+}
+
+/// Derive shape from the completed kind. Strict children contribute conjunctively; a local
+/// disjoint-collection collision excludes every value shape and requires root simplification.
+/// The second result records that root outcome so a cache mark cannot override it.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
+    let mut collision_root = false;
+    let mut attributes = match kind {
+        TermKind::And(left, right) => {
+            let mut attributes = combine_attributes([left, right]);
+            attributes.constructor_like = false;
+            attributes.concrete_after_normalization = false;
+            attributes
+        }
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            let mut attributes = combine_attributes(arguments.iter());
+            // Only a free constructor root supplies a structural normal form and freeness.
+            let free = symbol.attributes.head_role() == HeadRole::FreeConstructor;
+            attributes.evaluated &= free;
+            attributes.constructor_like &= free;
+            // Concreteness describes a possible normalized shape, not a definedness claim.
+            attributes.concrete_after_normalization &= symbol.attributes.symbol_type
+                == SymbolType::Constructor
+                || (symbol.attributes.anywhere && !symbol.attributes.declared_function);
+            attributes.can_be_evaluated &= symbol.attributes.has_evaluators;
+            attributes
+        }
+        TermKind::DomainValue { .. } => TermAttributes {
+            constructor_like: true,
+            concrete_after_normalization: true,
+            ..TermAttributes::default()
+        },
+        TermKind::Variable(variable) => TermAttributes {
+            variables: BTreeSet::from([variable.clone()]),
+            ..TermAttributes::default()
+        },
+        TermKind::Injection { term, .. } => term.attributes().clone(),
+        TermKind::Map { entries, rest, .. } => {
+            collision_root = entries.windows(2).any(|pair| pair[0].0 == pair[1].0);
+            combine_attributes(
+                entries
+                    .iter()
+                    .flat_map(|(key, value)| [key, value])
+                    .chain(rest.iter()),
+            )
+        }
+        TermKind::List { heads, rest, .. } => combine_attributes(
+            heads.iter().chain(
+                rest.iter()
+                    .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
+            ),
+        ),
+        TermKind::Set { elements, rest, .. } => {
+            collision_root = elements.windows(2).any(|pair| pair[0] == pair[1]);
+            combine_attributes(elements.iter().chain(rest.iter()))
+        }
+    };
+    if collision_root {
+        attributes.evaluated = false;
+        attributes.constructor_like = false;
+        attributes.concrete_after_normalization = false;
+    }
+    (attributes, collision_root)
+}
+
+/// Immediate children already passed allocation validation. Local checks therefore establish
+/// the hereditary exclusion without walking descendants or consulting semantic definedness.
+#[cfg(debug_assertions)]
+#[deny(clippy::wildcard_enum_match_arm)]
+fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: EvaluatedCache) {
+    assert!(!attributes.constructor_like || attributes.concrete_after_normalization);
+    assert!(!attributes.concrete_after_normalization || attributes.variables.is_empty());
+    let mut child_evaluated = true;
+    let mut check_child = |child: &Term| {
+        assert!(!attributes.constructor_like || child.attributes().constructor_like);
+        assert!(!attributes.concrete_after_normalization || child.concrete_after_normalization());
+        child_evaluated &= child.attributes().evaluated;
+    };
+    let (root_evaluated, collision_root) = match kind {
+        TermKind::And(left, right) => {
+            check_child(left);
+            check_child(right);
+            assert!(!attributes.constructor_like && !attributes.concrete_after_normalization);
+            (true, false)
+        }
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            for child in arguments {
+                check_child(child);
+            }
+            (
+                symbol.attributes.head_role() == HeadRole::FreeConstructor,
+                false,
+            )
+        }
+        TermKind::DomainValue { .. } => (true, false),
+        TermKind::Variable(_) => {
+            assert!(!attributes.constructor_like && !attributes.concrete_after_normalization);
+            (true, false)
+        }
+        TermKind::Injection { term, .. } => {
+            check_child(term);
+            (true, false)
+        }
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                check_child(key);
+                check_child(value);
+            }
+            if let Some(child) = rest {
+                check_child(child);
+            }
+            let collision = entries.windows(2).any(|pair| pair[0].0 == pair[1].0);
+            (!collision, collision)
+        }
+        TermKind::List { heads, rest, .. } => {
+            for child in heads {
+                check_child(child);
+            }
+            if let Some((middle, tails)) = rest {
+                check_child(middle);
+                for child in tails {
+                    check_child(child);
+                }
+            }
+            (true, false)
+        }
+        TermKind::Set { elements, rest, .. } => {
+            for child in elements {
+                check_child(child);
+            }
+            if let Some(child) = rest {
+                check_child(child);
+            }
+            let collision = elements.windows(2).any(|pair| pair[0] == pair[1]);
+            (!collision, collision)
+        }
+    };
+    if collision_root {
+        assert!(
+            !attributes.evaluated
+                && !attributes.constructor_like
+                && !attributes.concrete_after_normalization
+        );
+    }
+    match cache {
+        EvaluatedCache::Structural => {
+            assert_eq!(attributes.evaluated, root_evaluated && child_evaluated)
+        }
+        EvaluatedCache::Marked => assert_eq!(attributes.evaluated, !collision_root),
+    }
 }
 
 fn calculate_hash(kind: &TermKind) -> u64 {
@@ -1935,6 +2040,296 @@ mod tests {
             element: "element".into(),
             concat: "concat".into(),
         }
+    }
+
+    #[test]
+    fn collision_roots_exclude_concrete_shape_at_creation() {
+        let one = Term::domain_value(sort(), "1");
+        let two = Term::domain_value(sort(), "2");
+        let set = Arc::new(SetDefinition {
+            symbols: collection_symbols(),
+            element_sort: "Element".into(),
+            list_sort: "Set".into(),
+        });
+        let map = Arc::new(MapDefinition {
+            symbols: collection_symbols(),
+            key_sort: "Key".into(),
+            value_sort: "Value".into(),
+            map_sort: "Map".into(),
+        });
+        let symbolic = Term::variable(Variable::new("K", sort()));
+        for collision in [
+            Term::set(set.clone(), vec![symbolic.clone(); 2], None),
+            Term::map(map.clone(), vec![(symbolic, one.clone()); 2], None),
+            Term::set(set, vec![one.clone(), one.clone()], None),
+            Term::map(map.clone(), vec![(one.clone(), one.clone()); 2], None),
+            Term::map(
+                map,
+                vec![
+                    (one.clone(), one),
+                    (two.clone(), two.clone()),
+                    (two.clone(), Term::domain_value(sort(), "3")),
+                ],
+                None,
+            ),
+        ] {
+            assert!(!collision.attributes().evaluated);
+            assert!(!collision.attributes().constructor_like);
+            assert!(
+                !collision.concrete_after_normalization(),
+                "collision retains a positive shape: {collision:?}"
+            );
+        }
+    }
+
+    fn assert_collision_shape(term: &Term) {
+        assert!(!term.attributes().constructor_like, "{term:?}");
+        assert!(!term.concrete_after_normalization(), "{term:?}");
+    }
+
+    #[test]
+    fn collisions_propagate_through_every_immediate_child_position() {
+        let value = Term::domain_value(sort(), "1");
+        let map = Arc::new(MapDefinition {
+            symbols: collection_symbols(),
+            key_sort: "Key".into(),
+            value_sort: "Value".into(),
+            map_sort: "Map".into(),
+        });
+        let set = Arc::new(SetDefinition {
+            symbols: collection_symbols(),
+            element_sort: "Element".into(),
+            list_sort: "Set".into(),
+        });
+        let list = Arc::new(ListDefinition {
+            symbols: collection_symbols(),
+            element_sort: "Element".into(),
+            list_sort: "List".into(),
+        });
+        let mut anywhere = Symbol::constructor("anywhere", vec![sort()], sort());
+        anywhere.attributes.anywhere = true;
+        let anywhere = Arc::new(anywhere);
+        let collisions = [
+            Term::set(set.clone(), vec![value.clone(); 2], None),
+            Term::map(map.clone(), vec![(value.clone(), value.clone()); 2], None),
+        ];
+        for collision in collisions {
+            let contexts = [
+                Term::and(collision.clone(), value.clone()),
+                Term::and(value.clone(), collision.clone()),
+                Term::application(constructor(), vec![], vec![collision.clone()]),
+                Term::application(anywhere.clone(), vec![], vec![collision.clone()]),
+                Term::injection(sort(), Sort::simple("Target"), collision.clone()),
+                Term::list(list.clone(), vec![collision.clone()], None),
+                Term::list(
+                    list.clone(),
+                    vec![value.clone()],
+                    Some((collision.clone(), vec![value.clone()])),
+                ),
+                Term::list(
+                    list.clone(),
+                    vec![value.clone()],
+                    Some((value.clone(), vec![collision.clone()])),
+                ),
+                Term::map(map.clone(), vec![(collision.clone(), value.clone())], None),
+                Term::map(map.clone(), vec![(value.clone(), collision.clone())], None),
+                Term::map(
+                    map.clone(),
+                    vec![(Term::domain_value(sort(), "2"), value.clone())],
+                    Some(collision.clone()),
+                ),
+                Term::set(set.clone(), vec![collision.clone()], None),
+                Term::set(
+                    set.clone(),
+                    vec![Term::domain_value(sort(), "2")],
+                    Some(collision.clone()),
+                ),
+            ];
+            assert_collision_shape(&collision);
+            let marked = collision.with_evaluated_mark_for_test();
+            assert!(
+                !marked.attributes().evaluated,
+                "a collision root overrides a cache mark"
+            );
+            assert_collision_shape(&marked);
+            for context in contexts {
+                assert_collision_shape(&context);
+                assert_collision_shape(&context.with_evaluated_mark_for_test());
+            }
+        }
+    }
+
+    #[test]
+    fn flattening_concat_substitution_and_child_replacement_create_collisions() {
+        let value = Term::domain_value(sort(), "1");
+        let other = Term::domain_value(sort(), "2");
+        let map = Arc::new(MapDefinition {
+            symbols: collection_symbols(),
+            key_sort: "Key".into(),
+            value_sort: "Value".into(),
+            map_sort: "Map".into(),
+        });
+        let set = Arc::new(SetDefinition {
+            symbols: collection_symbols(),
+            element_sort: "Element".into(),
+            list_sort: "Set".into(),
+        });
+        let singleton_set = Term::set(set.clone(), vec![value.clone()], None);
+        let singleton_map = Term::map(map.clone(), vec![(value.clone(), value.clone())], None);
+        assert_collision_shape(&Term::set(
+            set.clone(),
+            vec![value.clone()],
+            Some(singleton_set.clone()),
+        ));
+        assert_collision_shape(&Term::map(
+            map.clone(),
+            vec![(value.clone(), other.clone())],
+            Some(singleton_map.clone()),
+        ));
+        for (metadata, singleton) in [
+            (CollectionMetadata::Map(map.clone()), singleton_map),
+            (CollectionMetadata::Set(set.clone()), singleton_set),
+        ] {
+            let mut concat =
+                Symbol::constructor("concat", vec![singleton.sort(); 2], singleton.sort());
+            concat.attributes.collection = Some(metadata);
+            assert_collision_shape(&Term::application(
+                Arc::new(concat),
+                vec![],
+                vec![singleton.clone(), singleton],
+            ));
+        }
+        let x = Variable::new("X", sort());
+        let y = Variable::new("Y", sort());
+        let bindings = BTreeMap::from([(x.clone(), value.clone()), (y.clone(), value.clone())]);
+        for symbolic in [
+            Term::set(
+                set.clone(),
+                vec![Term::variable(x.clone()), Term::variable(y.clone())],
+                None,
+            ),
+            Term::map(
+                map.clone(),
+                vec![
+                    (Term::variable(x), value.clone()),
+                    (Term::variable(y), other.clone()),
+                ],
+                None,
+            ),
+        ] {
+            assert_collision_shape(&crate::substitution::substitute(&symbolic, &bindings));
+        }
+        for distinct in [
+            Term::set(set, vec![value.clone(), other.clone()], None),
+            Term::map(
+                map,
+                vec![
+                    (value.clone(), value.clone()),
+                    (other.clone(), value.clone()),
+                ],
+                None,
+            ),
+        ] {
+            assert!(distinct.concrete_after_normalization());
+            let unchanged = distinct
+                .try_map_children::<()>(|child| Ok(child.clone()))
+                .unwrap();
+            assert!(distinct.ptr_eq(&unchanged));
+            let replaced = distinct
+                .try_map_children::<()>(|child| {
+                    Ok(if child == &other {
+                        value.clone()
+                    } else {
+                        child.clone()
+                    })
+                })
+                .unwrap();
+            assert_collision_shape(&replaced);
+        }
+    }
+
+    #[test]
+    fn valid_collection_shapes_and_anywhere_certificates_keep_their_contracts() {
+        let value = Term::domain_value(sort(), "1");
+        let map = Arc::new(MapDefinition {
+            symbols: collection_symbols(),
+            key_sort: "Key".into(),
+            value_sort: "Value".into(),
+            map_sort: "Map".into(),
+        });
+        let set = Arc::new(SetDefinition {
+            symbols: collection_symbols(),
+            element_sort: "Element".into(),
+            list_sort: "Set".into(),
+        });
+        let key = |name| {
+            Term::application(
+                Arc::new(Symbol::constructor(name, vec![], sort())),
+                vec![],
+                vec![],
+            )
+        };
+        for keys in [
+            vec![],
+            vec![value.clone()],
+            vec![value.clone(), Term::domain_value(sort(), "2")],
+            vec![key("a"), key("b")],
+        ] {
+            let map = Term::map(
+                map.clone(),
+                keys.iter()
+                    .map(|key| (key.clone(), value.clone()))
+                    .collect(),
+                None,
+            );
+            let set = Term::set(set.clone(), keys.clone(), None);
+            for collection in [map, set] {
+                assert!(collection.attributes().constructor_like);
+                assert!(collection.concrete_after_normalization());
+                assert!(collection.attributes().evaluated);
+                if keys
+                    .first()
+                    .is_some_and(|key| matches!(key.kind(), TermKind::Application { .. }))
+                {
+                    assert!(
+                        !collection.attributes().ceil_free(),
+                        "concrete keys need not share a conservative KeyHeader"
+                    );
+                }
+            }
+        }
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[] module MAIN
+            sort SomeSort{} [hasDomainValues{}()]
+            symbol tag{}(SomeSort{}) : SomeSort{} [anywhere{}(), functional{}()]
+        endmodule []"#,
+        )
+        .unwrap();
+        let definition =
+            crate::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let ground = Term::application(definition.symbols["tag"].clone(), vec![], vec![value]);
+        assert!(ground.concrete_after_normalization());
+        assert!(!ground.attributes().constructor_like);
+        assert!(!ground.attributes().evaluated);
+        let certified = crate::simplify::simplify(
+            &definition,
+            &ground,
+            crate::simplify::SimplificationOptions::default(),
+        )
+        .unwrap()
+        .unwrap()
+        .term;
+        assert!(certified.attributes().evaluated);
+        assert!(certified.concrete_after_normalization());
+        assert!(!certified.attributes().constructor_like);
+        assert!(certified.ptr_eq(&certified.with_evaluated_mark_for_test()));
+        let wrapped = Term::application(constructor(), vec![], vec![certified]);
+        assert!(
+            wrapped.attributes().evaluated,
+            "a child certificate survives structural synthesis"
+        );
+        assert!(wrapped.concrete_after_normalization());
+        assert!(!wrapped.attributes().constructor_like);
     }
 
     #[test]
