@@ -1,7 +1,10 @@
+use crate::CommandError;
+use crate::command::collector::cargo;
 use serde::Deserialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 
 /// The stable subset of `cargo metadata --format-version 1` used by KRS.
 #[derive(Clone, Debug, Deserialize)]
@@ -34,6 +37,16 @@ impl CargoMetadata {
     pub fn from_json(bytes: &[u8]) -> Result<Self, MetadataError> {
         serde_json::from_slice(bytes).map_err(MetadataError)
     }
+}
+
+pub(crate) fn cargo_metadata(manifest: &Path) -> Result<CargoMetadata, CommandError> {
+    let output = cargo(
+        "Cargo metadata",
+        crate::cargo::command()
+            .args(["metadata", "--format-version", "1", "--manifest-path"])
+            .arg(manifest),
+    )?;
+    CargoMetadata::from_json(&output.stdout).map_err(CommandError::Metadata)
 }
 
 /// One package from a Cargo metadata document.

@@ -1,7 +1,5 @@
-use super::{
-    CommandError, CommandOutcome, CommandRequest, Counters, OutputArtifact, prepare_output,
-    write_output_if_different,
-};
+use super::output::{prepare_output, write_output_if_different};
+use super::{CommandError, CommandOutcome, CommandRequest, Counters, OutputArtifact};
 use crate::{Backend, FacetSelector, KrsCfg, RegistrationMode};
 use krs_compiler::ARTIFACT_MARKER_FILE;
 use krs_ir::measure::CollectorReadSet;
