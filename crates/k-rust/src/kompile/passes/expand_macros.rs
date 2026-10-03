@@ -18,7 +18,7 @@
 //! bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions and one typing per macro rule"
 //! ```
 //!
-//! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application is retried after a rewriting round until a round rewrites nothing.
+//! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and every failed application whose rule set has a head fixing a sort parameter is retried after a rewriting round until a round rewrites nothing.
 //! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings; each round and each re-expansion of a substituted result clones and compares subterms along paths of length at most h.
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -881,10 +881,8 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         self.try_rules(site, path, applied)
     }
 
-    /// Expand the given fields of `site`, then retry every failed application after a rewriting
-    /// round until no retry rewrites anything: a rewrite elsewhere can change even a known
-    /// instance. An application still unknown at the fixpoint is left as it is, and compilation
-    /// reports the ill-sorted sentence at injection.
+    /// Expand the given fields of `site`, then retry every failed application whose rule set has a head fixing a sort parameter after a rewriting round until no retry rewrites anything: a rewrite elsewhere can change even a known instance.
+    /// An application still unknown at the fixpoint is left as it is, and compilation reports the ill-sorted sentence at injection.
     fn expand_site(&mut self, site: &mut Site, fields: &[u32]) -> Result<(), Diagnostic> {
         for field in fields {
             self.expand_at(site, &[*field], &BTreeSet::new())?;
@@ -892,7 +890,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         if site.rewrites == 0 {
             return Ok(());
         }
-        // Invariant: `site.tried` holds every failed application whose rule set has a parametric head fixing a parameter, with its path, own applied rule set, and term, plus the macro-headed ancestors of an application rewritten in the previous round with their own applied rule sets; every failed application still present is retried after a rewriting round, and a round without a rewrite ends the loop.
+        // Invariant: `site.tried` holds every failed application whose rule set has a parametric head fixing a parameter, with its path, own applied rule set, and term, plus the macro-headed ancestors of an application rewritten in the previous round with their own applied rule sets; every such application still present is retried after a rewriting round, and a round without a rewrite ends the loop.
         while !site.tried.is_empty() {
             let rewrites = site.rewrites;
             for (path, applied, subject) in std::mem::take(&mut site.tried) {
@@ -911,19 +909,13 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                             && self.macros.contains_key(&LabelHead::from(label))
                         {
                             let term = term.clone();
-                            let ancestor_applied =
-                                site.applied.get(&ancestor).cloned().unwrap_or_else(|| {
-                                    // A surviving ancestor keeps its own context. If it has not
-                                    // been tried, exclude rules introduced strictly below it.
-                                    let mut inherited = applied.clone();
-                                    for length in ancestor.len() + 1..=path.len() {
-                                        if let Some(rules) = site.applied_here.get(&path[..length])
-                                        {
-                                            inherited.retain(|id| !rules.contains(id));
-                                        }
-                                    }
-                                    inherited
-                                });
+                            // Every macro-headed application is recorded when its rules are tried, and a
+                            // replacement below an ancestor keeps the ancestor's record.
+                            let ancestor_applied = site
+                                .applied
+                                .get(&ancestor)
+                                .cloned()
+                                .expect("a surviving macro-headed application was tried after its last replacement");
                             site.tried.push((ancestor, ancestor_applied, term));
                         }
                     }
@@ -972,10 +964,6 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             self.select_rule(&subject, &rules, applied, instance.as_ref())?
         {
             site.replace(path, substituted);
-            site.applied_here
-                .entry(path.to_vec())
-                .or_default()
-                .insert(id);
             let mut next_applied = applied.clone();
             next_applied.insert(id);
             self.expand_at(site, path, &next_applied)?;
@@ -1158,8 +1146,6 @@ struct Site {
     tried: Vec<(Vec<u32>, BTreeSet<usize>, Term)>,
     /// The context in which each surviving macro-headed application was last tried.
     applied: BTreeMap<Vec<u32>, BTreeSet<usize>>,
-    /// Rules introduced by rewrites at each path, for ancestors not yet tried.
-    applied_here: BTreeMap<Vec<u32>, BTreeSet<usize>>,
 }
 
 impl Site {
@@ -1171,7 +1157,6 @@ impl Site {
             rewrites: 0,
             tried: Vec::new(),
             applied: BTreeMap::new(),
-            applied_here: BTreeMap::new(),
         }
     }
 
@@ -1246,8 +1231,6 @@ impl Site {
         // Ancestors survive with their own contexts; replaced applications are tried anew.
         self.applied
             .retain(|tried_path, _| !tried_path.starts_with(path));
-        self.applied_here
-            .retain(|rewrite_path, _| rewrite_path == path || !rewrite_path.starts_with(path));
         let field = match &mut self.sentence {
             Sentence::Rule {
                 body,
